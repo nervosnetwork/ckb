@@ -23,7 +23,6 @@ START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
-MINIMUM_TEST_FILTER = re.compile(r"-E\s+['\"]test\(/\(([^)]+)\)/\)['\"]")
 REQUIRED_PROOF_OBLIGATIONS = {f"T{number}" for number in range(1, 14)}
 
 
@@ -86,55 +85,10 @@ def _nonempty_strings(value: object) -> bool:
     )
 
 
-def validate_minimum_command_arms(
-    registry: dict, tests: set[str], evidence_name: str
-) -> list[str]:
-    """Require every documented nextest alternation arm to select evidence.
-
-    Nextest intentionally treats a zero-match alternation arm as harmless when
-    another arm matches. Review commands are security anchors, so that normal
-    runner behavior would otherwise hide a renamed or deleted regression.
-    """
-
-    errors: list[str] = []
-    for behavior in registry.get("behaviors", []):
-        behavior_id = behavior.get("id", "<unknown>")
-        command = behavior.get("minimum_command")
-        if not isinstance(command, str):
-            continue
-        matches = MINIMUM_TEST_FILTER.findall(command)
-        if len(matches) != 1:
-            errors.append(
-                f"{behavior_id} minimum_command must contain exactly one supported "
-                "test(/(arm|...)/) filter"
-            )
-            continue
-        arms = matches[0].split("|")
-        if len(arms) != len(set(arms)):
-            errors.append(f"{behavior_id} minimum_command repeats a regex arm")
-        for arm in arms:
-            if not arm:
-                errors.append(f"{behavior_id} minimum_command has an empty regex arm")
-                continue
-            try:
-                compiled = re.compile(arm)
-            except re.error as error:
-                errors.append(
-                    f"{behavior_id} minimum_command arm {arm!r} is invalid: {error}"
-                )
-                continue
-            if not any(compiled.search(test) for test in tests):
-                errors.append(
-                    f"{behavior_id} minimum_command arm {arm!r} matches no "
-                    f"{evidence_name}"
-                )
-    return errors
-
-
 def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
-    if registry.get("schema_version") != 3:
-        errors.append("behavior registry schema_version must be 3")
+    if registry.get("schema_version") != 4:
+        errors.append("behavior registry schema_version must be 4")
 
     if impact is None:
         try:
@@ -171,11 +125,6 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
             if name in seen_impact:
                 errors.append(f"duplicate integration impact spec: {name}")
             seen_impact.add(name)
-    if len(seen_impact) != 150:
-        errors.append(
-            f"integration impact must contain the managed count 150, found {len(seen_impact)}"
-        )
-
     runner = registry.get("integration_runner")
     if not isinstance(runner, dict):
         errors.append("behavior registry must declare integration_runner")
@@ -238,25 +187,51 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
             "title",
             "required_behavior",
             "hostile_case",
-            "minimum_command",
             "performance_bound",
         ):
             value = entry.get(field)
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"{behavior_id} has no {field}")
-        for field in ("change_surfaces", "reviewer_questions"):
-            if not _nonempty_strings(entry.get(field)):
-                errors.append(f"{behavior_id} has no reviewable {field}")
-        for surface in entry.get("change_surfaces", []):
-            if not isinstance(surface, str):
+        if not _nonempty_strings(entry.get("reviewer_questions")):
+            errors.append(f"{behavior_id} has no reviewable reviewer_questions")
+        owners = entry.get("implementation_owners")
+        if not isinstance(owners, list) or not owners:
+            errors.append(f"{behavior_id} has no implementation_owners")
+            owners = []
+        seen_owner_paths: set[str] = set()
+        for owner in owners:
+            if not isinstance(owner, dict):
+                errors.append(f"{behavior_id} has invalid implementation owner {owner!r}")
                 continue
+            surface = owner.get("path")
+            symbols = owner.get("symbols")
+            if not isinstance(surface, str) or not surface:
+                errors.append(f"{behavior_id} implementation owner has no path")
+                continue
+            if surface in seen_owner_paths:
+                errors.append(f"{behavior_id} repeats implementation owner {surface}")
+            seen_owner_paths.add(surface)
+            if not _nonempty_strings(symbols):
+                errors.append(f"{behavior_id} owner {surface} has no symbols")
+                symbols = []
             try:
                 path = repo_path(surface)
             except ValueError as error:
                 errors.append(f"{behavior_id}: {error}")
                 continue
-            if not path.exists():
-                errors.append(f"{behavior_id} change surface does not exist: {surface}")
+            try:
+                source = path.read_text()
+            except OSError as error:
+                errors.append(
+                    f"{behavior_id} cannot read implementation owner {surface}: {error}"
+                )
+                continue
+            for symbol in symbols:
+                if symbol not in source:
+                    errors.append(
+                        f"{behavior_id} implementation symbol {symbol!r} is absent "
+                        f"from {surface}"
+                    )
 
     seen_tests: set[str] = set()
     seen_specs: set[str] = set()
@@ -297,12 +272,6 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         for entry in unit_evidence
         if isinstance(entry, dict) and isinstance(entry.get("test"), str)
     }
-    errors.extend(
-        validate_minimum_command_arms(
-            registry, seen_tests, "registered unit evidence anchor"
-        )
-    )
-
     integration_evidence = registry.get("integration_evidence")
     if not isinstance(integration_evidence, list):
         errors.append("behavior registry integration_evidence must be a list")
@@ -443,6 +412,21 @@ def integration_command(registry: dict, specs: list[str]) -> str:
     )
 
 
+def unit_command(registry: dict, behavior_id: str) -> str:
+    """Derive a zero-drift focused command from exact registered test names."""
+
+    tests = sorted(
+        entry["test"]
+        for entry in registry["unit_evidence"]
+        if entry["behavior_id"] == behavior_id
+    )
+    selector = " | ".join(f"test(={test})" for test in tests)
+    return (
+        "cargo nextest run -p ckb-tx-pool --features internal "
+        f"-E '{selector}'"
+    )
+
+
 def render_generated(registry: dict, impact: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
     specs: dict[str, list[dict]] = defaultdict(list)
@@ -477,7 +461,7 @@ def render_generated(registry: dict, impact: dict) -> str:
         "",
         "### Behavior index",
         "",
-        "| ID | Change surfaces | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
+        "| ID | Implementation owners | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
         "|---|---|---|---|---|---|---|",
     ])
     for behavior in registry["behaviors"]:
@@ -490,7 +474,11 @@ def render_generated(registry: dict, impact: dict) -> str:
             },
             key=_invariant_key,
         )
-        surfaces = "<br>".join(f"`{_markdown(path)}`" for path in behavior["change_surfaces"])
+        owners = "<br>".join(
+            f"`{_markdown(owner['path'])}`: "
+            + ", ".join(f"`{_markdown(symbol)}`" for symbol in owner["symbols"])
+            for owner in behavior["implementation_owners"]
+        )
         questions = "<br>".join(
             f"- {_markdown(question)}" for question in behavior["reviewer_questions"]
         )
@@ -499,7 +487,7 @@ def render_generated(registry: dict, impact: dict) -> str:
             + " | ".join(
                 (
                     f"`{behavior_id}` {behavior['title']}",
-                    surfaces,
+                    owners,
                     _markdown(behavior["required_behavior"]),
                     _markdown(behavior["hostile_case"]),
                     ", ".join(invariants),
@@ -514,7 +502,7 @@ def render_generated(registry: dict, impact: dict) -> str:
     for behavior in registry["behaviors"]:
         behavior_id = behavior["id"]
         lines.extend((f"#### `{behavior_id}` — {behavior['title']}", ""))
-        lines.append(f"Minimum command: `{behavior['minimum_command']}`")
+        lines.append(f"Generated focused command: `{unit_command(registry, behavior_id)}`")
         lines.append("")
         lines.append("Rust evidence:")
         lines.append("")

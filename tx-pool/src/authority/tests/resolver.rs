@@ -551,7 +551,6 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
     );
 
     let execution = request.bind_cache(&cache).execute(None).await;
-    assert!(execution.cache_hit);
     assert!(execution.cache_update.is_none());
     apply_without_work(
         authority
@@ -583,7 +582,6 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
             .prepare();
 
     let execution = request.bind_cache(&cache).execute(None).await;
-    assert!(!execution.cache_hit);
     assert!(execution.cache_update.is_some());
     apply_without_work(
         authority
@@ -645,9 +643,8 @@ async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
     else {
         panic!("the cached direct verification must produce admission work")
     };
-    let (command, work, cache_update, cache_hit) = candidate.into_parts();
+    let (command, work, cache_update) = candidate.into_parts();
     assert_eq!(command, DirectCommand::TestAccept);
-    assert!(cache_hit);
     assert!(cache_update.is_none());
     assert_eq!(work.payload().identity().raw, child_key);
     assert!(authority.entry(&child_key).is_none());
@@ -862,12 +859,11 @@ async fn uak_test_accept_is_read_only_and_local_applies_the_same_policy() {
     else {
         panic!("the Local source must preserve Local settlement semantics")
     };
-    let (AuthorityLocalAdmissionOutcome::Accepted(local_completed), cache_update, cache_hit) =
+    let (AuthorityLocalAdmissionOutcome::Accepted(local_completed), cache_update) =
         local.into_parts()
     else {
         panic!("the same candidate must commit for Local")
     };
-    assert!(cache_hit);
     assert!(cache_update.is_none());
     assert_eq!(local_completed, completed);
     runtime.with_authority_for_foundation(|authority| {
@@ -925,12 +921,11 @@ async fn uak_direct_cache_update_is_released_only_after_local_acceptance() {
     else {
         panic!("the Local source must preserve Local settlement semantics")
     };
-    let (outcome, cache_update, cache_hit) = local.into_parts();
+    let (outcome, cache_update) = local.into_parts();
     assert!(matches!(
         outcome,
         AuthorityLocalAdmissionOutcome::Accepted(_)
     ));
-    assert!(!cache_hit);
     assert_eq!(
         cache_update.map(|update| update.into_parts()),
         Some((cache_key, completed))
@@ -945,7 +940,7 @@ async fn uak_direct_cache_update_is_released_only_after_local_acceptance() {
     else {
         panic!("the Local source must preserve Local settlement semantics")
     };
-    let (outcome, cache_update, _) = duplicate.into_parts();
+    let (outcome, cache_update) = duplicate.into_parts();
     assert!(matches!(
         outcome,
         AuthorityLocalAdmissionOutcome::Duplicate(_)
@@ -1128,7 +1123,6 @@ async fn uak_test_accept_and_local_share_exact_rbf_rejection_policy() {
             local_reason,
         )),
         cache_update,
-        _,
     ) = local.into_parts()
     else {
         panic!("the under-fee replacement must remain a membership rejection")

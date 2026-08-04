@@ -110,6 +110,10 @@ impl ChainUpdateRequest {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "preparation failure returns the exact attacker-bounded request for deterministic retry; boxing would add an avoidable allocation on that boundary"
+    )]
     pub(super) fn prepare(self) -> Result<ChainUpdateCommand, ChainUpdatePreparationFailure> {
         match self.prepare_borrowed() {
             Ok(mut command) => {

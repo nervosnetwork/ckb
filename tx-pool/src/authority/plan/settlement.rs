@@ -11,8 +11,8 @@ use crate::authority::{
         IndependentMembershipOutcome, PreparedIndependentMembership,
         prepare_independent_membership,
     },
-    scheduler::{MAX_READY_BATCH, ReadyKey},
-    state::{AcceptedEntry, OwnedTx, PreAcceptedPhase, RawTxHash},
+    scheduler::ReadyKey,
+    state::{AcceptedEntry, OwnedTx, PreAcceptedPhase},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,14 +28,6 @@ impl IndependentCandidate {
     pub(in crate::authority) fn into_receipt(self) -> FinalAdmissionReceipt {
         self.receipt
     }
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum CandidateBatchError {
-    Empty,
-    TooLarge { limit: usize },
-    Duplicate(RawTxHash),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,39 +47,6 @@ impl SettlementBatch {
         Self { head, tail }
     }
 
-    #[cfg(test)]
-    pub(in crate::authority) fn new(
-        candidates: Vec<IndependentCandidate>,
-    ) -> Result<Self, CandidateBatchError> {
-        if candidates.is_empty() {
-            return Err(CandidateBatchError::Empty);
-        }
-        if candidates.len() > MAX_READY_BATCH {
-            return Err(CandidateBatchError::TooLarge {
-                limit: MAX_READY_BATCH,
-            });
-        }
-        for (index, candidate) in candidates.iter().enumerate() {
-            if candidates
-                .iter()
-                .skip(index.saturating_add(1))
-                .any(|other| other.receipt.key() == candidate.receipt.key())
-            {
-                return Err(CandidateBatchError::Duplicate(
-                    candidate.receipt.key().clone(),
-                ));
-            }
-        }
-        let mut candidates = candidates.into_iter();
-        let Some(head) = candidates.next() else {
-            return Err(CandidateBatchError::Empty);
-        };
-        Ok(Self {
-            head,
-            tail: candidates.collect(),
-        })
-    }
-
     pub(in crate::authority) fn len(&self) -> usize {
         self.tail.len().saturating_add(1)
     }
@@ -96,6 +55,10 @@ impl SettlementBatch {
         std::iter::once(&self.head).chain(&self.tail)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/plan_settlement.rs"]
+pub(in crate::authority) mod test_support;
 
 #[must_use = "the settlement classification must be applied or routed through the coupled planner"]
 pub(in crate::authority) enum SettlementPlan<'authority> {
@@ -106,6 +69,13 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
     /// authority. Remaining cohort members retain their Ready owner and
     /// are reclassified after this single coupled component commits.
     CoupledComponent {
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "the typed coupling reason is regression evidence and a future profiling dimension; production disposition is identical for every reason"
+            )
+        )]
         reason: IndependentCoupling,
         disposition: CandidateDispositionPlan<'authority>,
     },

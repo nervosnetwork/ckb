@@ -265,12 +265,5 @@ impl SourceImpact {
 }
 
 #[cfg(test)]
-pub(super) fn replacement_changes_accepted_source_for_foundation(
-    before: &OwnedTx,
-    after: &OwnedTx,
-) -> bool {
-    matches!(
-        SourceImpact::for_replacement(Some(before), Some(after)),
-        SourceImpact::Accepted
-    )
-}
+#[path = "tests/support/source.rs"]
+pub(super) mod test_support;

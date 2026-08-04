@@ -16,8 +16,8 @@ The target is not merely parity with `develop`. The pipeline should exceed it
 where CKB transactions permit parallel work while remaining easier to reason
 about:
 
-- `PrePoolKernel` is the sole pre-pool owner; `TxPool` is the sole accepted
-  owner, with one explicit atomic handoff;
+- `TxPoolAuthority.entries` is the sole lifecycle owner across PreAccepted,
+  Accepted and bounded inert ReplacementHistory states;
 - validation and immutable-snapshot computation run outside authority locks;
 - Plan is read-only, Apply is total and single-consumption;
 - external I/O consumes only effects committed with authoritative mutation;
@@ -70,8 +70,9 @@ submission window, with symbols generated from each exact binary. They showed:
   about 4% on develop;
 - on the corrected dependency-forest workload, current wall time was about 36%
   higher while sampled CPU was only about 4.5% higher;
-- roughly 14–17% of current dependency-forest samples remained below the
-  PrePoolKernel mutex path, with substantially more runtime-thread parking;
+- roughly 14–17% of the historical pre-UAK dependency-forest samples remained
+  below the then-current pre-pool mutex path, with substantially more
+  runtime-thread parking;
 - the resumable verifier wrapped an already-Tokio-scheduled VM future in
   `block_in_place(Handle::block_on(...))`, adding a blocking parent and runtime
   compensation without moving VM execution to a dedicated executor.

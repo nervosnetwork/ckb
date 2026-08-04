@@ -80,11 +80,6 @@ impl RetainedIngress {
     pub(super) fn into_parts(self) -> (RetainedIngressKind, ValidatedAdmission) {
         (self.kind, self.admission)
     }
-
-    #[cfg(test)]
-    pub(super) fn admission_for_foundation(&self) -> &ValidatedAdmission {
-        &self.admission
-    }
 }
 
 #[derive(Debug)]
@@ -109,11 +104,6 @@ impl RetainedIngressRejection {
         CommittedPublicReject,
     ) {
         (self.kind, self.tx, self.reason)
-    }
-
-    #[cfg(test)]
-    pub(super) fn reason_for_foundation(&self) -> &CommittedPublicReject {
-        &self.reason
     }
 }
 
@@ -370,12 +360,5 @@ impl AuthorityRuntime {
 }
 
 #[cfg(test)]
-pub(super) fn remote_at_for_foundation(
-    tx: TransactionView,
-    declared_cycles: Cycle,
-    peer: PeerIndex,
-    admitted_at_secs: u64,
-    consensus: &Consensus,
-) -> Result<RetainedIngress, RetainedIngressError> {
-    remote_at(tx, declared_cycles, peer, admitted_at_secs, consensus)
-}
+#[path = "tests/support/ingress.rs"]
+pub(in crate::authority) mod test_support;

@@ -284,6 +284,10 @@ impl ResolveLeaseWork {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "resolution failure returns the exact unboxed compute settlement capability; boxing would allocate on hostile but valid outcomes"
+    )]
     fn resolved(
         self,
         evidence: ResolutionEvidence,
@@ -306,6 +310,10 @@ impl ResolveLeaseWork {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "missing-dependency failure returns the exact unboxed compute settlement capability; boxing would allocate on a peer-controlled path"
+    )]
     fn missing(
         self,
         missing: Vec<DependencyKey>,
@@ -439,7 +447,6 @@ pub(super) struct DirectVerifiedCandidate {
     command: DirectCommand,
     work: DirectAdmissionWork,
     cache_update: Option<VerificationCacheUpdate>,
-    cache_hit: bool,
 }
 
 impl DirectVerifiedCandidate {
@@ -449,20 +456,8 @@ impl DirectVerifiedCandidate {
         DirectCommand,
         DirectAdmissionWork,
         Option<VerificationCacheUpdate>,
-        bool,
     ) {
-        (self.command, self.work, self.cache_update, self.cache_hit)
-    }
-
-    #[cfg(test)]
-    pub(super) fn with_cache_update_for_foundation(
-        mut self,
-        key: TxVerificationCacheKey,
-        completed: Completed,
-    ) -> Self {
-        self.cache_update = Some(VerificationCacheUpdate { key, completed });
-        self.cache_hit = false;
-        self
+        (self.command, self.work, self.cache_update)
     }
 }
 
@@ -560,6 +555,10 @@ struct ResolvedComputation {
 }
 
 impl ResolutionJob {
+    #[expect(
+        clippy::result_large_err,
+        reason = "capture failure returns the exact unboxed compute settlement capability; boxing would allocate on stale or hostile work"
+    )]
     pub(super) fn capture_resolve(
         authority: &TxPoolAuthority,
         snapshot: Arc<Snapshot>,
@@ -568,6 +567,10 @@ impl ResolutionJob {
         Self::capture(authority, snapshot, ResolveLeaseWork::Resolve(work))
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "capture failure returns the exact unboxed compute settlement capability; boxing would allocate on stale or hostile work"
+    )]
     pub(super) fn capture_continuous(
         authority: &TxPoolAuthority,
         snapshot: Arc<Snapshot>,
@@ -576,6 +579,10 @@ impl ResolutionJob {
         Self::capture(authority, snapshot, ResolveLeaseWork::Continuous(work))
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "capture failure returns the exact unboxed compute settlement capability; boxing would allocate on stale or hostile work"
+    )]
     fn capture(
         authority: &TxPoolAuthority,
         snapshot: Arc<Snapshot>,
@@ -609,6 +616,10 @@ impl ResolutionJob {
         })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "resolution failure returns the exact unboxed compute settlement capability; boxing would allocate on hostile but valid outcomes"
+    )]
     pub(super) fn evaluate(
         self,
         min_fee_rate: FeeRate,
@@ -663,12 +674,10 @@ impl ResolutionJob {
         )
     }
 
-    /// Cancellation before evaluation is an ordinary retry of the exact
-    /// checked-out capability; it cannot leave the owner in `Computing`.
-    pub(super) fn retry(self) -> ComputeSettlement {
-        self.work.retry()
-    }
-
+    #[expect(
+        clippy::result_large_err,
+        reason = "missing-frontier failure returns the exact unboxed compute settlement capability; boxing would allocate on a peer-controlled path"
+    )]
     fn missing_probe(
         self,
         permissive_inputs: bool,
@@ -964,56 +973,6 @@ impl DirectResolutionJob {
         ))
     }
 
-    #[cfg(test)]
-    fn prepare_transaction_for_foundation(
-        tx: Arc<TransactionView>,
-        max_resident_bytes: usize,
-        max_edges: usize,
-    ) -> Result<PreparedDirectResolutionJob, DirectComputationError> {
-        let overlay = AcceptedOverlay::prepare(&tx, max_edges).map_err(|kind| match kind {
-            ResolutionExecutionKind::ResourceUnavailable => {
-                DirectComputationError::ResourceUnavailable
-            }
-            ResolutionExecutionKind::ComputeBudget
-            | ResolutionExecutionKind::StaleView
-            | ResolutionExecutionKind::InvalidReceipt(_) => DirectComputationError::InvalidEvidence,
-        })?;
-        Ok(PreparedDirectResolutionJob {
-            tx,
-            command: DirectCommand::TestAccept,
-            overlay,
-            max_resident_bytes,
-            max_edges,
-        })
-    }
-
-    #[cfg(test)]
-    pub(super) fn capture_for_foundation(
-        authority: &TxPoolAuthority,
-        snapshot: Arc<Snapshot>,
-        tx: Arc<TransactionView>,
-        max_resident_bytes: usize,
-        max_edges: usize,
-    ) -> Result<Self, DirectComputationError> {
-        let mut prepared =
-            Self::prepare_transaction_for_foundation(tx, max_resident_bytes, max_edges)?;
-        if snapshot.tip_hash() != authority.chain_view().tip().0 {
-            return Err(DirectComputationError::StaleView);
-        }
-        prepared.overlay.populate_initial(authority);
-        Ok(Self {
-            tx: prepared.tx,
-            command: prepared.command,
-            view: authority.chain_view().clone(),
-            accepted_source: authority.accepted_source_cut(),
-            dependency_cut: authority.dependency_observation_cut(),
-            snapshot,
-            overlay: prepared.overlay,
-            max_resident_bytes: prepared.max_resident_bytes,
-            max_edges: prepared.max_edges,
-        })
-    }
-
     pub(super) fn evaluate(
         self,
         min_fee_rate: FeeRate,
@@ -1207,19 +1166,15 @@ impl DirectResolutionProbe {
             ),
         ))
     }
-
-    #[cfg(test)]
-    pub(super) fn missing_keys_for_foundation(&self) -> Vec<DependencyKey> {
-        self.missing
-            .iter()
-            .map(|missing| DependencyKey::Cell(missing.out_point.clone()))
-            .collect()
-    }
 }
 
 impl ResolutionProbe {
     /// Reserve fallible collection growth before the authority read cut. A
     /// failure retains the exact settlement capability for an ordinary retry.
+    #[expect(
+        clippy::result_large_err,
+        reason = "enrichment failure returns the exact unboxed compute settlement capability; boxing would allocate on missing-dependency paths"
+    )]
     pub(super) fn prepare_enrichment(mut self) -> Result<Self, ResolutionExecutionFailure> {
         if let Err(kind) = self.job.overlay.reserve_enrichment(self.missing.len()) {
             return Err(ResolutionExecutionFailure {
@@ -1245,6 +1200,10 @@ impl ResolutionProbe {
     }
 
     /// Compile the complete missing set after the authority guard opens.
+    #[expect(
+        clippy::result_large_err,
+        reason = "settlement failure returns the exact unboxed compute capability; boxing would allocate on missing-dependency paths"
+    )]
     pub(super) fn settle_missing(self) -> Result<ComputeSettlement, ResolutionExecutionFailure> {
         let keys = self
             .missing
@@ -1252,14 +1211,6 @@ impl ResolutionProbe {
             .map(|cell| DependencyKey::Cell(compact_packed(&cell.out_point)))
             .collect();
         self.job.work.missing(keys)
-    }
-
-    #[cfg(test)]
-    pub(super) fn missing_keys_for_foundation(&self) -> Vec<DependencyKey> {
-        self.missing
-            .iter()
-            .map(|cell| DependencyKey::Cell(cell.out_point.clone()))
-            .collect()
     }
 }
 
@@ -1355,10 +1306,13 @@ impl VerificationCacheUpdate {
 pub(in crate::authority) struct VerificationExecution {
     pub(in crate::authority) settlement: ComputeSettlement,
     pub(in crate::authority) cache_update: Option<VerificationCacheUpdate>,
-    pub(in crate::authority) cache_hit: bool,
 }
 
 impl VerificationJob {
+    #[expect(
+        clippy::result_large_err,
+        reason = "a stale capture returns the exact unboxed settlement capability instead of allocating on the worker handoff"
+    )]
     pub(super) fn from_checkout(
         work: VerifyWork,
         snapshot: Arc<Snapshot>,
@@ -1383,14 +1337,6 @@ impl VerificationJob {
         self.work.transaction()
     }
 
-    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
-        self.work.resolved_transaction()
-    }
-
-    pub(super) fn snapshot(&self) -> &Arc<Snapshot> {
-        &self.snapshot
-    }
-
     pub(super) fn payload_policy(&self) -> PayloadPolicy {
         self.work.payload_policy()
     }
@@ -1411,22 +1357,6 @@ impl VerificationJob {
             max_cycles,
             started_at: AsyncProcessStart::now(),
         }
-    }
-
-    pub(super) fn verified(
-        self,
-        cycles: u64,
-        rules: ckb_verification::cache::ScriptVerificationRules,
-    ) -> ComputeSettlement {
-        self.work.verified_with_time_context(
-            cycles,
-            super::chain::TimeContextReceipt::from_validation(rules),
-            AsyncProcessStart::now(),
-        )
-    }
-
-    pub(super) fn rejected(self, reason: Reject) -> ComputeSettlement {
-        self.work.rejected(reason)
     }
 
     pub(super) fn retry(self) -> ComputeSettlement {
@@ -1491,7 +1421,6 @@ impl CacheBoundTxPoolVerification {
                 return VerificationExecution {
                     settlement: work.rejected(reject),
                     cache_update: None,
-                    cache_hit: cache_entry.is_some(),
                 };
             }
         };
@@ -1512,7 +1441,6 @@ impl CacheBoundTxPoolVerification {
         VerificationExecution {
             settlement,
             cache_update,
-            cache_hit: cache_entry.is_some(),
         }
     }
 }
@@ -1528,6 +1456,10 @@ impl DirectVerificationRequest {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/resolver.rs"]
+mod test_support;
 
 impl CacheBoundDirectVerification {
     pub(crate) async fn execute(
@@ -1610,7 +1542,6 @@ impl CacheBoundDirectVerification {
                 command,
                 work,
                 cache_update,
-                cache_hit,
             },
         ))
     }

@@ -20,8 +20,6 @@ use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
-#[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
 use tokio::sync::{RwLock, mpsc, watch};
 
@@ -55,9 +53,24 @@ pub(crate) struct AuthorityWorkerFault {
 
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityWorkerFaultKind {
-    Authority(AuthorityFault),
+    Authority(
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "the exact authority fault is retained for the generation diagnostic"
+            )
+        )]
+        AuthorityFault,
+    ),
     LifecycleClosed,
-    Settlement(Box<AuthorityPendingSettlement>),
+    Settlement(
+        #[expect(
+            dead_code,
+            reason = "the unsettled move-only capability is retained until generation shutdown"
+        )]
+        Box<AuthorityPendingSettlement>,
+    ),
 }
 
 impl AuthorityWorkerFault {
@@ -348,9 +361,7 @@ impl ComputeWorker {
         error: AuthorityComputeError,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         match error {
-            AuthorityComputeError::Allocation | AuthorityComputeError::ComputeCapacity => {
-                Ok(WorkerStep::Backoff)
-            }
+            AuthorityComputeError::Allocation => Ok(WorkerStep::Backoff),
             AuthorityComputeError::EffectCapacity => Ok(WorkerStep::Wait),
             AuthorityComputeError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
             AuthorityComputeError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
@@ -470,18 +481,6 @@ pub(in crate::authority) async fn run_maintenance_driver(
     run_maintenance_driver_loop(runtime, cancel, || {}).await
 }
 
-#[cfg(test)]
-pub(in crate::authority) async fn run_maintenance_driver_for_foundation(
-    runtime: AuthorityRuntime,
-    cancel: CancellationToken,
-    rounds: Arc<AtomicUsize>,
-) -> Result<(), AuthorityWorkerFault> {
-    run_maintenance_driver_loop(runtime, cancel, move || {
-        rounds.fetch_add(1, AtomicOrdering::Relaxed);
-    })
-    .await
-}
-
 async fn run_maintenance_driver_loop(
     runtime: AuthorityRuntime,
     cancel: CancellationToken,
@@ -584,10 +583,7 @@ fn resolution_receipt_fault(error: ResolutionReceiptDefect) -> AuthorityFault {
             InputEvidenceError::Footprint(_) | InputEvidenceError::ResidentBelowSerialized => {
                 AuthorityFault::ResourceProjection
             }
-            InputEvidenceError::DependencySet(_) | InputEvidenceError::NotADependency => {
-                AuthorityFault::DependencyProjection
-            }
-            InputEvidenceError::NotAnInput => AuthorityFault::MembershipProjection,
+            InputEvidenceError::DependencySet(_) => AuthorityFault::DependencyProjection,
         },
     }
 }
@@ -637,3 +633,7 @@ async fn wait_for_resume(
 #[cfg(test)]
 #[path = "tests/worker_policy.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/support/worker.rs"]
+pub(in crate::authority) mod test_support;

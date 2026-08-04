@@ -3,7 +3,7 @@ use super::super::{
     ingress::{
         DirectCommand, RemoteIngressPressure, RetainedIngressBackpressure,
         RetainedIngressBoundaryError, RetainedIngressCommit, RetainedIngressError, direct,
-        proposal, remote_at_for_foundation,
+        proposal, test_support::remote_at_for_foundation,
     },
     plan::{
         AuthorityFault, Backpressure, PlanError, RetainedAdmissionDisposition, TxPoolAuthority,

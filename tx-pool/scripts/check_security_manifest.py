@@ -14,7 +14,6 @@ from check_review_guide import (
     invariant_unit_evidence,
     load_registry,
     repo_path,
-    validate_minimum_command_arms,
     validate_registry,
 )
 
@@ -23,46 +22,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}
 REQUIRED_TARGET_INVARIANTS = {f"T{number}" for number in range(1, 14)}
-REQUIRED_PREPOOL_STATES = {
-    "ResolveQueued",
-    "ResolveLeased",
-    "Wait",
-    "VerifyQueued",
-    "VerifyLeased",
-    "Ready",
-}
-REQUIRED_PLAN_OUTCOMES = {"Apply", "Reject", "Backpressure", "Stale", "Duplicate"}
-REQUIRED_READY_KEY = [
-    "source_class_Remote_lt_Proposal_lt_Recovery",
-    "fee_rate_u128_cross_product",
-    "absolute_fee",
-    "earlier_arrival",
-    "smaller_full_hash",
-    "entry_revision",
-]
-REQUIRED_LOCK_ORDER = [
-    "optional_serial_or_work_or_plan_permit",
-    "effect_capacity_hint_released",
-    "TxPool_read_or_write",
-    "PrePoolKernel",
-    "EffectJournal",
-]
-REQUIRED_RESIDUAL_RISKS = {
-    "R1": "proven_authoritative_integrity_loss_controlled_stop",
-    "R2": "external_effect_delivery_not_exactly_once",
-    "R3": "one_timed_out_blocking_call_per_endpoint_kind",
-    "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",
-    "R5": "process_oom_abort_and_corruption",
-    "R6": "trusted_notify_batch_outer_bound",
-    "R7": "bounded_template_underfill_tradeoff",
-    "R8": "static_operational_projections_with_external_alerting",
-    "R9": "legacy_v1_replay_ordering",
-    "R10": "raw_conflict_wait_context_precision",
-    "R11": "template_notification_lifecycle_boundary",
-    "R12": "controlled_performance_acceptance",
-}
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -112,45 +71,146 @@ def _string_set(value: object) -> set[str]:
     return set(value)
 
 
+def rust_enum_variants(path_value: str, enum_name: str) -> tuple[set[str], list[str]]:
+    """Discover the top-level variants of one ordinary Rust enum declaration."""
+
+    try:
+        source = repo_path(path_value).read_text()
+    except (OSError, ValueError) as error:
+        return set(), [f"cannot read Rust enum owner {path_value}: {error}"]
+    declaration = re.search(rf"\benum\s+{re.escape(enum_name)}\b[^{{]*{{", source)
+    if declaration is None:
+        return set(), [f"Rust enum {enum_name} is absent from {path_value}"]
+    cursor = declaration.end()
+    depth = 1
+    start = cursor
+    while cursor < len(source) and depth:
+        if source[cursor] == "{":
+            depth += 1
+        elif source[cursor] == "}":
+            depth -= 1
+        cursor += 1
+    if depth:
+        return set(), [f"Rust enum {enum_name} has no closing brace in {path_value}"]
+    body = source[start : cursor - 1]
+    variants: set[str] = set()
+    depth = 0
+    segment_start = 0
+    for index, character in enumerate(body):
+        if character in "({[<":
+            depth += 1
+        elif character in ")}]>":
+            depth = max(depth - 1, 0)
+        elif character == "," and depth == 0:
+            segment = body[segment_start:index]
+            segment_start = index + 1
+            names = re.findall(r"(?m)^\s*(?:#\[[^\n]*\]\s*)*([A-Z][A-Za-z0-9_]*)\b", segment)
+            if names:
+                variants.add(names[-1])
+    tail = body[segment_start:]
+    names = re.findall(r"(?m)^\s*(?:#\[[^\n]*\]\s*)*([A-Z][A-Za-z0-9_]*)\b", tail)
+    if names:
+        variants.add(names[-1])
+    if not variants:
+        return set(), [f"Rust enum {enum_name} has no discovered variants in {path_value}"]
+    return variants, []
+
+
+def require_source_symbols(
+    path_value: str, symbols: list[str], description: str
+) -> list[str]:
+    try:
+        source = repo_path(path_value).read_text()
+    except (OSError, ValueError) as error:
+        return [f"cannot read {description} owner {path_value}: {error}"]
+    return [
+        f"{description} symbol {symbol!r} is absent from {path_value}"
+        for symbol in symbols
+        if symbol not in source
+    ]
+
+
 def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     contract, errors = load_repo_json(
         manifest.get("architecture_contract"), "architecture_contract"
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 3:
-        errors.append("architecture contract schema_version must be 3")
-    if contract.get("authorities") != ["TxPool", "PrePoolKernel"]:
-        errors.append("architecture contract must declare exactly TxPool then PrePoolKernel")
-    if _string_set(contract.get("prepool_states")) != REQUIRED_PREPOOL_STATES:
-        errors.append("architecture contract prepool_states differ from the frozen six states")
-    if _string_set(contract.get("plan_outcomes")) != REQUIRED_PLAN_OUTCOMES:
-        errors.append("architecture contract PlanOutcome set is incomplete")
-    if contract.get("ready_key") != REQUIRED_READY_KEY:
-        errors.append("architecture contract ReadyKey order differs from the frozen order")
-    if contract.get("ready_aging") != {
-        "policy": "none",
-        "remote_bound": "residency_deadline_and_budget",
-        "trusted_bound": "bounded_chain_derived_ingress",
-        "acceptance_gate": "controlled_saturation_throughput_and_tail_latency",
-    }:
-        errors.append("architecture contract Ready aging trade-off is not explicit")
-    if contract.get("lock_order") != REQUIRED_LOCK_ORDER:
-        errors.append("architecture contract authority lock order differs from the frozen order")
-    identity = contract.get("identity")
-    if not isinstance(identity, dict) or identity != {
-        "ownership_key": "full_tx_hash",
-        "verification_cache_key": "wtx_hash",
-        "proposal_short_id_role": "collision_aware_index_only",
-        "entry_revision": "process_global_non_reused_u128",
-    }:
-        errors.append("architecture contract identity domains differ from the frozen model")
+    if contract.get("schema_version") != 4:
+        errors.append("architecture contract schema_version must be 4")
+
+    authority = contract.get("authority")
+    if not isinstance(authority, dict):
+        errors.append("architecture contract authority must be an object")
+        authority = {}
+    if authority.get("store") != "AuthorityStore":
+        errors.append("architecture contract store must be AuthorityStore")
+    if authority.get("transaction_owner") != "TxPoolAuthority":
+        errors.append("architecture contract transaction owner must be TxPoolAuthority")
+    errors.extend(
+        require_source_symbols(
+            "tx-pool/src/authority/runtime.rs",
+            ["struct AuthorityStore", "authority: TxPoolAuthority", "snapshot: Arc<Snapshot>"],
+            "single authority store",
+        )
+    )
+    errors.extend(
+        require_source_symbols(
+            "tx-pool/src/authority/plan.rs",
+            ["struct TxPoolAuthority", "entries: HashMap<RawTxHash, OwnedTx>"],
+            "transaction authority",
+        )
+    )
+
+    owner_algebra = contract.get("owner_algebra")
+    if not isinstance(owner_algebra, dict):
+        errors.append("architecture contract owner_algebra must be an object")
+        owner_algebra = {}
+    enum_contracts = (
+        ("variants", "OwnedTx"),
+        ("preaccepted_phase_variants", "PreAcceptedPhase"),
+        ("queued_work_variants", "QueuedWork"),
+        ("accepted_statuses", "AcceptedStatus"),
+    )
+    for field, enum_name in enum_contracts:
+        discovered, enum_errors = rust_enum_variants(
+            "tx-pool/src/authority/state.rs", enum_name
+        )
+        errors.extend(enum_errors)
+        if _string_set(owner_algebra.get(field)) != discovered:
+            errors.append(
+                f"architecture contract {field} differs from Rust {enum_name}: "
+                f"contract={sorted(_string_set(owner_algebra.get(field)))}, "
+                f"Rust={sorted(discovered)}"
+            )
+
+    script_rules, rule_errors = rust_enum_variants(
+        "verification/src/cache.rs", "ScriptVerificationRules"
+    )
+    errors.extend(rule_errors)
+    if not script_rules:
+        errors.append("ScriptVerificationRules must have a discovered generation")
+    errors.extend(
+        require_source_symbols(
+            "verification/src/cache.rs",
+            [
+                "struct TxVerificationCacheKey",
+                "witness_hash: [u8; 32]",
+                "script_rules: ScriptVerificationRules",
+            ],
+            "verification cache identity",
+        )
+    )
+
     if set(contract.get("root_families", {})) != REQUIRED_ROOT_FAMILIES:
         errors.append("architecture contract must define exactly F1-F8")
     if set(contract.get("target_invariants", {})) != REQUIRED_TARGET_INVARIANTS:
         errors.append("architecture contract must define exactly T1-T13")
-    if contract.get("residual_risks") != REQUIRED_RESIDUAL_RISKS:
-        errors.append("architecture contract residual risks differ from R1-R12")
+    residual_risks = contract.get("residual_risks")
+    if not isinstance(residual_risks, dict) or set(residual_risks) != {
+        f"R{number}" for number in range(1, 10)
+    }:
+        errors.append("architecture contract must define exactly current residual risks R1-R9")
 
     evidence = invariant_unit_evidence(registry)
     if set(evidence) != REQUIRED_TARGET_INVARIANTS:
@@ -182,12 +242,13 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         except (OSError, ValueError):
             pass
         else:
-            for invariant in REQUIRED_TARGET_INVARIANTS:
-                if authority.count(f"- {invariant} ") != 1:
+            target_invariants = contract.get("target_invariants", {})
+            for invariant, name in target_invariants.items():
+                if authority.count(f"| {invariant} {name} |") != 1:
                     errors.append(
                         f"architecture document must define {invariant} exactly once"
                     )
-            for risk in REQUIRED_RESIDUAL_RISKS:
+            for risk in residual_risks if isinstance(residual_risks, dict) else ():
                 if authority.count(f"| {risk} |") != 1:
                     errors.append(
                         f"architecture document must define residual {risk} exactly once"
@@ -305,8 +366,6 @@ def load_integration_impact(manifest: dict) -> tuple[set[str], list[str]]:
             repo_path(path_value).read_text()
         except (OSError, ValueError) as error:
             errors.append(f"cannot read integration impact source {path_value}: {error}")
-    if len(specs) != 150:
-        errors.append(f"integration impact must contain the managed count 150, found {len(specs)}")
     return specs, errors
 
 
@@ -441,21 +500,6 @@ def validate_test_inventory(
     unit_names = sections.get("unit", [])
     integration_names = sections.get("integration", [])
 
-    expected_unit_count = manifest["test_inventory"].get("unit_test_count")
-    if expected_unit_count != len(unit_names):
-        errors.append(
-            f"test inventory declares {expected_unit_count} unit tests but contains "
-            f"{len(unit_names)} names"
-        )
-    expected_integration_count = manifest["test_inventory"].get(
-        "integration_spec_count"
-    )
-    if expected_integration_count != len(integration_names):
-        errors.append(
-            f"test inventory declares {expected_integration_count} integration specs but "
-            f"contains {len(integration_names)} names"
-        )
-
     expected_units = set(unit_names)
     if unit_tests is not None:
         missing = sorted(expected_units.difference(unit_tests))
@@ -510,8 +554,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 6:
-        raise SystemExit("security manifest schema_version must be 6")
+    if manifest.get("schema_version") != 7:
+        raise SystemExit("security manifest schema_version must be 7")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
@@ -538,9 +582,6 @@ def main() -> int:
                 inventory_path(manifest), tests, managed_integration_specs
             )
         errors.extend(validate_test_anchors(registry, tests))
-        errors.extend(
-            validate_minimum_command_arms(registry, tests, "discovered nextest test")
-        )
     errors.extend(
         validate_test_inventory(
             manifest,
@@ -566,7 +607,9 @@ def main() -> int:
         )
         return 0
 
-    assert test_count is not None
+    if test_count is None:
+        print("error: nextest discovery produced no test-count result", file=sys.stderr)
+        return 1
     evidence = invariant_unit_evidence(registry)
     references = sum(map(len, evidence.values()))
     unique_tests = len(registry["unit_evidence"])

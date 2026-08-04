@@ -37,11 +37,4 @@ mod work;
 mod worker;
 
 #[cfg(test)]
-pub(crate) use rejection::bounded_recent_reject;
-pub(crate) use rejection::{
-    MAX_COMMIT_BAN_REASON_BYTES, MAX_RECENT_REJECT_BYTES, bounded_commit_ban_reason,
-    serialized_recent_reject,
-};
-
-#[cfg(test)]
 mod tests;

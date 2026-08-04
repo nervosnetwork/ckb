@@ -72,8 +72,20 @@ pub(super) enum FinalAdmissionValidationError {
     StaleView,
     Allocation,
     Arithmetic,
-    MissingChainLocation(OutPoint),
-    CellContentMismatch(OutPoint),
+    MissingChainLocation(
+        #[expect(
+            dead_code,
+            reason = "the exact outpoint is retained for structural-fault diagnostics"
+        )]
+        OutPoint,
+    ),
+    CellContentMismatch(
+        #[expect(
+            dead_code,
+            reason = "the exact outpoint is retained for structural-fault diagnostics"
+        )]
+        OutPoint,
+    ),
     ContextReceipt,
 }
 
@@ -301,16 +313,6 @@ impl FinalAdmissionValidation {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn capture_for_foundation(
-        authority: &TxPoolAuthority,
-        snapshot: Arc<Snapshot>,
-        work: FinalAdmissionWork,
-    ) -> Result<Self, FinalAdmissionValidationError> {
-        let current = work.clone();
-        Self::prepare(snapshot, work)?.complete_inner(authority, current)
-    }
-
     /// Validate location, time, DAO, proposal position, and script-rule reuse
     /// without holding the authority guard.
     pub(super) fn validate(
@@ -368,15 +370,6 @@ impl DirectAdmissionValidation {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn capture_for_foundation(
-        authority: &TxPoolAuthority,
-        snapshot: Arc<Snapshot>,
-        work: DirectAdmissionWork,
-    ) -> Result<Self, FinalAdmissionValidationError> {
-        Self::prepare(snapshot, work)?.complete_inner(authority)
-    }
-
     pub(super) fn validate(
         self,
     ) -> Result<DirectAdmissionValidationOutcome, FinalAdmissionValidationError> {
@@ -415,6 +408,10 @@ impl DirectAdmissionValidation {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/validation.rs"]
+mod test_support;
 
 fn validate_membership(
     validation: MembershipValidationWork,

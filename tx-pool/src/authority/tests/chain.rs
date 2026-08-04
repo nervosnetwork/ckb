@@ -1,7 +1,7 @@
 use super::super::{
     chain::{
-        ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, FinalAdmissionError,
-        ProposalWindowPosition,
+        ChainBlockChanges, ChainPackagingMode, ProposalWindowPosition,
+        test_support::{ChainTransitionFacts, FinalAdmissionError},
     },
     chain_boundary::{
         ChainBoundaryError, ChainPackaging as RuntimeChainPackaging, ChainUpdateRequest,
@@ -225,7 +225,9 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
     let (rejected_hash, rejected_work) = settlements.remove(0);
     apply_without_work(
         authority
-            .apply_settlement(rejected_work.rejected(super::super::state::RejectionKind::Policy))
+            .apply_settlement(
+                rejected_work.rejected(super::super::state::test_support::RejectionKind::Policy),
+            )
             .expect("a stale contextual rejection releases its exact lease"),
     );
     assert!(matches!(
@@ -2321,7 +2323,9 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
     ));
     apply_without_work(
         authority
-            .apply_settlement(work.rejected(super::super::state::RejectionKind::Policy))
+            .apply_settlement(
+                work.rejected(super::super::state::test_support::RejectionKind::Policy),
+            )
             .expect("the pre-demotion work capability remains uniquely settleable"),
     );
     assert!(authority.primary_projection_consistent());

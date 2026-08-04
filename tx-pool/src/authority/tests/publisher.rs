@@ -7,7 +7,7 @@ use super::super::{
     plan::MembershipReject,
     publisher::{
         AuthorityEffectEndpoints, EndpointDisposition, RelayAction, RelayDisposition,
-        compile_committed_effect, run_authority_effect_publisher,
+        compile_committed_effect, test_support::run_authority_effect_publisher,
     },
     rejection::CommittedPublicReject,
     relay::{AuthorityRelayReceiver, AuthorityRelaySink, authority_relay_mailbox},

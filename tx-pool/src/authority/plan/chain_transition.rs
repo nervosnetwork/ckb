@@ -2,7 +2,7 @@ use super::*;
 use crate::authority::chain::{
     ChainCommittedOwner, ChainConflictOwner, ChainPackagingMode, ChainProposalSubject,
     ChainRecoveryOwner, ChainRecoveryReceipt, ChainRecoveryWork, ChainRemoval, ChainStatusSubject,
-    ChainTransitionFacts, ChainTransitionFactsView, ChainTransitionReceipt, ChainValidationWork,
+    ChainTransitionFactsView, ChainTransitionReceipt, ChainValidationWork,
     ExpectedPreAcceptedOwner, ProposalContextReceipt,
 };
 use crate::authority::state::{AcceptedStatus, DependencySetError, RemoteBase};
@@ -267,17 +267,6 @@ impl<'facts> CausalCompiler<'facts> {
 }
 
 impl TxPoolAuthority {
-    /// Select the complete bounded owner slice affected by one chain change.
-    /// This is a read-only command. Production retains the same chain-only
-    /// upgradable read while validating immutable snapshot proposal evidence,
-    /// so no writer can invalidate this owner slice before the final upgrade.
-    pub(in crate::authority) fn chain_validation_work(
-        &self,
-        facts: ChainTransitionFacts,
-    ) -> Result<ChainValidationWork, PlanError> {
-        self.chain_validation_work_from_view(facts.as_view())
-    }
-
     /// Production chain commands retain their canonical block facts while
     /// this compiler allocates the affected owner slice. Returning an error
     /// therefore leaves the exact move-only command available for retry.

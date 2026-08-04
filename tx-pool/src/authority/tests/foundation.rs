@@ -4,15 +4,19 @@ use super::super::effect::{
 };
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
-    CandidateBatchError, CandidateDispositionPlan, CommittedChange, CommittedChanges,
-    CommittedDelta, ComponentLimitKind, ComputeSettlementFailure, ComputeSettlementRecovery,
-    DescendantAggregate, DirectAdmissionDisposition, EvictionOrderKey, IndependentCoupling,
-    MembershipReject, MembershipSnapshot, PlanError, PreparedApply, RemovalCause, SettlementBatch,
-    SettlementPlan, StalePlan, StatusCounts, TxPoolAuthority,
+    CandidateDispositionPlan, CommittedChange, CommittedChanges, CommittedDelta,
+    ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
+    DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
+    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
+    test_support::{
+        CandidateBatchError, ComponentLimitKind, IndependentCoupling, MembershipSnapshot,
+        StatusCounts,
+    },
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ComputeReleaseError,
-    ResourceConfigError, ResourceLedger, ResourceLimits, ResourceSnapshot, ResourceVector,
+    ResourceConfigError, ResourceLedger, ResourceLimits, ResourceVector,
+    test_support::ResourceSnapshot,
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
@@ -20,10 +24,11 @@ use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
     CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId,
     DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
-    FoundationResolution, InputEvidenceError, KnownDependencies, ObservedDependencies, OwnedTx,
-    PayloadPolicy, PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork,
-    RawTxHash, RejectionKind, RemoteDeadline, RemoteResidencyLease, ResolvedPayload, TxIdentity,
-    ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
+    KnownDependencies, ObservedDependencies, OwnedTx, PayloadPolicy, PoolGeneration,
+    PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
+    RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
+    VerifyCapability, VerifyCycleClass, WorkPermit,
+    test_support::{FoundationResolution, RejectionKind},
 };
 use super::super::work::{
     CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork,
@@ -1194,7 +1199,7 @@ fn uak_accepted_timestamp_is_part_of_the_immutable_source_cut() {
     };
     changed.accepted_at = AcceptedAtMillis(1);
     assert!(
-        super::super::source::replacement_changes_accepted_source_for_foundation(
+        super::super::source::test_support::replacement_changes_accepted_source_for_foundation(
             &before,
             &OwnedTx::Accepted(changed),
         ),
@@ -2934,11 +2939,13 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     let publication = authority
         .effect_publication_for_foundation(
             EffectPolicy::Trusted,
-            vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
-                tx: Arc::clone(&retained_tx),
-                audience: RejectionAudience::foundation(),
-                reason: RejectionKind::Policy,
-            })],
+            vec![CommittedEffect::Rejected(
+                CommittedRejection::for_foundation(
+                    Arc::clone(&retained_tx),
+                    RejectionAudience::foundation(),
+                    RejectionKind::Policy,
+                ),
+            )],
         )
         .expect("fixture effect is bounded");
     let terminal = authority
@@ -2967,9 +2974,9 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     assert_eq!(lease.effects().len(), 1);
     assert!(matches!(
         &lease.effects()[0],
-        CommittedEffect::Rejected(CommittedRejection::Foundation { tx, reason, .. })
+        CommittedEffect::Rejected(CommittedRejection::Validation { tx, reason, .. })
             if Arc::ptr_eq(tx, &retained_tx)
-                && *reason == RejectionKind::Policy
+                && *reason == RejectionKind::Policy.into()
     ));
     let published = authority
         .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
@@ -3185,7 +3192,7 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
             vec![OutPoint::new(Byte32::new([4; 32]), 0)],
             Vec::new(),
         ),
-        Err(InputEvidenceError::NotAnInput)
+        Err(super::super::state::test_support::FoundationInputEvidenceError::NotAnInput)
     ));
 
     let duplicate_input = TransactionBuilder::default()
@@ -8087,19 +8094,41 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
         active_hashes.push(admit_remote(&mut authority, 800 + offset as u64 * 2, peer));
         let _queued = admit_remote(&mut authority, 801 + offset as u64 * 2, peer);
     }
-    let final_peer = admit_remote(&mut authority, 900, 700 + BLOCKED_PEERS);
+    let cursor_peer = 700 + BLOCKED_PEERS;
+    let cursor_seed = admit_remote(&mut authority, 899, cursor_peer);
 
     let mut active_work = Vec::new();
-    for hash in active_hashes {
-        let version = owner_version(&authority, &hash);
-        let (_, work) = take_resolve_work(
-            authority
-                .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
-                .expect("manual checkout consumes the peer's one active slot")
+    for _ in 0..BLOCKED_PEERS {
+        let (plan, probes) = authority
+            .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+            .expect("the production scheduler advances across distinct peer owners");
+        assert_eq!(probes, 1);
+        let (selected, work) = take_resolve_work(
+            plan.expect("one head per unsaturated peer remains runnable")
                 .apply(),
         );
+        assert!(active_hashes.contains(&selected));
         active_work.push(work);
     }
+
+    // Seed the cursor through the real scheduler path, then release that
+    // peer's compute charge. The next search must wrap across every blocked
+    // owner before reaching a newly queued entry for this peer.
+    let (plan, probes) = authority
+        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
+        .expect("the cursor seed is schedulable");
+    assert_eq!(probes, 1);
+    let (selected, cursor_work) = take_resolve_work(
+        plan.expect("the final unsaturated owner holds the cursor seed")
+            .apply(),
+    );
+    assert_eq!(selected, cursor_seed);
+    apply_without_work(
+        authority
+            .apply_settlement(cursor_work.rejected(RejectionKind::Policy))
+            .expect("cursor seeding releases the peer slot without rewinding the cursor"),
+    );
+    let final_peer = admit_remote(&mut authority, 900, cursor_peer);
 
     let (plan, probes) = authority
         .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)

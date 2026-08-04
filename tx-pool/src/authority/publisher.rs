@@ -38,43 +38,35 @@ use std::{
 const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
-pub(crate) struct AuthorityEffectPublisherFault {
-    pub(super) kind: AuthorityEffectPublisherFaultKind,
-}
-
-#[derive(Debug)]
-pub(super) enum AuthorityEffectPublisherFaultKind {
-    #[cfg(test)]
-    ConcurrentConsumer,
+pub(crate) enum AuthorityEffectPublisherFault {
     Checkout(EffectCheckoutError),
-    Settlement(EffectSettlementFailure),
-    Progress(EffectProgressError),
+    Settlement(
+        #[expect(
+            dead_code,
+            reason = "the exact linear settlement capability is retained through generation shutdown"
+        )]
+        EffectSettlementFailure,
+    ),
+    Progress(
+        #[expect(
+            dead_code,
+            reason = "the exact progress fault is rendered by the operational Debug boundary"
+        )]
+        EffectProgressError,
+    ),
 }
 
 impl AuthorityEffectPublisherFault {
-    #[cfg(test)]
-    fn concurrent_consumer() -> Self {
-        Self {
-            kind: AuthorityEffectPublisherFaultKind::ConcurrentConsumer,
-        }
-    }
-
     fn checkout(error: EffectCheckoutError) -> Self {
-        Self {
-            kind: AuthorityEffectPublisherFaultKind::Checkout(error),
-        }
+        Self::Checkout(error)
     }
 
     fn settlement(failure: EffectSettlementFailure) -> Self {
-        Self {
-            kind: AuthorityEffectPublisherFaultKind::Settlement(failure),
-        }
+        Self::Settlement(failure)
     }
 
     fn progress(error: EffectProgressError) -> Self {
-        Self {
-            kind: AuthorityEffectPublisherFaultKind::Progress(error),
-        }
+        Self::Progress(error)
     }
 }
 
@@ -146,18 +138,6 @@ impl AuthorityEffectEndpoints {
                 }
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(super) async fn publish(
-        &mut self,
-        mut outcome: CompiledEndpointOutcome,
-    ) -> EndpointDisposition {
-        let mut disposition = EndpointDisposition::Published;
-        for endpoint in EffectEndpoint::ORDER {
-            disposition = disposition.join(self.publish_endpoint(&mut outcome, endpoint).await);
-        }
-        disposition
     }
 
     async fn publish_callback(&mut self, event: CallbackEvent) -> EndpointDisposition {
@@ -338,18 +318,6 @@ pub(super) struct BanAction {
     pub(super) reason: String,
 }
 
-impl BanAction {
-    #[cfg(test)]
-    pub(super) const fn peer(&self) -> ckb_network::PeerIndex {
-        self.lease.peer()
-    }
-
-    #[cfg(test)]
-    pub(super) fn remaining_duration_at(&self, now: Instant) -> Option<Duration> {
-        self.lease.remaining_at(now)
-    }
-}
-
 #[derive(Default)]
 pub(super) struct CompiledEndpointOutcome {
     pub(super) recent_reject: Option<RecentRejectAction>,
@@ -498,12 +466,6 @@ fn compile_rejection(rejection: CommittedRejection) -> CompiledEndpointOutcome {
             }
             CommittedConflictOwner::Accepted(entry) => compile_accepted_rejection(entry, public),
         },
-        #[cfg(test)]
-        CommittedRejection::Foundation {
-            tx,
-            audience,
-            reason: _,
-        } => compile_preaccepted_rejection(tx, audience, public),
     }
 }
 
@@ -693,23 +655,6 @@ impl Drop for RetainedEffectLease {
     }
 }
 
-/// Drain the sole authority effect sequence into stable external endpoints.
-///
-/// There is intentionally no cancellation token: normal shutdown first stops
-/// every producer, closes the authority effect log, and lets this loop drain
-/// to `None`. Task abortion still cannot orphan the active head because the
-/// move-only guard synchronously returns the complete lease from `Drop`.
-#[cfg(test)]
-pub(super) async fn run_authority_effect_publisher(
-    runtime: AuthorityRuntime,
-    endpoints: AuthorityEffectEndpoints,
-) -> Result<(), AuthorityEffectPublisherFault> {
-    let Some(claim) = runtime.claim_effect_publisher() else {
-        return Err(AuthorityEffectPublisherFault::concurrent_consumer());
-    };
-    run_claimed_authority_effect_publisher(runtime, endpoints, claim).await
-}
-
 /// Drain with the move-only claim acquired before any topology task starts.
 /// This entry point makes duplicate-consumer failure a construction outcome,
 /// rather than an asynchronous task exit after partial startup.
@@ -751,3 +696,7 @@ pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
         retained.settle(disposition)?;
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/publisher.rs"]
+pub(in crate::authority) mod test_support;

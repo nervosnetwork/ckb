@@ -47,17 +47,47 @@ pub(in crate::authority) enum AuthorityTaskRole {
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityGenerationFault {
     Worker {
+        #[expect(
+            dead_code,
+            reason = "the exact worker role is retained for shutdown diagnostics"
+        )]
         role: AuthorityTaskRole,
         fault: AuthorityWorkerFaultKind,
     },
     WorkerJoin {
+        #[expect(
+            dead_code,
+            reason = "the exact worker role is retained for shutdown diagnostics"
+        )]
         role: AuthorityTaskRole,
+        #[expect(
+            dead_code,
+            reason = "the exact join cause is retained for shutdown diagnostics"
+        )]
         error: tokio::task::JoinError,
     },
-    Publisher(AuthorityEffectPublisherFault),
-    PublisherJoin(tokio::task::JoinError),
+    Publisher(
+        #[expect(
+            dead_code,
+            reason = "the exact publisher fault is retained for shutdown diagnostics"
+        )]
+        AuthorityEffectPublisherFault,
+    ),
+    PublisherJoin(
+        #[expect(
+            dead_code,
+            reason = "the exact publisher join cause is retained for shutdown diagnostics"
+        )]
+        tokio::task::JoinError,
+    ),
     PublisherClosed,
-    EffectClose(EffectCloseError),
+    EffectClose(
+        #[expect(
+            dead_code,
+            reason = "the exact close cause is retained for shutdown diagnostics"
+        )]
+        EffectCloseError,
+    ),
     EffectDrain,
     ShutdownTimeout,
 }
@@ -65,15 +95,42 @@ pub(in crate::authority) enum AuthorityGenerationFault {
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityDerivedTaskFailure {
     Template {
+        #[expect(
+            dead_code,
+            reason = "the exact template role is retained for the service diagnostic"
+        )]
         role: AuthorityTaskRole,
+        #[expect(
+            dead_code,
+            reason = "the exact template fault is retained for the service diagnostic"
+        )]
         fault: AuthorityTemplateDriverFault,
     },
     TemplateJoin {
+        #[expect(
+            dead_code,
+            reason = "the exact template role is retained for the service diagnostic"
+        )]
         role: AuthorityTaskRole,
         error: tokio::task::JoinError,
     },
-    TemplateClosed(AuthorityTaskRole),
-    TemplateTimeout(AuthorityTaskRole),
+    TemplateClosed(
+        #[expect(
+            dead_code,
+            reason = "the exact template role is retained for the service diagnostic"
+        )]
+        AuthorityTaskRole,
+    ),
+    TemplateTimeout(
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "the exact template role is retained for the service diagnostic"
+            )
+        )]
+        AuthorityTaskRole,
+    ),
     VerificationCacheJoin(tokio::task::JoinError),
     VerificationCacheClosed,
     VerificationCacheTimeout,
@@ -81,7 +138,13 @@ pub(in crate::authority) enum AuthorityDerivedTaskFailure {
 
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityTopologyEvent {
-    ShutdownRequested(AuthorityTaskRole),
+    ShutdownRequested(
+        #[expect(
+            dead_code,
+            reason = "the shutdown requester role is diagnostic evidence carried to the service boundary"
+        )]
+        AuthorityTaskRole,
+    ),
     DerivedDegraded(AuthorityDerivedTaskFailure),
     GenerationInvalid(AuthorityGenerationFault),
 }
@@ -106,10 +169,6 @@ pub(in crate::authority) struct AuthorityShutdownReport {
 }
 
 impl AuthorityShutdownReport {
-    pub(in crate::authority) fn persistence_eligible(&self) -> bool {
-        matches!(self.status, AuthorityShutdownStatus::PersistenceEligible)
-    }
-
     pub(in crate::authority) fn status(&self) -> &AuthorityShutdownStatus {
         &self.status
     }
@@ -191,11 +250,6 @@ impl AuthorityTaskTopology {
     /// `invalidate_generation` so its linear failure capability is retained.
     pub(in crate::authority) async fn next_event(&mut self) -> AuthorityTopologyEvent {
         poll_fn(|context| self.poll_next_event(context)).await
-    }
-
-    #[cfg(test)]
-    pub(super) fn install_template_task_for_foundation(&mut self, task: AuthorityTemplateTask) {
-        self.templates = Some([Some(task), None, None, None, None]);
     }
 
     /// Ordered graceful shutdown. A timeout or any authority-owning task
@@ -385,6 +439,10 @@ impl AuthorityTaskTopology {
         abort_slot(&mut self.verification_cache);
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/topology.rs"]
+mod test_support;
 
 impl Drop for AuthorityTaskTopology {
     fn drop(&mut self) {

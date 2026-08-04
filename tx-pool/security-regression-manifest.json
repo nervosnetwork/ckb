@@ -1,19 +1,15 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
   "architecture_contract": "tx-pool/architecture-contract.json",
   "integration_impact": "tx-pool/integration-impact.json",
-  "test_inventory": {
-    "path": "tx-pool/test-inventory.txt",
-    "unit_test_count": 625,
-    "integration_spec_count": 150
-  },
+  "test_inventory": {"path": "tx-pool/test-inventory.txt"},
   "release_blockers": [
     {
-      "id": "UNIFIED-AUTHORITY-CUTOVER",
-      "reason": "The Unified Authority Kernel has sealed G5.0 worker ownership, G5.1 commit/effect publication and G5.2 rejection/peer-revocation semantics; G5.3 production ingress, administration and chain-transition cutover plus legacy-owner deletion remain incomplete"
+      "id": "ARCHITECTURE-ADJUDICATION",
+      "reason": "The current UAK contract, one-way evidence graph, complete historical finding dispositions and final static correctness/security/liveness/complexity audit must converge before benchmark acceptance"
     },
     {
       "id": "CORRECTNESS-ACCEPTANCE",

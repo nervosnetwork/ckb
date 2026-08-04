@@ -55,15 +55,6 @@ impl MembershipConfig {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn testing_default() -> Self {
-        Self {
-            max_ancestors: 125,
-            max_component: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-            replacement: ReplacementPolicy::Disabled,
-        }
-    }
-
     pub(super) fn max_component(self) -> usize {
         self.max_component
     }
@@ -73,15 +64,6 @@ impl MembershipConfig {
             ReplacementPolicy::Disabled => None,
             ReplacementPolicy::Enabled { minimum_rate } => Some(minimum_rate),
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn testing_with_replacement(minimum_rate: FeeRate) -> Self {
-        Self::from_runtime(
-            125,
-            crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-            Some(minimum_rate),
-        )
     }
 }
 
@@ -296,20 +278,6 @@ impl EvictionOrderKey {
             hash: entry.record.identity.raw.clone(),
         }
     }
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::authority) struct MembershipSnapshot {
-    pub(in crate::authority) spenders: HashMap<OutPoint, RawTxHash>,
-    pub(in crate::authority) dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
-    pub(in crate::authority) parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
-    pub(in crate::authority) children: HashMap<RawTxHash, HashSet<RawTxHash>>,
-    pub(in crate::authority) ancestor_aggregates: HashMap<RawTxHash, AncestorAggregate>,
-    pub(in crate::authority) descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
-    pub(in crate::authority) accepted_order: BTreeSet<AcceptedOrderKey>,
-    pub(in crate::authority) eviction_order: BTreeSet<EvictionOrderKey>,
-    pub(in crate::authority) counts: StatusCounts,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -611,21 +579,6 @@ impl MembershipProjection {
         self.children.get(hash)
     }
 
-    #[cfg(test)]
-    pub(super) fn snapshot(&self) -> MembershipSnapshot {
-        MembershipSnapshot {
-            spenders: self.spenders.clone(),
-            dependency_readers: self.dependency_readers.clone(),
-            parents: self.parents.clone(),
-            children: self.children.clone(),
-            ancestor_aggregates: self.ancestor_aggregates.clone(),
-            descendant_aggregates: self.descendant_aggregates.clone(),
-            accepted_order: self.accepted_order.clone(),
-            eviction_order: self.eviction_order.clone(),
-            counts: self.counts,
-        }
-    }
-
     pub(super) fn apply(&mut self, delta: ProjectionDelta) {
         for (input, spender) in delta.spender_changes {
             match spender {
@@ -720,6 +673,10 @@ impl MembershipProjection {
         self.counts = delta.counts;
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/plan_membership.rs"]
+pub(in crate::authority) mod test_support;
 
 impl TxPoolAuthority {
     /// Complete Accepted descendant closure for a trusted administrative
@@ -848,66 +805,6 @@ impl TxPoolAuthority {
         Ok(PreparedMembership {
             removals,
             projection,
-        })
-    }
-
-    pub(super) fn prepare_status_change(
-        &self,
-        hash: &RawTxHash,
-        before: &AcceptedEntry,
-        after: &AcceptedEntry,
-    ) -> Result<ProjectionDelta, super::PlanError> {
-        if before.record.identity.raw != *hash
-            || after.record.identity.raw != *hash
-            || before.status() == after.status()
-        {
-            return Err(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            ));
-        }
-        let counts = self
-            .membership
-            .counts
-            .checked_sub(before.status())
-            .and_then(|counts| counts.checked_add(after.status()))
-            .ok_or(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            ))?;
-        let aggregate = self
-            .membership
-            .descendant_aggregates
-            .get(hash)
-            .copied()
-            .ok_or(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            ))?;
-        let previous_key = EvictionOrderKey::new(before, aggregate);
-        if !self.membership.eviction_order.contains(&previous_key) {
-            return Err(super::PlanError::Fault(
-                super::AuthorityFault::MembershipProjection,
-            ));
-        }
-        let mut eviction_removals = Vec::new();
-        eviction_removals
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        eviction_removals.push(previous_key);
-        let mut eviction_insertions = Vec::new();
-        eviction_insertions
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        eviction_insertions.push(EvictionOrderKey::new(after, aggregate));
-        Ok(ProjectionDelta {
-            spender_changes: Vec::new(),
-            dependency_changes: Vec::new(),
-            causal_changes: Vec::new(),
-            ancestor_changes: Vec::new(),
-            aggregate_changes: Vec::new(),
-            accepted_order_removals: Vec::new(),
-            accepted_order_insertions: Vec::new(),
-            eviction_removals,
-            eviction_insertions,
-            counts,
         })
     }
 

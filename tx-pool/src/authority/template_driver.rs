@@ -2,8 +2,9 @@
 //! rebuildable block-assembler output.
 //!
 //! The adapter owns no transaction state. One ordered replacement lane and
-//! three optimistic component lanes construct outside both authorities and
-//! meet only at the existing short current-template publication boundary.
+//! three optimistic component lanes construct outside the authority store and
+//! assembler publication guard, then meet only at the existing short
+//! current-template publication boundary.
 
 use super::{
     packing::TemplatePackingLimits,
@@ -41,7 +42,13 @@ const TEMPLATE_ALLOCATION_RETRY: Duration = Duration::from_millis(1);
 pub(in crate::authority) enum AuthorityTemplateDriverFault {
     Read(TemplateReadError),
     Convergence(TemplateConvergenceError),
-    Block(AnyError),
+    Block(
+        #[expect(
+            dead_code,
+            reason = "the external block-assembly error is preserved for the topology's derived-task Debug log"
+        )]
+        AnyError,
+    ),
     Candidate(CandidateUncleMutationError),
 }
 
@@ -295,14 +302,6 @@ impl AuthorityBlockAssembler {
         self.assembler.notify().await;
     }
 
-    #[cfg(test)]
-    pub(super) async fn run_notification_lane_for_foundation(
-        self,
-        cancel: CancellationToken,
-    ) -> Result<(), AuthorityTemplateDriverFault> {
-        self.run_notification_lane(cancel, true).await
-    }
-
     fn spawn_component_lane(
         &self,
         handle: &Handle,
@@ -542,93 +541,6 @@ impl AuthorityBlockAssembler {
                 _ = local_notified => {}
             }
         }
-    }
-
-    #[cfg(test)]
-    pub(super) async fn retry_source_cut_for_foundation(&self) -> TemplateRetrySourceCut {
-        self.retry_source_cut().await
-    }
-
-    #[cfg(test)]
-    pub(super) async fn wait_template_source_change_for_foundation(
-        &self,
-        cancel: &CancellationToken,
-        failed: TemplateRetrySourceCut,
-    ) -> bool {
-        self.wait_template_source_change(cancel, failed)
-            .await
-            .is_some()
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn prepare_full_for_foundation(
-        &self,
-    ) -> Result<Option<PreparedFull>, AuthorityTemplateDriverFault> {
-        let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
-        if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
-            return Ok(None);
-        }
-        self.prepare_full(input, current)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn prepare_component_for_foundation(
-        &self,
-        component: TemplateComponent,
-    ) -> Result<Option<PreparedPartial>, AuthorityTemplateDriverFault> {
-        let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
-        if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
-            return Ok(None);
-        }
-        match component {
-            TemplateComponent::Proposals => self.prepare_proposals(&input, current),
-            TemplateComponent::Transactions => self.prepare_transactions(&input, current),
-            TemplateComponent::Uncles => self.prepare_uncles(&input, current),
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn prepare_reset_for_foundation(
-        &self,
-    ) -> Result<Option<PreparedReset>, AuthorityTemplateDriverFault> {
-        let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
-        if current.snapshot.tip_hash() == input.snapshot().tip_hash() {
-            return Ok(None);
-        }
-        self.prepare_reset(input, current.reset_epoch)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn publish_full_for_foundation(
-        &self,
-        prepared: PreparedFull,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        self.publish_full(prepared).await
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn publish_component_for_foundation(
-        &self,
-        prepared: PreparedPartial,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        self.publish_partial(prepared).await
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn publish_reset_for_foundation(
-        &self,
-        prepared: PreparedReset,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        self.publish_reset(prepared).await
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) async fn is_converged_for_foundation(&self) -> bool {
-        let published_reset = self.assembler.current.read().await.reset_epoch;
-        self.convergence.lock().is_converged(published_reset)
     }
 
     fn prepare_full(
@@ -1067,3 +979,7 @@ fn next_epoch(snapshot: &Snapshot) -> Result<EpochExt, BlockAssemblerError> {
         .map(|epoch| epoch.epoch())
         .ok_or(BlockAssemblerError::MissingTipEpoch)
 }
+
+#[cfg(test)]
+#[path = "tests/support/template_driver.rs"]
+mod test_support;

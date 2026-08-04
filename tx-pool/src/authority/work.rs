@@ -1,19 +1,15 @@
 use super::chain::{CellContentReceipt, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
 use super::resources::AcceptedCost;
-#[cfg(test)]
-use super::state::FoundationResolution;
 use super::state::{
     AsyncProcessStart, CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut,
     DependencyKey, DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
     KnownDependencies, MissingDependencies, PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts,
-    ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
+    ResolvedPayload, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
 use crate::error::Reject;
 use ckb_types::core::TransactionView;
 use ckb_types::core::{Capacity, cell::ResolvedTransaction};
-#[cfg(test)]
-use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -66,21 +62,6 @@ pub(super) struct ResolutionEvidence {
 impl ResolutionEvidence {
     pub(super) fn from_resolution(
         _seal: super::resolver::ResolutionEvidenceSeal,
-        resolved: Arc<ResolvedTransaction>,
-        fee: Capacity,
-        resident_bytes: usize,
-        verify_class: VerifyCycleClass,
-    ) -> Self {
-        Self {
-            resolved,
-            fee,
-            resident_bytes,
-            verify_class,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation(
         resolved: Arc<ResolvedTransaction>,
         fee: Capacity,
         resident_bytes: usize,
@@ -345,15 +326,6 @@ fn missing_settlement(
     })))
 }
 
-fn payload_matches(tx: &TransactionView, payload: &ResolvedPayload) -> bool {
-    payload.identity() == &TxIdentity::from_transaction(tx)
-}
-
-fn resolved_within_grant(grant: ComputeGrant, payload: &ResolvedPayload) -> bool {
-    payload.resolved_resident_bytes() <= grant.max_resident_bytes
-        && payload.footprint.edge_count() <= grant.max_edges
-}
-
 enum ResolvedPayloadBuild {
     Ready(ResolvedPayload, VerifyCycleClass),
     ResourceDenied,
@@ -498,41 +470,6 @@ impl ResolveWork {
         Ok(self.token.settle(next))
     }
 
-    #[cfg(test)]
-    pub(super) fn yield_verify(
-        self,
-        resolution: FoundationResolution,
-    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
-        self.yield_verify_as(resolution, VerifyCycleClass::Small)
-    }
-
-    #[cfg(test)]
-    pub(super) fn yield_verify_as(
-        self,
-        resolution: FoundationResolution,
-        verify_class: VerifyCycleClass,
-    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
-        let payload = resolution.into_payload();
-        if !payload_matches(&self.tx, &payload) {
-            return Err(ReceiptFailure::new(
-                self.token,
-                ResolutionReceiptError::TransactionMismatch,
-            ));
-        }
-        let next = if resolved_within_grant(self.token.grant, &payload) {
-            SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
-                ResolutionSeal(()),
-                self.token.chain_view().clone(),
-                self.token.dependency_cut,
-                Arc::new(payload),
-                verify_class,
-            ))
-        } else {
-            return Ok(budget_denied(self.token));
-        };
-        Ok(self.token.settle(next))
-    }
-
     pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
             .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
@@ -617,50 +554,6 @@ impl ContinuousResolveWork {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn into_verify(
-        self,
-        resolution: FoundationResolution,
-    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
-        self.into_verify_as(resolution, VerifyCycleClass::Small)
-    }
-
-    #[cfg(test)]
-    pub(super) fn into_verify_as(
-        self,
-        resolution: FoundationResolution,
-        verify_class: VerifyCycleClass,
-    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
-        let payload = resolution.into_payload();
-        if !payload_matches(&self.tx, &payload) {
-            return Err(ReceiptFailure::new(
-                self.token,
-                ResolutionReceiptError::TransactionMismatch,
-            ));
-        }
-        if !resolved_within_grant(self.token.grant, &payload) {
-            return Ok(ContinuousResolution::Settle(budget_denied(self.token)));
-        }
-        let chain_view = self.token.chain_view().clone();
-        let resolved = ResolvedFacts::from_resolution(
-            ResolutionSeal(()),
-            chain_view,
-            self.token.dependency_cut,
-            Arc::new(payload),
-            verify_class,
-        );
-        if self.capability.permits(verify_class) {
-            Ok(ContinuousResolution::Verify(ContinuousVerifyWork {
-                token: self.token,
-                resolved,
-            }))
-        } else {
-            Ok(ContinuousResolution::Settle(
-                self.token.settle(SettlementNext::QueuedVerify(resolved)),
-            ))
-        }
-    }
-
     pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
         self.token
             .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
@@ -678,18 +571,10 @@ impl ContinuousResolveWork {
 }
 
 impl VerifyWork {
-    pub(super) fn transaction(&self) -> &TransactionView {
-        &self.resolved.payload().resolved_transaction().transaction
-    }
-
-    pub(super) fn payload_policy(&self) -> PayloadPolicy {
-        self.token.payload_policy
-    }
-
-    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
-        self.resolved.payload().resolved_transaction()
-    }
-
+    #[expect(
+        clippy::result_large_err,
+        reason = "a stale snapshot returns the exact move-only settlement capability; boxing would allocate at the worker freshness boundary"
+    )]
     pub(super) fn bind_current(
         self,
         snapshot_tip: &ckb_types::packed::Byte32,
@@ -704,39 +589,6 @@ impl VerifyWork {
             resolved: self.resolved,
         })
     }
-
-    #[cfg(test)]
-    pub(super) fn verified(self, cycles: u64) -> ComputeSettlement {
-        self.verified_under(cycles, ScriptVerificationRules::V0)
-    }
-
-    #[cfg(test)]
-    pub(super) fn verified_under(
-        self,
-        cycles: u64,
-        rules: ScriptVerificationRules,
-    ) -> ComputeSettlement {
-        let tip = self.token.chain_view().tip().0.clone();
-        match self.bind_current(&tip) {
-            Ok(work) => work.verified_with_time_context(
-                cycles,
-                TimeContextReceipt::from_validation(rules),
-                AsyncProcessStart::now(),
-            ),
-            Err(stale) => stale,
-        }
-    }
-
-    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
-        self.token.settle(SettlementNext::VerificationRejected {
-            rejection: reason.into(),
-            resolved: self.resolved,
-        })
-    }
-
-    pub(super) fn internal_failure(self) -> ComputeSettlement {
-        internal_failure(self.token)
-    }
 }
 
 impl ContinuousVerifyWork {
@@ -747,35 +599,6 @@ impl ContinuousVerifyWork {
             token: self.token,
             resolved: self.resolved,
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn verified(self, cycles: u64) -> ComputeSettlement {
-        self.verified_under(cycles, ScriptVerificationRules::V0)
-    }
-
-    #[cfg(test)]
-    pub(super) fn verified_under(
-        self,
-        cycles: u64,
-        rules: ScriptVerificationRules,
-    ) -> ComputeSettlement {
-        self.into_current().verified_with_time_context(
-            cycles,
-            TimeContextReceipt::from_validation(rules),
-            AsyncProcessStart::now(),
-        )
-    }
-
-    pub(super) fn internal_failure(self) -> ComputeSettlement {
-        internal_failure(self.token)
-    }
-
-    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
-        self.token.settle(SettlementNext::VerificationRejected {
-            rejection: reason.into(),
-            resolved: self.resolved,
-        })
     }
 }
 
@@ -817,19 +640,6 @@ impl SnapshotBoundVerifyWork {
 }
 
 impl CheckedOutWork {
-    /// Structured runner cancellation consumes the one live capability and
-    /// yields an ordinary settlement. The runner must Apply this receipt
-    /// before exiting; an unexpected task loss is handled as a service fault,
-    /// never by reconstructing a lease from authority state.
-    pub(super) fn cancelled(self) -> ComputeSettlement {
-        let token = match self {
-            Self::Resolve(work) => work.token,
-            Self::ContinuousResolve(work) => work.token,
-            Self::Verify(work) => work.token,
-        };
-        internal_failure(token)
-    }
-
     pub(super) fn new(
         token: LeaseToken,
         tx: Arc<TransactionView>,
@@ -859,3 +669,7 @@ impl CheckedOutWork {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/work.rs"]
+mod test_support;

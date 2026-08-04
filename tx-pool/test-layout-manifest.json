@@ -1,74 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "allowed_test_roots": [
-    "tx-pool/src/authority",
-    "tx-pool/src/tests",
+    "tx-pool/src/authority/tests",
     "tx-pool/src/block_assembler/tests",
     "tx-pool/src/component/tests",
-    "tx-pool/src/process/tests",
-    "tx-pool/src/service/tests"
+    "tx-pool/src/service/tests",
+    "tx-pool/src/tests"
   ],
   "allowed_test_files": [],
-  "module_wiring": [
-    {"file": "tx-pool/src/benchmark.rs", "module": "debug_tests", "path": "tests/benchmark_debug.rs"},
-    {"file": "tx-pool/src/block_assembler/candidate_uncles.rs", "module": "tests", "path": "tests/candidate_uncles.rs"},
-    {"file": "tx-pool/src/block_assembler/notify.rs", "module": "tests", "path": "tests/notify.rs"},
-    {"file": "tx-pool/src/block_assembler/mod.rs", "module": "tests"},
-    {"file": "tx-pool/src/callback.rs", "module": "tests", "path": "tests/callback.rs"},
-    {"file": "tx-pool/src/component/links.rs", "module": "test_support", "path": "tests/links_test_support.rs"},
-    {"file": "tx-pool/src/component/mod.rs", "module": "tests"},
-    {"file": "tx-pool/src/component/out_point_index.rs", "module": "tests", "path": "tests/out_point_index.rs"},
-    {"file": "tx-pool/src/component/pool_map.rs", "module": "test_support", "path": "tests/pool_map_test_support.rs"},
-    {"file": "tx-pool/src/component/pre_pool/mod.rs", "module": "test_support", "path": "../tests/pre_pool_test_support.rs"},
-    {"file": "tx-pool/src/component/pre_pool/queue.rs", "module": "tests", "path": "../tests/pre_pool_queue.rs"},
-    {"file": "tx-pool/src/component/pre_pool/runtime.rs", "module": "test_support", "path": "../tests/pre_pool_runtime_test_support.rs"},
-    {"file": "tx-pool/src/component/recent_reject.rs", "module": "test_support", "path": "tests/recent_reject_test_support.rs"},
-    {"file": "tx-pool/src/component/tx_selector.rs", "module": "tests", "path": "tests/tx_selector.rs"},
-    {"file": "tx-pool/src/lib.rs", "module": "test_support", "path": "tests/support.rs"},
-    {"file": "tx-pool/src/process/classify.rs", "module": "test_support", "path": "tests/classify_test_support.rs"},
-    {"file": "tx-pool/src/process/post_process.rs", "module": "test_support", "path": "tests/post_process_test_support.rs"},
-    {"file": "tx-pool/src/process/reorg.rs", "module": "tests", "path": "tests/reorg.rs"},
-    {"file": "tx-pool/src/process/submit/rbf_commit.rs", "module": "test_support", "path": "../tests/rbf_commit_test_support.rs"},
-    {"file": "tx-pool/src/persisted.rs", "module": "tests", "path": "tests/persisted.rs"},
-    {"file": "tx-pool/src/pool_cell.rs", "module": "tests", "path": "tests/pool_cell.rs"},
-    {"file": "tx-pool/src/resolved_tx.rs", "module": "tests", "path": "tests/resolved_tx.rs"},
-    {"file": "tx-pool/src/service.rs", "module": "tests"},
-    {"file": "tx-pool/src/service/builder.rs", "module": "shutdown_tests", "path": "tests/builder_shutdown.rs"},
-    {"file": "tx-pool/src/service/effects.rs", "module": "tests", "path": "tests/effects.rs"},
-    {"file": "tx-pool/src/service/message.rs", "module": "tests", "path": "tests/message.rs"},
-    {"file": "tx-pool/src/service/stages/runner.rs", "module": "tests", "path": "../tests/stage_runner.rs"},
-    {"file": "tx-pool/src/util.rs", "module": "block_offload_tests", "path": "tests/block_offload.rs"}
-  ],
-  "cfg_test_occurrences": {
-    "tx-pool/src/benchmark.rs": 1,
-    "tx-pool/src/block_assembler/candidate_uncles.rs": 1,
-    "tx-pool/src/block_assembler/mod.rs": 3,
-    "tx-pool/src/block_assembler/notify.rs": 2,
-    "tx-pool/src/callback.rs": 1,
-    "tx-pool/src/component/links.rs": 1,
-    "tx-pool/src/component/mod.rs": 1,
-    "tx-pool/src/component/out_point_index.rs": 1,
-    "tx-pool/src/component/pool_map.rs": 1,
-    "tx-pool/src/component/pre_pool/mod.rs": 1,
-    "tx-pool/src/component/pre_pool/queue.rs": 1,
-    "tx-pool/src/component/pre_pool/runtime.rs": 1,
-    "tx-pool/src/component/recent_reject.rs": 1,
-    "tx-pool/src/component/tx_selector.rs": 1,
-    "tx-pool/src/lib.rs": 1,
-    "tx-pool/src/persisted.rs": 1,
-    "tx-pool/src/process/classify.rs": 3,
-    "tx-pool/src/process/post_process.rs": 1,
-    "tx-pool/src/process/reorg.rs": 2,
-    "tx-pool/src/process/submit/rbf_commit.rs": 1,
-    "tx-pool/src/pool_cell.rs": 1,
-    "tx-pool/src/resolved_tx.rs": 1,
-    "tx-pool/src/service.rs": 1,
-    "tx-pool/src/service/builder.rs": 1,
-    "tx-pool/src/service/effects.rs": 1,
-    "tx-pool/src/service/message.rs": 1,
-    "tx-pool/src/service/stages/runner.rs": 1,
-    "tx-pool/src/util.rs": 1
-  },
   "seams": [
     {
       "file": "tx-pool/src/block_assembler/mod.rs",
@@ -83,10 +22,22 @@
       "behavior_ids": ["TP-TEMPLATE-001", "TP-EFFECT-001"]
     },
     {
-      "file": "tx-pool/src/block_assembler/candidate_uncles.rs",
-      "symbols": ["CandidateUncles::prepare_and_commit_for_test"],
-      "kind": "internal-feature cross-crate Plan/Apply publication seam",
-      "behavior_ids": ["TP-TEMPLATE-001"]
+      "file": "tx-pool/src/authority/runtime.rs",
+      "symbols": ["AuthorityRuntime::template_captures"],
+      "kind": "zero-production-cost template capture observation field, initializer, and hook",
+      "behavior_ids": ["TP-TEMPLATE-001", "TP-PERF-001"]
+    },
+    {
+      "file": "tx-pool/src/authority/plan.rs",
+      "symbols": ["CheckoutSearch::probes"],
+      "kind": "zero-production-cost bounded scheduler probe counter",
+      "behavior_ids": ["TP-WORKER-001", "TP-PERF-001"]
+    },
+    {
+      "file": "tx-pool/src/authority/plan.rs",
+      "symbols": ["DependencyLossWork", "DependencyLossKeys::work"],
+      "kind": "zero-production-cost bounded dependency-loss operation counter",
+      "behavior_ids": ["TP-DEP-001", "TP-PERF-001"]
     }
   ]
 }

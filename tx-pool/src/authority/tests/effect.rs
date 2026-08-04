@@ -13,7 +13,7 @@ use super::super::{
     runtime::AuthorityRuntime,
     state::{
         AcceptedStatus, ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash,
-        RejectionKind, RemoteDeadline, ValidatedAdmission, WorkPermit,
+        RemoteDeadline, ValidatedAdmission, WorkPermit, test_support::RejectionKind,
     },
 };
 use super::foundation::{
@@ -134,11 +134,13 @@ fn rejected_publication(
     authority
         .effect_publication_for_foundation(
             policy,
-            vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
-                tx: transaction,
-                audience: RejectionAudience::foundation(),
-                reason: RejectionKind::Policy,
-            })],
+            vec![CommittedEffect::Rejected(
+                CommittedRejection::for_foundation(
+                    transaction,
+                    RejectionAudience::foundation(),
+                    RejectionKind::Policy,
+                ),
+            )],
         )
         .expect("fixture effect is bounded")
 }
@@ -199,11 +201,11 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
-            CommittedEffect::Rejected(CommittedRejection::Foundation {
-                tx: Arc::clone(&transaction),
-                audience: RejectionAudience::foundation(),
-                reason: RejectionKind::Verification,
-            }),
+            CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                Arc::clone(&transaction),
+                RejectionAudience::foundation(),
+                RejectionKind::Verification,
+            )),
         )
         .expect("the first bounded rejection commits");
     let first = runtime
@@ -220,11 +222,11 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
-            CommittedEffect::Rejected(CommittedRejection::Foundation {
-                tx: Arc::clone(&transaction),
-                audience: RejectionAudience::foundation(),
-                reason: RejectionKind::Policy,
-            }),
+            CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                Arc::clone(&transaction),
+                RejectionAudience::foundation(),
+                RejectionKind::Policy,
+            )),
         )
         .expect("a newer rejection for the same raw hash commits");
     let second = runtime
@@ -302,16 +304,16 @@ fn uak_pending_recent_reject_uses_effect_position_within_one_batch() {
         .effect_publication_for_foundation(
             EffectPolicy::Remote,
             vec![
-                CommittedEffect::Rejected(CommittedRejection::Foundation {
-                    tx: Arc::clone(&transaction),
-                    audience: RejectionAudience::foundation(),
-                    reason: RejectionKind::Verification,
-                }),
-                CommittedEffect::Rejected(CommittedRejection::Foundation {
-                    tx: transaction,
-                    audience: RejectionAudience::foundation(),
-                    reason: RejectionKind::Policy,
-                }),
+                CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                    Arc::clone(&transaction),
+                    RejectionAudience::foundation(),
+                    RejectionKind::Verification,
+                )),
+                CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                    transaction,
+                    RejectionAudience::foundation(),
+                    RejectionKind::Policy,
+                )),
             ],
         )
         .expect("two bounded outcomes may share one raw hash and one batch");
@@ -368,16 +370,16 @@ fn uak_effect_configuration_and_publication_are_authority_bounded() {
         .effect_publication_for_foundation(
             EffectPolicy::Remote,
             vec![
-                CommittedEffect::Rejected(CommittedRejection::Foundation {
-                    tx: Arc::new(tx(700)),
-                    audience: RejectionAudience::foundation(),
-                    reason: RejectionKind::Policy,
-                }),
-                CommittedEffect::Rejected(CommittedRejection::Foundation {
-                    tx: Arc::new(tx(701)),
-                    audience: RejectionAudience::foundation(),
-                    reason: RejectionKind::Policy,
-                }),
+                CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                    Arc::new(tx(700)),
+                    RejectionAudience::foundation(),
+                    RejectionKind::Policy,
+                )),
+                CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                    Arc::new(tx(701)),
+                    RejectionAudience::foundation(),
+                    RejectionKind::Policy,
+                )),
             ],
         )
         .expect("broad authority admits two effects");
@@ -491,7 +493,6 @@ fn effect_sizing_family(effect: &CommittedEffect) -> &'static str {
             CommittedRejection::CapacityEvicted { .. } => "trusted-admission",
             CommittedRejection::Expired { .. } => "critical-detail",
             CommittedRejection::ChainConflict { .. } => "chain-rebuildable",
-            CommittedRejection::Foundation { .. } => "foundation-only",
         },
         CommittedEffect::ChainCommitted { .. } => "chain-rebuildable",
         CommittedEffect::PeerCohortRevoked(_) => "critical-detail",

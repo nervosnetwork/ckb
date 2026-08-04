@@ -1,4 +1,4 @@
-use super::{Callbacks, in_callback, mark_callback_thread, with_callback_context};
+use super::{Callbacks, in_callback, with_callback_context};
 use crate::component::entry::TxEntry;
 use ckb_types::core::{Capacity, TransactionBuilder};
 use std::sync::{
@@ -23,18 +23,6 @@ fn publish_dispatches_the_typed_event() {
 
     callbacks.publish(&super::CallbackEvent::Pending(entry.into()));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn legacy_callback_worker_marker_is_thread_local() {
-    assert!(!in_callback());
-    std::thread::spawn(|| {
-        mark_callback_thread();
-        assert!(in_callback());
-    })
-    .join()
-    .unwrap();
-    assert!(!in_callback());
 }
 
 #[test]

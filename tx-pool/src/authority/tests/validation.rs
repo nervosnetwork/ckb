@@ -7,8 +7,8 @@ use crate::authority::{
     chain::DirectAdmissionWork,
     plan::{
         CandidateDispositionPlan, DirectAdmissionDisposition, FinalAdmissionDispositionPlan,
-        IndependentCandidate, IndependentCoupling, PlanError, SettlementBatch, SettlementPlan,
-        StalePlan, TxPoolAuthority,
+        IndependentCandidate, PlanError, SettlementBatch, SettlementPlan, StalePlan,
+        TxPoolAuthority, test_support::IndependentCoupling,
     },
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork,

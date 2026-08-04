@@ -2,21 +2,21 @@ mod chain_transition;
 mod membership;
 mod settlement;
 
+#[cfg(test)]
+#[path = "tests/support/plan.rs"]
+pub(in crate::authority) mod test_support;
+#[cfg(test)]
+use self::test_support::DependencyLossWork;
+
 use super::ban::{PeerBanDelta, PeerBanError, PeerBanRegistry};
-#[cfg(test)]
-use super::chain::AcceptedProof;
-#[cfg(test)]
-use super::chain::{AdmissionEvidenceError, DirectAdmissionWork};
 use super::chain::{
     DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionReceipt,
     FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
     ReadyPayloadRelation,
 };
-#[cfg(test)]
-use super::dependency::DependencySnapshot;
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
-    DependencyEvent, DependencyFrontier, DependencyMaintenanceAction, StableDependencyError,
+    DependencyFrontier, DependencyMaintenanceAction, StableDependencyError,
 };
 use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
@@ -25,29 +25,19 @@ use super::effect::{
     EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
     EffectSettlementPlanError, ParentTransactionRequest, PendingRecentReject, RejectionAudience,
 };
-#[cfg(test)]
-use super::effect::{EffectObservation, EffectSnapshot};
-#[cfg(test)]
-use super::indexes::IndexSnapshot;
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
 use super::ingress::{
     DirectCommand, RetainedIngress, RetainedIngressKind, RetainedIngressRejection,
 };
 use super::read::AuthorityReadView;
-#[cfg(test)]
-pub(in crate::authority) use super::rejection::ComponentLimitKind;
 pub(in crate::authority) use super::rejection::MembershipReject;
 use super::rejection::{
     CommittedPublicReject, DirectRejectionValidity, DirectTransactionRejection,
 };
-#[cfg(test)]
-use super::resources::ResourceSnapshot;
 use super::resources::{
     ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ComputeReleaseError, ResourceBatchPlan,
     ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
 };
-#[cfg(test)]
-use super::scheduler::SchedulerSnapshot;
 use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     VerifyOrder,
@@ -61,114 +51,27 @@ use super::state::{
     PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
     ReplacementHistoryEntry, ReplacementHistoryError, TxRecord, ValidatedAdmission,
 };
-#[cfg(test)]
-use super::state::{AcceptedStatus, TxIdentity};
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
     CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementRejection,
     SettlementToken,
 };
 use crate::error::Reject;
-#[cfg(test)]
-use ckb_types::core::TransactionView;
 use ckb_types::{
     core::{EntryCompleted, error::OutPointError, tx_pool::get_transaction_weight},
     prelude::Unpack,
 };
-#[cfg(test)]
-use ckb_verification::cache::ScriptVerificationRules;
 pub(in crate::authority) use membership::MembershipConfig;
+pub(in crate::authority) use membership::RemovalCause;
 pub(in crate::authority) use membership::{
     AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
     MembershipProjection,
 };
-#[cfg(test)]
-pub(in crate::authority) use membership::{IndependentCoupling, MembershipSnapshot};
 use membership::{MembershipRemoval, PreparedMembership, ProjectionDelta};
-pub(in crate::authority) use membership::{RemovalCause, StatusCounts};
-#[cfg(test)]
-pub(in crate::authority) use settlement::CandidateBatchError;
 pub(in crate::authority) use settlement::{IndependentCandidate, SettlementBatch, SettlementPlan};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum OwnerPhaseSnapshot {
-    PreAccepted {
-        phase: PreAcceptedPhase,
-        dependencies: KnownDependencies,
-        original_charge: ResourceVector,
-    },
-    Accepted {
-        status: AcceptedStatus,
-        proof: AcceptedProof,
-        dependencies: KnownDependencies,
-        accepted_at: AcceptedAtMillis,
-    },
-    ReplacementHistory {
-        dependencies: KnownDependencies,
-        observation: DependencyCut,
-    },
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct OwnerSnapshot {
-    identity: TxIdentity,
-    source: OwnerSourceSnapshot,
-    version: EntryVersion,
-    arrival: Arrival,
-    charge: ChargeRecord,
-    phase: OwnerPhaseSnapshot,
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OwnerSourceSnapshot {
-    PreAccepted(PreAcceptedSource),
-    Accepted(AcceptedProvenance),
-    ReplacementHistory,
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct AuthoritySnapshot {
-    generation: PoolGeneration,
-    chain_view: ChainViewId,
-    entries: HashMap<RawTxHash, OwnerSnapshot>,
-    indexes: IndexSnapshot,
-    source_versions: AuthoritySourceVersions,
-    resources: ResourceSnapshot,
-    membership: MembershipSnapshot,
-    scheduler: SchedulerSnapshot,
-    dependencies: DependencySnapshot,
-    effects: EffectSnapshot,
-    peer_bans: HashMap<ckb_network::PeerIndex, super::ban::PeerBanDeadline>,
-    clocks: AuthorityClocks,
-}
-
-#[cfg(test)]
-impl AuthoritySnapshot {
-    /// Reference equivalence for a commuting multi-owner Apply versus the
-    /// same transitions applied one at a time.  Authority state and clocks
-    /// must be identical; only effect-journal batch packaging may differ.
-    pub(super) fn equivalent_modulo_effect_batching(&self, other: &Self) -> bool {
-        self.generation == other.generation
-            && self.chain_view == other.chain_view
-            && self.entries == other.entries
-            && self.indexes == other.indexes
-            && self.source_versions == other.source_versions
-            && self.resources == other.resources
-            && self.membership == other.membership
-            && self.scheduler == other.scheduler
-            && self.dependencies == other.dependencies
-            && self.effects.equivalent_stream(&other.effects)
-            && self.peer_bans == other.peer_bans
-            && self.clocks == other.clocks
-    }
-}
 
 #[derive(Debug)]
 pub(super) struct TxPoolAuthority {
@@ -204,21 +107,6 @@ impl TxPoolAuthority {
         ))
     }
 
-    #[cfg(test)]
-    pub(super) fn new(
-        limits: ResourceLimits,
-        verify_order: VerifyOrder,
-        effect_limits: EffectLimits,
-    ) -> Result<Self, AuthorityConfigError> {
-        Self::from_runtime(
-            limits,
-            verify_order,
-            effect_limits,
-            MembershipConfig::testing_default(),
-            ChainViewId::initial(),
-        )
-    }
-
     fn assemble(
         limits: ResourceLimits,
         verify_order: VerifyOrder,
@@ -243,63 +131,8 @@ impl TxPoolAuthority {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn with_replacement(
-        limits: ResourceLimits,
-        minimum_rate: ckb_types::core::FeeRate,
-    ) -> Self {
-        let mut authority = Self::for_foundation(limits);
-        authority.membership_config = MembershipConfig::testing_with_replacement(minimum_rate);
-        authority
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation(limits: ResourceLimits) -> Self {
-        Self::assemble(
-            limits,
-            VerifyOrder::Arrival,
-            EffectLog::for_foundation(),
-            MembershipConfig::testing_default(),
-            ChainViewId::initial(),
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation_with_order(
-        limits: ResourceLimits,
-        verify_order: VerifyOrder,
-    ) -> Self {
-        Self::assemble(
-            limits,
-            verify_order,
-            EffectLog::for_foundation(),
-            MembershipConfig::testing_default(),
-            ChainViewId::initial(),
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation_with_effect_limits(
-        limits: ResourceLimits,
-        effect_limits: EffectLimits,
-    ) -> Result<Self, AuthorityConfigError> {
-        Self::new(limits, VerifyOrder::Arrival, effect_limits)
-    }
-
     pub(super) fn entry(&self, hash: &RawTxHash) -> Option<&OwnedTx> {
         self.entries.get(hash)
-    }
-
-    pub(super) fn owner_count(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub(super) fn charged_count(&self) -> usize {
-        self.resources.charge_count()
-    }
-
-    pub(super) fn resources(&self) -> &ResourceLedger {
-        &self.resources
     }
 
     pub(super) fn operational_metrics(&self) -> crate::metrics::OperationalMetrics {
@@ -320,29 +153,11 @@ impl TxPoolAuthority {
         }
     }
 
-    pub(super) fn membership_counts(&self) -> StatusCounts {
-        self.membership.counts()
-    }
-
     pub(super) fn accepted_spender(
         &self,
         input: &ckb_types::packed::OutPoint,
     ) -> Option<&RawTxHash> {
         self.membership.spender(input)
-    }
-
-    pub(super) fn accepted_parents(
-        &self,
-        hash: &RawTxHash,
-    ) -> Option<&std::collections::HashSet<RawTxHash>> {
-        self.membership.parents(hash)
-    }
-
-    pub(super) fn accepted_children(
-        &self,
-        hash: &RawTxHash,
-    ) -> Option<&std::collections::HashSet<RawTxHash>> {
-        self.membership.children(hash)
     }
 
     pub(super) fn chain_revision(&self) -> ChainRevision {
@@ -368,14 +183,6 @@ impl TxPoolAuthority {
         self.source_versions.accepted()
     }
 
-    pub(super) fn generation(&self) -> PoolGeneration {
-        self.generation
-    }
-
-    pub(super) fn clocks(&self) -> AuthorityClocks {
-        self.clocks
-    }
-
     /// Borrow one immutable authority cut for every query projection. The view
     /// exposes neither the primary owner enum nor independently captured
     /// accepted/preaccepted collections.
@@ -392,142 +199,14 @@ impl TxPoolAuthority {
         )
     }
 
-    #[cfg(test)]
-    pub(super) fn entries_for_reference(&self) -> &HashMap<RawTxHash, OwnedTx> {
-        &self.entries
-    }
-
-    #[cfg(test)]
-    pub(super) fn membership_snapshot_for_reference(&self) -> MembershipSnapshot {
-        self.membership.snapshot()
-    }
-
     /// Bounded strongest-first Ready identities for the runtime's sealed
     /// validation capture. Raw identities never cross the authority module.
     pub(in crate::authority) fn ready_candidates(&self) -> Vec<(RawTxHash, EntryVersion)> {
         self.scheduler.ready()
     }
 
-    #[cfg(test)]
-    pub(super) fn ready_for_reference(&self) -> Vec<(RawTxHash, EntryVersion)> {
-        self.ready_candidates()
-    }
-
-    #[cfg(test)]
-    pub(super) fn preaccepted_for_peer_for_reference(
-        &self,
-        peer: ckb_network::PeerIndex,
-    ) -> Vec<RawTxHash> {
-        let mut owners = self
-            .indexes
-            .preaccepted_for_peer(peer)
-            .map_or_else(Vec::new, |owners| owners.iter().cloned().collect());
-        owners.sort_unstable();
-        owners
-    }
-
-    #[cfg(test)]
-    pub(super) fn peer_is_banned_for_reference(&self, peer: ckb_network::PeerIndex) -> bool {
-        self.peer_bans.contains_at(peer, Instant::now())
-    }
-
-    #[cfg(test)]
-    pub(super) fn accepted_source_for_reference(&self) -> ApplySequence {
-        self.source_versions.accepted()
-    }
-
-    #[cfg(test)]
-    pub(super) fn template_source_versions_for_reference(&self) -> PoolTemplateVersions {
-        self.template_source_versions()
-    }
-
     pub(in crate::authority) fn template_source_versions(&self) -> PoolTemplateVersions {
         self.source_versions.template()
-    }
-
-    #[cfg(test)]
-    pub(super) fn force_chain_view(&mut self, view: ChainViewId) {
-        self.chain_view = view;
-    }
-
-    #[cfg(test)]
-    pub(super) fn force_next_sequence(&mut self, sequence: ApplySequence) {
-        self.clocks.next_sequence = sequence;
-    }
-
-    #[cfg(test)]
-    pub(super) fn normalized_snapshot(&self) -> AuthoritySnapshot {
-        let entries = self
-            .entries
-            .iter()
-            .map(|(hash, owner)| {
-                let record = owner.record();
-                let phase = match owner {
-                    OwnedTx::PreAccepted(entry) => OwnerPhaseSnapshot::PreAccepted {
-                        phase: entry.phase.clone(),
-                        dependencies: entry.dependencies().clone(),
-                        original_charge: entry.original_charge(),
-                    },
-                    OwnedTx::Accepted(entry) => OwnerPhaseSnapshot::Accepted {
-                        status: entry.status(),
-                        proof: entry.proof.clone(),
-                        dependencies: entry.proof.payload().dependencies().clone(),
-                        accepted_at: entry.accepted_at,
-                    },
-                    OwnedTx::ReplacementHistory(entry) => OwnerPhaseSnapshot::ReplacementHistory {
-                        dependencies: entry.dependencies().clone(),
-                        observation: entry.observation().dependency_cut(),
-                    },
-                };
-                let source = match owner {
-                    OwnedTx::PreAccepted(entry) => OwnerSourceSnapshot::PreAccepted(entry.source),
-                    OwnedTx::Accepted(entry) => OwnerSourceSnapshot::Accepted(entry.provenance),
-                    OwnedTx::ReplacementHistory(_) => OwnerSourceSnapshot::ReplacementHistory,
-                };
-                (
-                    hash.clone(),
-                    OwnerSnapshot {
-                        identity: record.identity.clone(),
-                        source,
-                        version: record.version,
-                        arrival: record.arrival,
-                        charge: owner.charge_record(),
-                        phase,
-                    },
-                )
-            })
-            .collect();
-        AuthoritySnapshot {
-            generation: self.generation,
-            chain_view: self.chain_view.clone(),
-            entries,
-            indexes: self.indexes.snapshot(),
-            source_versions: self.source_versions,
-            resources: self.resources.snapshot(),
-            membership: self.membership.snapshot(),
-            scheduler: self.scheduler.snapshot(),
-            dependencies: self.dependencies.snapshot(),
-            effects: self.effects.snapshot(),
-            peer_bans: self.peer_bans.snapshot(),
-            clocks: self.clocks,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn primary_projection_consistent(&self) -> bool {
-        self.entries.len() == self.resources.charge_count()
-            && self.entries.iter().all(|(hash, owner)| {
-                self.resources.charge(hash) == Some(owner.charge_record())
-                    && &owner.record().identity.raw == hash
-            })
-            && self.indexes.semantically_matches(&self.entries)
-            && self.resources.semantically_matches(&self.entries)
-            && self.scheduler.semantically_matches(&self.entries)
-            && self.dependencies.semantically_matches(&self.entries)
-            && self.peer_bans.semantically_consistent()
-            && self
-                .effects
-                .semantically_consistent(self.clocks.next_sequence)
     }
 }
 
@@ -666,16 +345,6 @@ impl ComputeSettlementFailure {
         drop(next);
         ComputeCancellation { token }
     }
-
-    #[cfg(test)]
-    pub(super) fn allocation_for_foundation(settlement: ComputeSettlement) -> Self {
-        let ComputeSettlement { token, next } = settlement;
-        Self::new(
-            PlanError::Backpressure(Backpressure::Allocation),
-            token,
-            next,
-        )
-    }
 }
 
 #[derive(Debug)]
@@ -717,16 +386,19 @@ pub(super) enum EffectCloseError {
 #[must_use = "a failed effect settlement still owns the active effect capability"]
 pub(super) struct EffectSettlementFailure {
     error: EffectSettlementError,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "this move-only capability is retained until the publisher fault is disposed; tests also recover it to prove linearity"
+        )
+    )]
     settlement: EffectSettlement,
 }
 
 impl EffectSettlementFailure {
     pub(super) fn error(&self) -> EffectSettlementError {
         self.error
-    }
-
-    pub(super) fn into_settlement(self) -> EffectSettlement {
-        self.settlement
     }
 }
 
@@ -829,6 +501,10 @@ pub(super) enum CommittedChanges {
 }
 
 #[derive(Debug, Default)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing Compute would allocate on every checkout; this private handoff moves once into the typed PreparedCheckout"
+)]
 pub(super) enum CommittedHandoff {
     #[default]
     None,
@@ -839,9 +515,37 @@ pub(super) enum CommittedHandoff {
 #[must_use = "a committed delta contains the only post-Apply work/effect handoff"]
 pub(super) struct CommittedDelta {
     pub(super) changes: CommittedChanges,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the handoff is an ownership carrier dropped only after the authority guard opens"
+        )
+    )]
     pub(super) handoff: CommittedHandoff,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "removal storage is intentionally retired only after the authority guard opens"
+        )
+    )]
     pub(super) removals: Vec<MembershipRemoval>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "removed owners are intentionally destroyed only after the authority guard opens"
+        )
+    )]
     retired: Vec<OwnedTx>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "replaced effect storage is intentionally destroyed only after the authority guard opens"
+        )
+    )]
     retired_effect: Option<Arc<EffectBatch>>,
     retired_generation: Option<RetiredGeneration>,
 }
@@ -898,44 +602,6 @@ impl CommittedDelta {
         }
     }
 
-    pub(in crate::authority) fn retired_len(&self) -> usize {
-        self.retired.len().saturating_add(
-            self.retired_generation
-                .as_ref()
-                .map_or(0, RetiredGeneration::owner_count),
-        )
-    }
-
-    pub(in crate::authority) fn handoff_is_none(&self) -> bool {
-        matches!(self.handoff, CommittedHandoff::None)
-    }
-
-    /// Move compute work out while retaining every retirement carrier in this
-    /// delta. Runtime callers must keep the delta alive until the authority
-    /// guard has opened, then let its retired payloads fall out of scope.
-    pub(in crate::authority) fn take_work(&mut self) -> Option<CheckedOutWork> {
-        let handoff = std::mem::take(&mut self.handoff);
-        match handoff {
-            CommittedHandoff::Compute(work) => Some(work),
-            other => {
-                self.handoff = other;
-                None
-            }
-        }
-    }
-
-    /// Test fixtures own no runtime authority guard, so they may consume the
-    /// complete delta for concise capability extraction. This API is absent
-    /// from production builds; production must retain the retirement carrier.
-    #[cfg(test)]
-    pub(in crate::authority) fn into_work(mut self) -> Option<CheckedOutWork> {
-        self.take_work()
-    }
-
-    pub(in crate::authority) fn retired_effect_len(&self) -> usize {
-        usize::from(self.retired_effect.is_some())
-    }
-
     /// Publish the legacy asynchronous processing histogram only from the
     /// closed receipt of a successful membership Apply. Timing evidence is
     /// removed from Accepted ownership before this receipt is built, so a
@@ -962,23 +628,6 @@ impl CommittedDelta {
             | CommittedChanges::ClearPoolControl(_)
             | CommittedChanges::AdminControl { .. }
             | CommittedChanges::ChainControl { .. } => {}
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn async_process_observation_count(&self) -> usize {
-        match &self.changes {
-            CommittedChanges::One(change) => usize::from(change.async_process_start.is_some()),
-            CommittedChanges::IndependentRun(changes) => changes
-                .iter()
-                .filter(|change| change.async_process_start.is_some())
-                .count(),
-            CommittedChanges::DependencyControl(_)
-            | CommittedChanges::EffectControl(_)
-            | CommittedChanges::ClearPipelineControl { .. }
-            | CommittedChanges::ClearPoolControl(_)
-            | CommittedChanges::AdminControl { .. }
-            | CommittedChanges::ChainControl { .. } => 0,
         }
     }
 }
@@ -1031,23 +680,8 @@ enum EntryReplacementRetirement {
 
 struct WorkHandoff {
     work: CheckedOutWork,
-    origin: CheckoutOrigin,
-}
-
-#[cfg_attr(
-    test,
-    expect(
-        clippy::large_enum_variant,
-        reason = "the unit variant is test-only; boxing the production reservation would add a hot-path allocation"
-    )
-)]
-enum CheckoutOrigin {
-    Scheduled {
-        ticket: CheckoutTicket,
-        reservation: CheckoutReservation,
-    },
-    #[cfg(test)]
-    Foundation,
+    ticket: CheckoutTicket,
+    reservation: CheckoutReservation,
 }
 
 struct CheckoutReservation {
@@ -1084,20 +718,6 @@ struct DependencyLossKeys {
     keys: Vec<DependencyKey>,
     #[cfg(test)]
     work: DependencyLossWork,
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct DependencyLossWork {
-    pub(super) output_keys: usize,
-    pub(super) indexed_origin_keys: usize,
-}
-
-#[cfg(test)]
-impl DependencyLossWork {
-    pub(super) fn total(self) -> Option<usize> {
-        self.output_keys.checked_add(self.indexed_origin_keys)
-    }
 }
 
 struct MembershipDelta {
@@ -1170,18 +790,6 @@ struct EffectOnlyDelta {
     sequence: ApplySequence,
 }
 
-/// Public terminalization evidence for a pre-accepted owner.
-///
-/// Production has no silent variant: removing the owner necessarily consumes
-/// a pre-built committed publication in the same Apply.  Foundation tests may
-/// exercise dependency-loss mechanics without inventing a public outcome, but
-/// that capability does not exist in a production build.
-enum PreAcceptedTerminalOutcome<'publication> {
-    Published(&'publication EffectPublication),
-    #[cfg(test)]
-    SilentFixture,
-}
-
 struct FreshGeneration {
     entries: HashMap<RawTxHash, OwnedTx>,
     indexes: AuthorityIndexes,
@@ -1244,14 +852,6 @@ enum AdminPlan {
     AcceptedExpiry {
         root: RawTxHash,
         cutoff: AcceptedAtMillis,
-    },
-}
-
-enum PeerRevocationEvidence {
-    Administrative,
-    Malformed {
-        tx_hash: RawTxHash,
-        reason: CommittedPublicReject,
     },
 }
 
@@ -1450,17 +1050,6 @@ impl CommittedCheckout {
     pub(in crate::authority) fn into_parts(self) -> (CheckedOutWork, CommittedDelta) {
         (self.work, self.retirement)
     }
-
-    /// Foundation fixtures own no runtime authority guard.
-    #[cfg(test)]
-    pub(in crate::authority) fn into_work(self) -> Option<CheckedOutWork> {
-        Some(self.work)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn committed_delta_for_foundation(&self) -> &CommittedDelta {
-        &self.retirement
-    }
 }
 
 impl PreparedEffectCheckout<'_> {
@@ -1485,23 +1074,6 @@ impl CommittedEffectCheckout {
     /// only then may the move-only publisher lease cross the async boundary.
     pub(in crate::authority) fn into_parts(self) -> (EffectLease, CommittedDelta) {
         (self.lease, self.retirement)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn into_effect_lease(self) -> EffectLease {
-        self.lease
-    }
-}
-
-#[cfg(test)]
-impl From<CommittedCheckout> for CommittedDelta {
-    fn from(checkout: CommittedCheckout) -> Self {
-        let CommittedCheckout {
-            work,
-            mut retirement,
-        } = checkout;
-        retirement.handoff = CommittedHandoff::Compute(work);
-        retirement
     }
 }
 
@@ -1536,6 +1108,10 @@ pub(super) enum DirectAdmissionDisposition<'authority> {
 /// atomic membership Apply.
 #[cfg(any(test, feature = "internal"))]
 #[must_use = "internal plug disposition must be applied or returned as a no-op"]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the internal-only capability is consumed immediately; boxing would add allocation without reducing any retained production structure"
+)]
 pub(super) enum InternalPlugDisposition<'authority> {
     Insert(PreparedApply<'authority>),
     Duplicate,
@@ -1572,10 +1148,6 @@ pub(super) struct PreparedDirectDuplicate<'authority> {
 }
 
 impl PreparedDirectDuplicate<'_> {
-    pub(super) fn key(&self) -> &RawTxHash {
-        &self.key
-    }
-
     pub(super) fn apply(self) -> (RawTxHash, CommittedDelta) {
         (self.key, self.plan.apply())
     }
@@ -1588,10 +1160,6 @@ pub(super) struct PreparedDirectRejection<'authority> {
 }
 
 impl PreparedDirectRejection<'_> {
-    pub(super) fn reason(&self) -> &MembershipReject {
-        &self.reason
-    }
-
     pub(super) fn apply(self) -> (MembershipReject, CommittedDelta) {
         (self.reason, self.plan.apply())
     }
@@ -1614,20 +1182,12 @@ pub(super) struct PreparedValidationRejection<'authority> {
 }
 
 impl PreparedValidationRejection<'_> {
-    pub(super) fn reason(&self) -> &CommittedPublicReject {
-        &self.reason
-    }
-
     pub(super) fn apply(self) -> (CommittedPublicReject, CommittedDelta) {
         (self.reason, self.plan.apply())
     }
 }
 
 impl PreparedCandidateRejection<'_> {
-    pub(super) fn reason(&self) -> &MembershipReject {
-        &self.reason
-    }
-
     pub(super) fn apply(self) -> (MembershipReject, CommittedDelta) {
         (self.reason, self.plan.apply())
     }
@@ -2084,20 +1644,6 @@ impl TxPoolAuthority {
         ))
     }
 
-    #[cfg(test)]
-    pub(super) fn independent_candidate_for_foundation(
-        &self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Result<IndependentCandidate, PlanError> {
-        let receipt = self
-            .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ScriptVerificationRules::V0)
-            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
-        Ok(IndependentCandidate::new(receipt))
-    }
-
     fn plan_membership_dependency_delta(
         &self,
         existing: Option<&OwnedTx>,
@@ -2503,10 +2049,7 @@ impl TxPoolAuthority {
         let loss = self.collect_dependency_loss_keys(parents)?;
         Ok(self
             .dependencies
-            .plan_event(
-                loss.keys,
-                DependencyEvent::DefinitiveLoss(DependencyCut(sequence)),
-            )?
+            .plan_events(Vec::new(), loss.keys, DependencyCut(sequence))?
             .unwrap_or_default())
     }
 
@@ -2549,30 +2092,6 @@ impl TxPoolAuthority {
             #[cfg(test)]
             work,
         })
-    }
-
-    #[cfg(test)]
-    pub(super) fn dependency_loss_work_for_foundation(
-        &self,
-        parents: &[RawTxHash],
-    ) -> Result<DependencyLossWork, PlanError> {
-        let parents = parents
-            .iter()
-            .map(|hash| {
-                self.entries
-                    .get(hash)
-                    .ok_or(PlanError::Stale(StalePlan::Missing))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(self.collect_dependency_loss_keys(parents)?.work)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_admission(
-        &mut self,
-        admission: ValidatedAdmission,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_validated_admission(admission)
     }
 
     pub(super) fn plan_retained_admission(
@@ -2638,14 +2157,9 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let (kind, tx, reason) = rejection.into_parts();
         match kind {
-            RetainedIngressKind::Remote(peer) if reason.is_malformed() => self
-                .plan_peer_revocation(
-                    peer,
-                    PeerRevocationEvidence::Malformed {
-                        tx_hash: RawTxHash(tx.hash()),
-                        reason,
-                    },
-                ),
+            RetainedIngressKind::Remote(peer) if reason.is_malformed() => {
+                self.plan_peer_revocation(peer, RawTxHash(tx.hash()), reason)
+            }
             RetainedIngressKind::Remote(peer) => self.plan_single_effect(
                 EffectPolicy::Remote,
                 CommittedEffect::Rejected(CommittedRejection::Validation {
@@ -2946,49 +2460,6 @@ impl TxPoolAuthority {
         )
     }
 
-    #[cfg(test)]
-    pub(super) fn plan_accept_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let receipt = self
-            .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ScriptVerificationRules::V0)
-            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
-        self.plan_accept(receipt)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_accept_at_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-        accepted_at: AcceptedAtMillis,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let receipt = self
-            .final_admission_work(key, expected)?
-            .validate_at_for_foundation(status, ScriptVerificationRules::V0, accepted_at)
-            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
-        self.plan_accept(receipt)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_candidate_disposition_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Result<CandidateDispositionPlan<'_>, PlanError> {
-        let receipt = self
-            .final_admission_work(key, expected)?
-            .validate_for_foundation(status, ScriptVerificationRules::V0)
-            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
-        self.plan_candidate_disposition(receipt)
-    }
-
     pub(in crate::authority) fn plan_final_admission(
         &mut self,
         outcome: FinalAdmissionValidationOutcome,
@@ -3049,10 +2520,8 @@ impl TxPoolAuthority {
         {
             let plan = self.plan_peer_revocation(
                 peer,
-                PeerRevocationEvidence::Malformed {
-                    tx_hash: preaccepted.record.identity.raw.clone(),
-                    reason: reason.clone(),
-                },
+                preaccepted.record.identity.raw.clone(),
+                reason.clone(),
             )?;
             return Ok(PreparedValidationRejection { reason, plan });
         }
@@ -3068,11 +2537,8 @@ impl TxPoolAuthority {
                 })],
             )
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-        let plan = self.plan_preaccepted_terminalization(
-            subject.key(),
-            subject.expected(),
-            PreAcceptedTerminalOutcome::Published(&publication),
-        )?;
+        let plan =
+            self.plan_preaccepted_terminalization(subject.key(), subject.expected(), &publication)?;
         Ok(PreparedValidationRejection { reason, plan })
     }
 
@@ -3141,57 +2607,12 @@ impl TxPoolAuthority {
                         })],
                     )
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-                let plan = self.plan_preaccepted_terminalization(
-                    &key,
-                    expected,
-                    PreAcceptedTerminalOutcome::Published(&publication),
-                )?;
+                let plan = self.plan_preaccepted_terminalization(&key, expected, &publication)?;
                 Ok(CandidateDispositionPlan::Rejected(
                     PreparedCandidateRejection { reason, plan },
                 ))
             }
             Err(error) => Err(error),
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_accept_context_sensitive_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let receipt = self
-            .final_admission_work(key, expected)?
-            .validate_context_sensitive_for_foundation(status, ScriptVerificationRules::V0)
-            .map_err(|_| PlanError::Stale(StalePlan::ChainRevision))?;
-        self.plan_accept(receipt)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_direct_admission_for_foundation(
-        &mut self,
-        tx: Arc<TransactionView>,
-        verified: super::state::VerifiedFacts,
-        status: AcceptedStatus,
-    ) -> Result<DirectAdmissionDisposition<'_>, PlanError> {
-        let work = DirectAdmissionWork::new(tx, self.chain_view.clone(), verified)
-            .map_err(Self::direct_admission_evidence_error)?;
-        let receipt = work
-            .validate_for_foundation(status, ScriptVerificationRules::V0)
-            .map_err(Self::direct_admission_evidence_error)?;
-        self.plan_direct_admission(receipt)
-    }
-
-    #[cfg(test)]
-    fn direct_admission_evidence_error(error: AdmissionEvidenceError) -> PlanError {
-        match error {
-            AdmissionEvidenceError::TransactionIdentityMismatch => {
-                PlanError::Fault(AuthorityFault::MembershipProjection)
-            }
-            AdmissionEvidenceError::ScriptRulesChanged => {
-                PlanError::Stale(StalePlan::ChainRevision)
-            }
         }
     }
 
@@ -3511,19 +2932,6 @@ impl TxPoolAuthority {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn plan_accept(
-        &mut self,
-        receipt: FinalAdmissionReceipt,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let delta = self.prepare_accept_delta(receipt)?;
-        Ok(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Membership(delta),
-            handoff: CommittedHandoff::None,
-        })
-    }
-
     fn prepare_accept_delta(
         &mut self,
         receipt: FinalAdmissionReceipt,
@@ -3804,116 +3212,11 @@ impl TxPoolAuthority {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn plan_status_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        status: AcceptedStatus,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.effects.ensure_open()?;
-        let existing = self
-            .entries
-            .get(key)
-            .cloned()
-            .ok_or(PlanError::Stale(StalePlan::Missing))?;
-        if existing.record().version != expected {
-            return Err(PlanError::Stale(StalePlan::Version));
-        }
-        let OwnedTx::Accepted(before) = &existing else {
-            return Err(PlanError::Stale(StalePlan::Phase));
-        };
-        if before.status() == status {
-            return Err(PlanError::Duplicate);
-        }
-
-        let version = self.clocks.next_version;
-        let sequence = self.clocks.next_sequence;
-        let clocks = AuthorityClocks {
-            next_version: next_version(version)?,
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
-        let mut after = before.clone();
-        after.record.version = version;
-        after.proposal = super::chain::ProposalContextReceipt::from_validation(status);
-        let projection = self.prepare_status_change(key, before, &after)?;
-        let after = OwnedTx::Accepted(after);
-        let mut resource_changes = Vec::new();
-        resource_changes
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        resource_changes.push((
-            key.clone(),
-            Some(existing.charge_record()),
-            Some(after.charge_record()),
-        ));
-        let resource = self.resources.plan_batch(resource_changes)?;
-        let scheduler = self
-            .scheduler
-            .plan_replace(Some(&existing), Some(&after), None)?;
-        let dependency =
-            self.plan_membership_dependency_delta(Some(&existing), &after, &[], sequence)?;
-        let owners =
-            self.plan_membership_owner_derivations(key, Some(&existing), &after, &[], sequence)?;
-        let retired = Vec::new();
-        Ok(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Membership(MembershipDelta {
-                changed_key: key.clone(),
-                changed_after: after,
-                changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
-                removals: Vec::new(),
-                owners,
-                resource,
-                projection,
-                scheduler,
-                dependency,
-                effect: EffectDelta::default(),
-                retired,
-                clocks,
-                committed: CommittedChanges::One(CommittedChange {
-                    sequence,
-                    changed: key.clone(),
-                    async_process_start: None,
-                }),
-            }),
-            handoff: CommittedHandoff::None,
-        })
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_terminalize_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_preaccepted_terminalization(
-            key,
-            expected,
-            PreAcceptedTerminalOutcome::SilentFixture,
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_terminalize_with_effect_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        publication: &EffectPublication,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_preaccepted_terminalization(
-            key,
-            expected,
-            PreAcceptedTerminalOutcome::Published(publication),
-        )
-    }
-
     fn plan_preaccepted_terminalization(
         &mut self,
         key: &RawTxHash,
         expected: EntryVersion,
-        outcome: PreAcceptedTerminalOutcome<'_>,
+        publication: &EffectPublication,
     ) -> Result<PreparedApply<'_>, PlanError> {
         let existing = self
             .entries
@@ -3932,13 +3235,7 @@ impl TxPoolAuthority {
             ..self.clocks
         };
         let dependency_control = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
-        let effect = match outcome {
-            PreAcceptedTerminalOutcome::Published(publication) => {
-                self.effects.plan_publication(publication, sequence)?
-            }
-            #[cfg(test)]
-            PreAcceptedTerminalOutcome::SilentFixture => EffectDelta::default(),
-        };
+        let effect = self.effects.plan_publication(publication, sequence)?;
         self.prepare_entry_delta_with_controls(
             EntryTransition {
                 key: key.clone(),
@@ -3955,34 +3252,6 @@ impl TxPoolAuthority {
             },
             None,
         )
-    }
-
-    #[cfg(test)]
-    pub(super) fn effect_publication_for_foundation(
-        &self,
-        policy: EffectPolicy,
-        effects: Vec<CommittedEffect>,
-    ) -> Result<EffectPublication, EffectBuildError> {
-        self.effects.build_publication(policy, effects)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_effect_publication_for_foundation(
-        &mut self,
-        publication: &EffectPublication,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let sequence = self.clocks.next_sequence;
-        let effect = self.effects.plan_publication(publication, sequence)?;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_generation_reset_for_foundation(
-        &mut self,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        let sequence = self.clocks.next_sequence;
-        let effect = self.effects.plan_generation_reset(sequence)?;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
     }
 
     /// Clear only executable and retained pre-pool ownership. Accepted
@@ -4339,7 +3608,8 @@ impl TxPoolAuthority {
     fn plan_peer_revocation(
         &mut self,
         peer: ckb_network::PeerIndex,
-        evidence: PeerRevocationEvidence,
+        tx_hash: RawTxHash,
+        reason: CommittedPublicReject,
     ) -> Result<PreparedApply<'_>, PlanError> {
         let mut hashes = Vec::new();
         if let Some(indexed) = self.indexes.preaccepted_for_peer(peer) {
@@ -4350,24 +3620,9 @@ impl TxPoolAuthority {
         }
         hashes.sort_unstable();
         let marker = self.peer_bans.plan_record(peer, Instant::now())?;
-        let revocation = match evidence {
-            PeerRevocationEvidence::Administrative => {
-                CommittedPeerCohortRevocation::administrative(marker.lease())
-            }
-            PeerRevocationEvidence::Malformed { tx_hash, reason } => {
-                CommittedPeerCohortRevocation::malformed(marker.lease(), tx_hash, reason)
-                    .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?
-            }
-        };
+        let revocation = CommittedPeerCohortRevocation::malformed(marker.lease(), tx_hash, reason)
+            .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
         self.plan_administrative_removal(hashes, AdminPlan::PeerRevocation { marker, revocation })
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_peer_revocation_for_foundation(
-        &mut self,
-        peer: ckb_network::PeerIndex,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_peer_revocation(peer, PeerRevocationEvidence::Administrative)
     }
 
     /// Remove one explicit owner. Accepted roots include their complete
@@ -4524,38 +3779,6 @@ impl TxPoolAuthority {
         self.effects.pending_recent_reject(hash)
     }
 
-    #[cfg(test)]
-    pub(super) fn plan_effect_checkout_for_foundation(
-        &mut self,
-    ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {
-        self.plan_effect_checkout()
-    }
-
-    #[cfg(test)]
-    pub(super) fn apply_effect_settlement_for_foundation(
-        &mut self,
-        settlement: EffectSettlement,
-    ) -> Result<CommittedDelta, EffectSettlementFailure> {
-        self.apply_effect_settlement(settlement)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_effect_close_for_foundation(
-        &mut self,
-    ) -> Result<PreparedApply<'_>, EffectCloseError> {
-        self.plan_effect_close()
-    }
-
-    #[cfg(test)]
-    pub(super) fn effects_closed_and_drained_for_foundation(&self) -> bool {
-        self.effects_closed_and_drained()
-    }
-
-    #[cfg(test)]
-    pub(super) fn effect_observation_for_foundation(&self) -> EffectObservation {
-        self.effects.observation()
-    }
-
     fn prepare_effect_only(
         &mut self,
         effect: EffectDelta,
@@ -4589,34 +3812,6 @@ impl TxPoolAuthority {
             }),
             handoff,
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_dependency_availability_for_foundation(
-        &mut self,
-        keys: Vec<DependencyKey>,
-    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
-        self.effects.ensure_open()?;
-        let sequence = self.clocks.next_sequence;
-        let Some(control) = self
-            .dependencies
-            .plan_event(keys, DependencyEvent::Availability(DependencyCut(sequence)))?
-        else {
-            return Ok(None);
-        };
-        let clocks = AuthorityClocks {
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
-        Ok(Some(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
-                control,
-                clocks,
-                sequence,
-            }),
-            handoff: CommittedHandoff::None,
-        }))
     }
 
     pub(super) fn plan_dependency_maintenance(
@@ -4693,23 +3888,6 @@ impl TxPoolAuthority {
         .map(Some)
     }
 
-    #[cfg(test)]
-    pub(super) fn dependency_maintenance_observation_for_foundation(
-        &self,
-    ) -> Result<Option<(DependencyKey, Option<RawTxHash>)>, PlanError> {
-        Ok(self.dependencies.next_maintenance_observation()?)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_checkout_for_foundation(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        permit: super::state::WorkPermit,
-    ) -> Result<PreparedCheckout<'_>, PlanError> {
-        self.plan_selected_checkout(key, expected, permit, CheckoutOrigin::Foundation)
-    }
-
     /// Select and reserve one exact scheduler head. Saturated peer/source
     /// owners are skipped without publishing a second blocked-owner state.
     pub(super) fn plan_checkout_next(
@@ -4718,17 +3896,6 @@ impl TxPoolAuthority {
     ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
         let search = self.search_checkout(permit)?;
         self.prepare_checkout_search(search, permit)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_checkout_next_with_probe_count_for_foundation(
-        &mut self,
-        permit: super::state::WorkPermit,
-    ) -> Result<(Option<PreparedCheckout<'_>>, usize), PlanError> {
-        let search = self.search_checkout(permit)?;
-        let probes = search.probes;
-        let plan = self.prepare_checkout_search(search, permit)?;
-        Ok((plan, probes))
     }
 
     fn search_checkout(
@@ -4797,16 +3964,8 @@ impl TxPoolAuthority {
         };
         let key = ticket.hash().clone();
         let version = ticket.version();
-        self.plan_selected_checkout(
-            &key,
-            version,
-            permit,
-            CheckoutOrigin::Scheduled {
-                ticket,
-                reservation,
-            },
-        )
-        .map(Some)
+        self.plan_selected_checkout(&key, version, permit, ticket, reservation)
+            .map(Some)
     }
 
     fn plan_checkout_resources(
@@ -4928,7 +4087,8 @@ impl TxPoolAuthority {
         key: &RawTxHash,
         expected: EntryVersion,
         permit: super::state::WorkPermit,
-        origin: CheckoutOrigin,
+        ticket: CheckoutTicket,
+        reservation: CheckoutReservation,
     ) -> Result<PreparedCheckout<'_>, PlanError> {
         let existing = self
             .entries
@@ -4951,21 +4111,8 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
 
-        let (grant, charge) = match &origin {
-            CheckoutOrigin::Scheduled { reservation, .. } => {
-                (reservation.grant, reservation.after_charge)
-            }
-            #[cfg(test)]
-            CheckoutOrigin::Foundation => match self.checkout_eligibility(preaccepted, permit)? {
-                CheckoutEligibility::Ready {
-                    grant,
-                    after_charge,
-                } => (grant, after_charge),
-                CheckoutEligibility::StaleDependency => {
-                    return Err(PlanError::Stale(StalePlan::Dependency));
-                }
-            },
-        };
+        let grant = reservation.grant;
+        let charge = reservation.after_charge;
         let version = self.clocks.next_version;
         let lease = self.clocks.next_lease;
         let sequence = self.clocks.next_sequence;
@@ -5024,7 +4171,11 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            Some(WorkHandoff { work, origin }),
+            Some(WorkHandoff {
+                work,
+                ticket,
+                reservation,
+            }),
         )?;
         PreparedCheckout::from_prepared(plan)
     }
@@ -5162,6 +4313,10 @@ impl TxPoolAuthority {
         .apply())
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "the error owns the exact linear SettlementNext capability; boxing would allocate on ordinary stale/backpressure recovery"
+    )]
     fn prepare_settlement<'a>(
         &'a mut self,
         token: &SettlementToken,
@@ -5188,6 +4343,10 @@ impl TxPoolAuthority {
             })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "the error owns the exact linear SettlementNext capability; boxing would allocate on ordinary stale/backpressure recovery"
+    )]
     fn prepare_settlement_inner<'a>(
         &'a mut self,
         token: &SettlementToken,
@@ -5573,10 +4732,8 @@ impl TxPoolAuthority {
         {
             return self.plan_peer_revocation(
                 peer,
-                PeerRevocationEvidence::Malformed {
-                    tx_hash: preaccepted.record.identity.raw.clone(),
-                    reason,
-                },
+                preaccepted.record.identity.raw.clone(),
+                reason,
             );
         }
         let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
@@ -5699,17 +4856,9 @@ impl TxPoolAuthority {
         let (work, checkout, checkout_resources) = match handoff {
             Some(WorkHandoff {
                 work,
-                origin:
-                    CheckoutOrigin::Scheduled {
-                        ticket,
-                        reservation,
-                    },
+                ticket,
+                reservation,
             }) => (Some(work), Some(ticket), Some(reservation.resources)),
-            #[cfg(test)]
-            Some(WorkHandoff {
-                work,
-                origin: CheckoutOrigin::Foundation,
-            }) => (Some(work), None, None),
             None => (None, None, None),
         };
         let preplanned_resources = match (checkout_resources, explicit_resources) {

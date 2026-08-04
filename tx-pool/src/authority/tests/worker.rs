@@ -5,7 +5,7 @@ use super::{
 use crate::authority::{
     runtime::AuthorityRuntime,
     state::{AcceptedAtMillis, OwnedTx, PreAcceptedPhase, QueuedWork},
-    worker::{run_maintenance_driver, run_maintenance_driver_for_foundation},
+    worker::{run_maintenance_driver, test_support::run_maintenance_driver_for_foundation},
 };
 use ckb_stop_handler::CancellationToken;
 use std::sync::{

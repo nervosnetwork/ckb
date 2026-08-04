@@ -519,20 +519,16 @@ impl PersistenceReceipt {
 pub(crate) struct ParentFirstPersistenceReceipt(ParentFirstPersistence);
 
 impl ParentFirstPersistenceReceipt {
-    pub(crate) fn accepted(&self) -> &[Arc<TransactionView>] {
-        self.0.accepted()
-    }
-
-    pub(crate) fn recovery(&self) -> &[Arc<TransactionView>] {
-        self.0.recovery()
-    }
-
     pub(crate) fn into_transactions(
         self,
     ) -> (Vec<Arc<TransactionView>>, Vec<Arc<TransactionView>>) {
         self.0.into_transactions()
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/query.rs"]
+mod test_support;
 
 #[derive(Clone, Copy, Debug)]
 struct FeeCandidate {

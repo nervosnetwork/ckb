@@ -10,40 +10,47 @@ test-facing contract is [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md).
 ## Machine-readable files
 
 These files live in `tx-pool/` so local tools and CI can consume them without
-parsing prose. JSON files are intentionally hand-maintained unless the table
-says otherwise.
+parsing prose. Human-maintained files contain only semantic decisions. Paths,
+symbols, enum variants, test names, selectors, commands, counts, module wiring
+and Markdown tables are discovered, generated or checked.
 
 | File | Authority and purpose | Consumer | Update rule |
 |---|---|---|---|
-| [`architecture-contract.json`](../architecture-contract.json) | Canonical names for the two authorities, six states, identity domains, Plan outcomes, lock order, T1–T13 obligations and current residual-risk IDs. It prevents prose and validators from silently describing different models. | `check_security_manifest.py` | Edit with an architecture change; update `ARCHITECTURE.md`, behavior evidence and tests in the same PR. |
-| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` behaviors, hostile cases, change surfaces, minimum commands, T1–T13 mappings and focused unit/integration evidence. It is the source for the generated region in `REVIEW_GUIDE.md`. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Hand-edit for a behavior/evidence change, then run `check_review_guide.py --write`. Do not edit the generated Markdown region. |
+| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1–T13 obligations, concurrency/resource contracts and current residual risks. The validator derives owner/phase/status variants and identity anchors from Rust and rejects disagreement. | `check_security_manifest.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums into a validator. |
+| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1–T13 mappings and curated unit/integration evidence. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
 | [`integration-impact.json`](../integration-impact.json) | Curated complete set of registered process specs whose production paths cross tx-pool ingress, verification, pool mutation, relay, mining/template or transaction-bearing reorg boundaries. | `check_review_guide.py`, `check_security_manifest.py` | Hand-edit when a relevant spec is added, removed, renamed or its boundary changes. Integration CI checks it against `ckb-test --list-specs`. |
-| [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding the crate/features, architecture contract, behavior registry, integration universe, frozen inventory counts and explicit release blockers. It does not duplicate individual test evidence. | `check_security_manifest.py` | Hand-edit only when one of those top-level contracts, counts or release conditions changes. |
-| [`test-layout-manifest.json`](../test-layout-manifest.json) | Allowlist for test roots, production-module wiring, `cfg(test)` counts and reviewed test-only seams. It prevents tests from drifting back into production files or changing production behavior invisibly. | `check_test_layout.py` | Hand-edit only with an intentional test-layout or reviewed seam change. Never weaken it merely to accept drift. |
+| [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory and explicit release blockers. It stores no derived count or individual evidence. | `check_security_manifest.py` | Edit only when an assembly input or release decision changes. Test counts are always derived. |
+| [`test-layout-manifest.json`](../test-layout-manifest.json) | Allowed dedicated test roots plus named irreducible test observation seams. Module wiring and `cfg(test)` sites are discovered from Rust rather than copied. | `check_test_layout.py` | Edit only for a deliberate directory boundary or exceptional seam. A current observation is never accepted merely by copying it into an allowlist. |
 | [`test-inventory.txt`](../test-inventory.txt) | Exact sorted snapshot of discovered internal-feature Rust tests and the managed integration spec names. This is generated evidence, not a hand-written selection list. | `check_security_manifest.py` | Regenerate with `--update-inventory` after an intentional test/integration inventory change, then review the diff. |
 
-The ownership direction is one-way:
+The evidence direction is one-way:
 
 ```text
-ARCHITECTURE.md
-      │ vocabulary and obligations
-      ▼
-architecture-contract.json
-      │
-      ├── review-behaviors.json ──generates──► REVIEW_GUIDE.md
-      ├── integration-impact.json
-      ├── test-layout-manifest.json
-      └── security-regression-manifest.json ──validates──► test-inventory.txt
+Rust source ─────discovers────► owner/state/identity facts
+nextest + ckb-test ─discovers─► complete executable test universe
+         │
+         ▼ exact reconciliation
+architecture-contract.json ──► T1–T13 vocabulary
+review-behaviors.json ────────► semantic rules + exact owners/evidence
+integration-impact.json ──────► curated process boundary
+         │
+         ├────generates───────► REVIEW_GUIDE.md commands and tables
+         ├────generates───────► test-inventory.txt
+         └────validates───────► test-layout exceptions and CI gates
 ```
 
-Machine files own facts that need exact comparison; Markdown explains why
-those facts exist. Do not copy a machine-owned list into another script or
-hand-maintained table.
+The only manual layer is semantic: why a rule exists, its attack case,
+compatibility and performance bounds, and whether a residual risk is accepted.
+Everything mechanically derivable has one owner and is generated or checked.
+CI is read-only and fails on dangling symbols, zero-match evidence, missing
+T1–T13 coverage, unregistered relevant process specs, stale inventory,
+test-code leakage or generated Markdown drift.
 
 ## Tools
 
 | Command | Purpose | Writes by default |
 |---|---|---|
+| `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery for the lightweight CI workflow. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation and retired names. | No |
 | `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip publication boundary, readiness-independent ordered reorg delivery, capacity-one backpressure and startup ordering. | No |
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
@@ -56,11 +63,7 @@ hand-maintained table.
 ## Normal review gate
 
 ```bash
-python3 tx-pool/scripts/check_docs.py
-python3 tx-pool/scripts/check_production_contracts.py
-python3 tx-pool/scripts/check_review_guide.py
-python3 tx-pool/scripts/check_test_layout.py
-python3 tx-pool/scripts/check_security_manifest.py
+python3 tx-pool/scripts/check_all.py
 cargo nextest run -p ckb-tx-pool --features internal
 cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings
 ```
@@ -72,22 +75,19 @@ validation stays with Rust CI because it performs nextest discovery.
 
 ## Intentional updates
 
-After changing `review-behaviors.json`, regenerate only its owned Markdown
-region:
+After changing semantic behavior evidence, regenerate the guide region owned by
+the registry:
 
 ```bash
 python3 tx-pool/scripts/check_review_guide.py --write
 ```
 
 After deliberately adding, removing or renaming tests, regenerate the exact
-inventory and then run every read-only validator:
+inventory. Counts and selectors update from discovery; they are never edited:
 
 ```bash
 python3 tx-pool/scripts/check_security_manifest.py --update-inventory
-python3 tx-pool/scripts/check_review_guide.py
-python3 tx-pool/scripts/check_test_layout.py
-python3 tx-pool/scripts/check_docs.py
-python3 tx-pool/scripts/check_production_contracts.py
+python3 tx-pool/scripts/check_all.py
 ```
 
 For a built integration runner, validate that the curated impact set still

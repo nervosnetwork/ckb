@@ -11,8 +11,6 @@ use super::rejection::{
     CommittedPublicReject, DirectTransactionRejection, RecentRejectEncodingError,
     serialized_recent_reject,
 };
-#[cfg(test)]
-use super::state::ValidatedAdmission;
 use super::{
     chain::{
         AcceptedValidityTransition, ChainValidationError, DirectAdmissionWork, FinalAdmissionWork,
@@ -83,8 +81,6 @@ use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
 use ckb_verification::cache::ScriptVerificationRules;
 use lru::LruCache;
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
 use std::{
     num::NonZeroUsize,
     ops::ControlFlow,
@@ -98,7 +94,8 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, watch};
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
 const DEPENDENCY_EDGE_BYTES: usize = 160;
 // One primary/proposal/source/deadline/scheduler envelope and the maximum
-// dependency-index multiplicity used by the retired PrePool charge model.
+// dependency-index multiplicity used by the conservative retained-entry
+// charge formula.
 // These multipliers deliberately compile into the one byte coordinate; the
 // independent entry/edge coordinates remain hostile-work ceilings, not extra
 // memory allowances.
@@ -540,7 +537,7 @@ pub(crate) struct AuthorityRuntime {
     verify_workers: NonZeroUsize,
     transient_compute: ComputeGate,
     #[cfg(test)]
-    template_captures: Arc<AtomicUsize>,
+    template_captures: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// Private count-only execution gate. No close operation is exposed: service
@@ -576,16 +573,6 @@ impl ComputeGate {
                 }
             }
         }
-    }
-
-    #[cfg(test)]
-    fn try_acquire(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.permits).try_acquire_owned().ok()
-    }
-
-    #[cfg(test)]
-    fn available_permits(&self) -> usize {
-        self.permits.available_permits()
     }
 }
 
@@ -775,24 +762,6 @@ enum AuthorityComputeKind {
     Verification(VerificationJob),
 }
 
-impl AuthorityComputeJob {
-    fn retry(self) -> AuthorityComputeSettlement {
-        let settlement = match self.inner {
-            AuthorityComputeKind::Resolution(job) => job.retry(),
-            AuthorityComputeKind::Verification(job) => job.retry(),
-        };
-        AuthorityComputeSettlement {
-            settlement,
-            execution: self.execution,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn retry_for_foundation(self) -> AuthorityComputeSettlement {
-        self.retry()
-    }
-}
-
 #[derive(Debug)]
 #[must_use = "a retained compute settlement must preserve its execution permit"]
 pub(in crate::authority) struct AuthorityComputeSettlement {
@@ -836,7 +805,6 @@ impl AuthorityVerificationRequest {
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityComputeError {
     Allocation,
-    ComputeCapacity,
     EffectCapacity,
     LifecycleClosed,
     Fault(AuthorityFault),
@@ -906,11 +874,6 @@ impl AuthorityPendingSettlement {
     ) {
         (self.failure, self.origin, self.execution)
     }
-
-    #[cfg(test)]
-    pub(super) fn recovery(&self) -> &super::plan::ComputeSettlementRecovery {
-        self.failure.recovery()
-    }
 }
 
 #[derive(Debug)]
@@ -921,6 +884,10 @@ pub(in crate::authority) enum ReadyValidationError {
 
 #[derive(Debug)]
 #[must_use = "resolved authority work either settled or still owns verification"]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing would allocate on every verification handoff; the enum is consumed immediately by the sealed worker"
+)]
 pub(in crate::authority) enum AuthorityComputeOutcome {
     Settled,
     Verification(AuthorityVerificationRequest),
@@ -966,13 +933,6 @@ pub(super) struct AuthorityDirectRejection {
     execution: AuthorityComputeExecutionPermit,
 }
 
-impl AuthorityDirectRejection {
-    #[cfg(test)]
-    pub(super) fn reason(&self) -> &CommittedPublicReject {
-        self.rejection.reason()
-    }
-}
-
 #[derive(Debug)]
 #[must_use = "direct verification output must reach its source-sealed settlement"]
 pub(super) enum AuthorityDirectVerificationOutcome {
@@ -985,20 +945,6 @@ pub(super) enum AuthorityDirectVerificationOutcome {
 pub(super) struct AuthorityDirectVerifiedCandidate {
     candidate: DirectVerifiedCandidate,
     execution: AuthorityComputeExecutionPermit,
-}
-
-#[cfg(test)]
-impl AuthorityDirectVerifiedCandidate {
-    pub(super) fn with_cache_update_for_foundation(
-        mut self,
-        key: ckb_verification::cache::TxVerificationCacheKey,
-        completed: ckb_verification::cache::Completed,
-    ) -> Self {
-        self.candidate = self
-            .candidate
-            .with_cache_update_for_foundation(key, completed);
-        self
-    }
 }
 
 #[derive(Debug)]
@@ -1170,7 +1116,6 @@ pub(super) enum AuthorityDirectAdmissionExecution {
 pub(super) struct AuthorityLocalAdmissionExecution {
     outcome: AuthorityLocalAdmissionOutcome,
     cache_update: Option<VerificationCacheUpdate>,
-    cache_hit: bool,
 }
 
 impl AuthorityLocalAdmissionExecution {
@@ -1179,9 +1124,8 @@ impl AuthorityLocalAdmissionExecution {
     ) -> (
         AuthorityLocalAdmissionOutcome,
         Option<VerificationCacheUpdate>,
-        bool,
     ) {
-        (self.outcome, self.cache_update, self.cache_hit)
+        (self.outcome, self.cache_update)
     }
 }
 
@@ -1189,7 +1133,6 @@ impl AuthorityLocalAdmissionExecution {
 #[must_use = "verification cache evidence is a best-effort post-settlement effect"]
 pub(in crate::authority) struct AuthorityVerificationOutcome {
     pub(in crate::authority) cache_update: Option<VerificationCacheUpdate>,
-    pub(in crate::authority) cache_hit: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1206,6 +1149,10 @@ enum EffectCheckoutState {
 }
 
 #[must_use = "an idle checkout returns the still-owned execution slot"]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing would allocate on every non-idle checkout; the enum crosses no storage boundary and is consumed immediately"
+)]
 pub(in crate::authority) enum AuthorityComputeCheckout {
     Job(AuthorityComputeJob),
     Idle(AuthorityComputeExecutionPermit),
@@ -1250,16 +1197,6 @@ impl AuthorityRuntime {
         Self::from_config(runtime, snapshot).map(|runtime| (runtime, relay_parent_limit))
     }
 
-    #[cfg(test)]
-    pub(crate) fn new(
-        config: &TxPoolConfig,
-        consensus: &Consensus,
-        snapshot: Arc<Snapshot>,
-    ) -> Result<Self, RuntimeConfigError> {
-        let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
-        Self::from_config(runtime, snapshot)
-    }
-
     fn from_config(
         runtime: AuthorityRuntimeConfig,
         snapshot: Arc<Snapshot>,
@@ -1278,20 +1215,8 @@ impl AuthorityRuntime {
             verify_workers,
             transient_compute,
             #[cfg(test)]
-            template_captures: Arc::new(AtomicUsize::new(0)),
+            template_captures: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         })
-    }
-
-    #[cfg(test)]
-    pub(super) fn new_with_effect_limits_for_foundation(
-        config: &TxPoolConfig,
-        consensus: &Consensus,
-        snapshot: Arc<Snapshot>,
-        effects: EffectLimits,
-    ) -> Result<Self, RuntimeConfigError> {
-        let mut runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
-        runtime.effects = effects;
-        Self::from_config(runtime, snapshot)
     }
 
     pub(crate) fn transaction_lookup(
@@ -1428,11 +1353,6 @@ impl AuthorityRuntime {
         AuthorityTemplateInput::from_capture(snapshot, receipt)
     }
 
-    #[cfg(test)]
-    pub(super) fn template_capture_count_for_foundation(&self) -> usize {
-        self.template_captures.load(Ordering::Relaxed)
-    }
-
     /// Exact chain source used only at the short template publication Apply.
     /// Reading this Copy token under the authority guard prevents an old-tip
     /// build from publishing after a committed chain transition without
@@ -1531,6 +1451,10 @@ impl AuthorityRuntime {
     /// semantic disposition and proposal evidence are compiled, without
     /// adding a gate to ordinary admission. After upgrade, only capacity and
     /// derived-projection preparation plus total Apply remain.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failure returns the exact sealed chain command for ordered recovery; boxing would allocate on reorg backpressure"
+    )]
     pub(super) fn apply_chain_update(
         &self,
         command: ChainUpdateCommand,
@@ -1763,43 +1687,6 @@ impl AuthorityRuntime {
             .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
     }
 
-    #[cfg(test)]
-    pub(super) fn try_compute_execution_for_foundation(
-        &self,
-    ) -> Option<AuthorityComputeExecutionPermit> {
-        self.transient_compute
-            .try_acquire()
-            .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
-    }
-
-    #[cfg(test)]
-    pub(super) fn available_compute_permits_for_foundation(&self) -> usize {
-        self.transient_compute.available_permits()
-    }
-
-    #[cfg(test)]
-    pub(super) fn try_checkout_for_foundation(
-        &self,
-        permit: WorkPermit,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
-        AuthorityComputeError,
-    > {
-        let execution = self
-            .try_compute_execution_for_foundation()
-            .ok_or(AuthorityComputeError::ComputeCapacity)?;
-        match self.try_checkout(permit, execution)? {
-            ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
-            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
-                Ok(ControlFlow::Continue(Some(job)))
-            }
-            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
-                drop(execution);
-                Ok(ControlFlow::Continue(None))
-            }
-        }
-    }
-
     /// Capture the immutable consensus paired with the authority snapshot.
     /// Ingress callers cannot substitute a separately sourced consensus for
     /// non-contextual validation.
@@ -1851,40 +1738,6 @@ impl AuthorityRuntime {
         drop(committed);
         self.signals.publish_mutation();
         Ok(AuthorityInternalPlugOutcome::Inserted)
-    }
-
-    #[cfg(test)]
-    pub(super) fn normalized_snapshot_for_foundation(&self) -> super::plan::AuthoritySnapshot {
-        self.store.read().authority.normalized_snapshot()
-    }
-
-    #[cfg(test)]
-    pub(super) fn paired_chain_for_foundation(&self) -> (ChainViewId, Arc<Snapshot>) {
-        let store = self.store.read();
-        (
-            store.authority.chain_view().clone(),
-            Arc::clone(&store.snapshot),
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn committed_hash_for_foundation(
-        &self,
-        proposal: &ProposalShortId,
-    ) -> Option<Byte32> {
-        self.store
-            .write()
-            .committed_txs_hash_cache
-            .get(proposal)
-            .cloned()
-    }
-
-    #[cfg(test)]
-    pub(super) fn with_authority_for_foundation<T>(
-        &self,
-        inspect: impl FnOnce(&mut TxPoolAuthority) -> T,
-    ) -> T {
-        inspect(&mut self.store.write().authority)
     }
 
     /// Capture and evaluate one already-resolved direct candidate without
@@ -2067,7 +1920,7 @@ impl AuthorityRuntime {
             candidate,
             execution,
         } = candidate;
-        let (command, work, pending_cache_update, cache_hit) = candidate.into_parts();
+        let (command, work, pending_cache_update) = candidate.into_parts();
         let validated = self
             .validate_direct_admission(work)
             .map_err(AuthorityDirectAdmissionError::from_validation)?;
@@ -2083,7 +1936,6 @@ impl AuthorityRuntime {
                     AuthorityLocalAdmissionExecution {
                         outcome,
                         cache_update,
-                        cache_hit,
                     },
                 ))
             }
@@ -2315,60 +2167,6 @@ impl AuthorityRuntime {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(super) fn queue_effect_for_foundation(
-        &self,
-        policy: super::effect::EffectPolicy,
-        effect: super::effect::CommittedEffect,
-    ) -> Result<(), FoundationEffectQueueError> {
-        self.queue_effects_for_foundation(policy, vec![effect])
-    }
-
-    #[cfg(test)]
-    pub(super) fn queue_effects_for_foundation(
-        &self,
-        policy: super::effect::EffectPolicy,
-        effects: Vec<super::effect::CommittedEffect>,
-    ) -> Result<(), FoundationEffectQueueError> {
-        let retirement = {
-            let mut store = self.store.write();
-            let publication = store
-                .authority
-                .effect_publication_for_foundation(policy, effects)
-                .map_err(FoundationEffectQueueError::Build)?;
-            store
-                .authority
-                .plan_effect_publication_for_foundation(&publication)
-                .map_err(FoundationEffectQueueError::Plan)?
-                .apply()
-        };
-        drop(retirement);
-        self.signals.publish_mutation();
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(super) fn queue_generation_reset_for_foundation(&self) -> Result<(), PlanError> {
-        let retirement = {
-            let mut store = self.store.write();
-            store
-                .authority
-                .plan_generation_reset_for_foundation()?
-                .apply()
-        };
-        drop(retirement);
-        self.signals.publish_mutation();
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(super) fn effect_observation_for_foundation(&self) -> super::effect::EffectObservation {
-        self.store
-            .read()
-            .authority
-            .effect_observation_for_foundation()
-    }
-
     pub(in crate::authority) fn effects_closed_and_drained(&self) -> bool {
         self.store.read().authority.effects_closed_and_drained()
     }
@@ -2400,22 +2198,6 @@ impl AuthorityRuntime {
 
     pub(super) const fn verify_worker_count(&self) -> usize {
         self.verify_workers.get()
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn admit(
-        &self,
-        admission: ValidatedAdmission,
-    ) -> Result<(), PlanError> {
-        let committed = {
-            let mut store = self.store.write();
-            store.authority.plan_admission(admission)?.apply()
-        };
-        // Potential last-owner payload/effect destruction must never extend
-        // the authority critical section.
-        drop(committed);
-        self.signals.publish_mutation();
-        Ok(())
     }
 
     pub(super) fn commit_retained_ingress(
@@ -2553,40 +2335,6 @@ impl AuthorityRuntime {
         result
     }
 
-    /// Level-triggered checkout with no lock held across the wait. Cancelling
-    /// this future while it waits owns no compute capability; after checkout
-    /// succeeds there is no suspension point before the job is returned.
-    #[cfg(test)]
-    pub(in crate::authority) async fn wait_checkout(
-        &self,
-        permit: WorkPermit,
-        cancel: &CancellationToken,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
-        AuthorityComputeError,
-    > {
-        loop {
-            let signal = self.mutation_signal();
-            let notified = signal.notified();
-            let Some(execution) = self.acquire_compute_execution(cancel).await else {
-                return Ok(ControlFlow::Continue(None));
-            };
-            match self.try_checkout(permit, execution)? {
-                ControlFlow::Break(pending) => return Ok(ControlFlow::Break(pending)),
-                ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
-                    return Ok(ControlFlow::Continue(Some(job)));
-                }
-                ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
-                    drop(execution);
-                }
-            }
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(ControlFlow::Continue(None)),
-                _ = notified => {}
-            }
-        }
-    }
-
     pub(in crate::authority) fn settle_compute(
         &self,
         retained: AuthorityComputeSettlement,
@@ -2614,6 +2362,10 @@ impl AuthorityRuntime {
         self.settle_compute(request.retry(), SettlementOrigin::Completion)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "failure returns the exact move-only compute settlement for retry or cancellation; boxing would allocate on backpressure"
+    )]
     pub(in crate::authority) fn settle(
         &self,
         settlement: ComputeSettlement,
@@ -2662,6 +2414,10 @@ impl AuthorityRuntime {
         }
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "the offloaded closure returns the exact unboxed compute settlement capability; allocation would penalize missing and hostile resolution paths"
+    )]
     fn execute_resolution(
         &self,
         mut job: ResolutionJob,
@@ -2785,14 +2541,12 @@ impl AuthorityRuntime {
         } = request;
         let verification = request.execute(command_rx).await;
         let cache_update = verification.cache_update;
-        let cache_hit = verification.cache_hit;
         let result = self.settle(verification.settlement);
         match result {
             Ok(()) => {
                 drop(compute_execution);
                 Ok(ControlFlow::Continue(AuthorityVerificationOutcome {
                     cache_update,
-                    cache_hit,
                 }))
             }
             Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
@@ -2863,13 +2617,6 @@ impl AuthorityRuntime {
         self.signals.publish_mutation();
         Ok(AuthorityReadyOutcome::Applied { owners })
     }
-}
-
-#[cfg(test)]
-#[derive(Debug)]
-pub(super) enum FoundationEffectQueueError {
-    Build(super::effect::EffectBuildError),
-    Plan(PlanError),
 }
 
 impl ReadyWorkBatch {
@@ -3054,7 +2801,7 @@ impl AuthorityStore {
 
     /// Second OCC read: recheck each exact Ready version and fill only the
     /// preallocated Accepted-origin bits. Any intervening mutation makes the
-    /// capture stale rather than mixing two authority cuts.
+    /// capture stale rather than mixing two store snapshots.
     fn complete_ready_batch(
         &self,
         mut batch: PreparedReadyValidationBatch,
@@ -3086,784 +2833,9 @@ impl AuthorityStore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AuthorityAdministrationError, AuthorityComputeCheckout, AuthorityComputeError,
-        AuthorityComputeJob, AuthorityComputeOutcome, AuthorityComputeSettlement,
-        AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
-        AuthorityDirectResolutionOutcome, AuthorityDriverError, AuthorityReadyOutcome,
-        AuthorityRuntime, AuthorityRuntimeConfig, FinalAdmissionCaptureError,
-        PREACCEPTED_ENTRY_BYTES, PlanError, ReadyValidationError, RuntimeConfigError,
-        SettlementOrigin, runtime_authority_config_error, runtime_resource_config_error,
-    };
-    use crate::authority::effect::{
-        CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
-        EffectConfigError, EffectLimits, EffectPolicy, RejectionAudience,
-    };
-    use crate::authority::plan::{AuthorityConfigError, AuthorityFault, Backpressure, StalePlan};
-    use crate::authority::resources::ResourceConfigError;
-    use crate::authority::state::{
-        ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RejectionKind,
-        ValidatedAdmission, VerifyCapability, WorkPermit,
-    };
-    use crate::authority::validation::FinalAdmissionValidationError;
-    use ckb_app_config::{TxPoolConfig, VerifyOrdering};
-    use ckb_async_runtime::Handle;
-    use ckb_chain_spec::consensus::ConsensusBuilder;
-    use ckb_network::PeerIndex;
-    use ckb_script::ChunkCommand;
-    use ckb_snapshot::Snapshot;
-    use ckb_stop_handler::CancellationToken;
-    use ckb_test_chain_utils::MockStore;
-    use ckb_types::{
-        U256,
-        core::{FeeRate, TransactionBuilder},
-        prelude::Unpack,
-    };
-    use std::ops::ControlFlow;
-    use std::sync::Arc;
-    use tokio::sync::{RwLock as TokioRwLock, mpsc, watch};
+#[path = "tests/support/runtime.rs"]
+pub(in crate::authority) mod test_support;
 
-    fn runtime_config() -> TxPoolConfig {
-        TxPoolConfig {
-            max_tx_pool_size: 180_000_000,
-            max_tx_pool_resident_size: 1_000_000_000,
-            min_fee_rate: FeeRate::zero(),
-            min_rbf_rate: FeeRate::zero(),
-            max_tx_verify_cycles: 70_000_000,
-            max_tx_verify_workers: 4,
-            max_ancestors_count: 125,
-            keep_rejected_tx_hashes_days: 1,
-            keep_rejected_tx_hashes_count: 1_000,
-            persisted_data: Default::default(),
-            recent_reject: Default::default(),
-            expiry_hours: 24,
-            verify_ordering: VerifyOrdering::ArrivalTime,
-            max_tx_pipeline_resident_size: 384_000_000,
-        }
-    }
-
-    fn genesis_snapshot() -> Arc<Snapshot> {
-        let consensus = Arc::new(ConsensusBuilder::default().build());
-        let store = MockStore::default();
-        let genesis = consensus.genesis_block();
-        Arc::new(Snapshot::new(
-            genesis.header(),
-            U256::zero(),
-            consensus.genesis_epoch_ext().clone(),
-            store.store().get_snapshot(),
-            Default::default(),
-            consensus,
-        ))
-    }
-
-    fn runtime() -> AuthorityRuntime {
-        let snapshot = genesis_snapshot();
-        AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-            .expect("the production authority runtime fixture is valid")
-    }
-
-    fn runtime_with_effect_limits(
-        config: &TxPoolConfig,
-        snapshot: Arc<Snapshot>,
-        effects: EffectLimits,
-    ) -> AuthorityRuntime {
-        AuthorityRuntime::new_with_effect_limits_for_foundation(
-            config,
-            snapshot.consensus(),
-            Arc::clone(&snapshot),
-            effects,
-        )
-        .expect("the narrow effect runtime reserves every bounded projection")
-    }
-
-    fn queue_remote_rejection(runtime: &AuthorityRuntime, nonce: u32) {
-        let publication = {
-            let store = runtime.store.read();
-            store
-                .authority
-                .effect_publication_for_foundation(
-                    EffectPolicy::Remote,
-                    vec![CommittedEffect::Rejected(CommittedRejection::Foundation {
-                        tx: Arc::new(TransactionBuilder::default().version(nonce).build()),
-                        audience: RejectionAudience::foundation(),
-                        reason: RejectionKind::Policy,
-                    })],
-                )
-                .expect("the runtime effect fixture is bounded")
-        };
-        let retirement = {
-            let mut store = runtime.store.write();
-            store
-                .authority
-                .plan_effect_publication_for_foundation(&publication)
-                .expect("the runtime effect fixture fits its region")
-                .apply()
-        };
-        drop(retirement);
-        runtime.signals.publish_mutation();
-    }
-
-    fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
-        ValidatedAdmission::remote(
-            TransactionBuilder::default().version(nonce).build(),
-            PeerIndex::from(peer),
-        )
-        .expect("the runtime fixture has valid ingress evidence")
-    }
-
-    fn retry(job: AuthorityComputeJob) -> AuthorityComputeSettlement {
-        job.retry()
-    }
-
-    fn is_queued_resolve(runtime: &AuthorityRuntime, key: &super::super::state::RawTxHash) -> bool {
-        let store = runtime.store.read();
-        matches!(
-            store.authority.entry(key),
-            Some(OwnedTx::PreAccepted(entry))
-                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-        )
-    }
-
-    fn continued<T>(flow: ControlFlow<super::AuthorityPendingSettlement, T>) -> T {
-        match flow {
-            ControlFlow::Continue(value) => value,
-            ControlFlow::Break(_) => panic!("the fixture has sufficient effect capacity"),
-        }
-    }
-
-    #[test]
-    fn runtime_checkout_observes_preexisting_level_without_a_wake_hint() {
-        let runtime = runtime();
-        let admission = admission(901, 91);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-
-        let job = continued(
-            runtime
-                .try_checkout_for_foundation(WorkPermit::ResolveOnly)
-                .expect("checkout remains healthy"),
-        )
-        .expect("queued work is an authoritative level");
-        assert!(matches!(
-            runtime.settle_compute(retry(job), SettlementOrigin::Completion),
-            ControlFlow::Continue(())
-        ));
-        assert!(is_queued_resolve(&runtime, &key));
-    }
-
-    #[test]
-    fn runtime_stale_plan_disposition_depends_on_the_producer_boundary() {
-        assert!(matches!(
-            AuthorityDriverError::from_ready_plan(PlanError::Stale(StalePlan::Version)),
-            AuthorityDriverError::Stale
-        ));
-        assert!(matches!(
-            AuthorityDriverError::from_maintenance_plan(PlanError::Stale(StalePlan::Version)),
-            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
-        ));
-        assert!(matches!(
-            AuthorityComputeError::from_checkout_plan(PlanError::Stale(StalePlan::Version)),
-            AuthorityComputeError::Fault(AuthorityFault::SchedulerProjection)
-        ));
-        assert!(matches!(
-            AuthorityDriverError::from_initial_ready_capture(FinalAdmissionCaptureError::Plan(
-                PlanError::Stale(StalePlan::Version),
-            )),
-            AuthorityDriverError::Fault(AuthorityFault::SchedulerProjection)
-        ));
-        assert!(matches!(
-            AuthorityDriverError::from_ready_preparation(FinalAdmissionCaptureError::Validation(
-                FinalAdmissionValidationError::StaleView,
-            ),),
-            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
-        ));
-        assert!(matches!(
-            AuthorityDriverError::from_ready_recheck(FinalAdmissionCaptureError::Plan(
-                PlanError::Stale(StalePlan::Version),
-            )),
-            AuthorityDriverError::Stale
-        ));
-        assert!(matches!(
-            AuthorityDriverError::from_ready_validation(ReadyValidationError::Candidate(
-                FinalAdmissionValidationError::StaleView,
-            )),
-            AuthorityDriverError::Fault(AuthorityFault::MembershipProjection)
-        ));
-        assert_eq!(
-            AuthorityDirectAdmissionError::from_validation(
-                FinalAdmissionValidationError::StaleView,
-            ),
-            AuthorityDirectAdmissionError::Stale
-        );
-        assert_eq!(
-            AuthorityDirectAdmissionError::from_plan(PlanError::Backpressure(
-                Backpressure::ProposalCollision,
-            )),
-            AuthorityDirectAdmissionError::ProposalCollision
-        );
-        assert_eq!(
-            AuthorityDirectAdmissionError::from_plan(PlanError::Backpressure(
-                Backpressure::EffectCapacity,
-            )),
-            AuthorityDirectAdmissionError::EffectCapacity
-        );
-        assert_eq!(
-            AuthorityAdministrationError::from_plan(PlanError::Backpressure(
-                Backpressure::Allocation,
-            )),
-            AuthorityAdministrationError::Allocation
-        );
-        assert_eq!(
-            AuthorityAdministrationError::from_plan(PlanError::Backpressure(
-                Backpressure::EffectCapacity,
-            )),
-            AuthorityAdministrationError::EffectCapacity
-        );
-        assert_eq!(
-            AuthorityAdministrationError::from_plan(PlanError::Stale(StalePlan::Version)),
-            AuthorityAdministrationError::Fault(AuthorityFault::MembershipProjection)
-        );
-    }
-
-    #[test]
-    fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
-        let runtime = runtime();
-        let admission = admission(904, 94);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-        let job = continued(
-            runtime
-                .try_checkout_for_foundation(WorkPermit::ResolveOnly)
-                .expect("checkout remains healthy"),
-        )
-        .expect("resolve work is ready");
-        assert!(matches!(
-            continued(
-                runtime
-                    .execute_compute(job)
-                    .expect("the assembled zero-fee policy accepts this fixture")
-            ),
-            AuthorityComputeOutcome::Settled
-        ));
-        let store = runtime.store.read();
-        assert!(matches!(
-            store.authority.entry(&key),
-            Some(OwnedTx::PreAccepted(entry))
-                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-        ));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() {
-        let runtime = runtime();
-        let admission = admission(905, 95);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-        let job = continued(
-            runtime
-                .try_checkout_for_foundation(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
-                .expect("checkout remains healthy"),
-        )
-        .expect("resolve work is ready");
-        let AuthorityComputeOutcome::Verification(request) = continued(
-            runtime
-                .execute_compute(job)
-                .expect("resolution continues under the same worker capability"),
-        ) else {
-            panic!("the empty-script fixture fits continuous verification")
-        };
-        let cache = ckb_verification::cache::init_cache();
-        let verification = continued(
-            runtime
-                .execute_verification(request.bind_cache(&cache), None)
-                .await
-                .expect("verification settles Ready ownership"),
-        );
-        assert!(!verification.cache_hit);
-        assert!(verification.cache_update.is_some());
-        assert_eq!(
-            runtime
-                .try_drive_ready()
-                .expect("the sealed Ready batch commits"),
-            AuthorityReadyOutcome::Applied { owners: 1 }
-        );
-        let store = runtime.store.read();
-        assert!(matches!(
-            store.authority.entry(&key),
-            Some(OwnedTx::Accepted(_))
-        ));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work() {
-        let runtime = runtime();
-        runtime
-            .admit(admission(906, 96))
-            .expect("the retained fixture enters the authority");
-        let retained_execution = runtime
-            .try_compute_execution_for_foundation()
-            .expect("the retained worker acquires one shared slot");
-        let retained = match runtime
-            .try_checkout(WorkPermit::ResolveOnly, retained_execution)
-            .expect("retained checkout remains healthy")
-        {
-            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => job,
-            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
-                drop(execution);
-                panic!("the retained fixture has queued resolve work")
-            }
-            ControlFlow::Break(_) => panic!("the fixture has sufficient effect capacity"),
-        };
-
-        let direct_execution = runtime
-            .try_compute_execution_for_foundation()
-            .expect("direct work shares the same partition");
-        let direct_tx = TransactionBuilder::default().version(1u32).build();
-        let AuthorityDirectResolutionOutcome::Rejected(direct) = runtime
-            .resolve_test_accept_transaction(&direct_tx, direct_execution)
-            .expect("the direct fixture reaches a stable typed rejection")
-        else {
-            panic!("the non-zero version fixture must reject before verification")
-        };
-
-        let remaining = runtime.available_compute_permits_for_foundation();
-        let mut holders = Vec::new();
-        holders
-            .try_reserve(remaining)
-            .expect("the bounded test holder vector allocates");
-        for _ in 0..remaining {
-            holders.push(
-                runtime
-                    .try_compute_execution_for_foundation()
-                    .expect("every remaining configured slot is obtainable exactly once"),
-            );
-        }
-        assert_eq!(runtime.available_compute_permits_for_foundation(), 0);
-        assert!(runtime.try_compute_execution_for_foundation().is_none());
-        {
-            let store = runtime.store.read();
-            assert_eq!(store.authority.resources().preaccepted().active_work, 1);
-        }
-
-        let waiter = {
-            let runtime = runtime.clone();
-            tokio::spawn(async move {
-                let cancel = CancellationToken::new();
-                runtime.acquire_compute_execution(&cancel).await
-            })
-        };
-        tokio::task::yield_now().await;
-        assert!(
-            !waiter.is_finished(),
-            "the next execution cannot start while retained and direct work saturate the gate"
-        );
-        let released = holders
-            .pop()
-            .expect("the fixture retained one spare holder");
-        drop(released);
-        let replacement = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
-            .await
-            .expect("one released slot wakes exactly one waiter")
-            .expect("the compute waiter task remains healthy")
-            .expect("the compute waiter was not cancelled");
-
-        assert!(matches!(
-            runtime.settle_compute(retained.retry(), SettlementOrigin::Completion),
-            ControlFlow::Continue(())
-        ));
-        assert!(matches!(
-            runtime
-                .settle_direct_transaction_rejection(direct)
-                .expect("the direct TestAccept rejection settles read-only"),
-            AuthorityDirectRejectionExecution::TestAccept(_)
-        ));
-        drop(holders);
-        drop(replacement);
-        assert_eq!(
-            runtime.available_compute_permits_for_foundation(),
-            runtime.verify_worker_count() + 1
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle() {
-        let runtime = runtime();
-        let handle = Handle::new(tokio::runtime::Handle::current(), None);
-        let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
-        let (cache_tx, mut cache_rx) = mpsc::channel(4);
-        let (command_tx, command_rx) = watch::channel(ChunkCommand::Suspend);
-        let cancel = CancellationToken::new();
-        let handles = runtime
-            .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-            .expect("the validated worker topology reserves its handle vector");
-        assert_eq!(
-            handles
-                .tasks
-                .iter()
-                .filter(|task| matches!(
-                    task.role,
-                    crate::authority::worker::AuthorityWorkerRole::Verifier(_)
-                ))
-                .count(),
-            4
-        );
-
-        let admission = admission(906, 96);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        assert!(is_queued_resolve(&runtime, &key));
-        assert_eq!(
-            runtime
-                .store
-                .read()
-                .authority
-                .resources()
-                .preaccepted()
-                .active_work,
-            0,
-            "a suspended topology must not check out a linear capability"
-        );
-
-        command_tx
-            .send(ChunkCommand::Resume)
-            .expect("the worker command authority remains live");
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if matches!(
-                    runtime.store.read().authority.entry(&key),
-                    Some(OwnedTx::Accepted(_))
-                ) {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the sealed workers converge the transaction to Accepted");
-        let update = tokio::time::timeout(std::time::Duration::from_secs(1), cache_rx.recv())
-            .await
-            .expect("the best-effort cache effect is not delayed")
-            .expect("the cache receiver remains open");
-        let expected_witness: [u8; 32] = TransactionBuilder::default()
-            .version(906u32)
-            .build()
-            .witness_hash()
-            .unpack();
-        assert_eq!(update.key.witness_hash(), &expected_witness);
-
-        cancel.cancel();
-        for task in handles.tasks {
-            task.handle
-                .await
-                .expect("authority worker task remains healthy")
-                .expect("authority worker exits without a structural fault");
-        }
-        assert_eq!(
-            runtime
-                .store
-                .read()
-                .authority
-                .resources()
-                .preaccepted()
-                .active_work,
-            0,
-            "structured cancellation cannot strand checked-out work"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_returns() {
-        const EFFECT_BYTES: usize = 1024 * 1024;
-        let mut config = runtime_config();
-        config.min_fee_rate = FeeRate::from_u64(1_000);
-        let snapshot = genesis_snapshot();
-        let effects = EffectLimits::partitioned(
-            EffectCapacity::new(1, EFFECT_BYTES),
-            EffectCapacity::new(1, EFFECT_BYTES),
-            EffectCapacity::new(1, EFFECT_BYTES),
-            EffectBatchBounds::new(
-                EffectBatchBound::new(1, EFFECT_BYTES),
-                EffectBatchBound::new(1, EFFECT_BYTES),
-                EffectBatchBound::new(1, EFFECT_BYTES),
-            ),
-        )
-        .expect("the narrow fixture admits one effect in each region");
-        let runtime = runtime_with_effect_limits(&config, snapshot, effects);
-
-        queue_remote_rejection(&runtime, 907);
-
-        let handle = Handle::new(tokio::runtime::Handle::current(), None);
-        let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
-        let (cache_tx, _cache_rx) = mpsc::channel(1);
-        let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-        let cancel = CancellationToken::new();
-        let handles = runtime
-            .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-            .expect("the validated topology reserves its handle vector");
-
-        let admission = admission(908, 98);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if matches!(
-                    runtime.store.read().authority.entry(&key),
-                    Some(OwnedTx::PreAccepted(entry))
-                        if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-                ) {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the rejected settlement remains Computing while publication is full");
-
-        let occupied_lease = runtime
-            .wait_effect_checkout()
-            .await
-            .expect("effect checkout remains healthy")
-            .expect("the occupied effect is queued");
-        runtime
-            .settle_effect(occupied_lease.complete_for_foundation().published())
-            .expect("the occupied publication settles through the runtime facade");
-
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            loop {
-                if runtime.store.read().authority.entry(&key).is_none() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the exact rejection commits after effect capacity returns");
-        assert_eq!(
-            runtime
-                .store
-                .read()
-                .authority
-                .resources()
-                .preaccepted()
-                .active_work,
-            0
-        );
-
-        cancel.cancel();
-        for task in handles.tasks {
-            task.handle
-                .await
-                .expect("authority worker task remains healthy")
-                .expect("authority worker exits without a structural fault");
-        }
-    }
-
-    #[tokio::test]
-    async fn runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence() {
-        let runtime = runtime();
-        queue_remote_rejection(&runtime, 909);
-        queue_remote_rejection(&runtime, 910);
-
-        let first = runtime
-            .wait_effect_checkout()
-            .await
-            .expect("the first checkout remains healthy")
-            .expect("the first effect is committed");
-        let first_sequence = first.sequence();
-        runtime
-            .close_effects()
-            .expect("zero active compute permits effect close");
-        assert!(!runtime.effects_closed_and_drained());
-        assert_eq!(
-            runtime.admit(admission(911, 99)).err(),
-            Some(PlanError::EffectClosed),
-            "closing the effect authority freezes new state producers"
-        );
-
-        runtime
-            .settle_effect(first.retain())
-            .expect("Retain returns the exact active capability to the head");
-        let retained = runtime
-            .wait_effect_checkout()
-            .await
-            .expect("retained checkout remains healthy")
-            .expect("the retained head is still committed");
-        assert_eq!(retained.sequence(), first_sequence);
-        runtime
-            .settle_effect(retained.complete_for_foundation().published())
-            .expect("the retained head publishes exactly once");
-
-        let second = runtime
-            .wait_effect_checkout()
-            .await
-            .expect("the second checkout remains healthy")
-            .expect("the second effect remains queued after close");
-        assert!(second.sequence() > first_sequence);
-        assert!(!runtime.effects_closed_and_drained());
-        runtime
-            .settle_effect(second.complete_for_foundation().circuit_disposed())
-            .expect("a stable endpoint circuit may dispose its exact batch");
-
-        assert!(
-            runtime
-                .wait_effect_checkout()
-                .await
-                .expect("the drained observation remains healthy")
-                .is_none()
-        );
-        assert!(runtime.effects_closed_and_drained());
-    }
-
-    #[tokio::test]
-    async fn runtime_effect_close_wakes_an_idle_level_waiter() {
-        let runtime = runtime();
-        let waiter = {
-            let runtime = runtime.clone();
-            tokio::spawn(async move { runtime.wait_effect_checkout().await })
-        };
-        tokio::task::yield_now().await;
-
-        runtime
-            .close_effects()
-            .expect("an idle authority closes without a synthetic effect");
-        let checkout = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
-            .await
-            .expect("close cannot lose the idle publisher wake")
-            .expect("the publisher task remains healthy")
-            .expect("effect checkout remains healthy");
-        assert!(checkout.is_none());
-        assert!(runtime.effects_closed_and_drained());
-    }
-
-    #[tokio::test]
-    async fn runtime_waiter_wakes_after_post_commit_admission_publication() {
-        let runtime = runtime();
-        let waiter = {
-            let runtime = runtime.clone();
-            tokio::spawn(async move {
-                let cancel = CancellationToken::new();
-                runtime
-                    .wait_checkout(WorkPermit::ResolveOnly, &cancel)
-                    .await
-            })
-        };
-        tokio::task::yield_now().await;
-
-        runtime
-            .admit(admission(902, 92))
-            .expect("admission commits before publication");
-        let job = continued(
-            tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
-                .await
-                .expect("the post-commit wake cannot be lost")
-                .expect("the waiter task remains healthy")
-                .expect("the authority runtime remains healthy"),
-        )
-        .expect("the waiter was not cancelled");
-        assert!(matches!(
-            runtime.settle_compute(retry(job), SettlementOrigin::Completion),
-            ControlFlow::Continue(())
-        ));
-    }
-
-    #[test]
-    fn runtime_capture_failure_requeues_before_returning_the_typed_error() {
-        let runtime = runtime();
-        let admission = admission(903, 93);
-        let key = admission.identity.raw.clone();
-        runtime.admit(admission).expect("admission commits");
-        {
-            let mut store = runtime.store.write();
-            store.authority.force_chain_view(ChainViewId::new(
-                ChainRevision(1),
-                ckb_types::packed::Byte32::new([0x93; 32]),
-            ));
-        }
-
-        assert!(matches!(
-            runtime.try_checkout_for_foundation(WorkPermit::ResolveOnly),
-            Err(AuthorityComputeError::Resolution(
-                super::super::resolver::ResolutionExecutionKind::StaleView
-            ))
-        ));
-        assert!(is_queued_resolve(&runtime, &key));
-    }
-
-    #[test]
-    fn runtime_configuration_builds_every_authority_policy_together() {
-        let config = runtime_config();
-        let consensus = ConsensusBuilder::default().build();
-        let runtime = AuthorityRuntimeConfig::from_runtime(&config, &consensus)
-            .expect("the production fixture compiles into one authority policy");
-        let limit = runtime.resources.preaccepted_limit_for_foundation();
-        assert_eq!(
-            limit.total_bytes(),
-            Some(config.tx_pipeline_resident_size_budget()),
-            "retained ownership and every simultaneous compute reservation share one physical ceiling"
-        );
-        assert!(limit.compute_bytes() > 0);
-        assert!(limit.compute_edges() > 0);
-        assert!(limit.bytes < config.tx_pipeline_resident_size_budget());
-    }
-
-    #[test]
-    fn runtime_configuration_rejects_an_unusable_pipeline_budget() {
-        let mut config = runtime_config();
-        config.max_tx_pipeline_resident_size = PREACCEPTED_ENTRY_BYTES - 1;
-        let consensus = ConsensusBuilder::default().build();
-        assert_eq!(
-            AuthorityRuntimeConfig::from_runtime(&config, &consensus).err(),
-            Some(RuntimeConfigError::PipelineBudgetTooSmall)
-        );
-    }
-
-    #[test]
-    fn runtime_configuration_rejects_an_unusable_per_work_grant() {
-        let mut config = runtime_config();
-        config.max_tx_pipeline_resident_size = 1_000_000;
-        config.max_tx_verify_workers = 10_000;
-        let consensus = ConsensusBuilder::default().build();
-        assert_eq!(
-            AuthorityRuntimeConfig::from_runtime(&config, &consensus).err(),
-            Some(RuntimeConfigError::PipelineBudgetTooSmall)
-        );
-    }
-
-    #[test]
-    fn runtime_configuration_rejects_effect_capacity_arithmetic_overflow() {
-        let mut config = runtime_config();
-        config.max_tx_pool_size = usize::MAX;
-        config.max_tx_pool_resident_size = usize::MAX;
-        let consensus = ConsensusBuilder::default().build();
-        assert_eq!(
-            AuthorityRuntimeConfig::from_runtime(&config, &consensus).err(),
-            Some(RuntimeConfigError::Arithmetic)
-        );
-    }
-
-    #[test]
-    fn runtime_configuration_error_conversions_preserve_failure_domains() {
-        assert_eq!(
-            runtime_resource_config_error(ResourceConfigError::TransientComputeOverflow),
-            RuntimeConfigError::Arithmetic
-        );
-        assert_eq!(
-            runtime_resource_config_error(ResourceConfigError::LimitHierarchy),
-            RuntimeConfigError::ResourceConfiguration
-        );
-        assert_eq!(
-            runtime_authority_config_error(AuthorityConfigError::Effect(
-                EffectConfigError::Arithmetic,
-            )),
-            RuntimeConfigError::Arithmetic
-        );
-        assert_eq!(
-            runtime_authority_config_error(AuthorityConfigError::Effect(
-                EffectConfigError::Allocation,
-            )),
-            RuntimeConfigError::AuthorityAllocation
-        );
-    }
-}
+#[cfg(test)]
+#[path = "tests/runtime_unit.rs"]
+mod tests;

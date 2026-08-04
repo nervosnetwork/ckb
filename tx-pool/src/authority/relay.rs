@@ -230,13 +230,11 @@ impl AuthorityRelayReceiver {
         state.bytes = state.bytes.saturating_sub(envelope.bytes);
         Some(envelope.result)
     }
-
-    #[cfg(test)]
-    pub(super) fn observation(&self) -> (usize, usize) {
-        let state = self.inner.state.lock();
-        (state.queue.len(), state.bytes)
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/support/relay.rs"]
+mod test_support;
 
 /// Compile one authority-owned parent request into the sync projection without
 /// an infallible collection allocation. The caller can publish a reset or

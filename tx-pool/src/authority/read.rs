@@ -17,9 +17,8 @@ use super::{
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
-        DependencySetError, EntryVersion, KnownDependencies, ObservedDependencies, OwnedTx,
-        PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity,
-        WorkPermit,
+        DependencySetError, KnownDependencies, ObservedDependencies, OwnedTx, PreAcceptedPhase,
+        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, WorkPermit,
     },
     validation::proposal_status,
 };
@@ -183,18 +182,6 @@ impl<'authority> AuthorityReadEntry<'authority> {
 
     pub(super) fn transaction(&self) -> &'authority Arc<TransactionView> {
         &self.owner.record().tx
-    }
-
-    pub(super) fn identity(&self) -> &'authority TxIdentity {
-        &self.owner.record().identity
-    }
-
-    pub(super) fn version(&self) -> EntryVersion {
-        self.owner.record().version
-    }
-
-    pub(super) fn arrival(&self) -> Arrival {
-        self.owner.record().arrival
     }
 
     pub(super) fn state(&self) -> AuthorityReadState {
@@ -380,6 +367,10 @@ pub(super) struct AuthorityReadView<'authority> {
 }
 
 impl<'authority> AuthorityReadView<'authority> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "this sole constructor makes every source of one coherent authority read cut explicit; a parameter bag would duplicate the view abstraction"
+    )]
     pub(super) fn new(
         chain_view: ChainViewId,
         entries: &'authority HashMap<RawTxHash, OwnedTx>,
@@ -568,10 +559,6 @@ impl<'authority> AuthorityReadView<'authority> {
             return Err(AuthorityReadError::Projection);
         }
         Ok(Some(AuthorityReadEntry::new(owner)))
-    }
-
-    pub(super) fn entries(&self) -> impl Iterator<Item = AuthorityReadEntry<'authority>> + '_ {
-        self.entries.values().map(AuthorityReadEntry::new)
     }
 
     pub(super) fn compact_transactions(
@@ -776,10 +763,6 @@ pub(super) struct PersistenceReadReceipt {
 }
 
 impl PersistenceReadReceipt {
-    pub(super) fn selected_len(&self) -> usize {
-        self.selected.len()
-    }
-
     pub(super) fn into_parent_first(self) -> Result<ParentFirstPersistence, AuthorityReadError> {
         let accepted_count = self
             .selected
@@ -821,14 +804,6 @@ pub(super) struct ParentFirstPersistence {
 }
 
 impl ParentFirstPersistence {
-    pub(super) fn accepted(&self) -> &[Arc<TransactionView>] {
-        &self.accepted
-    }
-
-    pub(super) fn recovery(&self) -> &[Arc<TransactionView>] {
-        &self.recovery
-    }
-
     /// Persistence exports transaction bytes only. Proof, charge, source,
     /// status and dependency-cut facts cannot cross the restart boundary.
     pub(super) fn into_transactions(
@@ -998,3 +973,7 @@ fn ordered_transactions(
     }
     Ok(transactions)
 }
+
+#[cfg(test)]
+#[path = "tests/support/read.rs"]
+mod test_support;

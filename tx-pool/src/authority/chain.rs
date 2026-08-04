@@ -54,15 +54,6 @@ pub(super) struct CellLocationReceipt {
 }
 
 impl CellLocationReceipt {
-    #[cfg(test)]
-    pub(super) fn empty_for_foundation(view: &ChainViewId) -> Self {
-        Self {
-            tip: view.tip().clone(),
-            chain_inputs: Arc::from([]),
-            chain_dependencies: Arc::from([]),
-        }
-    }
-
     /// Derive tx-pool-only positive location evidence from the exact resolved
     /// input metadata. A chain input has `transaction_info`; a pool-produced
     /// input does not. This receipt is never used by block validation, whose
@@ -125,14 +116,6 @@ impl CellLocationReceipt {
 
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
         &self.tip == view.tip()
-    }
-
-    pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
-        self.chain_inputs.binary_search(input).is_ok()
-    }
-
-    pub(super) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
-        self.chain_dependencies.binary_search(dependency).is_ok()
     }
 }
 
@@ -204,16 +187,6 @@ impl VerificationContextReceipt {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn empty_for_foundation(view: ChainViewId, rules: ScriptVerificationRules) -> Self {
-        Self {
-            view,
-            chain_inputs: Arc::from([]),
-            chain_dependencies: Arc::from([]),
-            time: TimeContextReceipt::from_validation(rules),
-        }
-    }
-
     pub(super) fn view(&self) -> &ChainViewId {
         &self.view
     }
@@ -232,16 +205,6 @@ impl VerificationContextReceipt {
 
     pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
         &self.view == view
-    }
-
-    #[cfg(test)]
-    fn refreshed_for_foundation(&self, view: ChainViewId, rules: ScriptVerificationRules) -> Self {
-        Self {
-            view,
-            chain_inputs: Arc::clone(&self.chain_inputs),
-            chain_dependencies: Arc::clone(&self.chain_dependencies),
-            time: TimeContextReceipt::from_validation(rules),
-        }
     }
 }
 
@@ -294,14 +257,6 @@ pub(super) struct AcceptedProof {
 }
 
 impl AcceptedProof {
-    #[cfg(test)]
-    pub(super) fn for_foundation(verified: VerifiedFacts) -> Self {
-        Self {
-            verified,
-            sensitivity: AcceptedChainSensitivity::Stable,
-        }
-    }
-
     pub(super) fn payload(&self) -> &ResolvedPayload {
         self.verified.payload()
     }
@@ -384,13 +339,9 @@ pub(super) enum ReadyPayloadRelation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum AdmissionEvidenceError {
+pub(super) enum DirectAdmissionError {
     TransactionIdentityMismatch,
-    ScriptRulesChanged,
 }
-
-pub(super) type FinalAdmissionError = AdmissionEvidenceError;
-pub(super) type DirectAdmissionError = AdmissionEvidenceError;
 
 impl MembershipValidationWork {
     fn new(view: ChainViewId, verified: VerifiedFacts) -> Self {
@@ -424,44 +375,6 @@ impl MembershipValidationWork {
 
     pub(super) fn into_parts(self) -> (ChainViewId, VerifiedFacts) {
         (self.view, self.verified)
-    }
-
-    #[cfg(test)]
-    fn validate_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-        sensitivity: AcceptedChainSensitivity,
-    ) -> Result<MembershipReceipt, AdmissionEvidenceError> {
-        self.validate_at_for_foundation(status, rules, sensitivity, AcceptedAtMillis::FOUNDATION)
-    }
-
-    #[cfg(test)]
-    fn validate_at_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-        sensitivity: AcceptedChainSensitivity,
-        accepted_at: AcceptedAtMillis,
-    ) -> Result<MembershipReceipt, AdmissionEvidenceError> {
-        let context = self
-            .verified
-            .verification_context()
-            .refreshed_for_foundation(self.view, rules);
-        let verified = self
-            .verified
-            .with_context(context)
-            .ok_or(AdmissionEvidenceError::ScriptRulesChanged)?;
-        let (verified, async_process_start) = verified.into_accepted();
-        Ok(MembershipReceipt {
-            proof: AcceptedProof {
-                verified,
-                sensitivity,
-            },
-            proposal: ProposalContextReceipt::from_validation(status),
-            accepted_at,
-            async_process_start,
-        })
     }
 }
 
@@ -500,72 +413,6 @@ impl FinalAdmissionWork {
     ) -> (RawTxHash, EntryVersion, MembershipValidationWork) {
         (self.key, self.expected, self.validation)
     }
-
-    /// Target-harness constructor for the result of real snapshot, overlay,
-    /// proposal and time validation. G5 replaces this test seam with the
-    /// tx-pool validator; production callers never receive the raw fields.
-    #[cfg(test)]
-    pub(super) fn validate_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
-        self.validate_with_sensitivity_for_foundation(
-            status,
-            rules,
-            AcceptedChainSensitivity::Stable,
-        )
-    }
-
-    #[cfg(test)]
-    pub(super) fn validate_at_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-        accepted_at: AcceptedAtMillis,
-    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
-        Ok(FinalAdmissionReceipt {
-            key: self.key,
-            expected: self.expected,
-            membership: self.validation.validate_at_for_foundation(
-                status,
-                rules,
-                AcceptedChainSensitivity::Stable,
-                accepted_at,
-            )?,
-            payload_relation: ReadyPayloadRelation::Shared,
-        })
-    }
-
-    #[cfg(test)]
-    pub(super) fn validate_context_sensitive_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
-        self.validate_with_sensitivity_for_foundation(
-            status,
-            rules,
-            AcceptedChainSensitivity::TipContext,
-        )
-    }
-
-    #[cfg(test)]
-    fn validate_with_sensitivity_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-        sensitivity: AcceptedChainSensitivity,
-    ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
-        Ok(FinalAdmissionReceipt {
-            key: self.key,
-            expected: self.expected,
-            membership: self
-                .validation
-                .validate_for_foundation(status, rules, sensitivity)?,
-            payload_relation: ReadyPayloadRelation::Shared,
-        })
-    }
 }
 
 impl DirectAdmissionWork {
@@ -593,22 +440,6 @@ impl DirectAdmissionWork {
 
     pub(super) fn into_validation_parts(self) -> (Arc<TransactionView>, MembershipValidationWork) {
         (self.tx, self.validation)
-    }
-
-    #[cfg(test)]
-    pub(super) fn validate_for_foundation(
-        self,
-        status: AcceptedStatus,
-        rules: ScriptVerificationRules,
-    ) -> Result<DirectAdmissionReceipt, DirectAdmissionError> {
-        Ok(DirectAdmissionReceipt {
-            tx: self.tx,
-            membership: self.validation.validate_for_foundation(
-                status,
-                rules,
-                AcceptedChainSensitivity::Stable,
-            )?,
-        })
     }
 }
 
@@ -733,10 +564,6 @@ impl FinalAdmissionRejection {
         Self { subject, reason }
     }
 
-    pub(super) fn reason(&self) -> &CommittedPublicReject {
-        &self.reason
-    }
-
     pub(super) fn into_parts(self) -> (FinalAdmissionSubject, CommittedPublicReject) {
         (self.subject, self.reason)
     }
@@ -855,10 +682,6 @@ impl DirectAdmissionReceipt {
         &self.membership.proof().payload().identity().raw
     }
 
-    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
-        &self.tx
-    }
-
     pub(super) fn view(&self) -> &ChainViewId {
         self.membership.view()
     }
@@ -940,10 +763,6 @@ impl DirectAdmissionRejection {
         reason: CommittedPublicReject,
     ) -> Self {
         Self { subject, reason }
-    }
-
-    pub(super) fn reason(&self) -> &CommittedPublicReject {
-        &self.reason
     }
 
     pub(super) fn into_parts(self) -> (DirectAdmissionSubject, CommittedPublicReject) {
@@ -1138,117 +957,6 @@ impl ChainBlockChanges {
             attached_headers,
             detached_headers,
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation(
-        attached: Vec<TransactionView>,
-        detached: Vec<TransactionView>,
-        attached_headers: Vec<Byte32>,
-        detached_headers: Vec<Byte32>,
-    ) -> Self {
-        Self::from_chain_update(attached, detached, attached_headers, detached_headers)
-    }
-}
-
-/// Bounded facts extracted from attached/detached blocks before taking the
-/// authority guard. The new snapshot itself is deliberately not retained.
-#[derive(Debug)]
-pub(super) struct ChainTransitionFacts {
-    pub(super) new_view: ChainViewId,
-    pub(super) attached: Vec<TransactionView>,
-    pub(super) detached: Vec<TransactionView>,
-    pub(super) relocated: Vec<RawTxHash>,
-    pub(super) attached_headers: Vec<Byte32>,
-    pub(super) detached_headers: Vec<Byte32>,
-    pub(super) changed_proposals: Vec<ProposalId>,
-    pub(super) detached_proposals: Vec<ProposalId>,
-    pub(super) accepted_validity: AcceptedValidityTransition,
-    pub(super) packaging: ChainPackagingMode,
-}
-
-impl ChainTransitionFacts {
-    pub(super) fn from_chain_update(
-        new_view: ChainViewId,
-        blocks: ChainBlockChanges,
-        changed_proposals: Vec<ProposalId>,
-        detached_proposals: Vec<ProposalId>,
-        accepted_validity: AcceptedValidityTransition,
-        packaging: ChainPackagingMode,
-    ) -> Result<Self, ChainFactsError> {
-        let canonical =
-            CanonicalChainFacts::from_chain_update(blocks, changed_proposals, detached_proposals)?;
-        Ok(Self {
-            new_view,
-            attached: canonical.attached,
-            detached: canonical.detached,
-            relocated: canonical.relocated,
-            attached_headers: canonical.attached_headers,
-            detached_headers: canonical.detached_headers,
-            changed_proposals: canonical.changed_proposals,
-            detached_proposals: canonical.detached_proposals,
-            accepted_validity,
-            packaging,
-        })
-    }
-
-    pub(super) fn as_view(&self) -> ChainTransitionFactsView<'_> {
-        ChainTransitionFactsView {
-            new_view: self.new_view.clone(),
-            attached: &self.attached,
-            detached: &self.detached,
-            relocated: &self.relocated,
-            attached_headers: &self.attached_headers,
-            detached_headers: &self.detached_headers,
-            changed_proposals: &self.changed_proposals,
-            detached_proposals: &self.detached_proposals,
-            accepted_validity: self.accepted_validity,
-            packaging: self.packaging,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn for_foundation(
-        new_view: ChainViewId,
-        blocks: ChainBlockChanges,
-        changed_proposals: Vec<ProposalId>,
-        detached_proposals: Vec<ProposalId>,
-        packaging: ChainPackagingMode,
-    ) -> Result<Self, ChainFactsError> {
-        let ChainBlockChanges {
-            attached,
-            detached,
-            attached_headers,
-            detached_headers,
-        } = blocks;
-        let had_detached_transactions = !detached.is_empty();
-        let had_detached_headers = !detached_headers.is_empty();
-        Self::from_chain_update(
-            new_view,
-            ChainBlockChanges {
-                attached,
-                detached,
-                attached_headers,
-                detached_headers,
-            },
-            changed_proposals,
-            detached_proposals,
-            if had_detached_transactions || had_detached_headers {
-                AcceptedValidityTransition::ContextChanged
-            } else {
-                AcceptedValidityTransition::Preserved
-            },
-            packaging,
-        )
-    }
-
-    /// Represents a rules-only context transition in the target harness.
-    /// Production obtains this classification from the same old/new snapshot
-    /// comparison that creates `new_view`; callers never pass a raw flag.
-    #[cfg(test)]
-    pub(super) fn revalidate_all_for_foundation(mut self) -> Self {
-        self.accepted_validity = AcceptedValidityTransition::RulesChanged;
-        self
     }
 }
 
@@ -1493,17 +1201,6 @@ impl ChainValidationWork {
         self.validate_positions(positions)
     }
 
-    /// Foundation seam for supplying exact synthetic proposal positions. The
-    /// positions must cover exactly the requested ids; extra or missing facts
-    /// cannot be silently ignored.
-    #[cfg(test)]
-    pub(super) fn validate_for_foundation(
-        self,
-        positions: Vec<(ProposalId, ProposalWindowPosition)>,
-    ) -> Result<ChainTransitionReceipt, ChainValidationError> {
-        self.validate_positions(positions)
-    }
-
     fn validate_positions(
         self,
         mut positions: Vec<(ProposalId, ProposalWindowPosition)>,
@@ -1624,6 +1321,10 @@ impl ChainValidationWork {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/chain.rs"]
+pub(in crate::authority) mod test_support;
 
 fn reconcile_proposal_status(
     before: AcceptedStatus,

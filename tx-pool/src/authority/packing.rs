@@ -6,13 +6,12 @@
 
 use super::{
     plan::AncestorAggregate,
-    state::{AcceptedAtMillis, Arrival, CandidateMetrics, ProposalId, RawTxHash},
+    state::{AcceptedAtMillis, Arrival, CandidateMetrics, RawTxHash},
     template::{TemplateCandidate, TemplateReadError, TemplateSelectionReceipt},
 };
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
-use ckb_types::{
-    core::{Capacity, Cycle, cell::ResolvedTransaction, tx_pool::get_transaction_weight},
-    packed::ProposalShortId,
+use ckb_types::core::{
+    Capacity, Cycle, cell::ResolvedTransaction, tx_pool::get_transaction_weight,
 };
 use std::{
     borrow::Cow,
@@ -41,55 +40,17 @@ impl TemplatePackingLimits {
 
 #[derive(Clone, Debug)]
 pub(super) struct PackedTemplateTransaction {
-    hash: RawTxHash,
-    proposal: ProposalId,
     accepted_at: AcceptedAtMillis,
     metrics: CandidateMetrics,
     resolved: Arc<ResolvedTransaction>,
 }
 
-impl PackedTemplateTransaction {
-    pub(super) fn hash(&self) -> &RawTxHash {
-        &self.hash
-    }
-
-    pub(super) fn proposal_short_id(&self) -> &ProposalShortId {
-        &self.proposal.0
-    }
-
-    pub(super) fn accepted_at(&self) -> AcceptedAtMillis {
-        self.accepted_at
-    }
-
-    pub(super) fn metrics(&self) -> &CandidateMetrics {
-        &self.metrics
-    }
-
-    pub(super) fn resolved(&self) -> &Arc<ResolvedTransaction> {
-        &self.resolved
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct PackedTemplateTransactions {
     entries: Vec<PackedTemplateTransaction>,
-    serialized_bytes: usize,
-    cycles: Cycle,
 }
 
 impl PackedTemplateTransactions {
-    pub(super) fn entries(&self) -> &[PackedTemplateTransaction] {
-        &self.entries
-    }
-
-    pub(super) fn serialized_bytes(&self) -> usize {
-        self.serialized_bytes
-    }
-
-    pub(super) fn cycles(&self) -> Cycle {
-        self.cycles
-    }
-
     /// Convert only the block-bounded selected payloads into the established
     /// assembler DTO. The exact accepted timestamp and residency charge were
     /// captured with the same authority receipt, so conversion performs no
@@ -325,15 +286,6 @@ impl TemplateSelectionReceipt {
         limits: TemplatePackingLimits,
     ) -> Result<PackedTemplateTransactions, TemplateReadError> {
         self.pack_transactions_with_failure_bound(limits, MAX_CONSECUTIVE_PACKING_FAILURES)
-    }
-
-    #[cfg(test)]
-    pub(super) fn pack_transactions_for_foundation(
-        &self,
-        limits: TemplatePackingLimits,
-        max_consecutive_failures: usize,
-    ) -> Result<PackedTemplateTransactions, TemplateReadError> {
-        self.pack_transactions_with_failure_bound(limits, max_consecutive_failures)
     }
 
     fn pack_transactions_with_failure_bound(
@@ -671,8 +623,6 @@ impl TemplateSelectionReceipt {
                 .checked_add(candidate.metrics().cost.cycles)
                 .ok_or(TemplateReadError::Arithmetic)?;
             entries.push(PackedTemplateTransaction {
-                hash: candidate.hash().clone(),
-                proposal: candidate.proposal().clone(),
                 accepted_at: candidate.accepted_at(),
                 metrics: candidate.metrics().clone(),
                 resolved: Arc::clone(candidate.resolved()),
@@ -681,10 +631,10 @@ impl TemplateSelectionReceipt {
         if final_bytes > limits.serialized_bytes || final_cycles > limits.cycles {
             return Err(TemplateReadError::Projection);
         }
-        Ok(PackedTemplateTransactions {
-            entries,
-            serialized_bytes: final_bytes,
-            cycles: final_cycles,
-        })
+        Ok(PackedTemplateTransactions { entries })
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/packing.rs"]
+mod test_support;

@@ -1,5 +1,8 @@
 use super::super::{
-    chain::{ChainBlockChanges, ChainPackagingMode, ChainTransitionFacts, ProposalWindowPosition},
+    chain::{
+        ChainBlockChanges, ChainPackagingMode, ProposalWindowPosition,
+        test_support::ChainTransitionFacts,
+    },
     packing::TemplatePackingLimits,
     plan::TxPoolAuthority,
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, ProposalId, RawTxHash},
@@ -571,7 +574,7 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         .expect("the production packer shares the bounded cycle kernel")
         .entries()
         .iter()
-        .map(|entry| entry.hash().clone())
+        .map(|entry| entry.hash())
         .collect::<Vec<_>>();
     assert_eq!(packed, selected);
 }

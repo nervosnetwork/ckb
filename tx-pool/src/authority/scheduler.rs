@@ -512,15 +512,6 @@ impl FairLane {
             QueuePopulation::SmallOnly => self.small_owners.len(),
         }
     }
-
-    fn secondary_index_consistent(&self) -> bool {
-        self.small_owners
-            == self
-                .by_owner
-                .iter()
-                .filter_map(|(owner, queue)| (!queue.small.is_empty()).then_some(*owner))
-                .collect()
-    }
 }
 
 #[derive(Debug)]
@@ -529,16 +520,6 @@ pub(super) struct FairFrontier {
     verify: FairLane,
     ready: BTreeSet<ReadyKey>,
     verify_order: VerifyOrder,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct SchedulerSnapshot {
-    verify_order: VerifyOrder,
-    slots: BTreeSet<SchedulerSlot>,
-    resolve_owner_cursor: Option<WorkOwner>,
-    verify_owner_cursor: Option<WorkOwner>,
-    resolve_small_owners: BTreeSet<WorkOwner>,
-    verify_small_owners: BTreeSet<WorkOwner>,
 }
 
 impl FairFrontier {
@@ -731,17 +712,6 @@ impl FairFrontier {
             .collect()
     }
 
-    pub(super) fn snapshot(&self) -> SchedulerSnapshot {
-        SchedulerSnapshot {
-            verify_order: self.verify_order,
-            slots: self.slots(),
-            resolve_owner_cursor: self.resolve.owner_cursor,
-            verify_owner_cursor: self.verify.owner_cursor,
-            resolve_small_owners: self.resolve.small_owners.clone(),
-            verify_small_owners: self.verify.small_owners.clone(),
-        }
-    }
-
     pub(super) fn apply(&mut self, delta: SchedulerDelta) {
         if let Some(before) = delta.before {
             self.remove(before);
@@ -802,59 +772,11 @@ impl FairFrontier {
             }
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn semantically_matches(
-        &self,
-        entries: &std::collections::HashMap<RawTxHash, OwnedTx>,
-    ) -> bool {
-        let Ok(expected) = entries
-            .values()
-            .map(|owner| self.slot(owner))
-            .collect::<Result<Vec<_>, _>>()
-        else {
-            return false;
-        };
-        let expected = expected.into_iter().flatten().collect::<BTreeSet<_>>();
-        self.resolve.secondary_index_consistent()
-            && self.verify.secondary_index_consistent()
-            && self.slots() == expected
-    }
-
-    fn slots(&self) -> BTreeSet<SchedulerSlot> {
-        let mut actual = BTreeSet::new();
-        for (owner, entries) in &self.resolve.by_owner {
-            actual.extend(
-                entries
-                    .small
-                    .iter()
-                    .chain(&entries.large)
-                    .cloned()
-                    .map(|key| SchedulerSlot::Queue {
-                        lane: QueueLane::Resolve,
-                        owner: *owner,
-                        key,
-                    }),
-            );
-        }
-        for (owner, entries) in &self.verify.by_owner {
-            actual.extend(
-                entries
-                    .small
-                    .iter()
-                    .chain(&entries.large)
-                    .cloned()
-                    .map(|key| SchedulerSlot::Queue {
-                        lane: QueueLane::Verify,
-                        owner: *owner,
-                        key,
-                    }),
-            );
-        }
-        actual.extend(self.ready.iter().cloned().map(SchedulerSlot::Ready));
-        actual
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/support/scheduler.rs"]
+pub(in crate::authority) mod test_support;
 
 impl Ord for SchedulerSlot {
     fn cmp(&self, other: &Self) -> Ordering {

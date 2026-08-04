@@ -1,6 +1,4 @@
 use super::ban::PeerBanLease;
-#[cfg(test)]
-use super::state::RejectionKind;
 use super::{
     rejection::{CommittedPublicReject, MembershipReject},
     state::{AcceptedStatus, ApplySequence, OwnedTx, PreAcceptedSource, RawTxHash},
@@ -241,29 +239,8 @@ impl EffectLimits {
         })
     }
 
-    #[cfg(test)]
-    fn for_foundation() -> Self {
-        Self {
-            regions: EffectRegions::new(
-                EffectCapacity::new(8, 64 * 1024),
-                EffectCapacity::new(12, 128 * 1024),
-                EffectCapacity::new(14, 192 * 1024),
-            ),
-            bounds: EffectBatchBounds::new(
-                EffectBatchBound::new(16, 32 * 1024),
-                EffectBatchBound::new(16, 64 * 1024),
-                EffectBatchBound::new(64, 128 * 1024),
-            ),
-        }
-    }
-
     fn batch_bound(self, class: EffectClass) -> EffectBatchBound {
         self.bounds.for_class(class)
-    }
-
-    #[cfg(test)]
-    pub(super) fn max_batch_bytes_for_foundation(self, policy: EffectPolicy) -> usize {
-        self.batch_bound(policy.class()).max_bytes
     }
 }
 
@@ -430,13 +407,6 @@ pub(super) enum CommittedRejection {
         owner: CommittedConflictOwner,
         out_point: OutPoint,
     },
-    /// Foundation-only bounded effect fixture.
-    #[cfg(test)]
-    Foundation {
-        tx: Arc<TransactionView>,
-        audience: RejectionAudience,
-        reason: RejectionKind,
-    },
 }
 
 impl CommittedRejection {
@@ -450,8 +420,6 @@ impl CommittedRejection {
                 CommittedConflictOwner::PreAccepted { tx, .. } => tx.hash(),
                 CommittedConflictOwner::Accepted(entry) => entry.tx.hash(),
             },
-            #[cfg(test)]
-            Self::Foundation { tx, .. } => tx.hash(),
         };
         RawTxHash(hash)
     }
@@ -476,8 +444,6 @@ impl CommittedRejection {
             Self::ChainConflict { out_point, .. } => CommittedPublicReject::new(Reject::Resolve(
                 ckb_types::core::error::OutPointError::Dead(out_point.clone()),
             )),
-            #[cfg(test)]
-            Self::Foundation { reason, .. } => (*reason).into(),
         }
     }
 
@@ -491,8 +457,6 @@ impl CommittedRejection {
             Self::Replaced { .. } | Self::ChainConflict { .. } => true,
             Self::Expired { .. } => true,
             Self::CapacityEvicted { .. } => false,
-            #[cfg(test)]
-            Self::Foundation { .. } => true,
         }
     }
 }
@@ -532,13 +496,6 @@ pub(super) struct CommittedPeerCohortRevocation {
 }
 
 impl CommittedPeerCohortRevocation {
-    pub(super) const fn administrative(lease: PeerBanLease) -> Self {
-        Self {
-            lease,
-            culprit: None,
-        }
-    }
-
     pub(super) fn malformed(
         lease: PeerBanLease,
         tx_hash: RawTxHash,
@@ -548,15 +505,6 @@ impl CommittedPeerCohortRevocation {
             lease,
             culprit: Some(CommittedPeerBanRejection { tx_hash, reason }),
         })
-    }
-
-    #[cfg(test)]
-    pub(super) fn malformed_for_foundation(
-        peer: PeerIndex,
-        tx_hash: RawTxHash,
-        reason: CommittedPublicReject,
-    ) -> Option<Self> {
-        Self::malformed(PeerBanLease::for_foundation(peer), tx_hash, reason)
     }
 
     pub(super) const fn peer(&self) -> PeerIndex {
@@ -649,16 +597,6 @@ impl RejectionAudience {
     pub(super) const fn has_ingress(self) -> bool {
         self.ingress_peer.is_some()
     }
-
-    #[cfg(test)]
-    pub(super) const fn ingress_peer(self) -> Option<PeerIndex> {
-        self.ingress_peer
-    }
-
-    #[cfg(test)]
-    pub(super) const fn foundation() -> Self {
-        Self { ingress_peer: None }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -737,10 +675,6 @@ impl CommittedEffect {
                     } => owner
                         .charge_bytes()?
                         .checked_add(out_point.as_slice().len()),
-                    #[cfg(test)]
-                    CommittedRejection::Foundation { tx, .. } => {
-                        EFFECT_ENVELOPE_BYTES.checked_add(tx.data().total_size())
-                    }
                 }?;
                 if rejection.should_record_recent_reject() {
                     retained.checked_add(PENDING_REJECT_INDEX_BYTES)
@@ -905,20 +839,6 @@ impl EffectPublication {
             batch: EffectBatch::build(effects, policy.class(), limits)?,
         })
     }
-
-    #[cfg(test)]
-    pub(super) fn new_for_foundation(
-        policy: EffectPolicy,
-        effects: Vec<CommittedEffect>,
-        limits: EffectLimits,
-    ) -> Result<Self, EffectBuildError> {
-        Self::new(policy, effects, limits)
-    }
-
-    #[cfg(test)]
-    pub(super) fn charge_bytes_for_foundation(&self) -> usize {
-        self.batch.charge_bytes()
-    }
 }
 
 /// A non-empty prefix proven to fit the remote effect region's indivisible
@@ -1054,69 +974,6 @@ struct EffectEnvelope {
     class: Option<EffectClass>,
     batch: Arc<EffectBatch>,
     processed: EffectProgress,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct EffectSnapshot {
-    queued: VecDeque<EffectEnvelope>,
-    active: Option<EffectEnvelope>,
-    latest_generation_reset: Option<EffectEnvelope>,
-    usage: EffectRegionUsage,
-    closed: bool,
-}
-
-#[cfg(test)]
-impl EffectSnapshot {
-    /// Compares the externally committed effect stream while deliberately
-    /// ignoring journal batch boundaries and their accounting envelope.
-    ///
-    /// A commuting authority Apply may publish several effects in one batch,
-    /// while its canonical one-at-a-time reference publishes the same effects
-    /// in adjacent batches.  Batch shape is a delivery optimization, not a
-    /// transaction outcome.  Order, trust class, active/reset position, and
-    /// closure state remain observable and therefore stay in the comparison.
-    pub(super) fn equivalent_stream(&self, other: &Self) -> bool {
-        fn flatten(
-            envelopes: impl IntoIterator<Item = EffectEnvelope>,
-        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
-            envelopes
-                .into_iter()
-                .flat_map(|envelope| {
-                    envelope
-                        .batch
-                        .effects()
-                        .iter()
-                        .cloned()
-                        .map(move |effect| (envelope.class, effect))
-                        .collect::<Vec<_>>()
-                })
-                .collect()
-        }
-
-        let active = self.active.clone().into_iter();
-        let other_active = other.active.clone().into_iter();
-        let reset = self.latest_generation_reset.clone().into_iter();
-        let other_reset = other.latest_generation_reset.clone().into_iter();
-
-        flatten(self.queued.clone()) == flatten(other.queued.clone())
-            && flatten(active) == flatten(other_active)
-            && flatten(reset) == flatten(other_reset)
-            && self.closed == other.closed
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct EffectObservation {
-    pub(super) queued: Vec<ApplySequence>,
-    pub(super) active: Option<ApplySequence>,
-    pub(super) active_processed_steps: Option<usize>,
-    pub(super) latest_generation_reset: Option<ApplySequence>,
-    pub(super) remote_usage: EffectUsage,
-    pub(super) ordinary_usage: EffectUsage,
-    pub(super) total_usage: EffectUsage,
-    pub(super) pending_recent_rejects: usize,
-    pub(super) closed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1255,10 +1112,6 @@ impl EffectProgress {
     fn is_complete(self, batch: &EffectBatch) -> bool {
         self.0 == batch.publication_steps()
     }
-
-    fn is_pending(self, batch: &EffectBatch) -> bool {
-        self.0 < batch.publication_steps()
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -1277,14 +1130,6 @@ pub(super) struct EffectLease {
 }
 
 impl EffectLease {
-    pub(super) fn sequence(&self) -> ApplySequence {
-        self.token.sequence
-    }
-
-    pub(super) fn effects(&self) -> &[CommittedEffect] {
-        self.batch.effects()
-    }
-
     /// The first not-yet-processed endpoint in this exclusive batch lease.
     /// Progress is local to the move-only capability while endpoint I/O runs;
     /// only Retain commits it back into the authority.
@@ -1296,10 +1141,6 @@ impl EffectLease {
         let (processed, complete) = self.processed.advance(&self.batch)?;
         self.processed = processed;
         Ok(complete)
-    }
-
-    pub(super) fn charge_bytes(&self) -> usize {
-        self.batch.charge_bytes()
     }
 
     pub(super) fn retain(self) -> EffectSettlement {
@@ -1322,15 +1163,6 @@ impl EffectLease {
                 error: EffectProgressError::Incomplete,
                 lease: self,
             })
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn complete_for_foundation(mut self) -> CompletedEffectLease {
-        self.processed = EffectProgress(self.batch.publication_steps());
-        CompletedEffectLease {
-            token: self.token,
-            batch: self.batch,
         }
     }
 }
@@ -1483,21 +1315,6 @@ impl EffectLog {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn for_foundation() -> Self {
-        let limits = EffectLimits::for_foundation();
-        Self {
-            limits,
-            queued: VecDeque::with_capacity(limits.regions.total.batches),
-            active: None,
-            latest_generation_reset: None,
-            pending_recent_rejects: HashMap::new(),
-            usage: EffectRegionUsage::default(),
-            closed: false,
-            generation_reset_batch: EffectBatch::reset(),
-        }
-    }
-
     pub(super) fn ensure_open(&self) -> Result<(), EffectError> {
         if self.is_closed() {
             Err(EffectError::Closed)
@@ -1561,16 +1378,6 @@ impl EffectLog {
             publication,
             selected,
         }))
-    }
-
-    pub(super) fn snapshot(&self) -> EffectSnapshot {
-        EffectSnapshot {
-            queued: self.queued.clone(),
-            active: self.active.clone(),
-            latest_generation_reset: self.latest_generation_reset.clone(),
-            usage: self.usage,
-            closed: self.closed,
-        }
     }
 
     pub(super) fn operational_usage(&self) -> crate::metrics::EffectUsage {
@@ -1857,28 +1664,6 @@ impl EffectLog {
             && self.usage == EffectRegionUsage::default()
     }
 
-    #[cfg(test)]
-    pub(super) fn observation(&self) -> EffectObservation {
-        EffectObservation {
-            queued: self
-                .queued
-                .iter()
-                .map(|envelope| envelope.sequence)
-                .collect(),
-            active: self.active.as_ref().map(|envelope| envelope.sequence),
-            active_processed_steps: self.active.as_ref().map(|envelope| envelope.processed.0),
-            latest_generation_reset: self
-                .latest_generation_reset
-                .as_ref()
-                .map(|envelope| envelope.sequence),
-            remote_usage: self.usage.remote,
-            ordinary_usage: self.usage.ordinary,
-            total_usage: self.usage.total,
-            pending_recent_rejects: self.pending_recent_rejects.len(),
-            closed: self.closed,
-        }
-    }
-
     pub(super) fn pending_recent_reject(&self, hash: &RawTxHash) -> Option<PendingRecentReject> {
         let pending = self.pending_recent_rejects.get(hash)?;
         Some(PendingRecentReject {
@@ -1886,114 +1671,6 @@ impl EffectLog {
             batch: Arc::clone(&pending.batch),
             effect_index: pending.effect_index,
         })
-    }
-
-    pub(super) fn semantically_consistent(&self, next_sequence: ApplySequence) -> bool {
-        let queued_ordered = self
-            .queued
-            .iter()
-            .try_fold(None, |previous, envelope| {
-                if envelope.class.is_none()
-                    || previous.is_some_and(|previous| previous >= envelope.sequence)
-                {
-                    None
-                } else {
-                    Some(Some(envelope.sequence))
-                }
-            })
-            .is_some();
-        if !queued_ordered {
-            return false;
-        }
-        let mut rebuilt = EffectRegionUsage::default();
-        for envelope in self.queued.iter().chain(self.active.iter()) {
-            let Some(class) = envelope.class else {
-                if self.active.as_ref() != Some(envelope) {
-                    return false;
-                }
-                continue;
-            };
-            let Some(next) = rebuilt.checked_charge(class, envelope.batch.charge_bytes()) else {
-                return false;
-            };
-            rebuilt = next;
-        }
-        let all_sequences_before_clock = self
-            .queued
-            .iter()
-            .chain(self.active.iter())
-            .chain(self.latest_generation_reset.iter())
-            .all(|envelope| envelope.sequence < next_sequence);
-        let all_progress_incomplete = self
-            .queued
-            .iter()
-            .chain(self.active.iter())
-            .chain(self.latest_generation_reset.iter())
-            .all(|envelope| envelope.processed.is_pending(&envelope.batch));
-        let active_precedes_pending = self.active.as_ref().is_none_or(|active| {
-            self.queued
-                .front()
-                .is_none_or(|queued| active.sequence < queued.sequence)
-                && self
-                    .latest_generation_reset
-                    .as_ref()
-                    .is_none_or(|reset| active.sequence < reset.sequence)
-        });
-        let resident = self.queued.iter().chain(self.active.iter());
-        let pending_projection_complete =
-            resident.clone().all(|envelope| {
-                envelope
-                    .batch
-                    .pending_recent_rejects()
-                    .all(|(effect_index, rejection)| {
-                        self.pending_recent_rejects
-                            .get(&rejection.raw_hash())
-                            .is_some_and(|pending| {
-                                pending.sequence > envelope.sequence
-                                    || (pending.sequence == envelope.sequence
-                                        && pending.effect_index >= effect_index
-                                        && Arc::ptr_eq(&pending.batch, &envelope.batch))
-                            })
-                    })
-            }) && self.pending_recent_rejects.iter().all(|(hash, pending)| {
-                pending
-                    .batch
-                    .effects()
-                    .get(pending.effect_index)
-                    .and_then(CommittedEffect::recordable_rejection)
-                    .is_some_and(|rejection| rejection.raw_hash() == *hash)
-                    && self
-                        .queued
-                        .iter()
-                        .chain(self.active.iter())
-                        .any(|envelope| {
-                            envelope.sequence == pending.sequence
-                                && Arc::ptr_eq(&envelope.batch, &pending.batch)
-                        })
-            });
-        rebuilt == self.usage
-            && self.usage_within_limits()
-            && all_sequences_before_clock
-            && all_progress_incomplete
-            && active_precedes_pending
-            && self
-                .latest_generation_reset
-                .as_ref()
-                .is_none_or(|reset| reset.class.is_none() && reset.batch.charge_bytes() == 0)
-            && pending_projection_complete
-    }
-
-    fn usage_within_limits(&self) -> bool {
-        self.usage.remote.batches <= self.limits.regions.remote.batches
-            && self.usage.remote.bytes <= self.limits.regions.remote.bytes
-            && self.usage.ordinary.batches <= self.limits.regions.ordinary.batches
-            && self.usage.ordinary.bytes <= self.limits.regions.ordinary.bytes
-            && self.usage.total.batches <= self.limits.regions.total.batches
-            && self.usage.total.bytes <= self.limits.regions.total.bytes
-            && self.usage.remote.batches <= self.usage.ordinary.batches
-            && self.usage.ordinary.batches <= self.usage.total.batches
-            && self.usage.remote.bytes <= self.usage.ordinary.bytes
-            && self.usage.ordinary.bytes <= self.usage.total.bytes
     }
 
     fn validate_new_sequence(&self, sequence: ApplySequence) -> Result<(), EffectError> {
@@ -2012,3 +1689,7 @@ impl EffectLog {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/support/effect.rs"]
+pub(in crate::authority) mod test_support;

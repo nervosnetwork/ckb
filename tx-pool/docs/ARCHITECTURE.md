@@ -1,1228 +1,699 @@
-# Tx-Pool Architecture: Two-Authority Plan/Apply Kernel
+# Tx-Pool Architecture: Unified Authority Kernel
 
-This is the normative design for the current implementation. Executable
-behavior and hostile-case evidence live in
-[`REVIEW_GUIDE.md`](REVIEW_GUIDE.md); contract maintenance and CI commands live
-in [`VALIDATION.md`](VALIDATION.md). Migration notes and checkpoint history are
-intentionally not part of the public architecture.
+This document is the normative design of the current tx-pool. It describes
+the surviving production model, not the migration history. Executable behavior
+and attack regressions are indexed by [REVIEW_GUIDE.md](REVIEW_GUIDE.md);
+machine-contract maintenance is documented by [VALIDATION.md](VALIDATION.md);
+performance evidence and measurement rules live in
+[PERFORMANCE.md](PERFORMANCE.md) and [BENCHMARK.md](BENCHMARK.md).
 
 ## 1. Decision
 
-The final architecture has two, and only two, executable transaction owners:
+`TxPoolAuthority` is the only transaction-lifecycle authority. It lives with
+the exact chain snapshot it validates against inside one `AuthorityStore`
+protected by a synchronous `RwLock`. Its `entries` map owns every retained or
+accepted transaction by raw transaction hash:
 
-1. `TxPool` owns accepted transactions and consensus-facing pool status.
-2. `PrePoolKernel` owns retained transactions that have not been accepted.
+```text
+Owner(h) = Nowhere
+         | PreAccepted(phase, source, evidence, charge)
+         | Accepted(status, proof, charge)
+         | ReplacementHistory(observation, charge)
+```
 
-Every pre-pool transaction is one primary entry in exactly one of six
-locations. Queues, wait edges, deadlines, conflict indexes and counters are
-derived projections containing identity or accounting only. Accepted mutation
-is a read-only `PoolMutationPlan` followed by total `apply_mutation`. Stable
-observable effects are appended in the same innermost critical section as
-state Apply.
+Indexes, membership relations, scheduling, dependency observations, resource
+accounting, source versions, peer-ban state and committed effects are fields or
+projections of that same authority. They change in the same total Apply as the
+owner. None is a second decision authority.
 
-This is deliberately not a universal actor, an undo/rollback engine, a
-restart-on-panic system, or a generic workflow framework. It is the smallest
-model found that closes the concrete `develop` ownership, RBF atomicity,
-liveness and resource-bound failures without serializing read-heavy accepted-
-pool or optimistic block-template work.
+Resolve, script verification and immutable planning are parallel work outside
+the authority guard. A typed version or lease binds each result to the exact
+owner and chain view it can settle. External I/O runs only after Apply and
+consumes effects committed by that Apply.
 
 ```mermaid
 flowchart TB
-    subgraph Ingress["Ingress policy"]
+    subgraph Inputs["Ingress and chain inputs"]
         Remote["Remote"]
         Proposal["Proposal"]
         Recovery["Recovery"]
         Local["Local RPC"]
+        Chain["Ordered chain transition"]
     end
 
-    subgraph PrePool["Authority 1: PrePoolKernel"]
-        Primary["One full-hash primary entry<br/>one of six locations + revision + charge"]
-        Indexes["Derived identity/accounting indexes<br/>queues, wait edges, deadlines, ready order"]
-        Primary -. "derives" .-> Indexes
+    subgraph Store["AuthorityStore: one synchronous RwLock"]
+        Snapshot["Arc<Snapshot> + ChainViewId"]
+        Owners["TxPoolAuthority.entries<br/>PreAccepted | Accepted | ReplacementHistory"]
+        Derived["Indexes | membership | scheduler | dependencies<br/>resources | source versions | peer bans | EffectLog"]
+        Owners -->|"same total Apply"| Derived
+        Snapshot -->|"paired evidence"| Owners
     end
 
-    Workers["Resolve / verify workers<br/>typed revision-bound lease; no payload ownership"]
-    Admission["AdmissionPlan<br/>read-only proof + single-use total Apply<br/>not an owner"]
+    Compute["Parallel resolve and verify<br/>move-only versioned lease"]
+    Plan["Typed evidence -> closed Plan<br/>semantic state unchanged"]
+    Effects["Sole effect publisher<br/>post-commit external I/O"]
+    Reads["RPC | persistence | relay rebuild<br/>immutable coherent receipts"]
+    Template["Versioned block-template lanes<br/>derived and rebuildable"]
 
-    subgraph Accepted["Authority 2: TxPool"]
-        PoolMap["Accepted PoolMap<br/>membership + graph + Pending/Gap/Proposed"]
-    end
+    Remote --> Owners
+    Proposal --> Owners
+    Recovery --> Owners
+    Local --> Compute
+    Chain --> Store
+    Owners -->|"checkout"| Compute
+    Compute --> Plan
+    Local --> Plan
+    Plan -->|"single-use total Apply"| Owners
+    Derived -->|"committed effect lease"| Effects
+    Store --> Reads
+    Store --> Template
 
-    Journal["EffectJournal<br/>committed records; no transaction ownership"]
-    Endpoints["Relay / callback / database endpoints"]
-    Consumers["RPC / block assembler / persistence readers"]
-
-    Remote --> Primary
-    Proposal --> Primary
-    Recovery --> Primary
-    Primary -->|"lease"| Workers
-    Workers -->|"typed settlement"| Primary
-    Primary -->|"prepared handoff"| Admission
-    Local -->|"direct validation"| Admission
-    Admission -->|"total ownership transfer"| PoolMap
-    Admission -->|"append with Apply"| Journal
-    Journal -->|"after authority locks open"| Endpoints
-    PoolMap --> Consumers
-
-    classDef owner fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
-    class Primary,PoolMap owner;
+    classDef authority fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
+    class Owners,Derived,Snapshot authority;
 ```
 
-Only the two blue nodes own transaction payloads. Workers borrow one exact
-version, `AdmissionPlan` proves a transfer, and the journal owns immutable
-effects—not a third copy of transaction lifecycle state.
+The word pipeline refers to parallel computation around this kernel. It does
+not mean a chain of owning queues. The pipeline may reorder expensive work;
+only Apply decides ownership and membership.
 
-## 2. Goals and non-goals
+## 2. Compatibility boundary
 
-The architecture must:
+The refactor preserves these externally observable contracts:
 
-- make retained payload ownership explicit and queryable;
-- make stale asynchronous completions harmless through one non-reused version;
-- reject all ordinary policy/capacity failures before accepted Apply;
-- preserve exact RBF, dependency, reorg, proposal and template liveness;
-- bound bytes, entries, active work and graph fan-out before retention/work;
-- publish callbacks, relay decisions and diagnostics without state/effect gaps;
-- isolate untrusted computation and endpoints using Rust-native boundaries;
-- make transaction and authority code panic-free by construction: typed
-  outcomes before mutation and a single-consumption total Apply;
-- prefer static unrepresentability over runtime validation, and typed results
-  over unwind isolation; never use `panic!` plus `catch_unwind` as transaction,
-  worker, retry, rollback or authority-control flow;
-- retain Local RPC's direct synchronous validation path by design;
-- preserve or improve pipeline throughput, subject to controlled A/B.
+- Local RPC submission performs validation directly and returns its committed
+  result synchronously. It does not wait behind retained remote work.
+- Remote, Proposal and Recovery inputs use retained asynchronous validation.
+- RPC continues to expose only `Pending` and `Proposed`. Internal `Gap` maps to
+  public `Pending` for compatibility, but internal proposal/template selection
+  always consumes the exact `AcceptedStatus` and never the RPC projection.
+- Replacement history is private recovery state. It is absent from live-pool
+  RPC status, block templates and persistence.
+- Verification-cache identity is the inline 32-byte witness hash together with
+  the exact `ScriptVerificationRules` generation.
+- Persistence remains best effort. Accepted transactions and Recovery-source
+  entries are captured from one read cut; all replayed transactions re-enter
+  ordinary validation.
+- Full/reset block-template replacement remains serialized. Proposal,
+  transaction and uncle component work remains optimistic and concurrent.
+- Consensus validation is not replaced or weakened. Tx-pool-only evidence
+  reuse is explicitly scoped in section 8.4.
 
-It does not attempt to:
+Any change to wire, RPC, persistence, cache or template behavior requires a
+separate compatibility decision; an internal simplification is not permission
+to change it.
 
-- make the process survive OOM, abort, FFI corruption or arbitrary memory
-  corruption;
-- treat an invariant panic as a legal transaction result;
-- provide durable mempool persistence across crashes;
-- make callbacks or network endpoints exactly-once;
-- replace consensus verification, the accepted `PoolMap`, or block-template
-  policy with a general scheduler.
+## 3. Why structural change from `develop` is necessary
 
-## 3. Why `develop` requires structural change
+The justification is concrete failure closure, not preference for new types.
+The table also records the cost paid by the UAK and whether risk is eliminated,
+bounded or merely transferred.
 
-The refactor is justified by failure families, not by a preference for new
-types.
+| Family | Verified `develop` structure and failure | Why a local patch is not a complete proof | UAK mechanism and cost | Disposition |
+|---|---|---|---|---|
+| F1 ownership and ABA | `VerifyQueue`, `OrphanPool`, active verifier work, conflict storage and accepted `PoolMap` independently retain or infer a transaction's location. Clear, peer removal and re-admission cross those structures. | Locking one handoff still leaves every other producer, cancellation and administrative path to coordinate the same partition. A complete local fix would have to introduce a common owner/version protocol, which is the structural change. | One `entries` map; three owner variants; one non-reused entry version and typed compute lease. One authority write guard sequences short transitions. | Ownership ambiguity is eliminated. Lock contention is a measurable cost, not hidden. |
+| F2 RBF and capacity atomicity | `process_rbf` removes victims and publishes rejection/conflict state before `_submit_entry` and `limit_size` have proved the replacement can remain accepted. | Moving one fee check earlier cannot make victim closure, descendant removal, accepted capacity, resource accounting, callbacks and failure recovery one transaction. Undo would add another fallible state machine. | Immutable membership/RBF compilation followed by one total Apply; optional victim history is installed by that Apply. Planning and closure work are bounded. | Partial replacement is eliminated. Bounded plan cost replaces rollback risk. |
+| F3 observable effects | Accepted mutation, callbacks, relay-known state, recent rejection, cache work and block-template notification occur in separate calls/tasks and can be separated by failure or saturation. | Adding retries to every endpoint cannot prove which state was committed and can duplicate or omit publication. | `EffectLog` is part of the authority; a bounded effect delta commits with ownership. One move-only publisher consumes it after the guard opens. | State/effect gaps are eliminated in-process. Crash durability and exactly-once external delivery remain explicit residual risks. |
+| F4 hostile resources | Accepted capacity, orphan count, verification cycles, conflict retention and auxiliary graph/index memory use different limits or omit metadata/active-work cost. | Independent ceilings do not prove the sum and allow transitions between structures to escape or double charge. | One `ResourceLedger` charges entries, bytes, edges, active work, compute envelopes, accepted cost, remote/per-peer state and replacement history; effect memory is separately bounded by the same construction inputs. | Uncharged residency is eliminated; conservative overcharging is an accepted bounded availability trade-off. |
+| F5 dependency progress | Missing work, orphan work, accepted causal edges and conflict recovery use separate wake mechanisms. Definitive parent loss and source promotion can miss the mechanism that parked a child. | Adding a wake at one removal site leaves reorg, RBF, expiry, clear and peer revocation as independent publication tables. | One canonical dependency set, `DependencyFrontier`, observation cut, reverse keys and bounded level-triggered maintenance. | Lost-wake timing dependence is eliminated; bounded maintenance latency remains. |
+| F6 conflict recovery | RBF victims are removed, conflict history is recorded separately and recovery is spawned later into another queue. Ordering decides whether a loser is restored, replaced again or stranded. | Restore/abort ordering patches move the race and fee/accounting proof between structures. | Only an actually Accepted victim can become charged inert `ReplacementHistory` in the same successful replacement Apply. Recovery always re-enters validation. | Speculative victim ownership and nested undo are eliminated. Optional history may be dropped as a complete set under its hard sub-budget. |
+| F7 chain and template convergence | Reorg processing updates blank template/candidate uncles, then pool status/recovery, then full template. `Gap` and RPC `Pending` are conflated externally, and detached-uncle proposals can suppress re-proposal. | Fixing one `Gap` demotion or uncle filter leaves three independently published generations and startup/readiness loss. | One reliable capacity-one tip transition pairs snapshot and authority Apply; exact source versions drive versioned template receipts. Full/reset and optimistic component lanes retain their distinct concurrency. | Chain/owner generation splits are eliminated. A derived template can retain its last valid value and temporarily underfill after a rebuild failure. |
+| F8 identity and evidence | Raw hash, witness hash and proposal short ID are passed through APIs with overlapping primitive types; detached recovery historically queried a witness-keyed cache with the raw hash. | Call-site review cannot prove every future caller selects the same identity and rule context. | Newtypes for owner/proposal/version/view identities and a concrete cache key containing witness hash plus script rules. Short IDs are collision-aware indexes only. | Identity substitution is made unrepresentable at typed boundaries. |
 
-| Family | `develop` defect | Required structural boundary |
-|---|---|---|
-| F1 ownership/ABA | queue pop, active work, orphan retention, clear and re-admit infer location from several structures; stale work can erase or duplicate ownership | one full-hash primary entry and one non-reused version |
-| F2 accepted atomicity | RBF/capacity paths can remove accepted transactions before every replacement condition is known | immutable accepted Plan and total Apply |
-| F3 stable effects | mutation and relay/callback publication can be separated by saturation or endpoint failure | bounded journal append coupled to Apply |
-| F4 resource hostility | queue, orphan, conflict and graph metadata have separate or incomplete accounting | one retained-entry charge plus explicit graph/active bounds |
-| F5 dependency liveness | missing/conflicting work can be parked in disconnected mechanisms and miss a wake | one `Wait` owner with exact, level-triggered reverse keys |
-| F6 conflict recovery | speculative victim ownership and failed-RBF restoration require ordering-sensitive undo | no speculative removal; conflict history is optional metadata in the same kernel |
-| F7 chain/admin ordering | reorg, clear, save and template updates can observe different ownership generations | `TxPool -> PrePoolKernel -> EffectJournal` chain transition plus epoch/reset authority |
-| F8 identity/status | raw hash, witness hash, proposal short ID and RPC status can be used as if interchangeable | explicit identity domains and collision-aware projections |
+The UAK is justified only while each retained mechanism maps to one of these
+families or another named compatibility/attack requirement. An implementation
+artifact with no such owner is design debt and must be removed.
 
-Local hardening of each legacy queue cannot prove the partition invariant: the
-bug is the inferred handoff between structures. Conversely, moving accepted
-`PoolMap` into one global actor would simplify proof but regress concurrent
-read/template/RPC performance and create a single mailbox bottleneck. Two
-authorities are the minimum separation that preserves both proof and useful
-concurrency.
+## 4. Authority algebra and invariants
 
-## 4. Ownership and state
+### 4.1 Owner variants
 
-### 4.1 Partition
+`OwnedTx` is a closed enum:
 
-The single logical ownership state for each full transaction hash `h` is the
-closed sum:
+- `PreAccepted`: retained admission with source, original basis, current phase
+  and exact charge;
+- `Accepted`: consensus-facing pool member with status, proof, provenance and
+  accepted accounting;
+- `ReplacementHistory`: an inert, charged former Accepted victim retained only
+  for bounded recovery.
+
+`Nowhere` is absence from `entries`; it is not a stored tombstone. Every owner
+stores a `TxRecord` whose raw identity equals its map key.
+
+### 4.2 PreAccepted phases
+
+`PreAcceptedPhase` has five semantic locations:
 
 ```text
-Owner(h) = Absent
-         | PrePool(location, version, payload)
-         | Accepted(status, entry)
+Queued(Resolve)
+Queued(Verify(ResolvedFacts))
+Computing(ActiveWork)
+Waiting(ObservedDependencies)
+Ready(VerifiedFacts)
 ```
 
-It is represented by two physical partitions only to preserve useful
-concurrency: the accepted `TxPool` remains read-optimized for RPC/template
-consumers, while `PrePoolKernel` serializes short lifecycle transitions.  The
-representation invariant is:
+Resolve and Verify queue states share a typed `QueuedWork` enum. Computing
+contains the only active lease, exact chain view, work permit, resource grant,
+attribution, payload policy and dependency cut. Waiting can represent only a
+non-empty missing-dependency observation. Replacement conflict history cannot
+be encoded as executable waiting work.
 
-```text
-owners(h) = accepted(h) + prepool(h)
-owners(h) is 0 or 1
-```
+### 4.3 Accepted status
 
-`accepted(h)` is membership in `TxPool`. `prepool(h)` is membership in the
-kernel primary map. Physical separation is not permission for two independent
-commit authorities. `AdmissionPlan` is the only ordinary cross-partition
-transition: it is planned while both generations are stable and applies the
-kernel handoff plus accepted insertion as one total operation under the fixed
-lock order. Clear/reorg use the separately documented chain-authoritative
-generation transition. No other caller may remove one owner and later repair
-the other.
+`AcceptedStatus` is `Pending`, `Gap` or `Proposed`. Status is authoritative
+internal state. Public RPC compatibility mapping is a derived read operation
+and cannot feed proposal or commit selection.
 
-### 4.2 Six pre-pool locations
+### 4.4 Stable proof obligations
 
-```text
-ResolveQueued
-ResolveLeased
-Wait(Missing | Conflict)
-VerifyQueued
-VerifyLeased
-Ready
-```
+| ID | Invariant |
+|---|---|
+| T1 OwnerPartition | For every raw hash, `entries` contains zero or one `OwnedTx`; no worker, queue, effect, cache or template owns lifecycle state. |
+| T2 CapabilityAndABA | A completion mutates only the exact entry version, phase, lease, generation and chain view it checked out. Stale work is mutation-free. |
+| T3 ContinuousResources | An owner is charged if and only if it exists; ownership and every charge coordinate change in the same Apply. |
+| T4 DependencyExactness | Canonical input/cell-dep/header/dep-group facts and reverse observations describe the same owner generation. Definitive loss cannot leave a surviving accepted consumer. |
+| T5 SchedulerExactness | Every executable PreAccepted owner has exactly the scheduler membership implied by its phase; no inert/history owner is executable. |
+| T6 TotalApply | A prepared transition contains all owner, projection, resource, clock and effect deltas. Consuming Apply has no ordinary failure result. |
+| T7 CommittedEffects | Every required external outcome is in the same committed Apply; the publisher never reconstructs it by rereading authority state. |
+| T8 BoundedHostility | Peer-controlled count, bytes, edges, fanout, closure, retries, active work and effect memory have explicit checked bounds. |
+| T9 ChainSnapshotPairing | `Arc<Snapshot>` and `ChainViewId` move as one store fact; a T -> T' -> T sequence remains distinguishable by revision. |
+| T10 LevelTriggeredProgress | Notifications are hints only. A consumer subscribes before checking its authoritative level and sleeps only when a named independent action can change that level. |
+| T11 IdentityAndEvidence | Every proof is bound to the exact raw/witness identity, script rules, chain view and policy context it proves. |
+| T12 CoherentPublicProjection | RPC, compact-block, persistence, relay rebuild and fee/template reads are captured from one authority read cut and finished outside the guard. |
+| T13 TemplateConvergence | Template lanes publish only receipts whose chain/source cut remains current; full/reset priority and optimistic partial concurrency are preserved. |
 
-`Missing` and `Conflict` are reasons inside the one unavailable-work location;
-they do not own payloads independently. Recovery is a trusted source, not a
-state. There is no persistent `Committing`, `Invalidated`, `RaceLost`,
-`RecoveryRetained`, victim hold, undo state or conflict-owned payload.
+These invariants are checked by construction first and by bounded validation as
+defense in depth. A runtime check is not a substitute for a type that can
+remove the invalid state.
+
+## 5. Identity and evidence
+
+| Type | Role |
+|---|---|
+| `RawTxHash(Byte32)` | primary ownership and accepted membership |
+| `WitnessTxHash(Byte32)` | transaction witness identity inside authority evidence |
+| `TxVerificationCacheKey { [u8; 32], ScriptVerificationRules }` | copy-cheap, context-complete script cache identity |
+| `ProposalId(ProposalShortId)` | collision-aware consensus proposal index only |
+| `EntryVersion(u128)` | non-reused exact owner incarnation/phase |
+| `ComputeLeaseId(u128)` | move-only active computation capability |
+| `ApplySequence(u128)` | total committed authority/source/effect order |
+| `PoolGeneration(u64)` | clear/generation boundary |
+| `ChainViewId { ChainRevision, ChainTipHash }` | exact chain event and same-tip evidence scope |
+
+Positive chain-cell evidence may be reused only when the current and resolved
+tip hashes match and the individual `CellMeta.transaction_info` proves the cell
+came from the chain. Pool-produced cells are always checked against the mutable
+membership overlay. This is a tx-pool final-admission optimization only; it is
+not available to block or consensus verification, removal-history reasoning or
+another transaction's dependency proof.
+
+The `pre_resolve_tip`, cell metadata and script-rule generation must originate
+from the same captured `Arc<Snapshot>`. No caller may infer provenance from an
+ingress source or a nearby hash.
+
+## 6. Lifecycle and sources
 
 ```mermaid
 stateDiagram-v2
-    state "Nowhere" as Absent
-    state "ResolveQueued" as RQ
-    state "ResolveLeased" as RL
-    state "Wait(Missing | Conflict)" as Wait
-    state "VerifyQueued" as VQ
-    state "VerifyLeased" as VL
-    state "Ready" as Ready
-    state "Accepted in TxPool" as Accepted
+    state "Nowhere" as N
+    state "Queued Resolve" as QR
+    state "Queued Verify" as QV
+    state "Computing" as C
+    state "Waiting Missing" as W
+    state "Ready" as R
+    state "Accepted Pending/Gap/Proposed" as A
+    state "ReplacementHistory" as H
 
-    [*] --> Absent
-    Absent --> RQ: admit Remote / Proposal / Recovery
-    Absent --> Accepted: Local direct Plan / Apply
-    RQ --> RL: checkout exact head + version
-    RL --> VQ: resolved
-    RL --> Wait: exact dependency unavailable
-    Wait --> RQ: observed availability level changes
-    VQ --> VL: checkout exact head + version
-    VL --> Accepted: canonical verified CommitSession + AdmissionPlan
-    VL --> Ready: stronger Ready owner or journal unavailable
-    VL --> RQ: snapshot stale
-    VL --> Wait: parent unavailable
-    Ready --> Accepted: AdmissionPlan + total Apply
-    Accepted --> Wait: RBF victim retained as bounded history
-    Accepted --> RQ: detached-chain Recovery
-
-    note right of RQ
-        Recovery is a source,
-        never a seventh state.
-    end note
-    note right of Wait
-        Missing and Conflict are reasons
-        inside one owning location.
-    end note
-    note right of Absent
-        reject / expiry / remove / clear
-        can terminalize any retained state.
-    end note
+    [*] --> N
+    N --> QR: Remote / Proposal / Recovery admission
+    N --> C: Local direct validation capture
+    QR --> C: checkout Resolve or ResolveThenVerify
+    QV --> C: checkout Verify
+    C --> QV: resolved
+    C --> W: missing dependency
+    W --> QR: dependency level advances
+    C --> R: verified but not admitted now
+    R --> A: final Plan + Apply
+    C --> A: proven independent/direct final Apply
+    A --> H: successful RBF retains victim
+    H --> QR: typed recovery trigger
+    A --> QR: detached-chain Recovery
+    QR --> N: reject / expiry / peer revoke / clear
+    QV --> N: reject / expiry / peer revoke / clear
+    C --> N: reject / cancellation / chain removal
+    W --> N: definitive loss / expiry / peer revoke / clear
+    R --> N: reject / admin / chain removal
+    H --> N: saturation / terminal cleanup
 ```
 
-Every worker completion must present the correct lease type, full hash and
-exact entry revision. A stale arrow therefore becomes a typed no-op instead of
-an implicit state transition; no caller can manufacture a raw location tag.
+Sources are policy, not locations:
 
-The entry owns:
+- Remote carries immutable ingress peer/residency and the declared-cycle
+  policy for its exact witness payload. It is charged globally and per peer.
+- Proposal is trusted. Same-witness promotion may preserve immutable ingress
+  attribution while replacing peer-supplied verification policy.
+- Recovery is trusted detached-chain/persistence input and must re-run normal
+  resolve and verification.
+- Local owns no retained phase. It performs computation directly and uses the
+  same final membership compiler and effect rules.
+- TestAccept evaluates validation policy but performs no authoritative Apply.
 
-- compact raw transaction payload;
-- source attribution;
-- exactly one typed state payload;
-- full-hash version and arrival clocks;
-- expiry and conservative retained-byte charge;
-- canonical dependency keys.
+A peer ban removes only not-yet-Accepted owners attributed to that peer. The
+same committed effect releases the relay's pending/known projection, so another
+peer can supply the transaction. Accepted owners remain accepted.
 
-Derived projections own no transaction payload:
+## 7. Validate, Plan, Apply and effects
 
-- fair resolve/verify queues;
-- proposal-short-ID index;
-- peer, parent, waiter, deadline, ready and ready-by-input indexes;
-- total/remote/per-peer/conflict residency;
-- total/per-owner active work;
-- bounded availability epochs and dirty wake keys.
+### 7.1 Validation
 
-### 4.3 Sources are policy, not location
+Resolution and script verification consume immutable snapshot/overlay inputs
+and produce concrete receipts. Workers carry no owner map and never decide
+membership. Resource envelopes are reserved before attacker-shaped resolved
+data can become retained state.
 
-`PrePoolSource` is `Remote(peer)`, `Proposal`, or `Recovery`.
+### 7.2 Plan
 
-- Remote retains immutable ingress attribution, current-payload blame,
-  the declared-cycle policy for its exact witness payload, remote/per-peer
-  charge and expiry. Trusted same-witness source promotion supersedes that
-  peer-supplied policy while preserving the original ingress used for
-  administrative revocation. A verify lease seals the policy it checked out;
-  every negative script-verification result is bound to that policy as well as
-  the chain view. If a trusted promotion races either the peer's lower cycle
-  ceiling or a declared-cycle mismatch, Apply retains the exact resolved
-  payload and requeues trusted verification instead of publishing a stale peer
-  rejection.
-- Proposal is trusted and may promote the same-witness Remote entry or replace
-  its payload with a trusted witness variant.
-- Verification workers never publish a separately sampled source. The
-  `VerifyLeased -> Ready/Accepted` transition derives the payload source from
-  the same stored entry and version it replaces, so promotion, optional direct
-  handoff and Ready fallback have one linearization point.
-- Recovery is trusted detached-chain input and enters the ordinary resolve
-  lifecycle parent-first.
-- Local never enters the pre-pool. It validates synchronously, commits under
-  the same accepted Plan/Apply transaction, and settles any matching retained
-  owner. This is an intentional API behavior, not an optimization accident.
+Plan runs under a coherent authority cut and changes no authoritative semantic
+fact. It may reserve collection capacity so Apply cannot fail allocation, then
+builds a private closed delta containing:
 
-## 5. Identity domains
+- exact before/after owners;
+- index and source-version replacements;
+- accepted membership/causal projection changes;
+- scheduler and dependency-frontier changes;
+- resource charge changes;
+- clock values;
+- the exact bounded effect mutation;
+- retirement and move-only handoff carriers.
 
-| Identity | Only valid role |
-|---|---|
-| full transaction hash | primary ownership, accepted membership, lease owner |
-| witness hash (`wtx_hash`) | `TxVerificationCacheKey`; verification results cannot alias witness variants |
-| proposal short ID | collision-aware index and consensus proposal protocol only |
-| entry revision (`u128`) | process-global, non-reused identity for one exact primary state and its derived indexes |
-| pipeline epoch | administrative clear/reorg invalidation, not per-entry identity |
+Ordinary outcomes such as rejection, backpressure, duplicate, stale evidence
+and cancellation are decided before Apply and represented by closed enums. A
+prepared plan borrows the authority mutably and is `must_use`; it cannot be
+applied twice or against another authority.
 
-A short-ID collision is backpressure/rejection, never proof of duplicate
-ownership. Cache accesses construct `TxVerificationCacheKey::from_transaction`.
-A stale completion must present the correct typed lease, full hash and exact
-revision before it can mutate the primary. Callers cannot supply a raw
-revision/location pair.
+### 7.3 Apply
 
-## 6. State transitions
+`PreparedApply::apply(self) -> CommittedDelta` is total. It swaps all fields in
+one short authority critical section, advances the clocks and returns the only
+post-commit handoff. Large retired payloads and generations are carried out of
+the guard before destruction. Apply performs no external I/O and has no
+rollback path.
 
-The public transition family is closed:
-
-| From | Command/outcome | To |
-|---|---|---|
-| Nowhere | admit Remote/Proposal/Recovery | ResolveQueued |
-| retained location | trusted same-hash promotion | same semantic phase or ResolveQueued for a new trusted witness |
-| ResolveQueued | checkout exact queue head | ResolveLeased(new revision) |
-| ResolveLeased | resolved | VerifyQueued(new revision) |
-| ResolveLeased | exact dependency unavailable | Wait(Missing/Conflict) |
-| Wait | all observed keys available | ResolveQueued |
-| VerifyQueued | checkout exact queue head | VerifyLeased(new revision) |
-| VerifyLeased | verified, fee-gated and stronger than every published Ready owner | Accepted through the ordinary AdmissionPlan |
-| VerifyLeased | stronger Ready owner or unavailable effect journal | Ready(new revision) |
-| VerifyLeased | snapshot/parent stale | ResolveQueued or Wait |
-| Ready | selected commit handoff | accepted or bounded Conflict wait/history |
-| any retained location | reject/remove/expiry/peer removal/clear | Nowhere |
-| any retained generation | chain/admin generation reset | sealed retired generation, then Nowhere/new recovery entries |
-
-Every single-entry transition validates its next entry, exact usage delta,
-active-work delta and index constraints before detaching the old projections.
-Bounded multi-entry transitions use a private `MutationSet` to derive one
-exclusive `PreparedKernelMutation<'_>` containing final primaries, exact
-projection changes and reserved monotonic counters. Consuming `commit(self)`
-performs the total move. There is no public mutation between Plan and Apply and
-no rollback path.
-
-Legal outcomes are typed:
-
-- transaction/policy rejection;
-- bounded capacity/backpressure;
-- stale lease or location race;
-- duplicate/idempotent arrival;
-- Apply.
-
-Primary/index/accounting contradictions are not transaction outcomes. Private
-state constructors and a prepared authority transaction prevent them on legal
-paths; a pre-Apply consistency failure is a typed system fault, never an
-assertion inside Apply and never a peer/RPC rejection.
-
-`validate_entry_projection` is the production pre-Apply check for each changed
-primary's existing derived memberships. It is bounded by that entry's own
-edges, not a full-pool reconciliation, and is retained as defense in depth
-until construction and types prove the same facts without it. Converting it to
-a debug-only check or deleting it requires an explicit architecture decision,
-replacement proof and performance evidence; it is not a mechanical cleanup.
-
-## 7. Scheduling and progress
-
-### 7.1 Fair work queues
-
-Resolve and verify queues contain `WorkKey` identities only. Each source owner
-has a queue with a fair turn; runnable heads are derived from global and
-per-owner active limits. Verify work carries a typed `VerifyCycleClass` and is
-stored in exactly one of the owner's disjoint small/large ordered sets. The
-general head is the maximum of the two partition heads under the unchanged
-total `WorkKey` order; a constrained worker reads only the small head. Thus a
-large-cycle population cannot hide eligible small work or turn capability
-filtering into an owner-population scan, and no key is duplicated to obtain
-that bound.
-
-After a successful Resolve or Verify completion, the worker may check out the
-next lease from the same lane inside that completion's kernel mutation. This is
-same-acquisition lease continuation, not a second scheduler: the existing fair queue and active
-limits still select the lease, Verify preserves the worker's capability, and a
-continuation never crosses Resolve to Verify. The capability is sealed into
-`VerifyLease` at checkout rather than supplied again by completion. The result
-type distinguishes
-"completion applied, no next lease" from a post-Apply checkout fault, so a
-caller cannot roll back or settle the completed lease after ownership already
-moved.
-
-Only completion and checkout share the short kernel critical section. The
-worker releases it before Resolve/Verify computation and never holds it across
-an `await`.
-
-Pause, cancellation and command-channel loss are checked before accepting the
-continuation for normal processing. If one lease was already checked out, the
-worker completes exactly that lease in final mode without another checkout.
-This bounds stop latency without dropping an owned lease or creating a
-self-sustaining wake loop.
-
-### 7.2 Ready order
-
-Ready selection uses one total `ReadyKey`, strongest last:
-
-1. source priority: Remote < Proposal < Recovery;
-2. exact fee rate by `u128` cross multiplication;
-3. absolute fee;
-4. earlier arrival;
-5. smaller full hash;
-6. process-global entry revision.
-
-The reverse comparisons for arrival/hash are intentional because the driver
-selects the greatest key. Revision is globally unique, so a later transaction-
-size comparison would be unreachable rather than an additional ordering rule.
-There is deliberately no time-dependent aging: source and fee preference are
-stable, Remote residency remains deadline/budget bounded, and every individual
-chain transition contributes only bounded Proposal/Recovery ingress. Under a
-continuously replenished stronger Ready workload, strict per-candidate fairness
-is not promised: a lower-fee Remote candidate may wait until its residency
-deadline, and a weaker trusted candidate drains when the finite stronger
-frontier stops being replenished. This matches fee-market preference while
-making saturation throughput and tail latency explicit P10 acceptance
-measurements. Dynamic aging
-would require periodic reindexing of every Ready key and is not justified
-without evidence that this explicit trade-off is unacceptable.
-
-`CommitSession<'_, Origin>` is a non-copyable capability whose `Origin` is one
-of two private sealed types: a published Ready owner or the exact active
-`VerifyLease`. Both exclusively borrow the kernel from selection through the
-same accepted or rejected Plan/Apply API. The private candidate records hash,
-revision, rank, payload, inputs, location proof and immutable ingress peer.
-Rust therefore prevents expiry, verification publication or another commit
-selection from mutating that authority; while a returned Plan exists, it
-reborrows the session until Apply or drop. Stale commit tickets and a third
-caller-defined origin are unrepresentable.
-
-The verified origin is an opportunistic fold, not a second fast-path policy.
-It opens only when its prospective `ReadyKey` is strictly stronger than the
-current published Ready head. Otherwise the existing `VerifyLeased -> Ready`
-transition runs. It derives the exact transient charge from the verified
-payload and proves the same total/remote/per-peer budget delta before planning
-accepted admission. Final liveness, RBF closure, capacity, source promotion,
-peer-ban fence, conflict retention, template receipt and effect batch all use
-the same generic session and `AdmissionPlan`. Journal Full/Closed applies
-nothing and publishes the owner as Ready for the level-triggered driver; no
-verified worker waits on effect capacity while holding state.
-
-Peer revocation is an administrative transition of the same authority, not a
-second lock or a second lifecycle protocol. One ban Plan/Apply installs the
-expiring, non-evicting peer marker and removes the complete indexed
-`PreAccepted` ingress cohort attributed to that peer. This includes checked-out
-work: its move-only lease remains memory-safe, but its later settlement observes
-a missing/version-stale owner and cannot publish state. `Accepted` membership is
-deliberately outside the cohort. Therefore the authority lock itself decides
-the race: a commit that applies first remains Accepted; a ban that applies first
-removes every not-yet-Accepted owner and makes later work stale.
-
-The marker transition is valid even when that indexed cohort is empty. Cohort
-presence is derived cleanup state, not evidence that the ban happened. This
-linearizes the authority decision against a controller message that was queued
-before the ban but reaches admission afterwards; making marker publication
-conditional on a resident owner would reopen that race.
-
-New Remote admission checks only its ingress peer in that same authority Plan;
-there is no additional hot-path ban mutex, waiting state, cleanup task, or
-population scan. Marker cardinality is coupled to the network's existing
-unexpired ban set and a transaction-residency LRU is forbidden because newer
-bans must not evict an older live revocation decision. First-ban deadlines use
-the fixed network duration and therefore enter one monotonic expiration queue;
-a repeated live decision reuses that lease without extending, shortening or
-adding another expiration owner. New bans prune only the due prefix, making
-cleanup amortized in expired markers rather than rescanning all live peers.
-The ban Apply commits
-one cardinality-independent `PeerCohortRevoked` effect, not one item per removed
-transaction. Its optional culprit is a typed malformed-only value containing
-the exact raw hash and bounded public reason. Publication records that exact
-reject, performs the external network ban for only the time remaining on the
-same committed marker lease, and sends a required relayer
-`GenerationReset`; the reset clears stale known/pending projections without
-creating transaction tombstones or retaining the removed cohort's hashes.
-The same transaction may therefore immediately be admitted from a different,
-non-banned peer. Effect backpressure applies nothing, including the marker, so
-an external consumer never decides whether authority removal happened.
-
-The peer-revocation surface has the following anti-drift proof rules. They are
-architectural constraints, not replaceable implementation details:
-
-| Failure family | Root cause | Permanent constraint |
-|---|---|---|
-| queued ingress crosses a ban | treating a non-empty resident cohort as evidence that revocation occurred | marker publication is valid even for an empty cohort and shares the cohort-removal Apply |
-| partial cleanup or work resurrection | splitting peer attribution, owner removal and lease invalidation across actors | immutable ingress attribution and the complete `PreAccepted` peer index are consumed by one authority Plan/Apply |
-| publisher-created policy | allowing an I/O adapter to infer a ban from a generic malformed rejection | only `PeerCohortRevoked` can construct a network-ban action; the publisher never rereads or re-decides policy |
-| extended or inconsistent ban duration | starting a new duration when delayed I/O finally runs | marker and external call consume one deadline lease, evaluated at the foreign-call boundary |
-| attack-amplified cleanup | emitting one effect per peer-owned transaction or scanning unrelated owners/markers | one cohort effect, one charged per-peer index traversal and due-prefix-only expiry pruning |
-
-### 7.3 Wait is level-triggered
-
-`Wait` records the exact dependency keys and their observed level epochs.
-Availability and definitive loss both dirty a bounded key; maintenance drains
-bounded slices. A missed notification is harmless because the level remains
-visible. Parent terminalization and dependent invalidation share one cohort
-Apply, so trusted Proposal/Recovery children re-evaluate terminal policy rather
-than parking forever, while Remote children retain their request/expiry policy.
-Parent loss demotes resolved/verified consumers using the same exact keys.
-The immutable cohort Plan projects waiter-count deltas once over changed
-primaries, inspecting the smaller of its requested and observed key frontiers;
-it never multiplies every changed key by every cohort member or persists a
-second dependency index. The resulting level plan is still applied only after
-the primary cohort's total Apply.
-Final accepted-pool validation remains authoritative even if background
-demotion has not run yet.
-
-### 7.4 UAK replacement-history boundary
-
-The isolated Unified Authority Kernel does not encode RBF history as a source
-flag or a `Waiting(Conflict)` phase. Only a successful replacement of a
-genuinely Accepted victim can construct the private
-`OwnedTx::ReplacementHistory` location. That location owns raw transaction and
-exact dependency evidence, but has no ingress source, peer/deadline, scheduler
-lane, active-work capability or executable phase. This type split prevents an
-under-fee/failed candidate from becoming retained history and removes invalid
-source × phase combinations instead of policing them with runtime assertions.
-
-History is charged to total preacceptance and a dedicated zero-active-work
-sublimit. One membership Plan either retains the complete replacement closure
-or terminalizes the complete optional set while still accepting the winner.
-Its post-Apply dependency cut prevents same-cohort self-wake. Only after every
-dependency that is actually unavailable in the replacement's final overlay has
-a newer final availability level—or through a typed trusted Proposal lease—can
-history convert to ordinary executable preacceptance. A partial release only
-prompts a bounded re-evaluation; it cannot consume history while another
-winner still owns a blocker. The full dependency basis remains retained for
-fresh resolution, but unrelated available inputs/deps are not wake triggers.
-It remains absent from Pending,
-template and persistence projections; G5 must map it to the existing
-recent-reject/RBF-compatible query surface during the single production
-cutover, not introduce a new public RPC state. The authority's live-RPC
-projection therefore returns typed absence for this owner; that absence is
-what requires the endpoint adapter to continue to recent-reject lookup.
-
-## 8. Resource proof
-
-Admission or transition planning accounts conservatively before retention:
-
-- total pre-pool entries and bytes;
-- Remote entries and bytes;
-- per-peer entries and bytes;
-- optional conflict-history entries and bytes;
-- total active work and per-peer active work;
-- dependencies per entry and dependents per parent;
-- Ready inputs and candidates per input;
-- accepted pool serialized bytes, retained bytes, cycles and mutation closure;
-- effect batches/bytes by trust region;
-- candidate uncle count and per-height count.
-
-The charge is held continuously across queued, leased, waiting and Ready
-locations. A worker borrows an `Arc`; it does not become a new owner or refund
-residency. Before a verified lease can transfer directly, its payload-derived
-post-verification growth is checked with the same exact usage-delta planner;
-the Ready fallback consumes that identical charge. Optional conflict history
-degrades to a terminal result when its partition is full. Graph operations stop
-at explicit product/fan-out bounds before mutating.
-
-The UAK production compiler treats the configured pipeline residency limit as
-one physical envelope. It statically partitions retained ownership from exact
-per-capability compute grants; checkout charges the grant's bytes and edges in
-the same owner record, and settlement atomically exchanges or releases it.
-Increasing worker count therefore cannot multiply the physical ceiling.
-Configuration is rejected at assembly if one grant cannot hold the minimum
-weighted entry. The partition ratio is policy that may be tuned by controlled
-benchmarking; it does not introduce another lock, queue or resource authority.
-
-The public `NotifyTxs(Vec<TransactionView>)` controller signature remains a
-compatibility boundary, but only `NotifyTxBatch` may cross the bounded service
-channel. Its checked constructor applies the relayer protocol count and
-serialized-byte limits before channel admission. Every item still passes UAK
-validation and admission accounting; the batch newtype is the retained
-upstream proof and must not be unpacked into a new unvalidated message payload.
-
-## 9. Accepted Plan/Apply
-
-Ordinary admission, RBF and capacity eviction use one concrete
-`AdmissionPlan` transaction:
-
-1. Under the accepted pool write guard, calculate RBF conflict closure,
-   ancestry, status, candidate parents, capacity evictions and post-state
-   totals without mutation.
-2. Return every ordinary `Reject` from Plan.
-3. While accepted membership is unchanged, build the matching total kernel
-   handoff, exact dependency/template receipt and immutable exact-sized effect
-   batch. Planning may return a typed stale/capacity result but changes no
-   owner, clock, index or budget.
-4. The innermost effect-journal predicate first accepts that exact batch, then
-   one total Apply installs accepted membership, consumes the kernel owner and
-   records the level-triggered template delta before appending the effect. The
-   physical order makes the only still-fallible pool insertion the first
-   operation; the complete transition remains hidden under both authority
-   guards.
-5. Release locks, then run callbacks/network/database endpoints.
+Specialized `PreparedCheckout` and `PreparedEffectCheckout` types contain their
+move-only compute/effect capability by construction; a successful Apply cannot
+discover a missing handoff afterward.
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant D as Verified completion or Ready commit driver
-    participant P as TxPool
-    participant K as PrePoolKernel
-    participant J as EffectJournal
-    participant E as External endpoints
+    participant D as Dispatcher or worker
+    participant S as AuthorityStore
+    participant C as Parallel computation
+    participant P as Effect publisher
+    participant E as External endpoint
 
-    D->>P: acquire accepted write guard
-    D->>P: build immutable PoolMutationPlan
-    alt Reject / Stale / Backpressure
-        P-->>D: typed outcome; release guard; original state unchanged
-    else accepted plan is complete
-        D->>K: acquire kernel and prepare exact revision-bound handoff
-        D->>J: acquire innermost journal guard and test exact batch
-        Note over P,J: Fixed nesting TxPool → PrePoolKernel → EffectJournal<br/>No await or foreign endpoint; bounded snapshot reads are Plan-only
-        alt exact journal region is Full
-            J-->>D: Full before Apply; release journal
-            D-->>K: release kernel
-            D-->>P: release TxPool
-            D->>K: verified origin publishes Ready; otherwise no state change
-            D->>J: Ready driver waits for capacity with no state guard
-            D->>P: replan from current generations
-        else capacity accepted
-            D->>P: total accepted PoolMap Apply
-            D->>K: consume the prepared pre-pool owner
-            Note over P,K: Both authority guards remain held;<br/>no reader observes the physical overlap
-            D->>J: append the matching committed effect sequence
-            D-->>J: release journal
-            D-->>K: release kernel
-            D-->>P: release TxPool
-            D->>E: publish effects after authority locks open
-        end
-    end
+    D->>S: capture typed work + exact version/view
+    S-->>D: move-only lease and immutable evidence
+    D->>C: resolve or verify without authority guard
+    C-->>D: typed result
+    D->>S: Plan under coherent cut
+    Note over S: validate stale/budget/policy<br/>reserve capacity; build complete delta
+    D->>S: consume total Apply
+    S-->>D: CommittedDelta + retirement/handoff
+    Note over D,S: authority guard opens before destruction or await
+    P->>S: checkout committed effect lease
+    P->>E: perform external I/O
+    P->>S: settle exact effect progress
 ```
 
-The failure half of the diagram is as important as the success half: no legal
-failure occurs after accepted mutation begins, and capacity waiting owns no
-reservation or transaction state across the await.
+## 8. Membership, RBF and dependencies
 
-`PoolMutationPlan` contains the candidate, final status, exact removals and
-post totals. The enclosing `AdmissionPlan` contains the only matching kernel
-handoff and publication receipt. Exclusive prepared borrows prevent the
-planned generations from changing; its Apply performs total prevalidated
-moves and no assertion or fallible lookup. It cannot discover fee, RBF,
-ancestry, identity, effect capacity or resource policy after removing a victim.
-Pipeline rejection has its own read-only terminal plan; it likewise cannot
-call a fallible park/remove transition after the journal predicate.
+### 8.1 Accepted membership
 
-This removes the need for nested undo. Rollback is the wrong abstraction here:
-it duplicates ownership, index and accounting semantics, and its own failure
-becomes a second correctness problem. Read-only Plan plus total Apply proves
-the original state is unchanged on every legal failure.
+`MembershipProjection` is derived from Accepted owners and stores the causal
+input/cell-dependency graph, spender relation, ancestor/descendant aggregates,
+status counts and deterministic ordering required by admission and templates.
+It is not a second payload owner. Membership preparation validates the complete
+virtual final set before the authority owner map changes.
 
-## 10. Cross-authority locking
+### 8.2 Independent and coupled work
 
-The nesting order is:
+Transactions whose inputs/dependencies are chain-backed and whose membership
+plans commute may be validated concurrently and accepted through one bounded
+`IndependentDelta`. Coupled transactions use the same authority and proof
+rules but compile an exact cohort. This extracts CKB cell-model parallelism
+without adding a sharded owner map or a second DAG authority.
 
-```text
-optional serial/work permit
-  -> optional EffectJournal capacity wait (no state guard is held)
-  -> TxPool read/write
-    -> PrePoolKernel mutex
-      -> EffectJournal mutex for capacity + total Apply + append
-```
+### 8.3 RBF
 
-No await, callback, mutable database endpoint or retired-generation drop occurs
-while the accepted pool/kernel/journal nesting is held. Immutable chain-
-snapshot reads are currently allowed only while constructing a bounded Plan.
-Verified workers may await the outer TxPool write guard before entering this
-nesting, but retain only their existing typed lease: total waiters are bounded
-by `max_active_work`, one peer by `max_active_work_per_peer`, and Tokio's FIFO
-write queue prevents later verified arrivals from overtaking an already queued
-Local/reorg writer. No timeout, try-lock, reservation or second semaphore
-changes that ordering.
-The normal same-tip final-liveness path consumes the resolved cell's existing
-chain provenance as positive evidence after checking the mutable pool overlay,
-so it does not repeat the RocksDB point lookup; stale-tip and unproven cells
-must revalidate. Remaining RBF/removal snapshot reads are a measured critical-
-section cost, not permission to add unbounded I/O. Kernel-only worker
-transitions use only the shorter kernel→journal suffix. Code must not acquire
-`TxPool` from an effect callback or while already holding the kernel.
+RBF planning computes the complete conflict/victim/descendant closure, new
+unconfirmed-input rule, ancestor/descendant overlap, dependency-on-victim rule,
+candidate bound, absolute replacement fee and size-based fee-rate gate against
+one coherent virtual membership. A rejected plan is mutation-free.
 
-### 10.1 Tx-pool-only same-tip cell evidence
+A successful plan applies candidate insertion, all victim removals, descendant
+updates, charge changes, dependency levels, source versions and effects once.
+Only actually Accepted victims can become `ReplacementHistory`. If the history
+partition cannot retain the complete optional set, the set is terminalized and
+the winner is retried without history; partial history and winner failure are
+not legal saturation outcomes.
 
-`TxPoolResolvedCellChecker` is an admission optimization, not a consensus or
-block-validation rule. It may avoid a repeated chain point lookup for one
-resolved cell only when all of these conditions hold:
+### 8.4 Dependency progress
 
-1. the resolved metadata and `pre_resolve_tip` were captured from the same
-   `Arc<Snapshot>` used by resolution;
-2. `pre_resolve_tip == current_tip_hash`;
-3. that cell has `transaction_info`, which proves it came from the chain
-   snapshot rather than an accepted-pool producer; and
-4. the current accepted-pool overlay was checked first and did not report a
-   spender or producer result.
+Every owner carries one canonical `KnownDependencies` basis. Missing work owns
+a non-empty `ObservedDependencies` with an exact `DependencyCut`. Reverse keys
+are derived in `DependencyFrontier`. Availability and definitive loss advance
+authority levels in the same Apply that changes the producer or spender.
 
-The proof is per cell, never per transaction. A permissive RBF resolve ignores
-accepted-pool consumers only; it does not turn a chain miss into metadata, and
-pool-produced metadata has no `transaction_info`. A changed tip or absent
-chain provenance therefore falls through to the snapshot checker. Removal-
-history queries such as `planned_unavailable_parent_hashes` and
-`planned_available_dependencies` reason about other transactions and never
-consume this evidence. Block, consensus, store and snapshot checkers retain
-`CellChecker::is_live_resolved_cell`'s default `is_live(out_point)` behavior.
+Workers subscribe to the mutation hint before checking the authoritative
+level. The hint may be coalesced or lost because the level is the truth.
+Maintenance operates in bounded slices and re-arms only when a relevant source
+cut advances. A timeout may diagnose failure but is never the progress proof.
 
-The UAK cutover encodes the same premise in `FinalAdmissionValidation` rather
-than exporting a reusable Boolean. `AuthorityStore` captures the exact Ready
-version, its paired snapshot, dependency cut, and one cell-order-aligned bit
-projection of Accepted producers under a single read guard. The guard then
-opens before cell/header database reads and time/DAO verification. A changed
-script-rules receipt becomes a typed Verify requeue; a transaction-level
-location or context failure becomes a sealed terminal disposition containing
-its committed rejection effect. Structural evidence mismatch remains a typed
-authority fault. These constructors require validator-owned capabilities, so
-a sibling module cannot stamp a successful final receipt manually. This path
-is tx-pool-only and is not imported by block or consensus verification.
+The production resolver must not expose a PreAccepted output as chain-backed
+dependency evidence for an unrelated transaction. Accepted pool-produced
+evidence is represented through the membership overlay and causal compiler.
 
-The first attempt plans optimistically without a worst-case capacity wait. If
-the exact batch is `Full`, the caller releases every state lock, waits on that
-exact charge as a level-triggered hint, then replans against the new
-generations. No reservation crosses an await and no authoritative mutation is
-replayed.
+## 9. Chain and administrative transitions
 
-## 11. Stable effects
+The chain layer owns one tip-installation boundary: install the new snapshot,
+then send the exact fork delta on a reliable capacity-one ordered channel. RPC
+readiness cannot suppress this transition. The ordered reorg driver packages
+detached/attached inputs outside the authority guard, then one chain Plan/Apply
+pairs the new `Arc<Snapshot>` and `ChainViewId` with all owner, membership,
+status, recovery, dependency, resource and effect changes.
 
-The effect journal has statically partitioned trust ceilings:
+Normal best-block and truncate paths use this same boundary. IBD and
+candidate-uncle notifications remain readiness-gated derived signals and must
+not be placed on the authoritative ordered channel.
 
-- Remote can consume only the Remote ceiling;
-- Trusted may use ordinary capacity plus trusted headroom;
-- Critical chain/admin work has independent headroom.
+Clear, peer revocation, local removal, remote expiry and accepted expiry use a
+cause-complete owner-removal compiler. It updates every projection and required
+effect once. `ClearPipeline` preserves Accepted owners; `ClearPool` creates a
+fresh empty generation. Reorg and clear do not use a recovery lock, nested undo
+or detached-block payload owner.
 
-Ordinary admission always precomputes one exact immutable batch. `try_apply`
-checks its actual charge, executes total state Apply and appends one sequence
-while holding the journal mutex. Expensive RBF/capacity/kernel planning never
-runs under the journal mutex, and ordinary admission never commits first and
-falls back to `GenerationReset` because a post-Apply bound was wrong.
+## 10. Committed effects and external failure
 
-`GenerationReset` remains a deliberately narrow chain-convergence mechanism.
-Authoritative reorg/clear cannot wait behind callback or relay detail; when its
-bounded detail region is saturated, the state transition commits and the
-constant-size latest-generation record subsumes that observational detail.
-This exception must not be reused by ordinary transaction admission. More
-generally, reset/coalescing is legal only for a projection that the reset can
-rebuild completely. Chain-transition status is rebuildable; its per-item
-recent-reject/callback detail is deliberately best-effort when that rare path
-must collapse to a reset. This is an operational-observation trade-off, not a
-second state authority. Network ban and exact malformed-culprit rejection are
-not rebuildable and must never disappear through that fallback. Peer-cohort
-revocation therefore uses one exact critical effect and treats journal Full as
-zero-mutation backpressure, while only its relayer endpoint carries a required
-generation reset. The publisher cannot infer a ban from a generic rejection:
-only the authority-committed `PeerCohortRevoked` effect may create that external
-action.
+`EffectLog` is a bounded field of `TxPoolAuthority`. It owns immutable committed
+outcomes, not transaction lifecycle. Capacity is partitioned into Remote,
+Trusted and Critical classes, each with an indivisible batch bound validated at
+construction. Chain detail that every consumer can rebuild may collapse to one
+constant-size `GenerationReset`; non-rebuildable security effects may not.
 
-The effect surface has two matching anti-drift rules. A derived rejection read
-is identified by `(ApplySequence, effect position, immutable batch identity)`,
-not sequence alone, because one committed batch may contain the same raw hash
-more than once. And allocation pressure in that derived index may collapse
-only chain-rebuildable detail to reset; it cannot weaken exact peer-revocation
-publication or make its state Apply partial.
+The effect enum includes accepted/rejected outcomes, chain-committed remote
+settlement, peer-cohort revocation, remote expiry/release, parent requests and
+generation reset. A pending-recent-reject index is a charged lookup into the
+same resident batches.
 
-The publisher drains FIFO order. Full relayer capacity retains the active head;
-individual relay detail may coalesce to `GenerationReset`, which stays pending
-until accepted. Callback execution is isolated on a bounded endpoint thread.
-Callback, network-ban and recent-reject database calls share a production
-timeout and stable per-kind circuit, so one stuck foreign call cannot retain
-the sole journal head; endpoint panic cannot unwind state Apply. At most one
-timed-out detached call exists per opened blocking endpoint circuit.
+One synchronously claimed publisher task is the sole consumer. It checks out a
+move-only lease, executes endpoints after the store guard opens and settles the
+exact progress token. Endpoint failure cannot roll back or reinterpret the
+committed owner transition. Relay publication uses a bounded nonblocking
+mailbox; overflow converges through `GenerationReset` and bounded level rebuild.
 
-The production publisher cannot mutate the effect log directly. Its runtime
-facade checks out one move-only lease, settles that exact lease as published,
-circuit-disposed or retained, and closes production only after compute work has
-drained. Every successful effect Apply opens the authority guard, destroys
-retirement carriers, then publishes the shared level hint. An idle publisher
-subscribes before checking the log, holds no lock across its wait and observes
-`None` only after close plus complete queued/active/reset drainage. The service
-supervisor remains responsible for stopping every non-compute producer before
-calling close; the runtime intentionally does not infer task liveness from
-transaction state.
+Effect delivery is not crash durable or universally exactly-once. This is an
+explicit operational boundary, not hidden transaction state.
 
-An accepted-duplicate `Ok` is also authority-dependent output. Its publisher
-holds an accepted-membership read capability through journal append, so clear
-or reorg either observes the `Ok` before its reset/removal or wins first and
-suppresses the stale acknowledgement. Fresh admission success remains part of
-the immutable `AdmissionPlan` batch and has no manual publication gap.
+## 11. Reads, RPC, persistence and cache
 
-Exactly-once delivery is not claimed. After state Apply, a bounded stable
-record exists until detailed publication succeeds, a newer authoritative
-generation reset subsumes rebuildable relay detail, or a bounded foreign
-endpoint attempt fails and its stable circuit disposes only that endpoint.
-The last case never reverses authority: in particular, a committed peer fence
-continues rejecting that exact `PeerIndex` ingress session even if the
-network-ban call fails. It does not authenticate a future reconnect as the
-same remote identity; losing the external disconnect/ban may therefore admit a
-new session. That availability/security boundary and lost observability are
-the explicit R2 operational risk, not a successful-publication claim.
+All public/query projections borrow one `AuthorityReadView` from one store read
+cut. Allocation-heavy sorting, parent expansion and serialization occur after
+the guard opens. Cursors carry exact source cuts and restart if relevant state
+changes.
 
-A Remote owner that resolves to a complete missing-cell frontier follows the
-same rule. Resolution derives canonical, sorted and deduplicated parent
-transaction hashes outside the authority guard. The current-source Plan then
-commits `Waiting(Missing)` and the matching parent-request effect in one Apply;
-Proposal and Recovery owners do not manufacture relay requests. The runtime's
-Remote effect region is assembled to fit the largest legal request batch. If
-capacity is transiently full, the move-only settlement retains that exact
-bounded missing result and waits for a mutation signal instead of re-running
-resolution. Production header resolution rejects an unavailable header
-directly, so this transaction-parent projection never treats a header hash as
-a relayable transaction.
+- RPC may show PreAccepted work as Pending and maps Accepted Gap to Pending for
+  compatibility; internal detail and template code consume exact phases/status.
+- ReplacementHistory returns no live RPC status and falls through to the
+  existing recent-reject/RBF-compatible surface.
+- Compact-block lookup is collision-aware and may read every live owner that
+  intentionally participates in that compatibility surface.
+- Persistence captures Accepted owners and Recovery-source PreAccepted owners,
+  orders them parent-first outside the guard and writes through one serialized
+  atomic-file writer. It excludes Remote, Proposal and ReplacementHistory.
+- Cache reads and writes use `TxVerificationCacheKey`; cache update is derived
+  work and never gates committed ownership.
 
-## 12. Dependencies and conflicts
+## 12. Concurrency, tasks and progress
 
-Three relations are intentionally distinct:
+### 12.1 Lock domains
 
-1. causal producers: inputs and expanded dep-group producers;
-2. conditional readers: cell/header dep ordering constraints;
-3. availability keys: exact causes that keep a pre-pool entry in `Wait`.
+The transaction authority has one synchronous `RwLock`. Production code may
+not hold it across `.await`, blocking I/O, VM execution or external endpoint
+work. `AuthorityRuntime` exposes concrete operations rather than a generic
+mutation closure.
 
-Accepted `PoolMap` normalizes out-point memberships into set semantics so the
-same input/dep cannot publish or remove one logical edge twice. RBF conflict
-closure is bounded by the complete input × candidates product before traversal.
-The accepted Plan builds a virtual post-removal overlay for ancestry and
-availability; total Apply then moves exactly that closure.
+Other locks protect derived outputs only: verification cache, relay mailbox,
+candidate uncles, current block template and template convergence. They cannot
+decide transaction ownership. Template publication acquires the current-
+template guard, then performs a bounded synchronous authority source check;
+production never waits on the template guard while holding the authority guard.
 
-Failed RBF does not remove and restore victims. A verified losing transaction
-may remain as bounded `Wait(Conflict)` history only after it has passed the
-higher fee gates. When its keys become available it returns through ordinary
-resolution and final RBF validation. Optional-history saturation terminalizes
-the loser rather than blocking the winning commit. The cohort seal defines the
-event cut centrally: unchanged history observes a dependency-level advance,
-but a victim retained by that same Apply records the post-Apply level and
-cannot treat its own replacement release as a later wake event. This rule adds
-no lifecycle state or caller-maintained publication ordering.
+The count-only compute semaphore reserves transient capacity but contains no
+transaction identity and has no independent lifecycle state.
 
-## 13. Reorg, clear and persistence
+### 12.2 Task ownership
 
-### 13.1 Reorg
+`AuthorityTaskTopology` constructs every capability before spawning the first
+task and owns:
 
-Every best-tip installation, including the test/operator truncate boundary,
-passes through one chain-side `install_chain_tip_transition` publisher. It
-stores the new chain snapshot and then sends the exact fork delta to the
-capacity-one ordered tx-pool channel without consulting RPC readiness. The
-channel and controller exist before chain service startup; if its consumer is
-not yet live, the chain producer receives bounded backpressure rather than
-discarding history. Service assembly starts that consumer before persistence
-replay, and both replay and reorg use the same version-checked authority. RPC
-readiness and ordinary dispatcher ingress open only after replay. IBD and
-candidate-uncle notifications are derived inputs and retain their separate
-readiness/bounded-delivery policy.
+- resolve/verify workers;
+- Ready and bounded maintenance drivers;
+- the sole effect publisher;
+- the derived verification-cache updater;
+- optional block-template lanes.
 
-The chain-authoritative phase holds the accepted write guard and kernel mutex:
+The service generation separately owns the ordered reorg driver. Cancellation
+closes producers first, joins authority workers, closes and drains effects,
+then joins derived tasks. Every task exit is classified by what it owns;
+template/cache degradation retains authoritative state, while loss of the sole
+authority capability forbids persistence until the final static fault audit
+proves the boundary cannot be reached by valid or hostile input.
 
-1. reconcile attached/detached blocks and accepted statuses once;
-2. collect detached transactions plus the accepted descendant closure of
-   detached producers;
-3. order one combined recovery set parent-first;
-4. compile/apply one bounded trusted kernel recovery plan;
-5. if that complete set cannot be represented within the frozen bound, reset
-   the ephemeral accepted/pre-pool generation rather than retain an invalid
-   parentless suffix;
-6. journal the immediate block-assembler reset and optimistic generations.
+### 12.3 Wait-for proof
 
-The recovery payload is an ordinary `PrePoolSource::Recovery` entry in one of
-the six locations. No handler-local payload, cross-await `recovery_lock`,
-`RecoveryRetained` location or replay retry owner exists. Duplicate attached
-raw hashes suppress detached witness variants; cache lookup uses witness hash.
-An attached-cell conflict carries its canonical `OutPoint` in the typed removal
-cause and committed effect. Multiple conflict paths join by deterministic
-outpoint order, preserving the existing `Resolve(Dead(outpoint))` public reason
-without reconstructing it after Apply.
+Every wait must name an independently running releaser:
 
-### 13.2 Gap and uncle liveness
-
-Reorg status reconciliation reevaluates Gap entries against the new proposal
-window, including Gap→Pending demotion. Block template proposal packaging also
-filters candidate uncles whose proposal IDs conflict with proposals that must
-be repackaged. A detached block cannot remain an eligible uncle and suppress
-the only proposal path of its recovered transactions for an epoch.
-
-Block assembler authority is intentionally asymmetric:
-
-- one ordered replacement lane handles Reset and full rebuild while three
-  fixed uncle/proposal/transaction lanes construct concurrently;
-- `CurrentTemplate` alone owns the published revision and reset generation;
-  level convergence owns desired and covered source cuts, not shadow counters;
-- full has priority over partial-only revisions, derives uncles from the
-  bounded candidate authority, and cannot cross a requested or committed
-  chain reset;
-- every Plan carries its exact chain source into Apply; the short publication
-  boundary rechecks that source against the authority before publishing;
-- uncle/proposal/transaction updates remain optimistic revision-checked OCC;
-  an overwritten or delayed source remains a visible level without manual
-  dirty-generation re-publication;
-- a dropped reset/full capability is reconstructed from the level, while a
-  superseded reset publishes only the latest exact generation;
-- zero update interval applies deltas eagerly, retries resets periodically and
-  suppresses external miner notification only as configured.
-
-### 13.3 Clear and save
-
-Clear advances the administrative epoch, takes the accepted guard, swaps the
-entire pre-pool generation in O(1), installs a generation reset, releases the
-guard and only then destroys retired payloads. Stale workers cannot mutate the
-new generation because entry revisions never repeat.
-
-Explicit save serializes accepted plus retained recovery-relevant transactions
-in dependency order. Graceful shutdown persists only after supervised state
-workers and the effect publisher finish normally. An invariant failure marks
-persistence ineligible so a corrupt derived state is not written as truth.
-
-Each service owns a child of the process-wide cancellation token. Global exit
-therefore stops every service, while `TxPoolController::stop` closes only that
-tx-pool generation and cannot poison a later restart or an unrelated sibling.
-
-## 14. Rust-native failure model
-
-The design does not emulate Erlang supervision or promise recovery from OOM,
-abort, FFI faults or memory corruption. It does require panic-free transaction
-and authority paths, using Rust ownership and private constructors to separate
-expected results from programming contradictions:
-
-```text
-type/ownership proof  >  typed pre-mutation Result  >  foreign-code isolation
-```
-
-`catch_unwind` is not a correctness mechanism. Internal resolver, verifier,
-scheduler, publisher and authority code propagates typed outcomes. Code
-supplied by callers is kept outside authority locks and isolated behind a
-thread/task/channel boundary; its failure cannot select a transaction state,
-rollback, retry or generation transition.
-
-| Class | Rust encoding | Boundary |
+| Wait | Held authority capability | Releaser |
 |---|---|---|
-| malformed/policy | `Reject` / transaction `PrePoolError` | reject/ban according to policy |
-| capacity/backpressure | typed error | no mutation; wait/retry or bounded degradation |
-| stale/duplicate race | typed stale/duplicate | discard, preserve current owner or retry level |
-| shutdown/config/resource | typed external result or startup failure | controlled stop/fail startup |
-| resolver/verifier failure | typed job result before settlement | terminalize/quarantine that exact lease; worker continues where safe |
-| rebuildable projection mismatch | typed stale/degraded projection | discard, rebuild or publish a safe subset; authority and service continue |
-| foreign callback/endpoint failure or hang | thread/task/channel isolation plus timeout/circuit | state remains committed; publisher progresses/coalesces without unwind-driven control flow |
-| proven authoritative integrity loss | typed pre-Apply system fault | controlled stop, skip persistence; never blame input |
+| compute semaphore | none | completion/cancellation of another compute lease |
+| mutation `Notify` | none | any committed Apply; waiter rechecks level first |
+| effect capacity | the exact failed settlement capability, no store guard | sole effect publisher settlement or cancellation |
+| verification cache channel | no owner or store guard | cache updater; cache failure is derived degradation |
+| ordered chain channel | chain request at producer boundary, no store guard | ordered reorg driver |
+| template source change | no authority guard | authority Apply or candidate-uncle source mutation |
+| shutdown joins | topology owner only | cancellation-aware owned task or bounded operational timeout |
 
-Legal hostile input, stale work, resource pressure, external failure and
-rebuildable projection drift must not reach the last row, unwind the service or
-be relabeled as an invariant fault. The prepared transaction owns an exclusive
-authority borrow until `commit(self)`, and state-specific constructors carry
-the facts needed by total Apply. Adding a recover-and-repair path after partial
-Apply would still expand the state machine and risk persisting corruption, so
-authoritative contradictions are detected before the first mutation rather
-than asserted or repaired afterward.
+The complete deadlock/livelock/lost-wake/starvation audit and constructive
+saturation tests are release gates, not assumptions inferred from timeouts.
 
-Controlled stop is not a default error mapping. It is allowed only when the
-fault proves that authoritative data integrity is already lost, safe service
-cannot continue, and legal/hostile input plus supported interleavings are
-excluded at the call site. The defense against a repeatable peer DoS is
-structural: peer-selectable parsing, policy, capacity, stale, projection and
-endpoint outcomes are typed and locally contained, while total Apply has no
-assertion boundary.
+## 13. Block-template convergence
 
-## 15. Block-template authority
+The block assembler is a rebuildable derived projection. It owns no tx-pool
+membership. `AuthorityTemplateReadReceipt` captures accepted payloads,
+relations, exact proposal/transaction/chain source versions and the paired
+snapshot under one read cut; construction happens after the guard opens.
 
-Accepted status is consensus-facing and remains `Pending`, `Gap` or `Proposed`.
-RPC compatibility may project Gap as pending, so review/tests must inspect
-internal detail when liveness depends on the distinction. Proposal selection
-iterates true Pending; transaction selection commits true Proposed.
+Five tasks preserve the established performance model:
 
-Template output and convergence have distinct single owners:
+1. one ordered replacement lane serializes reset and full rebuild;
+2. one optimistic proposal lane;
+3. one optimistic transaction lane;
+4. one optimistic uncle lane;
+5. one coalesced external notification lane.
 
-- `CurrentTemplate` owns the published content, exact size ledger, revision and
-  reset generation;
-- `TemplateConvergence` owns only level-triggered desired/covered source cuts
-  and the latest unpublished reset request.
+Each build publishes only if its chain/source receipt and expected template
+revision/reset epoch still match. Full/reset has priority over partial work,
+but partial and uncle construction is not serialized behind it. Optional
+proposals and uncles share one byte budget; only proposal IDs actually
+published in the candidate uncles are excluded. A rebuildable failure retains
+the last valid template and waits for a source-level change rather than
+spinning or mutating tx-pool state.
 
-Construction begins with one `AuthorityTemplateReadReceipt` captured under the
-accepted authority guard. It owns immutable resolved payload handles, exact
-ancestor aggregates and deterministic order facts from that same cut. After
-the guard opens, the pure packer builds a short-lived index overlay and applies
-the established policy: exact serialized-byte/cycle limits, ancestor-inclusive
-CPFP score, dynamic descendant re-scoring, parent-first selection, the 4,000
-consecutive non-fitting-package bound, and the shared bounded conditional
-reader-before-spender/SCC kernel. The overlay is never written back and is not
-a second membership or dependency graph. The result retains only selected,
-block-bounded payload handles and recomputes exact totals after cycle shedding.
+## 14. Resource and complexity contract
 
-Candidate uncles remain a separate bounded template input, not transaction
-ownership. Preparation returns selected candidates, a sealed stale-prune
-capability and an opaque source receipt as one move-only result from one
-candidate snapshot. Accepted
-insertions advance this semantic source. Applying stale pruning does not: the
-paired chain cut already proves those candidates absent from the constructed
-template, and a future chain change advances the independent chain source.
-Joining this receipt with pool source versions in `TemplateSourceCut` is the
-only candidate/pool coupling; callers cannot manufacture an uncle version.
+`ResourceLedger` continuously charges each owner by raw hash. Coordinates are
+entries, resident bytes, dependency edges, active work, reserved compute bytes
+and edges, accepted count/size/cycles, global Remote usage, per-peer usage and
+ReplacementHistory usage. Effect batches/bytes have a separate bounded ledger
+inside the same authority.
 
-```mermaid
-flowchart TB
-    Sources["UAK source cuts + candidate source"] --> Levels["Level-triggered desired/covered convergence"]
-    Levels --> Replacement["Ordered reset/full lane"]
-    Levels --> UncleBuild["Concurrent uncle build"]
-    Levels --> ProposalBuild["Concurrent proposal build"]
-    Levels --> TxBuild["Concurrent transaction build"]
+Checked construction proves limit hierarchy and a complete per-lease compute
+envelope. Transitions use checked arithmetic. Peer-controlled parent count,
+dependency expansion, RBF candidates, causal closure, eviction cohort,
+maintenance slice, relay mailbox and effect batch all have explicit bounds.
 
-    Replacement --> ResetBuild["Reset/full construction<br/>outside authority/output locks"]
+Population-sized work is forbidden in ordinary lock-held ingress/settlement.
+Whole-generation scans are limited to named chain/admin/query/template paths,
+captured in bounded pages or performed outside the guard where possible. The
+static complexity audit must identify each exception and its hostile bound
+before benchmark acceptance.
 
-    subgraph Publish["CurrentTemplate publication boundary (short write guard)"]
-        ChainCheck["Exact authority chain-source check"]
-        ResetApply["Reset Apply<br/>consume exact reset generation"]
-        FullApply["Full Apply<br/>reset fence; wins over partial revision"]
-        PartialApply["Partial Apply<br/>CAS exact output revision"]
-        Current["CurrentTemplate<br/>template + size + revision + reset_epoch"]
-        ChainCheck --> ResetApply
-        ChainCheck --> FullApply
-        ChainCheck --> PartialApply
-        ResetApply --> Current
-        FullApply --> Current
-        PartialApply --> Current
-    end
+## 15. Rust-native failure model
 
-    ResetBuild --> ChainCheck
-    UncleBuild --> PartialApply
-    ProposalBuild --> PartialApply
-    TxBuild --> PartialApply
-    Current -->|"published coverage"| Levels
+Valid transactions, hostile peers, stale work, duplicates, capacity pressure,
+allocation pressure, cancellation and external failure are typed ordinary
+outcomes. They must not panic, deadlock, livelock, leak charge or invalidate the
+service generation.
 
-    classDef authority fill:#dbeafe,stroke:#1d4ed8,stroke-width:2px;
-    class Current authority;
-```
+Production authority code does not use `panic!`, `assert!`, `unwrap()`,
+`expect()` or `catch_unwind` as validation or control flow. A structural
+`AuthorityFault` denotes contradiction between the one owner and its derived
+projections, not policy rejection. Rust is not treated as an Erlang-style
+restart runtime: panic-and-catch and broad fail-stop are not repair mechanisms.
 
-Reset and full construction may overlap partial construction; only publication
-is serialized. A requested reset invalidates an older full before reset
-publication, and the exact authority chain-source check also rejects a build
-prepared before an otherwise unobserved chain Apply. A full build wins over
-intervening partial revisions, while each partial update must match its
-captured `TemplateRevision`. Desired-versus-covered source inequality closes
-the lost-notification race without routing construction through one actor or
-maintaining hand-published dirty counters.
-
-The final resolved-transaction liveness pass is defense-in-depth on this
-derived output. If it omits a selected transaction, the adapter publishes the
-deterministic checked subset for that source cut. It does not change authority
-membership, spin on the same source or terminate a template lane; the next
-source change reevaluates the candidate.
-
-Candidate-uncle retention is the input authority for both full and uncle-only
-plans. Preparation clones the bounded cache under a short synchronous lock;
-chain lookups and template construction run after that lock opens, and stale
-cleanup is committed only with the matching successful publication token.
-
-Candidate uncles are bounded at production limits (128 total, 10 per height)
-in both production and tests. An uncle is removed/rejected when it is on the
-main chain, already embedded, epoch/target-invalid, structurally invalid, or
-conflicts with proposal liveness. Test builds do not change these limits.
+No release claim may assume structural faults are unreachable. The final
+pre-benchmark static audit must trace every fault constructor backward through
+legal/hostile inputs and concurrency. Any reachable case is a model bug to
+remove or a typed local outcome to redesign, not a reason to stop the service.
 
 ## 16. Performance model
 
-Correctness structure is also the intended performance structure:
+The architecture preserves parallelism where CKB permits it:
 
-- one short synchronous kernel mutex section per retained transition;
-- identity-only fair queues and reverse indexes;
-- `Arc` borrowing for raw/resolved/verified payloads;
-- stack-sized plans for single-entry transitions;
-- heap-backed cohort planning only for bounded multi-entry changes;
-- move-only Apply; no cloned old-entry snapshot/undo journal;
-- one serialized commit driver instead of competing commit owners;
-- worker checkout itself proves whether a level-triggered queue is empty;
-  there is no separate check-then-pop lock pair;
-- successful Resolve/Verify completion can carry one same-lane checkout from
-  the same kernel acquisition, without a new queue, owner or cross-stage path;
-- accepted reads remain behind the existing `RwLock`, not a global actor;
-- no foreign/mutable I/O or payload destruction under authority locks;
-- same-tip resolved chain provenance removes normal duplicate liveness reads;
-  remaining bounded immutable-snapshot Plan reads require dedicated lock-hold
-  measurements before any cache, prefetch or optimistic-retry protocol is added;
-- block-template/effect notifications coalesce level-triggered work.
+- independent resolve and script verification run concurrently outside the
+  authority lock;
+- a worker may retain its transient permit across the exact computation it
+  owns, but not across unrelated waiting;
+- independent membership transitions may compile into bounded commuting
+  batches;
+- Local direct validation bypasses retained scheduling;
+- authority read queries are shared;
+- block-template component construction stays optimistic and parallel;
+- external effects, cache writes and persistence I/O stay outside the guard.
 
-Performance acceptance is empirical, not inferred from line count. The final
-gate compares clean revisions with controlled warmup/cache conditions and
-measures throughput, tail latency, RSS/allocation, lock hold time, worker
-utilization, commit, reorg and template latency. A material regression blocks
-production even if correctness tests pass.
+The cost of safety is short authoritative checkout/settlement/Apply work,
+version/evidence objects, exact derived projections and a bounded effect log.
+These costs must be measured, but no optimization may create another owner,
+weaken final validation, move expensive work under the guard or serialize the
+template lanes.
 
-Profiling first considers mechanical work inside the existing authority
-transaction: unchanged-index detach/attach, repeated fair-owner head
-publication, unconditional lane-readiness recomputation and avoidable Plan
-cloning. Such work may be removed only when the resulting delta Apply remains
-total and `validate_entry_projection` retains equivalent coverage. Lock
-amortization comes second; another cache, batch owner or resident DAG is not an
-acceptable substitute for measured mechanical simplification.
+Static review precedes profiling. Profiling attributes cost and selects
+optimization candidates; fixed-binary A/B decides measured value. Neither is a
+correctness-discovery substitute.
 
-## 17. Extensibility rules
+## 17. Minimality and rejected alternatives
 
-A new stage or policy is acceptable only if it answers these questions:
+### Harden the `develop` queues
 
-1. Does it require retaining a payload, or can it be derived metadata/work?
-2. Which of the two authorities owns it at every instant?
-3. Can it be encoded inside an existing state payload/reason/source rather
-   than a seventh location?
-4. What exact byte, entry, active and graph bounds apply before retention?
-5. What typed revision-bound command consumes it, and what are all legal outcomes?
-6. Does it alter accepted membership? If so, where is immutable Plan and total
-   Apply?
-7. Which stable effects must be appended with Apply?
-8. What level-triggered condition guarantees progress after a lost wake?
-9. Which review behavior and unit/process regression prove the boundary?
-10. What benchmark demonstrates no material hot-path regression?
+Rejected. Closing all owner handoffs, RBF rollback, resource transfer and
+publication gaps would require a shared authority/version/effect protocol
+across the queues. Retaining the queues after adding that protocol would keep
+duplicate state without preserving useful concurrency.
 
-A proposal that adds a payload-owning side cache, rollback journal, broad
-retry, reverse lock order, unbounded vector/graph, or test-only production
-behavior is rejected at design review.
+### Separate pre-pool and accepted authorities
 
-## 18. Why this is the preferred architecture
+Rejected by the current implementation review. The cross-owner handoff and
+coherent read problem were accidental complexity. Accepted and preaccepted
+payloads now occupy variants in one map and one Apply; read concurrency comes
+from the store `RwLock`, not a second owner.
 
-### Versus hardening `develop`
+### Universal async actor
 
-Per-queue locks/checks cannot make a transaction's location single-valued
-across pop, await, cancellation, conflict parking and clear. Fixes remain
-ordering-dependent and every new queue adds another handoff proof. The kernel
-removes the root inferred-location premise.
+Rejected. Serializing validation, read capture, template work and Local direct
+submission through one mailbox would weaken independent-transaction and
+read/template concurrency. The kernel serializes only ownership transitions.
 
-### Versus a universal tx-pool actor
+### Nested undo or rollback
 
-One actor could serialize all ownership but would route accepted reads,
-template queries, RPC inspection and graph computation through a mailbox. It
-reduces concurrency, raises tail latency/backpressure coupling and makes large
-messages part of the trusted scheduling surface. The two-authority design
-serializes only mutation boundaries that require atomicity.
+Rejected. All fallible policy, capacity, closure and effect checks finish
+before total Apply. Undo would add persistent intermediate states and another
+failure path without a business requirement.
 
-### Versus nested undo/transactions
+### Separate DAG or sharded lifecycle owners
 
-Undo snapshots duplicate state and require a second correct implementation of
-indexes, budgets, victims and wakeups. Apply failure then needs rollback failure
-semantics. Plan/Apply preserves the original state until all ordinary failure
-conditions are exhausted and has one mutation implementation.
+Rejected as a default. CKB dependency information is valuable for bounded
+frontier scheduling and commuting batches, but a second DAG/shard authority
+would duplicate membership, RBF and resource facts. The current dependency and
+membership projections extract graph parallelism under one owner. A future
+shard design must prove conflict/RBF/chain atomicity and lower measured cost
+before adding state.
 
-### Versus persistent commit/conflict/recovery states
+### No pipeline
 
-`Committing`, `RaceLost`, victim holds and `RecoveryRetained` encode protocol
-execution as durable ownership. They enlarge the partition, persistence,
-expiry, clear and ABA matrices. A single commit driver, bounded `Wait` reason
-and ordinary Recovery source provide the required semantics without those
-locations.
+Rejected. Removing retained parallel computation would simplify scheduling but
+discard the main scalable property: chain-backed independent transactions can
+resolve and verify concurrently. The correct simplification is one owning
+kernel with typed borrowed work, not serialized computation.
 
-### Versus invariant-repair/restart
+This is the smallest constructively safe model currently selected. It remains
+subject to the pre-benchmark minimality audit: every state, lock, task, clock,
+receipt and effect class must retain a business, compatibility, concurrency or
+attack owner.
 
-Repairing an authority after a contradiction requires trusting projections
-already proven inconsistent and choosing which externally visible effects to
-replay. Rust isolation remains appropriate at genuinely foreign computation
-and endpoint boundaries. Authority transitions instead use proof-carrying
-state and typed pre-Apply faults; no assertion or unwind is part of the
-transaction protocol. This is simpler than repair because hostile legal
-outcomes are fully classified before Apply and partial mutation is
-unrepresentable.
+## 18. Implementation map
 
-## 19. Proof obligations
+| Concern | Primary implementation owner |
+|---|---|
+| owner algebra and typed evidence | `authority/state.rs`, `authority/chain.rs` |
+| total Plan/Apply and clocks | `authority/plan.rs`, `authority/plan/` |
+| accepted membership and RBF | `authority/plan/membership.rs`, `authority/plan/membership/` |
+| resources | `authority/resources.rs` |
+| scheduling | `authority/scheduler.rs` |
+| dependency observations and wake | `authority/dependency.rs` |
+| source-version compiler | `authority/source.rs` |
+| committed effects | `authority/effect.rs`, `authority/publisher.rs` |
+| runtime lock and capabilities | `authority/runtime.rs` |
+| workers and task ownership | `authority/worker.rs`, `authority/topology.rs` |
+| service compatibility boundary | `authority/service.rs` |
+| chain packaging and ordered boundary | `authority/chain_boundary.rs`, `chain/src/verify.rs` |
+| coherent reads and persistence receipts | `authority/read.rs`, `authority/query.rs` |
+| template receipts and publication lanes | `authority/template.rs`, `authority/template_driver.rs` |
+| bounded relay projection | `authority/relay.rs` |
 
-The machine contract is [`architecture-contract.json`](../architecture-contract.json).
-The human proof obligations are the stable, independently reviewable leaves
-below.  For reasoning they form eight broader theorem families: partition
-(T1), lease causality (T2), budget conservation (T3), derived views (T4--T5),
-linearization (T6--T7 and T9), bounded hostility (T8), progress (T10--T11),
-and accepted/template consistency (T12--T13).  The leaf IDs are deliberately
-not merged or renumbered: grouping
-shortens the proof narrative, while keeping the leaves preserves precise test
-anchors and prevents a passing sibling clause from hiding a zero-match one.
+Production tests belong under dedicated `tests/` modules. Any irreducible
+`cfg(test)` field or observation hook must be a named seam in
+`test-layout-manifest.json`; an entire production directory may never be
+excluded from static safety review.
 
-The leaves are:
+## 19. Change rules
 
-- T1 Partition: accepted and pre-pool ownership are disjoint and unique.
-- T2 Lease: only exact full-hash/version/location work mutates a primary.
-- T3 Budget: retained ownership iff it is charged; all fan-out/work is bounded.
-- T4 WaitExactness: Wait owns exact observed dependency causes.
-- T5 ReadyExactness: Ready ranks/inputs derive from its primary payload.
-- T6 AtomicAcceptance: every ordinary failure precedes accepted Apply.
-- T7 StableEffects: successful Apply leaves a bounded publishable record.
-- T8 BoundedHostility: peer input cannot cause unbounded residency/CPU/fan-out.
-- T9 ChainSerialization: reorg/clear/save observe one authority order.
-- T10 CriticalSchedulability: Remote saturation cannot consume chain headroom.
-- T11 LevelTriggeredProgress: lost wake edges do not strand executable work.
-- T12 AcceptedStatusExactness: Pending/Gap/Proposed transitions match snapshot.
-- T13 TemplateAuthority: reset/full/deltas cannot publish an old-parent or
-  proposal-stranding template.
+Before adding a state, lock, task, queue, cache, version, effect or fallback:
 
-The T1–T13 mapping in [`review-behaviors.json`](../review-behaviors.json) is the
-current executable evidence. Development-era finding numbers are intentionally
-not part of the normative model.
+1. name the business/compatibility/attack case;
+2. identify the one authoritative owner and legal transitions;
+3. prove why an existing type or derived projection cannot represent it;
+4. define identity, validity, rebuild and resource bounds;
+5. derive the wait-for and shutdown edges;
+6. account for lock work, allocations, clones and concurrency;
+7. add exact unit, integration, hostile and complexity evidence;
+8. update the architecture contract, behavior registry and review guide in the
+   same change.
 
-## 20. Implementation map
+Manual producer-to-consumer maps are suspect. Prefer one exhaustive compiler
+from before/after owner state to source versions, effects and wake levels. A
+variant with consumers but no producer, or a publication point with no
+consumer/rebuild rule, fails review.
 
-The model is distributed by responsibility, not by lifecycle ownership:
+## 20. Residual risks and release conditions
 
-| Responsibility | Primary implementation | Review boundary |
-|---|---|---|
-| Pre-pool ownership, state, leases, budgets and indexes | `src/component/pre_pool/` | T1–T5, T8, T10–T11 |
-| Accepted membership, graph and mutation plans | `src/pool.rs`, `src/pool_map/` | T6, T12 |
-| Cross-authority admission and administrative transitions | `src/service/pipeline_ops.rs`, `src/process/submit/` | T6–T10 |
-| Resolve, verify and commit workers | `src/service/stages/`, `src/service/workers.rs` | T2, T10–T11 |
-| Stable effects and external endpoint isolation | `src/service/effects.rs` | T7, T10 |
-| Reorg, clear and persistence | `src/process/reorg.rs`, `src/process/mod.rs`, `src/persisted.rs` | T9, T12 |
-| Block-template reset/full/OCC deltas | `src/block_assembler/` | T13 |
-| RPC/network dispatch and source policy | `src/service/controller.rs`, `src/service/dispatch.rs`, `src/service/message.rs` | T7, T12 |
+The following are explicit boundaries, not claims of completion:
 
-`TxPool` and `PrePoolKernel` remain the only payload authorities. Modules in
-this table coordinate or project those authorities; their existence does not
-create another owner.
+| ID | Residual risk or release condition |
+|---|---|
+| R1 | Reachability of every typed authority/generation fault still requires the final static adjudication. |
+| R2 | External effects are not crash durable or universally exactly-once. |
+| R3 | Persistence is best effort and every replayed transaction re-enters validation. |
+| R4 | Process OOM abort, FFI failure and memory corruption are outside the tx-pool model. |
+| R5 | Derived template failure can retain the last valid template and underfill until a source change. |
+| R6 | Optional replacement history can be discarded as a complete set under its bounded sub-budget. |
+| R7 | Legacy v1 persistence remains an accepted compatibility input. |
+| R8 | The complete tx-pool-related integration universe remains the P9.8 gate. |
+| R9 | Reproducible fixed-binary performance acceptance remains the P10 gate. |
 
-## 21. Residual risks
+Before P10, one code-verified matrix must:
 
-The operational projection consists of four static-label metric families:
+1. prove the exact `develop` race/non-atomic call graphs that require each UAK
+   mechanism;
+2. account for every new state, lock, log, task, bound and failure domain and
+   distinguish risk elimination from bounding or transfer;
+3. prove this is the smallest constructively safe model and that valid or
+   hostile inputs cannot reach an invariant fault;
+4. close every statically derivable correctness, security, liveness,
+   publication, identity and complexity issue;
+5. re-adjudicate every historical report against current code as
+   `confirmed-closed`, `superseded-by-proven-model`,
+   `suppressed-with-current-counterevidence` or `open-blocker`;
+6. make documentation, machine contracts, isolated tests, full related
+   integration coverage and CI selectors agree exactly.
 
-- `ckb_tx_pool_pipeline_residency` projects total, Remote and conflict-history
-  entry/byte residency plus active work;
-- `ckb_tx_pool_pipeline_rejections` counts the closed malformed, policy,
-  capacity, duplicate and internal terminal classes;
-- `ckb_tx_pool_pipeline_failures` counts typed faults, unexpected worker exits,
-  handler unwinds and effect-publisher failures; and
-- `ckb_tx_pool_effect_usage` projects the Remote, ordinary and total cumulative
-  effect regions in batches and bytes.
-
-Every label is compile-time fixed. Gauges are best-effort lock-free snapshots
-published after the authoritative transition; a concurrent older publication
-may be observed briefly and the next transition converges it. Metrics are
-therefore suitable for operational trends and alerts, never for state repair,
-admission, settlement or proof of an invariant.
-
-A residual is an explicit boundary, not an implicit bug waiver. `Eliminate`
-means a focused change can remove it without changing the ownership model;
-`Mitigate` means the model can bound but not erase it; `Accept` means removing
-it would add a disproportionate owner/protocol; `Validate` means evidence, not
-another mechanism, closes it.
-
-| ID | Disposition | Current boundary | Closure rule |
-|---|---|---|---|
-| R1 | Mitigate | A pre-Apply fault may stop the service without persistence only when it proves authoritative integrity is already lost. Rebuildable projection drift is not in this class. | The call site must exclude legal/hostile input, stale work, resource pressure, external failure and every supported interleaving. Otherwise redesign the result as local discard, rebuild or safe degradation; never use catch/repair control flow. |
-| R2 | Accept | External callback, network-ban and recent-reject delivery is bounded but not exactly-once. Relay state alone is fully reconcilable through `GenerationReset`; a non-rebuildable endpoint action receives one bounded attempt before its per-kind circuit disposes later calls. The committed fence still protects the exact `PeerIndex` ingress session, but a failed network ban can permit a reconnect with a new index and observability can be unavailable. | Exactly-once would require a durable transactional outbox, idempotent endpoint protocol and restart replay. Do not claim delivery or add that failure domain without a product requirement; keep the internal session fence authoritative, never describe it as durable remote identity, and surface circuit state operationally. |
-| R3 | Mitigate | A timed-out blocking endpoint may leave one detached call per endpoint kind until it returns; stable circuits suppress later calls. | Keep endpoint-kind cardinality bounded and authority locks released. Prefer cancellable async APIs when available. |
-| R4 | Accept | Explicit pool persistence is neither a crash-durable WAL nor a cancellable filesystem transaction; shutdown I/O may delay exit. | Keep I/O outside transaction authority. Add timeout/metrics only for an evidenced shutdown SLO; do not move I/O under authority locks. |
-| R5 | Accept | OOM, allocator abort and process corruption are outside in-process recovery. | Process supervision and restart own this boundary. |
-| R6 | Mitigate | The public controller retains its compatible `Vec<TransactionView>` input, but the dispatcher message accepts only `NotifyTxBatch`, proven against the relayer's shared count and serialized-byte limits before channel admission. Caller-side allocation occurs outside tx-pool ownership. | Keep the protocol constants centralized in `ckb-constant` and the validated newtype as the sole message payload; never reconstruct a raw batch behind the controller boundary. |
-| R7 | Improve with evidence | The pure template packer stops after 4,000 consecutive non-fitting packages, bounding CPU while permitting bounded template underfill. | Change only through a resumable cursor or fit-aware index with packing-quality and CPU/RSS A/B evidence; removing the cap is invalid. |
-| R8 | Mitigate | Static low-cardinality metrics project kernel residency, terminal rejection classes, service-failure boundaries and effect-region usage from already-maintained counters. Exporter availability, alert thresholds and operator response remain deployment concerns. | Keep metric publication outside authority locks and outside all state/control decisions. Add no metric-owned cache, scan, dynamic label or retry path; validate alert policy in deployment configuration. |
-| R9 | Accept for compatibility | A legacy or hand-authored v1 persistence file may order a child before an expanded dep-group parent and lose that local mempool child during serial replay. | A future fix must be a versioned batch-resolve/retry loader, not another raw ordering heuristic. Chain state is unaffected. |
-| R10 | Accept | Raw `Wait(Conflict)` cannot know expanded dep-group, header context or maturity until re-resolution. | Accepted/verified victims retain exact expanded edges. Do not retain another verified owner or contextual wake protocol without a concrete liveness counterexample. |
-| R11 | Mitigate | Each configured block-template script owns one RAII process slot and its direct child is killed on timeout, so template rate cannot multiply live owned children. HTTP requests are cancellable at timeout, but their maximum concurrent count is the trusted configuration product of endpoint count and timeout/update-interval ratio. A script that deliberately daemonizes descendants crosses the configured external-program boundary. | Keep `kill_on_drop` and the per-command permit inseparable from spawning, and keep HTTP work cancellable and outside authority locks. Treat extreme notification timing/cardinality as an operator configuration risk; hard startup caps or process-group ownership require a separate backward-compatibility/product contract. |
-| R12 | Validate | Throughput, tail latency, CPU, allocation/RSS and lock-hold superiority are not established by correctness tests. | Pass the clean, repeated, fingerprint-matched A/B protocol in [`BENCHMARK.md`](BENCHMARK.md). |
-
-## 22. Release conditions
-
-A release or superiority claim applies to the tested revision only. It
-requires:
-
-1. all read-only contract, documentation and test-layout validators in
-   [`VALIDATION.md`](VALIDATION.md) to pass without generated drift;
-2. the complete `ckb-tx-pool` internal-feature nextest suite and strict clippy
-   gate to pass;
-3. the complete managed integration impact inventory to agree with
-   `ckb-test --list-specs` and pass through `make integration` without filtering
-   failures;
-4. every changed behavior to retain its focused unit and process evidence in
-   [`REVIEW_GUIDE.md`](REVIEW_GUIDE.md); and
-5. the controlled performance gate R12 to pass before claiming that the
-   redesign is performance-neutral or superior.
-
-Accepted or mitigated residuals remain visible in this document. New evidence
-must narrow a residual or add a new current ID; it must not revive a historical
-ledger or hide risk behind another owner, repair protocol or retry state.
+Only after these gates close may profiling and benchmark evidence be used to
+make the final production acceptance claim.

@@ -17,13 +17,6 @@ thread_local! {
     static CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Mark the legacy dedicated callback worker once at thread startup. New
-/// blocking-pool publication uses `with_callback_context` because those
-/// threads are reused.
-pub(crate) fn mark_callback_thread() {
-    CALLBACK_THREAD.with(|marked| marked.set(true));
-}
-
 /// Execute one callback with re-entrant mutation detection scoped to the
 /// current stack. Tokio may reuse a blocking-pool thread for unrelated work,
 /// so the previous marker is restored even when callback code unwinds.

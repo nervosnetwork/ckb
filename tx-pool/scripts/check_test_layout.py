@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import json
 from pathlib import Path
 import re
@@ -19,7 +18,7 @@ from check_review_guide import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
 MANIFEST_PATH = REPO_ROOT / "tx-pool" / "test-layout-manifest.json"
-CFG_TEST = "#[cfg(test)]"
+CFG_TEST = re.compile(r"#\[cfg\(test\)\]")
 TEST_ATTRIBUTE = re.compile(r"(?m)^\s*#\[(?:tokio::)?test(?:\([^]]*\))?\]")
 INLINE_TEST_MODULE = re.compile(
     r"(?m)^\s*(?:#\[cfg\(test\)\]\s*)?"
@@ -98,8 +97,13 @@ def expected_module_target(source: Path, module: str, module_path: str | None) -
 def validate() -> list[str]:
     manifest = load_manifest()
     errors: list[str] = []
-    if manifest.get("schema_version") != 1:
-        errors.append("test-layout manifest schema_version must be 1")
+    if manifest.get("schema_version") != 2:
+        errors.append("test-layout manifest schema_version must be 2")
+    for retired_field in ("module_wiring", "cfg_test_occurrences"):
+        if retired_field in manifest:
+            errors.append(
+                f"test-layout manifest may not copy discoverable {retired_field}"
+            )
 
     registry = load_registry()
     errors.extend(validate_registry(registry))
@@ -158,70 +162,31 @@ def validate() -> list[str]:
             ):
                 errors.append(f"production source weakens static lint {lint}: {name}")
 
-    expected_wiring: set[tuple[str, str, str | None]] = set()
-    for entry in manifest.get("module_wiring", []):
-        try:
-            file = entry["file"]
-            module = entry["module"]
-            module_path = entry.get("path")
-        except (KeyError, TypeError) as error:
-            errors.append(f"invalid module wiring entry {entry!r}: {error}")
-            continue
-        key = (file, module, module_path)
-        if key in expected_wiring:
-            errors.append(f"duplicate module wiring declaration: {key}")
-            continue
-        expected_wiring.add(key)
-        try:
-            source = repo_path(file)
-        except ValueError as error:
-            errors.append(str(error))
-            continue
-        target = expected_module_target(source, module, module_path)
-        if not target.is_file():
-            errors.append(
-                f"test module {file}::{module} targets missing file {relative(target)}"
-            )
-        elif not is_test_source(target, allowed_roots, allowed_files):
-            errors.append(
-                f"test module {file}::{module} targets non-test path {relative(target)}"
-            )
-
     discovered_wiring: set[tuple[str, str, str | None]] = set()
+    wiring_spans: dict[str, list[tuple[int, int]]] = {}
     for file, text in production_sources.items():
         for match in TEST_MODULE_WIRING.finditer(text):
-            discovered_wiring.add((file, match.group(2), match.group(1)))
-    missing_wiring = sorted(expected_wiring - discovered_wiring)
-    extra_wiring = sorted(discovered_wiring - expected_wiring)
-    if missing_wiring:
-        errors.append(f"declared test module wiring disappeared: {missing_wiring}")
-    if extra_wiring:
-        errors.append(f"unreviewed test module wiring appeared: {extra_wiring}")
-
-    expected_cfg = manifest.get("cfg_test_occurrences", {})
-    actual_cfg = {
-        file: text.count(CFG_TEST)
-        for file, text in production_sources.items()
-        if CFG_TEST in text
-    }
-    if actual_cfg != expected_cfg:
-        missing = {
-            file: count
-            for file, count in expected_cfg.items()
-            if actual_cfg.get(file) != count
-        }
-        extra = {
-            file: count
-            for file, count in actual_cfg.items()
-            if expected_cfg.get(file) != count
-        }
-        if missing:
-            errors.append(f"cfg(test) occurrence baseline changed: expected {missing}")
-        if extra:
-            errors.append(f"cfg(test) occurrence baseline changed: actual {extra}")
+            module_path = match.group(1)
+            module = match.group(2)
+            key = (file, module, module_path)
+            if key in discovered_wiring:
+                errors.append(f"duplicate test module wiring: {key}")
+                continue
+            discovered_wiring.add(key)
+            wiring_spans.setdefault(file, []).append(match.span())
+            source = repo_path(file)
+            target = expected_module_target(source, module, module_path)
+            if not target.is_file():
+                errors.append(
+                    f"test module {file}::{module} targets missing file {relative(target)}"
+                )
+            elif not is_test_source(target, allowed_roots, allowed_files):
+                errors.append(
+                    f"test module {file}::{module} targets non-test path {relative(target)}"
+                )
 
     seam_keys: set[tuple[str, str]] = set()
-    seam_files = Counter()
+    seam_identifiers: dict[str, set[str]] = {}
     for entry in manifest.get("seams", []):
         file = entry.get("file")
         symbols = entry.get("symbols")
@@ -244,7 +209,6 @@ def validate() -> list[str]:
         if source is None:
             errors.append(f"test seam points outside production source: {file}")
             continue
-        seam_files[file] += 1
         for symbol in symbols:
             if not isinstance(symbol, str) or not symbol:
                 errors.append(f"invalid test seam symbol in {file}: {symbol!r}")
@@ -256,15 +220,29 @@ def validate() -> list[str]:
             identifier = symbol.rsplit("::", 1)[-1]
             if re.search(rf"\b{re.escape(identifier)}\b", source) is None:
                 errors.append(f"test seam symbol disappeared: {file}::{symbol}")
+            else:
+                seam_identifiers.setdefault(file, set()).add(identifier)
 
-    # Every production file with cfg(test) must be explained by module wiring,
-    # a named seam, or a cfg(test)-only import/initializer supporting one of
-    # those named surfaces. The exact per-file occurrence count then makes any
-    # addition or removal a manifest-reviewed change.
-    explained_files = {file for file, _, _ in expected_wiring} | set(seam_files)
-    unexplained = sorted(set(expected_cfg) - explained_files)
-    if unexplained:
-        errors.append(f"cfg(test) files lack wiring or seam ownership: {unexplained}")
+    # Module wiring is discovered and validated above. Every other cfg(test)
+    # occurrence must be an exact named seam. A copied per-file count would
+    # merely bless current drift, so the manifest has no count baseline.
+    for file, text in production_sources.items():
+        spans = wiring_spans.get(file, [])
+        identifiers = seam_identifiers.get(file, set())
+        for match in CFG_TEST.finditer(text):
+            if any(start <= match.start() < end for start, end in spans):
+                continue
+            window = text[match.end() : match.end() + 320]
+            if any(
+                re.search(rf"\b{re.escape(identifier)}\b", window)
+                for identifier in identifiers
+            ):
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(
+                f"test-only production item must move to a dedicated test file or "
+                f"become a named irreducible seam: {file}:{line}"
+            )
 
     return errors
 
@@ -276,10 +254,16 @@ def main() -> int:
             print(f"error: {error}", file=sys.stderr)
         return 1
     manifest = load_manifest()
+    roots = tuple(repo_path(root) for root in manifest["allowed_test_roots"])
+    files = {repo_path(file) for file in manifest["allowed_test_files"]}
+    module_wires = sum(
+        len(TEST_MODULE_WIRING.findall(path.read_text()))
+        for path in SOURCE_ROOT.rglob("*.rs")
+        if not is_test_source(path, roots, files)
+    )
     print(
         "validated tx-pool test isolation and production static safety: "
-        f"{len(manifest['module_wiring'])} module wires, "
-        f"{sum(manifest['cfg_test_occurrences'].values())} cfg(test) sites, "
+        f"{module_wires} discovered module wires, "
         f"{sum(len(entry['symbols']) for entry in manifest['seams'])} named seams"
     )
     return 0

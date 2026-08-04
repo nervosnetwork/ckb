@@ -33,13 +33,6 @@ impl DirtyScope {
             (Self::ExistingWaiters, Self::ExistingWaiters) => Self::ExistingWaiters,
         }
     }
-
-    fn requires_definitive_loss(self) -> bool {
-        match self {
-            Self::ExistingWaiters => false,
-            Self::AllConsumers => true,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,17 +56,6 @@ struct DependencySlot {
     waiting: Option<ObservedDependencies>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct DependencySnapshot {
-    consumers: BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
-    waiters: BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
-    keys_by_origin: BTreeMap<DependencyOrigin, BTreeSet<DependencyKey>>,
-    levels: BTreeMap<DependencyKey, DependencyLevel>,
-    dirty: BTreeMap<DependencyKey, DirtyDependency>,
-    dirty_cursor: Option<DependencyKey>,
-    unindexed: UnindexedDependencyLevel,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DependencyError {
     Projection,
@@ -84,12 +66,6 @@ pub(super) enum DependencyError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StableDependencyError {
     Projection,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum DependencyEvent {
-    Availability(DependencyCut),
-    DefinitiveLoss(DependencyCut),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -434,17 +410,6 @@ impl DependencyFrontier {
             .any(|key| baseline.keys().binary_search(key).is_err())
     }
 
-    pub(super) fn plan_event(
-        &self,
-        keys: Vec<DependencyKey>,
-        event: DependencyEvent,
-    ) -> Result<Option<DependencyControlDelta>, DependencyError> {
-        match event {
-            DependencyEvent::Availability(cut) => self.plan_events(keys, Vec::new(), cut),
-            DependencyEvent::DefinitiveLoss(cut) => self.plan_events(Vec::new(), keys, cut),
-        }
-    }
-
     /// Compile availability and definitive loss from one projected final
     /// state. A key cannot be both; callers must resolve that contradiction
     /// before publishing the level transition.
@@ -535,15 +500,6 @@ impl DependencyFrontier {
                 .and_then(|level| level.last_definitive_loss),
             expected: dirty,
         }))
-    }
-
-    #[cfg(test)]
-    pub(super) fn next_maintenance_observation(
-        &self,
-    ) -> Result<Option<(DependencyKey, Option<RawTxHash>)>, DependencyError> {
-        Ok(self
-            .next_maintenance()?
-            .map(|ticket| (ticket.key, ticket.hash)))
     }
 
     fn next_dirty_key(&self) -> Option<&DependencyKey> {
@@ -841,18 +797,6 @@ impl DependencyFrontier {
         self.apply_control(delta.control);
     }
 
-    pub(super) fn snapshot(&self) -> DependencySnapshot {
-        DependencySnapshot {
-            consumers: self.consumers.clone(),
-            waiters: self.waiters.clone(),
-            keys_by_origin: self.keys_by_origin.clone(),
-            levels: self.levels.clone(),
-            dirty: self.dirty.clone(),
-            dirty_cursor: self.dirty_cursor.clone(),
-            unindexed: self.unindexed,
-        }
-    }
-
     fn contains(&self, slot: &DependencySlot) -> bool {
         slot.dependencies.keys().iter().all(|key| {
             self.consumers
@@ -952,59 +896,8 @@ impl DependencyFrontier {
             );
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn semantically_matches(
-        &self,
-        entries: &std::collections::HashMap<RawTxHash, OwnedTx>,
-    ) -> bool {
-        let mut expected = Self::default();
-        for owner in entries.values() {
-            let Ok(slot) = DependencySlot::from_owner(owner) else {
-                return false;
-            };
-            if let OwnedTx::PreAccepted(entry) = owner
-                && entry.dependencies().len() > entry.charge.edges
-            {
-                return false;
-            }
-            if let OwnedTx::ReplacementHistory(entry) = owner
-                && entry.dependencies().len() > entry.charge().edges
-            {
-                return false;
-            }
-            expected.attach(&slot);
-        }
-        self.consumers == expected.consumers
-            && self.waiters == expected.waiters
-            && self.keys_by_origin == expected.keys_by_origin
-            && self
-                .levels
-                .keys()
-                .all(|key| self.consumers.contains_key(key))
-            && self.dirty.iter().all(|(key, dirty)| {
-                self.consumers.contains_key(key)
-                    && self.levels.get(key).is_some_and(|level| {
-                        dirty.target <= level.last_change
-                            && (!dirty.scope.requires_definitive_loss()
-                                || level.last_definitive_loss.is_some())
-                            && dirty.pending.is_none_or(|pending| {
-                                pending.target <= level.last_change
-                                    && (!pending.scope.requires_definitive_loss()
-                                        || level.last_definitive_loss.is_some())
-                            })
-                    })
-            })
-            && (!self.dirty.is_empty() || self.dirty_cursor.is_none())
-            && self.unindexed.last_definitive_loss.is_none_or(|loss| {
-                self.unindexed
-                    .last_change
-                    .is_some_and(|change| loss <= change)
-            })
-            && self.waiters.iter().all(|(key, waiters)| {
-                self.consumers
-                    .get(key)
-                    .is_some_and(|consumers| waiters.is_subset(consumers))
-            })
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/support/dependency.rs"]
+pub(in crate::authority) mod test_support;

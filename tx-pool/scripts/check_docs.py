@@ -93,14 +93,14 @@ def validate() -> list[str]:
             errors.append(f"validation guide does not explain machine contract {name}")
 
     ci = CI_WORKFLOW.read_text()
-    for script in (
-        "tx-pool/scripts/check_docs.py",
-        "tx-pool/scripts/check_production_contracts.py",
-        "tx-pool/scripts/check_review_guide.py",
-        "tx-pool/scripts/check_test_layout.py",
-    ):
-        if script not in ci:
-            errors.append(f"tx-pool review CI omits {script}")
+    canonical_ci_command = "python3 tx-pool/scripts/check_all.py --light"
+    if canonical_ci_command not in ci:
+        errors.append("tx-pool review CI omits the canonical light contract gate")
+    component_commands = re.findall(r"python3 tx-pool/scripts/check_[A-Za-z0-9_]+\.py", ci)
+    if component_commands != ["python3 tx-pool/scripts/check_all.py"]:
+        errors.append(
+            "tx-pool review CI must call only check_all.py instead of copying component gates"
+        )
 
     drift_surfaces = [
         *files,

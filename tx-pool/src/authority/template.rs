@@ -65,16 +65,8 @@ impl TemplateCandidate {
         &self.hash
     }
 
-    pub(super) fn proposal(&self) -> &ProposalId {
-        &self.proposal
-    }
-
     pub(super) fn proposal_short_id(&self) -> &ProposalShortId {
         &self.proposal.0
-    }
-
-    pub(super) fn status(&self) -> AcceptedStatus {
-        self.status
     }
 
     pub(super) fn accepted_at(&self) -> AcceptedAtMillis {
@@ -240,14 +232,6 @@ impl AuthorityTemplateReadReceipt {
         &self.chain_view
     }
 
-    pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
-        TemplateSourceCut::new(self.sources, uncles)
-    }
-
-    pub(super) fn selected_len(&self) -> usize {
-        self.captured.len()
-    }
-
     /// Consume the owned cut after the authority guard has been released.
     /// Parent canonicalization and later selection then touch no authority
     /// state or lock; exact ancestor ranking was already captured from the
@@ -290,23 +274,6 @@ impl TemplateSelectionReceipt {
         &self.candidates
     }
 
-    pub(super) fn proposals(&self, limit: usize) -> Result<Vec<ProposalId>, TemplateReadError> {
-        let ordered = self.ordered_indices([AcceptedStatus::Pending])?;
-        let selected = limit.min(ordered.len());
-        let mut proposals = Vec::new();
-        proposals
-            .try_reserve(selected)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        for index in ordered.into_iter().take(selected) {
-            let candidate = self
-                .candidates
-                .get(index)
-                .ok_or(TemplateReadError::Projection)?;
-            proposals.push(candidate.proposal.clone());
-        }
-        Ok(proposals)
-    }
-
     pub(super) fn proposal_short_ids(
         &self,
         limit: u64,
@@ -330,77 +297,6 @@ impl TemplateSelectionReceipt {
             );
         }
         Ok(proposals)
-    }
-
-    /// The query rank and proposal selector consume the same immutable key.
-    /// Gap remains RPC-pending but is intentionally absent from `proposals`.
-    pub(super) fn pending_rank(
-        &self,
-        hash: &RawTxHash,
-    ) -> Result<Option<usize>, TemplateReadError> {
-        let mut position = None;
-        for (rank, index) in self
-            .ordered_indices([AcceptedStatus::Pending, AcceptedStatus::Gap])?
-            .into_iter()
-            .enumerate()
-        {
-            let candidate = self
-                .candidates
-                .get(index)
-                .ok_or(TemplateReadError::Projection)?;
-            if &candidate.hash == hash {
-                position = Some(rank);
-                break;
-            }
-        }
-        position
-            .map(|rank| rank.checked_add(1).ok_or(TemplateReadError::Arithmetic))
-            .transpose()
-    }
-
-    /// Return a deterministic, consensus-safe subset of causally eligible
-    /// Proposed transactions. The persistent authority stores only causal
-    /// producer edges; this pure receipt consumer adds selected-set
-    /// `dependency reader -> spender` edges, sheds bounded conditional cycles,
-    /// and never writes a second graph back into membership.
-    ///
-    /// Packing limits and CPFP package iteration are a later pure consumer of
-    /// this same receipt. They may call the same selected-set ordering kernel
-    /// on a smaller subset; no authority state is read in either case.
-    pub(super) fn proposed_parent_first(
-        &self,
-    ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
-        self.proposed_parent_first_with_dependency_budget(SELECTED_DEP_ORDERING_BUDGET)
-    }
-
-    #[cfg(test)]
-    pub(super) fn proposed_parent_first_for_foundation(
-        &self,
-        dependency_budget: usize,
-    ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
-        self.proposed_parent_first_with_dependency_budget(dependency_budget)
-    }
-
-    fn proposed_parent_first_with_dependency_budget(
-        &self,
-        dependency_budget: usize,
-    ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
-        let by_hash = self.candidate_index()?;
-        let causally_selected = self.causally_eligible_proposed(&by_hash)?;
-        let selected =
-            self.order_conditionally_safe(causally_selected, &by_hash, dependency_budget)?;
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(selected.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
-        for index in selected {
-            ordered.push(
-                self.candidates
-                    .get(index)
-                    .ok_or(TemplateReadError::Projection)?,
-            );
-        }
-        Ok(ordered)
     }
 
     pub(super) fn candidate_index(&self) -> Result<HashMap<RawTxHash, usize>, TemplateReadError> {
@@ -1355,11 +1251,6 @@ impl TemplateConvergence {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn for_foundation(initial: TemplateSourceCut) -> Self {
-        Self::new(initial, ResetEpoch::INITIAL)
-    }
-
     /// Join rather than replace because pool and uncle cuts come from
     /// independent read authorities. Delayed or duplicate observations are
     /// harmless; an incomparable pair still has one deterministic level join.
@@ -1402,19 +1293,6 @@ impl TemplateConvergence {
         self.is_pending(TemplateComponent::Uncles)
     }
 
-    pub(super) fn begin_full(&mut self, sources: TemplateSourceCut) -> FullTemplateBuild {
-        self.observe_sources(sources);
-        FullTemplateBuild {
-            // `desired_reset`, not `published_reset`, is the serialization
-            // fence. Otherwise scheduler timing lets an old full cross the
-            // interval between reset request and blank publication.
-            expected_reset: self.desired_reset,
-            expected_reset_chain: self.desired_reset_chain,
-            sources,
-            coverage: TemplateCoverage::full(sources),
-        }
-    }
-
     pub(super) fn begin_pending_full(
         &mut self,
         sources: TemplateSourceCut,
@@ -1440,32 +1318,6 @@ impl TemplateConvergence {
         changed
     }
 
-    #[cfg(test)]
-    pub(super) fn begin_partial_for_foundation(
-        &mut self,
-        component: TemplateComponent,
-        sources: TemplateSourceCut,
-        base_revision: TemplateRevision,
-    ) -> PartialTemplateBuild {
-        match component {
-            TemplateComponent::Proposals => self.begin_proposals(sources.pool, base_revision),
-            TemplateComponent::Transactions => self.begin_transactions(sources.pool, base_revision),
-            TemplateComponent::Uncles => self.begin_uncles(sources, base_revision),
-        }
-    }
-
-    pub(super) fn begin_proposals(
-        &mut self,
-        sources: TemplatePoolSourceCut,
-        base_revision: TemplateRevision,
-    ) -> PartialTemplateBuild {
-        self.observe_pool_sources(sources);
-        PartialTemplateBuild {
-            expected_revision: base_revision,
-            coverage: PartialTemplateCoverage::Proposals(sources.proposal_cut()),
-        }
-    }
-
     pub(super) fn begin_pending_proposals(
         &mut self,
         sources: TemplatePoolSourceCut,
@@ -1480,18 +1332,6 @@ impl TemplateConvergence {
         })
     }
 
-    pub(super) fn begin_transactions(
-        &mut self,
-        sources: TemplatePoolSourceCut,
-        base_revision: TemplateRevision,
-    ) -> PartialTemplateBuild {
-        self.observe_pool_sources(sources);
-        PartialTemplateBuild {
-            expected_revision: base_revision,
-            coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
-        }
-    }
-
     pub(super) fn begin_pending_transactions(
         &mut self,
         sources: TemplatePoolSourceCut,
@@ -1504,18 +1344,6 @@ impl TemplateConvergence {
                 coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
             }
         })
-    }
-
-    pub(super) fn begin_uncles(
-        &mut self,
-        sources: TemplateSourceCut,
-        base_revision: TemplateRevision,
-    ) -> PartialTemplateBuild {
-        self.observe_sources(sources);
-        PartialTemplateBuild {
-            expected_revision: base_revision,
-            coverage: PartialTemplateCoverage::Uncles(sources.uncle_cut()),
-        }
     }
 
     pub(super) fn begin_pending_uncles(
@@ -1655,23 +1483,6 @@ impl TemplateConvergence {
             TemplateComponent::Uncles => self.covered.uncles != Some(self.desired.uncle_cut()),
         }
     }
-
-    pub(super) fn is_converged(&self, published_reset: ResetEpoch) -> bool {
-        self.desired_reset == published_reset
-            && self.full_required.is_none()
-            && [
-                TemplateComponent::Proposals,
-                TemplateComponent::Transactions,
-                TemplateComponent::Uncles,
-            ]
-            .into_iter()
-            .all(|component| !self.is_pending(component))
-    }
-
-    #[cfg(test)]
-    pub(super) fn force_reset_epoch_exhaustion_for_foundation(&mut self) {
-        self.desired_reset = ResetEpoch::MAX;
-    }
 }
 
 fn causal_indices(
@@ -1795,3 +1606,7 @@ fn causal_order<'entry>(
     }
     Ok(ordered)
 }
+
+#[cfg(test)]
+#[path = "tests/support/template.rs"]
+mod test_support;

@@ -118,11 +118,29 @@ pub(crate) struct AuthorityGenerationInvalidity(AuthorityServiceError);
 #[derive(Debug)]
 pub(crate) enum AuthorityPersistenceError {
     Snapshot(AuthorityServiceError),
-    Sort(DependencySortError),
+    Sort(
+        #[expect(
+            dead_code,
+            reason = "the exact sort cause is retained for the caller's Debug diagnostics"
+        )]
+        DependencySortError,
+    ),
     Replay(AuthorityServiceError),
     Counter,
-    Write(AnyError),
-    Join(tokio::task::JoinError),
+    Write(
+        #[expect(
+            dead_code,
+            reason = "the exact storage cause is retained for the caller's Debug diagnostics"
+        )]
+        AnyError,
+    ),
+    Join(
+        #[expect(
+            dead_code,
+            reason = "the exact task cause is retained for the caller's Debug diagnostics"
+        )]
+        tokio::task::JoinError,
+    ),
 }
 
 #[derive(Debug)]
@@ -390,8 +408,20 @@ pub(crate) struct AuthorityGeneration {
 #[derive(Debug)]
 enum AuthorityServiceGenerationFault {
     Authority(AuthorityGenerationFault),
-    Service(AuthorityGenerationInvalidity),
-    Reorg(AuthorityGenerationInvalidity),
+    Service(
+        #[expect(
+            dead_code,
+            reason = "the generation-invalid capability is retained until shutdown and rendered in the operational fault log"
+        )]
+        AuthorityGenerationInvalidity,
+    ),
+    Reorg(
+        #[expect(
+            dead_code,
+            reason = "the reorg-invalid capability is retained until shutdown and rendered in the operational fault log"
+        )]
+        AuthorityGenerationInvalidity,
+    ),
     ReorgJoin(tokio::task::JoinError),
     ReorgTimeout,
 }
@@ -1004,7 +1034,7 @@ impl AuthorityService {
                     };
                     match (test_accept, outcome) {
                         (false, AuthorityDirectAdmissionExecution::Local(execution)) => {
-                            let (outcome, cache_update, _cache_hit) = execution.into_parts();
+                            let (outcome, cache_update) = execution.into_parts();
                             if let Some(update) = cache_update {
                                 self.publish_cache_update(update).await;
                             }

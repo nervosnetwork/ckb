@@ -50,14 +50,6 @@ impl PeerBanLease {
         self.peer
     }
 
-    #[cfg(test)]
-    pub(super) const fn for_foundation(peer: PeerIndex) -> Self {
-        Self {
-            peer,
-            deadline: PeerBanDeadline::ProcessLifetime,
-        }
-    }
-
     /// Remaining external network-ban duration for the same authority lease.
     /// Expired committed work still publishes its filter reset and diagnostic,
     /// but must not start a fresh three-day network ban after the authority
@@ -153,34 +145,8 @@ impl PeerBanRegistry {
             .get(&peer)
             .is_some_and(|deadline| deadline.is_active_at(now))
     }
-
-    #[cfg(test)]
-    pub(super) fn snapshot(&self) -> HashMap<PeerIndex, PeerBanDeadline> {
-        self.entries.clone()
-    }
-
-    #[cfg(test)]
-    pub(super) fn semantically_consistent(&self) -> bool {
-        let expiring_entries = self
-            .entries
-            .values()
-            .filter(|deadline| matches!(deadline, PeerBanDeadline::At(_)))
-            .count();
-        expiring_entries == self.expirations.len()
-            && self
-                .expirations
-                .iter()
-                .zip(self.expirations.iter().skip(1))
-                .all(|((left, _), (right, _))| left <= right)
-            && self.expirations.iter().all(|(deadline, peer)| {
-                self.entries.get(peer) == Some(&PeerBanDeadline::At(*deadline))
-            })
-            && self.entries.iter().all(|(peer, deadline)| match deadline {
-                PeerBanDeadline::At(deadline) => self
-                    .expirations
-                    .iter()
-                    .any(|candidate| candidate == &(*deadline, *peer)),
-                PeerBanDeadline::ProcessLifetime => true,
-            })
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/support/ban.rs"]
+mod test_support;

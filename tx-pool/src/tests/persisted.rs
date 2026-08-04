@@ -2,7 +2,6 @@ use super::*;
 use ckb_types::{
     core::{TransactionBuilder, TransactionView},
     packed::{Byte32, CellInput, OutPoint, TransactionVec},
-    prelude::*,
 };
 
 fn transaction(seed: u8) -> TransactionView {

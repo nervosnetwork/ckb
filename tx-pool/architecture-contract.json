@@ -1,120 +1,182 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
-  "authorities": ["TxPool", "PrePoolKernel"],
+  "authority": {
+    "store": "AuthorityStore",
+    "transaction_owner": "TxPoolAuthority",
+    "primary_map": "entries_by_raw_tx_hash",
+    "paired_chain_evidence": "snapshot_and_ChainViewId",
+    "derived_state": [
+      "AuthorityIndexes",
+      "MembershipProjection",
+      "FairFrontier",
+      "DependencyFrontier",
+      "ResourceLedger",
+      "AuthoritySourceVersions",
+      "EffectLog",
+      "PeerBanRegistry"
+    ]
+  },
   "identity": {
-    "ownership_key": "full_tx_hash",
-    "verification_cache_key": "wtx_hash",
-    "proposal_short_id_role": "collision_aware_index_only",
-    "entry_revision": "process_global_non_reused_u128"
+    "ownership_key": "raw_tx_hash",
+    "verification_cache_key": "inline_witness_hash_32_bytes_and_ScriptVerificationRules",
+    "proposal_short_id_role": "collision_aware_index_and_consensus_protocol_only",
+    "entry_version": "process_global_non_reused_u128",
+    "compute_lease": "process_global_non_reused_u128",
+    "chain_view": "monotonic_revision_and_tip_hash",
+    "apply_sequence": "process_global_monotonic_u128"
   },
-  "prepool_states": [
-    "ResolveQueued",
-    "ResolveLeased",
-    "Wait",
-    "VerifyQueued",
-    "VerifyLeased",
-    "Ready"
-  ],
-  "forbidden_persistent_states": [
-    "Committing",
-    "Invalidated",
-    "RaceLost",
-    "RecoveryRetained",
-    "ConflictOwned",
-    "Undoing"
-  ],
+  "owner_algebra": {
+    "variants": [
+      "PreAccepted",
+      "Accepted",
+      "ReplacementHistory"
+    ],
+    "preaccepted_phase_variants": [
+      "Queued",
+      "Computing",
+      "Waiting",
+      "Ready"
+    ],
+    "queued_work_variants": [
+      "Resolve",
+      "Verify"
+    ],
+    "accepted_statuses": [
+      "Pending",
+      "Gap",
+      "Proposed"
+    ],
+    "forbidden_persistent_states": [
+      "Committing",
+      "Invalidated",
+      "RaceLost",
+      "Undoing",
+      "UnchargedOwner",
+      "WorkerOwnedPayload",
+      "UncommittedEffect"
+    ]
+  },
+  "transition_pipeline": {
+    "validation": "typed_evidence_bound_to_exact_transaction_chain_view_and_policy",
+    "plan": "semantically_read_only_preallocation_and_closed_delta_construction",
+    "apply": "single_consumption_total_infallible_authority_transition",
+    "effects": "bounded_effect_delta_committed_by_the_same_apply",
+    "external_io": "consumes_only_committed_effect_leases_after_the_store_guard_opens",
+    "ordinary_outcomes": [
+      "Apply",
+      "Reject",
+      "Backpressure",
+      "Stale",
+      "Duplicate",
+      "Cancelled"
+    ]
+  },
   "commands": [
-    "admit",
-    "promote",
-    "resolve_checkout",
-    "resolve_complete",
-    "wait_wake_slice",
-    "verify_checkout",
-    "verify_complete",
-    "remove",
-    "expire",
-    "peer_remove",
-    "commit_settle",
-    "chain_reconcile",
-    "generation_change"
+    "retained_ingress",
+    "trusted_promotion",
+    "compute_checkout",
+    "compute_settlement",
+    "direct_admission",
+    "ready_admission",
+    "dependency_maintenance",
+    "administrative_removal",
+    "peer_revocation",
+    "chain_transition",
+    "clear_pipeline",
+    "clear_pool",
+    "effect_checkout",
+    "effect_settlement",
+    "effect_close"
   ],
-  "plan_outcomes": ["Apply", "Reject", "Backpressure", "Stale", "Duplicate"],
-  "ready_key": [
-    "source_class_Remote_lt_Proposal_lt_Recovery",
-    "fee_rate_u128_cross_product",
-    "absolute_fee",
-    "earlier_arrival",
-    "smaller_full_hash",
-    "entry_revision"
-  ],
-  "ready_aging": {
-    "policy": "none",
-    "remote_bound": "residency_deadline_and_budget",
-    "trusted_bound": "bounded_chain_derived_ingress",
-    "acceptance_gate": "controlled_saturation_throughput_and_tail_latency"
+  "concurrency": {
+    "authority_lock": "one_synchronous_rwlock_with_no_await",
+    "parallel_work": "resolve_verify_and_immutable_plan_computation_outside_the_authority_guard",
+    "transient_compute_gate": "count_only_semaphore_without_transaction_ownership",
+    "wake_contract": "lossy_notify_plus_level_triggered_authority_recheck",
+    "ordered_chain_lane": "capacity_one_reliable_best_tip_transition",
+    "template_lanes": [
+      "ordered_full_or_reset_replacement",
+      "optimistic_proposals",
+      "optimistic_transactions",
+      "optimistic_uncles",
+      "coalesced_external_notification"
+    ],
+    "forbidden": [
+      "authority_guard_across_await",
+      "external_io_under_authority_guard",
+      "second_transaction_owner",
+      "generic_mutation_closure",
+      "timing_based_stale_work_acceptance"
+    ]
   },
-  "lock_order": [
-    "optional_serial_or_work_or_plan_permit",
-    "effect_capacity_hint_released",
-    "TxPool_read_or_write",
-    "PrePoolKernel",
-    "EffectJournal"
+  "effect_log": {
+    "owner": "TxPoolAuthority",
+    "classes": [
+      "Remote",
+      "Trusted",
+      "Critical"
+    ],
+    "replacement_record": "GenerationReset",
+    "publication": "single_move_only_publisher_claim",
+    "capacity_rule": "largest_indivisible_batch_fits_by_construction"
+  },
+  "resource_coordinates": [
+    "entries",
+    "resident_bytes",
+    "dependency_edges",
+    "active_work",
+    "reserved_compute_bytes",
+    "reserved_compute_edges",
+    "accepted_size_and_cycles",
+    "remote_total",
+    "per_peer",
+    "replacement_history",
+    "effect_batches_and_bytes"
   ],
   "root_families": {
     "F1": "ownership_and_ABA",
-    "F2": "accepted_pool_atomicity",
-    "F3": "stable_effects",
-    "F4": "bounded_resources_and_CPU",
-    "F5": "dependency_liveness",
-    "F6": "conflict_recovery",
-    "F7": "chain_admin_and_template_ordering",
-    "F8": "identity_and_accepted_graph"
+    "F2": "membership_RBF_and_capacity_atomicity",
+    "F3": "committed_effects_and_publication",
+    "F4": "bounded_resources_and_adversarial_work",
+    "F5": "dependency_liveness_and_progress",
+    "F6": "replacement_history_and_recovery",
+    "F7": "chain_administration_and_template_convergence",
+    "F8": "identity_evidence_and_public_projection"
   },
   "target_invariants": {
-    "T1": "Partition",
-    "T2": "Lease",
-    "T3": "Budget",
-    "T4": "WaitExactness",
-    "T5": "ReadyExactness",
-    "T6": "AtomicAcceptance",
-    "T7": "StableEffects",
+    "T1": "OwnerPartition",
+    "T2": "CapabilityAndABA",
+    "T3": "ContinuousResources",
+    "T4": "DependencyExactness",
+    "T5": "SchedulerExactness",
+    "T6": "TotalApply",
+    "T7": "CommittedEffects",
     "T8": "BoundedHostility",
-    "T9": "ChainSerialization",
-    "T10": "CriticalSchedulability",
-    "T11": "LevelTriggeredProgress",
-    "T12": "AcceptedStatusExactness",
-    "T13": "TemplateAuthority"
+    "T9": "ChainSnapshotPairing",
+    "T10": "LevelTriggeredProgress",
+    "T11": "IdentityAndEvidence",
+    "T12": "CoherentPublicProjection",
+    "T13": "TemplateConvergence"
   },
-  "effect_regions": [
-    "Remote",
-    "Trusted",
-    "Critical",
-    "replaceable_generation_reset"
-  ],
-  "resource_classes": [
-    "accepted_authority_and_projections",
-    "prepool_entries_and_indexes",
-    "remote",
-    "trusted_and_recovery",
-    "worker_borrowers",
-    "plan_admin_template_effect_borrowers",
-    "sealed_retired_generation"
-  ],
   "residual_risks": {
-    "R1": "proven_authoritative_integrity_loss_controlled_stop",
-    "R2": "external_effect_delivery_not_exactly_once",
-    "R3": "one_timed_out_blocking_call_per_endpoint_kind",
-    "R4": "non_crash_durable_persistence_and_uncancellable_filesystem_io",
-    "R5": "process_oom_abort_and_corruption",
-    "R6": "trusted_notify_batch_outer_bound",
-    "R7": "bounded_template_underfill_tradeoff",
-    "R8": "static_operational_projections_with_external_alerting",
-    "R9": "legacy_v1_replay_ordering",
-    "R10": "raw_conflict_wait_context_precision",
-    "R11": "template_notification_lifecycle_boundary",
-    "R12": "controlled_performance_acceptance"
-  }
+    "R1": "typed_authority_fault_reachability_requires_final_static_adjudication",
+    "R2": "external_effect_delivery_is_not_crash_durable_or_exactly_once",
+    "R3": "persistence_is_best_effort_and_all_replay_reenters_validation",
+    "R4": "process_OOM_abort_FFI_and_memory_corruption_are_out_of_model",
+    "R5": "derived_template_failure_retains_the_last_valid_template_and_may_underfill",
+    "R6": "bounded_optional_replacement_history_may_be_dropped_under_pressure",
+    "R7": "legacy_v1_persistence_remains_a_compatibility_input",
+    "R8": "complete_related_integration_acceptance_is_pending_P9_8",
+    "R9": "controlled_fixed_binary_performance_acceptance_is_pending_P10"
+  },
+  "release_gates": [
+    "current_UAK_contract_and_test_evidence_converge",
+    "all_historical_adjudications_have_current_code_dispositions",
+    "all_statically_derivable_correctness_security_liveness_and_complexity_findings_close",
+    "complete_related_nextest_and_integration_universe_passes",
+    "reproducible_fixed_binary_AB_meets_the_performance_contract"
+  ]
 }

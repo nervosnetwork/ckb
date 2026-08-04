@@ -137,16 +137,16 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
             .iter()
             .map(|entry| entry.hash())
             .collect::<Vec<_>>(),
-        vec![&parent, &child]
+        vec![parent.clone(), child.clone()]
     );
     assert_eq!(exact.entries()[0].accepted_at().0, 0);
     assert_eq!(exact.entries()[1].metrics().cost.cycles, 20);
     assert_eq!(
         exact.entries()[1].proposal_short_id(),
-        &child_tx.proposal_short_id()
+        child_tx.proposal_short_id()
     );
     assert_eq!(exact.entries()[1].resolved().transaction.hash(), child.0);
-    assert!(!exact.entries().iter().any(|entry| entry.hash() == &rival));
+    assert!(!exact.entries().iter().any(|entry| entry.hash() == rival));
 
     let one_byte_short = receipt
         .pack_transactions(TemplatePackingLimits::new(package_bytes - 1, u64::MAX))
@@ -155,7 +155,7 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
         !one_byte_short
             .entries()
             .iter()
-            .any(|entry| entry.hash() == &child)
+            .any(|entry| entry.hash() == child)
     );
 
     let one_cycle_short = receipt
@@ -165,7 +165,7 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
         !one_cycle_short
             .entries()
             .iter()
-            .any(|entry| entry.hash() == &child)
+            .any(|entry| entry.hash() == child)
     );
 }
 
@@ -238,8 +238,8 @@ fn uak_template_packer_rescores_descendants_after_shared_parent_selection() {
         .iter()
         .map(|entry| entry.hash())
         .collect::<Vec<_>>();
-    assert_eq!(hashes, vec![&parent, &strongest, &rescored]);
-    assert!(!hashes.contains(&&rival));
+    assert_eq!(hashes, vec![parent, strongest, rescored]);
+    assert!(!hashes.contains(&rival));
 }
 
 #[test]
@@ -279,7 +279,7 @@ fn uak_template_packer_aggregates_multi_parent_descendant_adjustments() {
             .iter()
             .map(|entry| entry.hash())
             .collect::<Vec<_>>(),
-        vec![&first_parent, &second_parent, &child]
+        vec![first_parent, second_parent, child]
     );
 }
 
@@ -323,7 +323,7 @@ fn uak_template_packer_bounds_non_fitting_work_without_changing_the_policy() {
             .iter()
             .map(|entry| entry.hash())
             .collect::<Vec<_>>(),
-        vec![&first]
+        vec![first.clone()]
     );
 
     let complete = receipt
@@ -335,7 +335,7 @@ fn uak_template_packer_bounds_non_fitting_work_without_changing_the_policy() {
             .iter()
             .map(|entry| entry.hash())
             .collect::<Vec<_>>(),
-        vec![&first, &small]
+        vec![first, small]
     );
 }
 
@@ -405,14 +405,14 @@ fn uak_template_packer_requires_proposed_ancestors_and_orders_conditional_edges(
         .iter()
         .map(|entry| entry.hash())
         .collect::<Vec<_>>();
-    assert!(!hashes.contains(&&child));
+    assert!(!hashes.contains(&child));
     let reader_position = hashes
         .iter()
-        .position(|hash| *hash == &reader)
+        .position(|hash| *hash == reader)
         .expect("reader is selected");
     let spender_position = hashes
         .iter()
-        .position(|hash| *hash == &spender)
+        .position(|hash| *hash == spender)
         .expect("spender is selected");
     assert!(reader_position < spender_position);
 }
@@ -473,6 +473,6 @@ fn uak_template_packer_bounds_long_conditional_scc_fallback() {
     assert_eq!(packed.entries().len(), 1);
     assert_eq!(
         packed.entries()[0].hash(),
-        strongest.as_ref().expect("non-empty cycle")
+        strongest.expect("non-empty cycle")
     );
 }

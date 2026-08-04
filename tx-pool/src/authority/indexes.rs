@@ -69,16 +69,6 @@ pub(super) struct DueAccepted {
     pub(super) hash: RawTxHash,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct IndexSnapshot {
-    pub(super) by_proposal: HashMap<ProposalId, RawTxHash>,
-    pub(super) preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
-    pub(super) context_sensitive_accepted: HashSet<RawTxHash>,
-    accepted_proposals: AcceptedProposalIndex,
-    deadlines: BTreeSet<DeadlineKey>,
-    accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IndexError {
     ProposalCollision,
@@ -312,17 +302,6 @@ impl AuthorityIndexes {
             });
         }
         Ok(due)
-    }
-
-    pub(super) fn snapshot(&self) -> IndexSnapshot {
-        IndexSnapshot {
-            by_proposal: self.by_proposal.clone(),
-            preaccepted_by_peer: self.preaccepted_by_peer.clone(),
-            context_sensitive_accepted: self.context_sensitive_accepted.clone(),
-            accepted_proposals: self.accepted_proposals.clone(),
-            deadlines: self.deadlines.clone(),
-            accepted_deadlines: self.accepted_deadlines.clone(),
-        }
     }
 
     /// Compile the common one-owner transition without allocating when its
@@ -975,57 +954,8 @@ impl AuthorityIndexes {
                 .insert(proposal);
         }
     }
-
-    #[cfg(test)]
-    pub(super) fn semantically_matches(&self, entries: &HashMap<RawTxHash, OwnedTx>) -> bool {
-        let mut expected = Self::default();
-        for (key, owner) in entries {
-            if expected
-                .by_proposal
-                .insert(owner.record().identity.proposal.clone(), key.clone())
-                .is_some()
-            {
-                return false;
-            }
-            if let OwnedTx::PreAccepted(entry) = owner
-                && let Some(peer) = entry.source.ingress_peer()
-            {
-                expected
-                    .preaccepted_by_peer
-                    .entry(peer)
-                    .or_default()
-                    .insert(key.clone());
-            }
-            if let OwnedTx::PreAccepted(entry) = owner
-                && let Some(expires_at) = entry.source.active_remote_deadline()
-            {
-                expected.deadlines.insert(DeadlineKey {
-                    expires_at,
-                    hash: key.clone(),
-                });
-            }
-            match owner {
-                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {}
-                OwnedTx::Accepted(entry) => {
-                    expected.accepted_deadlines.insert(AcceptedDeadlineKey {
-                        accepted_at: entry.accepted_at,
-                        hash: key.clone(),
-                    });
-                    if entry.proof.sensitivity().requires_reorg_revalidation() {
-                        expected.context_sensitive_accepted.insert(key.clone());
-                    }
-                    expected
-                        .accepted_proposals
-                        .for_status_mut(entry.status())
-                        .insert(entry.record.identity.proposal.clone());
-                }
-            }
-        }
-        self.by_proposal == expected.by_proposal
-            && self.preaccepted_by_peer == expected.preaccepted_by_peer
-            && self.context_sensitive_accepted == expected.context_sensitive_accepted
-            && self.accepted_proposals == expected.accepted_proposals
-            && self.deadlines == expected.deadlines
-            && self.accepted_deadlines == expected.accepted_deadlines
-    }
 }
+
+#[cfg(test)]
+#[path = "tests/support/indexes.rs"]
+pub(in crate::authority) mod test_support;

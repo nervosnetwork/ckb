@@ -1,8 +1,9 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3c production cutover, publication parity, behavior migration, and
-physical legacy-authority deletion are complete; the G5/G6 whole-architecture
-review is active
+Status: G5.3c production cutover, publication parity, behavior migration,
+physical legacy-authority deletion, one-way evidence convergence and physical
+test isolation are complete; `ARCHITECTURE-ADJUDICATION` is active and section
+16.2 is the exact restart authority
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -23,25 +24,16 @@ G5/G6 proof-shadow-state removal checkpoint: b6e34cb7e
 G5/G6 typed-effect-checkout checkpoint: 24014ffb1
 G5/G6 reliable-chain-publication checkpoint: cd3c65856
 G5/G6 cross-crate test-topology checkpoint: this commit
-Active slice: G5/G6 audits the complete surviving UAK architecture for model
-minimality, invariant closure, Rust-static safety, progress/liveness,
-publication convergence, performance shape, test stacking, documentation, and
-every provisional historical adjudication. The cross-crate chain-tip
-publication root family is closed: every installed best-tip transition now
-reliably enters the ordered authority independently of RPC readiness, and the
-cross-crate blocking test topology linearly retains the new bounded relay
-receiver without a forwarding thread. Next exact action: finish the complete
-cross-crate scan for snapshot/authority changes, readiness gates, fallible or
-ignored publication and deleted compensation; then finish the current-code
-error/fail-stop, wait-for, manual-publication and historical-adjudication audit
-before freezing the complete remaining root-cause candidate set. The first
-model-minimality slice is closed: the generic read-cut token, persistence-only
-sequence shadow, and unconsumed owners/status source clocks are removed;
-template receipts now carry only their required chain view and exact consumer
-sources. Effect checkout is also closed by type before Apply: the prepared
-checkout owns its non-optional publisher lease, and the generic committed
-handoff can no longer represent an effect lease or discover a missing lease
-after authoritative mutation.
+Active slice: G5/G6 now closes the complete surviving UAK architecture against
+`develop`, historical findings and the current Rust call graph before any full
+integration or performance claim. The evidence/test-isolation phase is closed
+with 401 exact tests, 360/360 authority tests, 44 derived module wires, six
+named seams and strict all-target Clippy. Next exact action is the closed
+architecture candidate audit recorded in section 16.2, beginning with the
+remaining generic compute-handoff encoding and then fail-stop, liveness,
+manual-publication and resource/complexity boundaries. The earlier read-cut,
+source-clock and typed effect-checkout simplifications remain closed and are
+not to be reopened without contrary code evidence.
 Publication parity is closed
 for callbacks, relay and known-filter reconciliation,
 recent-reject, peer ban/Sentry reporting, verification cache, persistence,
@@ -247,6 +239,33 @@ through one ordered subphase:
 7. regenerate reviewer prose, run all document/layout/review/security/static
    gates, then run isolated tx-pool and affected reverse-dependency nextest
    before checkpointing this subphase.
+
+Evidence-system root correction: the current drift was enabled by copying the
+same fact into too many hand-maintained artifacts. Contract convergence must
+therefore implement this one-way graph rather than refresh those copies:
+
+1. current Rust owner/state enums and discovered tests are executable facts;
+2. `architecture-contract.json` owns only stable architecture vocabulary and
+   T1-T13, and the validator checks that vocabulary against the Rust types;
+3. `review-behaviors.json` owns only rule/attack semantics, exact production
+   symbol owners and curated exact unit/integration evidence;
+4. focused nextest commands and the `REVIEW_GUIDE.md` tables are generated from
+   that evidence, never stored as a second hand-written regex list;
+5. `test-inventory.txt` is an exact generated discovery snapshot and all test
+   counts are derived from it rather than copied into another manifest;
+6. `test-layout-manifest.json` records only irreducible narrow test seams. The
+   validator discovers module wiring, test roots and production `cfg(test)`
+   violations directly; it does not bless drift through copied occurrence
+   counts or a whole-production-directory exception;
+7. every behavior must resolve to existing production paths and symbols,
+   every evidence anchor must match exactly one discovered test, every T1-T13
+   must have evidence, and every generated selector arm is therefore nonzero
+   by construction.
+
+This is a test-driven review contract, not a demand to map all discovered tests
+to one behavior row. The exact inventory protects the complete regression
+universe; a smaller curated evidence set proves the named architecture and
+attack rules without turning the review guide into a second test runner dump.
 
 This subphase is contract and test-structure convergence, not permission to
 change production behavior. If reconstructing the current algebra exposes a
@@ -2894,3 +2913,85 @@ Open production blockers:
 - P9.8 complete test acceptance and P10 controlled performance evidence.
 
 No production-readiness claim is allowed while any blocker remains.
+
+### 16.2 Current recovery point: architecture adjudication
+
+Recovery base is commit `b7745ee4f`. The root `.gitignore` modification is
+user-owned and remains excluded from every stage/commit operation.
+The phase-3 evidence/test-isolation checkpoint is the commit containing this
+section; recovery must start from that checkpoint, not replay the extraction.
+
+Completed in the active working tree:
+
+- architecture contract schema v4 and `ARCHITECTURE.md` describe the current
+  single `AuthorityStore` / `TxPoolAuthority` UAK;
+- behavior registry schema v4 contains 17 semantic behaviors, exact production
+  symbol owners, 85 unique Rust anchors, 222 T1-T13 references and 17 focused
+  process anchors; hand-authored nextest commands and broad change surfaces are
+  removed;
+- focused commands and the Review Guide behavior tables are generated from the
+  exact anchors;
+- security manifest schema v7 contains no copied test counts; nextest discovery
+  regenerated an exact 401-test unit inventory and the managed integration
+  count is derived as 150;
+- security validation reconciles `OwnedTx`, `PreAcceptedPhase`, `QueuedWork`,
+  `AcceptedStatus`, `AuthorityStore`, `TxPoolAuthority` and
+  `TxVerificationCacheKey` directly with current Rust source;
+- the global engineering contract now requires human judgment only for
+  semantic decisions; every mechanically derivable path, symbol, test,
+  selector, command, count, wiring relation and table must be generated or
+  checked.
+
+The one-way evidence and physical test-isolation phase is closed:
+
+1. The former layout manifest excluded production and copied wiring/counts.
+   Derived discovery exposed 237 non-wiring test-only production sites and two
+   inline test modules. All fixtures, snapshots and observations are now in
+   dedicated test files. Test-only state/error variants were deleted when
+   production had no constructor. The validator derives 44 module wires and
+   allows only six named, behavior-owned observation seams; there is no copied
+   count or unclassified queue.
+2. `check_all.py` discovers every component checker, compiles every Python
+   source without creating cache files, and is the sole normal CI/reviewer
+   entry point. Documentation and CI cannot copy its component command list.
+   The complete gate passes against 401 discovered tests, 85 unique Rust
+   anchors, 222 invariant references, 17 security integration anchors and 150
+   managed integration specs. The one removed test covered the retired legacy
+   callback-worker marker and had no surviving behavior owner.
+3. Clippy passes for every target with `internal` and `-D warnings`. Redundant
+   cache-hit transport and a wrapper-only publisher fault struct were removed.
+   Move-only settlement, chain-command and outside-guard retirement payloads
+   remain unboxed; each lint adjudication is attached to the exact field,
+   function or enum, so a future field/variant without a producer is not hidden
+   by a broad module/type allowance.
+4. Formatting, `git diff --check`, the complete contract gate and the complete
+   authority universe pass; the latter is 360/360. Excluding tests is not used
+   to claim coverage, and P9.8 still owns the full crate and integration gates.
+   The staged checkpoint removes 7,879 lines and adds 7,030 overall because
+   physically moved test support is counted as new files. Under the requested
+   production-only measure, `authority/` excluding `authority/tests/**` removes
+   4,689 lines and adds 483 (net -4,206). The user-owned root `.gitignore` is
+   excluded; no lock, await, Apply or publication order changed in this
+   isolation slice.
+
+Active slice and next exact action:
+
+1. Start `ARCHITECTURE-ADJUDICATION`: build one closed current-code candidate
+   set for duplicate authority, invalid legal states, fail-stop reachability,
+   wait/liveness cycles, manual publication, resource/complexity bounds and
+   every provisional historical disposition. Compare each item with `develop`
+   and distinguish risk elimination from transfer.
+2. Audit the remaining generic compute handoff first. `PreparedCheckout`
+   extracts `CommittedHandoff::Compute` before production Apply, but the generic
+   `PreparedApply`/`CommittedDelta` encoding can still represent that transient
+   state. Prove the exclusive construction graph, then remove the generic
+   post-Apply handoff if a typed checkout can be constructed without duplicated
+   planning or hot-path allocation; otherwise record the exact necessity.
+3. Reconcile every result with `ARCHITECTURE.md`, the behavior registry and
+   historical report dispositions. Static facts must close before P9.8; no
+   statically inferable defect may be deferred to benchmark.
+4. Only after this blocker closes, run P9.8 complete crate plus all 150 managed
+   integration specs. P10 profiling and fixed-binary A/B remains last.
+
+Do not respond to the 237 sites by copying them into the manifest. Their
+existence is the migration work queue, not an allowlist baseline.
