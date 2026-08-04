@@ -21,15 +21,18 @@ G5.3c C2 legacy-deletion checkpoint: b4260009b
 G5/G6 relay-reconciliation checkpoint: 2b16dacce
 G5/G6 proof-shadow-state removal checkpoint: b6e34cb7e
 G5/G6 typed-effect-checkout checkpoint: 24014ffb1
+G5/G6 reliable-chain-publication checkpoint: cd3c65856
+G5/G6 cross-crate test-topology checkpoint: this commit
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
 every provisional historical adjudication. The cross-crate chain-tip
-publication audit is active after finding that G5.3c deleted startup zombie
-reconciliation without removing the chain-side readiness gate, and that the
-test-only truncate path installed a new tip without any tx-pool delta.
-Next exact action: close the chain-tip transition boundary, its startup/static
-regressions and affected chain tests; then finish the current-code
+publication root family is closed: every installed best-tip transition now
+reliably enters the ordered authority independently of RPC readiness, and the
+cross-crate blocking test topology linearly retains the new bounded relay
+receiver without a forwarding thread. Next exact action: finish the complete
+cross-crate scan for snapshot/authority changes, readiness gates, fallible or
+ignored publication and deleted compensation; then finish the current-code
 error/fail-stop, wait-for, manual-publication and historical-adjudication audit
 before freezing the complete remaining root-cause candidate set. The first
 model-minimality slice is closed: the generic read-cut token, persistence-only
@@ -65,12 +68,13 @@ architecture, review guide, behavior inventory, contracts, and release
 manifest carry the completed production design. It is not a second normative
 architecture document.
 
-### Recovery snapshot: chain-tip publication audit
+### Recovery snapshot: chain-tip publication audit and test-topology closure
 
-This subsection is the exact restart authority for the currently interrupted
-slice. The recoverable checkpoint is the Git commit containing this record;
-its parent is `f702fd33a`. The user-owned `.gitignore` modification is unrelated
-to this slice and is deliberately neither staged nor reverted.
+This subsection is the exact restart authority for the current slice. The
+reliable chain-tip boundary is checkpoint `cd3c65856`; the cross-crate test
+topology closure is the Git commit containing this updated record. The
+user-owned `.gitignore` modification is unrelated to this slice and is
+deliberately neither staged nor reverted.
 
 The verified report was the attachment whose title begins `Cutover Gap: The
 service_started() Reorg Gate Survived G5.3c`. Its central finding is confirmed:
@@ -116,8 +120,26 @@ Current checkpoint contents:
   assembly before replay, and readiness after replay;
 - lightweight CI, validation documentation, architecture and this recovery
   artifact updated for the contract.
+- `tx-pool/src/tests/blocking_service.rs`: the synchronous cross-crate fixture
+  accepts and linearly retains `TxVerificationResultReceiver`; it no longer
+  constructs a legacy forwarding channel, relay sink thread, or fallible
+  thread-start state. The production mailbox is nonblocking and bounded by
+  item/byte limits, and overflow converges to `GenerationReset`, so retaining
+  the sole receiver is sufficient for tests that do not inspect relay results;
+- `chain/src/tests/{util,block_assembler}.rs`: both and all callers use the
+  infallible, move-only fixture boundary.
 
-Evidence completed before interruption:
+The first affected-chain nextest attempt exposed a second C1/C2 cutover
+omission before executing tests: the internal support helper and its two chain
+callers still required the deleted `ckb_channel::Receiver` compatibility shape,
+while `SharedPackage` now returns `TxVerificationResultReceiver`. The root was
+the same incomplete reverse-dependency compile universe, not a reorg semantic
+failure. The correction adopts the new linear capability directly rather than
+recreating an adapter or compatibility task. A repository-wide caller/type
+scan found exactly the helper and its two callers and zero legacy receiver
+signatures after the correction.
+
+Evidence completed for this root family:
 
 - `cargo fmt --all`: passed;
 - `python3 tx-pool/scripts/check_production_contracts.py`: passed;
@@ -125,33 +147,33 @@ Evidence completed before interruption:
 - `git diff --check`: passed;
 - focused nextest
   `service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness`:
-  1/1 passed.
+  1/1 passed;
+- affected `ckb-chain` nextest filter: 8/8 passed;
+- complete `cargo nextest run -p ckb-chain`: 51/51 passed;
+- complete `cargo nextest run -p ckb-tx-pool --features internal --lib`:
+  402/402 passed.
 
 Evidence explicitly not yet run and therefore not claimable:
 
-- affected `ckb-chain` nextest cases (`test_truncate`, all `find_fork` cases,
-  `repeatedly_switch_fork`, `test_fork_proposal_table`, and uncle processing);
-- complete `ckb-chain` or complete 402-test internal tx-pool universe;
 - P9.8 managed 150-spec integration universe;
 - P10 profiling and fixed-binary A/B.
 
 Exact next actions after resume:
 
-1. run the affected `ckb-chain` cases with nextest and diagnose any hang as a
-   consumer-lifetime error rather than weakening reliable delivery;
-2. run the complete internal-feature tx-pool nextest universe, the production
-   contract checker, formatting and diff gates, then record the closing
-   checkpoint for this root family;
-3. continue the complete cross-crate scan for snapshot/authority changes,
+1. continue the complete cross-crate scan for snapshot/authority changes,
    readiness gates, `try_send`, ignored sends and compensation deletion; do not
    stop at the two currently found call sites;
-4. resume the fixed G5/G6 whole-model audit below, then P9.8 and P10. Do not
+2. enumerate the reverse-dependency compile/test universe for every surviving
+   public or `internal` cutover capability so a local crate gate cannot again
+   masquerade as workspace closure; repair the stale review/test-layout
+   machine contracts as part of that root;
+3. resume the fixed G5/G6 error/fail-stop, wait-for/shutdown,
+   manual-publication, model-minimality and historical-adjudication audit below,
+   then P9.8 and P10. Do not
    reorder or remove these phases.
 
-The frozen remaining G5/G6 candidate set is unchanged:
+The frozen remaining G5/G6 candidate set is:
 
-- remove the generic compute `CommittedHandoff` invalid state by keeping exact
-  checked-out work beside typed preparation before Apply;
 - narrow retained-ingress rejection results so impossible broad dispositions
   cannot reach service mapping;
 - remove or test-gate constructorless/test-shadow algebra and stacked fixture

@@ -49,8 +49,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainTestScope, Shared) {
         pack.take_tx_pool_builder(),
         network,
         pack.take_relay_tx_receiver(),
-    )
-    .expect("start blocking tx-pool test service");
+    );
 
     let chain_services_builder: ChainServicesBuilder = pack.take_chain_services_builder();
     let chain = ChainServiceScope::new(chain_services_builder);

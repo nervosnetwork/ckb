@@ -137,7 +137,6 @@ pub(crate) fn start_tx_pool(
         network,
         pack.take_relay_tx_receiver(),
     )
-    .expect("start blocking tx-pool test service")
 }
 
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
