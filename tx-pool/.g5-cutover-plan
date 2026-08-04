@@ -3202,3 +3202,31 @@ Proof-shadow minimality checkpoint update:
    view it proves and make `LocationViewMismatch` unrepresentable. Do not mix
    this with the completed proof-shadow slice. Then finish the complete
    develop-cost/risk-transfer/minimality and historical-disposition ledger.
+
+Cell-provenance checkpoint update:
+
+1. The closed location/view provenance slice is frozen at `832f7c445`.
+   Architecture adjudication remains active; P9.8 and P10 remain pending in
+   that order, and benchmark is still forbidden.
+2. `CellLocationReceipt` now owns the exact `ChainViewId` captured with its
+   per-cell provenance. `VerificationContextReceipt` consumes that receipt;
+   callers can no longer pair location evidence with an independently sampled
+   view. `ResolvedFacts` and direct admission no longer retain or accept a
+   duplicate view, and the impossible `LocationViewMismatch` plus internal-
+   plug context fault path are deleted.
+3. All four production producers were reviewed as one closed set: retained
+   resolver work, final membership validation, owner-free direct admission and
+   feature-internal plug construction. Same-tip positive reuse still compares
+   immutable tip identity, final Apply still uses the full revision-bearing
+   view for OCC, and block/consensus verification is unchanged. No state,
+   lock, task, queue, effect, retry or resource-accounting rule changed.
+4. Evidence at `832f7c445`: focused same-tip, unproven-location, pool-origin,
+   direct-reject, permissive-RBF, mixed-snapshot and internal-plug regressions
+   pass; tx-pool lib nextest is 405/405; strict all-target internal Clippy,
+   formatting, diff checks and `check_all.py --light` pass. The slice is net
+   -38 physical lines and adds the typed owners to TP-IDENTITY-001.
+5. Next exact action: complete the develop necessity/risk-transfer/minimality
+   matrix and the historical finding disposition ledger. Audit remaining
+   candidate simplifications only as closed producer/consumer sets; migrate
+   lasting recovery facts into normative documents before retiring this
+   temporary plan. Do not begin P9.8 until the static architecture gate closes.
