@@ -1,5 +1,5 @@
 use super::foundation::{
-    accept_remote_transaction, accept_remote_transaction_with_payload, apply_without_work, limits,
+    accept_remote_transaction, accept_remote_transaction_with_payload, apply_plan, limits,
     owner_version, resolved_payload_with_facts, runtime_config,
 };
 use crate::authority::{
@@ -165,7 +165,7 @@ fn checkout_resolve(
     let admission = ValidatedAdmission::remote(tx, PeerIndex::from(peer))
         .expect("fixture ingress evidence is valid");
     let key = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture ingress plans"),
@@ -178,8 +178,7 @@ fn checkout_resolve(
         )
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(work) = committed.into_work().expect("checkout carries work")
-    else {
+    let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only permit must carry resolve work")
     };
     work
@@ -200,7 +199,7 @@ fn checkout_verification_job(
     let ResolutionEvaluation::Settle(settlement) = resolution else {
         panic!("resolve-only work must enqueue verification")
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the resolved receipt settles"),
@@ -213,7 +212,7 @@ fn checkout_verification_job(
         )
         .expect("verification checkout plans")
         .apply();
-    let CheckedOutWork::Verify(work) = checkout.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(work) = checkout.into_work() else {
         panic!("verify-only checkout must carry verification work")
     };
     VerificationJob::from_checkout(work, snapshot)
@@ -232,7 +231,7 @@ fn uak_resolution_job_rejects_a_mixed_snapshot_view() {
     let failure = ResolutionJob::capture_resolve(&authority, snapshot, work)
         .expect_err("a snapshot from another chain cut cannot enter resolution");
     assert_eq!(failure.kind(), ResolutionExecutionKind::StaleView);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(failure.into_settlement())
             .expect("the exact active capability retries under the authority view"),
@@ -275,7 +274,7 @@ fn uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm() {
     else {
         panic!("resolve-only work must enqueue verification")
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the old-view resolution settles as queued verification"),
@@ -304,13 +303,13 @@ fn uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm() {
         )
         .expect("the stale queued verification can be checked out without a pool scan")
         .apply();
-    let CheckedOutWork::Verify(work) = checkout.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(work) = checkout.into_work() else {
         panic!("verify-only checkout must carry verification work")
     };
     let failure = VerificationJob::from_checkout(work, new_snapshot)
         .expect_err("old location evidence must be rejected before VM execution");
     assert_eq!(failure.kind(), ResolutionExecutionKind::StaleView);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(failure.into_settlement())
             .expect("the exact stale capability requeues for resolution"),
@@ -356,7 +355,7 @@ fn uak_resolution_reports_the_complete_direct_missing_frontier() {
     let settlement = probe
         .settle_missing()
         .expect("an unchanged authority cut settles the missing frontier");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the missing observation is current"),
@@ -386,7 +385,7 @@ fn uak_resolution_reads_only_the_needed_accepted_parent() {
     else {
         panic!("resolve-only work must queue verification")
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the parent proof is current"),
@@ -435,7 +434,7 @@ fn uak_resolution_enrichment_is_bounded_and_stale_safe() {
     else {
         panic!("the one missing producer was supplied")
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("availability after checkout does not invalidate positive evidence"),
@@ -552,7 +551,7 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
 
     let execution = request.bind_cache(&cache).execute(None).await;
     assert!(execution.cache_update.is_none());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(execution.settlement)
             .expect("the exact verification capability settles"),
@@ -583,7 +582,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
 
     let execution = request.bind_cache(&cache).execute(None).await;
     assert!(execution.cache_update.is_some());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(execution.settlement)
             .expect("the cache-miss verification capability settles"),

@@ -12,8 +12,8 @@ use super::super::{
     },
 };
 use super::foundation::{
-    accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    apply_without_work, assert_membership_reference, genesis_snapshot, limits, owner_version,
+    accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote, apply_plan,
+    assert_membership_reference, genesis_snapshot, limits, owner_version,
     resolved_payload_with_facts, tx,
 };
 use crate::block_assembler::{
@@ -148,7 +148,7 @@ fn conditional_transaction(version: u32, input: OutPoint, dependency: OutPoint) 
 
 fn set_status(authority: &mut TxPoolAuthority, hash: &RawTxHash, status: AcceptedStatus) {
     let version = owner_version(authority, hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_status_for_foundation(hash, version, status)
             .expect("fixture status transition plans"),
@@ -416,7 +416,7 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         .expect("the committed parent is selected")
         .validate_for_foundation(Vec::new())
         .expect("the chain cut needs no proposal positions");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("owner removal and package-key replacement are atomic"),
@@ -1022,7 +1022,7 @@ fn uak_recovered_tree_has_normal_template_proposal_path() {
                 .collect(),
         )
         .expect("every changed proposal has one new-window position");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("Gap demotion and chain cut apply atomically"),

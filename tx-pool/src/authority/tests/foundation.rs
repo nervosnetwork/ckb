@@ -4,7 +4,7 @@ use super::super::effect::{
 };
 use super::super::plan::{
     AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
-    CandidateDispositionPlan, CommittedChange, CommittedChanges, CommittedDelta,
+    CandidateDispositionPlan, CommittedChange, CommittedChanges, CommittedCheckout, CommittedDelta,
     ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
     DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
     RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
@@ -218,7 +218,7 @@ pub(super) fn admit_remote(
     let admission = ValidatedAdmission::remote(tx(nonce), PeerIndex::from(peer))
         .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture admission plans"),
@@ -239,7 +239,7 @@ pub(super) fn admit_remote_until(
     )
     .expect("fixture admission has one checked residency lease");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("deadline fixture admission plans"),
@@ -256,7 +256,7 @@ fn queue_remote_for_verify(
     let admission = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(peer))
         .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture admission plans"),
@@ -269,7 +269,7 @@ fn queue_remote_for_verify(
             .apply(),
     );
     let payload = resolved_payload_with_facts(&transaction, Vec::new(), Vec::new(), fee);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -294,7 +294,7 @@ fn checkout_remote_for_verify_with_claim(
     )
     .expect("remote cycle claim is admitted with its exact payload");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("remote cycle fixture enters ownership"),
@@ -309,7 +309,7 @@ fn checkout_remote_for_verify_with_claim(
             .expect("remote resolve checkout plans")
             .apply(),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -331,7 +331,7 @@ fn checkout_remote_for_verify_with_claim(
         )
         .expect("remote verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work() else {
         panic!("verify-only checkout returns verify work");
     };
     (hash, verify)
@@ -364,17 +364,12 @@ impl FixtureCommit for CommittedDelta {
     }
 }
 
-pub(super) fn apply_without_work(commit: impl FixtureCommit) {
-    let _ = apply_committed_without_work(commit);
+pub(super) fn apply_plan(commit: impl FixtureCommit) {
+    let _ = apply_plan_for_delta(commit);
 }
 
-fn apply_committed_without_work(commit: impl FixtureCommit) -> CommittedDelta {
-    let committed = commit.into_committed();
-    assert!(
-        committed.handoff_is_none(),
-        "transition unexpectedly issued work"
-    );
-    committed
+fn apply_plan_for_delta(commit: impl FixtureCommit) -> CommittedDelta {
+    commit.into_committed()
 }
 
 fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
@@ -389,13 +384,12 @@ fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
         let committed = authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("fixture effect publication settles");
-        assert!(committed.handoff_is_none());
+        drop(committed);
     }
 }
 
-pub(super) fn take_resolve_work(committed: impl Into<CommittedDelta>) -> (RawTxHash, ResolveWork) {
-    let committed = committed.into();
-    let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
+pub(super) fn take_resolve_work(committed: CommittedCheckout) -> (RawTxHash, ResolveWork) {
+    let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only checkout returns resolve work");
     };
     let hash = TxIdentity::from_transaction(work.transaction()).raw;
@@ -555,7 +549,7 @@ pub(super) fn accept_remote_transaction_with_payload(
 ) -> super::super::state::RawTxHash {
     let hash = verify_remote_transaction_with_payload(authority, transaction, peer, payload);
     let version = owner_version(authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&hash, version, status)
             .expect("fixture membership plans"),
@@ -585,7 +579,7 @@ pub(super) fn accept_remote_transaction_with_payload_and_cycles(
         cycles,
     );
     let version = owner_version(authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&hash, version, status)
             .expect("fixture membership plans"),
@@ -604,7 +598,7 @@ fn accept_remote_transaction_with_payload_at(
 ) -> RawTxHash {
     let hash = verify_remote_transaction_with_payload(authority, transaction, peer, payload);
     let version = owner_version(authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_at_for_foundation(&hash, version, status, accepted_at)
             .expect("timestamped fixture membership plans"),
@@ -714,7 +708,7 @@ fn verify_remote_transaction_with_payload_under_and_cycles(
     )
     .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture admission plans"),
@@ -728,12 +722,11 @@ fn verify_remote_transaction_with_payload_under_and_cycles(
         )
         .expect("fixture checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let (verify, _) = continue_fixture_verify(resolve, payload);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.verified_under(cycles, rules))
             .expect("fixture verification settles"),
@@ -1068,7 +1061,6 @@ fn uak_remote_admission_owns_and_charges_once() {
         .apply();
 
     assert_eq!(only_committed_change(&delta).changed, hash);
-    assert!(delta.handoff_is_none());
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
     assert!(authority.primary_projection_consistent());
@@ -1123,7 +1115,7 @@ fn uak_owner_changes_compile_proposal_and_peer_indexes_together() {
     ));
 
     let version = owner_version(&authority, &queued);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&queued, version)
             .expect("terminalization removes the final peer-indexed owner"),
@@ -1148,7 +1140,7 @@ fn uak_accepted_source_ignores_preaccepted_work_and_status_only_changes() {
         "pre-acceptance owner changes cannot stale a ChainPlan"
     );
     let version = owner_version(&authority, &disposable);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&disposable, version)
             .expect("pre-accepted terminalization plans"),
@@ -1166,7 +1158,7 @@ fn uak_accepted_source_ignores_preaccepted_work_and_status_only_changes() {
     assert_ne!(accepted_source, ApplySequence(0));
 
     let version = owner_version(&authority, &accepted);
-    let status_change = apply_committed_without_work(
+    let status_change = apply_plan_for_delta(
         authority
             .plan_status_for_foundation(&accepted, version, AcceptedStatus::Pending)
             .expect("status-only transition plans"),
@@ -1557,7 +1549,7 @@ fn uak_local_non_remote_preaccepted_removal_does_not_release_relay_state() {
     let proposal =
         ValidatedAdmission::proposal(tx(1_726)).expect("fixture proposal admission is valid");
     let proposal_hash = proposal.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(proposal)
             .expect("trusted proposal admission plans"),
@@ -1565,7 +1557,7 @@ fn uak_local_non_remote_preaccepted_removal_does_not_release_relay_state() {
     let recovery = ValidatedAdmission::recovery(tx(1_727), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     let recovery_hash = recovery.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(recovery)
             .expect("recovery admission plans"),
@@ -1609,7 +1601,7 @@ fn uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure() {
     );
 
     let version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_status_for_foundation(&parent, version, AcceptedStatus::Gap)
             .expect("status-only version churn plans"),
@@ -1675,7 +1667,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
     let queued = admit_remote(&mut authority, 1_708, 708);
     let promoted_tx = tx(1_709);
     let promoted = verify_remote_transaction(&mut authority, promoted_tx.clone(), 708, Vec::new());
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(promoted_tx).expect("promotion fixture is valid"),
@@ -1745,7 +1737,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
 
     let resubmitted = ValidatedAdmission::remote(queued_tx, survivor_peer)
         .expect("another peer may provide the same raw transaction");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(resubmitted)
             .expect("peer cleanup does not install a raw-hash tombstone"),
@@ -1759,7 +1751,7 @@ fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_712);
     let hash = admit_remote(&mut authority, 1_712, 710);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction).expect("promotion fixture is valid"),
@@ -1846,7 +1838,7 @@ fn uak_peer_revocation_without_resident_owner_still_fences_queued_ingress() {
         "the authority marker linearizes the ban against delayed ingress"
     );
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::remote(transaction, PeerIndex::from(715))
@@ -1909,7 +1901,7 @@ fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
         0,
     )
     .expect("another peer can provide the expired raw transaction");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(resubmitted)
             .expect("expiry installs no raw-hash tombstone"),
@@ -1923,7 +1915,7 @@ fn uak_proposal_promotion_suspends_but_retains_the_remote_deadline() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_717);
     let hash = admit_remote_until(&mut authority, 1_717, 714, 10);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction).expect("proposal fixture is valid"),
@@ -1965,11 +1957,10 @@ fn uak_proposal_promotion_reclassifies_remote_missing_wait_under_trusted_policy(
         )
         .expect("remote resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -1984,7 +1975,7 @@ fn uak_proposal_promotion_reclassifies_remote_missing_wait_under_trusted_policy(
             if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
     ));
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction)
@@ -2012,11 +2003,10 @@ fn uak_proposal_promotion_reclassifies_remote_missing_wait_under_trusted_policy(
         )
         .expect("the reclassified Proposal is executable")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -2091,7 +2081,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     let first = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(9))
         .expect("fixture admission is valid");
     let hash = first.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(first)
             .expect("first admission plans"),
@@ -2106,13 +2096,12 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
         )
         .expect("remote resolve checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
 
     let duplicate = ValidatedAdmission::proposal(transaction).expect("fixture promotion is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(duplicate)
             .expect("proposal promotes the existing owner"),
@@ -2146,7 +2135,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     assert!(authority.primary_projection_consistent());
     assert_resource_reference(&authority);
 
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("promotion does not invalidate the active compute lease"),
@@ -2167,7 +2156,7 @@ fn uak_payload_variant_is_not_misclassified_as_duplicate() {
         .build();
     let admission =
         ValidatedAdmission::remote(first, PeerIndex::from(42)).expect("fixture admission is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("first witness variant plans"),
@@ -2204,7 +2193,7 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
     .expect("remote variant is valid");
     let hash = initial.identity.raw.clone();
     let initial_version = authority.clocks().next_version;
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(initial)
             .expect("remote variant enters ownership"),
@@ -2218,7 +2207,7 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
 
     let replacement =
         ValidatedAdmission::proposal(trusted.clone()).expect("trusted replacement is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(replacement)
             .expect("trusted witness replaces the inactive remote payload"),
@@ -2266,7 +2255,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
     );
     let stale_rejection = verify.verified(declared_cycles + 1);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction)
@@ -2274,7 +2263,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
             )
             .expect("proposal promotion preserves the active compute lease"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(stale_rejection)
             .expect("stale peer-policy rejection settles under current source authority"),
@@ -2303,11 +2292,11 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
         )
         .expect("trusted payload is requeued for verification")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work() else {
         panic!("verify-only checkout returns verify work");
     };
     assert_eq!(verify.payload_policy(), PayloadPolicy::Trusted);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.verified(declared_cycles + 2))
             .expect("trusted verification settles the retained payload"),
@@ -2338,7 +2327,7 @@ fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
     );
     let stale_rejection = verify.rejected(RejectionKind::Verification);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction)
@@ -2346,7 +2335,7 @@ fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
             )
             .expect("proposal promotion preserves the active compute lease"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(stale_rejection)
             .expect("peer-bounded verify failure settles under current source authority"),
@@ -2379,7 +2368,7 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
     let cohort_member = admit_remote(&mut authority, 6_270, 627);
     let rejection = verify.verified(declared_cycles + 1);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(rejection)
             .expect("current peer-policy rejection terminalizes atomically"),
@@ -2419,7 +2408,7 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
         Some(PlanError::IngressRevoked(peer))
     );
     let other_peer = PeerIndex::from(6_271);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::remote(transaction, other_peer)
@@ -2451,7 +2440,7 @@ fn uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply() {
     let DirectAdmissionDisposition::Accepted(plan) = disposition else {
         panic!("vacant local admission must acquire Accepted ownership");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.retired_len(), 0);
     assert_eq!(committed.async_process_observation_count(), 0);
     assert!(matches!(
@@ -2522,7 +2511,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
     let admission =
         ValidatedAdmission::remote(remote, peer).expect("remote fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("remote fixture enters PreAccepted ownership"),
@@ -2543,7 +2532,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
     let DirectAdmissionDisposition::Accepted(plan) = disposition else {
         panic!("same-raw inactive PreAccepted owner is settled by local acceptance");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.retired_len(), 1);
     let owner = authority.entry(&hash).expect("local accepted owner exists");
     assert_eq!(owner.record().arrival, arrival);
@@ -2594,7 +2583,7 @@ fn uak_direct_local_atomically_stales_the_matching_remote_compute_capability() {
     let admission = ValidatedAdmission::remote(remote, PeerIndex::from(76))
         .expect("active remote fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("active remote fixture enters ownership"),
@@ -2621,7 +2610,7 @@ fn uak_direct_local_atomically_stales_the_matching_remote_compute_capability() {
     let DirectAdmissionDisposition::Accepted(plan) = disposition else {
         panic!("the direct result must install Accepted ownership");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.retired_len(), 1);
     let owner = authority
         .entry(&hash)
@@ -2670,9 +2659,9 @@ fn uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation() {
         panic!("Accepted ownership dominates a racing direct receipt");
     };
     assert_eq!(duplicate.key(), &hash);
-    let (duplicate_hash, committed) = duplicate.apply();
+    let (duplicate_hash, retirement) = duplicate.apply();
+    drop(retirement);
     assert_eq!(duplicate_hash, hash);
-    assert!(committed.handoff_is_none());
     assert_eq!(owner_version(&authority, &hash), version);
     assert_eq!(authority.resources().accepted(), accepted_resources);
 
@@ -2740,8 +2729,8 @@ fn uak_direct_local_under_fee_rbf_rejects_without_touching_any_owner() {
         rejected.reason(),
         MembershipReject::InsufficientReplacementFee { .. }
     ));
-    let (reason, committed) = rejected.apply();
-    assert!(committed.handoff_is_none());
+    let (reason, retirement) = rejected.apply();
+    drop(retirement);
     assert!(matches!(
         reason,
         MembershipReject::InsufficientReplacementFee { .. }
@@ -2784,7 +2773,7 @@ fn uak_active_trusted_witness_replacement_atomically_stales_obsolete_work() {
     let admission = ValidatedAdmission::remote(remote, PeerIndex::from(43))
         .expect("active remote variant is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("active remote variant enters ownership"),
@@ -2856,7 +2845,7 @@ fn uak_accepted_or_recovery_ownership_cannot_be_replaced_by_a_proposal_witness()
     ));
 
     let mut recovery_authority = TxPoolAuthority::for_foundation(limits());
-    apply_without_work(
+    apply_plan(
         recovery_authority
             .plan_admission(
                 ValidatedAdmission::recovery(first, PoolGeneration(0))
@@ -2880,7 +2869,7 @@ fn uak_short_id_collision_cannot_alias_primary_identity() {
     let first =
         ValidatedAdmission::remote(tx(3), PeerIndex::from(11)).expect("fixture admission is valid");
     let proposal = first.identity.proposal.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(first)
             .expect("first admission plans"),
@@ -2905,7 +2894,7 @@ fn uak_stale_membership_plan_is_semantically_mutation_free() {
     let admission =
         ValidatedAdmission::recovery(tx(5), PoolGeneration(0)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("admission plans"),
@@ -2925,7 +2914,7 @@ fn uak_terminal_outcome_and_effect_commit_together() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let admission = ValidatedAdmission::proposal(tx(6)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("admission plans"),
@@ -2954,7 +2943,6 @@ fn uak_terminal_outcome_and_effect_commit_together() {
         .apply();
 
     assert_eq!(only_committed_change(&terminal).changed, hash);
-    assert!(terminal.handoff_is_none());
     assert_eq!(authority.owner_count(), 0);
     assert_eq!(authority.charged_count(), 0);
     assert!(authority.primary_projection_consistent());
@@ -3026,7 +3014,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let admission =
         ValidatedAdmission::remote(tx(7), PeerIndex::from(17)).expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("admission plans"),
@@ -3323,7 +3311,7 @@ fn uak_status_reconcile_updates_count_and_eviction_projection_once() {
     let hash =
         accept_remote_transaction(&mut authority, tx(70), 70, AcceptedStatus::Gap, Vec::new());
     let version = owner_version(&authority, &hash);
-    let demotion = apply_committed_without_work(
+    let demotion = apply_plan_for_delta(
         authority
             .plan_status_for_foundation(&hash, version, AcceptedStatus::Pending)
             .expect("Gap demotion is one membership transition"),
@@ -3343,7 +3331,7 @@ fn uak_status_reconcile_updates_count_and_eviction_projection_once() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_status_for_foundation(&hash, version, AcceptedStatus::Proposed)
             .expect("Pending promotion is one membership transition"),
@@ -3392,7 +3380,7 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
         else {
             panic!("chain-backed disjoint cohort must remain independent");
         };
-        let aggregate_committed = apply_committed_without_work(plan);
+        let aggregate_committed = apply_plan_for_delta(plan);
         let CommittedChanges::IndependentRun(committed) = &aggregate_committed.changes else {
             panic!("aggregate Apply preserves the independent committed order");
         };
@@ -3411,7 +3399,7 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
         assert_eq!(reference_hashes, hashes);
         for expected in committed {
             let version = owner_version(&reference, &expected.changed);
-            let single = apply_committed_without_work(
+            let single = apply_plan_for_delta(
                 reference
                     .plan_accept_for_foundation(&expected.changed, version, AcceptedStatus::Pending)
                     .expect("canonical single reference accepts the same candidate"),
@@ -3557,7 +3545,7 @@ fn uak_independent_ready_order_is_invariant_to_worker_completion_permutations() 
         else {
             panic!("worker completion order cannot create coupling");
         };
-        let committed = apply_committed_without_work(plan);
+        let committed = apply_plan_for_delta(plan);
         let CommittedChanges::IndependentRun(order) = committed.changes else {
             panic!("cohort commits with one canonical order");
         };
@@ -3593,7 +3581,7 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
         1_782,
         resolved_payload_with_facts(&proposal_tx, Vec::new(), Vec::new(), Capacity::shannons(1)),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(proposal_tx)
@@ -3612,7 +3600,7 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
                 })],
             )
             .expect("fixture Remote effect fits its static batch bound");
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_effect_publication_for_foundation(&publication)
                 .expect("fixture fills the Remote region exactly"),
@@ -3626,7 +3614,7 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
     else {
         panic!("disjoint Ready candidates remain independent");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.changed_owner_count(), 1);
     assert!(matches!(
         authority.entry(&proposal),
@@ -3645,7 +3633,7 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
     else {
         panic!("the remaining chain-backed candidate is independent");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.changed_owner_count(), 1);
     assert!(matches!(
         authority.entry(&remote),
@@ -4061,7 +4049,7 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
     let preaccepted_parent =
         ValidatedAdmission::remote(preaccepted_parent_tx.clone(), PeerIndex::from(246usize))
             .expect("fixture parent admission is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(preaccepted_parent)
             .expect("fixture parent enters PreAccepted ownership"),
@@ -4835,7 +4823,7 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
         })
         .collect::<HashMap<_, _>>();
     let version = owner_version(&authority, &candidate);
-    let committed = apply_committed_without_work(
+    let committed = apply_plan_for_delta(
         authority
             .plan_accept_for_foundation(&candidate, version, AcceptedStatus::Pending)
             .expect("higher-fee candidate atomically evicts a closed component"),
@@ -5014,7 +5002,7 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
     let CandidateDispositionPlan::Accepted(plan) = disposition else {
         panic!("a sufficiently funded replacement must be accepted");
     };
-    let committed = apply_committed_without_work(plan);
+    let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.removals.len(), 2);
     assert_eq!(committed.retired_len(), committed.removals.len());
     assert!(
@@ -5193,7 +5181,7 @@ fn uak_independent_rbf_churn_never_exceeds_replacement_history_budget() {
             ),
         );
         let replacement_version = owner_version(&authority, &replacement);
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_accept_for_foundation(
                     &replacement,
@@ -5313,7 +5301,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
         ),
     );
     let middle_version = owner_version(&authority, &middle);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&middle, middle_version, AcceptedStatus::Pending)
             .expect("the first closure fits its exact retained edge charge"),
@@ -5336,7 +5324,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
         ),
     );
     let newest_version = owner_version(&authority, &newest);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&newest, newest_version, AcceptedStatus::Pending)
             .expect("history pressure cannot reject the second funded winner"),
@@ -5355,7 +5343,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
         .plan_dependency_maintenance()
         .expect("continuous reservation makes wakeup capacity-invariant")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     assert!(matches!(
         authority.entry(&oldest),
@@ -5405,7 +5393,7 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         ),
     );
     let winner_version = owner_version(&authority, &winner);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
             .expect("the funded replacement retains its victim"),
@@ -5435,13 +5423,13 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(unrelated_input)])
         .expect("an unrelated chain level remains coherent")
     {
-        apply_without_work(unrelated);
+        apply_plan(unrelated);
     }
     while let Some(plan) = authority
         .plan_dependency_maintenance()
         .expect("unrelated maintenance remains bounded")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     assert!(matches!(
         authority.entry(&victim),
@@ -5452,12 +5440,12 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(conflicting_input)])
         .expect("the conflicting input availability plans")
         .expect("the exact history trigger has an indexed waiter");
-    apply_without_work(released);
+    apply_plan(released);
     while let Some(plan) = authority
         .plan_dependency_maintenance()
         .expect("the exact history trigger remains coherent")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     assert!(matches!(
         authority.entry(&victim),
@@ -5507,7 +5495,7 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         ),
     );
     let winner_version = owner_version(&authority, &winner);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
             .expect("the funded winner retains its two-input victim"),
@@ -5522,12 +5510,12 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(first_input)])
         .expect("the first exact blocker has a coherent availability plan")
         .expect("the first exact blocker has an indexed history waiter");
-    apply_without_work(first_release);
+    apply_plan(first_release);
     while let Some(plan) = authority
         .plan_dependency_maintenance()
         .expect("partial availability maintenance remains coherent")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     assert!(
         matches!(
@@ -5541,12 +5529,12 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .plan_dependency_availability_for_foundation(vec![DependencyKey::Cell(second_input)])
         .expect("the second exact blocker has a coherent availability plan")
         .expect("the second exact blocker has an indexed history waiter");
-    apply_without_work(second_release);
+    apply_plan(second_release);
     while let Some(plan) = authority
         .plan_dependency_maintenance()
         .expect("complete availability maintenance remains coherent")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     assert!(matches!(
         authority.entry(&victim),
@@ -5614,7 +5602,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
         ),
     );
     let middle_version = owner_version(&authority, &middle);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&middle, middle_version, AcceptedStatus::Pending)
             .expect("first replacement retains the accepted victim"),
@@ -5644,7 +5632,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
         ),
     );
     let newest_version = owner_version(&authority, &newest);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&newest, newest_version, AcceptedStatus::Pending)
             .expect("second replacement releases only its projected free input"),
@@ -5668,7 +5656,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
         .plan_dependency_maintenance()
         .expect("dependency maintenance remains coherent")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
         rounds += 1;
         assert!(
             rounds <= 3,
@@ -5731,7 +5719,7 @@ fn uak_replacement_history_requires_trusted_proposal_to_promote() {
         ),
     );
     let winner_version = owner_version(&authority, &winner);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
             .expect("the funded winner retains its victim"),
@@ -5754,7 +5742,7 @@ fn uak_replacement_history_requires_trusted_proposal_to_promote() {
 
     let proposal =
         ValidatedAdmission::proposal(victim_tx).expect("trusted proposal retry is valid ingress");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(proposal)
             .expect("only the trusted proposal lease promotes history"),
@@ -5848,7 +5836,7 @@ fn uak_rbf_removal_subtracts_deep_descendants_from_a_surviving_ancestor() {
     );
 
     let version = owner_version(&authority, &replacement);
-    let committed = apply_committed_without_work(
+    let committed = apply_plan_for_delta(
         authority
             .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
             .expect("replacement removes the victim closure below a surviving ancestor"),
@@ -5986,7 +5974,7 @@ fn uak_rbf_unions_fan_in_descendants_once_and_removes_children_first() {
         ),
     );
     let version = owner_version(&authority, &replacement);
-    let committed = apply_committed_without_work(
+    let committed = apply_plan_for_delta(
         authority
             .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
             .expect("one virtual component unions both direct-conflict trees"),
@@ -6094,7 +6082,6 @@ fn uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate()
         MembershipReject::InsufficientReplacementFee { actual, .. }
             if actual == Capacity::shannons(1)
     ));
-    assert!(committed.handoff_is_none());
     assert!(committed.removals.is_empty());
     assert!(matches!(
         authority.entry(&victim),
@@ -6219,7 +6206,7 @@ fn uak_rbf_accepts_new_input_only_with_positive_chain_evidence() {
         replacement_payload,
     );
     let version = owner_version(&authority, &replacement);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&replacement, version, AcceptedStatus::Pending)
             .expect("positive chain evidence satisfies the no-new-unconfirmed-input rule"),
@@ -6477,7 +6464,7 @@ fn uak_resource_limit_failure_preserves_every_observable_fact() {
                     .expect("fixture admission is valid"),
             )
             .expect("peer capacity holds two entries");
-        apply_without_work(plan);
+        apply_plan(plan);
     }
     let before = authority.normalized_snapshot();
     let result = authority
@@ -6616,7 +6603,7 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
     assert_eq!(authority.normalized_snapshot(), before);
 
     authority.force_next_sequence(resumable_sequence);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(exhausted.into_settlement())
             .expect("returned capability commits the original rejection"),
@@ -6639,7 +6626,7 @@ fn uak_settlement_failure_returns_the_exact_terminal_capability() {
             Reject::Invalidated(message) if message == "foundation policy rejection"
         )
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("terminal rejection publication settles"),
@@ -6682,8 +6669,7 @@ fn uak_active_work_backpressure_is_precomputed_and_mutation_free() {
         .plan_checkout_for_foundation(&first, version, WorkPermit::ResolveOnly)
         .expect("first peer work grant fits")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
 
@@ -6698,7 +6684,7 @@ fn uak_active_work_backpressure_is_precomputed_and_mutation_free() {
     assert_eq!(authority.normalized_snapshot(), before);
     assert_resource_reference(&authority);
 
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("live lease still settles after peer backpressure"),
@@ -6712,7 +6698,7 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
     let first = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(46))
         .expect("fixture admission is valid");
     let hash = first.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(first)
             .expect("first incarnation plans"),
@@ -6722,8 +6708,7 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("first incarnation checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
 
@@ -6733,13 +6718,13 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
         version: settlement.token.version,
         lease: settlement.token.lease,
     };
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&hash, owner_version(&authority, &hash))
             .expect("active terminalization invalidates the exact owner"),
     );
     assert!(authority.entry(&hash).is_none());
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::remote(transaction, PeerIndex::from(47))
@@ -6803,17 +6788,14 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     assert_eq!(authority.resources().preaccepted(), expected_charge);
     assert!(authority.primary_projection_consistent());
     let before_local_continuation = authority.normalized_snapshot();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout
-        .into_work()
-        .expect("checkout returns one work capability")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
     let (verify, accepted_resident_bytes) = continue_fixture_verify(resolve, payload);
     assert_eq!(authority.normalized_snapshot(), before_local_continuation);
     let settlement = verify.verified(0);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("current continuous lease settles"),
@@ -6837,7 +6819,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         .expect("verified owner has one membership plan")
         .apply();
     assert_eq!(accepted.async_process_observation_count(), 1);
-    apply_without_work(accepted);
+    apply_plan(accepted);
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Proposed
@@ -6910,8 +6892,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
         )
         .expect("bounded resolve grant is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     assert_eq!(
@@ -6933,7 +6914,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
     else {
         panic!("oversized resolution cannot continue under the grant");
     };
-    apply_without_work(
+    apply_plan(
         resolve_authority
             .apply_settlement(denied)
             .expect("budget denial releases the active grant"),
@@ -6956,7 +6937,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
     let admission = ValidatedAdmission::remote(verify_transaction, PeerIndex::from(55))
         .expect("large accepted-footprint fixture is valid");
     let verify_hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         verify_authority
             .plan_admission(admission)
             .expect("large accepted-footprint fixture is admitted"),
@@ -6970,14 +6951,13 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
         )
         .expect("bounded continuous grant is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
     let denied = verify.verified(0);
-    apply_without_work(
+    apply_plan(
         verify_authority
             .apply_settlement(denied)
             .expect("verified budget denial releases the active grant"),
@@ -7010,7 +6990,7 @@ fn uak_invalid_resolution_receipt_retains_the_only_lease_settlement() {
         failure.error(),
         &ResolutionReceiptError::TransactionMismatch
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(failure.into_settlement())
             .expect("invalid resolve receipt settles its exact lease"),
@@ -7051,7 +7031,7 @@ fn uak_verified_residency_is_derived_from_the_owned_payload() {
     let resolved = resolve
         .resolved(evidence)
         .expect("resolution evidence is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolved)
             .expect("resolved payload is retained for verification"),
@@ -7066,7 +7046,7 @@ fn uak_verified_residency_is_derived_from_the_owned_payload() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = committed.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = committed.into_work() else {
         panic!("verify permit returns verify work");
     };
     let expected_resident_bytes = accepted_transaction_charge_bytes(
@@ -7074,7 +7054,7 @@ fn uak_verified_residency_is_derived_from_the_owned_payload() {
         verify.resolved_transaction(),
     );
     let settlement = verify.verified(0);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the internally charged verify receipt settles"),
@@ -7107,7 +7087,7 @@ fn uak_successful_verification_compacts_deps_but_retains_dao_inputs() {
     let admission = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(74))
         .expect("compaction fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("compaction fixture is admitted"),
@@ -7120,8 +7100,7 @@ fn uak_successful_verification_compacts_deps_but_retains_dao_inputs() {
         )
         .expect("compaction fixture checks out")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns resolve work");
     };
 
@@ -7161,7 +7140,7 @@ fn uak_successful_verification_compacts_deps_but_retains_dao_inputs() {
     else {
         panic!("the resolved payload fits its continuous grant");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.verified(0))
             .expect("compacted verification settles"),
@@ -7209,15 +7188,14 @@ fn uak_resolve_to_verify_continuation_changes_no_authority_state() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let before = authority.normalized_snapshot();
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
     assert_eq!(authority.normalized_snapshot(), before);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.internal_failure())
             .expect("continuous lease remains current"),
@@ -7238,13 +7216,12 @@ fn uak_verified_settlement_has_one_ready_projection() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.verified(0))
             .expect("verified settlement plans"),
@@ -7287,10 +7264,10 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
         .plan_checkout_for_foundation(&queued_hash, queued_version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         queued
             .apply_settlement(
                 resolve
@@ -7316,10 +7293,10 @@ fn uak_foundation_state_command_table_rejects_illegal_rows_without_mutation() {
         .plan_checkout_for_foundation(&rejected_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         rejected
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("rejection settlement plans"),
@@ -7346,12 +7323,11 @@ fn uak_missing_settlement_registers_exact_level_wait() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     assert_eq!(resolve.transaction().hash(), hash.0);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -7381,8 +7357,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let resident_bytes = resolve.transaction().data().total_size();
@@ -7393,7 +7368,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         resident_bytes,
         VerifyCycleClass::Small,
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -7417,11 +7392,10 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         )
         .expect("queued verify accepts verify-only permit")
         .apply();
-    let CheckedOutWork::Verify(verify) = verify_checkout.into_work().expect("verify work exists")
-    else {
+    let CheckedOutWork::Verify(verify) = verify_checkout.into_work() else {
         panic!("verify-only permit returns verify work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("verification rejection settles"),
@@ -7443,9 +7417,7 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
         )
         .expect("second checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(second) =
-        second_checkout.into_work().expect("second work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(second) = second_checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(second.transaction());
@@ -7469,7 +7441,7 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
         &ComputeSettlementRecovery::Obsolete(StalePlan::Lease)
     );
     assert_eq!(authority.normalized_snapshot(), before_forged);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the genuine lease remains available after the forged token"),
@@ -7487,12 +7459,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&resolve_reject_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) =
-        resolve_checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = resolve_checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
             .expect("resolve rejection settles"),
@@ -7504,11 +7474,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&resolve_failure_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolve.internal_failure())
             .expect("resolve worker failure settles"),
@@ -7524,13 +7493,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(continuous) = continuous_checkout
-        .into_work()
-        .expect("continuous work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(continuous) = continuous_checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 continuous
@@ -7546,11 +7512,11 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&verify_success_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = first.into_work().expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(resolve) = first.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -7568,10 +7534,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = second.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = second.into_work() else {
         panic!("verify-only permit returns verify work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.verified(0))
             .expect("verify success settles"),
@@ -7601,11 +7567,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(resolve.internal_failure())
             .expect("continuous resolve worker failure settles"),
@@ -7617,11 +7582,11 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         .plan_checkout_for_foundation(&verify_failure_hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 resolve
@@ -7639,10 +7604,10 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("verify checkout plans")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work() else {
         panic!("verify-only permit returns verify work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.internal_failure())
             .expect("verify worker failure settles"),
@@ -7658,13 +7623,12 @@ fn uak_every_resolve_and_verify_terminal_shape_is_typed() {
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
     let (verify, _) = continue_fixture_verify(resolve, payload);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("continuous verification rejection settles"),
@@ -7695,7 +7659,7 @@ fn uak_fair_frontier_is_a_derived_non_owning_projection() {
     assert_eq!(selected, hash);
     assert!(authority.primary_projection_consistent());
 
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(work.rejected(RejectionKind::Policy))
             .expect("selected lease settles"),
@@ -7712,7 +7676,7 @@ fn uak_fair_frontier_round_robins_owners_only_after_apply() {
     let trusted_admission =
         ValidatedAdmission::proposal(tx(604)).expect("fixture proposal admission is valid");
     let trusted = trusted_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(trusted_admission)
             .expect("trusted admission plans"),
@@ -7726,7 +7690,7 @@ fn uak_fair_frontier_round_robins_owners_only_after_apply() {
             .apply();
         let (selected, work) = take_resolve_work(committed);
         assert_eq!(&selected, expected);
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("selected lease settles"),
@@ -7747,7 +7711,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
     let proposal_admission =
         ValidatedAdmission::proposal(tx(611)).expect("fixture proposal admission is valid");
     let proposal = proposal_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(proposal_admission)
             .expect("proposal admission plans"),
@@ -7755,7 +7719,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
     let recovery_admission = ValidatedAdmission::recovery(tx(612), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     let recovery = recovery_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(recovery_admission)
             .expect("recovery admission plans"),
@@ -7770,7 +7734,7 @@ fn uak_trusted_frontier_preserves_recovery_over_proposal_priority() {
                 .apply(),
         );
         assert_eq!(&selected, expected);
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("trusted work settles"),
@@ -7794,7 +7758,7 @@ fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote()
             .apply(),
     );
     assert_eq!(selected, peer_a_first);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(peer_a_work.rejected(RejectionKind::Policy))
             .expect("peer A work settles"),
@@ -7803,7 +7767,7 @@ fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote()
     let trusted_admission =
         ValidatedAdmission::proposal(tx(620)).expect("fixture proposal admission is valid");
     let trusted = trusted_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(trusted_admission)
             .expect("trusted admission plans"),
@@ -7816,7 +7780,7 @@ fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote()
             .apply(),
     );
     assert_eq!(selected, peer_b);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(peer_b_work.rejected(RejectionKind::Policy))
             .expect("peer B work settles"),
@@ -7830,7 +7794,7 @@ fn uak_new_trusted_owner_joins_the_existing_owner_ring_without_starving_remote()
             .apply(),
     );
     assert_eq!(selected, trusted);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(trusted_work.rejected(RejectionKind::Policy))
             .expect("trusted work settles"),
@@ -7854,15 +7818,14 @@ fn uak_verify_frontier_preserves_the_configured_arrival_or_fee_order() {
             .expect("configured verify selection is valid")
             .expect("verify work is queued")
             .apply();
-        let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists")
-        else {
+        let CheckedOutWork::Verify(work) = committed.into_work() else {
             panic!("verify permit returns verify work");
         };
         assert_eq!(
             &TxIdentity::from_transaction(work.transaction()).raw,
             expected
         );
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("selected verify work settles"),
@@ -7914,7 +7877,7 @@ fn uak_fair_frontier_skips_saturated_peer_without_blocking_new_peer() {
     assert_eq!(selected, peer_c);
 
     for work in [peer_a_work, peer_b_work, peer_c_work] {
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("active lease settles"),
@@ -7964,7 +7927,7 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     let proposal_hash = proposal.identity.raw.clone();
     let recovery_hash = recovery.identity.raw.clone();
     for admission in [proposal, recovery, remote] {
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_admission(admission)
                 .expect("the retained partition fills exactly"),
@@ -7994,7 +7957,7 @@ fn uak_full_retained_budget_cannot_hide_the_trusted_owner() {
     assert_eq!(selected, proposal_hash);
 
     for work in [first_work, second_work, third_work] {
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("every trusted lease settles"),
@@ -8029,13 +7992,13 @@ fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
     let active_hash = active_admission.identity.raw.clone();
     let promoted_hash = promoted_admission.identity.raw.clone();
     for admission in [active_admission, promoted_admission, trusted_admission] {
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_admission(admission)
                 .expect("fixture admission fits"),
         );
     }
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(tx(618))
@@ -8066,7 +8029,7 @@ fn uak_proposal_promotion_separates_peer_residency_from_trusted_compute() {
     assert_eq!(authority.resources().peer(peer).active_work, 1);
 
     for work in [remote_work, promoted_work] {
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
                 .expect("both capability attributions settle exactly once"),
@@ -8123,7 +8086,7 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
             .apply(),
     );
     assert_eq!(selected, cursor_seed);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(cursor_work.rejected(RejectionKind::Policy))
             .expect("cursor seeding releases the peer slot without rewinding the cursor"),
@@ -8159,7 +8122,7 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
 
     active_work.push(final_work);
     for work in active_work {
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(work.internal_failure())
                 .expect("every active lease settles exactly once"),
@@ -8180,7 +8143,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
     let parent_admission = ValidatedAdmission::remote(parent_tx.clone(), PeerIndex::from(900usize))
         .expect("fixture parent admission is valid");
     let parent = parent_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(parent_admission)
             .expect("fixture parent enters PreAccepted ownership"),
@@ -8198,7 +8161,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
     let stale =
         queue_remote_for_verify(&mut authority, stale_tx.clone(), 901, Capacity::shannons(1));
     let fresh = queue_remote_for_verify(&mut authority, fresh_tx, 902, Capacity::shannons(1));
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(stale_tx)
@@ -8207,7 +8170,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
             .expect("promotion moves the same queue slot to the trusted owner"),
     );
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
             .expect("definitive parent loss publishes a new dependency cut"),
@@ -8219,7 +8182,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
         .expect("a stale owner head is local ineligibility, not a failed round");
     assert_eq!(probes, 2);
     let committed = plan.expect("the unrelated owner remains runnable").apply();
-    let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(work) = committed.into_work() else {
         panic!("verify-only capability returns verify work");
     };
     assert_eq!(RawTxHash(work.transaction().hash()), fresh);
@@ -8250,7 +8213,7 @@ fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
     .expect("the full retained partition has one separate transient slot");
     let mut authority = TxPoolAuthority::for_foundation(constrained);
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("raw residency fills the retained partition exactly"),
@@ -8268,7 +8231,7 @@ fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
         raw_charge.bytes + 1,
         VerifyCycleClass::Small,
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.resolved(evidence)
@@ -8309,7 +8272,7 @@ fn uak_idle_peer_cardinality_does_not_expand_checkout_probe_work() {
     .expect("idle owners share one statically bounded active slot");
     let mut authority = TxPoolAuthority::for_foundation(constrained);
     for admission in admissions {
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_admission(admission)
                 .expect("every owner fits the retained partition"),
@@ -8320,7 +8283,7 @@ fn uak_idle_peer_cardinality_does_not_expand_checkout_probe_work() {
         .expect("an idle owner head is constructively runnable");
     assert_eq!(probes, 1);
     let (_, work) = take_resolve_work(plan.expect("one owner is selected").apply());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(work.rejected(RejectionKind::Policy))
             .expect("selected lease settles"),
@@ -8375,8 +8338,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
         .expect("resolve frontier is valid")
         .expect("resolve work is available")
         .apply();
-    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(resolve) = checkout.into_work() else {
         panic!("continuous permit returns continuous resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -8388,7 +8350,7 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
         panic!("small-cycle capability cannot continue large verification");
     };
     assert_eq!(authority.normalized_snapshot(), before_continuation);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(yielded)
             .expect("large verification yields one queued owner"),
@@ -8408,10 +8370,10 @@ fn uak_small_cycle_capability_never_checks_out_large_verify_work() {
         .expect("general frontier lookup is valid")
         .expect("general worker can consume large verification")
         .apply();
-    let CheckedOutWork::Verify(verify) = checkout.into_work().expect("verify work exists") else {
+    let CheckedOutWork::Verify(verify) = checkout.into_work() else {
         panic!("verify-only permit returns verify work");
     };
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verify.rejected(RejectionKind::Verification))
             .expect("large verification lease settles"),
@@ -8439,7 +8401,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
         Vec::new(),
         Capacity::shannons(10_000),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 large_resolve
@@ -8462,7 +8424,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
         Vec::new(),
         Capacity::shannons(1),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 small_resolve
@@ -8478,14 +8440,13 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
             .expect("small frontier lookup is valid")
             .expect("small work is not hidden by the large head")
             .apply();
-        let CheckedOutWork::Verify(work) = committed.into_work().expect("verify work exists")
-        else {
+        let CheckedOutWork::Verify(work) = committed.into_work() else {
             panic!("verify-only permit returns verify work");
         };
         (TxIdentity::from_transaction(work.transaction()).raw, work)
     };
     assert_eq!(selected, small_hash);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(small_verify.rejected(RejectionKind::Verification))
             .expect("small lease settles"),
@@ -8496,15 +8457,14 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
         .expect("general frontier lookup is valid")
         .expect("large work remains")
         .apply();
-    let CheckedOutWork::Verify(large_verify) = committed.into_work().expect("verify work exists")
-    else {
+    let CheckedOutWork::Verify(large_verify) = committed.into_work() else {
         panic!("verify-only permit returns verify work");
     };
     assert_eq!(
         TxIdentity::from_transaction(large_verify.transaction()).raw,
         large_hash
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(large_verify.rejected(RejectionKind::Verification))
             .expect("large lease settles"),
@@ -8522,11 +8482,8 @@ fn uak_runner_cancellation_settles_one_exact_lease_before_exit() {
         .expect("work is available")
         .apply();
     assert_eq!(authority.resources().preaccepted().active_work, 1);
-    let cancellation = checkout
-        .into_work()
-        .expect("checked-out capability exists")
-        .cancelled();
-    apply_without_work(
+    let cancellation = checkout.into_work().cancelled();
+    apply_plan(
         authority
             .apply_settlement(cancellation)
             .expect("current cancellation receipt settles"),

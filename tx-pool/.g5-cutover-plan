@@ -2916,10 +2916,10 @@ No production-readiness claim is allowed while any blocker remains.
 
 ### 16.2 Current recovery point: architecture adjudication
 
-Recovery base is commit `b7745ee4f`. The root `.gitignore` modification is
+Recovery base is commit `3d87c9690f13f6b7af5d866f09a38403f532396b`. The root `.gitignore` modification is
 user-owned and remains excluded from every stage/commit operation.
-The phase-3 evidence/test-isolation checkpoint is the commit containing this
-section; recovery must start from that checkpoint, not replay the extraction.
+The phase-3 evidence/test-isolation checkpoint is that commit; recovery must
+start from it, not replay the extraction.
 
 Completed in the active working tree:
 
@@ -2974,24 +2974,48 @@ The one-way evidence and physical test-isolation phase is closed:
    excluded; no lock, await, Apply or publication order changed in this
    isolation slice.
 
+The first architecture-adjudication candidate is closed in the working tree:
+
+1. The generic `CommittedHandoff` state was accidental encoding complexity.
+   Production had one compute producer: it created `CheckedOutWork`, embedded it
+   in a generic `PreparedApply`, then immediately extracted it into
+   `PreparedCheckout` before Apply. Every other production Apply constructed
+   `None`; tests could manufacture the impossible post-Apply state by converting
+   `CommittedCheckout` back into `CommittedDelta`.
+2. `PreparedCheckout` now owns `{ plan: PreparedApply, work: CheckedOutWork }`
+   directly, while `PreparedEffectCheckout` analogously owns its exact lease.
+   `CheckoutControl` carries only the scheduler ticket and preplanned resource
+   reservation into the queued-to-active state plan. Generic plans and committed
+   deltas cannot contain worker capabilities. A successful checkout without work
+   and an ordinary transition with accidental work are therefore both
+   unrepresentable.
+3. This removes one enum, one generic-plan field, one committed-result field,
+   post-Apply extraction/fault logic and the test-only reinsertion protocol. It
+   adds no allocation, lock, clone, retry, task, publication point or hot-path
+   branch, and it preserves the exact scheduler/resource Apply and outside-lock
+   retirement order. Production authority code changes by +48/-142 lines in
+   this slice; test changes are fixture adaptation and stale assertion removal.
+4. Evidence: all-target internal-feature Clippy with `-D warnings` passes;
+   authority nextest is 360/360; `check_all.py` validates 401 discovered tests,
+   85 exact Rust anchors, 222 invariant references, 17 security integration
+   anchors and all 150 managed integration specs; `git diff --check` passes.
+
 Active slice and next exact action:
 
-1. Start `ARCHITECTURE-ADJUDICATION`: build one closed current-code candidate
-   set for duplicate authority, invalid legal states, fail-stop reachability,
-   wait/liveness cycles, manual publication, resource/complexity bounds and
-   every provisional historical disposition. Compare each item with `develop`
-   and distinguish risk elimination from transfer.
-2. Audit the remaining generic compute handoff first. `PreparedCheckout`
-   extracts `CommittedHandoff::Compute` before production Apply, but the generic
-   `PreparedApply`/`CommittedDelta` encoding can still represent that transient
-   state. Prove the exclusive construction graph, then remove the generic
-   post-Apply handoff if a typed checkout can be constructed without duplicated
-   planning or hot-path allocation; otherwise record the exact necessity.
+1. Continue `ARCHITECTURE-ADJUDICATION` from the current producer/consumer graph:
+   build the remaining closed candidate set for duplicate authority, legal-input
+   fail-stop reachability, wait/liveness cycles, manual publication, resource and
+   adversarial complexity bounds, and every provisional historical disposition.
+2. Compare every surviving state/lock/log/failure domain with `develop`; record
+   whether it eliminates a concrete non-atomicity or transfers risk. Remove only
+   states whose behavioral, compatibility and concurrency obligations are
+   demonstrably covered by the smaller construction.
 3. Reconcile every result with `ARCHITECTURE.md`, the behavior registry and
    historical report dispositions. Static facts must close before P9.8; no
    statically inferable defect may be deferred to benchmark.
-4. Only after this blocker closes, run P9.8 complete crate plus all 150 managed
-   integration specs. P10 profiling and fixed-binary A/B remains last.
+4. Freeze the typed-checkout slice as a recoverable checkpoint before taking the
+   next candidate. Only after the full adjudication blocker closes may P9.8 run;
+   P10 profiling and fixed-binary A/B remains last.
 
 Do not respond to the 237 sites by copying them into the manifest. Their
 existence is the migration work queue, not an allowlist baseline.

@@ -283,7 +283,8 @@ builds a private closed delta containing:
 - resource charge changes;
 - clock values;
 - the exact bounded effect mutation;
-- retirement and move-only handoff carriers.
+- retirement carriers and, only for specialized checkout plans, the exact
+  move-only worker or publisher capability.
 
 Ordinary outcomes such as rejection, backpressure, duplicate, stale evidence
 and cancellation are decided before Apply and represented by closed enums. A
@@ -293,14 +294,16 @@ applied twice or against another authority.
 ### 7.3 Apply
 
 `PreparedApply::apply(self) -> CommittedDelta` is total. It swaps all fields in
-one short authority critical section, advances the clocks and returns the only
-post-commit handoff. Large retired payloads and generations are carried out of
-the guard before destruction. Apply performs no external I/O and has no
-rollback path.
+one short authority critical section, advances the clocks and returns change
+evidence plus outside-guard retirement. Large retired payloads and generations
+are carried out of the guard before destruction. Apply performs no external I/O
+and has no rollback path.
 
 Specialized `PreparedCheckout` and `PreparedEffectCheckout` types contain their
-move-only compute/effect capability by construction; a successful Apply cannot
-discover a missing handoff afterward.
+move-only compute/effect capability beside the generic plan by construction.
+Generic plans and `CommittedDelta` cannot carry either capability, so a
+successful checkout cannot discover a missing handoff afterward and an
+ordinary transition cannot manufacture one.
 
 ```mermaid
 sequenceDiagram
@@ -317,7 +320,7 @@ sequenceDiagram
     D->>S: Plan under coherent cut
     Note over S: validate stale/budget/policy<br/>reserve capacity; build complete delta
     D->>S: consume total Apply
-    S-->>D: CommittedDelta + retirement/handoff
+    S-->>D: typed capability + CommittedDelta retirement
     Note over D,S: authority guard opens before destruction or await
     P->>S: checkout committed effect lease
     P->>E: perform external I/O

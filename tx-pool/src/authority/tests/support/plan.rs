@@ -128,27 +128,8 @@ impl CommittedDelta {
         )
     }
 
-    pub(in crate::authority) fn handoff_is_none(&self) -> bool {
-        matches!(self.handoff, CommittedHandoff::None)
-    }
-
-    fn take_work(&mut self) -> Option<CheckedOutWork> {
-        let handoff = std::mem::take(&mut self.handoff);
-        match handoff {
-            CommittedHandoff::Compute(work) => Some(work),
-            other => {
-                self.handoff = other;
-                None
-            }
-        }
-    }
-
     pub(in crate::authority) fn retired_effect_len(&self) -> usize {
         usize::from(self.retired_effect.is_some())
-    }
-
-    pub(in crate::authority) fn into_work(mut self) -> Option<CheckedOutWork> {
-        self.take_work()
     }
 
     pub(in crate::authority) fn async_process_observation_count(&self) -> usize {
@@ -193,8 +174,8 @@ impl PreparedCandidateRejection<'_> {
 }
 
 impl CommittedCheckout {
-    pub(in crate::authority) fn into_work(self) -> Option<CheckedOutWork> {
-        Some(self.work)
+    pub(in crate::authority) fn into_work(self) -> CheckedOutWork {
+        self.work
     }
 
     pub(in crate::authority) fn committed_delta_for_foundation(&self) -> &CommittedDelta {
@@ -205,17 +186,6 @@ impl CommittedCheckout {
 impl CommittedEffectCheckout {
     pub(in crate::authority) fn into_effect_lease(self) -> EffectLease {
         self.lease
-    }
-}
-
-impl From<CommittedCheckout> for CommittedDelta {
-    fn from(checkout: CommittedCheckout) -> Self {
-        let CommittedCheckout {
-            work,
-            mut retirement,
-        } = checkout;
-        retirement.handoff = CommittedHandoff::Compute(work);
-        retirement
     }
 }
 
@@ -564,7 +534,6 @@ impl TxPoolAuthority {
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -640,7 +609,6 @@ impl TxPoolAuthority {
                     async_process_start: None,
                 }),
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -699,7 +667,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let sequence = self.clocks.next_sequence;
         let effect = self.effects.plan_publication(publication, sequence)?;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+        self.prepare_effect_only(effect, sequence)
     }
 
     pub(in crate::authority) fn plan_generation_reset_for_foundation(
@@ -707,7 +675,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let sequence = self.clocks.next_sequence;
         let effect = self.effects.plan_generation_reset(sequence)?;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+        self.prepare_effect_only(effect, sequence)
     }
 
     pub(in crate::authority) fn plan_peer_revocation_for_foundation(
@@ -778,7 +746,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         }))
     }
 

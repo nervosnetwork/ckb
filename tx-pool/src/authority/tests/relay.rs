@@ -10,8 +10,8 @@ use super::super::{
     state::{DependencyKey, RawTxHash, ValidatedAdmission, WorkPermit},
 };
 use super::foundation::{
-    admit_remote_until, apply_without_work, genesis_snapshot, limits, owner_version,
-    runtime_config, take_resolve_work, tx,
+    admit_remote_until, apply_plan, genesis_snapshot, limits, owner_version, runtime_config,
+    take_resolve_work, tx,
 };
 use crate::service::TxVerificationResult;
 use ckb_network::PeerIndex;
@@ -36,7 +36,7 @@ fn wait_for_parents(
             .expect("the remote fixture checks out for resolve")
             .apply(),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(parents)
@@ -313,7 +313,7 @@ fn uak_relay_parent_rebuild_ignores_unrelated_changes_but_restarts_after_level_c
     assert!(reader.cut_is_current(&cut));
 
     runtime.with_authority_for_foundation(|authority| {
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_admission(
                     ValidatedAdmission::proposal(tx(907))

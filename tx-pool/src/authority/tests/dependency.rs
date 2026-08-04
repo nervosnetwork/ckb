@@ -51,13 +51,8 @@ fn input_transaction(version: u32, input: OutPoint) -> TransactionView {
         .build()
 }
 
-fn apply_without_work(commit: impl FixtureCommit) -> CommittedChanges {
-    let committed = commit.into_committed();
-    assert!(
-        committed.handoff_is_none(),
-        "transition issued unexpected work"
-    );
-    committed.changes
+fn apply_plan(commit: impl FixtureCommit) -> CommittedChanges {
+    commit.into_committed().changes
 }
 
 fn owner_version(authority: &TxPoolAuthority, hash: &RawTxHash) -> EntryVersion {
@@ -70,7 +65,7 @@ fn owner_version(authority: &TxPoolAuthority, hash: &RawTxHash) -> EntryVersion 
 
 fn admit(authority: &mut TxPoolAuthority, admission: ValidatedAdmission) -> RawTxHash {
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("dependency fixture admission plans"),
@@ -90,7 +85,7 @@ fn checkout_resolve(
         )
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(work) = committed.into_work().expect("resolve work exists") else {
+    let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only capability returned another work type");
     };
     work
@@ -105,8 +100,7 @@ fn checkout_continuous(authority: &mut TxPoolAuthority, hash: &RawTxHash) -> Con
         )
         .expect("continuous checkout plans")
         .apply();
-    let CheckedOutWork::ContinuousResolve(work) = committed.into_work().expect("work exists")
-    else {
+    let CheckedOutWork::ContinuousResolve(work) = committed.into_work() else {
         panic!("continuous capability returned another work type");
     };
     work
@@ -174,13 +168,13 @@ fn accept_remote(
         chain_inputs,
         fee,
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("accepted dependency fixture verifies"),
     );
     let version = owner_version(authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&hash, version, AcceptedStatus::Pending)
             .expect("accepted dependency fixture enters membership"),
@@ -259,7 +253,7 @@ pub(super) fn seed_runtime_dependency_maintenance(runtime: &AuthorityRuntime) ->
                 .expect("runtime dependency admission is valid"),
         );
         let work = checkout_resolve(authority, &hash);
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(
                     work.missing(vec![key.clone()])
@@ -267,7 +261,7 @@ pub(super) fn seed_runtime_dependency_maintenance(runtime: &AuthorityRuntime) ->
                 )
                 .expect("the missing owner enters dependency wait"),
         );
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_dependency_availability_for_foundation(vec![key.clone()])
                 .expect("availability event planning is valid")
@@ -299,13 +293,13 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
     );
     assert_eq!(authority.normalized_snapshot(), before_dropped_event);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![key.clone()])
             .expect("availability event plans")
             .expect("a live consumer records the event"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 first_work
@@ -321,7 +315,7 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
     ));
 
     let second_work = checkout_resolve(&mut authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 second_work
@@ -332,7 +326,7 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
     );
     let waiting_version = owner_version(&authority, &hash);
     for _ in 0..2 {
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_dependency_availability_for_foundation(vec![key.clone()])
                 .expect("repeated availability plans")
@@ -372,7 +366,7 @@ fn uak_parent_acceptance_publishes_output_availability_atomically() {
     let missing = checkout_resolve(&mut authority, &child)
         .missing(vec![key])
         .expect("missing output receipt is bounded");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(missing)
             .expect("child registers its exact wait"),
@@ -384,13 +378,13 @@ fn uak_parent_acceptance_publishes_output_availability_atomically() {
         Vec::new(),
         Vec::new(),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(verified)
             .expect("parent verification settles"),
     );
     let parent_version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&parent, parent_version, AcceptedStatus::Pending)
             .expect("parent membership and availability share one Apply"),
@@ -420,7 +414,7 @@ fn uak_direct_parent_acceptance_publishes_output_availability_atomically() {
     let missing = checkout_resolve(&mut authority, &child)
         .missing(vec![key])
         .expect("missing output receipt is bounded");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(missing)
             .expect("child registers its exact wait"),
@@ -443,7 +437,7 @@ fn uak_direct_parent_acceptance_publishes_output_availability_atomically() {
     let DirectAdmissionDisposition::Accepted(plan) = disposition else {
         panic!("vacant direct parent must become Accepted");
     };
-    apply_without_work(plan);
+    apply_plan(plan);
 
     assert_eq!(drain_dependency_maintenance(&mut authority), 1);
     assert_ne!(owner_version(&authority, &child), waiting_version);
@@ -476,19 +470,19 @@ fn uak_coalesced_loss_then_availability_wakes_a_post_loss_waiter() {
     let early_missing = checkout_resolve(&mut authority, &early_child)
         .missing(vec![key.clone()])
         .expect("early missing receipt is bounded");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(early_missing)
             .expect("the early remote child registers its wait"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![key.clone()])
             .expect("the first availability change plans")
             .expect("the early waiter creates an active dirty traversal"),
     );
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
             .expect("parent loss coalesces behind the active traversal"),
@@ -501,7 +495,7 @@ fn uak_coalesced_loss_then_availability_wakes_a_post_loss_waiter() {
     let post_loss_missing = checkout_resolve(&mut authority, &late_child)
         .missing(vec![key.clone()])
         .expect("post-loss missing receipt is bounded");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(post_loss_missing)
             .expect("remote child may wait for refetch"),
@@ -509,7 +503,7 @@ fn uak_coalesced_loss_then_availability_wakes_a_post_loss_waiter() {
     let early_waiting_version = owner_version(&authority, &early_child);
     let late_waiting_version = owner_version(&authority, &late_child);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![key])
             .expect("new availability coalesces into the pending loss")
@@ -559,25 +553,25 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
 
         if recovery {
             let parent_version = owner_version(&authority, &parent);
-            apply_without_work(
+            apply_plan(
                 authority
                     .plan_terminalize_for_foundation(&parent, parent_version)
                     .expect("definitive parent terminalization plans"),
             );
-            apply_without_work(
+            apply_plan(
                 authority
                     .apply_settlement(settlement)
                     .expect("stale worker evidence atomically requeues"),
             );
             assert_eq!(drain_dependency_maintenance(&mut authority), 0);
         } else {
-            apply_without_work(
+            apply_plan(
                 authority
                     .apply_settlement(settlement)
                     .expect("verified child settlement plans"),
             );
             let parent_version = owner_version(&authority, &parent);
-            apply_without_work(
+            apply_plan(
                 authority
                     .plan_terminalize_for_foundation(&parent, parent_version)
                     .expect("definitive parent terminalization plans"),
@@ -604,7 +598,7 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
         let second_resolution = checkout_resolve(&mut authority, &child)
             .missing(vec![missing_parent])
             .expect("the definitive missing dependency fits the grant");
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(second_resolution)
                 .expect("trusted definitive loss reaches a terminal outcome"),
@@ -631,7 +625,7 @@ fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
     );
     let work = checkout_resolve(&mut authority, &child);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
             .expect("parent loss publishes one definitive dependency cut"),
@@ -647,7 +641,7 @@ fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
 
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![dependency])
@@ -688,7 +682,7 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
         Vec::new(),
         Vec::new(),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(child_settlement)
             .expect("child verification settles"),
@@ -698,14 +692,14 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
         Vec::new(),
         vec![unrelated_input],
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(unrelated_settlement)
             .expect("unrelated verification settles"),
     );
 
     let parent_version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, parent_version)
             .expect("parent terminalization publishes loss"),
@@ -758,12 +752,12 @@ fn uak_unindexed_expansion_loss_cannot_validate_old_resolution() {
     );
 
     let parent_version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, parent_version)
             .expect("parent terminalization publishes every output loss"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("unindexed old resolution is consumed into requeue"),
@@ -792,13 +786,13 @@ fn uak_availability_does_not_invalidate_positive_dependency_evidence() {
         Vec::new(),
         vec![chain_input],
     );
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![key])
             .expect("availability event plans")
             .expect("the active resolver is an indexed consumer"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("positive evidence survives availability"),
@@ -837,19 +831,19 @@ fn uak_dependency_loss_is_exact_key_scoped() {
         Vec::new(),
         vec![unrelated_input],
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(unrelated_settlement)
             .expect("unrelated verification settles"),
     );
     let parent_version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, parent_version)
             .expect("parent terminalization plans"),
     );
     let version = owner_version(&authority, &unrelated);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&unrelated, version, AcceptedStatus::Pending)
             .expect("loss of key A does not invalidate key B"),
@@ -888,7 +882,7 @@ fn uak_membership_removal_publishes_dependency_loss_atomically() {
         Vec::new(),
         Vec::new(),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(child_settlement)
             .expect("preaccepted child verifies"),
@@ -911,7 +905,7 @@ fn uak_membership_removal_publishes_dependency_loss_atomically() {
         vec![chain_input],
         Capacity::shannons(1_000_000),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(replacement_settlement)
             .expect("replacement verifies"),
@@ -990,7 +984,7 @@ fn uak_membership_loss_removes_accepted_dependency_readers_before_publish() {
         vec![chain_input],
         Capacity::shannons(1_000_000),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(replacement_settlement)
             .expect("replacement verifies"),
@@ -1039,7 +1033,7 @@ fn uak_missing_growth_is_charged_or_becomes_budget_denied() {
             .expect("one-edge admission is valid"),
     );
     let work = checkout_resolve(&mut authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![discovered])
@@ -1067,7 +1061,7 @@ fn uak_duplicate_missing_receipt_cannot_bypass_the_work_grant() {
     let over_grant = work
         .missing(vec![key; 17])
         .expect("over-grant evidence yields a typed settlement");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(over_grant)
             .expect("budget denial consumes the exact lease"),
@@ -1104,7 +1098,7 @@ fn uak_canonical_dependency_index_does_not_discount_ingress_edges() {
     assert_eq!(authority.resources().preaccepted().edges, 3);
 
     let work = checkout_resolve(&mut authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![dependency_key.clone()])
@@ -1113,7 +1107,7 @@ fn uak_canonical_dependency_index_does_not_discount_ingress_edges() {
             .expect("duplicate declarations settle into one indexed wait"),
     );
     assert_eq!(authority.resources().preaccepted().edges, 3);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![dependency_key])
             .expect("availability plans")
@@ -1141,19 +1135,19 @@ fn uak_retired_indexed_level_preserves_an_unindexed_race() {
             .expect("unindexed fixture admission is valid"),
     );
     let work = checkout_resolve(&mut authority, &resolving);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![key.clone()])
             .expect("indexed availability plans")
             .expect("indexed dependency records a level"),
     );
     let indexed_version = owner_version(&authority, &indexed);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&indexed, indexed_version)
             .expect("removing the last indexed consumer plans"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![key])
@@ -1180,7 +1174,7 @@ fn uak_dirty_maintenance_cannot_outlive_its_last_charged_edge() {
             .expect("dirty-edge fixture admission is valid"),
     );
     let work = checkout_resolve(&mut authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![discovered.clone()])
@@ -1188,7 +1182,7 @@ fn uak_dirty_maintenance_cannot_outlive_its_last_charged_edge() {
             )
             .expect("discovered dependency wait settles"),
     );
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![discovered])
             .expect("discovered dependency availability plans")
@@ -1239,7 +1233,7 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
     assert_eq!(work.total(), Some(5));
 
     let parent_version = owner_version(&authority, &parent);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent, parent_version)
             .expect("parent terminalization publishes every exact origin key"),
@@ -1253,7 +1247,7 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
             break;
         };
         observed.insert(key);
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_dependency_maintenance()
                 .expect("maintenance planning is valid")
@@ -1313,7 +1307,7 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
 
     for parent in [&popular_parent, &sparse_parent] {
         let version = owner_version(&authority, parent);
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_terminalize_for_foundation(parent, version)
                 .expect("parent terminalization publishes bounded loss"),
@@ -1339,7 +1333,7 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
                 .checked_add(1)
                 .expect("fixture completion count fits");
         }
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_dependency_maintenance()
                 .expect("maintenance planning is valid")
@@ -1397,14 +1391,14 @@ fn uak_unindexed_false_retries_are_bounded_by_active_leases() {
         );
         active.push(checkout_resolve(&mut authority, &hash));
     }
-    apply_without_work(
+    apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![indexed_key])
             .expect("indexed availability plans")
             .expect("the indexed consumer retains an exact level"),
     );
     let indexed_version = owner_version(&authority, &indexed);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&indexed, indexed_version)
             .expect("retiring the last exact level updates one constant watermark"),
@@ -1415,7 +1409,7 @@ fn uak_unindexed_false_retries_are_bounded_by_active_leases() {
         let hash = TxIdentity::from_transaction(work.transaction()).raw;
         let discovered =
             DependencyKey::Cell(OutPoint::new(Byte32::new([0xe0 + offset as u8; 32]), 0));
-        apply_without_work(
+        apply_plan(
             authority
                 .apply_settlement(
                     work.missing(vec![discovered])

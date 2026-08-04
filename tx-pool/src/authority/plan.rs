@@ -500,29 +500,10 @@ pub(super) enum CommittedChanges {
     },
 }
 
-#[derive(Debug, Default)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "boxing Compute would allocate on every checkout; this private handoff moves once into the typed PreparedCheckout"
-)]
-pub(super) enum CommittedHandoff {
-    #[default]
-    None,
-    Compute(CheckedOutWork),
-}
-
 #[derive(Debug)]
-#[must_use = "a committed delta contains the only post-Apply work/effect handoff"]
+#[must_use = "a committed delta owns post-Apply retirement and change evidence"]
 pub(super) struct CommittedDelta {
     pub(super) changes: CommittedChanges,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the handoff is an ownership carrier dropped only after the authority guard opens"
-        )
-    )]
-    pub(super) handoff: CommittedHandoff,
     #[cfg_attr(
         not(test),
         expect(
@@ -678,8 +659,10 @@ enum EntryReplacementRetirement {
     OutsideGuard,
 }
 
-struct WorkHandoff {
-    work: CheckedOutWork,
+/// State-only checkout evidence consumed while planning the queued-to-active
+/// transition. The worker payload stays in `PreparedCheckout`, outside the
+/// generic state delta.
+struct CheckoutControl {
     ticket: CheckoutTicket,
     reservation: CheckoutReservation,
 }
@@ -964,7 +947,6 @@ impl From<PlanError> for PrepareSettlementError {
 pub(super) struct PreparedApply<'authority> {
     authority: &'authority mut TxPoolAuthority,
     delta: AuthorityDelta,
-    handoff: CommittedHandoff,
 }
 
 /// Closed result of retained external admission planning. A no-change
@@ -978,13 +960,13 @@ pub(super) enum RetainedAdmissionDisposition<'authority> {
     ProposalUnchanged,
 }
 
-/// A prepared compute checkout whose post-Apply capability is present by
-/// construction. Converting the private generic transition before mutation
-/// keeps a missing compute handoff out of the runtime state space.
+/// A prepared compute checkout pairs the generic state plan with its exact
+/// worker capability before mutation. Generic Apply plans and their committed
+/// deltas cannot carry work, so neither missing nor accidental work handoff is
+/// representable after a successful transition.
 #[must_use = "a prepared checkout must be applied exactly once"]
 pub(super) struct PreparedCheckout<'authority> {
-    authority: &'authority mut TxPoolAuthority,
-    delta: AuthorityDelta,
+    plan: PreparedApply<'authority>,
     work: CheckedOutWork,
 }
 
@@ -996,12 +978,11 @@ pub(super) struct CommittedCheckout {
 
 /// A prepared effect checkout owns the publisher lease by construction.
 /// Keeping the capability beside, rather than inside, the generic Apply plan
-/// prevents a successful authority mutation from producing a missing-handoff
-/// runtime state.
+/// prevents a successful authority mutation from producing a missing lease or
+/// an ordinary transition from manufacturing one.
 #[must_use = "a prepared effect checkout must be applied exactly once"]
 pub(super) struct PreparedEffectCheckout<'authority> {
-    authority: &'authority mut TxPoolAuthority,
-    delta: AuthorityDelta,
+    plan: PreparedApply<'authority>,
     lease: EffectLease,
 }
 
@@ -1012,34 +993,9 @@ pub(super) struct CommittedEffectCheckout {
 }
 
 impl PreparedCheckout<'_> {
-    fn from_prepared(plan: PreparedApply<'_>) -> Result<PreparedCheckout<'_>, PlanError> {
-        let PreparedApply {
-            authority,
-            delta,
-            handoff,
-        } = plan;
-        let CommittedHandoff::Compute(work) = handoff else {
-            return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
-        };
-        Ok(PreparedCheckout {
-            authority,
-            delta,
-            work,
-        })
-    }
-
     pub(super) fn apply(self) -> CommittedCheckout {
-        let Self {
-            authority,
-            delta,
-            work,
-        } = self;
-        let retirement = PreparedApply {
-            authority,
-            delta,
-            handoff: CommittedHandoff::None,
-        }
-        .apply();
+        let Self { plan, work } = self;
+        let retirement = plan.apply();
         CommittedCheckout { work, retirement }
     }
 }
@@ -1054,17 +1010,8 @@ impl CommittedCheckout {
 
 impl PreparedEffectCheckout<'_> {
     pub(super) fn apply(self) -> CommittedEffectCheckout {
-        let Self {
-            authority,
-            delta,
-            lease,
-        } = self;
-        let retirement = PreparedApply {
-            authority,
-            delta,
-            handoff: CommittedHandoff::None,
-        }
-        .apply();
+        let Self { plan, lease } = self;
+        let retirement = plan.apply();
         CommittedEffectCheckout { lease, retirement }
     }
 }
@@ -1195,17 +1142,13 @@ impl PreparedCandidateRejection<'_> {
 
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
-        let Self {
-            authority,
-            delta,
-            handoff,
-        } = self;
+        let Self { authority, delta } = self;
         match delta {
-            AuthorityDelta::Entry(delta) => Self::apply_entry(authority, delta, handoff),
+            AuthorityDelta::Entry(delta) => Self::apply_entry(authority, delta),
             AuthorityDelta::Membership(delta) => Self::apply_membership(authority, delta),
             AuthorityDelta::Independent(delta) => Self::apply_independent(authority, delta),
             AuthorityDelta::Dependency(delta) => Self::apply_dependency(authority, delta),
-            AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta, handoff),
+            AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta),
             AuthorityDelta::ClearPipeline(delta) => Self::apply_clear_pipeline(authority, delta),
             AuthorityDelta::ClearPool(delta) => Self::apply_clear_pool(authority, delta),
             AuthorityDelta::Admin(delta) => Self::apply_admin(authority, delta),
@@ -1213,11 +1156,7 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_entry(
-        authority: &mut TxPoolAuthority,
-        delta: EntryDelta,
-        handoff: CommittedHandoff,
-    ) -> CommittedDelta {
+    fn apply_entry(authority: &mut TxPoolAuthority, delta: EntryDelta) -> CommittedDelta {
         let previous = match delta.after {
             Some(entry) => authority.entries.insert(delta.key.clone(), entry),
             None => authority.entries.remove(&delta.key),
@@ -1246,7 +1185,6 @@ impl PreparedApply<'_> {
                 changed: delta.key,
                 async_process_start: None,
             }),
-            handoff,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1292,7 +1230,6 @@ impl PreparedApply<'_> {
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: delta.committed,
-            handoff: CommittedHandoff::None,
             removals: delta.removals,
             retired,
             retired_effect,
@@ -1319,7 +1256,6 @@ impl PreparedApply<'_> {
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::IndependentRun(delta.committed),
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1335,7 +1271,6 @@ impl PreparedApply<'_> {
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::DependencyControl(delta.sequence),
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect: None,
@@ -1343,16 +1278,11 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_effect(
-        authority: &mut TxPoolAuthority,
-        delta: EffectOnlyDelta,
-        handoff: CommittedHandoff,
-    ) -> CommittedDelta {
+    fn apply_effect(authority: &mut TxPoolAuthority, delta: EffectOnlyDelta) -> CommittedDelta {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::EffectControl(delta.sequence),
-            handoff,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1384,7 +1314,6 @@ impl PreparedApply<'_> {
         authority.clocks = delta.clocks;
         CommittedDelta {
             changes: CommittedChanges::ClearPoolControl(delta.sequence),
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1405,7 +1334,6 @@ impl PreparedApply<'_> {
                 sequence: delta.sequence,
                 changed_owners,
             },
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1427,7 +1355,6 @@ impl PreparedApply<'_> {
                 cause: delta.cause,
                 changed_owners,
             },
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1482,7 +1409,6 @@ impl PreparedApply<'_> {
                 view: delta.view,
                 changed_owners,
             },
-            handoff: CommittedHandoff::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -2260,7 +2186,7 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
         let sequence = self.clocks.next_sequence;
         let effect = self.effects.plan_publication(&publication, sequence)?;
-        self.prepare_effect_only(effect, sequence, CommittedHandoff::None)
+        self.prepare_effect_only(effect, sequence)
     }
 
     fn plan_existing_admission(
@@ -2585,7 +2511,6 @@ impl TxPoolAuthority {
             Ok(delta) => Ok(CandidateDispositionPlan::Accepted(PreparedApply {
                 authority: self,
                 delta: AuthorityDelta::Membership(delta),
-                handoff: CommittedHandoff::None,
             })),
             Err(PlanError::Membership(reason)) => {
                 let existing = self
@@ -2639,7 +2564,7 @@ impl TxPoolAuthority {
                 .effects
                 .plan_publication(&publication, sequence)
                 .map_err(PlanError::from)?;
-            let plan = self.prepare_effect_only(effect, sequence, CommittedHandoff::None)?;
+            let plan = self.prepare_effect_only(effect, sequence)?;
             return Ok(DirectAdmissionDisposition::Duplicate(
                 PreparedDirectDuplicate { key, plan },
             ));
@@ -2681,7 +2606,7 @@ impl TxPoolAuthority {
                     .effects
                     .plan_publication(&publication, sequence)
                     .map_err(PlanError::from)?;
-                let plan = self.prepare_effect_only(effect, sequence, CommittedHandoff::None)?;
+                let plan = self.prepare_effect_only(effect, sequence)?;
                 return Ok(DirectAdmissionDisposition::Rejected(
                     PreparedDirectRejection { reason, plan },
                 ));
@@ -2707,7 +2632,6 @@ impl TxPoolAuthority {
         Ok(DirectAdmissionDisposition::Accepted(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
-            handoff: CommittedHandoff::None,
         }))
     }
 
@@ -2755,7 +2679,6 @@ impl TxPoolAuthority {
         Ok(InternalPlugDisposition::Insert(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
-            handoff: CommittedHandoff::None,
         }))
     }
 
@@ -3293,7 +3216,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -3325,7 +3247,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -3517,7 +3438,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -3723,12 +3643,14 @@ impl TxPoolAuthority {
             ..self.clocks
         };
         Ok(Some(PreparedEffectCheckout {
-            authority: self,
-            delta: AuthorityDelta::Effect(EffectOnlyDelta {
-                effect,
-                clocks,
-                sequence,
-            }),
+            plan: PreparedApply {
+                authority: self,
+                delta: AuthorityDelta::Effect(EffectOnlyDelta {
+                    effect,
+                    clocks,
+                    sequence,
+                }),
+            },
             lease,
         }))
     }
@@ -3754,9 +3676,7 @@ impl TxPoolAuthority {
             error: EffectSettlementError::CounterExhausted,
             settlement,
         })?;
-        Ok(self
-            .prepared_effect_only(effect, sequence, next, CommittedHandoff::None)
-            .apply())
+        Ok(self.prepared_effect_only(effect, sequence, next).apply())
     }
 
     pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, EffectCloseError> {
@@ -3768,7 +3688,7 @@ impl TxPoolAuthority {
         })?;
         let sequence = self.clocks.next_sequence;
         let next = next_sequence(sequence).map_err(|_| EffectCloseError::CounterExhausted)?;
-        Ok(self.prepared_effect_only(effect, sequence, next, CommittedHandoff::None))
+        Ok(self.prepared_effect_only(effect, sequence, next))
     }
 
     pub(super) fn effects_closed_and_drained(&self) -> bool {
@@ -3783,13 +3703,12 @@ impl TxPoolAuthority {
         &mut self,
         effect: EffectDelta,
         sequence: ApplySequence,
-        handoff: CommittedHandoff,
     ) -> Result<PreparedApply<'_>, PlanError> {
         let clocks = AuthorityClocks {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        Ok(self.prepared_effect_only(effect, sequence, clocks.next_sequence, handoff))
+        Ok(self.prepared_effect_only(effect, sequence, clocks.next_sequence))
     }
 
     fn prepared_effect_only(
@@ -3797,7 +3716,6 @@ impl TxPoolAuthority {
         effect: EffectDelta,
         sequence: ApplySequence,
         next_sequence: ApplySequence,
-        handoff: CommittedHandoff,
     ) -> PreparedApply<'_> {
         let clocks = AuthorityClocks {
             next_sequence,
@@ -3810,7 +3728,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff,
         }
     }
 
@@ -3841,7 +3758,6 @@ impl TxPoolAuthority {
                         clocks,
                         sequence,
                     }),
-                    handoff: CommittedHandoff::None,
                 }));
             }
             DependencyMaintenanceAction::Requeue => {}
@@ -3882,7 +3798,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
             control,
         )
         .map(Some)
@@ -4171,13 +4086,12 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            Some(WorkHandoff {
-                work,
+            Some(CheckoutControl {
                 ticket,
                 reservation,
             }),
         )?;
-        PreparedCheckout::from_prepared(plan)
+        Ok(PreparedCheckout { plan, work })
     }
 
     /// Consume a move-only compute completion in one atomic command. A
@@ -4308,7 +4222,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         }
         .apply())
     }
@@ -4779,13 +4692,13 @@ impl TxPoolAuthority {
         transition: EntryTransition,
         clocks: AuthorityClocks,
         sequence: ApplySequence,
-        handoff: Option<WorkHandoff>,
+        checkout: Option<CheckoutControl>,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.prepare_entry_delta_with_controls(
             transition,
             clocks,
             sequence,
-            handoff,
+            checkout,
             TransitionControls::default(),
             None,
         )
@@ -4796,14 +4709,13 @@ impl TxPoolAuthority {
         transition: EntryTransition,
         clocks: AuthorityClocks,
         sequence: ApplySequence,
-        handoff: Option<WorkHandoff>,
         dependency_control: DependencyControlDelta,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.prepare_entry_delta_with_controls(
             transition,
             clocks,
             sequence,
-            handoff,
+            None,
             TransitionControls {
                 dependency: dependency_control,
                 effect: EffectDelta::default(),
@@ -4838,7 +4750,7 @@ impl TxPoolAuthority {
         transition: EntryTransition,
         clocks: AuthorityClocks,
         sequence: ApplySequence,
-        handoff: Option<WorkHandoff>,
+        checkout_control: Option<CheckoutControl>,
         controls: TransitionControls,
         explicit_resources: Option<ResourcePlan>,
     ) -> Result<PreparedApply<'_>, PlanError> {
@@ -4853,13 +4765,12 @@ impl TxPoolAuthority {
             effect,
             replacement_retirement,
         } = controls;
-        let (work, checkout, checkout_resources) = match handoff {
-            Some(WorkHandoff {
-                work,
+        let (checkout, checkout_resources) = match checkout_control {
+            Some(CheckoutControl {
                 ticket,
                 reservation,
-            }) => (Some(work), Some(ticket), Some(reservation.resources)),
-            None => (None, None, None),
+            }) => (Some(ticket), Some(reservation.resources)),
+            None => (None, None),
         };
         let preplanned_resources = match (checkout_resources, explicit_resources) {
             (Some(_), Some(_)) => {
@@ -4900,7 +4811,6 @@ impl TxPoolAuthority {
             .indexes
             .plan_replace(&key, expected.as_ref(), after.as_ref())?;
         let owners = DerivedOwnerDelta { indexes, sources };
-        let handoff = work.map_or(CommittedHandoff::None, CommittedHandoff::Compute);
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Entry(EntryDelta {
@@ -4915,7 +4825,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff,
         })
     }
 }

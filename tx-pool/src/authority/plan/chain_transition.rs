@@ -1273,7 +1273,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 
@@ -1401,7 +1400,6 @@ impl TxPoolAuthority {
                 clocks,
                 sequence,
             }),
-            handoff: CommittedHandoff::None,
         })
     }
 }

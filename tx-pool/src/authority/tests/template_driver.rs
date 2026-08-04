@@ -4,8 +4,8 @@ use super::super::{
     template_driver::{AuthorityBlockAssembler, AuthorityTemplateStep},
 };
 use super::foundation::{
-    accept_remote_transaction, accept_remote_transaction_with_payload, apply_without_work,
-    owner_version, resolved_payload_with_facts, runtime_config, tx,
+    accept_remote_transaction, accept_remote_transaction_with_payload, apply_plan, owner_version,
+    resolved_payload_with_facts, runtime_config, tx,
 };
 use crate::block_assembler::{BlockAssembler, ResetEpoch};
 use ckb_app_config::BlockAssemblerConfig;
@@ -129,7 +129,7 @@ fn set_status(
 ) {
     runtime.with_authority_for_foundation(|authority| {
         let version = owner_version(authority, hash);
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_status_for_foundation(hash, version, status)
                 .expect("the fixture status transition plans"),

@@ -1,6 +1,6 @@
 use super::foundation::{
-    accept_remote_transaction, admit_remote, apply_without_work, direct_verified_facts_for_view,
-    limits, owner_version, resolved_payload_with_facts, verify_remote_transaction_with_payload,
+    accept_remote_transaction, admit_remote, apply_plan, direct_verified_facts_for_view, limits,
+    owner_version, resolved_payload_with_facts, verify_remote_transaction_with_payload,
     verify_remote_transaction_with_payload_under,
 };
 use crate::authority::{
@@ -284,13 +284,13 @@ fn uak_direct_final_validation_reissues_the_dependency_observation_cut() {
     let admission = ValidatedAdmission::remote(parent, PeerIndex::from(65))
         .expect("the dependency-loss fixture is a valid retained admission");
     let parent_key = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("the parent acquires one retained owner"),
     );
     let parent_version = owner_version(&authority, &parent_key);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_terminalize_for_foundation(&parent_key, parent_version)
             .expect("terminal parent removal publishes definitive dependency loss"),

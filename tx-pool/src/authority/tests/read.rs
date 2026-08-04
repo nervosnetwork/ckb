@@ -7,8 +7,8 @@ use super::super::{
     },
 };
 use super::foundation::{
-    accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    apply_without_work, genesis_snapshot, limits, owner_version, resolved_payload_with_facts, tx,
+    accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote, apply_plan,
+    genesis_snapshot, limits, owner_version, resolved_payload_with_facts, tx,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -89,7 +89,7 @@ fn uak_query_never_splices_two_authority_cuts() {
     };
 
     let version = owner_version(&authority, &hash);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_status_for_foundation(&hash, version, AcceptedStatus::Proposed)
             .expect("status transition plans"),
@@ -227,7 +227,7 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
     for transaction in [recovery_child.clone(), recovery_parent.clone()] {
         let admission = ValidatedAdmission::recovery(transaction, PoolGeneration(0))
             .expect("fixture recovery admission is valid");
-        apply_without_work(
+        apply_plan(
             authority
                 .plan_admission(admission)
                 .expect("fixture recovery admission plans"),
@@ -238,7 +238,7 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
     let _remote = admit_remote(&mut authority, 707, 5);
     let proposal =
         ValidatedAdmission::proposal(tx(708)).expect("fixture proposal admission is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(proposal)
             .expect("fixture proposal admission plans"),
@@ -296,7 +296,7 @@ fn uak_dropped_persistence_receipt_has_no_authority_effect() {
     let recovery = ValidatedAdmission::recovery(tx(711), PoolGeneration(0))
         .expect("fixture recovery admission is valid");
     assert!(matches!(recovery.source, PreAcceptedSource::Recovery(_)));
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(recovery)
             .expect("fixture recovery admission plans"),

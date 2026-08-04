@@ -161,17 +161,15 @@ fn accepted_publication(
         .expect("fixture effect is bounded")
 }
 
-fn apply_without_handoff(commit: impl FixtureCommit) -> CommittedDelta {
-    let committed = commit.into_committed();
-    assert!(committed.handoff_is_none());
-    committed
+fn apply_plan(commit: impl FixtureCommit) -> CommittedDelta {
+    commit.into_committed()
 }
 
 fn publish(authority: &mut TxPoolAuthority, publication: &EffectPublication) -> CommittedDelta {
     let plan = authority
         .plan_effect_publication_for_foundation(publication)
         .expect("fixture publication fits");
-    apply_without_handoff(plan)
+    apply_plan(plan)
 }
 
 fn checkout(authority: &mut TxPoolAuthority) -> EffectLease {
@@ -327,7 +325,7 @@ fn uak_pending_recent_reject_uses_effect_position_within_one_batch() {
     assert_eq!(pending, RejectionKind::Policy.into());
 
     let lease = checkout(&mut authority);
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("the complete batch settles"),
@@ -667,14 +665,14 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
     ));
 
     let occupied_lease = checkout(&mut authority);
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
                 occupied_lease.complete_for_foundation().published(),
             )
             .expect("occupied publication settles"),
     ));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_settlement(blocked.into_settlement())
             .expect("the exact rejected settlement retries after capacity is free"),
@@ -748,14 +746,14 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     assert_eq!(authority.normalized_snapshot(), before);
 
     let occupied_lease = checkout(&mut authority);
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
                 occupied_lease.complete_for_foundation().published(),
             )
             .expect("the occupied publication settles"),
     ));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_settlement(blocked.into_settlement())
             .expect("the same missing result commits after capacity returns"),
@@ -859,7 +857,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     assert_eq!(authority.normalized_snapshot(), before_exhaustion);
     authority.force_next_sequence(resumable_sequence);
 
-    let retained = apply_without_handoff(
+    let retained = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(exhausted.into_settlement())
             .expect("the exact lease can be retained"),
@@ -871,7 +869,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     assert_eq!(requeued.total_usage, expected_charge);
 
     let lease = checkout(&mut authority);
-    let published = apply_without_handoff(
+    let published = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("the exact lease publishes"),
@@ -887,7 +885,7 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let accepted = accepted_publication(&authority, EffectPolicy::Trusted, Arc::new(tx(731)));
     drop(publish(&mut authority, &accepted));
     let lease = checkout(&mut authority);
-    let disposed = apply_without_handoff(
+    let disposed = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
                 lease.complete_for_foundation().circuit_disposed(),
@@ -960,7 +958,7 @@ fn uak_effect_regions_are_cumulative_and_critical_full_resets() {
 #[test]
 fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let first = apply_without_handoff(
+    let first = apply_plan(
         authority
             .plan_generation_reset_for_foundation()
             .expect("first generation reset plans"),
@@ -968,7 +966,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     let first_sequence = effect_control_sequence(&first);
     assert_eq!(first.retired_effect_len(), 0);
 
-    let second = apply_without_handoff(
+    let second = apply_plan(
         authority
             .plan_generation_reset_for_foundation()
             .expect("newer generation reset plans"),
@@ -985,14 +983,14 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
 
     let old_active = checkout(&mut authority);
     assert_eq!(old_active.sequence(), second_sequence);
-    let third = apply_without_handoff(
+    let third = apply_plan(
         authority
             .plan_generation_reset_for_foundation()
             .expect("reset can advance while an older reset is active"),
     );
     let third_sequence = effect_control_sequence(&third);
     assert!(third_sequence > second_sequence);
-    let retained = apply_without_handoff(
+    let retained = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(old_active.retain())
             .expect("old reset lease settles"),
@@ -1011,7 +1009,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
         newest.effects(),
         [CommittedEffect::GenerationReset]
     ));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(newest.complete_for_foundation().published())
             .expect("latest reset publishes"),
@@ -1024,12 +1022,12 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
     let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
     let publication = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(750)));
     drop(publish(&mut authority, &publication));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .plan_generation_reset_for_foundation()
             .expect("generation reset plans"),
     ));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .plan_effect_close_for_foundation()
             .expect("authority close plans"),
@@ -1057,7 +1055,7 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
 
     for _ in 0..2 {
         let lease = checkout(&mut authority);
-        drop(apply_without_handoff(
+        drop(apply_plan(
             authority
                 .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
                 .expect("already committed effects drain after close"),
@@ -1073,7 +1071,7 @@ fn uak_effect_close_requires_every_compute_capability_to_settle() {
     let admission = ValidatedAdmission::remote(tx(752), PeerIndex::from(76))
         .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture admission plans"),
@@ -1093,12 +1091,12 @@ fn uak_effect_close_requires_every_compute_capability_to_settle() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .apply_settlement(work.rejected(RejectionKind::Policy))
             .expect("the unique live lease settles before close"),
     ));
-    drop(apply_without_handoff(
+    drop(apply_plan(
         authority
             .plan_effect_close_for_foundation()
             .expect("drained compute permits close"),

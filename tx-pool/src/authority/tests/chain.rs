@@ -22,7 +22,7 @@ use super::super::{
 };
 use super::foundation::{
     accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote,
-    admit_remote_until, apply_without_work, assert_membership_reference, assert_resource_reference,
+    admit_remote_until, apply_plan, assert_membership_reference, assert_resource_reference,
     genesis_snapshot, independent_batch, limits, missing_keys, owner_version, resolved_payload,
     resolved_payload_with_facts, runtime_config, take_resolve_work, tx, verify_remote_transaction,
     verify_remote_transaction_with_payload,
@@ -69,7 +69,7 @@ fn uak_final_admission_refreshes_stale_verification_context() {
     authority.force_chain_view(current_view.clone());
     let version = owner_version(&authority, &candidate);
 
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&candidate, version, AcceptedStatus::Pending)
             .expect("fresh final validation replaces the old verification context"),
@@ -125,15 +125,14 @@ fn uak_chain_tip_not_revision_controls_negative_evidence_freshness() {
         .plan_checkout_for_foundation(&same_tip, version, WorkPermit::ResolveOnly)
         .expect("same-tip resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let missing = resolve
         .missing(missing_keys())
         .expect("fixture missing evidence is bounded");
     authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::zero()));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(missing)
             .expect("same-tip negative evidence remains current"),
@@ -150,15 +149,14 @@ fn uak_chain_tip_not_revision_controls_negative_evidence_freshness() {
         .plan_checkout_for_foundation(&changed_tip, version, WorkPermit::ResolveOnly)
         .expect("changed-tip resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let missing = resolve
         .missing(missing_keys())
         .expect("fixture missing evidence is bounded");
     authority.force_chain_view(ChainViewId::new(ChainRevision(2), Byte32::new([70; 32])));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(missing)
             .expect("matching completion consumes stale negative evidence"),
@@ -180,7 +178,7 @@ fn uak_matching_resolution_completion_requeues_across_a_chain_view_change() {
         .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
         .expect("resolve checkout plans")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("work exists") else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let payload = resolved_payload(resolve.transaction());
@@ -189,7 +187,7 @@ fn uak_matching_resolution_completion_requeues_across_a_chain_view_change() {
         .expect("fixture resolution fits the checked-out work");
     let current_view = ChainViewId::new(ChainRevision(1), Byte32::new([15; 32]));
     authority.force_chain_view(current_view.clone());
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the matching completion releases its old-view lease"),
@@ -223,7 +221,7 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
     authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([71; 32])));
 
     let (rejected_hash, rejected_work) = settlements.remove(0);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 rejected_work.rejected(super::super::state::test_support::RejectionKind::Policy),
@@ -240,7 +238,7 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
     let budget = budget_work
         .missing(vec![DependencyKey::Header(Byte32::zero()); 17])
         .expect("over-grant missing evidence becomes a typed resource rejection");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(budget)
             .expect("budget failure is independent of chain context"),
@@ -248,7 +246,7 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
     assert!(authority.entry(&budget_hash).is_none());
 
     let (internal_hash, internal_work) = settlements.remove(0);
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(internal_work.internal_failure())
             .expect("internal worker failure releases and retries its lease"),
@@ -298,14 +296,13 @@ fn park_missing(authority: &mut TxPoolAuthority, hash: &RawTxHash, dependency: D
         )
         .expect("missing fixture checks out")
         .apply();
-    let CheckedOutWork::Resolve(resolve) = checkout.into_work().expect("resolve work exists")
-    else {
+    let CheckedOutWork::Resolve(resolve) = checkout.into_work() else {
         panic!("resolve-only permit returns resolve work");
     };
     let settlement = resolve
         .missing(vec![dependency])
         .expect("missing fixture is bounded");
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("missing fixture enters Wait"),
@@ -317,7 +314,7 @@ fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) {
         .plan_dependency_maintenance()
         .expect("dependency maintenance remains coherent")
     {
-        apply_without_work(plan);
+        apply_plan(plan);
     }
 }
 
@@ -357,7 +354,7 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
         ),
     );
     let winner_version = owner_version(&authority, &winner);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
             .expect("the funded winner retains its accepted victim"),
@@ -380,7 +377,7 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
         .expect("winner commit preserves parked history")
         .validate_for_foundation(Vec::new())
         .expect("winner commit needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(committed)
             .expect("winner commit and history preservation are one Apply"),
@@ -404,7 +401,7 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
         .expect("winner detach publishes its chain input availability")
         .validate_for_foundation(Vec::new())
         .expect("winner detach needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(detached)
             .expect("newer availability coalesces behind the undrained loss"),
@@ -496,7 +493,7 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
         .expect("committed parent produces one bounded work slice")
         .validate_for_foundation(vec![(child_proposal, ProposalWindowPosition::Gap)])
         .expect("the surviving Gap child is reconciled against the new window");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("committed-parent removal is one atomic chain Apply"),
@@ -524,7 +521,7 @@ fn uak_chain_commit_closes_a_preaccepted_owner_with_exact_effect_semantics() {
         ValidatedAdmission::remote(transaction.clone(), ckb_network::PeerIndex::from(503))
             .expect("preaccepted committed fixture is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("fixture enters preacceptance"),
@@ -542,7 +539,7 @@ fn uak_chain_commit_closes_a_preaccepted_owner_with_exact_effect_semantics() {
         .expect("committed raw owner is selected")
         .validate_for_foundation(Vec::new())
         .expect("commit needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("owner removal and effect append are atomic"),
@@ -621,7 +618,7 @@ fn uak_chain_conflict_subtracts_a_deep_closure_from_its_surviving_ancestor() {
         .expect("one traversal captures the complete conflict closure")
         .validate_for_foundation(Vec::new())
         .expect("the closure has no status survivors");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("deep closure removal projects atomically"),
@@ -692,7 +689,7 @@ fn uak_chain_conflict_closes_accepted_cell_dep_readers_in_the_same_apply() {
         .expect("canonical dependency closure includes accepted cell-dep readers")
         .validate_for_foundation(Vec::new())
         .expect("the closed conflict set needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("provider and reader terminalize in one atomic Apply"),
@@ -737,7 +734,7 @@ fn uak_conflict_dominates_simultaneous_recovery_for_accepted_and_preaccepted_own
         ValidatedAdmission::remote(preaccepted_tx, ckb_network::PeerIndex::from(1_322))
             .expect("preaccepted dual-cause fixture is valid");
     let preaccepted = preaccepted_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(preaccepted_admission)
             .expect("preaccepted dual-cause fixture enters ownership"),
@@ -760,7 +757,7 @@ fn uak_conflict_dominates_simultaneous_recovery_for_accepted_and_preaccepted_own
         .expect("the closed causal lattice selects every affected owner")
         .validate_for_foundation(Vec::new())
         .expect("conflict-dominated owners need no proposal-window facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("conflict, recovery, and detached replay apply atomically"),
@@ -793,7 +790,7 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
     )
     .expect("remote conflict fixture is valid");
     let candidate = candidate_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(candidate_admission)
             .expect("remote conflict fixture enters preacceptance"),
@@ -815,7 +812,7 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
         .expect("preaccepted conflict is a bounded terminal disposition")
         .validate_for_foundation(Vec::new())
         .expect("terminal conflict needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("conflict removal and chain cut commit together"),
@@ -827,7 +824,7 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
         ckb_network::PeerIndex::from(516),
     )
     .expect("another peer may provide the same raw transaction later");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(refetch)
             .expect("chain conflict creates no raw-hash tombstone"),
@@ -854,7 +851,7 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         ValidatedAdmission::remote(candidate_tx.clone(), ckb_network::PeerIndex::from(520))
             .expect("multi-conflict fixture is valid");
     let candidate = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("multi-conflict fixture enters preacceptance"),
@@ -880,7 +877,7 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         .expect("one causal plan joins both conflict cells")
         .validate_for_foundation(Vec::new())
         .expect("terminal conflict needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("owner removal and exact conflict effect commit together"),
@@ -900,7 +897,7 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
             ..
         })] if out_point == &smaller
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("published conflict effect settles"),
@@ -922,7 +919,7 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
         ValidatedAdmission::remote(parent_tx.clone(), ckb_network::PeerIndex::from(517))
             .expect("preaccepted parent fixture is valid");
     let parent = parent_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(parent_admission)
             .expect("preaccepted parent enters ownership"),
@@ -933,7 +930,7 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
     let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(518))
         .expect("dependent child fixture is valid");
     let child = child_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child_admission)
             .expect("dependent child enters ownership"),
@@ -966,7 +963,7 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
         .expect("the parent conflict preserves the active child capability")
         .validate_for_foundation(Vec::new())
         .expect("the conflict needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("parent removal and dependency loss commit atomically"),
@@ -978,7 +975,7 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![DependencyKey::Cell(parent_output)])
@@ -1048,7 +1045,7 @@ fn uak_chain_projection_combines_status_and_aggregate_changes_once() {
     let receipt = work
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Gap)])
         .expect("the final proposal position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("status and aggregate keys change in one projection"),
@@ -1101,7 +1098,7 @@ fn uak_detached_parent_and_accepted_child_recover_parent_first() {
         .expect("detached origin finds its accepted descendant")
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal positions");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("parent and descendant move to recovery atomically"),
@@ -1162,7 +1159,7 @@ fn uak_detached_provider_and_accepted_cell_dep_reader_recover_in_one_apply() {
         .expect("canonical dependency closure includes the accepted cell-dep reader")
         .validate_for_foundation(Vec::new())
         .expect("provider recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("provider and reader enter recovery in one atomic Apply"),
@@ -1226,7 +1223,7 @@ fn uak_detached_header_requeues_its_accepted_consumer_in_the_same_apply() {
         .expect("canonical dependency closure includes the accepted header consumer")
         .validate_for_foundation(Vec::new())
         .expect("header recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("header loss and consumer recovery commit atomically"),
@@ -1289,7 +1286,7 @@ fn uak_recovery_orders_cell_dependencies_before_hash_tiebreaks() {
         .expect("declared cell dependency participates in recovery ordering")
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("dependency-ordered recovery installs atomically"),
@@ -1341,7 +1338,7 @@ fn uak_relocated_chain_producer_requeues_accepted_consumers() {
         .expect("relocated origin selects its accepted consumer")
         .validate_for_foundation(Vec::new())
         .expect("relocation recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("old location/time proof is removed with the chain cut"),
@@ -1386,7 +1383,7 @@ fn uak_direct_recovery_dominates_a_simultaneous_proposal_status_change() {
     let receipt = work
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal-window result");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("one final owner change applies without duplication"),
@@ -1439,7 +1436,7 @@ fn uak_causal_recovery_dominates_a_detached_proposal_demotion() {
     let receipt = work
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal-window fact");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("the stronger recovery action applies once"),
@@ -1459,7 +1456,7 @@ fn uak_reorg_requeues_only_context_sensitive_accepted_membership() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let contextual_tx = output_transaction(1_312);
     let contextual = verify_remote_transaction(&mut authority, contextual_tx, 1_312, Vec::new());
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_context_sensitive_for_foundation(
                 &contextual,
@@ -1493,7 +1490,7 @@ fn uak_reorg_requeues_only_context_sensitive_accepted_membership() {
         .expect("the derived sensitivity index avoids a full owner scan")
         .validate_for_foundation(Vec::new())
         .expect("context recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("context-sensitive recovery and chain cut are atomic"),
@@ -1516,7 +1513,7 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let contextual_tx = output_transaction(1_315);
     let contextual = verify_remote_transaction(&mut authority, contextual_tx, 1_315, Vec::new());
-    apply_without_work(
+    apply_plan(
         authority
             .plan_accept_context_sensitive_for_foundation(
                 &contextual,
@@ -1546,7 +1543,7 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
         .expect("typed rules invalidation selects every Accepted proof")
         .validate_for_foundation(Vec::new())
         .expect("context recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("rules transition and recovery commit atomically"),
@@ -1577,7 +1574,7 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
         ValidatedAdmission::remote(child_tx, peer).expect("remote dependent fixture is valid");
     let child = child_admission.identity.raw.clone();
     let charged = child_admission.charge_for_foundation();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child_admission)
             .expect("remote dependent enters preacceptance"),
@@ -1597,7 +1594,7 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
         .expect("detached origin finds the preaccepted dependent")
         .validate_for_foundation(Vec::new())
         .expect("dependency recovery needs no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("trusted parent and peer-owned dependent recover atomically"),
@@ -1633,7 +1630,7 @@ fn uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut() {
     let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(1_326))
         .expect("active recovery child fixture is valid");
     let child = child_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child_admission)
             .expect("active recovery child enters preacceptance"),
@@ -1661,7 +1658,7 @@ fn uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut() {
         .expect("dependency invalidation does not revoke active compute")
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("parent recovery and chain cut preserve the child lease"),
@@ -1678,7 +1675,7 @@ fn uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![DependencyKey::Cell(parent_output)])
@@ -1707,7 +1704,7 @@ fn uak_preaccepted_recovery_does_not_publish_false_input_availability() {
         .build();
     let child = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(536))
         .expect("remote dependent fixture is valid");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child)
             .expect("remote dependent enters preacceptance"),
@@ -1720,7 +1717,7 @@ fn uak_preaccepted_recovery_does_not_publish_false_input_availability() {
     let waiter = ValidatedAdmission::remote(waiter_tx, ckb_network::PeerIndex::from(537))
         .expect("remote waiter fixture is valid");
     let waiter_hash = waiter.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(waiter)
             .expect("remote waiter enters preacceptance"),
@@ -1745,7 +1742,7 @@ fn uak_preaccepted_recovery_does_not_publish_false_input_availability() {
         .expect("chain work distinguishes a direct detach from dependent requeue")
         .validate_for_foundation(Vec::new())
         .expect("recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("chain transition publishes only real dependency changes"),
@@ -1791,7 +1788,7 @@ fn uak_accepted_chain_conflict_publishes_released_input_availability() {
     let waiter = ValidatedAdmission::remote(waiter_tx, ckb_network::PeerIndex::from(539))
         .expect("released-input waiter is valid");
     let waiter_hash = waiter.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(waiter)
             .expect("released-input waiter enters preacceptance"),
@@ -1820,7 +1817,7 @@ fn uak_accepted_chain_conflict_publishes_released_input_availability() {
         .expect("accepted conflict closure is bounded")
         .validate_for_foundation(Vec::new())
         .expect("conflict transition requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("conflict removal and availability publish atomically"),
@@ -1874,7 +1871,7 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
             (promoted_proposal, ProposalWindowPosition::Proposed),
         ])
         .expect("the new window position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("Gap demotion and chain view install are atomic"),
@@ -1915,7 +1912,7 @@ fn uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint() {
         .expect("the Accepted status index selects Gap membership")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the new window position covers the indexed Gap owner");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("Gap demotion and chain view install are atomic"),
@@ -2209,7 +2206,7 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_725);
     let hash = admit_remote_until(&mut authority, 1_725, 725, 10);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction.clone())
@@ -2238,7 +2235,7 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
     let receipt = work
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the proposal position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("source demotion and deadline publication are one Apply"),
@@ -2273,7 +2270,7 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_726);
     let hash = admit_remote_until(&mut authority, 1_726, 726, 20);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction.clone())
@@ -2306,7 +2303,7 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
         .expect("source-only demotion does not require compute drain")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the final position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("demotion preserves the unique active capability"),
@@ -2321,7 +2318,7 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
                 && entry.source.payload_policy() == PayloadPolicy::Trusted
                 && entry.source.payload_blame_peer().is_none()
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.rejected(super::super::state::test_support::RejectionKind::Policy),
@@ -2338,7 +2335,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
     let parent_admission =
         ValidatedAdmission::proposal(parent_tx.clone()).expect("trusted proposal fixture is valid");
     let parent = parent_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(parent_admission)
             .expect("trusted proposal enters preacceptance"),
@@ -2350,7 +2347,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
     )
     .expect("dependent child fixture is valid");
     let child = child_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child_admission)
             .expect("dependent child enters preacceptance"),
@@ -2379,7 +2376,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
         .expect("trusted proposal expiry is bounded")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the final proposal position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("parent terminalization and dependency loss are atomic"),
@@ -2391,7 +2388,7 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 child_work
@@ -2415,7 +2412,7 @@ fn uak_chain_trusted_proposal_expiry_invalidates_active_work_without_a_drain() {
     let admission = ValidatedAdmission::proposal(transaction.clone())
         .expect("trusted proposal fixture is valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("trusted proposal enters preacceptance"),
@@ -2444,7 +2441,7 @@ fn uak_chain_trusted_proposal_expiry_invalidates_active_work_without_a_drain() {
         .expect("read-only validation does not cancel active work")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the final proposal position is exhaustive");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("proposal expiry removes the active owner atomically"),
@@ -2466,7 +2463,7 @@ fn uak_repeated_proposal_has_no_synthetic_source_revision() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_730);
     let hash = admit_remote_until(&mut authority, 1_730, 730, 20);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(
                 ValidatedAdmission::proposal(transaction.clone())
@@ -2502,7 +2499,7 @@ fn uak_repeated_proposal_has_no_synthetic_source_revision() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
     assert_eq!(owner_version(&authority, &hash), version);
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("a duplicate notification cannot stale the chain receipt"),
@@ -2532,7 +2529,7 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
     let child_admission = ValidatedAdmission::remote(child_tx, ckb_network::PeerIndex::from(1_324))
         .expect("preaccepted child fixture is valid");
     let child = child_admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(child_admission)
             .expect("preaccepted child enters resolve queue"),
@@ -2561,7 +2558,7 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
         .expect("proposal demotion does not require a compute drain")
         .validate_for_foundation(vec![(parent_proposal, ProposalWindowPosition::Outside)])
         .expect("the parent proposal is outside the new window");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("status demotion preserves active preaccepted compute"),
@@ -2576,7 +2573,7 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
-    apply_without_work(
+    apply_plan(
         authority
             .apply_settlement(
                 work.missing(vec![DependencyKey::Cell(parent_output)])
@@ -2616,7 +2613,7 @@ fn uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners() {
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    apply_without_work(
+    apply_plan(
         accepted_authority
             .plan_chain_transition(accepted_receipt)
             .expect("an unrelated Accepted owner does not stale the chain cut"),
@@ -2639,7 +2636,7 @@ fn uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners() {
         .validate_for_foundation(Vec::new())
         .expect("empty work validates");
     let unrelated = admit_remote(&mut compatible_authority, 543, 543);
-    apply_without_work(
+    apply_plan(
         compatible_authority
             .plan_chain_transition(receipt)
             .expect("unrelated preacceptance does not stale a ChainPlan"),
@@ -2669,7 +2666,7 @@ fn uak_chain_recovery_receipt_proves_targeted_vacancy() {
     let admission = ValidatedAdmission::remote(transaction, ckb_network::PeerIndex::from(545))
         .expect("a concurrent targeted admission is structurally valid");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("the targeted hash becomes owned before chain Plan"),
@@ -2719,7 +2716,7 @@ fn uak_chain_commit_invalidates_targeted_active_work_without_a_prefix() {
         .expect("read-only validation may capture an active owner")
         .validate_for_foundation(Vec::new())
         .expect("the committed hash needs no proposal lookup");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("the committed active owner is removed in the total chain Apply"),
@@ -2744,7 +2741,7 @@ fn uak_chain_direct_recovery_replaces_active_owner_and_stales_old_work() {
         ValidatedAdmission::remote(transaction.clone(), ckb_network::PeerIndex::from(552))
             .expect("active detached transaction is a valid remote admission");
     let hash = admission.identity.raw.clone();
-    apply_without_work(
+    apply_plan(
         authority
             .plan_admission(admission)
             .expect("the preexisting owner enters preacceptance"),
@@ -2772,7 +2769,7 @@ fn uak_chain_direct_recovery_replaces_active_owner_and_stales_old_work() {
         .expect("validation captures the active owner version")
         .validate_for_foundation(Vec::new())
         .expect("direct recovery requires no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("trusted recovery replaces active ownership atomically"),
@@ -2820,7 +2817,7 @@ fn uak_large_independent_chain_facts_do_not_consume_the_causal_bound() {
     let receipt = work
         .validate_for_foundation(Vec::new())
         .expect("independent facts require no proposal lookups");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("the empty affected owner slice installs atomically"),
@@ -2860,7 +2857,7 @@ fn uak_direct_detached_owners_do_not_consume_the_causal_bound() {
         .expect("direct block owners do not consume the independent causal bound")
         .validate_for_foundation(Vec::new())
         .expect("direct recoveries require no proposal facts");
-    apply_without_work(
+    apply_plan(
         authority
             .plan_chain_transition(receipt)
             .expect("the block-bounded recovery set installs atomically"),
@@ -3030,10 +3027,9 @@ fn uak_empty_chain_transition_updates_only_the_chain_cut() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let before_accepted = authority.accepted_source_for_reference();
     let before = authority.template_source_versions_for_reference();
-    let committed = empty_transition(&mut authority, 60);
+    drop(empty_transition(&mut authority, 60));
     let after_accepted = authority.accepted_source_for_reference();
     let after = authority.template_source_versions_for_reference();
-    assert!(committed.handoff_is_none());
     assert_eq!(authority.chain_revision(), ChainRevision(1));
     assert!(after.chain > before.chain);
     assert_eq!(after_accepted, before_accepted);

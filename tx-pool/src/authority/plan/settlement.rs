@@ -1,7 +1,7 @@
 use super::{
     AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, CommittedChange,
-    CommittedHandoff, IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan,
-    TxPoolAuthority, next_sequence, next_version,
+    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
+    next_sequence, next_version,
 };
 use crate::authority::{
     chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
@@ -292,7 +292,6 @@ impl TxPoolAuthority {
                 clocks,
                 committed,
             }),
-            handoff: CommittedHandoff::None,
         }))
     }
 }
