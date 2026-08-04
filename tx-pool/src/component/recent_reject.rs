@@ -180,7 +180,7 @@ impl RecentReject {
             // Reaching the slow path means the column family was missing a
             // moment ago (either dropped by `shrink` or never created), so
             // count this write as a new key. Concurrent puts of the same key
-            // can double-count — that is inside the declared approximate
+            // can double-count; that is inside the declared approximate
             // tolerance of the counter.
             self.increment_approximate_count();
             Ok::<(), AnyError>(())

@@ -191,7 +191,7 @@ fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral
     assert_eq!(uncles.len(), 1);
     assert_eq!(uncles[0].hash(), off_chain.hash());
     // It is retained in the candidate set (not removed, just not eligible
-    // for removal — it's a valid uncle that was selected).
+    // for removal; it is a valid uncle that was selected).
     assert!(candidate_uncles.contains(&off_chain));
 }
 

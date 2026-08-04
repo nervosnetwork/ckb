@@ -54,7 +54,7 @@ impl BlockAssembler {
                     if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
                         // A permanently unresolvable proposed tx lands here
                         // on *every* template update until its ancestor
-                        // lands or it expires — debug level, or it storms
+                        // lands or it expires; debug level, or it storms
                         // the error log. The caller aggregates the failed
                         // set per update.
                         debug!(
