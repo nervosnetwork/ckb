@@ -80,8 +80,8 @@
         {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct ReplacementHistoryEntry", "ReplacementHistoryCharge"]},
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["fn plan_replacement_history_admission", "ReplacementHistoryLimit"]}
       ],
-      "required_behavior": "Only an actually Accepted RBF victim can become inert charged ReplacementHistory. It observes exact final blockers, has no scheduler/source/peer/deadline, remains private to RPC/template/persistence, and re-enters full validation on recovery.",
-      "hostile_case": "A loser, remote candidate, same-Apply victim wake, partial blocker release, unrelated chain change or saturated history budget must not create executable ghost work, false wake or partial retained history.",
+      "required_behavior": "Only an actually Accepted RBF victim can become inert charged ReplacementHistory. It observes exact final blockers, has no scheduler/source/peer/deadline, remains private to live RPC/template/persistence, is the sole source of the legacy conflicted hash projection, and re-enters full validation on recovery. Failed candidates terminalize into per-hash reject evidence without retained ownership.",
+      "hostile_case": "A policy-rejected loser, remote candidate, same-Apply victim wake, partial blocker release, unrelated chain change or saturated history budget must not create executable ghost work, hidden residency, false wake or partial retained history.",
       "reviewer_questions": [
         "Is the constructor reachable only from successful Accepted-victim displacement?",
         "Does wake require a newer level for every retained blocker?",
@@ -559,6 +559,20 @@
       "unit_anchors": [
         "authority::tests::foundation::uak_rbf_replaces_the_complete_descendant_closure_atomically",
         "authority::tests::template_driver::uak_template_driver_full_priority_and_partial_occ_use_one_output_revision"
+      ]
+    },
+    {
+      "id": "failed-rbf-terminal",
+      "behavior_ids": ["TP-CACHE-001", "TP-COMMIT-001", "TP-RBF-001", "TP-QUERY-001"],
+      "path": "test/src/specs/tx_pool/replace.rs",
+      "anchor": "RbfContainInvalidInput",
+      "boundary": "A policy-rejected RBF candidate publishes per-hash rejection while preserving every accepted owner and creating no uncharged conflict-history residency.",
+      "invariants": ["T1", "T3", "T6", "T7", "T8", "T12"],
+      "unit_anchors": [
+        "authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together",
+        "authority::tests::foundation::uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate",
+        "authority::tests::foundation::uak_independent_rbf_churn_never_exceeds_replacement_history_budget",
+        "authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee"
       ]
     },
     {

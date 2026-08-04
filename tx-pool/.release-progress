@@ -94,21 +94,31 @@ example suite retained its baseline transaction while testing direct local
 submission, depending on the deleted verify-queue acknowledgement gap. It now
 establishes absence and observes the final direct Apply result.
 
+The first complete managed-integration attempt passed 13 specs and then
+stopped at `RbfContainInvalidInput`. The product returned the documented UAK
+outcome: the candidate was terminally rejected, every Accepted owner survived,
+and no replacement-history owner was created. The old integration assertion
+instead required `develop`'s uncharged rejected-candidate conflict LRU. That
+assertion was classified obsolete after a compatibility/security review, not
+changed as a product workaround. `ARCHITECTURE.md` now records the intentional
+semantic narrowing of `get_raw_tx_pool.conflicted`: only successfully displaced
+Accepted victims retained as charged `ReplacementHistory` appear there;
+per-hash recent-reject remains the failed-candidate surface. The exact failing
+spec passed, followed by the complete affected eight-spec RBF/relay group.
+
 Next exact actions:
 
-1. Freeze the Rust-evidence and fixture-lifecycle correction checkpoint without
-   staging the user-owned root `.gitignore`.
-2. Build the production node and integration runner through `make integration`.
-3. Obtain the exact 150-spec command from the generated review guide / managed
-   integration registry; do not substitute a directory or name subset.
-4. Run the managed universe serially with `CKB_TEST_ARGS` and the registered
-   common arguments.
-5. For each failure, preserve logs and classify it as product defect, obsolete
+1. Freeze the RBF compatibility adjudication without staging the user-owned
+   root `.gitignore`.
+2. Re-run the exact generated 150-spec managed universe from the beginning,
+   serially through `make integration`; do not substitute a directory, the
+   previous runner remainder, or a name subset.
+3. For each failure, preserve logs and classify it as product defect, obsolete
    test, harness defect or environment failure before any edit.
-6. A product defect returns to architecture/producer-consumer analysis. Do not
+4. A product defect returns to architecture/producer-consumer analysis. Do not
    add a retry, repair scan, watchdog, second authority or test-only exception.
-7. Re-run the failed exact spec, its full semantic group and then all 150.
-8. Run the phase-4 static/nextest/Clippy gates again and freeze the P9.8
+5. Re-run the failed exact spec, its full semantic group and then all 150.
+6. Run the phase-4 static/nextest/Clippy gates again and freeze the P9.8
    checkpoint.
 
 ## P10 boundary

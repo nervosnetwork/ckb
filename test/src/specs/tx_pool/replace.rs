@@ -256,8 +256,10 @@ impl Spec for RbfSameInputwithLessFee {
             "Tx's current fee is 1000000000, expect it to >= 2000000363 to replace old txs"
         ));
 
-        // local submit tx RBF check failed, will be added into conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // A rejected candidate is terminal recent-reject evidence, not retained
+        // replacement history. Only successfully displaced Accepted victims
+        // appear on the legacy `conflicted` projection.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -320,8 +322,8 @@ impl Spec for RbfTooManyDescendants {
                 .contains("Tx conflict with too many txs")
         );
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // Component-limit rejection cannot create uncharged conflict history.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -396,8 +398,9 @@ impl Spec for RbfContainNewTx {
                 .contains("new Tx contains unconfirmed inputs")
         );
 
-        // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // A failed candidate is rejected terminally rather than retained as a
+        // second owner waiting for the accepted chain to change.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -472,8 +475,20 @@ impl Spec for RbfContainInvalidInput {
                 .contains("new Tx contains inputs in descendants of to be replaced Tx")
         );
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        let rejected = node0.rpc_client().get_transaction(tx2.hash());
+        assert_eq!(rejected.tx_status.status, Status::Rejected);
+        for original in &txs[..max_count] {
+            assert_eq!(
+                node0
+                    .rpc_client()
+                    .get_transaction(original.hash())
+                    .tx_status
+                    .status,
+                Status::Pending,
+                "failed RBF must preserve every accepted owner"
+            );
+        }
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -551,8 +566,9 @@ impl Spec for RbfChildPayForParent {
             .to_string()
             .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
 
-        // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
+        // The under-fee candidate is a terminal rejection, not optional
+        // replacement history.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
@@ -578,7 +594,6 @@ impl Spec for RbfChildPayForParent {
             .iter()
             .map(|tx| tx.hash().into())
             .collect::<Vec<_>>();
-        expected.push(new_tx.hash().into());
         expected.sort_unstable();
         let conflicts = get_tx_pool_conflicts(node0);
         assert_eq!(conflicts, expected);
@@ -1039,7 +1054,7 @@ impl Spec for RbfCellDepsCheck {
                 .to_string()
                 .contains("new Tx contains cell deps from conflicts")
         );
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -1239,13 +1254,16 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
         node1.get_tip_block_number() == node0.get_tip_block_number()
     });
 
-    let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
+    let rejected = wait_until(60, || {
+        node1.get_transaction(tx2.hash()).status == Status::Rejected
+    });
+    assert!(rejected, "node1 should publish the terminal rejection");
 
     let res = node1.get_transaction(tx2.hash());
     assert_eq!(res.status, Status::Rejected);
     let res = node1.get_transaction(tx1.hash());
     assert_eq!(res.status, Status::Pending);
-    assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().into()]);
+    assert!(get_tx_pool_conflicts(node1).is_empty());
 }
 
 pub struct SendConflictTxToRelay;

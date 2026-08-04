@@ -92,6 +92,15 @@ The refactor preserves these externally observable contracts:
   always consumes the exact `AcceptedStatus` and never the RPC projection.
 - Replacement history is private recovery state. It is absent from live-pool
   RPC status, block templates and persistence.
+- The `get_raw_tx_pool.conflicted` field remains wire-compatible but now lists
+  only successfully displaced Accepted victims retained as charged
+  `ReplacementHistory`. A rejected conflict/RBF candidate is terminal
+  recent-reject evidence and is never retained merely to populate that list.
+  This is an intentional semantic narrowing of `develop`'s uncharged conflict LRU:
+  per-hash callers use `get_transaction` for the rejection, while removing the
+  candidate's second residency closes the freeloader and implicit-retry
+  surface. Rolling back to `develop` restores the broader legacy list together
+  with that cache behavior.
 - Verification-cache identity is the inline 32-byte witness hash together with
   the exact `ScriptVerificationRules` generation.
 - Persistence remains best effort. Accepted transactions and Recovery-source
@@ -401,7 +410,9 @@ without adding a sharded owner map or a second DAG authority.
 RBF planning computes the complete conflict/victim/descendant closure, new
 unconfirmed-input rule, ancestor/descendant overlap, dependency-on-victim rule,
 candidate bound, absolute replacement fee and size-based fee-rate gate against
-one coherent virtual membership. A rejected plan is mutation-free.
+one coherent virtual membership. A rejected membership decision leaves every
+Accepted owner unchanged; applying that decision terminalizes the candidate
+with its rejection effect and never creates candidate `ReplacementHistory`.
 
 A successful plan applies candidate insertion, all victim removals, descendant
 updates, charge changes, dependency levels, source versions and effects once.
@@ -482,6 +493,10 @@ changes.
   compatibility; internal detail and template code consume exact phases/status.
 - ReplacementHistory returns no live RPC status and falls through to the
   existing recent-reject/RBF-compatible surface.
+- The legacy `get_raw_tx_pool.conflicted` projection contains only charged
+  ReplacementHistory victims. It is not a list of every recent RBF rejection;
+  those terminal candidates are available only through the per-hash reject
+  surface and cannot consume hidden tx-pool residency.
 - Compact-block lookup is collision-aware and may read every live owner that
   intentionally participates in that compatibility surface.
 - Persistence captures Accepted owners and Recovery-source PreAccepted owners,
