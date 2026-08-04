@@ -5,7 +5,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder, SharedPackage};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, create_always_success_tx};
 use ckb_types::prelude::*;
@@ -110,13 +110,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
-    let network = dummy_network(&shared);
-    let tx_pool = ckb_tx_pool::internal_test_support::start_blocking_test_service(
-        pack.take_tx_pool_builder(),
-        network,
-        pack.take_relay_tx_receiver(),
-    )
-    .expect("start blocking tx-pool test service");
+    let tx_pool = start_tx_pool(&shared, &mut pack);
 
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let parent = {
@@ -128,6 +122,22 @@ pub(crate) fn start_chain_with_tx_pool_config(
     };
 
     (ChainTestScope::new(tx_pool, chain), shared, parent)
+}
+
+/// Start the production tx-pool topology required by chain tests that install
+/// best-tip snapshots. Authoritative chain deltas are intentionally reliable,
+/// so a chain-only fixture may not leave their bounded receiver undrained.
+pub(crate) fn start_tx_pool(
+    shared: &Shared,
+    pack: &mut SharedPackage,
+) -> ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope {
+    let network = dummy_network(shared);
+    ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network,
+        pack.take_relay_tx_receiver(),
+    )
+    .expect("start blocking tx-pool test service")
 }
 
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {

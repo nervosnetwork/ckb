@@ -1,3 +1,4 @@
+use crate::tests::util::start_tx_pool;
 use crate::utils::forkchanges::ForkChanges;
 use crate::verify::ConsumeUnverifiedBlockProcessor;
 use crate::{ChainServiceScope, UnverifiedBlock};
@@ -47,7 +48,8 @@ fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
     let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
-    let (shared, mut _pack) = builder.consensus(consensus).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
 
     let genesis = shared
         .store()
@@ -134,7 +136,8 @@ fn test_find_fork_case1() {
 fn test_find_fork_case2() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
 
     let genesis = shared
         .store()
@@ -216,7 +219,8 @@ fn test_find_fork_case2() {
 fn test_find_fork_case3() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
 
     let genesis = shared
         .store()
@@ -297,7 +301,8 @@ fn test_find_fork_case3() {
 fn test_find_fork_case4() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let (shared, _pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let (shared, mut pack) = builder.consensus(consensus.clone()).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
 
     let genesis = shared
         .store()
@@ -380,6 +385,7 @@ fn repeatedly_switch_fork() {
         .consensus(consensus.clone())
         .build()
         .unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
@@ -525,6 +531,7 @@ fn test_fork_proposal_table() {
     };
 
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let chain_controller = chain.chain_controller();
 

@@ -5,12 +5,14 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'tx-pool/**'
+      - 'chain/src/verify.rs'
       - 'test/src/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   push:
     branches: ['**']
     paths:
       - 'tx-pool/**'
+      - 'chain/src/verify.rs'
       - 'test/src/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   merge_group: {}
@@ -26,5 +28,6 @@ jobs:
         run: |
           python3 -m compileall -q tx-pool/scripts
           python3 tx-pool/scripts/check_docs.py
+          python3 tx-pool/scripts/check_production_contracts.py
           python3 tx-pool/scripts/check_review_guide.py
           python3 tx-pool/scripts/check_test_layout.py

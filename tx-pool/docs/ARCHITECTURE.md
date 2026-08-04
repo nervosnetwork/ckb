@@ -799,6 +799,18 @@ no lifecycle state or caller-maintained publication ordering.
 
 ### 13.1 Reorg
 
+Every best-tip installation, including the test/operator truncate boundary,
+passes through one chain-side `install_chain_tip_transition` publisher. It
+stores the new chain snapshot and then sends the exact fork delta to the
+capacity-one ordered tx-pool channel without consulting RPC readiness. The
+channel and controller exist before chain service startup; if its consumer is
+not yet live, the chain producer receives bounded backpressure rather than
+discarding history. Service assembly starts that consumer before persistence
+replay, and both replay and reorg use the same version-checked authority. RPC
+readiness and ordinary dispatcher ingress open only after replay. IBD and
+candidate-uncle notifications are derived inputs and retain their separate
+readiness/bounded-delivery policy.
+
 The chain-authoritative phase holds the accepted write guard and kernel mutex:
 
 1. reconcile attached/detached blocks and accepted statuses once;

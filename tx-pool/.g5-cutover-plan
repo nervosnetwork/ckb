@@ -24,10 +24,14 @@ G5/G6 typed-effect-checkout checkpoint: 24014ffb1
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
-every provisional historical adjudication.
-Next exact action: finish the current-code error/fail-stop, wait-for,
-manual-publication, and historical-adjudication audit; then freeze the complete
-remaining root-cause candidate set before another semantic change. The first
+every provisional historical adjudication. The cross-crate chain-tip
+publication audit is active after finding that G5.3c deleted startup zombie
+reconciliation without removing the chain-side readiness gate, and that the
+test-only truncate path installed a new tip without any tx-pool delta.
+Next exact action: close the chain-tip transition boundary, its startup/static
+regressions and affected chain tests; then finish the current-code
+error/fail-stop, wait-for, manual-publication and historical-adjudication audit
+before freezing the complete remaining root-cause candidate set. The first
 model-minimality slice is closed: the generic read-cut token, persistence-only
 sequence shadow, and unconsumed owners/status source clocks are removed;
 template receipts now carry only their required chain view and exact consumer
@@ -60,6 +64,113 @@ This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
 manifest carry the completed production design. It is not a second normative
 architecture document.
+
+### Recovery snapshot: chain-tip publication audit
+
+This subsection is the exact restart authority for the currently interrupted
+slice. The recoverable checkpoint is the Git commit containing this record;
+its parent is `f702fd33a`. The user-owned `.gitignore` modification is unrelated
+to this slice and is deliberately neither staged nor reverted.
+
+The verified report was the attachment whose title begins `Cutover Gap: The
+service_started() Reorg Gate Survived G5.3c`. Its central finding is confirmed:
+`chain/src/verify.rs` discarded an authoritative best-tip delta whenever RPC
+readiness was false, even though G5.3c had deleted the compensating startup
+zombie scan. One report detail is corrected: `AuthorityService::assemble`
+starts the ordered reorg consumer before `replay_persisted`; it is not spawned
+after replay. This overlap is safe because replay and ordered reorg both enter
+the same authority and final admission is version/chain-view checked.
+
+The omission root is also verified, not inferred:
+
+1. the C1/C2 cutover commit `28521bc98` changed 44 files but did not touch the
+   explicitly named `chain/src/verify.rs` producer;
+2. cutover review and tests were scoped primarily to `tx-pool`, so deletion of
+   the in-crate compensation was not paired mechanically with its cross-crate
+   producer change;
+3. the reviewer-facing registry and test-layout manifest still name deleted
+   legacy files, so their CI checks currently fail instead of proving HEAD;
+4. no zero-match-failing static contract bound best-tip snapshot installation
+   to reliable tx-pool publication.
+
+The expanded same-family audit found a second real gap: test/operator
+`truncate()` installed a different best-tip snapshot but emitted no tx-pool
+chain delta. Both call sites now use one chain-owned
+`install_chain_tip_transition` boundary. That boundary installs the snapshot
+then sends the exact fork delta without consulting `service_started`.
+Candidate-uncle and IBD notifications remain derived and readiness-gated; they
+must not be moved onto the authoritative capacity-one path. Chain tests that
+install tips now start the production tx-pool test topology rather than leave
+the reliable receiver permanently undrained.
+
+Current checkpoint contents:
+
+- `chain/src/verify.rs`: sole tip-install/reorg-publication boundary; normal
+  best-block and truncate paths both call it;
+- `chain/src/tests/{util,find_fork,truncate,uncle}.rs`: complete consumer-owning
+  fixtures for reliable chain deltas;
+- `tx-pool/src/service/tests/controller.rs` plus shared test support: exact
+  readiness-false delivery regression;
+- `tx-pool/scripts/check_production_contracts.py`: zero-match-failing checks
+  for the sole producer, no readiness gate, capacity-one bounded send, consumer
+  assembly before replay, and readiness after replay;
+- lightweight CI, validation documentation, architecture and this recovery
+  artifact updated for the contract.
+
+Evidence completed before interruption:
+
+- `cargo fmt --all`: passed;
+- `python3 tx-pool/scripts/check_production_contracts.py`: passed;
+- `python3 tx-pool/scripts/check_docs.py`: passed;
+- `git diff --check`: passed;
+- focused nextest
+  `service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness`:
+  1/1 passed.
+
+Evidence explicitly not yet run and therefore not claimable:
+
+- affected `ckb-chain` nextest cases (`test_truncate`, all `find_fork` cases,
+  `repeatedly_switch_fork`, `test_fork_proposal_table`, and uncle processing);
+- complete `ckb-chain` or complete 402-test internal tx-pool universe;
+- P9.8 managed 150-spec integration universe;
+- P10 profiling and fixed-binary A/B.
+
+Exact next actions after resume:
+
+1. run the affected `ckb-chain` cases with nextest and diagnose any hang as a
+   consumer-lifetime error rather than weakening reliable delivery;
+2. run the complete internal-feature tx-pool nextest universe, the production
+   contract checker, formatting and diff gates, then record the closing
+   checkpoint for this root family;
+3. continue the complete cross-crate scan for snapshot/authority changes,
+   readiness gates, `try_send`, ignored sends and compensation deletion; do not
+   stop at the two currently found call sites;
+4. resume the fixed G5/G6 whole-model audit below, then P9.8 and P10. Do not
+   reorder or remove these phases.
+
+The frozen remaining G5/G6 candidate set is unchanged:
+
+- remove the generic compute `CommittedHandoff` invalid state by keeping exact
+  checked-out work beside typed preparation before Apply;
+- narrow retained-ingress rejection results so impossible broad dispositions
+  cannot reach service mapping;
+- remove or test-gate constructorless/test-shadow algebra and stacked fixture
+  accessors only after current production semantics are frozen;
+- repair stale behavior/test-layout/security machine contracts, including the
+  manifest mistake that treats all `tx-pool/src/authority` as test code;
+- finish exhaustive manual publication, fail-stop, wait-for/shutdown and prior
+  adjudication audits; current publication points have no known missing
+  `publish_mutation`, and the current wait-for graph has no known cycle, but
+  neither audit is declared complete;
+- refresh historical dispositions against UAK: the old RaceLost explanation
+  for `C-freeloader-rbf` is obsolete, while charged `ReplacementHistory`, the
+  same-tip positive-cell proof, parent-loss wake, peer-ban refetch cleanliness,
+  effect sizing, template degradation and typed structural-fault boundaries
+  retain their already verified current-code premises.
+
+The fixed top-level plan remains: G5/G6 whole-model audit and root fixes (active)
+-> P9.8 complete isolated/unit/integration evidence -> P10 reproducible
+profiling and fixed-binary A/B. Benchmark work must not start early.
 
 ## 1. Fixed roadmap
 
@@ -609,13 +720,15 @@ One chain administration method owns this complete sequence:
 Persisted replay and chain catch-up belong to topology startup, not to every
 chain transition. The root defect in the legacy path is that chain verification
 skips authoritative reorg deltas while `service_started == false`; a later
-zombie scan can only mitigate that lost-history protocol. The new topology must
-instead make the already bounded ordered reorg channel reliable before startup,
-replay persistence through ordinary validation against the initial paired
-snapshot, drain every queued exact chain delta in order, and only then open
-ordinary ingress. This eliminates the skipped transition itself and deletes
-both `onchain_reconcile_done` and the first-block database scan. It does not add
-a catch-up scan, marker, second snapshot authority, or repair protocol.
+zombie scan can only mitigate that lost-history protocol. The bounded ordered
+reorg channel therefore exists before chain startup. Service assembly claims
+and starts its sole consumer before persisted transactions re-enter ordinary
+Local validation; replay and ordered deltas may interleave only through the
+same version-checked authority. RPC readiness and the ordinary controller
+dispatcher open after replay. This eliminates the skipped transition itself
+and deletes both `onchain_reconcile_done` and the first-block database scan. It
+does not add a catch-up scan, marker, second snapshot authority, or repair
+protocol.
 
 Detached recovery is one parent-first combined set. An unrepresentable bounded
 set uses only the rebuildable generation-reset fallback; exact ban or malformed
@@ -2232,14 +2345,14 @@ G5.3b closeout-report adjudication:
   `service_started()` are explicit G5.3c producer-side cutover touchpoints.
   The reorg sender/receiver already forms an ordered channel of capacity one;
   this is the required pre-start bound and backpressure domain, not a second
-  queue. Production assembly must first restore persistence directly into the
-  sole authority, then spawn/open the ordered reorg consumer and ordinary
-  ingress, and only then mark the service available. Always-send reorg deltas
-  may block the chain worker on that capacity-one boundary but may never be
-  dropped. Delete both legacy and UAK `onchain_reconcile_done`/zombie-scan
-  protocols in the same cutover. Candidate-uncle delivery remains a separate
-  bounded derived-input policy and must not share or delay the authoritative
-  reorg channel.
+  queue. Production assembly starts the ordered reorg consumer before
+  persistence replay, both mutate only through the same version-checked
+  authority, and RPC/ordinary-dispatch readiness opens after replay.
+  Always-send reorg deltas may block the chain worker on that capacity-one
+  boundary but may never be dropped. Delete both legacy and UAK
+  `onchain_reconcile_done`/zombie-scan protocols in the same cutover.
+  Candidate-uncle and IBD delivery remain separate bounded derived-input
+  policies and must not share or delay the authoritative reorg channel.
 - The shared N+1 transient compute semaphore is the one execution-resource
   authority for retained work, Local and TestAccept. It adds no membership
   state and has no authority-lock ordering. P10 must measure Local submission
@@ -2346,10 +2459,11 @@ Git checkpoint before C1.
   caller cannot compile while silently receiving no outcomes.
 - Startup order is total: validate/construct channels and the block assembler;
   load bounded persistence bytes; assemble runtime, publisher, compute,
-  template and cache tasks; replay persistence through synchronous Local;
-  start the owned dispatcher/reorg generation; only then publish
-  `service_started`. Any failure consumes/shuts down the partial generation
-  and leaves the service unavailable.
+  template, cache and ordered-reorg tasks; replay persistence through
+  synchronous Local while ordered chain deltas use the same authority; only
+  then publish `service_started` and enter the ordinary dispatcher. Any
+  failure consumes/shuts down the partial generation and leaves the service
+  unavailable.
 - Ordered reorg is a dedicated generation-owned task over the existing
   capacity-one channel. It remains concurrent with ordinary controller
   handlers and template component lanes, but it processes chain commands
@@ -2568,7 +2682,7 @@ closed rows retain their regression owner until final documentation migration.
 | Root family | Included verified findings | Architecture disposition | State |
 | --- | --- | --- | --- |
 | ownership inferred across queues | stranded Gap/reorg recovery, ghost/double registration, RaceLost budget and non-atomic victim replacement | one `OwnedTx` authority, charge moves in the same Apply, charged bounded replacement history, stale lease cannot mutate a new owner | `open-blocker` — production ownership and physical legacy deletion are complete; whole-model review and P9.8 evidence remain |
-| chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation | one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | `open-blocker` — production wiring and managed integration evidence remain |
+| chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation, startup readiness dropping a best-tip delta, truncate installing a tip without a delta | one chain-side tip-installation boundary always sends the exact capacity-one ordered delta; one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | `open-blocker` — the missed cross-crate producer paths are under root correction; static boundary and full managed integration evidence remain |
 | cache/evidence identity drift | short-id/raw-hash verification-cache alias, wrong detached cache key, rules/context mismatch, same-tip liveness reuse premise | cache key is witness hash plus exact `ScriptVerificationRules`; chain evidence is bound to one captured snapshot/view; pool-only positive reuse is explicitly scoped | `open-blocker` — isolated producer proof is complete; production cutover and cross-boundary regression remain |
 | dependency liveness gaps | definitive parent death without wake, dep-to-PreAccepted implicit premise, dep-stale checkout abort, unbounded Recovery/Proposal wait, Remote external-parent wait surviving trusted promotion | bounded dependency frontier owns observation cuts, definitive-loss events and level-triggered maintenance; resolver may not expose unsupported PreAccepted dep evidence; source-dependent waits re-enter Resolve when destination policy cannot prove the same observation legal | `open-blocker` — model and hostile unit evidence are complete; production maintenance/cutover remain |
 | conflict/RBF outcome incompleteness | failed-RBF retry loop, missing reject effect, public ReplacementHistory status, history saturation | charged bounded `ReplacementHistory` is inert and private; deterministic terminal/recovery disposition; rejection and recovery re-enter validation through committed effects | `open-blocker` — isolated lifecycle is closed; production compatibility and integration remain |
@@ -2601,6 +2715,10 @@ Implementation-discipline correction:
 6. Earlier adjudications are inputs, not trusted conclusions. Slice 6 repeats
    their evidence review from the current producer/consumer graph and records
    a fresh four-state disposition before production cutover.
+7. A phase that names an external production touchpoint cannot close from an
+   in-crate diff or test universe. Every named cross-crate path must appear in
+   the staged-scope review and in a zero-match-failing static contract before
+   deletion of its former compensation protocol.
 
 Verified at G5.2 checkpoint `c1650d596`:
 

@@ -95,6 +95,7 @@ def validate() -> list[str]:
     ci = CI_WORKFLOW.read_text()
     for script in (
         "tx-pool/scripts/check_docs.py",
+        "tx-pool/scripts/check_production_contracts.py",
         "tx-pool/scripts/check_review_guide.py",
         "tx-pool/scripts/check_test_layout.py",
     ):

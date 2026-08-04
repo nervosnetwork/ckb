@@ -45,6 +45,7 @@ hand-maintained table.
 | Command | Purpose | Writes by default |
 |---|---|---|
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation and retired names. | No |
+| `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip publication boundary, readiness-independent ordered reorg delivery, capacity-one backpressure and startup ordering. | No |
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions and reviewed test-only seams. | No |
 | `python3 tx-pool/scripts/check_security_manifest.py` | Discover nextest tests and validate the architecture, behavior, integration and inventory contracts. | No |
@@ -56,6 +57,7 @@ hand-maintained table.
 
 ```bash
 python3 tx-pool/scripts/check_docs.py
+python3 tx-pool/scripts/check_production_contracts.py
 python3 tx-pool/scripts/check_review_guide.py
 python3 tx-pool/scripts/check_test_layout.py
 python3 tx-pool/scripts/check_security_manifest.py
@@ -85,6 +87,7 @@ python3 tx-pool/scripts/check_security_manifest.py --update-inventory
 python3 tx-pool/scripts/check_review_guide.py
 python3 tx-pool/scripts/check_test_layout.py
 python3 tx-pool/scripts/check_docs.py
+python3 tx-pool/scripts/check_production_contracts.py
 ```
 
 For a built integration runner, validate that the curated impact set still

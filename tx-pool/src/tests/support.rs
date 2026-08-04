@@ -1,13 +1,33 @@
+use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_snapshot::Snapshot;
+use ckb_test_chain_utils::MockStore;
 use ckb_types::{
+    U256,
     core::{Capacity, Cycle, TransactionBuilder, TransactionView},
     packed::{self, Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
+use std::sync::Arc;
 
 pub(crate) const DEFAULT_MAX_ANCESTORS_COUNT: usize = 125;
 pub(crate) const MOCK_CYCLES: Cycle = 0;
 pub(crate) const MOCK_FEE: Capacity = Capacity::zero();
 pub(crate) const MOCK_SIZE: usize = 0;
+
+pub(crate) fn genesis_snapshot() -> Arc<Snapshot> {
+    let consensus = Arc::new(ConsensusBuilder::default().build());
+    let store = MockStore::default();
+    let genesis = consensus.genesis_block();
+    Arc::new(Snapshot::new(
+        genesis.header(),
+        U256::zero(),
+        consensus.genesis_epoch_ext().clone(),
+        store.store().get_snapshot(),
+        Default::default(),
+        consensus,
+    ))
+}
+
 pub(crate) fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
     TransactionBuilder::default()
         .inputs(

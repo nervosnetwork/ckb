@@ -1,8 +1,10 @@
 use super::*;
 use crate::service::{AsyncRequest, Notify, NotifyTxBatch, RemoteTxSubmission};
+use crate::test_support::genesis_snapshot;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
 use std::{
+    collections::{HashSet, VecDeque},
     future::Future,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
@@ -29,6 +31,40 @@ fn full_controller() -> TxPoolController {
         started: Arc::new(AtomicBool::new(true)),
         signal: CancellationToken::new(),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let (reorg_sender, mut reorg_receiver) = mpsc::channel(1);
+    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let controller = TxPoolController {
+        sender,
+        reorg_sender,
+        chunk_tx: Arc::new(chunk_tx),
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(false)),
+        signal: CancellationToken::new(),
+    };
+    let snapshot = genesis_snapshot();
+
+    assert!(!controller.service_started());
+    controller
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            VecDeque::new(),
+            HashSet::new(),
+            Arc::clone(&snapshot),
+        )
+        .expect("the pre-start bounded channel retains the authoritative delta");
+
+    let delivered = reorg_receiver
+        .try_recv()
+        .expect("readiness cannot suppress an authoritative chain transition");
+    assert!(delivered.arguments.0.is_empty());
+    assert!(delivered.arguments.1.is_empty());
+    assert!(delivered.arguments.2.is_empty());
+    assert_eq!(delivered.arguments.3.tip_hash(), snapshot.tip_hash());
 }
 
 async fn assert_fast_error<F, T>(future: F)

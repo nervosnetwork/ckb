@@ -7,8 +7,8 @@ use ckb_logger::internal::{log_enabled, trace};
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::Shared;
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::{ChainStore, StoreTransaction, attach_block_cell, detach_block_cell};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::TxPoolController;
@@ -380,18 +380,10 @@ impl ConsumeUnverifiedBlockProcessor {
                 self.shared
                     .new_snapshot(tip_header, cannon_total_difficulty, epoch, new_proposals);
 
-            self.shared.store_snapshot(Arc::clone(&new_snapshot));
+            self.install_chain_tip_transition(&fork, new_snapshot);
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started() {
-                if let Err(e) = tx_pool_controller.update_tx_pool_for_reorg(
-                    fork.detached_blocks().clone(),
-                    fork.attached_blocks().clone(),
-                    fork.detached_proposal_id().clone(),
-                    new_snapshot,
-                ) {
-                    error!("[verify block] notify update_tx_pool_for_reorg error {}", e);
-                }
                 if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
                     error!("Notify update_ibd_state error {}", e);
                 }
@@ -440,6 +432,29 @@ impl ConsumeUnverifiedBlockProcessor {
                 .insert(blk.header().number(), blk.union_proposal_ids());
         }
         self.reload_proposal_table(fork);
+    }
+
+    /// Install one new best-chain snapshot and publish its exact ordered delta
+    /// to the transaction-pool authority.
+    ///
+    /// This boundary is intentionally independent of the public
+    /// `service_started` readiness flag. The capacity-one reorg channel exists
+    /// before chain processing starts and applies backpressure until its sole
+    /// consumer is live, so a startup transition is delayed rather than lost.
+    /// Persistence replay and this consumer may overlap, but both enter the
+    /// same version-checked transaction-pool authority; no repair scan or
+    /// second membership owner is required.
+    fn install_chain_tip_transition(&self, fork: &ForkChanges, new_snapshot: Arc<Snapshot>) {
+        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+        let tx_pool_controller = self.shared.tx_pool_controller();
+        if let Err(error) = tx_pool_controller.update_tx_pool_for_reorg(
+            fork.detached_blocks().clone(),
+            fork.attached_blocks().clone(),
+            fork.detached_proposal_id().clone(),
+            new_snapshot,
+        ) {
+            error!("[verify block] publish chain-tip transition error {error}");
+        }
     }
 
     // if rollback happen, go back check whether need reload proposal_table from block
@@ -901,7 +916,7 @@ impl ConsumeUnverifiedBlockProcessor {
             new_proposals,
         );
 
-        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+        self.install_chain_tip_transition(&fork, new_snapshot);
 
         Ok(())
     }
