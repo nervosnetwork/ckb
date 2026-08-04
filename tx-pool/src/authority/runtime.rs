@@ -20,8 +20,8 @@ use super::{
     },
     effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
     ingress::{
-        DirectCommand, DirectTransaction, RetainedIngress, RetainedIngressCommit,
-        RetainedIngressRejection, direct,
+        DirectCommand, DirectTransaction, IngressRejectionCommit, RetainedIngress,
+        RetainedIngressCommit, RetainedIngressRejection, direct,
     },
     plan::{
         AuthorityConfigError, AuthorityFault, Backpressure, CandidateDispositionPlan,
@@ -2220,7 +2220,7 @@ impl AuthorityRuntime {
     pub(super) fn commit_retained_ingress_rejection(
         &self,
         rejection: RetainedIngressRejection,
-    ) -> Result<RetainedIngressCommit, PlanError> {
+    ) -> Result<IngressRejectionCommit, PlanError> {
         let committed = {
             let mut store = self.store.write();
             store
@@ -2230,7 +2230,7 @@ impl AuthorityRuntime {
         };
         drop(committed);
         self.signals.publish_mutation();
-        Ok(RetainedIngressCommit::Rejected)
+        Ok(IngressRejectionCommit)
     }
 
     pub(in crate::authority) fn try_checkout(

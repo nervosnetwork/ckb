@@ -1,6 +1,6 @@
 use super::super::service::{
-    AuthorityDerivedError, AuthorityProjectionFault, AuthorityRelayDrain, AuthorityService,
-    AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
+    AuthorityDerivedError, AuthorityIntegrityFault, AuthorityProjectionFault, AuthorityRelayDrain,
+    AuthorityService, AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
     AuthorityShutdownOutcome, authority_failure_boundary, derived_failure_boundary,
     map_recent_reject_read_error, record_candidate_uncle_observation,
 };
@@ -63,6 +63,25 @@ fn uak_operational_failure_classes_follow_ownership_boundaries() {
     );
 }
 
+#[test]
+fn uak_only_integrity_faults_invalidate_a_generation() {
+    for operational in [
+        AuthorityServiceError::Cancelled,
+        AuthorityServiceError::BlockAssemblerDisabled,
+        AuthorityServiceError::ResourceUnavailable,
+        AuthorityServiceError::EffectCapacity,
+        AuthorityServiceError::LifecycleClosed,
+    ] {
+        assert!(AuthorityService::settle_operation_error(operational).is_ok());
+    }
+    assert!(
+        AuthorityService::settle_operation_error(AuthorityServiceError::Integrity(
+            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Membership),
+        ))
+        .is_err()
+    );
+}
+
 async fn service_assembly() -> (
     AuthorityServiceAssembly,
     Arc<ckb_snapshot::Snapshot>,
@@ -110,8 +129,8 @@ async fn service_assembly_with_config(
 fn uak_recent_reject_encoding_failure_remains_outside_authority_invalidity() {
     assert!(matches!(
         map_recent_reject_read_error(AuthorityRecentRejectReadError::Projection),
-        AuthorityDerivedError::Authority(AuthorityServiceError::Projection(
-            AuthorityProjectionFault::Effect
+        AuthorityDerivedError::Authority(AuthorityServiceError::Integrity(
+            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Effect)
         ))
     ));
     assert!(matches!(

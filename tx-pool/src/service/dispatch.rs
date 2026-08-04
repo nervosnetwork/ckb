@@ -5,7 +5,7 @@ use crate::{
         query::{AuthorityPoolSummary, AuthorityTransactionLookup, PublicPoolStatus},
         service::{
             AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityPersistenceError,
-            AuthorityProjectionFault, AuthorityService, AuthorityServiceError,
+            AuthorityService, AuthorityServiceError,
         },
     },
     service::{
@@ -266,7 +266,7 @@ fn pool_info(
     summary: AuthorityPoolSummary,
 ) -> Result<TxPoolInfo, AuthorityServiceError> {
     let max_tx_pool_size = u64::try_from(service.config().max_tx_pool_size)
-        .map_err(|_| AuthorityServiceError::Projection(AuthorityProjectionFault::Resource))?;
+        .map_err(|_| AuthorityServiceError::ResourceUnavailable)?;
     Ok(TxPoolInfo {
         tip_hash: summary.tip_hash,
         tip_number: summary.tip_number,

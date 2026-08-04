@@ -74,6 +74,12 @@
       "Cancelled"
     ]
   },
+  "failure_model": {
+    "operational": "direct_AuthorityServiceError_variants",
+    "integrity": "AuthorityServiceError_Integrity_of_AuthorityIntegrityFault",
+    "generation_invalidity": "constructible_only_from_AuthorityIntegrityFault",
+    "derived_boundaries": "cannot_veto_committed_authority_or_forbid_persistence"
+  },
   "commands": [
     "retained_ingress",
     "trusted_promotion",

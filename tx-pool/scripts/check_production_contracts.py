@@ -248,6 +248,67 @@ def validate_authority_mutation_publication() -> list[str]:
     return errors
 
 
+def validate_authority_failure_algebra() -> list[str]:
+    """Keep generation invalidation behind one typed, exhaustive boundary."""
+
+    try:
+        source = TX_POOL_AUTHORITY_SERVICE.read_text()
+        masked = mask_rust_non_code(source)
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect authority failure algebra: {error}"]
+
+    errors: list[str] = []
+    service_error = re.search(
+        r"\benum\s+AuthorityServiceError\s*\{(?P<body>.*?)\n\}", masked, re.S
+    )
+    if service_error is None or "Integrity(AuthorityIntegrityFault)" not in service_error.group(
+        "body"
+    ):
+        errors.append(
+            "AuthorityServiceError must contain the typed Integrity(AuthorityIntegrityFault) "
+            "boundary"
+        )
+
+    invalidity = re.search(
+        r"\bstruct\s+AuthorityGenerationInvalidity\s*\(AuthorityIntegrityFault\)\s*;",
+        masked,
+    )
+    if invalidity is None:
+        errors.append(
+            "AuthorityGenerationInvalidity must own AuthorityIntegrityFault directly"
+        )
+        constructor_source = masked
+    else:
+        constructor_source = (
+            masked[: invalidity.start()]
+            + " " * (invalidity.end() - invalidity.start())
+            + masked[invalidity.end() :]
+        )
+    constructors = re.findall(
+        r"\bAuthorityGenerationInvalidity\s*\(", constructor_source
+    )
+    if len(constructors) != 1:
+        errors.append(
+            "AuthorityGenerationInvalidity must have one production constructor at the "
+            f"service settlement boundary, found {len(constructors)}"
+        )
+
+    settlement = function_body(source, "settle_operation_error")
+    if settlement is None:
+        errors.append("AuthorityService::settle_operation_error disappeared")
+    else:
+        settlement = mask_rust_non_code(settlement)
+        if settlement.count("AuthorityServiceError::Integrity(fault)") != 1:
+            errors.append(
+                "settle_operation_error must classify the typed Integrity variant exactly once"
+            )
+        if settlement.count("AuthorityGenerationInvalidity(fault)") != 1:
+            errors.append(
+                "settle_operation_error must be the sole integrity-to-invalidity conversion"
+            )
+    return errors
+
+
 def production_rust_sources() -> list[Path]:
     sources: list[Path] = []
     excluded = {".git", "target", "test", "tests", "benches"}
@@ -353,6 +414,7 @@ def main() -> int:
         *validate_chain_transition_publication(),
         *validate_startup_backpressure(),
         *validate_authority_mutation_publication(),
+        *validate_authority_failure_algebra(),
     ]
     if errors:
         for error in errors:
@@ -360,7 +422,8 @@ def main() -> int:
         return 1
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
-        "bounded reorg backpressure plus authority mutation wake coverage"
+        "bounded reorg backpressure plus authority mutation wake coverage and "
+        "the typed authority failure algebra"
     )
     return 0
 

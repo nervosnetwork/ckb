@@ -9,10 +9,7 @@ pub(crate) use super::relay::AuthorityRelaySink;
 use super::{
     chain_boundary::{ChainBoundaryError, ChainPackaging, ChainUpdateRequest},
     effect::ParentTransactionRequest,
-    ingress::{
-        RemoteIngressPressure, RetainedIngressBackpressure, RetainedIngressBoundaryError,
-        RetainedIngressCommit,
-    },
+    ingress::{RemoteIngressPressure, RetainedIngressBackpressure, RetainedIngressBoundaryError},
     plan::AuthorityFault,
     publisher::AuthorityEffectEndpoints,
     query::{
@@ -103,16 +100,30 @@ pub(crate) enum AuthorityServiceError {
     ResourceUnavailable,
     EffectCapacity,
     LifecycleClosed,
+    Integrity(AuthorityIntegrityFault),
+}
+
+/// Closed programmer-defect domain that alone can invalidate one authority
+/// generation. Keeping it out of [`AuthorityServiceError`]'s operational
+/// variants makes classification exhaustive when either enum evolves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthorityIntegrityFault {
     InvalidChainEvidence,
     CounterExhausted,
     Projection(AuthorityProjectionFault),
+}
+
+impl AuthorityServiceError {
+    fn integrity_projection(fault: AuthorityProjectionFault) -> Self {
+        Self::Integrity(AuthorityIntegrityFault::Projection(fault))
+    }
 }
 
 /// Move-only proof that a service error is a structural contradiction and
 /// therefore makes this authority generation ineligible for persistence.
 /// Operational outcomes cannot construct this type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct AuthorityGenerationInvalidity(AuthorityServiceError);
+pub(crate) struct AuthorityGenerationInvalidity(AuthorityIntegrityFault);
 
 /// Persistence failures are operational outcomes after a coherent read cut;
 /// none can invalidate or roll back authority state.
@@ -612,16 +623,18 @@ impl AuthorityService {
     pub(crate) fn settle_operation_error(
         error: AuthorityServiceError,
     ) -> Result<(), AuthorityGenerationInvalidity> {
-        if matches!(
-            error,
-            AuthorityServiceError::InvalidChainEvidence
-                | AuthorityServiceError::CounterExhausted
-                | AuthorityServiceError::Projection(_)
-        ) {
-            Err(AuthorityGenerationInvalidity(error))
-        } else {
-            ckb_logger::debug!("tx-pool service operation ended without mutation: {error:?}");
-            Ok(())
+        match error {
+            AuthorityServiceError::Integrity(fault) => Err(AuthorityGenerationInvalidity(fault)),
+            operational @ (AuthorityServiceError::Cancelled
+            | AuthorityServiceError::BlockAssemblerDisabled
+            | AuthorityServiceError::ResourceUnavailable
+            | AuthorityServiceError::EffectCapacity
+            | AuthorityServiceError::LifecycleClosed) => {
+                ckb_logger::debug!(
+                    "tx-pool service operation ended without mutation: {operational:?}"
+                );
+                Ok(())
+            }
         }
     }
 
@@ -802,19 +815,7 @@ impl AuthorityService {
                 .runtime
                 .reject_remote_ingress_pressure(tx.clone(), peer, pressure)
             {
-                Ok(RetainedIngressCommit::Rejected) => {
-                    return Ok(());
-                }
-                Ok(
-                    RetainedIngressCommit::Retained
-                    | RetainedIngressCommit::AcceptedDuplicate
-                    | RetainedIngressCommit::RemoteReleased
-                    | RetainedIngressCommit::ProposalUnchanged,
-                ) => {
-                    return Err(AuthorityServiceError::Projection(
-                        AuthorityProjectionFault::Effect,
-                    ));
-                }
+                Ok(_commit) => return Ok(()),
                 Err(RetainedIngressBoundaryError::Backpressure(
                     RetainedIngressBackpressure::EffectCapacity,
                 )) => {
@@ -894,7 +895,7 @@ impl AuthorityService {
                     return Ok(Err(direct_pressure_reject()));
                 }
                 Err(DirectComputationError::InvalidEvidence) => {
-                    return Err(AuthorityServiceError::Projection(
+                    return Err(AuthorityServiceError::integrity_projection(
                         AuthorityProjectionFault::Membership,
                     ));
                 }
@@ -916,7 +917,7 @@ impl AuthorityService {
                             AuthorityDirectRejectionExecution::Local(_)
                             | AuthorityDirectRejectionExecution::TestAccept(_),
                         ) => {
-                            return Err(AuthorityServiceError::Projection(
+                            return Err(AuthorityServiceError::integrity_projection(
                                 AuthorityProjectionFault::Scheduler,
                             ));
                         }
@@ -950,7 +951,7 @@ impl AuthorityService {
                             return Ok(Err(direct_pressure_reject()));
                         }
                         Err(DirectComputationError::InvalidEvidence) => {
-                            return Err(AuthorityServiceError::Projection(
+                            return Err(AuthorityServiceError::integrity_projection(
                                 AuthorityProjectionFault::Membership,
                             ));
                         }
@@ -974,7 +975,7 @@ impl AuthorityService {
                             AuthorityDirectRejectionExecution::Local(_)
                             | AuthorityDirectRejectionExecution::TestAccept(_),
                         ) => {
-                            return Err(AuthorityServiceError::Projection(
+                            return Err(AuthorityServiceError::integrity_projection(
                                 AuthorityProjectionFault::Scheduler,
                             ));
                         }
@@ -1055,7 +1056,7 @@ impl AuthorityService {
                         }
                         (false, AuthorityDirectAdmissionExecution::TestAccept(_))
                         | (true, AuthorityDirectAdmissionExecution::Local(_)) => {
-                            return Err(AuthorityServiceError::Projection(
+                            return Err(AuthorityServiceError::integrity_projection(
                                 AuthorityProjectionFault::Scheduler,
                             ));
                         }
@@ -1464,7 +1465,7 @@ pub(super) fn map_recent_reject_read_error(
 ) -> AuthorityDerivedError {
     match error {
         AuthorityRecentRejectReadError::Projection => AuthorityDerivedError::Authority(
-            AuthorityServiceError::Projection(AuthorityProjectionFault::Effect),
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Effect),
         ),
         AuthorityRecentRejectReadError::Encoding(error) => {
             AuthorityDerivedError::External(error.into())
@@ -1514,16 +1515,16 @@ fn map_topology_start_error(error: AuthorityTopologyStartError) -> AuthorityServ
 
 fn map_ingress_error(error: RetainedIngressBoundaryError) -> Result<(), AuthorityServiceError> {
     match error {
-        RetainedIngressBoundaryError::InvalidEvidence => Err(AuthorityServiceError::Projection(
-            AuthorityProjectionFault::Membership,
-        )),
+        RetainedIngressBoundaryError::InvalidEvidence => Err(
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership),
+        ),
         RetainedIngressBoundaryError::ResourceUnavailable
         | RetainedIngressBoundaryError::Backpressure(_) => Ok(()),
         RetainedIngressBoundaryError::LifecycleClosed => {
             Err(AuthorityServiceError::LifecycleClosed)
         }
         RetainedIngressBoundaryError::Fault(fault) => {
-            Err(AuthorityServiceError::Projection(fault.into()))
+            Err(AuthorityServiceError::integrity_projection(fault.into()))
         }
     }
 }
@@ -1546,9 +1547,9 @@ fn classify_direct_error(error: AuthorityDirectAdmissionError) -> DirectErrorDis
         AuthorityDirectAdmissionError::LifecycleClosed => {
             DirectErrorDisposition::Service(AuthorityServiceError::LifecycleClosed)
         }
-        AuthorityDirectAdmissionError::Fault(fault) => {
-            DirectErrorDisposition::Service(AuthorityServiceError::Projection(fault.into()))
-        }
+        AuthorityDirectAdmissionError::Fault(fault) => DirectErrorDisposition::Service(
+            AuthorityServiceError::integrity_projection(fault.into()),
+        ),
     }
 }
 
@@ -1603,7 +1604,7 @@ fn map_administration_error(error: AuthorityAdministrationError) -> AuthoritySer
         AuthorityAdministrationError::EffectCapacity => AuthorityServiceError::EffectCapacity,
         AuthorityAdministrationError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
         AuthorityAdministrationError::Fault(fault) => {
-            AuthorityServiceError::Projection(fault.into())
+            AuthorityServiceError::integrity_projection(fault.into())
         }
     }
 }
@@ -1612,11 +1613,15 @@ fn map_chain_error(error: ChainBoundaryError) -> AuthorityServiceError {
     match error {
         ChainBoundaryError::Allocation => AuthorityServiceError::ResourceUnavailable,
         ChainBoundaryError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
-        ChainBoundaryError::CounterExhausted => AuthorityServiceError::CounterExhausted,
-        ChainBoundaryError::InvalidFacts | ChainBoundaryError::InvalidSnapshotEvidence => {
-            AuthorityServiceError::InvalidChainEvidence
+        ChainBoundaryError::CounterExhausted => {
+            AuthorityServiceError::Integrity(AuthorityIntegrityFault::CounterExhausted)
         }
-        ChainBoundaryError::Fault(fault) => AuthorityServiceError::Projection(fault.into()),
+        ChainBoundaryError::InvalidFacts | ChainBoundaryError::InvalidSnapshotEvidence => {
+            AuthorityServiceError::Integrity(AuthorityIntegrityFault::InvalidChainEvidence)
+        }
+        ChainBoundaryError::Fault(fault) => {
+            AuthorityServiceError::integrity_projection(fault.into())
+        }
     }
 }
 
@@ -1624,12 +1629,12 @@ fn map_query_error(error: AuthorityQueryError) -> AuthorityServiceError {
     match error {
         AuthorityQueryError::Allocation => AuthorityServiceError::ResourceUnavailable,
         AuthorityQueryError::Arithmetic => {
-            AuthorityServiceError::Projection(AuthorityProjectionFault::Resource)
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Resource)
         }
         AuthorityQueryError::Projection
         | AuthorityQueryError::AcceptedCycle
         | AuthorityQueryError::RecoveryCycle => {
-            AuthorityServiceError::Projection(AuthorityProjectionFault::Membership)
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
         }
     }
 }
@@ -1638,10 +1643,10 @@ fn map_template_read_error(error: TemplateReadError) -> AuthorityServiceError {
     match error {
         TemplateReadError::Allocation => AuthorityServiceError::ResourceUnavailable,
         TemplateReadError::Arithmetic => {
-            AuthorityServiceError::Projection(AuthorityProjectionFault::Resource)
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Resource)
         }
         TemplateReadError::Projection | TemplateReadError::CausalCycle => {
-            AuthorityServiceError::Projection(AuthorityProjectionFault::Membership)
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
         }
     }
 }

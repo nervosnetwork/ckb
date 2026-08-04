@@ -561,6 +561,16 @@ Production authority code does not use `panic!`, `assert!`, `unwrap()`,
 projections, not policy rejection. Rust is not treated as an Erlang-style
 restart runtime: panic-and-catch and broad fail-stop are not repair mechanisms.
 
+The service error algebra encodes this boundary rather than maintaining a
+variant allowlist: operational failures are direct `AuthorityServiceError`
+variants, while only `AuthorityServiceError::Integrity(AuthorityIntegrityFault)`
+can construct `AuthorityGenerationInvalidity`. Exhaustive matching therefore
+forces every new service outcome to choose its failure domain at compile time.
+Rebuildable candidate-uncle collection and response/config conversion remain
+outside the integrity domain; a dedicated ingress-rejection commit proof keeps
+unrelated successful dispositions unrepresentable at the Remote-pressure call
+site.
+
 No release claim may assume structural faults are unreachable. The final
 pre-benchmark static audit must trace every fault constructor backward through
 legal/hostile inputs and concurrency. Any reachable case is a model bug to

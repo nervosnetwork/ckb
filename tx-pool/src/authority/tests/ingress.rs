@@ -1,7 +1,7 @@
 use super::super::{
     effect::CommittedEffect,
     ingress::{
-        DirectCommand, RemoteIngressPressure, RetainedIngressBackpressure,
+        DirectCommand, IngressRejectionCommit, RemoteIngressPressure, RetainedIngressBackpressure,
         RetainedIngressBoundaryError, RetainedIngressCommit, RetainedIngressError, direct,
         proposal, test_support::remote_at_for_foundation,
     },
@@ -439,7 +439,7 @@ fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
                 RemoteIngressPressure::PeerResources,
             )
             .expect("bounded Remote pressure commits one terminal disposition"),
-        RetainedIngressCommit::Rejected
+        IngressRejectionCommit
     );
 
     runtime.with_authority_for_foundation(|authority| {

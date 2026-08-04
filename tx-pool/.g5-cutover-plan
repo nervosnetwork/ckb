@@ -3114,3 +3114,58 @@ to P9.8 while that static adjudication remains open.
 
 Do not respond to the 237 sites by copying them into the manifest. Their
 existence is the migration work queue, not an allowlist baseline.
+
+Recovery checkpoint update:
+
+1. The derived-boundary and delayed-relay-cleanup slice is frozen at
+   `5337f1fc5`. The explicit Apply-to-wake publication audit is frozen at
+   `db957aa77`; this is the current recovery base.
+2. Mutation publication remains lock-external and level-triggered. The static
+   production-contract checker proves that every `AuthorityRuntime` mutation
+   site has exactly one direct post-mutation publication and no intervening
+   control-flow exit. No authority state, lock, task, retry, or serialized actor
+   was added to obtain that proof.
+3. Current gates at the checkpoint: authority nextest 363/363; all-target
+   internal Clippy with `-D warnings`; 404 discovered tests, 89 tx-pool anchors,
+   seven cross-crate Rust anchors, 17 integration security anchors and 150
+   managed integration specs validated by `check_all.py`; formatting and diff
+   checks pass.
+4. Next exact action: close the remaining `AuthorityServiceError` and
+   generation-invalidity producer audit as one failure-domain set, including
+   dependency-bound construction, fresh candidate-uncle packaging, response
+   conversion, and retained-ingress rejection result algebra. Then complete the
+   wait-for/shutdown/livelock and adversarial-complexity audits. Do not enter
+   P9.8 or benchmark before the static architecture adjudication closes.
+
+Failure-domain checkpoint update:
+
+1. `AuthorityServiceError` no longer encodes structural and operational
+   outcomes as sibling variants classified by a hand-maintained allowlist.
+   `AuthorityIntegrityFault` is the closed structural domain, and
+   `AuthorityGenerationInvalidity` owns only that type. The exhaustive service
+   match must classify every new operational variant at compile time; the
+   production-contract checker also proves there is one integrity-to-invalidity
+   constructor.
+2. The fresh candidate-uncle collector is explicitly a rebuildable template
+   projection. Its private source exhaustion may underfill that projection but
+   cannot reject the complete detached transaction/header facts. Pool-info
+   representation failure is operational rather than authority corruption.
+3. Remote no-owner pressure returns the exact `IngressRejectionCommit` proof.
+   The service cannot receive Retained/duplicate/release/proposal outcomes from
+   that API, so the former impossible-result fail-stop branch is deleted by
+   construction.
+4. The sealed ingress dependency proof is closed: Remote/Proposal first pass
+   non-contextual validation, canonical dependencies are bounded by the same
+   encoded edge count, and deduplication cannot exceed it. Empty/arithmetic
+   outcomes at the later sealed constructor therefore remain integrity
+   contradictions; allocation remains operational.
+5. Evidence: focused failure-boundary regressions pass; the complete authority
+   universe is 364/364; strict all-target internal Clippy passes; `check_all.py`
+   validates 405 nextest tests, 90 tx-pool Rust anchors, seven cross-crate Rust
+   anchors, 17 integration security anchors and 150 managed integration specs;
+   formatting and diff checks pass. Production source changes by +74/-59 lines,
+   with no new mutable state, lock, task, queue, retry, scan or I/O.
+6. Next exact action after freezing this checkpoint: complete the remaining
+   non-derived integrity-fault producers, then the wait-for/shutdown/livelock
+   graph and hostile complexity table. Reconcile those results with develop
+   necessity/risk-transfer/minimality and historical adjudications before P9.8.

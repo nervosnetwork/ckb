@@ -174,9 +174,11 @@ impl ChainUpdateRequest {
             detached_transactions.extend(transactions.iter().cloned());
             detached_headers.push(crate::util::compact_packed(&block.header().hash()));
             if self.packaging.packages() {
-                candidate_uncles
-                    .try_insert(block.as_uncle())
-                    .map_err(|_| ChainBoundaryError::CounterExhausted)?;
+                // This is a fresh, bounded template projection rather than
+                // authoritative chain evidence. Source exhaustion can only
+                // underfill its derived candidate prefix; it must not reject
+                // the exact chain transition or invalidate tx-pool state.
+                candidate_uncles.insert(block.as_uncle());
             }
         }
 

@@ -208,7 +208,7 @@
       "id": "TP-DEFECT-001",
       "title": "Rust-native ordinary failure boundary",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/service.rs", "symbols": ["enum AuthorityServiceError", "fn settle_operation_error", "enum AuthorityProjectionFault"]},
+        {"path": "tx-pool/src/authority/service.rs", "symbols": ["enum AuthorityServiceError", "enum AuthorityIntegrityFault", "fn settle_operation_error", "enum AuthorityProjectionFault"]},
         {"path": "tx-pool/src/authority/topology.rs", "symbols": ["enum AuthorityGenerationFault", "enum AuthorityDerivedTaskFailure", "enum AuthorityShutdownStatus"]}
       ],
       "required_behavior": "Legal, hostile, stale, duplicate, resource, cancellation and external or rebuildable-derived failures are typed local outcomes. Only a proven authority contradiction or loss of a sole linear capability can forbid persistence; panic-and-catch and broad fail-stop are not control flow.",
@@ -363,6 +363,7 @@
 
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
     {"test": "authority::tests::service::uak_operational_failure_classes_follow_ownership_boundaries", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
+    {"test": "authority::tests::service::uak_only_integrity_faults_invalidate_a_generation", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T7", "T10"]},
     {"test": "authority::tests::service::uak_recent_reject_encoding_failure_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::service::uak_candidate_uncle_degradation_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T10", "T13"]},
     {"test": "block_assembler::candidate_uncles::tests::candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T8", "T13"]},

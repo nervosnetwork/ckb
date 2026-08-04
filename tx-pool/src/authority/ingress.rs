@@ -76,6 +76,12 @@ pub(super) enum RetainedIngressCommit {
     Rejected,
 }
 
+/// Exact proof returned only after a retained/no-owner rejection and its
+/// public effect commit in one Apply. Narrow callers cannot observe unrelated
+/// ingress dispositions or manufacture an impossible service mismatch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct IngressRejectionCommit;
+
 impl RetainedIngress {
     pub(super) fn into_parts(self) -> (RetainedIngressKind, ValidatedAdmission) {
         (self.kind, self.admission)
@@ -304,6 +310,7 @@ impl AuthorityRuntime {
                 .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Rejected(rejection)) => self
                 .commit_retained_ingress_rejection(rejection)
+                .map(|_| RetainedIngressCommit::Rejected)
                 .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Admission(error)) => {
                 Err(RetainedIngressBoundaryError::from_admission(error))
@@ -322,6 +329,7 @@ impl AuthorityRuntime {
                 .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Rejected(rejection)) => self
                 .commit_retained_ingress_rejection(rejection)
+                .map(|_| RetainedIngressCommit::Rejected)
                 .map_err(RetainedIngressBoundaryError::from_plan),
             Err(RetainedIngressError::Admission(error)) => {
                 Err(RetainedIngressBoundaryError::from_admission(error))
@@ -338,7 +346,7 @@ impl AuthorityRuntime {
         tx: TransactionView,
         peer: PeerIndex,
         pressure: RemoteIngressPressure,
-    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
+    ) -> Result<IngressRejectionCommit, RetainedIngressBoundaryError> {
         let reason = match pressure {
             RemoteIngressPressure::TotalResources => "tx-pool total residency limit reached",
             RemoteIngressPressure::RemoteResources => "tx-pool remote residency limit reached",
