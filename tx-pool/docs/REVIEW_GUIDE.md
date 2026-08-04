@@ -107,6 +107,14 @@ ambient proxy routing would add an unrelated external failure domain and can
 turn a repository-wide run into false 30-second RPC timeouts. This is harness
 isolation, not permission to suppress or filter a failing spec.
 
+Chain-only Rust fixtures must explicitly retire the dormant tx-pool builder
+through `disable_tx_pool_and_take_relay_receiver` before starting chain work.
+Keeping an unstarted receiver alive is not a harmless mock: the reliable,
+capacity-one best-tip channel will correctly backpressure its second delta.
+Production-like fixtures must start the tx-pool instead. The layout validator
+rejects direct relay-receiver extraction from `sync/src/tests` so this topology
+choice cannot silently drift back into a hang.
+
 ## Registered behaviors and evidence
 
 <!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->
@@ -181,8 +189,8 @@ The security validator checks the same `[integration]` inventory against the exe
 
 | ID | Implementation owners | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |
 |---|---|---|---|---|---|---|
-| `TP-OWN-001` Single transaction ownership and ABA safety | `tx-pool/src/authority/state.rs`: `enum OwnedTx`, `enum PreAcceptedPhase`, `EntryVersion`<br>`tx-pool/src/authority/work.rs`: `struct SettlementToken`, `enum CheckedOutWork`<br>`tx-pool/src/authority/plan.rs`: `struct TxPoolAuthority`, `struct PreparedApply` | Each raw transaction hash has zero or one OwnedTx in TxPoolAuthority.entries. Compute consumes one move-only work value bound to the exact owner version and Computing phase; chain proof remains bound to its exact view, while other asynchronous receipts carry their own typed generation or source cut. Queues, workers, receipts and effects never own lifecycle state. | Duplicate ingress, source promotion, stale completion, remove/readmit ABA, clear or reorg must not create a second owner, erase the current owner or leave an uncharged payload. | T1, T2, T3, T5, T6, T7, T8, T11 | - Can any payload exist outside entries after an authority guard opens?<br>- Does every stale completion return without semantic mutation?<br>- Can a new phase or owner be assembled without its exact charge and projections? | One owner map and one short authority transition; no compensating owner scan or second lifecycle lock. |
-| `TP-COMMIT-001` Read-only Plan and total Apply | `tx-pool/src/authority/plan.rs`: `struct PreparedApply`, `fn plan_final_admission`, `fn apply_membership`, `struct IndependentDelta`<br>`tx-pool/src/authority/runtime.rs`: `fn try_drive_ready`, `fn complete_ready_batch` | All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. Apply is total; dropped or stale plans are semantically mutation-free. | Concurrent Ready work, chain-view ABA, RBF rejection, capacity pressure, effect saturation or allocation failure must not expose partial membership or require rollback. | T1, T2, T3, T4, T5, T6, T7, T8, T9, T11 | - Does Plan change any authoritative semantic fact?<br>- Can Apply return an ordinary failure or allocate fallibly?<br>- Are independent batches proven commuting, unique and bounded before Apply? | Fallible work and large destruction stay outside Apply; independent verified transactions may commit in bounded commuting batches. |
+| `TP-OWN-001` Single transaction ownership and ABA safety | `tx-pool/src/authority/state.rs`: `enum OwnedTx`, `enum PreAcceptedPhase`, `EntryVersion`<br>`tx-pool/src/authority/work.rs`: `struct SettlementToken`, `enum CheckedOutWork`<br>`tx-pool/src/authority/plan.rs`: `struct TxPoolAuthority`, `struct PreparedApply` | Each raw transaction hash has zero or one OwnedTx in TxPoolAuthority.entries. Compute consumes one move-only work value bound to the exact owner version and Computing phase; chain proof remains bound to its exact view, while other asynchronous receipts carry their own typed generation or source cut. Queues, workers, receipts and effects never own lifecycle state. | Duplicate ingress, source promotion, stale completion, remove/readmit ABA, clear or reorg must not create a second owner, erase the current owner or leave an uncharged payload. | T1, T2, T3, T5, T6, T7, T8, T10, T11 | - Can any payload exist outside entries after an authority guard opens?<br>- Does every stale completion return without semantic mutation?<br>- Can a new phase or owner be assembled without its exact charge and projections? | One owner map and one short authority transition; no compensating owner scan or second lifecycle lock. |
+| `TP-COMMIT-001` Read-only Plan and total Apply | `tx-pool/src/authority/plan.rs`: `struct PreparedApply`, `fn plan_final_admission`, `fn apply_membership`, `struct IndependentDelta`<br>`tx-pool/src/authority/runtime.rs`: `fn try_drive_ready`, `fn complete_ready_batch` | All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. Apply is total; dropped or stale plans are semantically mutation-free. | Concurrent Ready work, chain-view ABA, RBF rejection, capacity pressure, effect saturation or allocation failure must not expose partial membership or require rollback. | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11 | - Does Plan change any authoritative semantic fact?<br>- Can Apply return an ordinary failure or allocate fallibly?<br>- Are independent batches proven commuting, unique and bounded before Apply? | Fallible work and large destruction stay outside Apply; independent verified transactions may commit in bounded commuting batches. |
 | `TP-RBF-001` Atomic deterministic replacement | `tx-pool/src/authority/plan/membership/rbf.rs`: `validate_no_new_unconfirmed_inputs`, `validate_no_victim_dependencies`, `validate_replacement_fee`<br>`tx-pool/src/authority/plan/membership.rs`: `MembershipReject`, `PreparedMembership` | RBF computes the complete bounded victim and descendant closure, all dependency restrictions and both fee gates against one coherent virtual membership before one total replacement Apply. | An under-fee, over-bound, new-unconfirmed-input, victim-dependent, self-evicting or concurrent candidate must leave every existing owner and aggregate unchanged. | T1, T2, T3, T4, T6, T7, T8, T9, T10, T11, T12, T13 | - Are all victims and descendants included exactly once before fees are evaluated?<br>- Can any victim move before the winner and complete history disposition are known?<br>- Is every positive chain-input premise explicit and exact? | Conflict work follows bounded indexes and cohorts; no speculative removal, undo engine or unbounded full-pool scan. |
 | `TP-DEP-001` Exact dependency and level-triggered progress | `tx-pool/src/authority/dependency.rs`: `struct DependencyFrontier`, `struct DependencyMaintenanceTicket`, `enum DependencyMaintenanceStep`<br>`tx-pool/src/authority/resolver.rs`: `collect_missing_against_cut`, `resolve_candidate` | Canonical input, cell-dep, header and expanded dep-group evidence drives one DependencyFrontier. Missing observations carry an exact cut; availability and definitive loss advance the same level in the owner-changing Apply. | Parent death, repeated availability, source promotion, high fanout, late dep-group discovery or coalesced wakes must not strand a child, accept stale evidence or spin indefinitely. | T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13 | - Does every producer loss reach every surviving indexed consumer exactly once?<br>- Does a waiter subscribe before checking the authoritative level?<br>- Are fanout and maintenance work sliced by explicit bounds? | Indexed key-scoped maintenance replaces polling and population scans; each maintenance step has a fixed work bound. |
 | `TP-CACHE-001` Bounded replacement history and recovery | `tx-pool/src/authority/state.rs`: `struct ReplacementHistoryEntry`, `ReplacementHistoryCharge`<br>`tx-pool/src/authority/plan.rs`: `fn plan_replacement_history_admission`, `ReplacementHistoryLimit` | Only an actually Accepted RBF victim can become inert charged ReplacementHistory. It observes exact final blockers, has no scheduler/source/peer/deadline, remains private to RPC/template/persistence, and re-enters full validation on recovery. | A loser, remote candidate, same-Apply victim wake, partial blocker release, unrelated chain change or saturated history budget must not create executable ghost work, false wake or partial retained history. | T1, T2, T3, T4, T6, T7, T8, T9, T10, T11 | - Is the constructor reachable only from successful Accepted-victim displacement?<br>- Does wake require a newer level for every retained blocker?<br>- Does saturation drop the complete optional set while preserving the winner? | History has independent count/byte/edge bounds and no active-work or scheduler cost. |
@@ -213,6 +221,12 @@ Rust evidence:
 - `authority::tests::foundation::uak_duplicate_and_promotion_never_create_second_owner` (T1, T2, T3)
 - `authority::tests::foundation::uak_stale_compute_version_is_mutation_free_across_aba` (T1, T2, T6)
 
+Cross-crate Rust evidence:
+
+Generated cross-crate command: `cargo nextest run -p ckb-rpc -E 'test(=tests::examples::test_rpc_examples)'`
+
+- `rpc/src/tests/examples.rs::tests::examples::test_rpc_examples` (T1, T6, T10) — The local-test RPC starts from an absent transaction and observes the final direct admission result instead of relying on the retired verify-queue acknowledgement gap.
+
 Process-level evidence:
 
 - `local-test-rpc-direct`: `test/src/specs/tx_pool/local_test_submission.rs::LocalTestSubmissionIsDirect` (T1, T2, T3, T6, T7, T8, T11) — Local admission remains direct and atomic while TestAccept remains read-only under the same policy. Paired units: `authority::tests::foundation::uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply`, `authority::tests::chain::uak_final_admission_receipt_is_stale_after_chain_view_aba`, `authority::tests::resolver::uak_duplicate_inputs_are_a_malformed_outcome_not_an_authority_fault`. Command: `make integration CKB_TEST_ARGS='-c 1 LocalTestSubmissionIsDirect'`
@@ -227,6 +241,12 @@ Rust evidence:
 - `authority::tests::foundation::uak_dropped_prepared_apply_is_semantically_mutation_free` (T6)
 - `authority::tests::foundation::uak_independent_run_matches_every_canonical_single_prefix` (T3, T4, T5, T6)
 - `authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together` (T6, T7)
+
+Cross-crate Rust evidence:
+
+Generated cross-crate command: `cargo nextest run -p ckb-rpc -E 'test(=tests::examples::test_rpc_examples)'`
+
+- `rpc/src/tests/examples.rs::tests::examples::test_rpc_examples` (T1, T6, T10) — The local-test RPC starts from an absent transaction and observes the final direct admission result instead of relying on the retired verify-queue acknowledgement gap.
 
 Process-level evidence:
 
@@ -378,7 +398,7 @@ Process-level evidence:
 
 #### `TP-REORG-001` — Reliable atomic chain reconciliation
 
-Generated focused command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(=authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors) | test(=authority::tests::chain::uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child) | test(=authority::tests::chain::uak_detached_parent_and_accepted_child_recover_parent_first) | test(=authority::tests::chain::uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot) | test(=service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness)'`
+Generated focused command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(=authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors) | test(=authority::tests::chain::uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child) | test(=authority::tests::chain::uak_detached_parent_and_accepted_child_recover_parent_first) | test(=authority::tests::chain::uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot) | test(=service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness) | test(=service::controller::tests::closed_reorg_consumer_fails_without_waiting)'`
 
 Rust evidence:
 
@@ -387,6 +407,13 @@ Rust evidence:
 - `authority::tests::chain::uak_detached_parent_and_accepted_child_recover_parent_first` (T1, T4, T6, T9)
 - `authority::tests::chain::uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot` (T5, T6, T9, T12)
 - `service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness` (T9, T10)
+- `service::controller::tests::closed_reorg_consumer_fails_without_waiting` (T9, T10)
+
+Cross-crate Rust evidence:
+
+Generated cross-crate command: `cargo nextest run -p ckb-sync -E 'test(=tests::sync_shared::test_insert_new_block)'`
+
+- `sync/src/tests/sync_shared.rs::tests::sync_shared::test_insert_new_block` (T9, T10) — A chain-only fixture explicitly retires the dormant tx-pool consumer, so reliable best-tip delivery cannot become an unowned capacity-one wait.
 
 Process-level evidence:
 

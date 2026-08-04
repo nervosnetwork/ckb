@@ -67,6 +67,32 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
     assert_eq!(delivered.arguments.3.tip_hash(), snapshot.tip_hash());
 }
 
+#[test]
+fn closed_reorg_consumer_fails_without_waiting() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let (reorg_sender, reorg_receiver) = mpsc::channel(1);
+    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    drop(reorg_receiver);
+    let controller = TxPoolController {
+        sender,
+        reorg_sender,
+        chunk_tx: Arc::new(chunk_tx),
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(false)),
+        signal: CancellationToken::new(),
+    };
+
+    let error = controller
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            VecDeque::new(),
+            HashSet::new(),
+            genesis_snapshot(),
+        )
+        .expect_err("an explicitly disabled tx-pool has no chain consumer");
+    assert!(error.to_string().contains("channel closed"));
+}
+
 async fn assert_fast_error<F, T>(future: F)
 where
     F: Future<Output = Result<T, AnyError>>,

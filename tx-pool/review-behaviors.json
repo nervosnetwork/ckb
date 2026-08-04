@@ -350,6 +350,7 @@
     {"test": "authority::tests::chain::uak_detached_parent_and_accepted_child_recover_parent_first", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T4", "T6", "T9"]},
     {"test": "authority::tests::chain::uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child", "behavior_id": "TP-REORG-001", "invariants": ["T4", "T10"]},
     {"test": "service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
+    {"test": "service::controller::tests::closed_reorg_consumer_fails_without_waiting", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
     {"test": "authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9", "T10"]},
 
     {"test": "authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T12"]},
@@ -455,6 +456,22 @@
       "behavior_ids": ["TP-BUDGET-001"],
       "invariants": ["T7", "T8", "T10"],
       "boundary": "Expired proposal requests are cleared without retaining stale relay state."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/tests/sync_shared.rs",
+      "test": "tests::sync_shared::test_insert_new_block",
+      "behavior_ids": ["TP-REORG-001"],
+      "invariants": ["T9", "T10"],
+      "boundary": "A chain-only fixture explicitly retires the dormant tx-pool consumer, so reliable best-tip delivery cannot become an unowned capacity-one wait."
+    },
+    {
+      "package": "ckb-rpc",
+      "path": "rpc/src/tests/examples.rs",
+      "test": "tests::examples::test_rpc_examples",
+      "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001"],
+      "invariants": ["T1", "T6", "T10"],
+      "boundary": "The local-test RPC starts from an absent transaction and observes the final direct admission result instead of relying on the retired verify-queue acknowledgement gap."
     }
   ],
   "integration_evidence": [

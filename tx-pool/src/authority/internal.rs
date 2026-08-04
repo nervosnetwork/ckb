@@ -17,7 +17,7 @@ use super::{
         InputEvidenceError, ResolvedPayload, VerifiedFacts,
     },
 };
-use crate::component::entry::TxEntry;
+use crate::component::entry::{TxEntry, accepted_transaction_charge_bytes};
 use ckb_snapshot::Snapshot;
 use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
@@ -44,13 +44,14 @@ pub(super) fn build_receipt(
     snapshot: &Snapshot,
     max_edges: usize,
 ) -> Result<DirectAdmissionReceipt, InternalPlugBuildError> {
+    let resident_bytes = accepted_transaction_charge_bytes(entry.size, &entry.rtx);
     let payload = ResolvedPayload::from_internal_plug(
         InternalPlugSeal(()),
         Arc::clone(&entry.rtx),
         max_edges,
         entry.fee,
         entry.size,
-        entry.resident_size(),
+        resident_bytes,
     )
     .map(Arc::new)
     .map_err(InternalPlugBuildError::Evidence)?;
@@ -64,7 +65,7 @@ pub(super) fn build_receipt(
     );
     let metrics = CandidateMetrics {
         fee: entry.fee,
-        cost: AcceptedCost::new(entry.size, entry.resident_size(), entry.cycles),
+        cost: AcceptedCost::new(entry.size, resident_bytes, entry.cycles),
     };
     let verified = VerifiedFacts::from_internal_plug(
         InternalPlugSeal(()),

@@ -42,9 +42,6 @@ pub struct TxEntry {
     pub descendants_count: usize,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
-    /// Conservative bytes retained by this accepted entry, including its
-    /// resolved-cell payload. This is distinct from serialized tx `size`.
-    pub(crate) resident_size: usize,
 }
 
 /// Conservative resident-byte charge for a resolved transaction.
@@ -208,15 +205,7 @@ impl From<TxEntry> for TxEntrySnapshot {
 impl TxEntry {
     /// Create new transaction pool entry
     pub fn new(rtx: Arc<ResolvedTransaction>, cycles: Cycle, fee: Capacity, size: usize) -> Self {
-        let resident_size = accepted_transaction_charge_bytes(size, &rtx);
-        Self::new_with_timestamp_and_resident_size(
-            rtx,
-            cycles,
-            fee,
-            size,
-            unix_time_as_millis(),
-            resident_size,
-        )
+        Self::new_with_timestamp(rtx, cycles, fee, size, unix_time_as_millis())
     }
 
     /// Create new transaction pool entry with specified timestamp
@@ -227,25 +216,12 @@ impl TxEntry {
         size: usize,
         timestamp: u64,
     ) -> Self {
-        let resident_size = accepted_transaction_charge_bytes(size, &rtx);
-        Self::new_with_timestamp_and_resident_size(rtx, cycles, fee, size, timestamp, resident_size)
-    }
-
-    pub(crate) fn new_with_timestamp_and_resident_size(
-        rtx: Arc<ResolvedTransaction>,
-        cycles: Cycle,
-        fee: Capacity,
-        size: usize,
-        timestamp: u64,
-        resident_size: usize,
-    ) -> Self {
         TxEntry {
             rtx,
             cycles,
             size,
             fee,
             timestamp,
-            resident_size,
             ancestors_size: size,
             ancestors_fee: fee,
             ancestors_cycles: cycles,
@@ -255,11 +231,6 @@ impl TxEntry {
             descendants_count: 1,
             ancestors_count: 1,
         }
-    }
-
-    /// Return the conservative accepted-pool residency charge.
-    pub(crate) fn resident_size(&self) -> usize {
-        self.resident_size
     }
 
     /// Create dummy entry from tx, skip resolve

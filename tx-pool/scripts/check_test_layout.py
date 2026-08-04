@@ -17,6 +17,8 @@ from check_review_guide import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
+SYNC_TEST_ROOT = REPO_ROOT / "sync" / "src" / "tests"
+SYNC_CHAIN_ONLY_FIXTURE = SYNC_TEST_ROOT / "util.rs"
 MANIFEST_PATH = REPO_ROOT / "tx-pool" / "test-layout-manifest.json"
 CFG_TEST = re.compile(r"#\[cfg\(test\)\]")
 TEST_ATTRIBUTE = re.compile(r"(?m)^\s*#\[(?:tokio::)?test(?:\([^]]*\))?\]")
@@ -161,6 +163,34 @@ def validate() -> list[str]:
                 rf"#!\s*\[allow\([^]]*{re.escape(lint)}", text, re.DOTALL
             ):
                 errors.append(f"production source weakens static lint {lint}: {name}")
+
+    # A live but unstarted tx-pool builder owns the receiving half of the
+    # reliable capacity-one chain-transition channel. Sync's chain-only tests
+    # must retire that capability through one named fixture boundary before
+    # starting chain work; direct relay extraction can otherwise leave the
+    # second best-tip transition blocked forever. Production-like relayer tests
+    # start the tx-pool and are intentionally outside this directory.
+    try:
+        chain_only_fixture = SYNC_CHAIN_ONLY_FIXTURE.read_text()
+    except OSError as error:
+        errors.append(f"cannot read sync chain-only fixture: {error}")
+        chain_only_fixture = ""
+    for required in (
+        "fn disable_tx_pool_and_take_relay_receiver",
+        "pack.take_relay_tx_receiver()",
+        "drop(pack.take_tx_pool_builder())",
+    ):
+        if required not in chain_only_fixture:
+            errors.append(f"sync chain-only fixture lost required boundary: {required}")
+    for source in sorted(SYNC_TEST_ROOT.rglob("*.rs")):
+        if source == SYNC_CHAIN_ONLY_FIXTURE:
+            continue
+        text = source.read_text()
+        if "pack.take_relay_tx_receiver()" in text:
+            errors.append(
+                "sync chain-only test bypasses the named tx-pool retirement "
+                f"boundary: {relative(source)}"
+            )
 
     discovered_wiring: set[tuple[str, str, str | None]] = set()
     wiring_spans: dict[str, list[tuple[int, int]]] = {}

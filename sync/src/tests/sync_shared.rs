@@ -4,7 +4,7 @@
 use crate::relayer::CompactBlockProcess;
 use crate::relayer::tests::helper::MockProtocolContext;
 use crate::synchronizer::HeadersProcess;
-use crate::tests::util::{build_chain, inherit_block};
+use crate::tests::util::{build_chain, disable_tx_pool_and_take_relay_receiver, inherit_block};
 use crate::{Relayer, Status, SyncShared, Synchronizer};
 use ckb_chain::{ChainServiceScope, RemoteBlock, VerifyResult};
 use ckb_logger::info;
@@ -86,8 +86,9 @@ fn test_insert_parent_unknown_block() {
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
+        let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
         (
-            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
+            SyncShared::new(shared, Default::default(), relay_receiver),
             ChainServiceScope::new(pack.take_chain_services_builder()),
         )
     };
@@ -220,6 +221,7 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
             "parent block should be stored"
         );
 
+        let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
         let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
         while chain
@@ -230,7 +232,7 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
         }
 
         (
-            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
+            SyncShared::new(shared, Default::default(), relay_receiver),
             chain,
         )
     };

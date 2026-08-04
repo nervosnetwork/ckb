@@ -30,7 +30,6 @@ use super::{
         AuthorityRuntime, AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
         RuntimeConfigError,
     },
-    template::TemplateReadError,
     template_driver::{AuthorityBlockAssembler, AuthorityTemplateDriverFault},
     topology::{
         AuthorityDerivedTaskFailure, AuthorityGenerationFault, AuthorityShutdownStatus,
@@ -43,6 +42,7 @@ use super::{
     packing::TemplatePackingLimits,
     runtime::{AuthorityInternalPlugError, AuthorityInternalPlugOutcome},
     state::AcceptedStatus,
+    template::TemplateReadError,
 };
 #[cfg(any(test, feature = "internal"))]
 use crate::{PlugTarget, component::entry::TxEntry};
@@ -1651,6 +1651,7 @@ fn map_query_error(error: AuthorityQueryError) -> AuthorityServiceError {
     }
 }
 
+#[cfg(any(test, feature = "internal"))]
 fn map_template_read_error(error: TemplateReadError) -> AuthorityServiceError {
     match error {
         TemplateReadError::Allocation => AuthorityServiceError::ResourceUnavailable,

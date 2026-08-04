@@ -73,8 +73,31 @@ Normative evidence now lives in:
 
 ## P9.8 exact next action
 
-1. Re-run the full cross-crate Rust evidence universe named by the registry,
-   plus affected authority/chain/sync packages where required by compilation.
+The Rust evidence slice is complete at the post-phase-4 working tree:
+
+- `cargo nextest run -p ckb-chain -p ckb-sync -p ckb-shared -p ckb-rpc
+  -p ckb-launcher -p ckb-verification-contextual --no-fail-fast`: 175/175
+  passed, with 2 configured skips.
+- `cargo nextest run -p ckb-sync -j 1 --no-fail-fast`: 84/84 passed.
+- `cargo nextest run -p ckb-tx-pool --features internal --lib
+  --no-fail-fast`: 407/407 passed.
+- strict internal-feature Clippy, default-feature `cargo check`, complete review
+  contracts, formatting and diff checks passed.
+
+The pre-fix cross-crate run exposed two test-harness lifecycle defects rather
+than product-state defects. Chain-only sync fixtures kept the reliable
+capacity-one reorg receiver alive without starting its tx-pool consumer, so a
+second transition had no possible progress. They now retire that dormant
+capability through one named fixture boundary, with a static drift check and a
+closed-consumer regression; production reliable delivery is unchanged. The RPC
+example suite retained its baseline transaction while testing direct local
+submission, depending on the deleted verify-queue acknowledgement gap. It now
+establishes absence and observes the final direct Apply result.
+
+Next exact actions:
+
+1. Freeze the Rust-evidence and fixture-lifecycle correction checkpoint without
+   staging the user-owned root `.gitignore`.
 2. Build the production node and integration runner through `make integration`.
 3. Obtain the exact 150-spec command from the generated review guide / managed
    integration registry; do not substitute a directory or name subset.

@@ -399,6 +399,7 @@ persisted::tests::persistence_v2_roundtrip_preserves_partitions_and_recovery_ord
 persisted::tests::persistence_writer_admits_only_one_snapshot_owner
 service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full
 service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness
+service::controller::tests::closed_reorg_consumer_fails_without_waiting
 service::controller::tests::remote_submit_waits_without_blocking_a_current_thread_runtime
 service::message::tests::notify_tx_batch_rejects_bytes_before_dispatch
 service::message::tests::notify_tx_batch_rejects_count_before_dispatch

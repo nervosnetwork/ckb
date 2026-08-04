@@ -52,20 +52,18 @@ pub(super) struct PackedTemplateTransactions {
 
 impl PackedTemplateTransactions {
     /// Convert only the block-bounded selected payloads into the established
-    /// assembler DTO. The exact accepted timestamp and residency charge were
-    /// captured with the same authority receipt, so conversion performs no
-    /// second resolved-payload scan and reconstructs no membership graph.
+    /// assembler DTO. The exact accepted timestamp was captured with the same
+    /// authority receipt, so conversion reconstructs no membership graph.
     pub(super) fn into_tx_entries(self) -> Vec<TxEntry> {
         self.entries
             .into_iter()
             .map(|entry| {
-                TxEntry::new_with_timestamp_and_resident_size(
+                TxEntry::new_with_timestamp(
                     entry.resolved,
                     entry.metrics.cost.cycles,
                     entry.metrics.fee,
                     entry.metrics.cost.serialized_bytes,
                     entry.accepted_at.0,
-                    entry.metrics.cost.resident_bytes,
                 )
             })
             .collect()
