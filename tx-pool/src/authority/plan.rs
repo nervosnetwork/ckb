@@ -257,7 +257,6 @@ pub(super) enum PlanError {
     PayloadVariant,
     Membership(MembershipReject),
     Backpressure(Backpressure),
-    IngressRevoked(ckb_network::PeerIndex),
     Stale(StalePlan),
     Fault(AuthorityFault),
     EffectClosed,
@@ -307,7 +306,6 @@ impl ComputeSettlementRecovery {
             PlanError::Duplicate => Self::Structural(PlanError::Duplicate),
             PlanError::PayloadVariant => Self::Structural(PlanError::PayloadVariant),
             PlanError::Membership(rejection) => Self::Structural(PlanError::Membership(rejection)),
-            PlanError::IngressRevoked(peer) => Self::Structural(PlanError::IngressRevoked(peer)),
             PlanError::Fault(fault) => Self::Structural(PlanError::Fault(fault)),
             PlanError::EffectClosed => Self::Structural(PlanError::EffectClosed),
         }
@@ -2029,7 +2027,19 @@ impl TxPoolAuthority {
         if let RetainedIngressKind::Remote(peer) = kind
             && self.peer_bans.contains_at(peer, Instant::now())
         {
-            return Err(PlanError::IngressRevoked(peer));
+            // Relay marks a received transaction known before its asynchronous
+            // controller submission. A peer-revocation reset may therefore be
+            // consumed before this already-queued message reaches authority.
+            // Commit an exact later release; returning a silent policy outcome
+            // would repin the relay filter after the one-shot reset.
+            return self
+                .plan_single_effect(
+                    EffectPolicy::Remote,
+                    CommittedEffect::RemoteIngressReleased(
+                        CommittedRemoteIngressRelease::unretained_remote_submission(key, peer),
+                    ),
+                )
+                .map(RetainedAdmissionDisposition::RemoteReleased);
         }
 
         match kind {
@@ -2050,7 +2060,7 @@ impl TxPoolAuthority {
                         .plan_single_effect(
                             EffectPolicy::Remote,
                             CommittedEffect::RemoteIngressReleased(
-                                CommittedRemoteIngressRelease::duplicate_remote_submission(
+                                CommittedRemoteIngressRelease::unretained_remote_submission(
                                     key, peer,
                                 ),
                             ),
@@ -2118,11 +2128,6 @@ impl TxPoolAuthority {
             // authority repeats the OCC fence so no alternate caller can
             // publish an old-generation owner.
             return Err(PlanError::Stale(StalePlan::Generation));
-        }
-        if let Some(peer) = admission.source.ingress_peer()
-            && self.peer_bans.contains_at(peer, Instant::now())
-        {
-            return Err(PlanError::IngressRevoked(peer));
         }
         let admission = self.resources.charge_admission(admission)?;
         let key = admission.admission().identity.raw.clone();

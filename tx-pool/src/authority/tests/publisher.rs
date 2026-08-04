@@ -346,7 +346,7 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
 
     let released_hash = RawTxHash(candidate.hash());
     let released = compile_committed_effect(CommittedEffect::RemoteIngressReleased(
-        CommittedRemoteIngressRelease::duplicate_remote_submission(released_hash.clone(), peer),
+        CommittedRemoteIngressRelease::unretained_remote_submission(released_hash.clone(), peer),
     ));
     assert!(released.callback.is_none());
     assert!(released.recent_reject.is_none());

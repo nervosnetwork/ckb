@@ -74,7 +74,6 @@ impl From<PlanError> for ChainBoundaryError {
             PlanError::Duplicate
             | PlanError::PayloadVariant
             | PlanError::Membership(_)
-            | PlanError::IngressRevoked(_)
             | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
         }
     }

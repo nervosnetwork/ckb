@@ -642,7 +642,6 @@ impl AuthorityAdministrationError {
             PlanError::Duplicate
             | PlanError::PayloadVariant
             | PlanError::Membership(_)
-            | PlanError::IngressRevoked(_)
             | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
         }
     }
@@ -670,10 +669,9 @@ impl AuthorityDriverError {
             PlanError::Backpressure(
                 Backpressure::ComputeResources | Backpressure::GenerationReplacement,
             ) => Self::Fault(AuthorityFault::SchedulerProjection),
-            PlanError::Duplicate
-            | PlanError::PayloadVariant
-            | PlanError::Membership(_)
-            | PlanError::IngressRevoked(_) => Self::Fault(AuthorityFault::MembershipProjection),
+            PlanError::Duplicate | PlanError::PayloadVariant | PlanError::Membership(_) => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
         }
     }
 
@@ -1034,7 +1032,7 @@ impl AuthorityInternalPlugError {
                 PlanError::Backpressure(
                     Backpressure::ComputeResources | Backpressure::GenerationReplacement,
                 ) => Self::Fault(AuthorityFault::SchedulerProjection),
-                PlanError::Duplicate | PlanError::PayloadVariant | PlanError::IngressRevoked(_) => {
+                PlanError::Duplicate | PlanError::PayloadVariant => {
                     Self::Fault(AuthorityFault::MembershipProjection)
                 }
             },
@@ -1085,10 +1083,9 @@ impl AuthorityDirectAdmissionError {
             PlanError::Backpressure(
                 Backpressure::ComputeResources | Backpressure::GenerationReplacement,
             ) => Self::Fault(AuthorityFault::SchedulerProjection),
-            PlanError::Duplicate
-            | PlanError::PayloadVariant
-            | PlanError::Membership(_)
-            | PlanError::IngressRevoked(_) => Self::Fault(AuthorityFault::MembershipProjection),
+            PlanError::Duplicate | PlanError::PayloadVariant | PlanError::Membership(_) => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
         }
     }
 }

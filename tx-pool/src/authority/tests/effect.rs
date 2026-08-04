@@ -414,13 +414,13 @@ fn uak_effect_shape_bounds_are_class_specific() {
     let authority = authority_with_effect_limits(limits);
     let effects = vec![
         CommittedEffect::RemoteIngressReleased(
-            CommittedRemoteIngressRelease::duplicate_remote_submission(
+            CommittedRemoteIngressRelease::unretained_remote_submission(
                 RawTxHash(Byte32::new([31; 32])),
                 PeerIndex::from(31),
             ),
         ),
         CommittedEffect::RemoteIngressReleased(
-            CommittedRemoteIngressRelease::duplicate_remote_submission(
+            CommittedRemoteIngressRelease::unretained_remote_submission(
                 RawTxHash(Byte32::new([32; 32])),
                 PeerIndex::from(32),
             ),

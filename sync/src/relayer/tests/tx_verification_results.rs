@@ -64,6 +64,13 @@ fn rejected_tx_can_be_requested_again_from_another_peer() {
     let tx_hash = new_transaction(&relayer, 2, &always_success_out_point).hash();
     let state = relayer.shared.state();
 
+    // Peer-cohort cleanup is a one-shot generation reset. A Remote message
+    // already queued before the ban can reach tx-pool after that reset and
+    // mark the raw hash known again; its exact terminal release must clear the
+    // later projection as well.
+    state.mark_as_known_tx(tx_hash.clone());
+    state.reset_tx_pool_relay_projection();
+    assert!(!state.already_known_tx(&tx_hash));
     state.mark_as_known_tx(tx_hash.clone());
     state.reject_pending_relay_tx(&tx_hash);
     assert!(!state.already_known_tx(&tx_hash));

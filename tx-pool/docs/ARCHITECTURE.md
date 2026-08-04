@@ -257,9 +257,12 @@ Sources are policy, not locations:
   same final membership compiler and effect rules.
 - TestAccept evaluates validation policy but performs no authoritative Apply.
 
-A peer ban removes only not-yet-Accepted owners attributed to that peer. The
-same committed effect releases the relay's pending/known projection, so another
-peer can supply the transaction. Accepted owners remain accepted.
+A peer ban removes only not-yet-Accepted owners attributed to that peer. Its
+committed cohort effect resets the relay projection. Because relay marks input
+known before asynchronous controller delivery, every already-queued message
+that reaches the live peer fence later commits an exact
+`RemoteIngressReleased` effect of its own. Another peer can therefore supply
+the same raw transaction in either ordering; Accepted owners remain accepted.
 
 ## 7. Validate, Plan, Apply and effects
 
@@ -413,6 +416,10 @@ exact progress token. Endpoint failure cannot roll back or reinterpret the
 committed owner transition. Relay publication uses a bounded nonblocking
 mailbox; overflow converges through `GenerationReset` and bounded level rebuild.
 
+Effect-index inconsistency is an authority projection fault. JSON encoding,
+storage, callback, network and other endpoint failures are derived or external
+outcomes and cannot construct authority-generation invalidity.
+
 Effect delivery is not crash durable or universally exactly-once. This is an
 explicit operational boundary, not hidden transaction state.
 
@@ -510,6 +517,9 @@ proposals and uncles share one byte budget; only proposal IDs actually
 published in the candidate uncles are excluded. A rebuildable failure retains
 the last valid template and waits for a source-level change rather than
 spinning or mutating tx-pool state.
+Candidate-uncle insertion is likewise a bounded derived observation: source
+counter exhaustion rejects that cache mutation and records degradation, but it
+cannot veto an already-committed chain Apply or forbid authority persistence.
 
 ## 14. Resource and complexity contract
 

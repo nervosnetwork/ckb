@@ -2916,7 +2916,7 @@ No production-readiness claim is allowed while any blocker remains.
 
 ### 16.2 Current recovery point: architecture adjudication
 
-Recovery base is commit `3d87c9690f13f6b7af5d866f09a38403f532396b`. The root `.gitignore` modification is
+Recovery base is commit `79c746209`. The root `.gitignore` modification is
 user-owned and remains excluded from every stage/commit operation.
 The phase-3 evidence/test-isolation checkpoint is that commit; recovery must
 start from it, not replay the extraction.
@@ -3016,6 +3016,101 @@ Active slice and next exact action:
 4. Freeze the typed-checkout slice as a recoverable checkpoint before taking the
    next candidate. Only after the full adjudication blocker closes may P9.8 run;
    P10 profiling and fixed-binary A/B remains last.
+
+The typed-checkout slice is frozen at `79c746209`. The following current-code
+candidates are now verified as one closed adjudication set; none may be fixed
+or dismissed independently of its producer/consumer and failure boundary:
+
+1. `CONFIRMED — delayed banned-peer ingress can repin the relay filter.` Relay
+   marks a received transaction known before asynchronously submitting it. A
+   committed peer revocation publishes one `GenerationReset`, but a controller
+   message already queued from that peer can arrive after the reset. The
+   authority then returns `IngressRevoked` without a committed effect and the
+   dispatcher converts the disposition to `Ok(())`, leaving the later known
+   entry pinned. The retained-Remote boundary must instead commit the existing
+   bounded `RemoteIngressReleased` effect for that exact raw hash. This adds no
+   tombstone or owner; the peer fence remains peer-scoped, Accepted owners remain
+   untouched, and another peer can supply the same transaction after relay
+   consumes the release.
+2. `CONFIRMED — candidate-uncle cache exhaustion crosses the authority failure
+   boundary.` Chain Apply commits before candidate-uncle observation, yet
+   `SourceVersionExhausted` is mapped to `AuthorityServiceError::CounterExhausted`
+   and invalidates the authority generation. Direct `NewUncle` takes the same
+   path. Candidate uncles are bounded rebuildable template input, so their
+   mutation failure may degrade/log that observer but cannot veto an already
+   committed chain cut, forbid persistence, or stop tx-pool authority.
+3. `CONFIRMED — pending recent-reject encoding is misclassified as authority
+   projection corruption.` Runtime already separates effect-index projection
+   mismatch from JSON encoding failure. Service collapses both into
+   `AuthorityServiceError::Projection`, while the effect publisher correctly
+   treats the same encoding failure as a derived endpoint degradation. Preserve
+   projection mismatch as structural and return encoding failure only through
+   `AuthorityDerivedError::External`.
+4. Items 2 and 3 share one root: a post-commit or rebuildable derived consumer
+   must not construct `AuthorityServiceError` or
+   `AuthorityGenerationInvalidity`. Audit candidate-uncles, recent-reject, fee
+   estimation, template/cache tasks, relay/network/callback endpoints and
+   persistence as one family before implementation. Current evidence leaves
+   candidate-uncles and pending recent-reject encoding as the two concrete
+   drifts; the other named boundaries already retain local derived/operational
+   outcomes.
+5. `OPEN — service ingress result algebra is broader than its observable
+   compatibility boundary.` Production Remote and Proposal dispatch currently
+   discard every successful `AuthorityIngressDisposition` distinction. Narrow
+   it only after the ban-release obligation above proves which internal
+   dispositions still own committed effects; do not erase exact internal
+   `RetainedIngressCommit` evidence or turn a relay-cleanup result into a silent
+   no-op.
+6. `OPEN — manual mutation publication is a liveness proof table.` No missing
+   wake is currently confirmed. Removing the calls by moving wakes under the
+   authority lock, adding another capability, or serializing optimistic work
+   would transfer complexity or performance risk. Complete the static
+   producer-to-wake audit before deciding whether checked explicit publication
+   is the smaller Rust construction.
+
+Implementation gate for this set: no new mutable state, lock, task, retry loop,
+repair scan or generation-wide fail-stop. Add exact authority/effect/relay
+regressions, then run formatting, static contracts, all-target internal Clippy
+and the complete authority nextest universe before freezing the next checkpoint.
+
+This adjudication set is implemented and ready to freeze:
+
+1. Delayed revoked Remote ingress now produces the existing exact
+   `RemoteIngressReleased` effect under Remote journal bounds. The peer fence
+   remains peer-scoped, removes no Accepted owner and stores no raw-hash
+   tombstone. The former no-effect `IngressRevoked` Plan/error path and the
+   service's seven-variant, production-unobserved ingress disposition algebra
+   are deleted; internal `RetainedIngressCommit` still proves every committed
+   effect/no-op shape before the compatibility boundary returns `Result<()>`.
+2. Candidate-uncle source exhaustion remains typed and mutation-free inside the
+   bounded cache, but service observation is now unit-returning derived work.
+   Neither direct `NewUncle` nor post-chain-Apply observation can construct an
+   authority service error or persistence invalidity.
+3. Pending recent-reject reads preserve effect-index mismatch as an authority
+   projection fault and classify JSON encoding only as an external derived
+   error, matching the publisher's endpoint boundary.
+4. Reverse inspection found no other post-commit/rebuildable consumer that
+   constructs `AuthorityGenerationInvalidity`: fee estimation, template/cache
+   tasks, relay/network/callback endpoints and persistence already retain their
+   derived or operational domains. The broader constructor audit remains open
+   for non-derived service paths.
+5. Review-evidence schema v5 now owns cross-crate Rust regressions. Seven exact
+   `ckb-sync` tests are source-validated and their nextest commands generated;
+   the two hand-maintained relay command blocks were removed from the guide.
+   Test inventory is regenerated rather than copied.
+
+Evidence: focused authority and relay regressions pass; all-target internal
+Clippy with `-D warnings` passes; the authority nextest universe is 363/363;
+`check_all.py` validates 404 discovered tests, 89 exact tx-pool anchors, seven
+cross-crate Rust anchors, 17 security integration anchors and 150 managed
+integration specs; formatting and `git diff --check` pass. Production code in
+this set removes more lines than it adds and introduces no lock, task, queue,
+retry, owner state or hot-path scan.
+
+Next exact action after freezing: complete the explicit Apply-to-wake table and
+remaining `AuthorityServiceError` constructor audit, then decide the manual
+publication disposition from the whole wait-for/performance model. Do not move
+to P9.8 while that static adjudication remains open.
 
 Do not respond to the 237 sites by copying them into the manifest. Their
 existence is the migration work queue, not an allowlist baseline.

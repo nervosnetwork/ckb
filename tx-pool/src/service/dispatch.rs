@@ -103,8 +103,7 @@ pub(crate) async fn process(
             } = request;
             let result = service
                 .submit_remote(transaction, declared_cycles, peer)
-                .await
-                .map(|_| ());
+                .await;
             respond_outer(responder, result, "submit_remote_tx")
         }
         Message::NotifyTxs(Notify { arguments }) => {
@@ -152,10 +151,8 @@ pub(crate) async fn process(
             handle_get_transaction_with_status(&service, request)
         }
         Message::NewUncle(Notify { arguments }) => {
-            match service.receive_candidate_uncle(arguments) {
-                Ok(()) => Ok(()),
-                Err(error) => settle_service_error(error),
-            }
+            service.receive_candidate_uncle(arguments);
+            Ok(())
         }
         Message::ClearPool(request) => {
             let Request {

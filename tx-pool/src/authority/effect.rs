@@ -541,7 +541,7 @@ impl CommittedRemoteIngressRelease {
     /// A Remote boundary supplies the ingress attribution directly. The
     /// relayer's projection is keyed only by raw hash, so retaining the peer
     /// would add state without changing publication semantics.
-    pub(super) const fn duplicate_remote_submission(
+    pub(super) const fn unretained_remote_submission(
         tx_hash: RawTxHash,
         _ingress_peer: PeerIndex,
     ) -> Self {
@@ -623,7 +623,8 @@ pub(super) enum CommittedEffect {
     RemoteExpired {
         tx_hash: RawTxHash,
     },
-    /// A duplicate Remote submission was not retained, or a remote-attributed
+    /// A Remote submission was not retained (duplicate, revoked peer, or
+    /// another terminal ingress disposition), or a remote-attributed
     /// not-yet-Accepted owner was removed. No Accepted fact is published; the
     /// relayer must only release its pending/known projection so another peer
     /// may supply the transaction later.

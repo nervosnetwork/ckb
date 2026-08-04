@@ -29,11 +29,12 @@ use super::{
         AuthorityAdministrationError, AuthorityDirectAdmissionError,
         AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
         AuthorityDirectResolutionOutcome, AuthorityDirectVerificationOutcome,
-        AuthorityLocalAdmissionOutcome, AuthorityRelayParentReader, AuthorityRuntime,
-        AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind, RuntimeConfigError,
+        AuthorityLocalAdmissionOutcome, AuthorityRecentRejectReadError, AuthorityRelayParentReader,
+        AuthorityRuntime, AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
+        RuntimeConfigError,
     },
     template::TemplateReadError,
-    template_driver::AuthorityBlockAssembler,
+    template_driver::{AuthorityBlockAssembler, AuthorityTemplateDriverFault},
     topology::{
         AuthorityDerivedTaskFailure, AuthorityGenerationFault, AuthorityShutdownStatus,
         AuthorityTaskTopology, AuthorityTopologyEvent, AuthorityTopologyStartError,
@@ -178,31 +179,6 @@ impl From<AuthorityFault> for AuthorityProjectionFault {
             AuthorityFault::EffectProjection => Self::Effect,
         }
     }
-}
-
-/// Retained ingress has no synchronous public rejection result. This closed
-/// disposition nevertheless forces the service cutover to account for every
-/// no-owner outcome, including relayer filter release under pressure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthorityIngressDisposition {
-    Retained,
-    AcceptedDuplicate,
-    RemoteReleased,
-    ProposalUnchanged,
-    Rejected,
-    Pressure(AuthorityIngressPressure),
-    PeerRevoked,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthorityIngressPressure {
-    TotalResources,
-    RemoteResources,
-    PeerResources,
-    ComputeResources,
-    EffectCapacity,
-    ProposalCollision,
-    Allocation,
 }
 
 /// Immutable construction inputs. This value exists only until the runtime,
@@ -766,7 +742,7 @@ impl AuthorityService {
         tx: TransactionView,
         declared_cycles: u64,
         peer: PeerIndex,
-    ) -> Result<AuthorityIngressDisposition, AuthorityServiceError> {
+    ) -> Result<(), AuthorityServiceError> {
         loop {
             let signal = self.runtime.mutation_signal();
             let notified = signal.notified();
@@ -774,7 +750,7 @@ impl AuthorityService {
                 .runtime
                 .submit_remote_ingress(tx.clone(), declared_cycles, peer)
             {
-                Ok(commit) => return Ok(map_ingress_commit(commit)),
+                Ok(_commit) => return Ok(()),
                 Err(RetainedIngressBoundaryError::Backpressure(
                     RetainedIngressBackpressure::EffectCapacity,
                 )) => {
@@ -818,7 +794,7 @@ impl AuthorityService {
         tx: TransactionView,
         peer: PeerIndex,
         pressure: RemoteIngressPressure,
-    ) -> Result<AuthorityIngressDisposition, AuthorityServiceError> {
+    ) -> Result<(), AuthorityServiceError> {
         loop {
             let signal = self.runtime.mutation_signal();
             let notified = signal.notified();
@@ -827,7 +803,7 @@ impl AuthorityService {
                 .reject_remote_ingress_pressure(tx.clone(), peer, pressure)
             {
                 Ok(RetainedIngressCommit::Rejected) => {
-                    return Ok(AuthorityIngressDisposition::Rejected);
+                    return Ok(());
                 }
                 Ok(
                     RetainedIngressCommit::Retained
@@ -854,12 +830,12 @@ impl AuthorityService {
     pub(crate) async fn submit_proposal(
         &self,
         tx: TransactionView,
-    ) -> Result<AuthorityIngressDisposition, AuthorityServiceError> {
+    ) -> Result<(), AuthorityServiceError> {
         loop {
             let signal = self.runtime.mutation_signal();
             let notified = signal.notified();
             match self.runtime.submit_proposal_ingress(tx.clone()) {
-                Ok(commit) => return Ok(map_ingress_commit(commit)),
+                Ok(_commit) => return Ok(()),
                 Err(RetainedIngressBoundaryError::Backpressure(
                     RetainedIngressBackpressure::EffectCapacity,
                 )) => {
@@ -1187,25 +1163,17 @@ impl AuthorityService {
         }
         if let Some(assembler) = &self.block_assembler {
             for uncle in committed.candidate_uncles {
-                assembler
-                    .receive_candidate_uncle(uncle)
-                    .map_err(|_| AuthorityServiceError::CounterExhausted)?;
+                observe_candidate_uncle(assembler, uncle);
             }
         }
         drop(committed.snapshot);
         Ok(())
     }
 
-    pub(crate) fn receive_candidate_uncle(
-        &self,
-        uncle: UncleBlockView,
-    ) -> Result<(), AuthorityServiceError> {
+    pub(crate) fn receive_candidate_uncle(&self, uncle: UncleBlockView) {
         if let Some(assembler) = &self.block_assembler {
-            assembler
-                .receive_candidate_uncle(uncle)
-                .map_err(|_| AuthorityServiceError::CounterExhausted)?;
+            observe_candidate_uncle(assembler, uncle);
         }
-        Ok(())
     }
 
     pub(crate) async fn block_template(
@@ -1372,10 +1340,7 @@ impl AuthorityService {
         &self,
         hash: &Byte32,
     ) -> Result<Option<String>, AuthorityDerivedError> {
-        if let Some(record) = self
-            .pending_recent_reject(hash)
-            .map_err(AuthorityDerivedError::Authority)?
-        {
+        if let Some(record) = self.pending_recent_reject(hash)? {
             return Ok(Some(record));
         }
         match &self.recent_reject {
@@ -1415,10 +1380,10 @@ impl AuthorityService {
     pub(crate) fn pending_recent_reject(
         &self,
         hash: &Byte32,
-    ) -> Result<Option<String>, AuthorityServiceError> {
+    ) -> Result<Option<String>, AuthorityDerivedError> {
         self.runtime
             .pending_recent_reject(hash)
-            .map_err(|_| AuthorityServiceError::Projection(AuthorityProjectionFault::Effect))
+            .map_err(map_recent_reject_read_error)
     }
 
     /// Inject already-resolved test instrumentation one entry at a time.
@@ -1479,6 +1444,34 @@ impl AuthorityService {
     }
 }
 
+/// Candidate uncles are bounded, rebuildable template input. Failure to
+/// advance their private source counter must not veto an already-committed
+/// chain Apply or invalidate the independent transaction authority.
+fn observe_candidate_uncle(assembler: &AuthorityBlockAssembler, uncle: UncleBlockView) {
+    record_candidate_uncle_observation(assembler.receive_candidate_uncle(uncle));
+}
+
+pub(super) fn record_candidate_uncle_observation(
+    result: Result<bool, AuthorityTemplateDriverFault>,
+) {
+    if let Err(error) = result {
+        ckb_logger::error!("tx-pool candidate-uncle observer degraded: {error:?}");
+    }
+}
+
+pub(super) fn map_recent_reject_read_error(
+    error: AuthorityRecentRejectReadError,
+) -> AuthorityDerivedError {
+    match error {
+        AuthorityRecentRejectReadError::Projection => AuthorityDerivedError::Authority(
+            AuthorityServiceError::Projection(AuthorityProjectionFault::Effect),
+        ),
+        AuthorityRecentRejectReadError::Encoding(error) => {
+            AuthorityDerivedError::External(error.into())
+        }
+    }
+}
+
 #[cfg(any(test, feature = "internal"))]
 fn internal_plug_reject(error: AuthorityInternalPlugError) -> Reject {
     match error {
@@ -1519,51 +1512,13 @@ fn map_topology_start_error(error: AuthorityTopologyStartError) -> AuthorityServ
     }
 }
 
-fn map_ingress_commit(commit: RetainedIngressCommit) -> AuthorityIngressDisposition {
-    match commit {
-        RetainedIngressCommit::Retained => AuthorityIngressDisposition::Retained,
-        RetainedIngressCommit::AcceptedDuplicate => AuthorityIngressDisposition::AcceptedDuplicate,
-        RetainedIngressCommit::RemoteReleased => AuthorityIngressDisposition::RemoteReleased,
-        RetainedIngressCommit::ProposalUnchanged => AuthorityIngressDisposition::ProposalUnchanged,
-        RetainedIngressCommit::Rejected => AuthorityIngressDisposition::Rejected,
-    }
-}
-
-fn map_ingress_error(
-    error: RetainedIngressBoundaryError,
-) -> Result<AuthorityIngressDisposition, AuthorityServiceError> {
+fn map_ingress_error(error: RetainedIngressBoundaryError) -> Result<(), AuthorityServiceError> {
     match error {
         RetainedIngressBoundaryError::InvalidEvidence => Err(AuthorityServiceError::Projection(
             AuthorityProjectionFault::Membership,
         )),
-        RetainedIngressBoundaryError::ResourceUnavailable => Ok(
-            AuthorityIngressDisposition::Pressure(AuthorityIngressPressure::Allocation),
-        ),
-        RetainedIngressBoundaryError::Backpressure(pressure) => {
-            Ok(AuthorityIngressDisposition::Pressure(match pressure {
-                RetainedIngressBackpressure::TotalResources => {
-                    AuthorityIngressPressure::TotalResources
-                }
-                RetainedIngressBackpressure::RemoteResources => {
-                    AuthorityIngressPressure::RemoteResources
-                }
-                RetainedIngressBackpressure::PeerResources => {
-                    AuthorityIngressPressure::PeerResources
-                }
-                RetainedIngressBackpressure::ComputeResources => {
-                    AuthorityIngressPressure::ComputeResources
-                }
-                RetainedIngressBackpressure::EffectCapacity => {
-                    AuthorityIngressPressure::EffectCapacity
-                }
-                RetainedIngressBackpressure::ProposalCollision => {
-                    AuthorityIngressPressure::ProposalCollision
-                }
-            }))
-        }
-        RetainedIngressBoundaryError::PeerRevoked(_) => {
-            Ok(AuthorityIngressDisposition::PeerRevoked)
-        }
+        RetainedIngressBoundaryError::ResourceUnavailable
+        | RetainedIngressBoundaryError::Backpressure(_) => Ok(()),
         RetainedIngressBoundaryError::LifecycleClosed => {
             Err(AuthorityServiceError::LifecycleClosed)
         }

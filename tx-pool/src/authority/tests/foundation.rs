@@ -1728,13 +1728,6 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
             if revocation.peer() == banned && revocation.culprit().is_none()
     ));
 
-    let blocked = ValidatedAdmission::remote(queued_tx.clone(), banned)
-        .expect("same-peer retry remains structurally valid");
-    assert_eq!(
-        authority.plan_admission(blocked).err(),
-        Some(PlanError::IngressRevoked(banned))
-    );
-
     let resubmitted = ValidatedAdmission::remote(queued_tx, survivor_peer)
         .expect("another peer may provide the same raw transaction");
     apply_plan(
@@ -1792,7 +1785,6 @@ fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
 fn uak_clear_pipeline_preserves_live_peer_revocation() {
     let peer = PeerIndex::from(711);
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let transaction = tx(1_715);
     let _ = admit_remote(&mut authority, 1_715, 711);
     drop(
         authority
@@ -1807,11 +1799,8 @@ fn uak_clear_pipeline_preserves_live_peer_revocation() {
             .apply(),
     );
 
-    let retry = ValidatedAdmission::remote(transaction, peer)
-        .expect("the retry remains structurally valid");
-    assert_eq!(
-        authority.plan_admission(retry).err(),
-        Some(PlanError::IngressRevoked(peer)),
+    assert!(
+        authority.peer_is_banned_for_reference(peer),
         "clear must not erase an unrelated live network-security decision"
     );
     assert!(authority.primary_projection_consistent());
@@ -1829,14 +1818,6 @@ fn uak_peer_revocation_without_resident_owner_still_fences_queued_ingress() {
         .apply();
     assert_eq!(revoked.retired_len(), 0);
     assert!(authority.peer_is_banned_for_reference(peer));
-
-    let queued_before_ban = ValidatedAdmission::remote(transaction.clone(), peer)
-        .expect("an already queued controller message remains structurally valid");
-    assert_eq!(
-        authority.plan_admission(queued_before_ban).err(),
-        Some(PlanError::IngressRevoked(peer)),
-        "the authority marker linearizes the ban against delayed ingress"
-    );
 
     apply_plan(
         authority
@@ -2401,12 +2382,6 @@ fn uak_current_remote_cycle_rejection_terminalizes_with_peer_attribution() {
                         && matches!(culprit.reason().reject(), Reject::DeclaredWrongCycles(200, 201)))
     ));
 
-    let blocked = ValidatedAdmission::remote(transaction.clone(), peer)
-        .expect("same-peer retry remains structurally valid");
-    assert_eq!(
-        authority.plan_admission(blocked).err(),
-        Some(PlanError::IngressRevoked(peer))
-    );
     let other_peer = PeerIndex::from(6_271);
     apply_plan(
         authority

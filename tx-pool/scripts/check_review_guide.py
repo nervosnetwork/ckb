@@ -23,6 +23,7 @@ START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+RUST_PACKAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 REQUIRED_PROOF_OBLIGATIONS = {f"T{number}" for number in range(1, 14)}
 
 
@@ -87,8 +88,8 @@ def _nonempty_strings(value: object) -> bool:
 
 def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
-    if registry.get("schema_version") != 4:
-        errors.append("behavior registry schema_version must be 4")
+    if registry.get("schema_version") != 5:
+        errors.append("behavior registry schema_version must be 5")
 
     if impact is None:
         try:
@@ -272,6 +273,68 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         for entry in unit_evidence
         if isinstance(entry, dict) and isinstance(entry.get("test"), str)
     }
+    seen_workspace_tests: set[tuple[str, str]] = set()
+    workspace_evidence = registry.get("workspace_evidence")
+    if not isinstance(workspace_evidence, list):
+        errors.append("behavior registry workspace_evidence must be a list")
+        workspace_evidence = []
+    for entry in workspace_evidence:
+        if not isinstance(entry, dict):
+            errors.append(f"invalid workspace evidence entry: {entry!r}")
+            continue
+        package = entry.get("package")
+        test = entry.get("test")
+        path_value = entry.get("path")
+        workspace_behavior_ids = entry.get("behavior_ids")
+        invariants = entry.get("invariants")
+        boundary = entry.get("boundary")
+        if not isinstance(package, str) or RUST_PACKAGE.fullmatch(package) is None:
+            errors.append(f"workspace evidence has invalid package: {entry!r}")
+        if not isinstance(test, str) or not test.strip():
+            errors.append(f"workspace evidence has no test anchor: {entry!r}")
+        elif isinstance(package, str):
+            key = (package, test)
+            if key in seen_workspace_tests:
+                errors.append(f"duplicate workspace evidence anchor: {key!r}")
+            seen_workspace_tests.add(key)
+        if not _nonempty_strings(workspace_behavior_ids):
+            errors.append(f"workspace evidence {test!r} has no behavior_ids")
+            workspace_behavior_ids = []
+        elif len(workspace_behavior_ids) != len(set(workspace_behavior_ids)):
+            errors.append(f"workspace evidence {test!r} repeats behavior IDs")
+        for behavior_id in workspace_behavior_ids:
+            if behavior_id not in behavior_ids:
+                errors.append(
+                    f"workspace evidence {test!r} uses unknown behavior {behavior_id!r}"
+                )
+            else:
+                referenced_behaviors.add(behavior_id)
+        if not _nonempty_strings(invariants):
+            errors.append(f"workspace evidence {test!r} has no invariants")
+        else:
+            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
+            if unknown:
+                errors.append(
+                    f"workspace evidence {test!r} has unknown invariants {sorted(unknown)}"
+                )
+            covered_invariants.update(invariants)
+        if not isinstance(boundary, str) or not boundary.strip():
+            errors.append(f"workspace evidence {test!r} has no boundary assertion")
+        if not isinstance(path_value, str):
+            errors.append(f"workspace evidence {test!r} has no source path")
+            continue
+        try:
+            source = repo_path(path_value).read_text()
+        except (ValueError, OSError) as error:
+            errors.append(f"workspace evidence {test!r} cannot read {path_value}: {error}")
+            continue
+        if isinstance(test, str):
+            function = test.rsplit("::", 1)[-1]
+            if re.search(rf"\bfn\s+{re.escape(function)}\s*\(", source) is None:
+                errors.append(
+                    f"workspace evidence {test!r} is absent from {path_value}"
+                )
+
     integration_evidence = registry.get("integration_evidence")
     if not isinstance(integration_evidence, list):
         errors.append("behavior registry integration_evidence must be a list")
@@ -427,11 +490,20 @@ def unit_command(registry: dict, behavior_id: str) -> str:
     )
 
 
+def workspace_command(package: str, tests: list[str]) -> str:
+    selector = " | ".join(f"test(={test})" for test in sorted(tests))
+    return f"cargo nextest run -p {package} -E '{selector}'"
+
+
 def render_generated(registry: dict, impact: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
+    workspace: dict[str, list[dict]] = defaultdict(list)
     specs: dict[str, list[dict]] = defaultdict(list)
     for entry in registry["unit_evidence"]:
         units[entry["behavior_id"]].append(entry)
+    for entry in registry["workspace_evidence"]:
+        for behavior_id in entry["behavior_ids"]:
+            workspace[behavior_id].append(entry)
     for entry in registry["integration_evidence"]:
         for behavior_id in entry["behavior_ids"]:
             specs[behavior_id].append(entry)
@@ -469,7 +541,11 @@ def render_generated(registry: dict, impact: dict) -> str:
         invariants = sorted(
             {
                 invariant
-                for evidence in (*units[behavior_id], *specs[behavior_id])
+                for evidence in (
+                    *units[behavior_id],
+                    *workspace[behavior_id],
+                    *specs[behavior_id],
+                )
                 for invariant in evidence["invariants"]
             },
             key=_invariant_key,
@@ -509,6 +585,27 @@ def render_generated(registry: dict, impact: dict) -> str:
         for evidence in sorted(units[behavior_id], key=lambda value: value["test"]):
             invariants = ", ".join(sorted(evidence["invariants"], key=_invariant_key))
             lines.append(f"- `{evidence['test']}` ({invariants})")
+        if workspace[behavior_id]:
+            lines.extend(("", "Cross-crate Rust evidence:", ""))
+            packages: dict[str, list[str]] = defaultdict(list)
+            for evidence in workspace[behavior_id]:
+                packages[evidence["package"]].append(evidence["test"])
+            for package, tests in sorted(packages.items()):
+                lines.append(
+                    f"Generated cross-crate command: `{workspace_command(package, tests)}`"
+                )
+            lines.append("")
+            for evidence in sorted(
+                workspace[behavior_id],
+                key=lambda value: (value["package"], value["test"]),
+            ):
+                invariants = ", ".join(
+                    sorted(evidence["invariants"], key=_invariant_key)
+                )
+                lines.append(
+                    f"- `{evidence['path']}::{evidence['test']}` ({invariants}) — "
+                    f"{_markdown(evidence['boundary'])}"
+                )
         if specs[behavior_id]:
             lines.extend(("", "Process-level evidence:", ""))
             for evidence in sorted(specs[behavior_id], key=lambda value: value["id"]):
@@ -569,9 +666,14 @@ def main() -> int:
         return 1
 
     references = sum(len(entry["invariants"]) for entry in registry["unit_evidence"])
+    workspace_references = sum(
+        len(entry["invariants"]) for entry in registry["workspace_evidence"]
+    )
     print(
         f"validated {len(registry['behaviors'])} tx-pool behaviors, "
-        f"{len(registry['unit_evidence'])} unique Rust tests / {references} invariant "
+        f"{len(registry['unit_evidence'])} tx-pool Rust tests / {references} invariant "
+        f"references, {len(registry['workspace_evidence'])} cross-crate Rust tests / "
+        f"{workspace_references} invariant "
         f"references, {len(registry['integration_evidence'])} security integration anchors, "
         f"and {len(impact_specs(impact))} managed integration specs"
     )

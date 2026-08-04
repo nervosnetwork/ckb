@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "integration_impact": "tx-pool/integration-impact.json",
   "integration_runner": {
@@ -127,8 +127,8 @@
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum AdminCause", "struct OwnerRemovalBatch", "fn plan_peer_revocation", "fn plan_local_removal"]},
         {"path": "tx-pool/src/authority/ban.rs", "symbols": ["struct PeerBanRegistry", "struct PeerBanLease"]}
       ],
-      "required_behavior": "Clear, expiry, local removal and peer revocation use one cause-complete owner-removal compiler. Peer ban removes only not-yet-Accepted ingress owners and commits relay release so another peer may refetch them.",
-      "hostile_case": "Ban during compute, promoted remote ingress, accepted descendants, repeated ban, expiry, clear or local removal must not leave active work, dependency edges, charge or known-filter state behind; Accepted owners must not be removed by peer ban.",
+      "required_behavior": "Clear, expiry, local removal and peer revocation use one cause-complete owner-removal compiler. Peer ban removes only not-yet-Accepted ingress owners; every delayed Remote message rejected by the peer fence commits its own exact relay release so another peer may refetch it.",
+      "hostile_case": "Ban during compute, promoted remote ingress, delayed controller delivery after the revocation reset, accepted descendants, repeated ban, expiry, clear or local removal must not leave active work, dependency edges, charge or known-filter state behind; Accepted owners must not be removed by peer ban.",
       "reviewer_questions": [
         "Does each cause map all owner variants exhaustively?",
         "Are Accepted and not-yet-Accepted ban semantics separated by type?",
@@ -209,8 +209,8 @@
         {"path": "tx-pool/src/authority/service.rs", "symbols": ["enum AuthorityServiceError", "fn settle_operation_error", "enum AuthorityProjectionFault"]},
         {"path": "tx-pool/src/authority/topology.rs", "symbols": ["enum AuthorityGenerationFault", "enum AuthorityDerivedTaskFailure", "enum AuthorityShutdownStatus"]}
       ],
-      "required_behavior": "Legal, hostile, stale, duplicate, resource, cancellation and external failures are typed local outcomes. Only a proven authority contradiction or loss of a sole linear capability can forbid persistence; panic-and-catch and broad fail-stop are not control flow.",
-      "hostile_case": "Malformed transactions, allocation pressure, relay/cache/template failure, counter exhaustion, task exit or endpoint timeout must not be mislabeled as peer rejection, silently accepted or escalated to service stop without a structural proof.",
+      "required_behavior": "Legal, hostile, stale, duplicate, resource, cancellation and external or rebuildable-derived failures are typed local outcomes. Only a proven authority contradiction or loss of a sole linear capability can forbid persistence; panic-and-catch and broad fail-stop are not control flow.",
+      "hostile_case": "Malformed transactions, allocation pressure, relay/cache/template failure, candidate-uncle source exhaustion, recent-reject encoding, task exit or endpoint timeout must not be mislabeled as peer rejection, silently accepted or escalated to service stop without a structural proof.",
       "reviewer_questions": [
         "Can valid or hostile input construct any AuthorityFault or generation invalidity?",
         "Are derived failures isolated from transaction authority?",
@@ -329,6 +329,7 @@
     {"test": "authority::tests::foundation::uak_fair_frontier_round_robins_owners_only_after_apply", "behavior_id": "TP-WORKER-001", "invariants": ["T5", "T10"]},
 
     {"test": "authority::tests::foundation::uak_peer_revocation_removes_only_preaccepted_ingress_owners", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T7"]},
+    {"test": "authority::tests::ingress::uak_delayed_revoked_remote_ingress_commits_a_later_filter_release", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T6", "T7", "T10"]},
     {"test": "authority::tests::foundation::uak_local_non_remote_preaccepted_removal_does_not_release_relay_state", "behavior_id": "TP-ADMIN-001", "invariants": ["T7", "T11"]},
     {"test": "authority::tests::foundation::uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure", "behavior_id": "TP-ADMIN-001", "invariants": ["T3", "T4", "T6"]},
     {"test": "authority::tests::foundation::uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T7", "T10"]},
@@ -360,6 +361,9 @@
 
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
     {"test": "authority::tests::service::uak_operational_failure_classes_follow_ownership_boundaries", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
+    {"test": "authority::tests::service::uak_recent_reject_encoding_failure_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
+    {"test": "authority::tests::service::uak_candidate_uncle_degradation_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T10", "T13"]},
+    {"test": "block_assembler::candidate_uncles::tests::candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T8", "T13"]},
     {"test": "authority::tests::topology::uak_topology_forbids_persistence_only_after_authority_integrity_loss", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T7", "T10"]},
     {"test": "authority::tests::resolver::uak_duplicate_inputs_are_a_malformed_outcome_not_an_authority_fault", "behavior_id": "TP-DEFECT-001", "invariants": ["T8", "T11"]},
     {"test": "authority::tests::foundation::uak_counter_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-DEFECT-001", "invariants": ["T2", "T6", "T8"]},
@@ -388,6 +392,64 @@
     {"test": "authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking", "behavior_id": "TP-PERF-001", "invariants": ["T7", "T8", "T10"]},
     {"test": "service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T10"]},
     {"test": "component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T13"]}
+  ],
+  "workspace_evidence": [
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/tx_verification_results.rs",
+      "test": "relayer::tests::tx_verification_results::rejected_tx_can_be_requested_again_from_another_peer",
+      "behavior_ids": ["TP-ADMIN-001", "TP-EFFECT-001"],
+      "invariants": ["T7", "T10"],
+      "boundary": "A generation reset followed by delayed Remote ingress is closed by the later exact Reject, so the same raw transaction becomes requestable from another peer."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/tx_verification_results.rs",
+      "test": "relayer::tests::tx_verification_results::committed_tx_result_is_consumed_without_relay_peers",
+      "behavior_ids": ["TP-EFFECT-001"],
+      "invariants": ["T7", "T10"],
+      "boundary": "Committed tx-pool results update the local relay projection even with no connected relay peer and retain bounded later broadcast intent."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::test_no_unknown",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T7", "T8"],
+      "boundary": "A known proposal transaction is ignored without creating duplicate relay work."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::test_no_asked",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T7", "T8"],
+      "boundary": "An unsolicited valid proposal transaction does not enter the known projection."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::test_ok",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T7", "T8"],
+      "boundary": "A requested valid proposal transaction preserves the accepted relay path."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::test_oversized_batch_is_rejected_before_relay_state_changes",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T6", "T8", "T11"],
+      "boundary": "RelayV3 byte bounds reject an oversized proposal batch before inflight or known state changes."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::test_clear_expired_inflight_proposals",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T7", "T8", "T10"],
+      "boundary": "Expired proposal requests are cleared without retaining stale relay state."
+    }
   ],
   "integration_evidence": [
     {

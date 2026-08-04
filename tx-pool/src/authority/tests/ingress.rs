@@ -255,6 +255,60 @@ fn uak_remote_preaccepted_duplicate_releases_filter_without_a_second_owner() {
 }
 
 #[test]
+fn uak_delayed_revoked_remote_ingress_commits_a_later_filter_release() {
+    let consensus = ConsensusBuilder::default().build();
+    let peer = PeerIndex::from(23);
+    let transaction = ingress_tx(5);
+    let expected_hash = super::super::state::RawTxHash(transaction.hash());
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+
+    drop(
+        authority
+            .plan_peer_revocation_for_foundation(peer)
+            .expect("the peer fence plans independently of a resident owner")
+            .apply(),
+    );
+    let reset = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("the revocation effect checkout plans")
+        .expect("peer revocation commits one reset")
+        .apply()
+        .into_effect_lease();
+    assert!(matches!(
+        reset.effects(),
+        [CommittedEffect::PeerCohortRevoked(revocation)] if revocation.peer() == peer
+    ));
+    drop(
+        authority
+            .apply_effect_settlement_for_foundation(reset.complete_for_foundation().published())
+            .expect("the one-shot reset may be consumed before delayed ingress"),
+    );
+
+    let delayed = remote_at_for_foundation(transaction, 10, peer, 100, &consensus)
+        .expect("the already-queued Remote message remains structurally valid");
+    let RetainedAdmissionDisposition::RemoteReleased(release) = authority
+        .plan_retained_admission(delayed)
+        .expect("the peer fence commits exact relay cleanup for delayed ingress")
+    else {
+        panic!("revoked Remote ingress must not become a silent policy outcome");
+    };
+    drop(release.apply());
+    assert!(authority.entry(&expected_hash).is_none());
+
+    let release = authority
+        .plan_effect_checkout_for_foundation()
+        .expect("the delayed cleanup checkout plans")
+        .expect("the delayed Remote ingress commits a later release")
+        .apply()
+        .into_effect_lease();
+    assert!(matches!(
+        release.effects(),
+        [CommittedEffect::RemoteIngressReleased(release)]
+            if release.tx_hash() == &expected_hash
+    ));
+}
+
+#[test]
 fn uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact() {
     let consensus = ConsensusBuilder::default().build();
     let transaction = ingress_tx(4);
@@ -439,10 +493,6 @@ fn uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop() {
             Backpressure::ProposalCollision,
         )),
         RetainedIngressBoundaryError::Backpressure(RetainedIngressBackpressure::ProposalCollision,)
-    );
-    assert_eq!(
-        RetainedIngressBoundaryError::from_plan(PlanError::IngressRevoked(PeerIndex::from(29),)),
-        RetainedIngressBoundaryError::PeerRevoked(PeerIndex::from(29))
     );
     assert_eq!(
         RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(

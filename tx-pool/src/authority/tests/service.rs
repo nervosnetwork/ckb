@@ -1,16 +1,21 @@
 use super::super::service::{
-    AuthorityRelayDrain, AuthorityService, AuthorityServiceAssembly, AuthorityServiceInputs,
+    AuthorityDerivedError, AuthorityProjectionFault, AuthorityRelayDrain, AuthorityService,
+    AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
     AuthorityShutdownOutcome, authority_failure_boundary, derived_failure_boundary,
+    map_recent_reject_read_error, record_candidate_uncle_observation,
 };
 use super::super::{
     plan::AuthorityFault,
+    rejection::RecentRejectEncodingError,
+    runtime::AuthorityRecentRejectReadError,
+    template_driver::AuthorityTemplateDriverFault,
     topology::{AuthorityDerivedTaskFailure, AuthorityGenerationFault, AuthorityTaskRole},
     worker::{AuthorityWorkerFaultKind, AuthorityWorkerRole},
 };
 use super::foundation::{genesis_snapshot, runtime_config};
 use crate::{
-    PlugTarget, TxEntry, callback::Callbacks, network::DummyTxPoolNetwork,
-    service::TxVerificationResult,
+    PlugTarget, TxEntry, block_assembler::CandidateUncleMutationError, callback::Callbacks,
+    network::DummyTxPoolNetwork, service::TxVerificationResult,
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::Handle;
@@ -99,6 +104,29 @@ async fn service_assembly_with_config(
     .await
     .expect("the complete service boundary assembles before ingress opens");
     (assembly, snapshot, relay)
+}
+
+#[test]
+fn uak_recent_reject_encoding_failure_remains_outside_authority_invalidity() {
+    assert!(matches!(
+        map_recent_reject_read_error(AuthorityRecentRejectReadError::Projection),
+        AuthorityDerivedError::Authority(AuthorityServiceError::Projection(
+            AuthorityProjectionFault::Effect
+        ))
+    ));
+    assert!(matches!(
+        map_recent_reject_read_error(AuthorityRecentRejectReadError::Encoding(
+            RecentRejectEncodingError::FixedFallbackExceedsBound,
+        )),
+        AuthorityDerivedError::External(_)
+    ));
+}
+
+#[test]
+fn uak_candidate_uncle_degradation_remains_outside_authority_invalidity() {
+    record_candidate_uncle_observation(Err(AuthorityTemplateDriverFault::Candidate(
+        CandidateUncleMutationError::SourceVersionExhausted,
+    )));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -292,14 +320,11 @@ async fn uak_service_relay_receiver_drains_the_committed_effect_stream_directly(
     let malformed = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
         .build();
-    assert_eq!(
-        assembly
-            .service
-            .submit_remote(malformed, 0, PeerIndex::from(41))
-            .await
-            .expect("malformed Remote ingress commits its terminal disposition"),
-        super::super::service::AuthorityIngressDisposition::Rejected
-    );
+    assembly
+        .service
+        .submit_remote(malformed, 0, PeerIndex::from(41))
+        .await
+        .expect("malformed Remote ingress commits its terminal disposition");
     let result = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             if let Some(result) = relay.try_recv() {

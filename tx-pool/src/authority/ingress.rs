@@ -144,7 +144,6 @@ pub(super) enum RetainedIngressBoundaryError {
     InvalidEvidence,
     ResourceUnavailable,
     Backpressure(RetainedIngressBackpressure),
-    PeerRevoked(PeerIndex),
     LifecycleClosed,
     Fault(AuthorityFault),
 }
@@ -179,7 +178,6 @@ impl RetainedIngressBoundaryError {
                 Self::Backpressure(RetainedIngressBackpressure::ProposalCollision)
             }
             PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
-            PlanError::IngressRevoked(peer) => Self::PeerRevoked(peer),
             PlanError::EffectClosed => Self::LifecycleClosed,
             PlanError::Fault(fault) => Self::Fault(fault),
             PlanError::Backpressure(Backpressure::AcceptedResources) => {
