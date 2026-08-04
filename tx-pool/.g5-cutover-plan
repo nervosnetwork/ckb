@@ -190,6 +190,69 @@ The frozen remaining G5/G6 candidate set is:
   effect sizing, template degradation and typed structural-fault boundaries
   retain their already verified current-code premises.
 
+### Active contract-convergence subphase
+
+The reverse-dependency and machine-gate audit found a release-blocking model
+drift that must be corrected as one root before further code cleanup:
+
+1. production now has one `AuthorityStore` lock containing one
+   `TxPoolAuthority`; its single `entries` map owns `OwnedTx::PreAccepted`,
+   `OwnedTx::Accepted`, and `OwnedTx::ReplacementHistory`. `MembershipProjection`,
+   `FairFrontier`, `DependencyFrontier`, `ResourceLedger`, source versions and
+   `EffectLog` are fields/projections committed by that same total Apply;
+2. `ARCHITECTURE.md`, `architecture-contract.json`, the generated portion of
+   `REVIEW_GUIDE.md`, and `PERFORMANCE.md` still describe the retired
+   `TxPool -> PrePoolKernel -> EffectJournal` two-owner model and six legacy
+   locations. This is false current documentation, not harmless history;
+3. `review-behaviors.json` mixes UAK tests with deleted legacy change surfaces
+   and test names. Consequently `check_review_guide.py` fails on more than
+   sixty absent production paths;
+4. `test-layout-manifest.json` still declares deleted module wiring and, more
+   seriously, treats the entire `tx-pool/src/authority` production tree as an
+   allowed test root. This hides the exact production static-safety universe it
+   is intended to police. `check_test_layout.py` therefore fails and cannot
+   establish either test isolation or panic-policy compliance;
+5. `check_security_manifest.py` hard-codes the retired two-authority algebra,
+   while `security-regression-manifest.json` still declares 625 unit tests and
+   an incomplete-cutover blocker. Current nextest discovery is 402 tests, and
+   production cutover/legacy deletion are complete;
+6. the complete normal/build/dev reverse-dependency set includes `ckb-chain`,
+   `ckb-shared`, `ckb-sync`, `ckb-rpc`, `ckb-launcher`, `ckb-bin`, the root
+   binary, light-client support, benches and verification-contextual tests.
+   The former in-crate gate did not compile that boundary and allowed the
+   stale relay receiver helper to survive cutover.
+
+Root-cause disposition: do not patch old paths into the registries. Rebuild all
+review contracts from the one current UAK type algebra and make them converge
+through one ordered subphase:
+
+1. derive and review the exact current owner/state/capability/lock/effect/task
+   model from production types and call graphs; record only current behavior,
+   with P9.8/P10 remaining explicit release conditions;
+2. replace the public architecture and machine contract together, preserving
+   T1-T13 stable review IDs only where their meanings are restated for the UAK;
+3. rebuild behavior change surfaces and executable anchors from current files
+   and discovered tests; every nextest alternation arm must match independently;
+4. make `authority/tests` rather than `authority` the test root, inventory all
+   current `cfg(test)` seams, and mechanically move test-only impls/fixtures out
+   of production files where Rust privacy permits. Irreducible observation
+   fields must be named seams with a business/test owner, never hidden by a
+   whole-directory exception;
+5. update the security validator, actual 402-test inventory and release
+   blockers from the same contract; a validator may not duplicate an older
+   state algebra under new names;
+6. add the complete reverse-dependency compile/test matrix to the reviewer and
+   CI contract, with a fast static surface check and an affected/full gate that
+   cannot be satisfied by tx-pool-only compilation;
+7. regenerate reviewer prose, run all document/layout/review/security/static
+   gates, then run isolated tx-pool and affected reverse-dependency nextest
+   before checkpointing this subphase.
+
+This subphase is contract and test-structure convergence, not permission to
+change production behavior. If reconstructing the current algebra exposes a
+real model defect, record it in the single ledger and return to design before a
+semantic edit. Do not weaken a checker merely to make the stale baseline pass.
+
 The fixed top-level plan remains: G5/G6 whole-model audit and root fixes (active)
 -> P9.8 complete isolated/unit/integration evidence -> P10 reproducible
 profiling and fixed-binary A/B. Benchmark work must not start early.
@@ -2704,7 +2767,7 @@ closed rows retain their regression owner until final documentation migration.
 | Root family | Included verified findings | Architecture disposition | State |
 | --- | --- | --- | --- |
 | ownership inferred across queues | stranded Gap/reorg recovery, ghost/double registration, RaceLost budget and non-atomic victim replacement | one `OwnedTx` authority, charge moves in the same Apply, charged bounded replacement history, stale lease cannot mutate a new owner | `open-blocker` — production ownership and physical legacy deletion are complete; whole-model review and P9.8 evidence remain |
-| chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation, startup readiness dropping a best-tip delta, truncate installing a tip without a delta | one chain-side tip-installation boundary always sends the exact capacity-one ordered delta; one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | `open-blocker` — the missed cross-crate producer paths are under root correction; static boundary and full managed integration evidence remain |
+| chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation, startup readiness dropping a best-tip delta, truncate installing a tip without a delta | one chain-side tip-installation boundary always sends the exact capacity-one ordered delta; one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | `open-blocker` — current-code producer/static/focused and complete tx-pool/chain unit gates are closed at `cd3c65856` and `cbd658cc9`; the managed 150-spec integration gate remains |
 | cache/evidence identity drift | short-id/raw-hash verification-cache alias, wrong detached cache key, rules/context mismatch, same-tip liveness reuse premise | cache key is witness hash plus exact `ScriptVerificationRules`; chain evidence is bound to one captured snapshot/view; pool-only positive reuse is explicitly scoped | `open-blocker` — isolated producer proof is complete; production cutover and cross-boundary regression remain |
 | dependency liveness gaps | definitive parent death without wake, dep-to-PreAccepted implicit premise, dep-stale checkout abort, unbounded Recovery/Proposal wait, Remote external-parent wait surviving trusted promotion | bounded dependency frontier owns observation cuts, definitive-loss events and level-triggered maintenance; resolver may not expose unsupported PreAccepted dep evidence; source-dependent waits re-enter Resolve when destination policy cannot prove the same observation legal | `open-blocker` — model and hostile unit evidence are complete; production maintenance/cutover remain |
 | conflict/RBF outcome incompleteness | failed-RBF retry loop, missing reject effect, public ReplacementHistory status, history saturation | charged bounded `ReplacementHistory` is inert and private; deterministic terminal/recovery disposition; rejection and recovery re-enter validation through committed effects | `open-blocker` — isolated lifecycle is closed; production compatibility and integration remain |
@@ -2714,7 +2777,7 @@ closed rows retain their regression owner until final documentation migration.
 | asynchronous progress contract drift | circular effect/relay/settlement shutdown wait, open-ended backpressure interpreted as wait, same-source template retry amplification, callback/blocking-task retirement, lost wake, allocator recompute loop and starvation proof gaps | capability-based runtime/shutdown wait-for graphs; only typed waits with named independent releasers; exact source-level retries; derived foreign work cannot own authority progress | `open-blocker` — isolated graph and parent-rebuild proofs pass; production saturation evidence remains |
 | G5 boundary coverage | Accepted local removal/expiry, typed ClearPipeline vs ClearPool, Local/TestAccept, peer ban, fee estimator, internal adapters, query/persistence DTOs | narrow production adapters consume typed authority capabilities; no dual write and no generic closure escape | `open-blocker` — coordinated cutover and legacy deletion are complete; compatibility review and full integration evidence remain |
 | performance and complexity risk transfer | lock-held cloning/index churn, generic authority wakes causing up to four full accepted-pool template captures for PreAccepted-only Applies, wake storms, mixed effect-region head blocking, full-pool/adversarial scans, no Ready aging, benchmark noise/fingerprint gaps | preserve parallel validation and optimistic template lanes; lane-owned O(1) source pre-probes; homogeneous source-control Ready batches; no merged candidate-uncle authority or changed full/reset vs partial OCC; statically audit every wake before population work; measure representative/adversarial shapes with fixed binaries | `open-blocker` — static reductions are implemented; post-cutover profiling and fixed-binary A/B remain P10 |
-| verification/process drift | zero-match alternation anchors, partial integration universe, stacked tests, stale comments/docs, previously deferred F1 behavior drift | machine selectors validate each arm; one behavior inventory maps rule -> owner -> exact unit/integration evidence; verified findings cannot disappear without closure evidence | `open-blocker` — post-retirement unit universe is 400 internal-feature tests; inventories, selectors and full 150-spec gate must be synchronized after the model/code review |
+| verification/process drift | zero-match alternation anchors, partial integration universe, stacked tests, stale comments/docs, previously deferred F1 behavior drift, reverse-dependency compile omission, and machine contracts still describing the retired two-authority model | one current-UAK contract must generate or validate rule -> owner -> exact unit/integration evidence; selectors validate every arm; authority production code cannot be hidden under a test-root exception; verified findings cannot disappear without closure evidence | `open-blocker` — current discovery is 402 internal-feature tests; the active contract-convergence subphase must rebuild architecture, behavior, layout, security and reverse-dependency gates before P9.8 |
 | claimed under-fee failed-RBF restoration (`C-freeloader-rbf`) | restore-before-recover scheduling allegedly admits a held candidate below replacement fee | the in-flight size-based higher-fee gate is a prerequisite to `RaceLost`; exact regression preserves the original transaction after rejected replacement | `suppressed-with-current-counterevidence` — the proposed under-fee held state is not constructible; fairness among already-valid candidates remains a non-integrity question |
 | strict/permissive marker required for same-tip location reuse | permissive resolve allegedly permits chain-dead inputs into resolved evidence | chain-dead inputs cannot produce a resolved payload; per-input `transaction_info` distinguishes chain-positive evidence from pool-produced overlay cells | `suppressed-with-current-counterevidence` — no marker/state is added; scope/provenance regressions retain the actual safety premises |
 | constructorless `Waiting(Conflict)` promise | consumers existed without a production constructor and implied optional RBF-loser parking | conflict retention is represented only by the charged, inert `ReplacementHistory` owner constructed from an actually Accepted victim | `superseded-by-proven-model` — the ambiguous phase variant is deleted and its winner-failure/reorg recovery semantics have exact tests |
