@@ -19,15 +19,18 @@ G5.3c C0 checkpoint: a2b552ae4
 G5.3c C1/C2 publication-parity checkpoint: 28521bc98
 G5.3c C2 legacy-deletion checkpoint: b4260009b
 G5/G6 relay-reconciliation checkpoint: 2b16dacce
+G5/G6 proof-shadow-state removal checkpoint: b6e34cb7e
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
 every provisional historical adjudication.
 Next exact action: finish the current-code error/fail-stop, wait-for,
-manual-publication, and historical-adjudication audit; freeze the complete
-root-cause candidate set; then remove the already-proven proof-shadow fields
-(`AuthorityReadCut` generation/sequence and the unconsumed owners/status source
-clocks) as one zero-behavior slice before any further semantic change.
+manual-publication, and historical-adjudication audit; then freeze the complete
+remaining root-cause candidate set before another semantic change. The first
+model-minimality slice is closed: the generic read-cut token, persistence-only
+sequence shadow, and unconsumed owners/status source clocks are removed;
+template receipts now carry only their required chain view and exact consumer
+sources.
 Publication parity is closed
 for callbacks, relay and known-filter reconciliation,
 recent-reject, peer ban/Sentry reporting, verification cache, persistence,
@@ -43,7 +46,9 @@ read-only rebuild capability are constructed in one bootstrap, so no second
 authority or mismatched configuration can be assembled. Checkpoint
 `2b16dacce` passes 401/401 isolated tx-pool tests plus `ckb-shared`, `ckb-sync`
 and `ckb-launcher` compilation. Formatting is clean. Do not restore a mixed
-legacy/UAK production authority during the global review.
+legacy/UAK production authority during the global review. Checkpoint
+`b6e34cb7e` removes 131 net lines of proof-shadow state and passes the same
+401/401 isolated universe plus the internal-feature compile gate.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
