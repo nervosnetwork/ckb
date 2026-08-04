@@ -3230,3 +3230,36 @@ Cell-provenance checkpoint update:
    candidate simplifications only as closed producer/consumer sets; migrate
    lasting recovery facts into normative documents before retiring this
    temporary plan. Do not begin P9.8 until the static architecture gate closes.
+
+Active-work identity checkpoint update:
+
+1. The closed compute-identity slice is frozen at `71b9b869f`. Architecture
+   adjudication remains active; P9.8 and P10 remain pending in that order, and
+   benchmark is still forbidden.
+2. Every checkout already assigned one process-global, non-reused
+   `EntryVersion` and moved one non-cloneable `CheckedOutWork`. The removed
+   `ComputeLeaseId` was created and compared at exactly the same transitions,
+   so it distinguished no legal owner or concurrency state while adding a
+   second counter-exhaustion failure domain. `EntryVersion` plus the
+   `Computing` phase now forms the sole numeric settlement identity; the work
+   value remains the linear capability, and chain view still scopes only the
+   retained proof.
+3. Source-only promotion and demotion deliberately preserve the same active
+   work. Every path that can install a different computation, payload or owner
+   removes the owner or assigns a fresh version. Clear, peer revocation,
+   expiry, chain removal and re-admission therefore retain the same stale-work
+   and ABA behavior without a duplicate token.
+4. `AuthorityGenerationInvalidity` is now actually move-only and `must_use`,
+   matching its documented failure-boundary role instead of deriving
+   `Clone + Copy`. Static production contracts reject restoration of a second
+   numeric compute identity and reject a copyable generation-invalidity proof.
+5. Evidence at `71b9b869f`: focused ABA, chain-view, proposal-demotion and
+   clear regressions pass; tx-pool lib nextest is 405/405; strict all-target
+   internal Clippy, complete `check_all.py`, formatting and diff checks pass.
+   Production code is net smaller and no lock, task, queue, wake, effect,
+   resource rule, I/O path or template lane changed.
+6. Next exact action: finish the remaining identity/state/task/lock/log cost
+   ledger against develop, then reconcile every historical finding and stale
+   documentation claim into the normative architecture and machine contracts.
+   Continue closed-set simplification only when it removes a proof obligation;
+   do not enter P9.8 before that adjudication is complete.
