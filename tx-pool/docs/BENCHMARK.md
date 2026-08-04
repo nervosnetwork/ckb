@@ -210,13 +210,19 @@ Dependent chains are measured in both directions because they exercise different
   runtime default; its value is part of the comparison fingerprint. Genesis
   stores/snapshots remain isolated, and every measured service remains fresh.
   This avoids parking four independent runtimes in the same benchmark process.
-- `start_controller` builds a full tx-pool through the production `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
+- `start_controller` builds a full UAK tx-pool through the production
+  `TxPoolServiceBuilder::start` path and returns a `ServiceHandle`.
 - Before returning a new controller to Criterion, setup completes one dispatcher round-trip and a short Tokio scheduling interval. This keeps freshly spawned worker startup latency outside the measured transaction batch without warming the verification cache or pool.
 - `ServiceHandle::drop` cancels the local `CancellationToken`, awaits the main dispatcher (which quiesces all message handlers and production workers), and drops/awaits the relay drain. No cancelled worker, pool save, or blocking drain may overlap the next iteration. A teardown timeout or task panic fails the benchmark instead of silently admitting a contaminated sample.
 - Criterion uses `iter_batched_ref`, so that complete service shutdown (worker quiescence, pool save and relay-drain join) happens after the measurement interval rather than being charged to transaction latency.
-- `start_service` builds a bare `TxPoolService` via `TxPoolServiceBuilder::build_bench_service` and manually spawns the pipeline workers (`pre_check`, `ordered_resolver`, `verify`, `commit`) plus the best-effort verification-cache worker. It is used only for cycle measurement. Teardown joins those workers first, releases the final service/relay sender, and only then joins the relay drain; joining all three ownership layers at once would deadlock until timeout.
-- Both `start_controller` and `start_service` spawn a background thread to drain the relayer channel, preventing the channel from filling up and blocking.
-- The verification-cache worker receives only the cache handle and channel receiver, so it cannot retain its own sender and prevent shutdown.
+- Cycle measurement reuses that same production service. Independent samples
+  use `test_accept_tx`; dependent samples enter through Proposal ingress and
+  query the cycles committed by the resulting Accepted owners. There is no
+  benchmark-only worker topology or alternate mutation path.
+- The sole bounded relay receiver is retained but not drained during a sample.
+  This models a slow consumer without adding a competing task; the production
+  mailbox's nonblocking overflow/reconciliation behavior prevents authority
+  progress from depending on that receiver.
 - `SharedBench` creates genesis issue outputs according to the workload's actual need (`issue_outputs = max_size + warm_pool_size`), avoiding over-allocation for dependent chains.
 
 ### Criterion sampling

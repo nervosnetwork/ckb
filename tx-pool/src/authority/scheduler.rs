@@ -275,6 +275,13 @@ impl ReadyKey {
 
 impl Ord for ReadyKey {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Ready admission deliberately uses strict economic/source priority,
+        // not the per-owner round-robin policy of Resolve and Verify. The
+        // descending consumer therefore selects Recovery, then Proposal, then
+        // Remote; within a source it selects fee rate, absolute fee and the
+        // earlier arrival before deterministic identity/version ties. There
+        // is no aging state. Remote residency expiry bounds hostile retention;
+        // trusted work has no per-entry service-latency guarantee.
         let left_rate = u128::from(self.fee).saturating_mul(u128::from(other.serialized_bytes));
         let right_rate = u128::from(other.fee).saturating_mul(u128::from(self.serialized_bytes));
         self.source

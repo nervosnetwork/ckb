@@ -8,10 +8,6 @@
   "test_inventory": {"path": "tx-pool/test-inventory.txt"},
   "release_blockers": [
     {
-      "id": "ARCHITECTURE-ADJUDICATION",
-      "reason": "The current UAK contract, one-way evidence graph, complete historical finding dispositions and final static correctness/security/liveness/complexity audit must converge before benchmark acceptance"
-    },
-    {
       "id": "CORRECTNESS-ACCEPTANCE",
       "reason": "P9.8 static, hostile, differential and complete managed 150-spec integration acceptance has not yet been run against the final production wiring"
     },

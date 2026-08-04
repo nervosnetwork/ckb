@@ -292,7 +292,7 @@ impl AuthorityTaskTopology {
 
     /// End a generation whose exact event already proved safe continuation or
     /// persistence impossible. No repair or replacement authority is created
-    /// here; G5.3c owns the service-level operational response.
+    /// here; the service generation owns the operational response.
     pub(in crate::authority) fn invalidate_generation(
         mut self,
         fault: AuthorityGenerationFault,

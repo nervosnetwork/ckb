@@ -66,7 +66,7 @@ pub(crate) struct AuthorityRelaySink {
     inner: Arc<RelayMailboxInner>,
 }
 
-/// Sole drain half. G5.3c transfers this value to the relayer projection.
+/// Sole drain half transferred to the relayer projection during assembly.
 pub(super) struct AuthorityRelayReceiver {
     inner: Arc<RelayMailboxInner>,
 }

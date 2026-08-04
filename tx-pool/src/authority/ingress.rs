@@ -143,7 +143,7 @@ pub(super) enum RemoteIngressPressure {
 /// The open planner error family is intentionally consumed here. Legal peer
 /// policy, bounded capacity and allocator pressure remain local outcomes;
 /// only a contradiction in the already-sealed authority projection is a
-/// structural fault. This prevents the production cutover from inventing a
+/// structural fault. This prevents the production boundary from inventing a
 /// fail-stop policy for a later `PlanError` variant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum RetainedIngressBoundaryError {

@@ -1,185 +1,103 @@
-# Tx-Pool Performance Design and Evidence
+# Tx-Pool Performance Contract and Evidence
 
-This document records the performance design that complements
-[`ARCHITECTURE.md`](ARCHITECTURE.md). It is intentionally not an implementation
-diary: it keeps only decisions a reviewer needs to reproduce, challenge or
-extend the optimization work.
+This document is the reviewer-facing performance companion to
+[`ARCHITECTURE.md`](ARCHITECTURE.md). It records the current UAK performance
+model, reproducible profiling method, evidence strength and final acceptance
+matrix. It is not an implementation diary.
 
-Correctness remains the first gate. An optimization is retained only when its
-safety argument follows the single-authority Plan/Apply model, deterministic
-tests pass, and a controlled fixed-binary A/B shows value. A change with no
-measured value is removed even when it is locally plausible.
+The current architecture has not yet passed P10. Historical profiles below
+explain why mechanisms were selected or rejected, but they are not a release
+verdict for the final source. Correctness acceptance, including the complete
+managed integration universe, precedes P10.
 
-## Objective and fixed constraints
+## 1. Performance contract
 
-The target is not merely parity with `develop`. The pipeline should exceed it
-where CKB transactions permit parallel work while remaining easier to reason
-about:
+The objective is not merely parity with `develop`. The design should exploit
+CKB's cell model so independent transactions validate concurrently, while
+coupled dependencies, RBF and chain transitions pay only their necessary
+atomicity cost.
 
-- `TxPoolAuthority.entries` is the sole lifecycle owner across PreAccepted,
-  Accepted and bounded inert ReplacementHistory states;
-- validation and immutable-snapshot computation run outside authority locks;
-- Plan is read-only, Apply is total and single-consumption;
-- external I/O consumes only effects committed with authoritative mutation;
-- legal transaction, peer, capacity and stale-work outcomes are typed and do
-  not reach invariant failure;
-- no optimization adds an inferred owner, mutable cache, unbounded task, queue
-  scan or lock held across an await;
-- block-template full/reset serialization remains independent from optimistic
-  uncle/partial publication, preserving their intended concurrency.
+The fixed constraints are:
 
-The dependency-frontier/DAG model is therefore an analytical tool, not a new
-resident graph authority. Existing exact dependency indexes may expose ready
-frontiers, but a second scheduler or duplicated lifecycle state is rejected.
+- `TxPoolAuthority.entries` remains the sole lifecycle owner;
+- resolve, script verification and immutable computation run outside the
+  authority guard;
+- Plan is semantic-read-only and Apply is total and single-use;
+- external I/O consumes only effects committed by Apply;
+- no optimization creates an inferred owner, mutable decision cache,
+  unbounded task, rollback protocol or lock held across await;
+- full/reset template replacement stays serialized while proposal,
+  transaction and uncle construction remains optimistic and concurrent;
+- hostile count, byte, edge, closure, retry and memory work stays bounded;
+- performance evidence never weakens final validation, deterministic order,
+  resource accounting or compatibility.
 
-## Profiling evidence
+The dependency graph is a derived analytical projection, not another owner.
+Its purpose is to expose independent frontiers and bounded commuting batches.
+A resident second DAG or lifecycle shard requires a proof of cross-shard
+RBF/chain atomicity and a measured benefit before it can be considered.
 
-### Method and evidence strength
+## 2. Current cost model
 
-The first pass used pre-built release binaries and an isolated one-shot harness
-on an 8-core Apple Silicon host. The measured interval starts immediately
-before remote submission and ends when the stable pending callback observes the
-target population; fixture construction and cycle discovery are outside that
-interval. Current/develop runs use equal-length worktree paths and alternating
-order. Whole-process CPU/RSS figures include fixture setup and are therefore
-supporting evidence, not interval-only attribution.
+The architecture cost ledger and lock-held complexity inventory are normative
+in sections 3.1 and 14 of `ARCHITECTURE.md`. The performance review focuses on
+four measurable costs:
 
-The comparison below is the pre-optimization current checkpoint
-`284a67b7f871` against develop `91b97ab5f67f`, with 12 paired repetitions,
-Rust 1.95.0, empty `RUSTFLAGS`, and separately hashed binaries. Positive elapsed
-delta means the pipeline checkpoint was slower.
+| Cost | Expected shape | Required observation |
+|---|---|---|
+| Authority acquisition and short Apply | Material for cheap independent transactions; diluted when VM verification dominates | target-window lock wait/hold plus transitions per accepted transaction |
+| Checkout, settlement and wake scheduling | Sensitive to worker/peer count and dependency arrival order | Tokio task wake/poll data plus stage spans |
+| Projection and graph maintenance | Small and local for independent work; bounded closure work for dependency/RBF/reorg | operation counts and adversarial complexity tests |
+| Effect and template publication | Outside the authority guard; should not gate committed ownership | endpoint latency/circuit metrics and source-version rebuild counts |
 
-| Workload | Shape | Median elapsed: current / develop | Paired elapsed delta | Median CPU ratio | Median RSS ratio |
-|---|---|---:|---:|---:|---:|
-| always-success | 1 peer, 8 workers, 500 target + 100 warm | 62.61 / 40.12 ms | `+56.44%` | 1.000 | 0.871 |
-| always-success | 4 peers, 8 workers, 500 target + 100 warm | 59.05 / 41.73 ms | `+40.85%` | 1.022 | 0.899 |
-| dependent chain | 1 peer, 8 workers, 20 target + 10 warm | 5.47 / 4.21 ms | `+29.84%` | 1.000 | 1.022 |
-| secp256k1 | 4 peers, 8 workers, 200 target + 50 warm | 79.45 / 76.88 ms | `+3.36%` | 1.000 | 1.066 |
+Ready admission uses bounded batches of eight. Resolve and Verify use per-owner
+round robin; Ready deliberately uses strict source/economic order without
+aging. Profiling must not interpret that policy distinction as a scheduler
+bug, but adversarial tests must retain Remote expiry and bounded work.
 
-These records identify the shape of the regression; their roughly 3.1–7.9%
-paired max deviation is too wide for the final 2% release verdict. Final
-acceptance therefore uses the stricter protocol in
-[`BENCHMARK.md`](BENCHMARK.md), not these exploratory numbers.
+## 3. Existing evidence and its limits
 
-### Sampled attribution
+Early fixed-binary experiments found the largest regression on cheap work and
+the smallest on secp verification:
 
-Samply and macOS sampled stacks were captured only inside the emitted
-submission window, with symbols generated from each exact binary. They showed:
+| Historical workload | Observed candidate vs `develop` | Admissible conclusion |
+|---|---:|---|
+| independent always-success, 1 peer / 8 workers | about `+56%` elapsed | scheduling/authority ceremony dominated cheap work |
+| independent always-success, 4 peers / 8 workers | about `+41%` elapsed | peer concurrency amplified authority acquisition |
+| dependent always-success chain | about `+30%` elapsed | causal wake/settlement added fixed latency |
+| independent secp, 4 peers / 8 workers | about `+3%` elapsed | VM work hid most control-plane cost |
 
-- cheap current spent about 46% of sampled time in `__psynch_cvwait`, versus
-  about 4% on develop;
-- on the corrected dependency-forest workload, current wall time was about 36%
-  higher while sampled CPU was only about 4.5% higher;
-- roughly 14–17% of the historical pre-UAK dependency-forest samples remained
-  below the then-current pre-pool mutex path, with substantially more
-  runtime-thread parking;
-- the resumable verifier wrapped an already-Tokio-scheduled VM future in
-  `block_in_place(Handle::block_on(...))`, adding a blocking parent and runtime
-  compensation without moving VM execution to a dedicated executor.
+A later pre-UAK six-scenario run was approximately 17.6% below `develop` in
+geometric throughput. Windowed samples attributed cheap multi-peer cost to
+authority acquisition, stage publication/checkout and runtime parking rather
+than verification compute. Several plausible local changes—extra wakes,
+parallel mutation authorities, dirty scheduler state, copy-on-write dependency
+sets and alternative projection Apply paths—were neutral or slower and were
+removed.
 
-The combination is stronger evidence for scheduling/acquisition latency than
-for excess verification compute. It selected A0 and A4: remove the false
-blocking boundary, then reuse a successful stage's existing kernel acquisition
-for one fair same-lane checkout. A notification-only experiment was
-neutral/slower and was discarded; adding more wakes does not address the
-observed cost.
+Those numbers were captured on earlier type/state models and cannot be quoted
+as current UAK throughput. Their surviving value is methodological:
 
-### A5 candidate-selection matrix
+1. measure cheap and cryptographic work separately;
+2. keep wall time, CPU, parking, lock wait and lock hold distinct;
+3. prefer deletion of work over caches or duplicate ownership;
+4. profile a candidate before retaining or rejecting it;
+5. use controlled paired A/B, not flame-graph percentages, for acceptance.
 
-After A4, the committed runner was used to capture a broader matrix at
-`a5dd757432d6b4150f8d224a6895278db95553b5`. Every row reused the same release
-binary (`sha256:59f1ba2396c86ce0aa3cc37773a6c0e6820c3a51dffe83f586031b569e3b7c6c`)
-and the same harness source. All twelve manifests were subsequently rechecked
-by the committed analyzer, including their source and artifact hashes.
+## 4. Reproducible profiling
 
-The wall/CPU columns are single profiling executions and are not benchmark
-results. Mutex percentages are inclusive target-window Samply samples. Lock,
-mutation and read counts come from the separate same-scenario span execution;
-they are deterministic control-flow evidence per target transaction, not CPU
-time.
+The canonical runner is `tx-pool/scripts/profile.py`. It reuses benchmark
+fixtures and measures the interval from target submission to the stable
+completion callback. Fixture construction, cycle discovery and teardown are
+outside that interval.
 
-| Workload | Shape | Wall / CPU ms | Kernel mutex samples | Lock / mutate / read closes per target |
-|---|---|---:|---:|---:|
-| always-success cold | 1 peer / 1 worker / 1,000 tx | 245.1 / 293.7 | 0.00% | 9.01 / 5.01 / 4.00 |
-| always-success cold | 1 peer / 8 workers / 1,000 tx | 185.6 / 700.0 | 3.14% | 9.53 / 5.87 / 3.67 |
-| always-success cold | 4 peers / 8 workers / 1,000 tx | 160.1 / 740.2 | 11.72% | 13.07 / 9.22 / 3.85 |
-| always-success warm | 4 peers / 8 workers / 1,000 tx, 200 warm | 147.5 / 707.9 | 9.88% | 13.22 / 9.28 / 3.94 |
-| dependent always-success, parent first | 1 peer / 8 workers / 200 tx, 20 warm | 92.3 / 124.2 | 4.29% | 30.74 / 19.87 / 10.88 |
-| dependent always-success, child first | 1 peer / 8 workers / 200 tx, 20 warm | 103.4 / 130.1 | 3.62% | 30.45 / 19.52 / 10.93 |
-| secp256k1 cold | 1 peer / 1 worker / 400 tx | 813.6 / 827.2 | 0.00% | 9.05 / 5.04 / 4.01 |
-| secp256k1 cold | 1 peer / 8 workers / 400 tx | 232.5 / 930.4 | 0.38% | 9.16 / 5.13 / 4.03 |
-| secp256k1 cold | 4 peers / 8 workers / 400 tx | 204.9 / 1,238.0 | 2.36% | 9.93 / 6.21 / 3.72 |
-| secp256k1 warm | 4 peers / 8 workers / 400 tx, 100 warm | 240.3 / 1,239.3 | 2.34% | 10.33 / 6.45 / 3.88 |
-| dependent secp256k1, parent first | 1 peer / 8 workers / 100 tx, 10 warm | 189.4 / 196.9 | 0.97% | 30.70 / 19.86 / 10.85 |
-| dependent secp256k1, child first | 1 peer / 8 workers / 100 tx, 10 warm | 203.3 / 205.7 | 0.47% | 28.95 / 18.43 / 10.52 |
+An admissible manifest records Git revision and tracked diff, feature set,
+binary/harness/lockfile/workspace hashes, toolchain and profiler versions,
+logical CPU count, platform/filesystem, flags, power/thermal state where
+available, exact scenario, commands and nanosecond target window. Missing
+identity is an error; `unknown == unknown` is never accepted.
 
-This matrix narrows A6 rather than proving an optimization. Independent cheap
-transactions scale from one to eight workers, but multi-peer concurrency raises
-the mutex path from no sampled contention to 11.72% and raises authoritative
-mutations from 5.01 to 9.22 per target. The equivalent secp workload spends only
-2.36% in that path because verification dominates. Dependent workloads require
-about three times as many authority acquisitions by design because dependency
-availability changes and wake settlement are causal transitions. Consequently,
-the first A6 candidates are repeated work within the existing atomic mutation:
-idempotent scheduler-head publication and unchanged projection maintenance.
-The evidence does not admit a second DAG, cache, batch owner or wider lock
-epoch. Those designs add proof and starvation costs before the measured
-mechanical work has been removed.
-
-The host artifacts were retained under
-`/private/tmp/txpool-profile-matrix-a5` during the review. They are deliberately
-not repository inputs. To reproduce the matrix, run the first command in the
-next section without `--binary`, then pass its manifest's exact binary path to
-the remaining scenario combinations shown in the table. Published release
-claims still require the paired quick/medium protocol rather than these rows.
-
-Host-specific Samply profiles and symbol tables are not versioned because they
-are large and not portable. The committed feature-gated profiling surface lets
-reviewers regenerate stage/kernel attribution without a private harness. It
-adds no default-build span/subscriber work, uses bounded static stage names and
-initializes the optional Tokio console fallibly rather than making telemetry a
-node-startup precondition.
-
-### Reproducibility contract
-
-A profiling observation is admissible review evidence only when all of these
-conditions hold:
-
-1. The committed profiling runner reuses the benchmark transaction fixtures
-   and the same submission-to-stable-callback interval. A temporary benchmark,
-   manual RPC timing or whole-process sample cannot replace that interval.
-2. Its manifest records the Git revision and tracked diff, enabled features,
-   binary and harness SHA-256, `Cargo.lock` and workspace-manifest SHA-256,
-   Rust/Cargo/profiler versions, CPU count, platform, source-root length,
-   workload parameters, capture command and emitted start/end timestamps.
-3. Baseline, candidate and develop use the same profiler, sampling frequency,
-   symbolization and workload parameters. Missing or `unknown` identity fields
-   make the comparison invalid rather than equal.
-4. The raw host-specific trace may remain an external artifact, but its path,
-   byte size and SHA-256 plus the deterministic analysis summary are retained.
-   A reviewer can rerun the committed analyzer against that artifact.
-5. CPU samples, task wait/poll data, kernel wait/hold spans and wall-clock A/B
-   are reported separately. A flame-graph percentage alone cannot establish a
-   throughput improvement.
-6. Every published conclusion is labelled exploratory, candidate-selecting or
-   release-accepting. Only the controlled medium/full benchmark protocol can
-   close the performance release blocker.
-
-The canonical runner is `tx-pool/scripts/profile.py`. Its one-shot mode reuses
-the exact benchmark fixture and emits one `TX_POOL_PROFILE_WINDOW` record. The
-runner asks Samply to sample the process and pre-symbolicate a sidecar, then the
-deterministic analyzer counts only samples inside that record. CPU deltas are
-counted only when both ends of their sampling interval lie inside the window;
-this prevents fixture CPU immediately before submission from leaking into the
-result. Parking samples and per-thread CPU deltas remain separate because a
-thread's leaf frame at the end of an interval is not proof of where that
-interval consumed CPU.
-
-### Reproducing a Samply profile
-
-Install Samply 0.13.1 or later, then run one scenario. Omitting `--binary`
-builds the `internal,profiling` benchmark once with locked dependencies and
-records its exact path and SHA-256:
+Build once, capture one scenario, then reuse the exact hashed binary:
 
 ```bash
 python3 tx-pool/scripts/profile.py capture \
@@ -188,13 +106,7 @@ python3 tx-pool/scripts/profile.py capture \
   --pool-state cold \
   --dependency-order parent_first \
   --peers 1 --workers 8 --size 500 --warm-pool-size 100
-```
 
-For the remaining scenarios, read `artifacts.binary.path` from the first
-manifest and pass that unchanged path. This avoids recompilation; every new
-manifest re-hashes the binary and identifies its provenance as reused by hash:
-
-```bash
 python3 tx-pool/scripts/profile.py capture \
   --output-prefix /private/tmp/txpool-secp-cold \
   --binary /absolute/path/from/the/first/manifest \
@@ -204,40 +116,23 @@ python3 tx-pool/scripts/profile.py capture \
   --peers 4 --workers 8 --size 200 --warm-pool-size 50
 ```
 
-Re-analysis never samples or runs the target binary. It requires the exact
-recorded benchmark/analyzer source, verifies every recorded artifact size/SHA,
-and rewrites the deterministic summary from the raw profile, symbol sidecar,
-span log and recorded target windows:
+Re-analysis verifies every artifact hash and does not execute CKB:
 
 ```bash
 python3 tx-pool/scripts/profile.py analyze \
   --manifest /private/tmp/txpool-secp-cold.manifest.json
 ```
 
-Each capture produces `.json.gz`, `.json.syms.json`, `.stdout.log`,
-`.stderr.log`, `.spans.log`, `.span.stdout.log`, `.span.stderr.log`,
-`.manifest.json` and `.summary.json`. CPU sampling and span formatting are two
-separate executions of the same SHA-verified binary and exact scenario. This
-is a load-bearing measurement boundary: emitting thousands of formatted close
-records during Samply capture would inject subscriber locking and file I/O into
-the mutex profile. The manifest records both commands and both target windows;
-the span log contains only close/busy/idle records for the seven static tx-pool
-spans, while the Samply summary is the deterministic window-cropped
-CPU/residency view from the execution with no span subscriber. Artifacts are
-refused inside the source tree
-and existing files are not replaced unless `--force` is explicit. The
-manifest binds the Git diff and untracked content, enabled
-features, binary/harness/manifests/lockfile hashes, exact command, scenario,
-sampling rate, toolchain/profiler, CPU/OS/filesystem, flags, power/thermal state
-where available and nanosecond target window. Missing identity data is an
-error, never an `unknown == unknown` match.
+CPU sampling and feature-gated stage spans are separate executions of the same
+hash-verified binary. This avoids injecting span formatting and file I/O into
+the sampled run. Raw profiles may remain external, but the manifest records
+their path, size and SHA-256 and the committed analyzer must reproduce the
+summary.
 
-### Tokio wake and lock observation
+### Tokio task observation
 
-Samply answers where process threads were sampled. Tokio console is the
-separate tool for task lifetime, poll, wake and resource behavior. Build the
-node with both observation features and Tokio's required unstable cfg, run an
-isolated node workload, then connect from another terminal:
+Tokio console complements CPU sampling with task lifetime, poll, wake and
+resource behavior:
 
 ```bash
 RUSTFLAGS='--cfg tokio_unstable' \
@@ -251,212 +146,63 @@ TX_POOL_PROFILE_TRACE_PATH=/private/tmp/txpool-span-close.log \
 tokio-console http://127.0.0.1:6669
 ```
 
-Tokio console intentionally consumes only Tokio runtime events; it does not
-pretend application spans are runtime tasks. The separate
-`TX_POOL_PROFILE_TRACE_PATH` layer writes close records with busy/idle timing
-for tx-pool spans only. It creates a new file and refuses an existing path so
-two runs cannot be silently mixed. The spans have only the following static
-low-cardinality names:
-`tx_pool.stage.resolve`, `tx_pool.stage.verify`, `tx_pool.commit.drive`,
-`tx_pool.effects.publish`, `tx_pool.kernel.lock_wait`,
-`tx_pool.kernel.read_hold` and `tx_pool.kernel.mutate_hold`. No transaction or
-peer identifier is attached. Kernel wait and hold are distinct, and none of
-the observed async functions holds the kernel mutex across an await.
+Profiling is optional node telemetry, never a startup precondition. Invalid
+addresses, paths, capacities, subscriber conflicts or telemetry task failure
+must degrade locally. The default build contains no profiling subscriber work.
 
-`TOKIO_CONSOLE_PUBLISH_INTERVAL` and
-`TOKIO_CONSOLE_BUFFER_CAPACITY` are optional. `TOKIO_CONSOLE_RECORD_PATH` is
-deliberately rejected: the upstream builder opens it through `expect`, so
-accepting an operator-controlled path would reintroduce panic-based telemetry.
-The publish interval and buffer capacity must both be positive because the
-upstream Tokio interval/channel constructors reject zero. An invalid
-duration/address/capacity/span path, subscriber conflict, thread
-creation failure or server error is reported without terminating the node.
-Building `tokio-trace` without `RUSTFLAGS='--cfg tokio_unstable'` is rejected at
-compile time, before the upstream runtime assertion can exist in an executable.
-The ordinary `profiling` benchmark feature does not enable the console
-subscriber.
+On macOS, `cargo-instruments` may corroborate a result when a full Xcode
+installation exposes `xctrace`; absence is recorded as unavailable, not
+evidence.
 
-### Optional macOS cross-check
+## 5. Required scenario matrix
 
-`cargo-instruments` is a host-specific corroboration tool, not the canonical
-artifact format. It requires a full Xcode developer directory for `xctrace`:
+P10 must cover both ordinary and adversarial CKB shapes:
 
-```bash
-xcode-select -p
-xcrun --find xctrace
-
-TX_POOL_PROFILE_TX_TYPE=always_success \
-TX_POOL_PROFILE_POOL_STATE=cold \
-TX_POOL_PROFILE_DEPENDENCY_ORDER=parent_first \
-TX_POOL_PROFILE_PEERS=1 \
-TX_POOL_PROFILE_WORKERS=8 \
-TX_POOL_PROFILE_SIZE=500 \
-TX_POOL_PROFILE_WARM_POOL_SIZE=100 \
-  cargo instruments -p ckb-tx-pool --bench pipeline \
-    --features internal,profiling --template 'Time Profiler' --no-open \
-    -- --bench --noplot --discard-baseline --color never
-```
-
-If `xcrun --find xctrace` fails, the result is unavailable rather than
-evidence. On the current development host the command-line developer tools do
-not expose `xctrace`, so no Instruments result is claimed.
-
-### P9 develop-gap attribution and typed verified commit
-
-The robust common public-API harness compared final-before-P9 (`0f9cf6b1b`)
-with develop (`91b97ab5f`) using six AB/BA pairs per scenario. Its six-scenario
-throughput geometric delta was `-17.58%`: always-success 1-peer `-13.74%`,
-always-success 4-peer `-27.79%`, secp 1-peer `-20.12%`, secp 4-peer `-2.40%`,
-dependent chain `-21.39%`, and depth-10 forest `-17.89%`. The dependency rows
-had about 3.4% MAD, but every individual pair remained below develop. Artifact:
-`/private/tmp/txperf-final-develop-paired.json` on the profiling host. This is
-the remaining performance problem; improvements relative only to an earlier
-pipeline checkpoint do not close it.
-
-Windowed profiling then measured cheap 4-peer final at about 8,138 tx/s and
-5.1 average CPU cores versus develop at about 10,544 tx/s and 7.0 cores.
-Approximately 17% of final samples were under the kernel mutex path and the
-feature-gated operation trace recorded about 9,239 authoritative mutations per
-1,000 targets. The secp 4-worker gap was only 2.4%. Together these facts locate
-the material cost in stage publication/checkout/wake and accepted handoff
-ceremony, not VM execution. Raising active caps, `try_write`, a generic pool
-Plan shortcut, broader commit guards, distributed commit, direct
-Resolve-to-Verify handoff and wrapping VM work in `block_in_place` were each
-neutral, shape-dependent or regressive and were rejected.
-
-Checkpoint `8686f92fe` retains the one evidence-backed fold. A sealed generic
-`CommitSession` lets the canonical verified lease use the existing final
-Plan/Apply directly; a stronger Ready owner or unavailable journal returns it
-to the unchanged Ready transition. It adds no state, queue, lock, task or
-effect path. The initial fixed-binary 6-pair experiment versus pre-P9 measured
-cheap 1-peer `+8.51%` (MAD 0.95%), cheap 4-peer `+9.38%` (MAD 1.98%), depth-10
-forest `+6.54%` (MAD 1.30%), and secp 1-peer `+0.06%` (MAD 1.18%). Exact
-transient capacity charging was then restored after its regression test caught
-the unsafe prototype; charged versus uncharged deltas all remained within the
-corresponding noise spread. Artifacts:
-`/private/tmp/txperf-typed-commit-vs-final.json` and
-`/private/tmp/txperf-typed-charge-proof.json`.
-
-Those prototype records admit the design; they are not the release verdict.
-The post-checkpoint fixed binaries must still run the pilot/interleaved
-quick/medium protocol, and a new window profile must verify that the removed
-Ready ceremony—not a fixture shortcut—explains the retained gain. A separate
-helper-inlining experiment had a `+2.72%` median but 4.15% MAD and large host
-outliers, so it is explicitly ineligible as evidence.
-
-## Retained changes
-
-| ID | Design | Safety argument | Performance intent | Status |
-|---|---|---|---|---|
-| A0 | Await verifier work directly after its existing async dispatch; remove redundant `block_in_place`. | Ownership, cancellation and verification semantics are unchanged; no lock crosses the await. | Avoid Tokio compensation and scheduler overhead. | Committed in `bc437ccbe`. |
-| A1 | Seal raw revisions behind typed Resolve/Verify leases. | Callers cannot assemble a hash/revision/location authority tuple; stale completion is rejected by construction. | Keeps later hot-path changes proof-carrying without lookup/defensive state. | Committed in `3376261f1`. |
-| A2 | Borrow Ready commit authority through Plan/Apply instead of cloning it. | The exclusive kernel borrow proves the Ready owner remains current until handoff or rejection. | Remove payload cloning and redundant authority reads at commit. | Committed in `30b77357c`. |
-| A4 | On successful Resolve or Verify completion, check out one next same-lane lease inside the same kernel mutation. | The fair queue still selects work; `VerifyLease` seals the original worker capability and continuation cannot cross stages. `AppliedContinuation` distinguishes completed Apply from post-Apply checkout failure. Pause, cancellation or command loss completes at most the already-owned lease in final mode. | Remove one kernel mutex acquisition and one wake/scheduler round trip per independent same-lane transaction. | Implemented; 271 unit tests, strict static gates and direct RelayV3 integration evidence pass; final performance acceptance remains. |
-| A5 | Feature-gated low-cardinality stage/kernel profiling points, fallible Tokio-console setup and a reproducible windowed Samply capture/analyzer. | Feature-off builds have no instrumentation path; profiling observes existing transitions and never selects state, retry or failure behavior. Strict manifests and boundary-aware CPU accounting prevent attribution drift. | Preserve future attribution and wake/lock analysis without temporary source patches. | Completed at `a5dd75743`; 271 unit tests, strict static gates and the twelve-scenario candidate-selection matrix pass. |
-| A7 | Partition each owner's verify queue by the typed small/large cycle class, and reduce dependency-publication waiter deltas once from the immutable cohort Plan. | Every work key still occupies exactly one queue membership; `Any` compares the two canonical partition heads with the unchanged total order, while `SmallCycleOnly` can only name the small partition. Waiter counts remain transient Plan evidence and Apply/publication points are unchanged. | Remove a single-peer large-cycle O(N) reverse scan from every head refresh/checkout and replace the changed-key × cohort-member publication product with one bounded edge reduction. | Implemented after adversarial static analysis; 272 unit tests and strict Clippy pass. Final common-workload A/B remains a separate gate. |
-| A8 | Fold a canonical verified lease into the existing sealed pipeline CommitSession; publish Ready on stronger-order or journal fallback. | Both origins share final liveness, RBF/capacity Plan, ban fence, exact payload-derived pre-pool charge, total Apply and committed effect journal. The sealed origin type prevents a third caller; six resident states remain unchanged. | Remove one Ready publication, commit-driver wake and authority round trip from the common independent path without adding a second admission policy. | Checkpoint `8686f92fe`; 275 unit tests and strict Clippy pass. Prototype A/B is positive for cheap/forest and neutral for secp; formal post-checkpoint quick/medium remains required. |
-
-## Rejected change
-
-| ID | Candidate | Result | Decision |
-|---|---|---|---|
-| A3 | A second state-local projection Apply path intended to reduce projection maintenance. | Controlled dependency A/B was effectively neutral (four-scenario geometric mean about `+0.38%`; parent-first about `-0.23%`) while adding roughly 60 production lines and a second mutation implementation. | Fully reverted. The extra proof surface was not justified. |
-| A6-M2 | Skip `FairQueue` head remove/insert when an owner's runnable flag is unchanged. | The mechanism was redundant and 272 unit tests passed, but a focused 8-pair 4-peer/8-worker cold always-success A/B was neutral (`-0.07%` paired throughput, 3.34% ratio spread). An earlier four-scenario run was too noisy to admit a conclusion. | Fully reverted in `d98f9955c`. Six production lines without measurable value do not justify another scheduler branch. |
-| A6-M1 | Apply common entry projections as old/new deltas instead of complete detach/attach. | Both variants passed 271 unit tests and strict Clippy. Per-parent set difference regressed the focused 8-pair contention scenario by `0.51%`; a smaller whole-dependency equality gate was neutral at `+0.02%` with 3.21% ratio spread. | Fully reverted in `08de209fd` and `b488288ee`. The existing complete transition is smaller and easier to audit; measured data does not justify 62 additional production lines. |
-| A6-M5 | Share immutable dependency frontiers across lifecycle revisions through `Arc<BTreeSet<_>>` copy-on-write. | Direct tests proved allocation sharing through Resolve/Verify/Ready and all focused projection/model tests passed, but the same 8-pair contention scenario regressed by `0.73%` with 3.19% ratio spread. Atomic reference-count and indirection cost outweighed small-set cloning. | Fully reverted in `721bdbbd2`. Semantic sharing alone is not a reason to add shared ownership on this hot path. |
-
-This rejection is an architectural constraint: projection performance should
-be improved by changing the canonical representation or proven update set, not
-by maintaining parallel Apply implementations.
-
-The A6 evidence gate retained no production change. Three independently
-plausible forms of critical-section mechanical reduction were neutral or
-slower under the workload that showed the strongest mutex attribution. That is
-a useful convergence result: complete projection transitions and owned small
-dependency sets remain simpler and at least as fast as the alternatives tested.
-It also rejects widening the commit lock epoch, adding dirty-lane state or
-building a second resident DAG without new adversarial evidence. Moving fresh
-ingress materialization outside the lock is also not admitted: without a new
-reservation owner it makes duplicate spam pay full preparation, while a
-reservation would enlarge the state machine merely to move bounded work.
-Future work must first identify a different material cost; it must not combine
-these discarded mechanisms and hope their noise becomes a gain.
-
-## Adversarial complexity audit
-
-The post-A6 audit treats attacker-shaped asymptotics separately from the 2%
-common-workload timing gate. The latter cannot expose a rare population-sized
-scan reliably.
-
-| Shape | Bound and evidence | Decision |
+| Family | Required dimensions | Purpose |
 |---|---|---|
-| One peer with a large-cycle verify backlog | The old small-only head walked the owner's ordered set in reverse during head removal, insertion, runnable refresh and checkout validation. Per-peer residency permits a large prefix, so repeated transitions could amplify to quadratic maintenance. | A7 stores each key in exactly one typed cycle-class partition. Small-only lookup is independent of the large partition; `large_cycle_population_is_partitioned_from_small_head` fixes the structural regression. |
-| Multi-parent dependency loss / fan-out | Parent fan-out is capped, but the old Plan queried every changed key against every cohort member and could rescan one multi-parent child once per parent. | A7 deduplicates affected children and reduces requested waiter counts once over the immutable cohort, inspecting the smaller requested/observed frontier for each changed primary. No resident cache or second publication path was added. |
-| Accepted conflict / eviction closure | RBF and reorg transfer stop at `MAX_POOL_MUTATION_CANDIDATES` (100). General accepted removal can visit ancestor/descendant relations repeatedly, but every accepted entry is limited by configured `max_ancestors_count`; total relation work is therefore linear in removed membership with that operator-selected factor. The size-reconcile loop can rescan status order only when an already accepted pool is over budget, which ordinary atomic admission cannot create. | Record as bounded cold-path debt; do not add a second weight-maintenance algorithm without a reproducible trigger and measurement. |
-| Reorg recovery slice | Accepted descendants use one multi-source traversal capped at 100 and reset the ephemeral generation beyond it. Detached transaction sorting/retention is linear in the actual reorg payload and the fresh generation is residency bounded. | Existing bounds and over-bound reset regressions are sufficient; no second recovery DAG. |
-| Large template dependency tree / conditional cycle | Descendant cache and selected dependency occurrences are each capped at 200k memberships; exact SCC shedding is capped at 64 rounds with a deterministic fallback. | Existing dense-SCC, over-budget independent-suffix and cache-budget regressions cover the attack shapes. |
+| independent always-success | cold/warm, 1/4 peers, 1/8 workers | authority and scheduler ceiling |
+| independent secp256k1 | cold/warm, 1/4 peers, 1/8 workers | useful validation parallelism and CPU scaling |
+| dependent chains/forest | parent-first and child-first, shallow/deep | wake latency, causal serialization and frontier work |
+| RBF/conflict | accepted victim closure, reject, winner failure/history recovery | atomic replacement cost and bounded history |
+| full pool/eviction | near configured limits and hostile causal closure | cold-path asymptotic bound |
+| reorg | blank fork, recovered tree, large bounded fork | ordered reconciliation and proposal/template convergence |
+| template | independent suffix, deep dependency tree, conditional cycle, uncle pressure | packing quality and derived graph bounds |
+| peer pressure | many owners, large-cycle backlog, ban/refetch | fairness partitions, budget and cleanup cost |
 
-## A4 preliminary signal
+Static operation/complexity tests must close any issue inferable from code
+before this matrix runs. Benchmarking is not correctness discovery.
 
-The A4 candidate and baseline were pre-built once from equal-length source
-roots and compared with the same benchmark harness and environment
-fingerprint. These quick records guide implementation; they do not replace the
-final acceptance gate.
+## 6. Fixed-binary A/B acceptance
 
-| Workload | Repetitions | Result |
-|---|---:|---:|
-| independent, cold, always-success, 1 peer / 8 workers / 100 tx | 3 paired | throughput `+8.39%`, latency `-7.74%` |
-| dependent parent/child, cold and warm, both arrival orders | 3 paired per scenario | geometric mean `-0.14%` (neutral) |
+Follow [`BENCHMARK.md`](BENCHMARK.md). Build candidate and baseline once in
+separate equal-length worktrees, hash both binaries, cool down after build and
+run adjacent balanced AB/BA pairs. Setup, cache state and teardown must match;
+the runner rejects differing toolchain, lockfile, workspace profile, flags,
+CPU count, harness or environment identity.
 
-The split is expected: same-lane continuation targets independent concurrency;
-dependency chains still wait for their causal frontier and should not gain a
-cross-stage shortcut.
+The final comparisons are:
 
-## Remaining acceptance plan
+1. final UAK versus `develop`, establishing necessity did not cause an
+   unexplained regression and identifying any workload where the architecture
+   now exceeds it;
+2. final UAK versus the frozen pre-performance UAK checkpoint, attributing the
+   retained optimization value;
+3. absolute operation counts and profiles for adversarial shapes that a common
+   throughput ratio cannot expose.
 
-The final correctness gate before performance acceptance is complete at
-`f68c9a247`: 272/272 `ckb-tx-pool` nextest cases, strict Clippy and the
-format/documentation/review/layout/security validators pass. The managed
-integration registry was expanded to its complete 150-spec command and run
-serially through `make integration`; all 150 specs passed in 864.9 seconds.
-This evidence covers the whole tx-pool impact registry, not only
-`test/src/specs/tx_pool`.
+Quick mode is diagnostic and uses its documented 2% threshold/noise limits.
+Medium or full repeated records close P10; full may be run on a more suitable
+host, but all artifacts must satisfy the same fingerprint contract. A noisy or
+unexplained result blocks the claim—it does not authorize a compensating cache,
+retry path or second authority.
 
-The order is fixed. A failed stage returns to design review rather than gaining
-a compensating patch.
+## 7. Reviewer questions
 
-1. Run all `ckb-tx-pool` nextest tests, production Clippy/static panic gates,
-   documentation and security-manifest validators.
-2. Use the retained profiling surface to cover the CKB-semantic independent,
-   secp, pool-state, peer-count and both dependency-order dimensions; retain
-   only optimization candidates supported by more than one observation mode.
-   The first candidate family is A6: eliminate demonstrably repeated mechanical
-   work inside the existing authority transaction (unchanged-index churn,
-   repeated owner-head publication, unconditional lane readiness and avoidable
-   Plan cloning) before considering another batch, cache or resident graph.
-3. Run the complete managed tx-pool-related process-test universe through
-   `make integration`; classify any failure as product defect, obsolete test or
-   environment failure before changing code. **Complete: 150/150 passed at
-   `f68c9a247`.**
-4. Freeze final candidate binaries and run the controlled quick/medium protocol
-   in [`BENCHMARK.md`](BENCHMARK.md).
-5. Compare the final candidate with both the pre-optimization checkpoint and
-   `develop`, including throughput, latency, spread and environment evidence.
-6. Perform a final high-level invariant/security/Rust/performance review and
-   record unresolved release conditions rather than hiding them.
-
-## Review questions
-
-- Does an optimization remove work, or merely transfer it into another queue,
-  cache, retry path or failure domain?
-- Does it preserve one owner and one mutation implementation?
-- Can the type system express its safety premise instead of an assertion,
-  `expect`, panic handler or boolean mode?
-- Is attacker-controlled work bounded independently of unrelated pool size?
-- Does it preserve cancellation, fairness, per-peer budget and worker
-  capability semantics?
-- Is the claimed gain supported by comparable binaries and low-spread paired
-  measurements rather than unit-test duration?
-- Does every hot-path change have target-window sampling, span timing or a
-  deterministic operation-count reason, with parking residency kept distinct
-  from CPU consumption?
+- Does the change remove work, or transfer it to another queue, cache, task,
+  failure domain or shutdown path?
+- Is its safety premise represented by ownership/types and exact evidence?
+- Does it preserve independent validation and template-lane concurrency?
+- Is hostile work bounded independently of unrelated pool size?
+- Do profiles explain the result, and does controlled paired A/B confirm it?
+- Was a neutral or shape-regressive prototype removed completely?
+- Are the measured sources exactly the final reviewed sources?

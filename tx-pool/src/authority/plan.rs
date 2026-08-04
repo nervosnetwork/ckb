@@ -4012,7 +4012,7 @@ impl TxPoolAuthority {
         }
     }
 
-    /// Discharge a compute lease after allocator pressure made its original
+    /// Discharge checked-out work after allocator pressure made its original
     /// result uncommittable. This Plan intentionally has no effect, index,
     /// dependency, primary-owner, or peer-row insertion path. Its closed error
     /// type therefore cannot turn resource pressure into an unbounded retry.

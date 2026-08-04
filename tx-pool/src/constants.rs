@@ -26,7 +26,7 @@ pub(crate) const MAX_TX_POOL_REJECT_DESCRIPTION_BYTES: usize = 1024;
 /// configured pool-size trimming have separate, formula-bounded cohorts.
 pub(crate) const MAX_POOL_MUTATION_CANDIDATES: usize = 100;
 
-/// Maximum time the shutdown path waits for each pipeline-worker group
-/// (cache worker, maintenance, pre-check, verify, and resolver workers)
-/// to finish its current job before persisting the tx-pool state.
+/// Maximum time the shutdown path waits for each authority or derived-worker
+/// group (cache, maintenance, ready, verification, and resolution workers) to
+/// finish its current job before persisting the tx-pool state.
 pub(crate) const PIPELINE_SHUTDOWN_TIMEOUT_SECONDS: u64 = 30;

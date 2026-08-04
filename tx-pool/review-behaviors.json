@@ -113,12 +113,12 @@
         {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct CheckoutTicket"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthoritySignals", "fn publish_mutation", "fn try_checkout"]}
       ],
-      "required_behavior": "Workers hold one move-only compute capability, perform expensive work without the store guard, and settle or cancel it exactly once. Every mutating AuthorityRuntime operation directly publishes one lossy hint after its guard and retirement carriers open; scheduling and waits recheck authoritative levels and remain fair and cancellation-aware.",
-      "hostile_case": "Missing, lost or coalesced mutation publication, saturated peer, stale head, allocation retry, cancellation or worker completion reordering must not lose a work capability, abort unrelated work, spin or starve another eligible owner.",
+      "required_behavior": "Workers hold one move-only compute capability, perform expensive work without the store guard, and settle or cancel it exactly once. Every mutating AuthorityRuntime operation directly publishes one lossy hint after its guard and retirement carriers open; waits recheck authoritative levels. Resolve and Verify use cancellation-aware per-owner round robin; Ready uses the documented strict source/economic order in bounded batches and does not claim per-entry fairness.",
+      "hostile_case": "Missing, lost or coalesced mutation publication, saturated peer, stale queue head, allocation retry, cancellation or worker completion reordering must not lose a work capability, abort unrelated work, spin or starve an eligible Resolve/Verify owner. Strict Ready priority must remain deterministic, batch-bounded and subject to Remote expiry.",
       "reviewer_questions": [
         "Does every wait name an independent releaser?",
         "Can a worker exit while retaining the only active capability?",
-        "Is fairness decided only from committed scheduler state?",
+        "Is queue fairness decided only from committed scheduler state, and is strict Ready priority kept separate?",
         "Does every runtime mutation have one top-level post-guard publication with no escaping control flow?"
       ],
       "performance_bound": "Resolve/verify remains parallel; one shared coalescing hint avoids per-transition signal state, under-lock publication and unnecessary same-lane authority round trips."
@@ -329,7 +329,7 @@
     {"test": "authority::runtime::tests::runtime_checkout_observes_preexisting_level_without_a_wake_hint", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
     {"test": "authority::tests::foundation::uak_resolve_to_verify_continuation_changes_no_authority_state", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
     {"test": "authority::tests::worker::uak_idle_maintenance_driver_waits_instead_of_spinning", "behavior_id": "TP-WORKER-001", "invariants": ["T10"]},
-    {"test": "authority::tests::foundation::uak_runner_cancellation_settles_one_exact_lease_before_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
+    {"test": "authority::tests::foundation::uak_runner_cancellation_settles_one_exact_work_capability_before_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
     {"test": "authority::tests::foundation::uak_fair_frontier_round_robins_owners_only_after_apply", "behavior_id": "TP-WORKER-001", "invariants": ["T5", "T10"]},
 
     {"test": "authority::tests::foundation::uak_peer_revocation_removes_only_preaccepted_ingress_owners", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T7"]},
@@ -366,6 +366,7 @@
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
     {"test": "authority::tests::service::uak_operational_failure_classes_follow_ownership_boundaries", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::service::uak_only_integrity_faults_invalidate_a_generation", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T7", "T10"]},
+    {"test": "authority::tests::service::uak_ordered_chain_update_has_no_droppable_operational_error", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T9", "T10"]},
     {"test": "authority::tests::service::uak_recent_reject_encoding_failure_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::service::uak_candidate_uncle_degradation_remains_outside_authority_invalidity", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T10", "T13"]},
     {"test": "block_assembler::candidate_uncles::tests::candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T8", "T13"]},

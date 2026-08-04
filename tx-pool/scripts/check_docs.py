@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import sys
@@ -15,6 +16,7 @@ DOCS = TX_POOL / "docs"
 VALIDATION = DOCS / "VALIDATION.md"
 DOC_INDEX = TX_POOL / "README.md"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci_tx_pool_review.yaml"
+BEHAVIOR_REGISTRY = TX_POOL / "review-behaviors.json"
 MARKDOWN_LINK = re.compile(r"\[[^]]*\]\(([^)]+)\)")
 RETIRED_PATHS = (
     "devtools/check_tx_pool_review_guide.py",
@@ -102,6 +104,38 @@ def validate() -> list[str]:
             "tx-pool review CI must call only check_all.py instead of copying component gates"
         )
 
+    try:
+        registry = json.loads(BEHAVIOR_REGISTRY.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        errors.append(f"cannot derive CI roots from review-behaviors.json: {error}")
+    else:
+        evidence_paths: list[str] = []
+        for behavior in registry.get("behaviors", []):
+            for owner in behavior.get("implementation_owners", []):
+                path = owner.get("path")
+                if isinstance(path, str):
+                    evidence_paths.append(path)
+        for field in ("workspace_evidence", "integration_evidence"):
+            for evidence in registry.get(field, []):
+                path = evidence.get("path")
+                if isinstance(path, str):
+                    evidence_paths.append(path)
+        roots = {
+            Path(path).parts[0]
+            for path in evidence_paths
+            if Path(path).parts
+        }
+        workflow_paths = re.findall(
+            r"(?m)^\s*-\s*['\"](?P<path>[^'\"]+)['\"]\s*$", ci
+        )
+        for root in sorted(roots):
+            pattern = f"{root}/**"
+            if workflow_paths.count(pattern) < 2:
+                errors.append(
+                    "tx-pool review CI must cover every behavior-evidence root in "
+                    f"pull_request and push paths: missing {pattern}"
+                )
+
     drift_surfaces = [
         *files,
         *sorted((REPO_ROOT / ".github" / "workflows").glob("*.yaml")),
@@ -121,6 +155,19 @@ def validate() -> list[str]:
                 errors.append(
                     f"retired tx-pool path in {source.relative_to(REPO_ROOT)}: {retired}"
                 )
+        if source.suffix == ".md":
+            for retired_term in (
+                "G5.3c",
+                "P9.7g",
+                "ComputeLeaseId",
+                "VerifyLease",
+                "CommitSession",
+            ):
+                if retired_term in text:
+                    errors.append(
+                        f"retired implementation term in "
+                        f"{source.relative_to(REPO_ROOT)}: {retired_term}"
+                    )
     return errors
 
 

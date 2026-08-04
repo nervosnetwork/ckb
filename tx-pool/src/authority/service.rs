@@ -110,7 +110,21 @@ pub(crate) enum AuthorityServiceError {
 pub(crate) enum AuthorityIntegrityFault {
     InvalidChainEvidence,
     CounterExhausted,
+    EffectLifecycleClosed,
     Projection(AuthorityProjectionFault),
+}
+
+/// Exhaustive failure domain for the sole ordered chain-update consumer.
+///
+/// Allocation pressure is retried while the exact request or command is still
+/// owned by the service. Consequently, once a chain update returns, it can
+/// only have observed generation cancellation or a structural contradiction.
+/// Keeping this narrower than `AuthorityServiceError` prevents a future
+/// operational service variant from silently terminating the ordered driver.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthorityChainUpdateError {
+    Cancelled,
+    Integrity(AuthorityIntegrityFault),
 }
 
 impl AuthorityServiceError {
@@ -1117,7 +1131,7 @@ impl AuthorityService {
     pub(crate) async fn apply_chain_update(
         &self,
         arguments: ChainReorgArgs,
-    ) -> Result<(), AuthorityServiceError> {
+    ) -> Result<(), AuthorityChainUpdateError> {
         let (detached, attached, proposals, snapshot) = arguments;
         let packaging = if self.block_assembler.is_some() {
             ChainPackaging::Package
@@ -1131,12 +1145,12 @@ impl AuthorityService {
                 Ok(command) => break command,
                 Err(failure) => {
                     let (error, returned) = failure.into_parts();
-                    if error != ChainBoundaryError::Allocation {
-                        return Err(map_chain_error(error));
+                    if let Some(fault) = map_chain_integrity(error) {
+                        return Err(AuthorityChainUpdateError::Integrity(fault));
                     }
                     request = returned;
                     if !allocation_backoff_or_cancel(&self.cancel).await {
-                        return Err(AuthorityServiceError::Cancelled);
+                        return Err(AuthorityChainUpdateError::Cancelled);
                     }
                 }
             }
@@ -1146,12 +1160,12 @@ impl AuthorityService {
                 Ok(committed) => break committed,
                 Err(failure) => {
                     let (error, returned) = failure.into_parts();
-                    if error != ChainBoundaryError::Allocation {
-                        return Err(map_chain_error(error));
+                    if let Some(fault) = map_chain_integrity(error) {
+                        return Err(AuthorityChainUpdateError::Integrity(fault));
                     }
                     command = returned;
                     if !allocation_backoff_or_cancel(&self.cancel).await {
-                        return Err(AuthorityServiceError::Cancelled);
+                        return Err(AuthorityChainUpdateError::Cancelled);
                     }
                 }
             }
@@ -1590,10 +1604,11 @@ async fn run_ordered_reorg_driver(
         };
         match service.apply_chain_update(arguments).await {
             Ok(()) => {}
-            Err(AuthorityServiceError::Cancelled) if cancel.is_cancelled() => return Ok(()),
-            Err(error) => {
-                AuthorityService::settle_operation_error(error)?;
-                return Ok(());
+            Err(AuthorityChainUpdateError::Cancelled) => return Ok(()),
+            Err(AuthorityChainUpdateError::Integrity(fault)) => {
+                return AuthorityService::settle_operation_error(AuthorityServiceError::Integrity(
+                    fault,
+                ));
             }
         }
     }
@@ -1610,19 +1625,15 @@ fn map_administration_error(error: AuthorityAdministrationError) -> AuthoritySer
     }
 }
 
-fn map_chain_error(error: ChainBoundaryError) -> AuthorityServiceError {
+pub(super) fn map_chain_integrity(error: ChainBoundaryError) -> Option<AuthorityIntegrityFault> {
     match error {
-        ChainBoundaryError::Allocation => AuthorityServiceError::ResourceUnavailable,
-        ChainBoundaryError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
-        ChainBoundaryError::CounterExhausted => {
-            AuthorityServiceError::Integrity(AuthorityIntegrityFault::CounterExhausted)
-        }
+        ChainBoundaryError::Allocation => None,
+        ChainBoundaryError::LifecycleClosed => Some(AuthorityIntegrityFault::EffectLifecycleClosed),
+        ChainBoundaryError::CounterExhausted => Some(AuthorityIntegrityFault::CounterExhausted),
         ChainBoundaryError::InvalidFacts | ChainBoundaryError::InvalidSnapshotEvidence => {
-            AuthorityServiceError::Integrity(AuthorityIntegrityFault::InvalidChainEvidence)
+            Some(AuthorityIntegrityFault::InvalidChainEvidence)
         }
-        ChainBoundaryError::Fault(fault) => {
-            AuthorityServiceError::integrity_projection(fault.into())
-        }
+        ChainBoundaryError::Fault(fault) => Some(AuthorityIntegrityFault::Projection(fault.into())),
     }
 }
 

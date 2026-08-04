@@ -540,7 +540,7 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
         .expect("the occupied effect is queued");
     runtime
         .settle_effect(occupied_lease.complete_for_foundation().published())
-        .expect("the occupied publication settles through the runtime facade");
+        .expect("the occupied publication settles through the runtime boundary");
 
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
@@ -573,7 +573,7 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
 }
 
 #[tokio::test]
-async fn runtime_effect_facade_retains_and_drains_a_closed_log_in_sequence() {
+async fn runtime_effect_boundary_retains_and_drains_a_closed_log_in_sequence() {
     let runtime = runtime();
     queue_remote_rejection(&runtime, 909);
     queue_remote_rejection(&runtime, 910);

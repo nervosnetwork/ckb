@@ -1,0 +1,112 @@
+# Tx-Pool Release Progress
+
+This is a temporary restart authority for the remaining production gates. It
+is not public architecture or implementation history. Delete it when P10 and
+the final completion review close.
+
+## Fixed route
+
+1. COMPLETE — recoverable checkpoints and one restart authority.
+2. COMPLETE — UAK production cutover, publication parity and physical deletion
+   of the previous transaction authority.
+3. COMPLETE — production/test isolation and the one-way
+   Rust -> behavior -> exact unit/integration evidence graph.
+4. COMPLETE — comparison with `develop`, necessity/cost/minimality review,
+   backward fault reachability, wait/publication/complexity/static audit,
+   historical finding adjudication and documentation/CI convergence.
+5. ACTIVE — P9.8 complete related nextest and all 150 managed integration
+   specs; classify every failure before changing code.
+6. PENDING — P10 reproducible profiling and fixed-binary A/B against both
+   `develop` and the frozen pre-performance UAK checkpoint.
+
+The order is fixed. Benchmarking may not start before P9.8 closes.
+
+## Phase-4 checkpoint evidence
+
+The commit containing this file is the phase-4 checkpoint. At its pre-commit
+working tree the only unrelated modification was the user-owned root
+`.gitignore`; it must never be staged, reverted or overwritten.
+
+- `cargo nextest run -p ckb-tx-pool --features internal --lib`: 406/406 passed.
+- `cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings`:
+  passed.
+- `python3 tx-pool/scripts/check_all.py`: passed.
+- review registry: 17 behaviors, 91 exact tx-pool tests / 240 T1-T13
+  references, 7 cross-crate tests / 16 references, 17 integration anchors.
+- generated inventory: 406 internal-feature tests and 150 managed integration
+  specs.
+- `cargo fmt --all -- --check` and `git diff --check`: passed.
+
+Normative evidence now lives in:
+
+- `tx-pool/docs/ARCHITECTURE.md`: develop failures, mechanism cost ledger,
+  invariants, fault reachability, complexity, historical dispositions and
+  residual risks;
+- `tx-pool/architecture-contract.json`: stable UAK machine vocabulary;
+- `tx-pool/review-behaviors.json` and generated `REVIEW_GUIDE.md`: behavior,
+  attack and exact evidence ownership;
+- `tx-pool/docs/PERFORMANCE.md` and `BENCHMARK.md`: profiling and A/B protocol;
+- `tx-pool/docs/VALIDATION.md`: scripts, generated files and CI consistency.
+
+## Phase-4 root corrections
+
+- `AuthorityChainUpdateError` is a closed `Cancelled | Integrity` result for
+  the sole ordered reorg consumer. Allocation retains and retries the exact
+  request/command internally; effect lifecycle closure while the producer is
+  live is a topology integrity fault. A future broad service error cannot
+  silently terminate the reorg task.
+- Resolve/Verify per-owner fairness and strict Ready priority are distinct
+  documented policies. Ready is `Recovery > Proposal > Remote`, fee rate,
+  absolute fee, earlier arrival and deterministic identity/version, in batches
+  of at most eight; it has no aging state.
+- `EntryVersion` plus move-only checked-out work is the sole compute identity.
+  Retired numeric compute-lease terminology is rejected from production/public
+  documentation by static checks.
+- CI path roots are derived from behavior implementation/workspace/integration
+  evidence. Current required roots are `tx-pool`, `chain`, `sync`, `test` and
+  `verification` for both pull-request and push triggers.
+- Public performance documentation contains the current UAK cost model and
+  reproducible evidence rules, not obsolete checkpoint status.
+- The architecture blocker was removed only after the complete phase-4 gates;
+  the remaining manifest blockers are correctness acceptance and performance
+  acceptance.
+
+## P9.8 exact next action
+
+1. Re-run the full cross-crate Rust evidence universe named by the registry,
+   plus affected authority/chain/sync packages where required by compilation.
+2. Build the production node and integration runner through `make integration`.
+3. Obtain the exact 150-spec command from the generated review guide / managed
+   integration registry; do not substitute a directory or name subset.
+4. Run the managed universe serially with `CKB_TEST_ARGS` and the registered
+   common arguments.
+5. For each failure, preserve logs and classify it as product defect, obsolete
+   test, harness defect or environment failure before any edit.
+6. A product defect returns to architecture/producer-consumer analysis. Do not
+   add a retry, repair scan, watchdog, second authority or test-only exception.
+7. Re-run the failed exact spec, its full semantic group and then all 150.
+8. Run the phase-4 static/nextest/Clippy gates again and freeze the P9.8
+   checkpoint.
+
+## P10 boundary
+
+After P9.8 only, follow `PERFORMANCE.md` and `BENCHMARK.md`:
+
+- profile independent cheap/secp, dependency order/depth, RBF, full-pool,
+  reorg, template and peer-pressure shapes;
+- reuse hashed fixed binaries and strict environment fingerprints;
+- compare final UAK with `develop` and the frozen pre-performance UAK;
+- use quick only for diagnosis; medium/full repeated records decide release;
+- preserve correctness, deterministic order, resource accounting and template
+  lane concurrency regardless of a benchmark result.
+
+## Restart rule
+
+After compaction or restart:
+
+1. read this file and root `AGENTS.md`;
+2. inspect `git status --short` and the latest five commits;
+3. preserve the user-owned root `.gitignore` modification;
+4. continue the ACTIVE fixed-route item without redoing closed phases or
+   answering stale questions;
+5. update this file at every checkpoint before stopping.

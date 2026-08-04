@@ -136,8 +136,8 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 4:
-        errors.append("architecture contract schema_version must be 4")
+    if contract.get("schema_version") != 5:
+        errors.append("architecture contract schema_version must be 5")
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):
@@ -223,9 +223,9 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         errors.append("architecture contract must define exactly T1-T13")
     residual_risks = contract.get("residual_risks")
     if not isinstance(residual_risks, dict) or set(residual_risks) != {
-        f"R{number}" for number in range(1, 10)
+        f"R{number}" for number in range(2, 10)
     }:
-        errors.append("architecture contract must define exactly current residual risks R1-R9")
+        errors.append("architecture contract must define exactly current residual risks R2-R9")
 
     evidence = invariant_unit_evidence(registry)
     if set(evidence) != REQUIRED_TARGET_INVARIANTS:

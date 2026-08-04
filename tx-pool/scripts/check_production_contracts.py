@@ -366,6 +366,104 @@ def validate_compute_capability_identity() -> list[str]:
     return errors
 
 
+def validate_ordered_chain_error_domain() -> list[str]:
+    """Keep the sole ordered reorg task free of droppable service errors."""
+
+    try:
+        source = TX_POOL_AUTHORITY_SERVICE.read_text()
+        masked = mask_rust_non_code(source)
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect ordered chain error domain: {error}"]
+
+    errors: list[str] = []
+    error_enum = re.search(
+        r"\benum\s+AuthorityChainUpdateError\s*\{(?P<body>.*?)\n\}",
+        masked,
+        re.S,
+    )
+    if error_enum is None:
+        errors.append("ordered chain updates need a closed AuthorityChainUpdateError")
+    else:
+        variants = re.findall(
+            r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\s*(?:\([^\n]*\))?\s*,?\s*$",
+            error_enum.group("body"),
+        )
+        if variants != ["Cancelled", "Integrity"]:
+            errors.append(
+                "AuthorityChainUpdateError must expose only Cancelled and Integrity, "
+                f"found {variants}"
+            )
+
+    signature = re.search(
+        r"pub\s*\(crate\)\s+async\s+fn\s+apply_chain_update\b.*?"
+        r"->\s*Result\s*<\s*\(\)\s*,\s*AuthorityChainUpdateError\s*>",
+        masked,
+        re.S,
+    )
+    if signature is None:
+        errors.append(
+            "AuthorityService::apply_chain_update must return the closed chain error domain"
+        )
+
+    driver = function_body(source, "run_ordered_reorg_driver")
+    if driver is None:
+        errors.append("run_ordered_reorg_driver disappeared")
+    else:
+        for required in (
+            "Err(AuthorityChainUpdateError::Cancelled)",
+            "Err(AuthorityChainUpdateError::Integrity(fault))",
+        ):
+            if driver.count(required) != 1:
+                errors.append(
+                    "ordered reorg driver must exhaustively settle " f"{required}"
+                )
+        if re.search(r"Err\s*\(\s*(?:error|other|operational)\s*\)", driver):
+            errors.append("ordered reorg driver must not regain a broad fallback error arm")
+
+    mapping = function_body(source, "map_chain_integrity")
+    if mapping is None:
+        errors.append("map_chain_integrity disappeared")
+    else:
+        required_mappings = (
+            "ChainBoundaryError::Allocation => None",
+            "ChainBoundaryError::LifecycleClosed => Some(AuthorityIntegrityFault::EffectLifecycleClosed)",
+        )
+        compact = " ".join(mapping.split())
+        for required in required_mappings:
+            if " ".join(required.split()) not in compact:
+                errors.append(f"ordered chain error mapping lost {required}")
+    return errors
+
+
+def validate_production_vocabulary() -> list[str]:
+    """Reject migration-era names from the surviving production model."""
+
+    retired = (
+        "G5.3c",
+        "P9.7g",
+        "production cutover",
+        "cutover facade",
+        "compute lease",
+        "versioned lease",
+        "version/phase/lease",
+        "legacy service journal",
+        "legacy in-task deferral",
+    )
+    errors: list[str] = []
+    root = REPO_ROOT / "tx-pool" / "src"
+    for source in sorted(root.rglob("*.rs")):
+        if "tests" in source.parts:
+            continue
+        text = source.read_text()
+        for term in retired:
+            if term in text:
+                errors.append(
+                    f"retired production vocabulary {term!r} in "
+                    f"{source.relative_to(REPO_ROOT)}"
+                )
+    return errors
+
+
 def production_rust_sources() -> list[Path]:
     sources: list[Path] = []
     excluded = {".git", "target", "test", "tests", "benches"}
@@ -473,6 +571,8 @@ def main() -> int:
         *validate_authority_mutation_publication(),
         *validate_authority_failure_algebra(),
         *validate_compute_capability_identity(),
+        *validate_ordered_chain_error_domain(),
+        *validate_production_vocabulary(),
     ]
     if errors:
         for error in errors:
@@ -480,8 +580,8 @@ def main() -> int:
         return 1
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
-        "bounded reorg backpressure plus authority mutation wake coverage and "
-        "the typed authority failure algebra"
+        "bounded reorg backpressure plus authority mutation wake coverage, "
+        "the typed authority failure algebra and current production vocabulary"
     )
     return 0
 

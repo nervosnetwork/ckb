@@ -224,12 +224,12 @@ impl<'authority> AuthorityReadEntry<'authority> {
                     snapshot,
                     &entry.record.identity.proposal.0,
                 )),
-                // ResolveThenVerify intentionally keeps one compute lease and
-                // performs no intermediate authority transition. It therefore
-                // remains conservatively Pending while either stage may own
-                // that capability; adding shared stage state only for RPC
-                // would weaken the one-owner and continuation performance
-                // model.
+                // ResolveThenVerify intentionally keeps one checked-out work
+                // capability and performs no intermediate authority
+                // transition. It therefore remains conservatively Pending
+                // while either stage may own that capability; adding shared
+                // stage state only for RPC would weaken the one-owner and
+                // continuation performance model.
                 PreAcceptedPhase::Queued(QueuedWork::Resolve)
                 | PreAcceptedPhase::Computing(_)
                 | PreAcceptedPhase::Waiting(_) => AuthorityRpcStatus::Pending,

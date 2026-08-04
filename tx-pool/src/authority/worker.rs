@@ -377,7 +377,7 @@ impl ComputeWorker {
         loop {
             match failure.recovery() {
                 ComputeSettlementRecovery::Obsolete(_) => {
-                    // Exact entry version/phase/lease mismatch proves this
+                    // Exact entry-version or phase mismatch proves this
                     // capability no longer names an active Computing owner.
                     drop(failure);
                     drop(execution);

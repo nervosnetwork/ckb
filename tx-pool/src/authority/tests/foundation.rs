@@ -1689,7 +1689,7 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
 }
 
 #[test]
-fn uak_peer_revocation_removes_active_owner_and_makes_its_lease_stale() {
+fn uak_peer_revocation_removes_active_owner_and_stales_checked_out_work() {
     let peer = PeerIndex::from(710);
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_712);
@@ -2059,7 +2059,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     apply_plan(
         authority
             .apply_settlement(resolve.rejected(RejectionKind::Policy))
-            .expect("promotion does not invalidate the active compute lease"),
+            .expect("promotion does not invalidate the checked-out work"),
     );
 }
 
@@ -2182,7 +2182,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
                 ValidatedAdmission::proposal(transaction)
                     .expect("same-witness proposal is trusted"),
             )
-            .expect("proposal promotion preserves the active compute lease"),
+            .expect("proposal promotion preserves the checked-out work"),
     );
     apply_plan(
         authority
@@ -2254,7 +2254,7 @@ fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
                 ValidatedAdmission::proposal(transaction)
                     .expect("same-witness proposal is trusted"),
             )
-            .expect("proposal promotion preserves the active compute lease"),
+            .expect("proposal promotion preserves the checked-out work"),
     );
     apply_plan(
         authority
@@ -6846,7 +6846,7 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
 }
 
 #[test]
-fn uak_invalid_resolution_receipt_retains_the_only_lease_settlement() {
+fn uak_invalid_resolution_receipt_preserves_the_only_settlement_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let resolve_hash = admit_remote(&mut authority, 623, 71);
     let resolve_version = owner_version(&authority, &resolve_hash);
@@ -6872,7 +6872,7 @@ fn uak_invalid_resolution_receipt_retains_the_only_lease_settlement() {
     apply_plan(
         authority
             .apply_settlement(failure.into_settlement())
-            .expect("invalid resolve receipt settles its exact lease"),
+            .expect("invalid resolve receipt settles its exact work"),
     );
 
     assert!(matches!(
@@ -7742,7 +7742,7 @@ fn uak_fair_frontier_skips_saturated_peer_without_blocking_new_peer() {
         apply_plan(
             authority
                 .apply_settlement(work.rejected(RejectionKind::Policy))
-                .expect("active lease settles"),
+                .expect("checked-out work settles"),
         );
     }
     assert!(authority.primary_projection_consistent());
@@ -7987,7 +7987,7 @@ fn uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots() {
         apply_plan(
             authority
                 .apply_settlement(work.internal_failure())
-                .expect("every active lease settles exactly once"),
+                .expect("every checked-out work value settles exactly once"),
         );
     }
     assert_eq!(authority.resources().preaccepted().compute_bytes(), 0);
@@ -8057,7 +8057,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
 }
 
 #[test]
-fn uak_retained_growth_denial_atomically_releases_the_compute_lease() {
+fn uak_retained_growth_denial_atomically_settles_checked_out_work() {
     let admission = ValidatedAdmission::remote(tx(1_000), PeerIndex::from(900))
         .expect("capacity fixture admission is valid");
     let raw_charge = admission.charge_for_foundation();
@@ -8332,7 +8332,7 @@ fn uak_small_cycle_frontier_finds_work_behind_same_owner_large_head() {
 }
 
 #[test]
-fn uak_runner_cancellation_settles_one_exact_lease_before_exit() {
+fn uak_runner_cancellation_settles_one_exact_work_capability_before_exit() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 612, 67);
     let checkout = authority

@@ -45,7 +45,7 @@ fn minimum_serialized_transaction_bytes() -> usize {
 /// transaction outcomes whose packed transactions total `transaction_bytes`.
 ///
 /// This formula deliberately uses the UAK committed snapshot and rejection
-/// envelope, not the legacy service journal's `TxEntrySnapshot`. Keeping the
+/// envelope, not an independently reconstructed `TxEntrySnapshot`. Keeping the
 /// bound beside the values it charges prevents a later endpoint or snapshot
 /// change from silently invalidating startup capacity validation.
 fn effect_batch_charge_bound(

@@ -2,9 +2,10 @@ use super::super::service::{
     AuthorityDerivedError, AuthorityIntegrityFault, AuthorityProjectionFault, AuthorityRelayDrain,
     AuthorityService, AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
     AuthorityShutdownOutcome, authority_failure_boundary, derived_failure_boundary,
-    map_recent_reject_read_error, record_candidate_uncle_observation,
+    map_chain_integrity, map_recent_reject_read_error, record_candidate_uncle_observation,
 };
 use super::super::{
+    chain_boundary::ChainBoundaryError,
     plan::AuthorityFault,
     rejection::RecentRejectEncodingError,
     runtime::AuthorityRecentRejectReadError,
@@ -79,6 +80,33 @@ fn uak_only_integrity_faults_invalidate_a_generation() {
             AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Membership),
         ))
         .is_err()
+    );
+}
+
+#[test]
+fn uak_ordered_chain_update_has_no_droppable_operational_error() {
+    assert_eq!(map_chain_integrity(ChainBoundaryError::Allocation), None);
+    assert_eq!(
+        map_chain_integrity(ChainBoundaryError::LifecycleClosed),
+        Some(AuthorityIntegrityFault::EffectLifecycleClosed)
+    );
+    assert_eq!(
+        map_chain_integrity(ChainBoundaryError::CounterExhausted),
+        Some(AuthorityIntegrityFault::CounterExhausted)
+    );
+    assert_eq!(
+        map_chain_integrity(ChainBoundaryError::InvalidFacts),
+        Some(AuthorityIntegrityFault::InvalidChainEvidence)
+    );
+    assert_eq!(
+        map_chain_integrity(ChainBoundaryError::InvalidSnapshotEvidence),
+        Some(AuthorityIntegrityFault::InvalidChainEvidence)
+    );
+    assert_eq!(
+        map_chain_integrity(ChainBoundaryError::Fault(AuthorityFault::EffectProjection)),
+        Some(AuthorityIntegrityFault::Projection(
+            AuthorityProjectionFault::Effect
+        ))
     );
 }
 

@@ -51,8 +51,8 @@ test-code leakage or generated Markdown drift.
 | Command | Purpose | Writes by default |
 |---|---|---|
 | `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery for the lightweight CI workflow. | No |
-| `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation and retired names. | No |
-| `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, structurally prove that each direct `AuthorityRuntime` mutation has one top-level post-guard wake publication with no escaping control flow, and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary. | No |
+| `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
+| `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, structurally prove that each direct `AuthorityRuntime` mutation has one top-level post-guard wake publication with no escaping control flow, keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary, and keep the ordered reorg driver on its closed cancellation/integrity error algebra. | No |
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions and reviewed test-only seams. | No |
 | `python3 tx-pool/scripts/check_security_manifest.py` | Discover nextest tests and validate the architecture, behavior, integration and inventory contracts. | No |

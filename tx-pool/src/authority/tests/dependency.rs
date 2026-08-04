@@ -647,7 +647,7 @@ fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
     assert_eq!(
         drain_dependency_maintenance(&mut authority),
         0,
-        "maintenance advances the dirty cursor without stealing the compute lease"
+        "maintenance advances the dirty cursor without stealing checked-out work"
     );
     assert!(matches!(
         authority.entry(&child),
@@ -1078,7 +1078,7 @@ fn uak_duplicate_missing_receipt_cannot_bypass_the_work_grant() {
     apply_plan(
         authority
             .apply_settlement(over_grant)
-            .expect("budget denial consumes the exact lease"),
+            .expect("budget denial consumes the exact work capability"),
     );
 
     assert!(authority.entry(&hash).is_none());
@@ -1371,7 +1371,7 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
 }
 
 #[test]
-fn uak_unindexed_false_retries_are_bounded_by_active_leases() {
+fn uak_unindexed_false_retries_are_bounded_by_checked_out_work() {
     const ACTIVE_RESOLVERS: usize = 4;
     let attack_limits = ResourceLimits::new(
         ResourceVector::new(16, 256 * 1024, 256, 8),

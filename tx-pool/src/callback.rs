@@ -100,7 +100,7 @@ impl Callbacks {
     /// Publish one already-journaled callback effect.
     ///
     /// The effect publisher is itself the stable-state barrier, so this path
-    /// deliberately bypasses the legacy in-task deferral queue. It is the only
+    /// deliberately bypasses any in-task deferral queue. It is the only
     /// callback entry point used by the production effect journal.
     pub(crate) fn publish(&self, event: &CallbackEvent) {
         match event {

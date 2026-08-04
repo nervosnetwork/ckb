@@ -190,7 +190,7 @@ fn uak_matching_resolution_completion_requeues_across_a_chain_view_change() {
     apply_plan(
         authority
             .apply_settlement(settlement)
-            .expect("the matching completion releases its old-view lease"),
+            .expect("the matching completion settles its old-view work"),
     );
     assert!(matches!(
         authority.entry(&hash),
@@ -226,7 +226,7 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
             .apply_settlement(
                 rejected_work.rejected(super::super::state::test_support::RejectionKind::Policy),
             )
-            .expect("a stale contextual rejection releases its exact lease"),
+            .expect("a stale contextual rejection settles its exact work"),
     );
     assert!(matches!(
         authority.entry(&rejected_hash),
@@ -249,7 +249,7 @@ fn uak_chain_change_requeues_chain_bound_results_but_commits_resource_rejections
     apply_plan(
         authority
             .apply_settlement(internal_work.internal_failure())
-            .expect("internal worker failure releases and retries its lease"),
+            .expect("internal worker failure settles and retries its work"),
     );
     assert!(matches!(
         authority.entry(&internal_hash),
@@ -981,7 +981,7 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
                 work.missing(vec![DependencyKey::Cell(parent_output)])
                     .expect("the old dependency result is bounded"),
             )
-            .expect("the exact lease settles after the dependency cut"),
+            .expect("the exact work settles after the dependency cut"),
     );
     assert!(matches!(
         authority.entry(&child),
@@ -2579,7 +2579,7 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
                 work.missing(vec![DependencyKey::Cell(parent_output)])
                     .expect("the old-view missing result is bounded"),
             )
-            .expect("matching completion releases its lease after the chain cut"),
+            .expect("matching completion settles its work after the chain cut"),
     );
     assert!(matches!(
         authority.entry(&child),

@@ -5,15 +5,19 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'tx-pool/**'
-      - 'chain/src/verify.rs'
-      - 'test/src/**'
+      - 'chain/**'
+      - 'sync/**'
+      - 'test/**'
+      - 'verification/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   push:
     branches: ['**']
     paths:
       - 'tx-pool/**'
-      - 'chain/src/verify.rs'
-      - 'test/src/**'
+      - 'chain/**'
+      - 'sync/**'
+      - 'test/**'
+      - 'verification/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   merge_group: {}
   workflow_dispatch: {}
