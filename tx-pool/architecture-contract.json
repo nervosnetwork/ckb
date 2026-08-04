@@ -95,7 +95,7 @@
     "authority_lock": "one_synchronous_rwlock_with_no_await",
     "parallel_work": "resolve_verify_and_immutable_plan_computation_outside_the_authority_guard",
     "transient_compute_gate": "count_only_semaphore_without_transaction_ownership",
-    "wake_contract": "lossy_notify_plus_level_triggered_authority_recheck",
+    "wake_contract": "one_checked_post_guard_hint_per_runtime_mutation_plus_level_triggered_authority_recheck",
     "ordered_chain_lane": "capacity_one_reliable_best_tip_transition",
     "template_lanes": [
       "ordered_full_or_reset_replacement",

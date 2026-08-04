@@ -451,6 +451,14 @@ not hold it across `.await`, blocking I/O, VM execution or external endpoint
 work. `AuthorityRuntime` exposes concrete operations rather than a generic
 mutation closure.
 
+Every authority mutation remains directly visible in an `AuthorityRuntime`
+method. After the write guard and retirement carriers open, that method emits
+one top-level lossy mutation hint; no fallible or escaping control flow lies
+between the committed mutation and the hint. A source validator enforces this
+shape and rejects hidden Apply helpers, conditional post-commit publication or
+an unpaired hint. This preserves lock-external coalescing without adding signal
+state to the authority or maintaining a second transition-to-wake table.
+
 Other locks protect derived outputs only: verification cache, relay mailbox,
 candidate uncles, current block template and template convergence. They cannot
 decide transaction ownership. Template publication acquires the current-
@@ -485,7 +493,7 @@ Every wait must name an independently running releaser:
 | Wait | Held authority capability | Releaser |
 |---|---|---|
 | compute semaphore | none | completion/cancellation of another compute lease |
-| mutation `Notify` | none | any committed Apply; waiter rechecks level first |
+| mutation `Notify` | none | every runtime Apply publishes once after its guard opens; waiter rechecks level first |
 | effect capacity | the exact failed settlement capability, no store guard | sole effect publisher settlement or cancellation |
 | verification cache channel | no owner or store guard | cache updater; cache failure is derived degradation |
 | ordered chain channel | chain request at producer boundary, no store guard | ordered reorg driver |

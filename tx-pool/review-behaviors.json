@@ -109,16 +109,18 @@
       "title": "Capability-owned workers and progress",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/worker.rs", "symbols": ["struct ComputeWorker", "run_ready_driver", "run_maintenance_driver"]},
-        {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct CheckoutTicket"]}
+        {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct CheckoutTicket"]},
+        {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthoritySignals", "fn publish_mutation", "fn try_checkout"]}
       ],
-      "required_behavior": "Workers hold one move-only compute capability, perform expensive work without the store guard, and settle or cancel it exactly once. Scheduling and wakes are level-triggered, fair and cancellation-aware.",
-      "hostile_case": "Lost/coalesced notify, saturated peer, stale head, allocation retry, cancellation or worker completion reordering must not lose a lease, abort unrelated work, spin or starve another eligible owner.",
+      "required_behavior": "Workers hold one move-only compute capability, perform expensive work without the store guard, and settle or cancel it exactly once. Every mutating AuthorityRuntime operation directly publishes one lossy hint after its guard and retirement carriers open; scheduling and waits recheck authoritative levels and remain fair and cancellation-aware.",
+      "hostile_case": "Missing, lost or coalesced mutation publication, saturated peer, stale head, allocation retry, cancellation or worker completion reordering must not lose a lease, abort unrelated work, spin or starve another eligible owner.",
       "reviewer_questions": [
         "Does every wait name an independent releaser?",
         "Can a worker exit while retaining the only active capability?",
-        "Is fairness decided only from committed scheduler state?"
+        "Is fairness decided only from committed scheduler state?",
+        "Does every runtime mutation have one top-level post-guard publication with no escaping control flow?"
       ],
-      "performance_bound": "Resolve/verify remains parallel; same-lane continuation avoids unnecessary authority round trips without inventing owner state."
+      "performance_bound": "Resolve/verify remains parallel; one shared coalescing hint avoids per-transition signal state, under-lock publication and unnecessary same-lane authority round trips."
     },
     {
       "id": "TP-ADMIN-001",

@@ -25,7 +25,7 @@ use super::{
     },
     plan::{
         AuthorityConfigError, AuthorityFault, Backpressure, CandidateDispositionPlan,
-        CommittedDelta, ComputeCancellation, ComputeCancellationError, ComputeSettlementFailure,
+        ComputeCancellation, ComputeCancellationError, ComputeSettlementFailure,
         DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectCheckoutError,
         EffectCloseError, EffectSettlementFailure, FinalAdmissionDispositionPlan,
         IndependentCandidate, MembershipConfig, MembershipReject, PlanError,
@@ -1382,18 +1382,18 @@ impl AuthorityRuntime {
     ) -> Result<bool, AuthorityAdministrationError> {
         let committed = {
             let mut store = self.store.write();
-            store
+            let plan = store
                 .authority
                 .plan_local_removal(&RawTxHash(hash.clone()))
-                .map_err(AuthorityAdministrationError::from_plan)?
-                .map(|plan| plan.apply())
+                .map_err(AuthorityAdministrationError::from_plan)?;
+            let Some(plan) = plan else {
+                return Ok(false);
+            };
+            plan.apply()
         };
-        let changed = committed.is_some();
         drop(committed);
-        if changed {
-            self.signals.publish_mutation();
-        }
-        Ok(changed)
+        self.signals.publish_mutation();
+        Ok(true)
     }
 
     /// Clear only preaccepted and replacement-history ownership. Accepted
@@ -1599,14 +1599,14 @@ impl AuthorityRuntime {
         let cutoff = RemoteDeadline(ckb_systemtime::unix_time().as_secs());
         let committed = {
             let mut store = self.store.write();
-            store
+            let plan = store
                 .authority
                 .plan_remote_expiry(cutoff, self.expiry_policy.remote_slice)
-                .map_err(AuthorityDriverError::from_maintenance_plan)?
-                .map(|plan| plan.apply())
-        };
-        let Some(committed) = committed else {
-            return Ok(AuthorityMaintenanceOutcome::Idle);
+                .map_err(AuthorityDriverError::from_maintenance_plan)?;
+            let Some(plan) = plan else {
+                return Ok(AuthorityMaintenanceOutcome::Idle);
+            };
+            plan.apply()
         };
         let owners = committed.changed_owner_count();
         drop(committed);
@@ -1628,14 +1628,14 @@ impl AuthorityRuntime {
         };
         let committed = {
             let mut store = self.store.write();
-            store
+            let plan = store
                 .authority
                 .plan_accepted_expiry(cutoff)
-                .map_err(AuthorityDriverError::from_maintenance_plan)?
-                .map(|plan| plan.apply())
-        };
-        let Some(committed) = committed else {
-            return Ok(AuthorityMaintenanceOutcome::Idle);
+                .map_err(AuthorityDriverError::from_maintenance_plan)?;
+            let Some(plan) = plan else {
+                return Ok(AuthorityMaintenanceOutcome::Idle);
+            };
+            plan.apply()
         };
         let owners = committed.changed_owner_count();
         drop(committed);
@@ -1651,14 +1651,14 @@ impl AuthorityRuntime {
     ) -> Result<AuthorityMaintenanceOutcome, AuthorityDriverError> {
         let committed = {
             let mut store = self.store.write();
-            store
+            let plan = store
                 .authority
                 .plan_dependency_maintenance()
-                .map_err(AuthorityDriverError::from_maintenance_plan)?
-                .map(|plan| plan.apply())
-        };
-        let Some(committed) = committed else {
-            return Ok(AuthorityMaintenanceOutcome::Idle);
+                .map_err(AuthorityDriverError::from_maintenance_plan)?;
+            let Some(plan) = plan else {
+                return Ok(AuthorityMaintenanceOutcome::Idle);
+            };
+            plan.apply()
         };
         let owners = committed.changed_owner_count();
         drop(committed);
@@ -1720,17 +1720,14 @@ impl AuthorityRuntime {
         .map_err(AuthorityInternalPlugError::from_build)?;
         let committed = {
             let mut store = self.store.write();
-            match store
+            let disposition = store
                 .authority
                 .plan_internal_plug(receipt)
-                .map_err(AuthorityInternalPlugError::from_plan)?
-            {
-                InternalPlugDisposition::Insert(plan) => Some(plan.apply()),
-                InternalPlugDisposition::Duplicate => None,
-            }
-        };
-        let Some(committed) = committed else {
-            return Ok(AuthorityInternalPlugOutcome::Duplicate);
+                .map_err(AuthorityInternalPlugError::from_plan)?;
+            let InternalPlugDisposition::Insert(plan) = disposition else {
+                return Ok(AuthorityInternalPlugOutcome::Duplicate);
+            };
+            plan.apply()
         };
         drop(committed);
         self.signals.publish_mutation();
@@ -1798,20 +1795,22 @@ impl AuthorityRuntime {
         outcome: DirectAdmissionValidationOutcome,
     ) -> Result<AuthorityLocalAdmissionOutcome, PlanError> {
         let (outcome, committed) = match outcome {
+            DirectAdmissionValidationOutcome::Reresolve(retry) => {
+                return Ok(AuthorityLocalAdmissionOutcome::Retry(
+                    retry.into_subject().into_transaction(),
+                ));
+            }
             DirectAdmissionValidationOutcome::Candidate(receipt) => {
                 let completed = receipt.completed();
                 let mut store = self.store.write();
                 match store.authority.plan_direct_admission(receipt)? {
                     DirectAdmissionDisposition::Accepted(plan) => (
                         AuthorityLocalAdmissionOutcome::Accepted(completed),
-                        Some(plan.apply()),
+                        plan.apply(),
                     ),
                     DirectAdmissionDisposition::Duplicate(plan) => {
                         let (key, committed) = plan.apply();
-                        (
-                            AuthorityLocalAdmissionOutcome::Duplicate(key),
-                            Some(committed),
-                        )
+                        (AuthorityLocalAdmissionOutcome::Duplicate(key), committed)
                     }
                     DirectAdmissionDisposition::Rejected(plan) => {
                         let (reason, committed) = plan.apply();
@@ -1819,7 +1818,7 @@ impl AuthorityRuntime {
                             AuthorityLocalAdmissionOutcome::Rejected(
                                 DirectAdmissionRejectionKind::Membership(reason),
                             ),
-                            Some(committed),
+                            committed,
                         )
                     }
                 }
@@ -1834,19 +1833,12 @@ impl AuthorityRuntime {
                     AuthorityLocalAdmissionOutcome::Rejected(
                         DirectAdmissionRejectionKind::Validation(reason),
                     ),
-                    Some(committed),
+                    committed,
                 )
             }
-            DirectAdmissionValidationOutcome::Reresolve(retry) => (
-                AuthorityLocalAdmissionOutcome::Retry(retry.into_subject().into_transaction()),
-                None,
-            ),
         };
-        let changed = committed.is_some();
         drop(committed);
-        if changed {
-            self.signals.publish_mutation();
-        }
+        self.signals.publish_mutation();
         Ok(outcome)
     }
 
@@ -2204,27 +2196,24 @@ impl AuthorityRuntime {
         let (outcome, committed) = {
             let mut store = self.store.write();
             match store.authority.plan_retained_admission(ingress)? {
+                RetainedAdmissionDisposition::ProposalUnchanged => {
+                    return Ok(RetainedIngressCommit::ProposalUnchanged);
+                }
                 RetainedAdmissionDisposition::Retained(plan) => {
-                    (RetainedIngressCommit::Retained, Some(plan.apply()))
+                    (RetainedIngressCommit::Retained, plan.apply())
                 }
                 RetainedAdmissionDisposition::AcceptedDuplicate(plan) => {
-                    (RetainedIngressCommit::AcceptedDuplicate, Some(plan.apply()))
+                    (RetainedIngressCommit::AcceptedDuplicate, plan.apply())
                 }
                 RetainedAdmissionDisposition::RemoteReleased(plan) => {
-                    (RetainedIngressCommit::RemoteReleased, Some(plan.apply()))
-                }
-                RetainedAdmissionDisposition::ProposalUnchanged => {
-                    (RetainedIngressCommit::ProposalUnchanged, None)
+                    (RetainedIngressCommit::RemoteReleased, plan.apply())
                 }
             }
         };
-        let changed = committed.is_some();
         // Effect and transaction retirement carriers are destroyed only after
         // the single authority guard is open.
         drop(committed);
-        if changed {
-            self.signals.publish_mutation();
-        }
+        self.signals.publish_mutation();
         Ok(outcome)
     }
 
@@ -2306,29 +2295,9 @@ impl AuthorityRuntime {
                 }
             }
         };
-        Self::finish_checkout(
-            result,
-            checkout_retirement,
-            settlement_retirement,
-            &self.signals,
-        )
-    }
-
-    fn finish_checkout(
-        result: Result<
-            ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
-            AuthorityComputeError,
-        >,
-        checkout_retirement: super::plan::CommittedDelta,
-        settlement_retirement: Option<super::plan::CommittedDelta>,
-        signals: &AuthoritySignals,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
-        AuthorityComputeError,
-    > {
         drop(checkout_retirement);
         drop(settlement_retirement);
-        signals.publish_mutation();
+        self.signals.publish_mutation();
         result
     }
 
@@ -2597,7 +2566,13 @@ impl AuthorityRuntime {
                         SettlementPlan::CoupledComponent {
                             disposition,
                             reason: _,
-                        } => (1, apply_candidate_disposition(disposition)),
+                        } => {
+                            let committed = match disposition {
+                                CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+                                CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+                            };
+                            (1, committed)
+                        }
                     }
                 }
                 ReadyDisposition::Head(outcome) => {
@@ -2605,7 +2580,15 @@ impl AuthorityRuntime {
                         .authority
                         .plan_final_admission(outcome)
                         .map_err(AuthorityDriverError::from_ready_plan)?;
-                    (1, apply_final_disposition(plan))
+                    let committed = match plan {
+                        FinalAdmissionDispositionPlan::Candidate(plan) => match plan {
+                            CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+                            CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+                        },
+                        FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
+                        FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
+                    };
+                    (1, committed)
                 }
             }
         };
@@ -2689,21 +2672,6 @@ impl ReadyValidationBatch {
         Ok(ReadyDisposition::Candidates(
             SettlementBatch::from_validated_ready(head, tail),
         ))
-    }
-}
-
-fn apply_candidate_disposition(plan: CandidateDispositionPlan<'_>) -> CommittedDelta {
-    match plan {
-        CandidateDispositionPlan::Accepted(plan) => plan.apply(),
-        CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
-    }
-}
-
-fn apply_final_disposition(plan: FinalAdmissionDispositionPlan<'_>) -> CommittedDelta {
-    match plan {
-        FinalAdmissionDispositionPlan::Candidate(plan) => apply_candidate_disposition(plan),
-        FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
-        FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
     }
 }
 
