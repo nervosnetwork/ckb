@@ -968,22 +968,35 @@ impl Spec for RbfConcurrency {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        let status: Vec<_> = conflicts
+        let statuses: Vec<_> = conflicts
             .iter()
-            .map(|tx| {
-                let res = node0.rpc_client().get_transaction(tx.hash());
-                res.tx_status.status
-            })
+            .map(|tx| node0.rpc_client().get_transaction(tx.hash()).tx_status)
             .collect();
 
         // the last tx should be in Pending(with the highest fee), others should be in Rejected
-        assert_eq!(status[4], Status::Pending);
-        for s in status.iter().take(4) {
-            assert_eq!(*s, Status::Rejected);
+        assert_eq!(statuses[4].status, Status::Pending);
+        for status in statuses.iter().take(4) {
+            assert_eq!(status.status, Status::Rejected);
         }
 
-        let mut expected: Vec<ckb_types::H256> =
-            conflicts.iter().take(4).map(|x| x.hash().into()).collect();
+        // Concurrent arrival does not define how many lower-fee candidates
+        // become Accepted before the final winner. Only candidates actually
+        // displaced from Accepted carry the committed `replaced by tx` fact
+        // and enter charged replacement history; direct policy losers remain
+        // terminal recent rejects and must not recreate the old uncharged
+        // conflict-cache residency.
+        let mut expected: Vec<ckb_types::H256> = conflicts
+            .iter()
+            .zip(&statuses)
+            .take(4)
+            .filter_map(|(tx, status)| {
+                status
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("replaced by tx"))
+                    .then(|| tx.hash().into())
+            })
+            .collect();
         expected.sort_unstable();
         assert_eq!(get_tx_pool_conflicts(node0), expected);
     }

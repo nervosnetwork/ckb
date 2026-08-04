@@ -1089,8 +1089,10 @@ pub(super) struct ChainValidationWork {
     pub(super) recoveries: Vec<ChainRecoveryWork>,
     pub(super) status_subjects: Vec<ChainStatusSubject>,
     pub(super) proposal_subjects: Vec<ChainProposalSubject>,
-    pub(super) available: Vec<super::state::DependencyKey>,
-    pub(super) lost: Vec<super::state::DependencyKey>,
+    /// Chain-layer availability facts. Plan must combine these with the final
+    /// Accepted-membership projection before publishing dependency levels.
+    pub(super) chain_available: Vec<super::state::DependencyKey>,
+    pub(super) chain_lost: Vec<super::state::DependencyKey>,
     pub(super) packaging: ChainPackagingMode,
 }
 
@@ -1307,8 +1309,8 @@ impl ChainValidationWork {
             recoveries,
             statuses,
             proposal_demotions,
-            available: self.available,
-            lost: self.lost,
+            chain_available: self.chain_available,
+            chain_lost: self.chain_lost,
         })
     }
 }
@@ -1356,8 +1358,8 @@ pub(super) struct ChainTransitionReceipt {
     pub(super) recoveries: Vec<ChainRecoveryReceipt>,
     pub(super) statuses: Vec<ChainStatusChange>,
     pub(super) proposal_demotions: Vec<ChainProposalDemotion>,
-    pub(super) available: Vec<super::state::DependencyKey>,
-    pub(super) lost: Vec<super::state::DependencyKey>,
+    pub(super) chain_available: Vec<super::state::DependencyKey>,
+    pub(super) chain_lost: Vec<super::state::DependencyKey>,
 }
 
 #[derive(Clone, Debug)]

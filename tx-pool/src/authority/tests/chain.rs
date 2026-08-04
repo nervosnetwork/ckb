@@ -424,6 +424,87 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
     assert_resource_reference(&authority);
 }
 
+#[test]
+fn uak_chain_output_availability_respects_a_surviving_pool_spender() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let parent_tx = output_transaction(543);
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(544u32)
+        .input(CellInput::new(parent_output.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        544,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![parent_output.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let winner_tx = TransactionBuilder::default()
+        .version(545u32)
+        .input(CellInput::new(parent_output.clone(), 0))
+        .build();
+    let winner = verify_remote_transaction_with_payload(
+        &mut authority,
+        winner_tx.clone(),
+        545,
+        resolved_payload_with_facts(
+            &winner_tx,
+            Vec::new(),
+            vec![parent_output],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let winner_version = owner_version(&authority, &winner);
+    apply_plan(
+        authority
+            .plan_accept_for_foundation(&winner, winner_version, AcceptedStatus::Pending)
+            .expect("the funded winner retains its accepted victim"),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let attached_parent = ChainTransitionFacts::for_foundation(
+        next_view(69),
+        block_changes(vec![parent_tx], Vec::new()),
+        Vec::new(),
+        Vec::new(),
+        ChainPackagingMode::ObserveOnly,
+    )
+    .expect("the attached parent fact is canonical");
+    let attached_parent = authority
+        .chain_validation_work(attached_parent)
+        .expect("the parent attachment produces one bounded work slice")
+        .validate_for_foundation(Vec::new())
+        .expect("the parent attachment needs no proposal facts");
+    apply_plan(
+        authority
+            .plan_chain_transition(attached_parent)
+            .expect("chain and pool availability project in one Apply"),
+    );
+    drain_dependency_maintenance(&mut authority);
+
+    assert!(matches!(
+        authority.entry(&winner),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(
+        matches!(
+            authority.entry(&victim),
+            Some(OwnedTx::ReplacementHistory(_))
+        ),
+        "a chain-live output remains unavailable while the Accepted winner spends it"
+    );
+    assert_resource_reference(&authority);
+}
+
 fn large_chain_limits() -> ResourceLimits {
     ResourceLimits::new(
         ResourceVector::new(256, 16 * 1024 * 1024, 4_096, 8),

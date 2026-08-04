@@ -674,8 +674,8 @@ impl TxPoolAuthority {
             recoveries,
             status_subjects,
             proposal_subjects,
-            available,
-            lost,
+            chain_available: available,
+            chain_lost: lost,
             packaging: facts.packaging,
         })
     }
@@ -1114,8 +1114,8 @@ impl TxPoolAuthority {
                 .iter()
                 .map(|change| (change.before.as_ref(), change.after.as_ref())),
         )?;
-        let mut available = receipt.available;
-        let mut lost = receipt.lost;
+        let mut available = receipt.chain_available;
+        let mut lost = receipt.chain_lost;
         for removal in &removals {
             match removal {
                 ChainRemoval::ProposalWindowExpired { .. } => {
@@ -1133,6 +1133,19 @@ impl TxPoolAuthority {
         lost.sort_unstable();
         lost.dedup();
         available.retain(|key| lost.binary_search(key).is_err());
+        // The receipt carries immutable chain-layer facts, while the
+        // dependency frontier publishes final combined availability. A cell
+        // created on chain is still unavailable when the projected Accepted
+        // membership retains a spender (notably an RBF winner whose parent is
+        // committed later). Reading through the already-compiled membership
+        // delta keeps both decisions on the same Apply cut without a second
+        // projection, lock, or repair pass.
+        available.retain(|key| match key {
+            DependencyKey::Cell(input) => {
+                membership.spender_after(&self.membership, input).is_none()
+            }
+            DependencyKey::Header(_) => true,
+        });
         let control = self
             .dependencies
             .plan_events(available, lost, DependencyCut(sequence))?

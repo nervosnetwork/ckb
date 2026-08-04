@@ -428,6 +428,15 @@ a non-empty `ObservedDependencies` with an exact `DependencyCut`. Reverse keys
 are derived in `DependencyFrontier`. Availability and definitive loss advance
 authority levels in the same Apply that changes the producer or spender.
 
+Positive cell evidence has two layers: an attached block may make an output
+chain-live, but that output is not finally available while the post-Apply
+Accepted membership still has a spender. Chain validation therefore carries
+explicitly named chain-layer facts, and chain Plan filters them through the
+already-compiled final membership projection before publishing a dependency
+level. This same-cut composition prevents parent commitment from falsely
+waking an RBF victim while its winner still owns the spend; it requires no
+cache, second projection, repair scan or extra lock.
+
 Workers subscribe to the mutation hint before checking the authoritative
 level. The hint may be coalesced or lost because the level is the truth.
 Maintenance operates in bounded slices and re-arms only when a relevant source
@@ -773,7 +782,7 @@ cannot silently reopen or forget them.
 |---|---|---|
 | Reorg-recovered `Gap` work and detached-uncle proposal suppression | `confirmed-closed` | Reliable paired chain Apply demotes status from the new proposal window; only actually published uncle proposal IDs suppress packaging; normal-mining reorg integration evidence is registered. |
 | Ghost/double ownership, budget-exempt waiting/RaceLost, non-atomic victim removal | `superseded-by-proven-model` | One charged `OwnedTx` location and total membership/RBF Apply make the old cross-queue states unrepresentable. |
-| Definitive parent death, dep-to-in-flight producer ambiguity and lost dependency wake | `confirmed-closed` | Canonical dependency evidence, exact reverse frontier, same-Apply loss levels and bounded level-triggered maintenance. |
+| Definitive parent death, dep-to-in-flight producer ambiguity, chain/overlay availability drift and lost dependency wake | `confirmed-closed` | Canonical dependency evidence, exact reverse frontier, same-Apply final membership projection, loss levels and bounded level-triggered maintenance. |
 | Failed-RBF retry loop, missing rejection publication, public conflict-history status and partial history saturation | `confirmed-closed` | Deterministic terminal effect, private charged `ReplacementHistory`, complete-set saturation and full-validation recovery. |
 | Manual cause/effect drift, including wrong `LocalRemoval` relay release and peer-ban refetch blockage | `confirmed-closed` | Cause-complete owner removal and exhaustive committed effect compilation; ban removes only attributed not-yet-Accepted owners and releases relay-known state. |
 | Legal input/resource/external/template/cache outcomes promoted to fail-stop | `confirmed-closed` | Closed ordinary outcome enums, derived degradation and the backward fault table in section 15. The ordered chain task now exposes only cancellation or structural integrity. |

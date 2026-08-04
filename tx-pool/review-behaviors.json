@@ -78,9 +78,11 @@
       "title": "Bounded replacement history and recovery",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct ReplacementHistoryEntry", "ReplacementHistoryCharge"]},
-        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["fn plan_replacement_history_admission", "ReplacementHistoryLimit"]}
+        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["fn plan_replacement_history_admission", "ReplacementHistoryLimit"]},
+        {"path": "tx-pool/src/authority/plan/chain_transition.rs", "symbols": ["fn chain_dependency_events", "chain_available"]},
+        {"path": "tx-pool/src/authority/plan/membership.rs", "symbols": ["fn spender_after"]}
       ],
-      "required_behavior": "Only an actually Accepted RBF victim can become inert charged ReplacementHistory. It observes exact final blockers, has no scheduler/source/peer/deadline, remains private to live RPC/template/persistence, is the sole source of the legacy conflicted hash projection, and re-enters full validation on recovery. Failed candidates terminalize into per-hash reject evidence without retained ownership.",
+      "required_behavior": "Only an actually Accepted RBF victim can become inert charged ReplacementHistory. It observes exact final blockers, and chain-layer availability becomes a wake only after the same Apply's final Accepted overlay has no spender. History has no scheduler/source/peer/deadline, remains private to live RPC/template/persistence, is the sole source of the legacy conflicted hash projection, and re-enters full validation on recovery. Failed candidates terminalize into per-hash reject evidence without retained ownership.",
       "hostile_case": "A policy-rejected loser, remote candidate, same-Apply victim wake, partial blocker release, unrelated chain change or saturated history budget must not create executable ghost work, hidden residency, false wake or partial retained history.",
       "reviewer_questions": [
         "Is the constructor reachable only from successful Accepted-victim displacement?",
@@ -317,6 +319,7 @@
     {"test": "authority::tests::foundation::uak_replacement_history_wakes_only_on_newer_projected_availability", "behavior_id": "TP-CACHE-001", "invariants": ["T2", "T4", "T10"]},
     {"test": "authority::tests::foundation::uak_replacement_history_waits_for_every_observed_blocker", "behavior_id": "TP-CACHE-001", "invariants": ["T4", "T10"]},
     {"test": "authority::tests::chain::uak_replacement_history_survives_winner_commit_and_wakes_after_reorg", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T4", "T6", "T9", "T10"]},
+    {"test": "authority::tests::chain::uak_chain_output_availability_respects_a_surviving_pool_spender", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T4", "T6", "T9", "T10"]},
     {"test": "authority::tests::foundation::uak_replacement_history_requires_trusted_proposal_to_promote", "behavior_id": "TP-CACHE-001", "invariants": ["T1", "T11"]},
     {"test": "authority::tests::foundation::uak_independent_rbf_churn_never_exceeds_replacement_history_budget", "behavior_id": "TP-CACHE-001", "invariants": ["T3", "T8"]},
 
@@ -602,12 +605,13 @@
     },
     {
       "id": "rbf-proposed-success",
-      "behavior_ids": ["TP-RBF-001", "TP-TEMPLATE-001"],
+      "behavior_ids": ["TP-CACHE-001", "TP-RBF-001", "TP-TEMPLATE-001"],
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfReplaceProposedSuccess",
-      "boundary": "A successful proposed replacement updates membership and template convergence once.",
-      "invariants": ["T1", "T4", "T6", "T13"],
+      "boundary": "A successful proposed replacement updates membership and template convergence once; committing its parent cannot wake retained victims while the winner still spends that output.",
+      "invariants": ["T1", "T4", "T6", "T9", "T10", "T13"],
       "unit_anchors": [
+        "authority::tests::chain::uak_chain_output_availability_respects_a_surviving_pool_spender",
         "authority::tests::foundation::uak_rbf_replaces_the_complete_descendant_closure_atomically",
         "authority::tests::template::uak_recovered_tree_has_normal_template_proposal_path"
       ]
@@ -617,7 +621,7 @@
       "behavior_ids": ["TP-CACHE-001", "TP-RBF-001"],
       "path": "test/src/specs/tx_pool/replace.rs",
       "anchor": "RbfConcurrency",
-      "boundary": "Concurrent replacements preserve one winner and deterministic loser/history disposition.",
+      "boundary": "Concurrent replacements preserve one highest-fee winner; direct policy losers terminalize, while only contenders actually displaced from Accepted enter charged replacement history.",
       "invariants": ["T1", "T2", "T6", "T10"],
       "unit_anchors": [
         "authority::tests::foundation::uak_replacement_history_wakes_only_on_newer_projected_availability",

@@ -80,7 +80,7 @@ The Rust evidence slice is complete at the post-phase-4 working tree:
   passed, with 2 configured skips.
 - `cargo nextest run -p ckb-sync -j 1 --no-fail-fast`: 84/84 passed.
 - `cargo nextest run -p ckb-tx-pool --features internal --lib
-  --no-fail-fast`: 407/407 passed.
+  --no-fail-fast`: 408/408 passed.
 - strict internal-feature Clippy, default-feature `cargo check`, complete review
   contracts, formatting and diff checks passed.
 
@@ -106,10 +106,38 @@ Accepted victims retained as charged `ReplacementHistory` appear there;
 per-hash recent-reject remains the failed-candidate surface. The exact failing
 spec passed, followed by the complete affected eight-spec RBF/relay group.
 
+The next full-universe attempt exposed a product defect at
+`RbfReplaceProposedSuccess`: committing the parent of an Accepted RBF winner
+published the parent's output as available at the chain layer even though the
+winner still owned its pool spend. That false positive advanced the retained
+victim's dependency level, woke Recovery and terminalized the victim under the
+winner's still-live input. The root was layer ambiguity, not replacement
+history or maintenance ordering. Chain receipts now name their values as raw
+chain-layer facts, and chain Plan composes positive cell facts with the
+already-compiled post-Apply membership spender projection before dependency
+publication. No state, lock, cache, retry or repair scan was added. A
+red-before-green model test fixes the exact parent-commit/winner-spend case;
+the original integration and the five-spec successful/rejected/concurrent/
+recovery RBF group pass.
+
+That semantic group also exposed an obsolete `RbfConcurrency` assertion. The
+old test required every concurrent policy loser to enter `conflicted`, which
+was the retired uncharged conflict-cache behavior and is scheduling-dependent:
+only a contender that actually became Accepted and was then displaced owns a
+committed `replaced by tx` outcome. The test now derives the exact charged
+history set from those committed outcomes while retaining the highest-fee
+winner and terminal-status assertions. Direct losers remain recent rejects.
+
+Current pre-universe gates pass: 408/408 isolated tx-pool nextest, strict
+internal-feature Clippy, complete review/static contracts, formatting and diff
+checks. The registry now maps 93 exact tx-pool tests / 247 invariant references,
+9 cross-crate tests / 21 references and 18 security integration anchors across
+the same 150 managed specs.
+
 Next exact actions:
 
-1. Freeze the RBF compatibility adjudication without staging the user-owned
-   root `.gitignore`.
+1. Freeze the combined RBF availability/adjudication checkpoint without
+   staging the user-owned root `.gitignore`.
 2. Re-run the exact generated 150-spec managed universe from the beginning,
    serially through `make integration`; do not substitute a directory, the
    previous runner remainder, or a name subset.

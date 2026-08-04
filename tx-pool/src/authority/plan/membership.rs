@@ -469,6 +469,27 @@ pub(super) struct ProjectionDelta {
 }
 
 impl ProjectionDelta {
+    /// Read the post-Apply spender from this change log and the authoritative
+    /// pre-Apply projection. Chain dependency publication uses this instead
+    /// of treating a chain-live cell as globally available while a surviving
+    /// Accepted transaction still owns its pool spend.
+    pub(super) fn spender_after<'projection>(
+        &'projection self,
+        before: &'projection MembershipProjection,
+        input: &OutPoint,
+    ) -> Option<&'projection RawTxHash> {
+        match self
+            .spender_changes
+            .binary_search_by(|(candidate, _)| candidate.cmp(input))
+        {
+            Ok(index) => self
+                .spender_changes
+                .get(index)
+                .and_then(|(_, spender)| spender.as_ref()),
+            Err(_) => before.spender(input),
+        }
+    }
+
     /// Read one projected post-Apply aggregate without materializing a second
     /// membership view. Change logs are canonical by raw hash, so effect
     /// compilation remains logarithmic in the bounded mutation component.
