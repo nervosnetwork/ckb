@@ -164,20 +164,17 @@ impl AuthoritySourceVersions {
 
 fn relay_parent_projection(
     owner: Option<&OwnedTx>,
-) -> Option<(RemoteResidencyLease, Option<&ObservedDependencies>)> {
+) -> Option<(RemoteResidencyLease, &ObservedDependencies)> {
     let OwnedTx::PreAccepted(entry) = owner? else {
         return None;
     };
     let PreAcceptedSource::Remote(remote) = entry.source else {
         return None;
     };
-    let waiting = match &entry.phase {
-        PreAcceptedPhase::Waiting(observed) => Some(observed),
-        PreAcceptedPhase::Queued(_)
-        | PreAcceptedPhase::Computing(_)
-        | PreAcceptedPhase::Ready(_) => None,
+    let PreAcceptedPhase::Waiting(observed) = &entry.phase else {
+        return None;
     };
-    Some((remote.residency, waiting))
+    Some((remote.residency, observed))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

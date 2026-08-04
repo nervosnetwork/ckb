@@ -74,7 +74,7 @@ async fn service_assembly_with_config(
     AuthorityRelayDrain,
 ) {
     let snapshot = genesis_snapshot();
-    let (relay_sink, relay) = AuthorityService::prepare_relay(&config, &snapshot)
+    let (bootstrap, relay) = AuthorityService::prepare(config, Arc::clone(&snapshot))
         .expect("the production relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
     let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
@@ -83,13 +83,11 @@ async fn service_assembly_with_config(
     let assembly = AuthorityService::assemble(
         &handle,
         AuthorityServiceInputs {
-            config,
-            snapshot: Arc::clone(&snapshot),
+            bootstrap,
             block_assembler: None,
             verification_cache: Arc::new(RwLock::new(init_cache())),
             callbacks: Callbacks::new(),
             network: Arc::new(DummyTxPoolNetwork),
-            relay_sink,
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),
@@ -201,7 +199,7 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     config.persisted_data = directory.path().join("tx_pool");
     let read_config = config.clone();
     let snapshot = genesis_snapshot();
-    let (relay_sink, _relay) = AuthorityService::prepare_relay(&config, &snapshot)
+    let (bootstrap, _relay) = AuthorityService::prepare(config, snapshot)
         .expect("the relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
     let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
@@ -209,13 +207,11 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     let assembly = AuthorityService::assemble(
         &handle,
         AuthorityServiceInputs {
-            config,
-            snapshot,
+            bootstrap,
             block_assembler: None,
             verification_cache: Arc::new(RwLock::new(init_cache())),
             callbacks: Callbacks::new(),
             network: Arc::new(DummyTxPoolNetwork),
-            relay_sink,
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),

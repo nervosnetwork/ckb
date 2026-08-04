@@ -5,7 +5,8 @@
 //! a slow or absent relayer cannot retain an effect lease, compute capability,
 //! authority guard, or shutdown edge.
 
-use crate::service::TxVerificationResult;
+use super::effect::ParentTransactionRequest;
+use crate::{service::TxVerificationResult, util::compact_packed};
 use ckb_types::packed::Byte32;
 use ckb_util::Mutex;
 use std::{
@@ -33,6 +34,11 @@ pub(super) enum RelayMailboxDisposition {
     Reconciled,
     Unavailable,
     Disconnected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RelayParentProjectionError {
+    Allocation,
 }
 
 struct RelayEnvelope {
@@ -230,6 +236,28 @@ impl AuthorityRelayReceiver {
         let state = self.inner.state.lock();
         (state.queue.len(), state.bytes)
     }
+}
+
+/// Compile one authority-owned parent request into the sync projection without
+/// an infallible collection allocation. The caller can publish a reset or
+/// retain the request for retry if memory pressure prevents materialization.
+pub(super) fn project_parent_request(
+    request: &ParentTransactionRequest,
+) -> Result<TxVerificationResult, RelayParentProjectionError> {
+    let mut parents = HashSet::new();
+    parents
+        .try_reserve(request.parents().len())
+        .map_err(|_| RelayParentProjectionError::Allocation)?;
+    parents.extend(
+        request
+            .parents()
+            .iter()
+            .map(|parent| compact_packed(&parent.0)),
+    );
+    Ok(TxVerificationResult::UnknownParents {
+        peer: request.peer(),
+        parents,
+    })
 }
 
 impl Drop for AuthorityRelayReceiver {

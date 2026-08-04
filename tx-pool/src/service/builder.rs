@@ -3,7 +3,8 @@
 use crate::{
     authority::service::{
         AuthorityGeneration, AuthorityGenerationEvent, AuthorityPersistenceError, AuthorityService,
-        AuthorityServiceInputs, AuthorityServiceStartError, AuthorityShutdownOutcome,
+        AuthorityServiceBootstrap, AuthorityServiceInputs, AuthorityServiceStartError,
+        AuthorityShutdownOutcome,
     },
     block_assembler::BlockAssembler,
     callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback},
@@ -45,8 +46,7 @@ fn service_cancellation_token(process_exit: &CancellationToken) -> CancellationT
 
 /// Builder for one unified-authority tx-pool generation.
 pub struct TxPoolServiceBuilder {
-    pub(crate) tx_pool_config: TxPoolConfig,
-    pub(crate) snapshot: Arc<Snapshot>,
+    bootstrap: AuthorityServiceBootstrap,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) callbacks: Callbacks,
@@ -54,7 +54,6 @@ pub struct TxPoolServiceBuilder {
     pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
     pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
-    relay_sink: crate::authority::service::AuthorityRelaySink,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) fee_estimator: FeeEstimator,
@@ -103,17 +102,16 @@ impl TxPoolServiceBuilder {
                 .ok()
         });
         let recent_reject = Self::build_recent_reject(&tx_pool_config).map(Arc::new);
-        let (relay_sink, relay_receiver) =
-            AuthorityService::prepare_relay(&tx_pool_config, &snapshot).map_err(|error| {
+        let (bootstrap, relay_receiver) = AuthorityService::prepare(tx_pool_config, snapshot)
+            .map_err(|error| {
                 OtherError::new(format!(
-                    "invalid unified tx-pool relay configuration: {error:?}"
+                    "invalid unified tx-pool authority configuration: {error:?}"
                 ))
             })?;
 
         Ok((
             Self {
-                tx_pool_config,
-                snapshot,
+                bootstrap,
                 block_assembler,
                 txs_verify_cache,
                 callbacks: Callbacks::new(),
@@ -121,7 +119,6 @@ impl TxPoolServiceBuilder {
                 reorg_receiver,
                 signal_receiver,
                 handle: handle.clone(),
-                relay_sink,
                 chunk_rx,
                 started,
                 fee_estimator,
@@ -192,14 +189,14 @@ impl TxPoolServiceBuilder {
     }
 
     async fn run(self, network: TxPoolNetworkHandle) {
-        if self.tx_pool_config.max_tx_pool_resident_size < self.tx_pool_config.max_tx_pool_size {
+        let config = self.bootstrap.config();
+        if config.max_tx_pool_resident_size < config.max_tx_pool_size {
             warn!(
                 "max_tx_pool_resident_size ({}) < max_tx_pool_size ({}): clamping the accepted-pool residency budget up to max_tx_pool_size",
-                self.tx_pool_config.max_tx_pool_resident_size, self.tx_pool_config.max_tx_pool_size
+                config.max_tx_pool_resident_size, config.max_tx_pool_size
             );
         }
-        let handler_limit = match self
-            .tx_pool_config
+        let handler_limit = match config
             .max_tx_verify_workers
             .max(1)
             .checked_mul(MESSAGE_CONCURRENCY_MULTIPLIER)
@@ -212,8 +209,7 @@ impl TxPoolServiceBuilder {
         };
 
         let Self {
-            tx_pool_config,
-            snapshot,
+            bootstrap,
             block_assembler,
             txs_verify_cache,
             callbacks,
@@ -221,14 +217,13 @@ impl TxPoolServiceBuilder {
             reorg_receiver,
             signal_receiver,
             handle,
-            relay_sink,
             chunk_rx,
             started,
             fee_estimator,
             recent_reject,
         } = self;
 
-        let persisted_config = tx_pool_config.clone();
+        let persisted_config = bootstrap.config().clone();
         let persisted = match tokio::task::spawn_blocking(move || {
             crate::persisted::load_persistence_snapshot(&persisted_config)
         })
@@ -248,13 +243,11 @@ impl TxPoolServiceBuilder {
         let assembly = AuthorityService::assemble(
             &handle,
             AuthorityServiceInputs {
-                config: tx_pool_config,
-                snapshot,
+                bootstrap,
                 block_assembler,
                 verification_cache: txs_verify_cache,
                 callbacks,
                 network,
-                relay_sink,
                 persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
                 recent_reject,
                 fee_estimator,

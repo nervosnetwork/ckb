@@ -466,13 +466,22 @@ fn runtime_authority_config_error(error: AuthorityConfigError) -> RuntimeConfigE
 ///
 /// `snapshot` is chain evidence, not a second transaction owner.  It is kept
 /// beside the kernel so a caller cannot publish a new snapshot under an old
-/// `ChainViewId`, or vice versa.  The compact-block cache and startup marker
-/// are non-authoritative chain-administration metadata.
+/// `ChainViewId`, or vice versa. The compact-block cache is non-authoritative
+/// chain-administration metadata.
 pub(crate) struct AuthorityStore {
     authority: TxPoolAuthority,
     snapshot: Arc<Snapshot>,
     committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
-    onchain_reconcile_done: bool,
+}
+
+/// Read-only capability for rebuilding the relayer's missing-parent level.
+///
+/// The relayer receives this projection reader rather than an
+/// [`AuthorityRuntime`], so it cannot acquire admission, administration, or
+/// settlement authority. The store remains the sole owner and every page is
+/// bound to an exact source cut.
+pub(in crate::authority) struct AuthorityRelayParentReader {
+    store: Arc<RwLock<AuthorityStore>>,
 }
 
 /// Lossy wake hints around the one authoritative scheduler. A hint carries no
@@ -1228,16 +1237,17 @@ enum ReadyDisposition {
 }
 
 impl AuthorityRuntime {
-    /// Compile the exact missing-parent frontier bound without constructing a
-    /// second authority store. Service construction uses this before startup
-    /// to create the sole relay receiver that must already be transferable to
-    /// sync while the runtime itself remains unstarted.
-    pub(in crate::authority) fn relay_parent_limit_from_config(
+    /// Construct the runtime and relay frontier bound from one validated
+    /// configuration. Returning both prevents service assembly from compiling
+    /// the policy twice or pairing a relay drain with another runtime.
+    pub(in crate::authority) fn new_with_relay_parent_limit(
         config: &TxPoolConfig,
         consensus: &Consensus,
-    ) -> Result<usize, RuntimeConfigError> {
-        AuthorityRuntimeConfig::from_runtime(config, consensus)
-            .map(|runtime| runtime.resolution_policy.direct_max_edges)
+        snapshot: Arc<Snapshot>,
+    ) -> Result<(Self, usize), RuntimeConfigError> {
+        let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
+        let relay_parent_limit = runtime.resolution_policy.direct_max_edges;
+        Self::from_config(runtime, snapshot).map(|runtime| (runtime, relay_parent_limit))
     }
 
     pub(crate) fn new(
@@ -1438,39 +1448,10 @@ impl AuthorityRuntime {
         self.store.read().authority.template_source_versions()
     }
 
-    /// Capture one bounded page of the authoritative Remote missing-parent
-    /// level for relayer reconciliation. Buffer reservation occurs before the
-    /// authority guard; request compilation occurs after it. A caller must
-    /// retain the returned cursor until the page stream ends and then validate
-    /// the returned cut before declaring the derived relay view converged.
-    pub(in crate::authority) fn relay_parent_rebuild_page(
-        &self,
-        cursor: Option<RelayParentRebuildCursor>,
-        scan_limit: NonZeroUsize,
-    ) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
-        let scratch = RelayParentRebuildScratch::try_new(scan_limit)?;
-        let prepared = {
-            let store = self.store.read();
-            store
-                .authority
-                .read_view()
-                .capture_relay_parent_rebuild(cursor, scan_limit, scratch)?
-        };
-        prepared.finish()
-    }
-
-    /// Validate the completed rebuild against the current relay-parent source.
-    /// False is ordinary OCC staleness: the relayer restarts from the first
-    /// page and never asks the authority to retain a derived cursor.
-    pub(in crate::authority) fn relay_parent_rebuild_cut_is_current(
-        &self,
-        cut: &RelayParentRebuildCut,
-    ) -> bool {
-        self.store
-            .read()
-            .authority
-            .read_view()
-            .relay_parent_rebuild_cut_is_current(cut)
+    pub(in crate::authority) fn relay_parent_reader(&self) -> AuthorityRelayParentReader {
+        AuthorityRelayParentReader {
+            store: Arc::clone(&self.store),
+        }
     }
 
     /// Remove one explicit owner through the total administrative compiler.
@@ -1535,7 +1516,6 @@ impl AuthorityRuntime {
             let retired_snapshot = std::mem::replace(&mut store.snapshot, new_snapshot);
             let retired_hash_cache =
                 std::mem::replace(&mut store.committed_txs_hash_cache, fresh_hash_cache);
-            store.onchain_reconcile_done = false;
             (committed, retired_snapshot, retired_hash_cache)
         };
         drop(committed);
@@ -2425,13 +2405,6 @@ impl AuthorityRuntime {
         self.verify_workers.get()
     }
 
-    /// Maximum missing-parent frontier retained by one resolution capability.
-    /// The service assembly uses the same compiled bound for the derived relay
-    /// mailbox, so it cannot size that projection from a nearby configuration.
-    pub(in crate::authority) const fn relay_parent_limit(&self) -> usize {
-        self.resolution_policy.direct_max_edges
-    }
-
     #[cfg(test)]
     pub(in crate::authority) fn admit(
         &self,
@@ -2999,6 +2972,37 @@ pub(in crate::authority) enum FinalAdmissionCaptureError {
     Allocation,
 }
 
+impl AuthorityRelayParentReader {
+    /// Capture one bounded page of the authoritative Remote missing-parent
+    /// level. Scratch reservation happens before the authority guard and
+    /// request compilation happens after it.
+    pub(in crate::authority) fn page(
+        &self,
+        cursor: Option<RelayParentRebuildCursor>,
+        scan_limit: NonZeroUsize,
+    ) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
+        let scratch = RelayParentRebuildScratch::try_new(scan_limit)?;
+        let prepared = {
+            let store = self.store.read();
+            store
+                .authority
+                .read_view()
+                .capture_relay_parent_rebuild(cursor, scan_limit, scratch)?
+        };
+        prepared.finish()
+    }
+
+    /// False is ordinary OCC staleness. The derived relayer projection must
+    /// restart from the first page and retains no authority-side cursor.
+    pub(in crate::authority) fn cut_is_current(&self, cut: &RelayParentRebuildCut) -> bool {
+        self.store
+            .read()
+            .authority
+            .read_view()
+            .relay_parent_rebuild_cut_is_current(cut)
+    }
+}
+
 impl AuthorityStore {
     fn from_runtime(
         runtime: AuthorityRuntimeConfig,
@@ -3017,7 +3021,6 @@ impl AuthorityStore {
             authority,
             snapshot,
             committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
-            onchain_reconcile_done: false,
         })
     }
 
@@ -3089,14 +3092,6 @@ impl AuthorityStore {
 
     pub(crate) fn committed_txs_hash_cache(&mut self) -> &mut LruCache<ProposalShortId, Byte32> {
         &mut self.committed_txs_hash_cache
-    }
-
-    pub(crate) fn onchain_reconcile_done(&self) -> bool {
-        self.onchain_reconcile_done
-    }
-
-    pub(crate) fn mark_onchain_reconciled(&mut self) {
-        self.onchain_reconcile_done = true;
     }
 }
 

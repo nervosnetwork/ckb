@@ -13,7 +13,10 @@ use super::{
         CommittedRejection, EffectEndpoint, EffectLease, EffectProgressError, RejectionAudience,
     },
     plan::{EffectCheckoutError, EffectSettlementFailure},
-    relay::{AuthorityRelaySink, RelayMailboxDisposition},
+    relay::{
+        AuthorityRelaySink, RelayMailboxDisposition, RelayParentProjectionError,
+        project_parent_request,
+    },
     runtime::{AuthorityEffectPublisherClaim, AuthorityRuntime},
     state::{AcceptedStatus, RawTxHash},
 };
@@ -28,7 +31,6 @@ use crate::{
 use ckb_logger::{error, info};
 use ckb_types::packed::Byte32;
 use std::{
-    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -407,20 +409,22 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
             ..Default::default()
         },
         CommittedEffect::ParentTransactionsRequested(request) => {
-            let parents = request
-                .parents()
-                .iter()
-                .map(compact_hash)
-                .collect::<HashSet<_>>();
+            let relay = match project_parent_request(&request) {
+                Ok(result) => result,
+                Err(RelayParentProjectionError::Allocation) => {
+                    error!(
+                        "tx-pool could not materialize a committed parent request; scheduling authoritative relay reconciliation"
+                    );
+                    TxVerificationResult::GenerationReset
+                }
+            };
             CompiledEndpointOutcome {
                 // UnknownParents is the only variable-size relay result whose
                 // detail is required for dependency recovery. The bounded
-                // mailbox reports an explicit unavailable disposition if the
-                // complete frontier cannot coexist with reconciliation.
-                relay: Some(RelayAction::new(TxVerificationResult::UnknownParents {
-                    peer: request.peer(),
-                    parents,
-                })),
+                // mailbox or a fallible projection allocation reconciles from
+                // the authoritative waiting level instead of losing the only
+                // external recovery action.
+                relay: Some(RelayAction::new(relay)),
                 ..Default::default()
             }
         }

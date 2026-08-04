@@ -8,6 +8,7 @@
 pub(crate) use super::relay::AuthorityRelaySink;
 use super::{
     chain_boundary::{ChainBoundaryError, ChainPackaging, ChainUpdateRequest},
+    effect::ParentTransactionRequest,
     ingress::{
         RemoteIngressPressure, RetainedIngressBackpressure, RetainedIngressBoundaryError,
         RetainedIngressCommit,
@@ -18,14 +19,18 @@ use super::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
         CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
     },
-    relay::{AuthorityRelayReceiver, RelayMailboxConfigError, production_authority_relay_mailbox},
+    read::{RelayParentRebuildCursor, RelayParentRebuildError},
+    relay::{
+        AuthorityRelayReceiver, RelayMailboxConfigError, RelayParentProjectionError,
+        production_authority_relay_mailbox, project_parent_request,
+    },
     resolver::{DirectComputationError, VerificationCacheUpdate},
     runtime::{
         AuthorityAdministrationError, AuthorityDirectAdmissionError,
         AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
         AuthorityDirectResolutionOutcome, AuthorityDirectVerificationOutcome,
-        AuthorityLocalAdmissionOutcome, AuthorityRuntime, AuthorityTestAcceptOutcome,
-        DirectAdmissionRejectionKind, RuntimeConfigError,
+        AuthorityLocalAdmissionOutcome, AuthorityRelayParentReader, AuthorityRuntime,
+        AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind, RuntimeConfigError,
     },
     template::TemplateReadError,
     template_driver::AuthorityBlockAssembler,
@@ -63,9 +68,11 @@ use ckb_types::{
     core::{EstimateMode, FeeRate, TransactionView, UncleBlockView, tx_pool::EntryCompleted},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_util::Mutex;
 use ckb_verification::cache::TxVerificationCache;
 use std::{
     collections::HashMap,
+    num::NonZeroUsize,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -189,19 +196,32 @@ pub(crate) enum AuthorityIngressPressure {
 /// Immutable construction inputs. This value exists only until the runtime,
 /// derived endpoints and task topology have all been constructed.
 pub(crate) struct AuthorityServiceInputs {
-    pub(crate) config: TxPoolConfig,
-    pub(crate) snapshot: Arc<Snapshot>,
+    pub(crate) bootstrap: AuthorityServiceBootstrap,
     pub(crate) block_assembler: Option<BlockAssembler>,
     pub(crate) verification_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) callbacks: Callbacks,
     pub(crate) network: TxPoolNetworkHandle,
-    pub(crate) relay_sink: AuthorityRelaySink,
     pub(crate) persistence_writer: Arc<crate::persisted::PersistenceWriter>,
     pub(crate) recent_reject: Option<Arc<crate::component::recent_reject::RecentReject>>,
     pub(crate) fee_estimator: FeeEstimator,
     pub(crate) reorg_receiver: mpsc::Receiver<crate::service::Notify<ChainReorgArgs>>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) cancel: CancellationToken,
+}
+
+/// One pre-start authority generation paired with its sole relay publisher.
+/// Construction consumes the exact configuration and snapshot, so service
+/// assembly cannot accidentally bind a drain to a different authority store.
+pub(crate) struct AuthorityServiceBootstrap {
+    config: TxPoolConfig,
+    runtime: AuthorityRuntime,
+    relay_sink: AuthorityRelaySink,
+}
+
+impl AuthorityServiceBootstrap {
+    pub(crate) fn config(&self) -> &TxPoolConfig {
+        &self.config
+    }
 }
 
 /// Cloneable dispatcher-side adapter. The cancellation token is a generation
@@ -227,12 +247,126 @@ pub(crate) struct AuthorityServiceAssembly {
     pub(crate) generation: AuthorityGeneration,
 }
 
-/// Sole receiver of the bounded derived relay projection.
-pub(crate) struct AuthorityRelayDrain(AuthorityRelayReceiver);
+const RELAY_REBUILD_EMPTY_PAGE_BUDGET: usize = 4;
+/// Bound one authority read section during rare relay reconciliation while
+/// still allowing one sync drain attempt to skip several pages with no
+/// missing waiters.
+const RELAY_REBUILD_SCAN_ITEMS: usize = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthorityRelayRebuildFailure {
+    Page(RelayParentRebuildError),
+    Projection(RelayParentProjectionError),
+}
+
+struct AuthorityRelayRebuildState {
+    active: bool,
+    cursor: Option<RelayParentRebuildCursor>,
+    pending: Vec<ParentTransactionRequest>,
+    reported_failure: Option<AuthorityRelayRebuildFailure>,
+}
+
+impl AuthorityRelayRebuildState {
+    fn new() -> Self {
+        Self {
+            active: false,
+            cursor: None,
+            pending: Vec::new(),
+            reported_failure: None,
+        }
+    }
+
+    fn restart(&mut self) {
+        self.active = true;
+        self.cursor = None;
+        self.pending.clear();
+        self.reported_failure = None;
+    }
+
+    fn report_once(&mut self, failure: AuthorityRelayRebuildFailure) {
+        if self.reported_failure != Some(failure) {
+            ckb_logger::error!(
+                "tx-pool relay parent reconciliation is temporarily degraded: {failure:?}"
+            );
+            self.reported_failure = Some(failure);
+        }
+    }
+}
+
+/// Sole receiver of the bounded derived relay projection. A reset starts a
+/// bounded, read-only rebuild of every still-live Remote missing-parent level;
+/// no forwarding task, retry authority, or unbounded queue is introduced.
+pub(crate) struct AuthorityRelayDrain {
+    receiver: AuthorityRelayReceiver,
+    parents: AuthorityRelayParentReader,
+    scan_limit: NonZeroUsize,
+    rebuild: Mutex<AuthorityRelayRebuildState>,
+}
 
 impl AuthorityRelayDrain {
+    pub(in crate::authority) fn new(
+        receiver: AuthorityRelayReceiver,
+        parents: AuthorityRelayParentReader,
+        scan_limit: NonZeroUsize,
+    ) -> Self {
+        Self {
+            receiver,
+            parents,
+            scan_limit,
+            rebuild: Mutex::new(AuthorityRelayRebuildState::new()),
+        }
+    }
+
     pub(crate) fn try_recv(&self) -> Option<TxVerificationResult> {
-        self.0.try_recv()
+        if let Some(result) = self.receiver.try_recv() {
+            if matches!(result, TxVerificationResult::GenerationReset) {
+                self.rebuild.lock().restart();
+            }
+            return Some(result);
+        }
+
+        let mut rebuild = self.rebuild.lock();
+        for _ in 0..RELAY_REBUILD_EMPTY_PAGE_BUDGET {
+            if let Some(request) = rebuild.pending.pop() {
+                match project_parent_request(&request) {
+                    Ok(result) => {
+                        rebuild.reported_failure = None;
+                        return Some(result);
+                    }
+                    Err(error) => {
+                        rebuild.pending.push(request);
+                        rebuild.report_once(AuthorityRelayRebuildFailure::Projection(error));
+                        return None;
+                    }
+                }
+            }
+            if !rebuild.active {
+                return None;
+            }
+
+            let cursor = rebuild.cursor.clone();
+            match self.parents.page(cursor.clone(), self.scan_limit) {
+                Ok(page) => {
+                    let (cut, mut requests, next) = page.into_parts();
+                    rebuild.reported_failure = None;
+                    requests.reverse();
+                    rebuild.pending = requests;
+                    if next.is_none() && !self.parents.cut_is_current(&cut) {
+                        rebuild.restart();
+                        continue;
+                    }
+                    rebuild.active = next.is_some();
+                    rebuild.cursor = next;
+                }
+                Err(RelayParentRebuildError::StaleCut) => rebuild.restart(),
+                Err(error) => {
+                    rebuild.cursor = cursor;
+                    rebuild.report_once(AuthorityRelayRebuildFailure::Page(error));
+                    return None;
+                }
+            }
+        }
+        None
     }
 }
 
@@ -495,21 +629,34 @@ impl AuthorityService {
         &self.config
     }
 
-    /// Construct the sole derived relay handoff before service startup. The
-    /// receiver can therefore move into sync without a forwarding task, while
-    /// the sink remains an unforgeable input to exactly one authority
-    /// generation assembly.
-    pub(crate) fn prepare_relay(
-        config: &TxPoolConfig,
-        snapshot: &Snapshot,
-    ) -> Result<(AuthorityRelaySink, AuthorityRelayDrain), AuthorityServiceStartError> {
-        let max_parents =
-            AuthorityRuntime::relay_parent_limit_from_config(config, snapshot.consensus())
-                .map_err(map_runtime_start_error)?;
+    /// Construct the authority, relay publisher and read-only reconciliation
+    /// drain from one configuration/snapshot pair before any task starts.
+    pub(crate) fn prepare(
+        config: TxPoolConfig,
+        snapshot: Arc<Snapshot>,
+    ) -> Result<(AuthorityServiceBootstrap, AuthorityRelayDrain), AuthorityServiceStartError> {
+        let consensus = snapshot.consensus();
+        let (runtime, max_parents) = AuthorityRuntime::new_with_relay_parent_limit(
+            &config,
+            consensus,
+            Arc::clone(&snapshot),
+        )
+        .map_err(map_runtime_start_error)?;
         let (sink, receiver) =
             production_authority_relay_mailbox(DEFAULT_CHANNEL_SIZE, max_parents)
                 .map_err(map_relay_start_error)?;
-        Ok((sink, AuthorityRelayDrain(receiver)))
+        let Some(scan_limit) = NonZeroUsize::new(RELAY_REBUILD_SCAN_ITEMS) else {
+            return Err(AuthorityServiceStartError::RelayConfiguration);
+        };
+        let drain = AuthorityRelayDrain::new(receiver, runtime.relay_parent_reader(), scan_limit);
+        Ok((
+            AuthorityServiceBootstrap {
+                config,
+                runtime,
+                relay_sink: sink,
+            },
+            drain,
+        ))
     }
 
     /// Construct every capability before any worker starts. The topology
@@ -519,13 +666,11 @@ impl AuthorityService {
         inputs: AuthorityServiceInputs,
     ) -> Result<AuthorityServiceAssembly, AuthorityServiceStartError> {
         let AuthorityServiceInputs {
-            config,
-            snapshot,
+            bootstrap,
             block_assembler,
             verification_cache,
             callbacks,
             network,
-            relay_sink,
             persistence_writer,
             recent_reject,
             fee_estimator,
@@ -533,10 +678,12 @@ impl AuthorityService {
             chunk_rx,
             cancel: parent_cancel,
         } = inputs;
-        let consensus = snapshot.consensus();
+        let AuthorityServiceBootstrap {
+            config,
+            runtime,
+            relay_sink,
+        } = bootstrap;
         let persistence_base = config.persisted_data.clone();
-        let runtime = AuthorityRuntime::new(&config, consensus, Arc::clone(&snapshot))
-            .map_err(map_runtime_start_error)?;
         let block_assembler = match block_assembler {
             Some(assembler) => Some(
                 AuthorityBlockAssembler::new(runtime.clone(), assembler)
