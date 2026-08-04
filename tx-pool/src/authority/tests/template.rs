@@ -155,11 +155,11 @@ fn set_status(authority: &mut TxPoolAuthority, hash: &RawTxHash, status: Accepte
 #[test]
 fn uak_apply_advances_exact_template_source_versions() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let initial_occ = authority.source_versions_for_reference();
+    let initial_accepted = authority.accepted_source_for_reference();
     let initial = authority.template_source_versions_for_reference();
 
     let _queued = admit_remote(&mut authority, 1_801, 1);
-    assert_eq!(authority.source_versions_for_reference(), initial_occ);
+    assert_eq!(authority.accepted_source_for_reference(), initial_accepted);
     assert_eq!(
         authority.template_source_versions_for_reference(),
         initial,
@@ -173,36 +173,33 @@ fn uak_apply_advances_exact_template_source_versions() {
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    let pending_occ = authority.source_versions_for_reference();
+    let pending_accepted = authority.accepted_source_for_reference();
     let pending = authority.template_source_versions_for_reference();
-    assert!(pending_occ.0 > initial_occ.0);
-    assert_eq!(pending_occ.0, pending_occ.1);
-    assert_eq!(pending_occ.0, pending.proposals);
-    assert_eq!(pending_occ.0, pending.transactions);
+    assert!(pending_accepted > initial_accepted);
+    assert_eq!(pending_accepted, pending.proposals);
+    assert_eq!(pending_accepted, pending.transactions);
     assert_eq!(pending.chain, initial.chain);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Gap);
-    let gap_occ = authority.source_versions_for_reference();
+    let gap_accepted = authority.accepted_source_for_reference();
     let gap = authority.template_source_versions_for_reference();
-    assert_eq!(gap_occ.0, pending_occ.0);
-    assert!(gap_occ.1 > pending_occ.1);
-    assert_eq!(gap.proposals, gap_occ.1);
+    assert_eq!(gap_accepted, pending_accepted);
+    assert!(gap.proposals > pending.proposals);
     assert_eq!(gap.transactions, pending.transactions);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Proposed);
-    let proposed_occ = authority.source_versions_for_reference();
+    let proposed_accepted = authority.accepted_source_for_reference();
     let proposed = authority.template_source_versions_for_reference();
-    assert_eq!(proposed_occ.0, pending_occ.0);
-    assert!(proposed_occ.1 > gap_occ.1);
+    assert_eq!(proposed_accepted, pending_accepted);
     assert_eq!(proposed.proposals, gap.proposals);
-    assert_eq!(proposed.transactions, proposed_occ.1);
+    assert!(proposed.transactions > gap.transactions);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Pending);
-    let pending_again_occ = authority.source_versions_for_reference();
+    let pending_again_accepted = authority.accepted_source_for_reference();
     let pending_again = authority.template_source_versions_for_reference();
-    assert_eq!(pending_again_occ.0, pending_occ.0);
-    assert_eq!(pending_again.proposals, pending_again_occ.1);
-    assert_eq!(pending_again.transactions, pending_again_occ.1);
+    assert_eq!(pending_again_accepted, pending_accepted);
+    assert!(pending_again.proposals > proposed.proposals);
+    assert_eq!(pending_again.proposals, pending_again.transactions);
 }
 
 #[test]
@@ -241,13 +238,11 @@ fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
         .expect("accepted payload and source versions share one read cut");
     let candidate_uncles = CandidateUncles::new();
     assert_eq!(receipt.selected_len(), 3);
-    let captured_cut = receipt.cut().next_apply_sequence();
     let captured_sources = receipt.source_cut(candidate_uncle_source(&candidate_uncles));
     let receipt = receipt
         .into_selection()
         .expect("ranking runs over the owned receipt outside authority");
     assert_eq!(receipt.candidates().len(), 3);
-    assert_eq!(receipt.cut().next_apply_sequence(), captured_cut);
     assert_eq!(
         receipt.source_cut(candidate_uncle_source(&candidate_uncles)),
         captured_sources

@@ -507,10 +507,6 @@ impl PersistenceReceipt {
         view.capture_persistence().map(Self)
     }
 
-    pub(crate) fn next_apply_sequence(&self) -> u128 {
-        self.0.cut().next_apply_sequence().0
-    }
-
     pub(crate) fn into_parent_first(
         self,
     ) -> Result<ParentFirstPersistenceReceipt, AuthorityQueryError> {
@@ -523,10 +519,6 @@ impl PersistenceReceipt {
 pub(crate) struct ParentFirstPersistenceReceipt(ParentFirstPersistence);
 
 impl ParentFirstPersistenceReceipt {
-    pub(crate) fn next_apply_sequence(&self) -> u128 {
-        self.0.cut().next_apply_sequence().0
-    }
-
     pub(crate) fn accepted(&self) -> &[Arc<TransactionView>] {
         self.0.accepted()
     }

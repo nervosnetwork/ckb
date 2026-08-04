@@ -3026,15 +3026,15 @@ fn uak_over_bound_causal_union_requires_generation_replacement_without_a_prefix(
 #[test]
 fn uak_empty_chain_transition_updates_only_the_chain_cut() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let before_occ = authority.source_versions_for_reference();
+    let before_accepted = authority.accepted_source_for_reference();
     let before = authority.template_source_versions_for_reference();
     let committed = empty_transition(&mut authority, 60);
-    let after_occ = authority.source_versions_for_reference();
+    let after_accepted = authority.accepted_source_for_reference();
     let after = authority.template_source_versions_for_reference();
     assert!(committed.handoff_is_none());
     assert_eq!(authority.chain_revision(), ChainRevision(1));
     assert!(after.chain > before.chain);
-    assert_eq!(after_occ, before_occ);
+    assert_eq!(after_accepted, before_accepted);
     assert_eq!(after.proposals, before.proposals);
     assert_eq!(after.transactions, before.transactions);
     assert!(authority.primary_projection_consistent());

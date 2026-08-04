@@ -14,8 +14,8 @@ use super::state::{
 ///
 /// `proposals` and `transactions` are exact derived selection sources, so a
 /// Gap/Proposed change does not cause unrelated proposal work and a
-/// Pending/Gap change does not cause unrelated transaction work. General
-/// accepted/status OCC versions stay in [`AuthoritySourceVersions`] and do
+/// Pending/Gap change does not cause unrelated transaction work. The general
+/// accepted-content OCC version stays in [`AuthoritySourceVersions`] and does
 /// not widen this consumer receipt. Block-assembler configuration is immutable
 /// after construction; chain-dependent policy is covered by `chain`, so there
 /// is no producerless policy clock.
@@ -38,9 +38,7 @@ impl PoolTemplateVersions {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AuthoritySourceVersions {
-    owners: ApplySequence,
     accepted: ApplySequence,
-    status: ApplySequence,
     relay_parents: ApplySequence,
     template: PoolTemplateVersions,
 }
@@ -48,9 +46,7 @@ pub(super) struct AuthoritySourceVersions {
 impl AuthoritySourceVersions {
     pub(super) const fn initial() -> Self {
         Self {
-            owners: ApplySequence(0),
             accepted: ApplySequence(0),
-            status: ApplySequence(0),
             relay_parents: ApplySequence(0),
             template: PoolTemplateVersions::initial(),
         }
@@ -58,10 +54,6 @@ impl AuthoritySourceVersions {
 
     pub(super) fn accepted(self) -> ApplySequence {
         self.accepted
-    }
-
-    pub(super) fn status(self) -> ApplySequence {
-        self.status
     }
 
     /// Exact source for rebuilding the relayer's Remote missing-parent level.
@@ -117,9 +109,7 @@ impl AuthoritySourceVersions {
     pub(super) fn plan_generation_replacement(self, sequence: ApplySequence) -> SourceVersionDelta {
         SourceVersionDelta {
             after: Self {
-                owners: sequence,
                 accepted: sequence,
-                status: sequence,
                 relay_parents: sequence,
                 template: PoolTemplateVersions {
                     proposals: sequence,
@@ -133,24 +123,13 @@ impl AuthoritySourceVersions {
     fn with_impact(self, impact: SourceImpact, sequence: ApplySequence) -> Self {
         match impact {
             SourceImpact::None => self,
-            SourceImpact::Owners => Self {
-                owners: sequence,
-                ..self
-            },
             SourceImpact::Status(selection) => {
                 let mut template = self.template;
                 selection.advance(&mut template, sequence);
-                Self {
-                    owners: sequence,
-                    status: sequence,
-                    template,
-                    ..self
-                }
+                Self { template, ..self }
             }
             SourceImpact::Accepted => Self {
-                owners: sequence,
                 accepted: sequence,
-                status: sequence,
                 relay_parents: self.relay_parents,
                 template: PoolTemplateVersions {
                     proposals: sequence,
@@ -230,7 +209,6 @@ impl TemplateSelectionImpact {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SourceImpact {
     None,
-    Owners,
     Status(TemplateSelectionImpact),
     Accepted,
 }
@@ -240,9 +218,9 @@ impl SourceImpact {
         match (self, incoming) {
             (Self::Accepted, _) | (_, Self::Accepted) => Self::Accepted,
             (Self::Status(left), Self::Status(right)) => Self::Status(left.join(right)),
-            (Self::Status(impact), Self::None | Self::Owners)
-            | (Self::None | Self::Owners, Self::Status(impact)) => Self::Status(impact),
-            (Self::Owners, Self::None | Self::Owners) | (Self::None, Self::Owners) => Self::Owners,
+            (Self::Status(impact), Self::None) | (Self::None, Self::Status(impact)) => {
+                Self::Status(impact)
+            }
             (Self::None, Self::None) => Self::None,
         }
     }
@@ -281,9 +259,7 @@ impl SourceImpact {
                 Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)),
                 Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None,
             )
-            | (None, Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))) => {
-                Self::Owners
-            }
+            | (None, Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_))) => Self::None,
         }
     }
 }

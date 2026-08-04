@@ -19,7 +19,6 @@ use ckb_types::{
 
 #[derive(Debug, PartialEq, Eq)]
 struct QueryCut {
-    next_sequence: u128,
     state: AuthorityReadState,
     rpc_status: Option<AuthorityRpcStatus>,
     pending: Vec<RawTxHash>,
@@ -35,7 +34,6 @@ fn materialize_query(authority: &TxPoolAuthority, hash: &RawTxHash) -> QueryCut 
     let ids = view.pool_ids().expect("derived status counts are coherent");
     let summary = view.summary().expect("derived owner counts are coherent");
     QueryCut {
-        next_sequence: view.cut().next_apply_sequence().0,
         state: entry.state(),
         rpc_status: entry.rpc_status(&snapshot),
         pending: ids.pending,
@@ -59,8 +57,6 @@ fn uak_query_never_splices_two_authority_cuts() {
 
     let before = {
         let view = authority.read_view();
-        assert_eq!(view.cut().generation(), PoolGeneration(0));
-        assert_eq!(view.cut().chain_view(), authority.chain_view());
         assert_eq!(view.entries().count(), 1);
         let raw = view
             .entry_by_raw(&hash)
@@ -117,7 +113,6 @@ fn uak_query_never_splices_two_authority_cuts() {
     assert!(after.pending.is_empty());
     assert_eq!(after.proposed, vec![hash]);
     assert_eq!((after.accepted_gap, after.accepted_proposed), (0, 1));
-    assert!(before.next_sequence < after.next_sequence);
 }
 
 #[test]
@@ -254,8 +249,6 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
         .capture_persistence()
         .expect("one authority cut captures persistence rows");
     assert_eq!(receipt.selected_len(), 4);
-    assert_eq!(receipt.cut().generation(), PoolGeneration(0));
-    let captured_sequence = receipt.cut().next_apply_sequence();
 
     // A later owner cannot enter the already-owned receipt.
     let extra = accept_remote_transaction(
@@ -269,7 +262,6 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
     let parent_first = receipt
         .into_parent_first()
         .expect("captured causal graphs are acyclic");
-    assert_eq!(parent_first.cut().next_apply_sequence(), captured_sequence);
     assert_eq!(
         hashes(parent_first.accepted()),
         vec![accepted_parent.hash(), accepted_child.hash()]

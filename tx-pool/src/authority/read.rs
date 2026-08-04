@@ -18,8 +18,8 @@ use super::{
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
         DependencySetError, EntryVersion, KnownDependencies, ObservedDependencies, OwnedTx,
-        PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash,
-        TxIdentity, WorkPermit,
+        PreAcceptedPhase, PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, TxIdentity,
+        WorkPermit,
     },
     validation::proposal_status,
 };
@@ -33,39 +33,6 @@ use std::{
     num::NonZeroUsize,
     sync::Arc,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct AuthorityReadCut {
-    generation: PoolGeneration,
-    chain_view: ChainViewId,
-    next_apply_sequence: ApplySequence,
-}
-
-impl AuthorityReadCut {
-    pub(super) fn new(
-        generation: PoolGeneration,
-        chain_view: ChainViewId,
-        next_apply_sequence: ApplySequence,
-    ) -> Self {
-        Self {
-            generation,
-            chain_view,
-            next_apply_sequence,
-        }
-    }
-
-    pub(super) fn generation(&self) -> PoolGeneration {
-        self.generation
-    }
-
-    pub(super) fn chain_view(&self) -> &ChainViewId {
-        &self.chain_view
-    }
-
-    pub(super) fn next_apply_sequence(&self) -> ApplySequence {
-        self.next_apply_sequence
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RelayParentRebuildCut(ApplySequence);
@@ -402,7 +369,7 @@ pub(super) enum AuthorityReadError {
 }
 
 pub(super) struct AuthorityReadView<'authority> {
-    cut: AuthorityReadCut,
+    chain_view: ChainViewId,
     entries: &'authority HashMap<RawTxHash, OwnedTx>,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
@@ -414,7 +381,7 @@ pub(super) struct AuthorityReadView<'authority> {
 
 impl<'authority> AuthorityReadView<'authority> {
     pub(super) fn new(
-        cut: AuthorityReadCut,
+        chain_view: ChainViewId,
         entries: &'authority HashMap<RawTxHash, OwnedTx>,
         indexes: &'authority AuthorityIndexes,
         membership: &'authority MembershipProjection,
@@ -424,7 +391,7 @@ impl<'authority> AuthorityReadView<'authority> {
         template_sources: PoolTemplateVersions,
     ) -> Self {
         Self {
-            cut,
+            chain_view,
             entries,
             indexes,
             membership,
@@ -433,10 +400,6 @@ impl<'authority> AuthorityReadView<'authority> {
             relay_parent_source,
             template_sources,
         }
-    }
-
-    pub(super) fn cut(&self) -> &AuthorityReadCut {
-        &self.cut
     }
 
     /// Capture one bounded scan page of the current Remote missing-parent
@@ -770,10 +733,7 @@ impl<'authority> AuthorityReadView<'authority> {
                 relation,
             });
         }
-        Ok(PersistenceReadReceipt {
-            cut: self.cut.clone(),
-            selected,
-        })
+        Ok(PersistenceReadReceipt { selected })
     }
 
     /// Capture accepted payloads, relations and their exact template source
@@ -783,7 +743,7 @@ impl<'authority> AuthorityReadView<'authority> {
         &self,
     ) -> Result<AuthorityTemplateReadReceipt, TemplateReadError> {
         AuthorityTemplateReadReceipt::capture(
-            self.cut.clone(),
+            self.chain_view.clone(),
             self.template_sources,
             self.entries,
             self.membership,
@@ -812,15 +772,10 @@ struct PersistenceRow {
 
 #[derive(Debug)]
 pub(super) struct PersistenceReadReceipt {
-    cut: AuthorityReadCut,
     selected: Vec<PersistenceRow>,
 }
 
 impl PersistenceReadReceipt {
-    pub(super) fn cut(&self) -> &AuthorityReadCut {
-        &self.cut
-    }
-
     pub(super) fn selected_len(&self) -> usize {
         self.selected.len()
     }
@@ -855,26 +810,17 @@ impl PersistenceReadReceipt {
         let recovery_order = parent_first_indices(&recovery, PersistencePartition::Recovery)?;
         let accepted = ordered_transactions(&accepted, &accepted_order)?;
         let recovery = ordered_transactions(&recovery, &recovery_order)?;
-        Ok(ParentFirstPersistence {
-            cut: self.cut,
-            accepted,
-            recovery,
-        })
+        Ok(ParentFirstPersistence { accepted, recovery })
     }
 }
 
 #[derive(Debug)]
 pub(super) struct ParentFirstPersistence {
-    cut: AuthorityReadCut,
     accepted: Vec<Arc<TransactionView>>,
     recovery: Vec<Arc<TransactionView>>,
 }
 
 impl ParentFirstPersistence {
-    pub(super) fn cut(&self) -> &AuthorityReadCut {
-        &self.cut
-    }
-
     pub(super) fn accepted(&self) -> &[Arc<TransactionView>] {
         &self.accepted
     }

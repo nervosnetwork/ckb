@@ -319,7 +319,6 @@ fn uak_persistence_receipt_is_owned_and_mutation_independent() {
     let persistence = runtime
         .persistence_receipt()
         .expect("persistence receipt captures one authority cut");
-    let captured_sequence = persistence.next_apply_sequence();
     runtime
         .clear_pool(genesis_snapshot())
         .expect("later clear is independent");
@@ -327,7 +326,6 @@ fn uak_persistence_receipt_is_owned_and_mutation_independent() {
     let parent_first = persistence
         .into_parent_first()
         .expect("captured relations are acyclic");
-    assert_eq!(parent_first.next_apply_sequence(), captured_sequence);
     assert_eq!(parent_first.accepted().len(), 1);
     assert!(parent_first.recovery().is_empty());
     let (accepted, recovery) = parent_first.into_transactions();

@@ -1250,6 +1250,7 @@ impl AuthorityRuntime {
         Self::from_config(runtime, snapshot).map(|runtime| (runtime, relay_parent_limit))
     }
 
+    #[cfg(test)]
     pub(crate) fn new(
         config: &TxPoolConfig,
         consensus: &Consensus,
@@ -2559,6 +2560,7 @@ impl AuthorityRuntime {
     /// Level-triggered checkout with no lock held across the wait. Cancelling
     /// this future while it waits owns no compute capability; after checkout
     /// succeeds there is no suspension point before the job is returned.
+    #[cfg(test)]
     pub(in crate::authority) async fn wait_checkout(
         &self,
         permit: WorkPermit,
@@ -3024,10 +3026,6 @@ impl AuthorityStore {
         })
     }
 
-    pub(crate) fn snapshot(&self) -> &Arc<Snapshot> {
-        &self.snapshot
-    }
-
     /// First OCC read: clone only the bounded Ready proof shells and paired
     /// snapshot. Per-cell overlay allocation happens after this guard opens.
     fn capture_ready_work_batch(
@@ -3088,10 +3086,6 @@ impl AuthorityStore {
             head,
             tail: batch.completed_tail,
         })
-    }
-
-    pub(crate) fn committed_txs_hash_cache(&mut self) -> &mut LruCache<ProposalShortId, Byte32> {
-        &mut self.committed_txs_hash_cache
     }
 }
 

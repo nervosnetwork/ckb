@@ -1135,17 +1135,14 @@ fn uak_owner_changes_compile_proposal_and_peer_indexes_together() {
 }
 
 #[test]
-fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
+fn uak_accepted_source_ignores_preaccepted_work_and_status_only_changes() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    assert_eq!(
-        authority.source_versions_for_reference(),
-        (ApplySequence(0), ApplySequence(0))
-    );
+    assert_eq!(authority.accepted_source_for_reference(), ApplySequence(0));
 
     let disposable = admit_remote(&mut authority, 1_704, 704);
     assert_eq!(
-        authority.source_versions_for_reference(),
-        (ApplySequence(0), ApplySequence(0)),
+        authority.accepted_source_for_reference(),
+        ApplySequence(0),
         "pre-acceptance owner changes cannot stale a ChainPlan"
     );
     let version = owner_version(&authority, &disposable);
@@ -1154,10 +1151,7 @@ fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
             .plan_terminalize_for_foundation(&disposable, version)
             .expect("pre-accepted terminalization plans"),
     );
-    assert_eq!(
-        authority.source_versions_for_reference(),
-        (ApplySequence(0), ApplySequence(0))
-    );
+    assert_eq!(authority.accepted_source_for_reference(), ApplySequence(0));
 
     let accepted = accept_remote_transaction(
         &mut authority,
@@ -1166,9 +1160,8 @@ fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
         AcceptedStatus::Gap,
         Vec::new(),
     );
-    let accepted_sources = authority.source_versions_for_reference();
-    assert_eq!(accepted_sources.0, accepted_sources.1);
-    assert_ne!(accepted_sources.0, ApplySequence(0));
+    let accepted_source = authority.accepted_source_for_reference();
+    assert_ne!(accepted_source, ApplySequence(0));
 
     let version = owner_version(&authority, &accepted);
     let status_change = apply_committed_without_work(
@@ -1176,10 +1169,10 @@ fn uak_source_versions_ignore_preaccepted_work_and_track_accepted_facts() {
             .plan_status_for_foundation(&accepted, version, AcceptedStatus::Pending)
             .expect("status-only transition plans"),
     );
-    let status_sequence = only_committed_change(&status_change).sequence;
+    let _status_sequence = only_committed_change(&status_change).sequence;
     assert_eq!(
-        authority.source_versions_for_reference(),
-        (accepted_sources.0, status_sequence),
+        authority.accepted_source_for_reference(),
+        accepted_source,
         "status-only mutation must not invalidate accepted-content work"
     );
     assert!(authority.primary_projection_consistent());
@@ -1245,7 +1238,7 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
 
     let old_clocks = authority.clocks();
     let old_chain = authority.chain_view().clone();
-    let old_sources = authority.source_versions_for_reference();
+    let old_accepted_source = authority.accepted_source_for_reference();
     let committed = authority
         .plan_clear_pipeline()
         .expect("clear replans")
@@ -1264,7 +1257,10 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
     ));
     assert_eq!(authority.generation(), PoolGeneration(1));
     assert_eq!(authority.chain_view(), &old_chain);
-    assert_eq!(authority.source_versions_for_reference(), old_sources);
+    assert_eq!(
+        authority.accepted_source_for_reference(),
+        old_accepted_source
+    );
     assert_eq!(authority.clocks().next_version, old_clocks.next_version);
     assert_eq!(authority.clocks().next_lease, old_clocks.next_lease);
     assert_eq!(authority.clocks().next_arrival, old_clocks.next_arrival);

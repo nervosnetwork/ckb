@@ -381,11 +381,7 @@ impl TxPoolAuthority {
     /// accepted/preaccepted collections.
     pub(super) fn read_view(&self) -> AuthorityReadView<'_> {
         AuthorityReadView::new(
-            super::read::AuthorityReadCut::new(
-                self.generation,
-                self.chain_view.clone(),
-                self.clocks.next_sequence,
-            ),
+            self.chain_view.clone(),
             &self.entries,
             &self.indexes,
             &self.membership,
@@ -436,11 +432,8 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
-    pub(super) fn source_versions_for_reference(&self) -> (ApplySequence, ApplySequence) {
-        (
-            self.source_versions.accepted(),
-            self.source_versions.status(),
-        )
+    pub(super) fn accepted_source_for_reference(&self) -> ApplySequence {
+        self.source_versions.accepted()
     }
 
     #[cfg(test)]

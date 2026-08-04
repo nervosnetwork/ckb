@@ -8,11 +8,10 @@
 
 use super::{
     plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection},
-    read::AuthorityReadCut,
     source::PoolTemplateVersions,
     state::{
-        AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, OwnedTx, ProposalId,
-        RawTxHash,
+        AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, ChainViewId, OwnedTx,
+        ProposalId, RawTxHash,
     },
 };
 use crate::block_assembler::{CandidateUncleSourceReceipt, ResetEpoch, TemplateRevision};
@@ -119,14 +118,13 @@ struct CapturedAccepted {
 
 #[derive(Debug)]
 pub(super) struct AuthorityTemplateReadReceipt {
-    cut: AuthorityReadCut,
+    chain_view: ChainViewId,
     sources: PoolTemplateVersions,
     captured: Vec<CapturedAccepted>,
 }
 
 #[derive(Debug)]
 pub(super) struct TemplateSelectionReceipt {
-    cut: AuthorityReadCut,
     sources: PoolTemplateVersions,
     candidates: Vec<TemplateCandidate>,
 }
@@ -147,7 +145,7 @@ impl AuthorityTemplateInput {
         snapshot: Arc<Snapshot>,
         receipt: AuthorityTemplateReadReceipt,
     ) -> Result<Self, TemplateReadError> {
-        if receipt.cut().chain_view().tip().0 != snapshot.tip_hash() {
+        if receipt.chain_view().tip().0 != snapshot.tip_hash() {
             return Err(TemplateReadError::Projection);
         }
         Ok(Self {
@@ -175,7 +173,7 @@ impl AuthorityTemplateInput {
 
 impl AuthorityTemplateReadReceipt {
     pub(super) fn capture(
-        cut: AuthorityReadCut,
+        chain_view: ChainViewId,
         sources: PoolTemplateVersions,
         entries: &HashMap<RawTxHash, OwnedTx>,
         membership: &MembershipProjection,
@@ -232,14 +230,14 @@ impl AuthorityTemplateReadReceipt {
         }
 
         Ok(Self {
-            cut,
+            chain_view,
             sources,
             captured,
         })
     }
 
-    pub(super) fn cut(&self) -> &AuthorityReadCut {
-        &self.cut
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        &self.chain_view
     }
 
     pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
@@ -277,7 +275,6 @@ impl AuthorityTemplateReadReceipt {
             });
         }
         Ok(TemplateSelectionReceipt {
-            cut: self.cut,
             sources: self.sources,
             candidates,
         })
@@ -285,10 +282,6 @@ impl AuthorityTemplateReadReceipt {
 }
 
 impl TemplateSelectionReceipt {
-    pub(super) fn cut(&self) -> &AuthorityReadCut {
-        &self.cut
-    }
-
     pub(super) fn source_cut(&self, uncles: CandidateUncleSourceReceipt) -> TemplateSourceCut {
         TemplateSourceCut::new(self.sources, uncles)
     }

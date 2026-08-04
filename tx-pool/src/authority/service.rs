@@ -113,12 +113,6 @@ pub(crate) enum AuthorityServiceError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct AuthorityGenerationInvalidity(AuthorityServiceError);
 
-impl AuthorityGenerationInvalidity {
-    pub(crate) const fn error(self) -> AuthorityServiceError {
-        self.0
-    }
-}
-
 /// Persistence failures are operational outcomes after a coherent read cut;
 /// none can invalidate or roll back authority state.
 #[derive(Debug)]
