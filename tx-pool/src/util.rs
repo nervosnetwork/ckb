@@ -1,6 +1,4 @@
 use crate::error::Reject;
-#[cfg(test)]
-use crate::pool::TxPool;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_script::ChunkCommand;
@@ -32,36 +30,6 @@ pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
     // `new_unchecked` because it also accepts arbitrary bytes; this wrapper's
     // typed input makes arbitrary bytes unrepresentable at every call site.
     T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
-}
-
-#[cfg(test)]
-pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
-    let short_id = tx.proposal_short_id();
-    if let Some(existing) = tx_pool.pool_map.get_by_id(&short_id) {
-        let tx_hash = tx.hash();
-        if existing.inner.transaction().hash() == tx_hash {
-            return Err(Reject::Duplicated(tx_hash));
-        }
-        // ProposalShortId is a protocol slot, not transaction identity. A
-        // distinct full hash cannot share that slot while the accepted owner
-        // is resident, but it also must not inherit duplicate-success
-        // semantics (which suppress terminal relay settlement). Treat the
-        // occupied namespace as retryable backpressure on every ingress.
-        return Err(Reject::Full(format!(
-            "proposal short-id collision while checking {tx_hash}"
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn check_tx_fee(
-    tx_pool: &TxPool,
-    snapshot: &Snapshot,
-    rtx: &ResolvedTransaction,
-    tx_size: usize,
-) -> Result<Capacity, Reject> {
-    check_tx_fee_with_min_fee_rate(snapshot, rtx, tx_size, tx_pool.config.min_fee_rate)
 }
 
 pub(crate) fn check_tx_fee_with_min_fee_rate(
@@ -218,23 +186,6 @@ pub(crate) async fn verify_rtx(
         })
         .map_err(Reject::Verification)
     }
-}
-
-#[cfg(test)]
-pub(crate) fn time_relative_verify(
-    snapshot: Arc<Snapshot>,
-    rtx: Arc<ResolvedTransaction>,
-    tx_env: TxVerifyEnv,
-) -> Result<(), Reject> {
-    let consensus = snapshot.cloned_consensus();
-    TimeRelativeTransactionVerifier::new(
-        rtx,
-        consensus,
-        snapshot.as_data_loader(),
-        Arc::new(tx_env),
-    )
-    .verify()
-    .map_err(Reject::Verification)
 }
 
 #[cfg(test)]

@@ -149,12 +149,6 @@ impl RejectionMetrics {
     }
 }
 
-pub(crate) fn record_rejection(reject: &Reject) {
-    let mut metrics = RejectionMetrics::default();
-    metrics.record(reject);
-    metrics.publish();
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FailureBoundary {
     TypedFault,

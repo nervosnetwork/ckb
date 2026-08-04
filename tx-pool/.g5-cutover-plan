@@ -1,7 +1,8 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3c C1 production ownership cutover and C2 publication parity are
-wired; historical-behavior migration and physical legacy deletion are active
+Status: G5.3c production cutover, publication parity, behavior migration, and
+physical legacy-authority deletion are complete; the G5/G6 whole-architecture
+review is active
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -15,22 +16,27 @@ G5.3b.7 slice 4 checkpoint: 0b2c25ca7
 G5.3b.7 slice 5 checkpoint: 4a33169a35
 G5.3b.7 slice 6 checkpoint: d4b5a32b4
 G5.3c C0 checkpoint: a2b552ae4
-Active slice: G5.3c C2 migrates every behavior-unique legacy regression before
-deleting the now production-unreachable legacy authority.
-Next exact action: classify the remaining legacy-only tests by UAK evidence,
-migrate only behavior-unique cases, then physically delete the disconnected
-`TxPool`/`PrePool`/legacy worker and effect-journal implementation. Publication
-parity is closed for callbacks, relay and known-filter reconciliation,
+G5.3c C1/C2 publication-parity checkpoint: 28521bc98
+G5.3c C2 legacy-deletion checkpoint: 1bd395f4d
+Active slice: G5/G6 audits the complete surviving UAK architecture for model
+minimality, invariant closure, Rust-static safety, progress/liveness,
+publication convergence, performance shape, test stacking, documentation, and
+every provisional historical adjudication.
+Next exact action: freeze the C2 checkpoint, inventory the production versus
+test-only UAK surface, then audit one-authority ownership and every legal
+transition before changing the surviving model. Publication parity is closed
+for callbacks, relay and known-filter reconciliation,
 recent-reject, peer ban/Sentry reporting, verification cache, persistence,
 fee-estimator chain projection, candidate uncles, all concurrent template
 lanes, miner notification, operational gauges, exact-once terminal rejection
 counters, sync/async processing histograms, failure-boundary counters, startup
 and ordered shutdown. Optional proposals and uncles now compile through one
 shared byte budget and only actually published proposal IDs suppress conflicting
-uncles. Evidence at this boundary: `cargo nextest run -p ckb-tx-pool --features
-internal --lib --no-fail-fast` passed 503/503 after one metric-only timestamp was
-correctly excluded from a semantic-equivalence assertion. Do not restore a
-mixed legacy/UAK production authority while deleting the unreachable code.
+uncles. After physical retirement, `cargo nextest run -p ckb-tx-pool --features
+internal --lib --no-fail-fast` passes 400/400, `cargo check -p ckb-tx-pool
+--features internal` passes, `cargo check -p ckb-shared` passes, formatting is
+clean, and the tx-pool diff removes 32,163 lines while adding 86. Do not restore
+a mixed legacy/UAK production authority during the global review.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -46,7 +52,7 @@ architecture document.
   and deletion maps.
 - [x] G5.3b: implement missing production capabilities only behind isolated UAK
   boundaries. Do not dual-write legacy state.
-- [ ] G5.3c: switch service construction, dispatch, workers, chain updates,
+- [x] G5.3c: switch service construction, dispatch, workers, chain updates,
   queries, template reads, persistence, and shutdown as one coordinated
   production cutover. Delete or disconnect every legacy production owner in
   the same phase.
@@ -143,11 +149,13 @@ switch.
 
 ## 3. Why the cutover cannot be piecemeal
 
-The current service simultaneously constructs the legacy accepted `TxPool`,
-the legacy `component::pre_pool::PrePool`, and the legacy
-`service::effects::EffectJournal`. The UAK already models both accepted and
-preaccepted ownership. Replacing RPC or worker calls one by one would create a
-temporary three-authority system whose cross-product cannot be proven atomic.
+At the pre-cutover baseline the service simultaneously constructed the legacy
+accepted `TxPool`, `component::pre_pool::PrePool`, and
+`service::effects::EffectJournal`. Because the UAK already modeled both
+accepted and preaccepted ownership, replacing RPC or worker calls one by one
+would have created a temporary three-authority system whose cross-product could
+not be proven atomic. Checkpoint `28521bc98` performed the coordinated switch;
+the current production service constructs only `AuthorityRuntime`.
 
 Safe migration therefore has two implementation zones:
 
@@ -630,10 +638,10 @@ longer justifies it.
 
 ## 10. Pure template packing and block-assembler concurrency
 
-`authority/template.rs` already produces an immutable candidate receipt and
-deterministic Pending proposal rank plus Proposed causal/conditional ordering.
-It does not yet implement the old `TxSelector` cycles/bytes/CPFP packer. The
-production cutover must provide one pure packer over that receipt with:
+`authority/template.rs` produces an immutable candidate receipt and
+deterministic Pending proposal rank plus Proposed causal/conditional ordering;
+`authority/packing.rs` implements the single pure cycles/bytes/CPFP packer over
+that receipt with:
 
 - exact cycles and serialized-bytes limits;
 - ancestor-inclusive CPFP scoring and deterministic tie-breaking;
@@ -2389,8 +2397,9 @@ Delete or disconnect from production after the switch:
 
 Retain only after explicit review:
 
-- public `TxPool` compatibility APIs that external crates may compile against,
-  with no production service instance;
+- public `TxEntry`/`TxEntrySnapshot` compatibility DTOs used by internal
+  reconstruction and callbacks; the test-only legacy `TxPool` export was never
+  available to dependent production crates and is deleted with its owner;
 - pure reusable transaction verification, fee, dependency, and packing helpers;
 - candidate-uncle state because it is block-template input, not tx ownership;
 - recent-reject and fee-estimator stores as bounded derived endpoints;
@@ -2399,6 +2408,27 @@ Retain only after explicit review:
 Before deletion, search all workspace callers. A file is not deleted merely
 because its closest tx-pool caller moved; tests, sync, compact-block handling,
 RPC, fee estimation, and external public API are part of the boundary.
+
+### 13.1 Behavior-preserving retirement proof
+
+The physical deletion is organized by semantic owner, not by directory or raw
+test count:
+
+| Retired implementation/test family | Final semantic owner and evidence |
+| --- | --- |
+| `TxPool`/`PoolMap`, links and out-point indexes | `TxPoolAuthority` owner map, canonical membership/index compiler, exact charge Apply; `authority/tests/foundation.rs`, `dependency.rs`, and `chain.rs` cover collisions, graph projection, capacity, removal and reorg |
+| `PrePoolKernel`, queues, leases, commit handoff and recovery | closed `OwnedTx` phases, `FairFrontier`, move-only work and settlement plans; foundation/dependency/effect/worker tests cover every phase, stale ABA, waits, RBF history, fairness and cancellation |
+| legacy submission, RBF and reorg process modules | ingress/direct/chain boundaries plus membership and chain Plans; resolver/validation/chain/foundation tests cover exact identity, same-tip evidence, RBF, recovery and atomic victim disposition |
+| legacy service workers, pipeline operations and effect journal | `AuthorityRuntime`, topology, committed effect log and publisher; topology/effect/publisher/service tests cover capacity, endpoint failure, ordered shutdown and exact publication |
+| old selector and pool template tests | pure UAK packing plus versioned template convergence/driver; packing/template/template-driver tests cover CPFP, conditional edges, SCC shedding, byte bounds and full/reset versus partial OCC |
+| old pool-cell final checker | authority final validator; validation and resolver tests cover same-tip chain-positive evidence, pool-origin overlay, changed tip and unproven provenance |
+| old resolved residency wrapper | authority residency boundary; residency and foundation compaction tests cover detached backing, dep compaction and DAO input retention |
+| old fee estimate test | immutable authority fee receipt and service fallback; query tests cover valid and invalid targets and snapshot independence |
+
+Only direct compatibility-type ordering tests, the production recent-reject
+store tests, persistence format tests, reusable dependency sorting, callback,
+candidate-uncle and block-assembler accounting tests survive outside UAK. No
+legacy lifecycle state is retained behind `cfg(test)` or `cfg(any())`.
 
 ## 14. Required regression and attack matrix
 
@@ -2517,7 +2547,7 @@ closed rows retain their regression owner until final documentation migration.
 
 | Root family | Included verified findings | Architecture disposition | State |
 | --- | --- | --- | --- |
-| ownership inferred across queues | stranded Gap/reorg recovery, ghost/double registration, RaceLost budget and non-atomic victim replacement | one `OwnedTx` authority, charge moves in the same Apply, charged bounded replacement history, stale lease cannot mutate a new owner | `open-blocker` — isolated UAK proof exists; legacy ownership remains production until G5.3c and P9.8 evidence completes |
+| ownership inferred across queues | stranded Gap/reorg recovery, ghost/double registration, RaceLost budget and non-atomic victim replacement | one `OwnedTx` authority, charge moves in the same Apply, charged bounded replacement history, stale lease cannot mutate a new owner | `open-blocker` — production ownership and physical legacy deletion are complete; whole-model review and P9.8 evidence remain |
 | chain/template publication split | detached-uncle proposal suppression, reorg child recovery, conditional reader-before-spender packing, chain receipt/history coverage, fragmented full reconciliation | one paired chain receipt and authority Apply; templates consume versioned immutable receipts; full/reset serialization remains separate from optimistic partial/uncle publication | `open-blocker` — production wiring and managed integration evidence remain |
 | cache/evidence identity drift | short-id/raw-hash verification-cache alias, wrong detached cache key, rules/context mismatch, same-tip liveness reuse premise | cache key is witness hash plus exact `ScriptVerificationRules`; chain evidence is bound to one captured snapshot/view; pool-only positive reuse is explicitly scoped | `open-blocker` — isolated producer proof is complete; production cutover and cross-boundary regression remain |
 | dependency liveness gaps | definitive parent death without wake, dep-to-PreAccepted implicit premise, dep-stale checkout abort, unbounded Recovery/Proposal wait, Remote external-parent wait surviving trusted promotion | bounded dependency frontier owns observation cuts, definitive-loss events and level-triggered maintenance; resolver may not expose unsupported PreAccepted dep evidence; source-dependent waits re-enter Resolve when destination policy cannot prove the same observation legal | `open-blocker` — model and hostile unit evidence are complete; production maintenance/cutover remain |
@@ -2526,9 +2556,9 @@ closed rows retain their regression owner until final documentation migration.
 | over-broad fail-stop boundary | `RejectedSelectedTransactions`, relay disconnect, template/cache failure, generic worker exit, allocation encoded as malformed receipt, stale producer cuts, phantom publisher collision and callback/store/network failure promoted to service stop | legal/hostile/stale/resource/external/derived outcomes are local typed dispositions; only proven authority contradiction or an undischarged sole capability invalidates a generation and forbids persistence | `open-blocker` — direct/retained/chain/admin boundaries are closed in UAK; the production service mapping remains G5.3c |
 | lifecycle topology ambiguity | duplicate publisher claim after partial spawn, producer/effect/cache shutdown order, capability loss on cancellation, task-role enumeration drift | one non-authoritative topology owner claims linear consumers before spawn, owns role-bearing task collections and performs producers -> effects -> publisher -> cache shutdown | `open-blocker` — isolated wait-for and shutdown proofs pass; production ownership switch remains |
 | asynchronous progress contract drift | circular effect/relay/settlement shutdown wait, open-ended backpressure interpreted as wait, same-source template retry amplification, callback/blocking-task retirement, lost wake, allocator recompute loop and starvation proof gaps | capability-based runtime/shutdown wait-for graphs; only typed waits with named independent releasers; exact source-level retries; derived foreign work cannot own authority progress | `open-blocker` — isolated graph and parent-rebuild proofs pass; production saturation evidence remains |
-| G5 boundary coverage | Accepted local removal/expiry, typed ClearPipeline vs ClearPool, Local/TestAccept, peer ban, fee estimator, internal adapters, query/persistence DTOs | narrow production adapters consume typed authority capabilities; no dual write and no generic closure escape | `open-blocker` — exact coordinated cutover and legacy deletion remain |
+| G5 boundary coverage | Accepted local removal/expiry, typed ClearPipeline vs ClearPool, Local/TestAccept, peer ban, fee estimator, internal adapters, query/persistence DTOs | narrow production adapters consume typed authority capabilities; no dual write and no generic closure escape | `open-blocker` — coordinated cutover and legacy deletion are complete; compatibility review and full integration evidence remain |
 | performance and complexity risk transfer | lock-held cloning/index churn, generic authority wakes causing up to four full accepted-pool template captures for PreAccepted-only Applies, wake storms, mixed effect-region head blocking, full-pool/adversarial scans, no Ready aging, benchmark noise/fingerprint gaps | preserve parallel validation and optimistic template lanes; lane-owned O(1) source pre-probes; homogeneous source-control Ready batches; no merged candidate-uncle authority or changed full/reset vs partial OCC; statically audit every wake before population work; measure representative/adversarial shapes with fixed binaries | `open-blocker` — static reductions are implemented; post-cutover profiling and fixed-binary A/B remain P10 |
-| verification/process drift | zero-match alternation anchors, partial integration universe, stacked tests, stale comments/docs, previously deferred F1 behavior drift | machine selectors validate each arm; one behavior inventory maps rule -> owner -> exact unit/integration evidence; verified findings cannot disappear without closure evidence | `open-blocker` — current inventory is synchronized at 625 internal-feature tests; cleanup and full 150-spec gate remain |
+| verification/process drift | zero-match alternation anchors, partial integration universe, stacked tests, stale comments/docs, previously deferred F1 behavior drift | machine selectors validate each arm; one behavior inventory maps rule -> owner -> exact unit/integration evidence; verified findings cannot disappear without closure evidence | `open-blocker` — post-retirement unit universe is 400 internal-feature tests; inventories, selectors and full 150-spec gate must be synchronized after the model/code review |
 | claimed under-fee failed-RBF restoration (`C-freeloader-rbf`) | restore-before-recover scheduling allegedly admits a held candidate below replacement fee | the in-flight size-based higher-fee gate is a prerequisite to `RaceLost`; exact regression preserves the original transaction after rejected replacement | `suppressed-with-current-counterevidence` — the proposed under-fee held state is not constructible; fairness among already-valid candidates remains a non-integrity question |
 | strict/permissive marker required for same-tip location reuse | permissive resolve allegedly permits chain-dead inputs into resolved evidence | chain-dead inputs cannot produce a resolved payload; per-input `transaction_info` distinguishes chain-positive evidence from pool-produced overlay cells | `suppressed-with-current-counterevidence` — no marker/state is added; scope/provenance regressions retain the actual safety premises |
 | constructorless `Waiting(Conflict)` promise | consumers existed without a production constructor and implied optional RBF-loser parking | conflict retention is represented only by the charged, inert `ReplacementHistory` owner constructed from an actually Accepted victim | `superseded-by-proven-model` — the ambiguous phase variant is deleted and its winner-failure/reorg recovery semantics have exact tests |

@@ -45,18 +45,6 @@ pub(crate) struct TemplateSize {
 }
 
 impl TemplateSize {
-    pub(crate) fn calc_total_by_uncles_and_proposals(
-        &self,
-        new_uncles_size: usize,
-        new_proposals_size: usize,
-    ) -> Option<usize> {
-        self.total
-            .checked_sub(self.uncles)?
-            .checked_sub(self.proposals)?
-            .checked_add(new_uncles_size)?
-            .checked_add(new_proposals_size)
-    }
-
     pub(crate) fn calc_total_by_txs(&self, new_txs_size: usize) -> Option<usize> {
         self.total.checked_sub(self.txs)?.checked_add(new_txs_size)
     }

@@ -74,9 +74,6 @@ pub(crate) enum TemplateContentUpdate {
         proposals: Vec<ProposalShortId>,
         dao: Byte32,
     },
-    Uncles {
-        uncles: Vec<UncleBlockView>,
-    },
     Proposals {
         uncles: Vec<UncleBlockView>,
         proposals: Vec<ProposalShortId>,
@@ -160,12 +157,6 @@ impl BlockTemplateBuilder {
                 proposals,
                 dao,
             } => (uncles, transactions, proposals, dao),
-            TemplateContentUpdate::Uncles { uncles } => (
-                uncles,
-                template.transactions.clone(),
-                template.proposals.clone(),
-                template.dao.clone(),
-            ),
             TemplateContentUpdate::Proposals { uncles, proposals } => (
                 uncles,
                 template.transactions.clone(),

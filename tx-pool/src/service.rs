@@ -16,7 +16,6 @@ pub(crate) use message::{
     GetTransactionWithStatusResult, GetTxStatusResult, SubmitTxResult,
 };
 
-pub(crate) use crate::authority::service::AuthorityService as TxPoolService;
 use ckb_channel::oneshot;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;

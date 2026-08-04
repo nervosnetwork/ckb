@@ -15,26 +15,19 @@
     )
 )]
 //!
-//! # Lock hierarchy
+//! # Authority and lock hierarchy
 //!
-//! There are two executable transaction authorities: accepted membership in
-//! `TxPool`, and all pre-pool lifecycle in `PrePoolKernel`. The latter
-//! is protected by one short-held synchronous mutex and is never held across
-//! `.await`. Any operation that needs both takes `tx_pool` first and then the
-//! kernel; kernel-only code must never acquire `tx_pool`.
+//! `TxPoolAuthority` is the sole owner of transaction membership, lifecycle,
+//! resource charge, indexes and the paired chain view. Validation produces
+//! typed evidence outside its short synchronous lock; read-only plans are
+//! version checked and applied atomically under that owner. A committed apply
+//! emits immutable effects, and callbacks, relay I/O, cache publication and
+//! persistence execute only after the authority lock has been released.
 //!
-//! Detached-chain replay is ordinary charged `ResolveQueued` ownership with a
-//! trusted Recovery source in `PrePoolKernel`; no lock spans asynchronous
-//! validation. Persistence
-//! takes `tx_pool` read then the kernel, copies one immutable bounded v2
-//! snapshot, releases both and serializes only file writers. A capacity wait
-//! owns no state and occurs before authority locks. The mutation order is
-//! `optional serial/work guard -> tx_pool -> PrePoolKernel -> EffectJournal`;
-//! the journal lock is innermost and binds total Apply to its immutable batch.
-//! Callback re-entry follows the ordinary dispatcher and lock order, so the
-//! effect publisher cannot create a reverse edge. Callbacks, relay I/O, and
-//! persistence I/O run only after state mutation has been journaled and no
-//! state lock is held.
+//! Detached-chain replay is ordinary charged Recovery admission. Capacity
+//! waits own no transaction state, no authority lock crosses `.await`, and
+//! stale work is rejected by its typed generation, owner and chain-view
+//! evidence rather than by lock timing.
 //!
 //! Block-template publication co-locates a content revision and reset epoch
 //! with the current template. Full rebuilds and reset preparation run without
@@ -47,9 +40,6 @@
 //! so a partial update which landed just before the replacement is retried
 //! instead of lost.
 //!
-//! Combined membership reads take `tx_pool` and then inspect the pre-pool kernel
-//! under its synchronous lock, matching the writer order and preventing a
-//! visible handoff gap.
 //! Input, policy, capacity, cancellation and stale-lease outcomes are typed
 //! errors. A typed structural contradiction marks the generation ineligible
 //! for persistence and requests controlled shutdown; legal transaction input
@@ -79,15 +69,7 @@ pub mod error;
 mod metrics;
 mod network;
 mod persisted;
-#[cfg(test)]
-pub mod pool;
-#[cfg(test)]
-mod pool_cell;
-#[cfg(test)]
-mod resolved_tx;
 pub mod service;
-#[cfg(test)]
-pub(crate) mod tx_source;
 mod util;
 
 #[cfg(feature = "internal")]
@@ -101,8 +83,6 @@ pub(crate) mod test_support;
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;
-#[cfg(test)]
-pub use pool::TxPool;
 pub use service::{TxPoolController, TxPoolServiceBuilder};
 pub use tokio::sync::RwLock as TokioRwLock;
 
