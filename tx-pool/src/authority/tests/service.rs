@@ -1,6 +1,11 @@
 use super::super::service::{
     AuthorityRelayDrain, AuthorityService, AuthorityServiceAssembly, AuthorityServiceInputs,
-    AuthorityShutdownOutcome,
+    AuthorityShutdownOutcome, authority_failure_boundary, derived_failure_boundary,
+};
+use super::super::{
+    plan::AuthorityFault,
+    topology::{AuthorityDerivedTaskFailure, AuthorityGenerationFault, AuthorityTaskRole},
+    worker::{AuthorityWorkerFaultKind, AuthorityWorkerRole},
 };
 use super::foundation::{genesis_snapshot, runtime_config};
 use crate::{
@@ -9,6 +14,7 @@ use crate::{
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::Handle;
+use ckb_fee_estimator::FeeEstimator;
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
@@ -22,7 +28,35 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, mpsc, watch};
+
+#[test]
+fn uak_operational_failure_classes_follow_ownership_boundaries() {
+    let role = AuthorityTaskRole::Worker(AuthorityWorkerRole::Ready);
+    assert_eq!(
+        authority_failure_boundary(&AuthorityGenerationFault::Worker {
+            role,
+            fault: AuthorityWorkerFaultKind::Authority(AuthorityFault::EffectProjection),
+        }),
+        crate::metrics::FailureBoundary::TypedFault
+    );
+    assert_eq!(
+        authority_failure_boundary(&AuthorityGenerationFault::PublisherClosed),
+        crate::metrics::FailureBoundary::EffectPublisher
+    );
+    assert_eq!(
+        authority_failure_boundary(&AuthorityGenerationFault::ShutdownTimeout),
+        crate::metrics::FailureBoundary::WorkerExit
+    );
+    assert_eq!(
+        derived_failure_boundary(&AuthorityDerivedTaskFailure::TemplateClosed(
+            AuthorityTaskRole::Template(
+                super::super::template_driver::AuthorityTemplateRole::Transactions,
+            ),
+        )),
+        crate::metrics::FailureBoundary::WorkerExit
+    );
+}
 
 async fn service_assembly() -> (
     AuthorityServiceAssembly,
@@ -43,6 +77,7 @@ async fn service_assembly_with_config(
     let (relay_sink, relay) = AuthorityService::prepare_relay(&config, &snapshot)
         .expect("the production relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
@@ -57,6 +92,8 @@ async fn service_assembly_with_config(
             relay_sink,
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
+            fee_estimator: FeeEstimator::new_dummy(),
+            reorg_receiver,
             chunk_rx,
             cancel,
         },
@@ -167,6 +204,7 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     let (relay_sink, _relay) = AuthorityService::prepare_relay(&config, &snapshot)
         .expect("the relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
         &handle,
@@ -180,6 +218,8 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
             relay_sink,
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
+            fee_estimator: FeeEstimator::new_dummy(),
+            reorg_receiver,
             chunk_rx,
             cancel: CancellationToken::new(),
         },

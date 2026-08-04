@@ -112,7 +112,14 @@ impl ChainUpdateRequest {
 
     pub(super) fn prepare(self) -> Result<ChainUpdateCommand, ChainUpdatePreparationFailure> {
         match self.prepare_borrowed() {
-            Ok(command) => Ok(command),
+            Ok(mut command) => {
+                // The fee estimator is a post-commit projection of the exact
+                // attached block sequence. Move that evidence into the sealed
+                // command so it cannot run before the authority transition or
+                // be reconstructed from a different chain cut afterwards.
+                command.attached_blocks = self.attached_blocks;
+                Ok(command)
+            }
             Err(error) => Err(ChainUpdatePreparationFailure {
                 error,
                 request: self,
@@ -202,6 +209,7 @@ impl ChainUpdateRequest {
             facts,
             committed_hashes,
             candidate_uncles: candidate_uncles.into_values(),
+            attached_blocks: VecDeque::new(),
             had_detached_chain: !self.detached_blocks.is_empty(),
             packaging: self.packaging,
             snapshot: Arc::clone(&self.snapshot),
@@ -235,6 +243,10 @@ pub(super) struct ChainUpdateCommand {
     pub(super) facts: CanonicalChainFacts,
     pub(super) committed_hashes: Vec<(ProposalShortId, Byte32)>,
     pub(super) candidate_uncles: Vec<UncleBlockView>,
+    /// Ordered evidence consumed by the fee-estimator projection only after
+    /// this command commits. Empty during borrowed preparation and filled by
+    /// `prepare` through ownership transfer from the raw request.
+    pub(super) attached_blocks: VecDeque<BlockView>,
     pub(super) had_detached_chain: bool,
     pub(super) packaging: ChainPackaging,
     pub(super) snapshot: Arc<Snapshot>,
@@ -274,8 +286,9 @@ fn map_chain_facts_error(error: ChainFactsError) -> ChainBoundaryError {
     }
 }
 
-#[must_use = "candidate uncles and the committed snapshot feed template refresh"]
+#[must_use = "post-commit chain projections must consume this exact committed cut"]
 pub(super) struct CommittedChainUpdate {
     pub(super) candidate_uncles: Vec<UncleBlockView>,
+    pub(super) attached_blocks: VecDeque<BlockView>,
     pub(super) snapshot: Arc<Snapshot>,
 }

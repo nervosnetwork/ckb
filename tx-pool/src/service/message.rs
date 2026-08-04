@@ -1,10 +1,10 @@
 //! Tx-pool service message definitions.
 
 use crate::service::{Notify, Request};
-use crate::tx_source::TxSource;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
+use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -17,12 +17,11 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use ckb_verification::cache::TxVerificationCacheKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(feature = "internal")]
-use crate::{component::entry::TxEntry, process::PlugTarget};
+use crate::{PlugTarget, component::entry::TxEntry};
 
 pub(crate) type BlockTemplateResult = Result<BlockTemplate, AnyError>;
 pub(crate) type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
@@ -120,12 +119,34 @@ impl IntoIterator for NotifyTxBatch {
     }
 }
 
+/// A remote controller submission whose origin cannot be confused with Local
+/// or Proposal admission at the service boundary.
+pub(crate) struct RemoteTxSubmission {
+    pub(crate) transaction: TransactionView,
+    pub(crate) declared_cycles: Cycle,
+    pub(crate) peer: PeerIndex,
+}
+
+impl RemoteTxSubmission {
+    pub(crate) fn new(
+        transaction: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) -> Self {
+        Self {
+            transaction,
+            declared_cycles,
+            peer,
+        }
+    }
+}
+
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<BlockTemplateArgs, BlockTemplateResult>),
     SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, bool>),
     TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
-    SubmitRemoteTx(AsyncRequest<(TransactionView, TxSource), ()>),
+    SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
     NotifyTxs(Notify<NotifyTxBatch>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
@@ -163,24 +184,6 @@ pub(crate) type SyncRequest<A, T> = Request<oneshot::Sender<T>, A>;
 /// Asynchronous request using the `tokio` oneshot responder.
 pub(crate) type AsyncRequest<A, T> = Request<tokio::sync::oneshot::Sender<T>, A>;
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub(crate) enum BlockAssemblerMessage {
-    Pending,
-    Proposed,
-    Uncle,
-    /// Wake token for the latest reset snapshot retained in `RelayState`.
-    /// Snapshot authority never travels through the bounded channel.
-    Reset,
-}
-
 #[cfg(test)]
 #[path = "tests/message.rs"]
 mod tests;
-
-/// Best-effort verification-cache update. Dropping one only causes a later
-/// re-verification; executable transaction recovery is owned separately by
-/// the level-triggered conflict-cache maintenance path.
-pub(crate) struct VerifyCacheUpdate {
-    pub(crate) key: TxVerificationCacheKey,
-    pub(crate) completed: ckb_verification::cache::Completed,
-}

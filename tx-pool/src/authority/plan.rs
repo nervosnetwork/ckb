@@ -55,11 +55,11 @@ use super::scheduler::{
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
-    AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut,
-    DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx,
-    PayloadPolicy, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
-    ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry,
-    ReplacementHistoryError, TxRecord, ValidatedAdmission,
+    AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
+    ComputeGrant, DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
+    MissingDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedEntry,
+    PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
+    ReplacementHistoryEntry, ReplacementHistoryError, TxRecord, ValidatedAdmission,
 };
 #[cfg(test)]
 use super::state::{AcceptedStatus, TxIdentity};
@@ -300,6 +300,24 @@ impl TxPoolAuthority {
 
     pub(super) fn resources(&self) -> &ResourceLedger {
         &self.resources
+    }
+
+    pub(super) fn operational_metrics(&self) -> crate::metrics::OperationalMetrics {
+        let total = self.resources.preaccepted();
+        let remote = self.resources.remote();
+        let conflict = self.resources.replacement_history();
+        crate::metrics::OperationalMetrics {
+            kernel: crate::metrics::KernelUsage {
+                total_entries: total.entries,
+                total_bytes: total.total_bytes().map_or(usize::MAX, |bytes| bytes),
+                remote_entries: remote.entries,
+                remote_bytes: remote.total_bytes().map_or(usize::MAX, |bytes| bytes),
+                conflict_entries: conflict.entries,
+                conflict_bytes: conflict.total_bytes().map_or(usize::MAX, |bytes| bytes),
+                active_work: total.active_work,
+            },
+            effects: self.effects.operational_usage(),
+        }
     }
 
     pub(super) fn membership_counts(&self) -> StatusCounts {
@@ -792,6 +810,7 @@ impl From<PeerBanError> for PlanError {
 pub(super) struct CommittedChange {
     pub(super) sequence: ApplySequence,
     pub(super) changed: RawTxHash,
+    async_process_start: Option<AsyncProcessStart>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -943,6 +962,52 @@ impl CommittedDelta {
     pub(in crate::authority) fn retired_effect_len(&self) -> usize {
         usize::from(self.retired_effect.is_some())
     }
+
+    /// Publish the legacy asynchronous processing histogram only from the
+    /// closed receipt of a successful membership Apply. Timing evidence is
+    /// removed from Accepted ownership before this receipt is built, so a
+    /// stale plan, retry, cancellation or journal replay cannot double-count.
+    pub(in crate::authority) fn publish_async_process_metrics(&self) {
+        let Some(metrics) = ckb_metrics::handle() else {
+            return;
+        };
+        let mut observe = |change: &CommittedChange| {
+            if let Some(started_at) = change.async_process_start {
+                metrics
+                    .ckb_tx_pool_async_process
+                    .observe(started_at.elapsed_seconds());
+            }
+        };
+        match &self.changes {
+            CommittedChanges::One(change) => observe(change),
+            CommittedChanges::IndependentRun(changes) => {
+                changes.iter().for_each(&mut observe);
+            }
+            CommittedChanges::DependencyControl(_)
+            | CommittedChanges::EffectControl(_)
+            | CommittedChanges::ClearPipelineControl { .. }
+            | CommittedChanges::ClearPoolControl(_)
+            | CommittedChanges::AdminControl { .. }
+            | CommittedChanges::ChainControl { .. } => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn async_process_observation_count(&self) -> usize {
+        match &self.changes {
+            CommittedChanges::One(change) => usize::from(change.async_process_start.is_some()),
+            CommittedChanges::IndependentRun(changes) => changes
+                .iter()
+                .filter(|change| change.async_process_start.is_some())
+                .count(),
+            CommittedChanges::DependencyControl(_)
+            | CommittedChanges::EffectControl(_)
+            | CommittedChanges::ClearPipelineControl { .. }
+            | CommittedChanges::ClearPoolControl(_)
+            | CommittedChanges::AdminControl { .. }
+            | CommittedChanges::ChainControl { .. } => 0,
+        }
+    }
 }
 
 struct EntryDelta {
@@ -1090,6 +1155,7 @@ struct MembershipCompilation {
     sequence: ApplySequence,
     effects: MembershipEffects,
     changed_retirement: ChangedOwnerRetirement,
+    async_process_start: Option<AsyncProcessStart>,
 }
 
 /// Admission publication is a closed capability choice. Normal production
@@ -1598,6 +1664,7 @@ impl PreparedApply<'_> {
             changes: CommittedChanges::One(CommittedChange {
                 sequence: delta.sequence,
                 changed: delta.key,
+                async_process_start: None,
             }),
             handoff,
             removals: Vec::new(),
@@ -3153,7 +3220,8 @@ impl TxPoolAuthority {
             next_arrival,
             ..self.clocks
         };
-        let accepted = Self::direct_candidate(receipt, existing.as_ref(), version, arrival);
+        let (accepted, async_process_start) =
+            Self::direct_candidate(receipt, existing.as_ref(), version, arrival);
         let prepared = match self.prepare_membership_candidate(&key, &accepted) {
             Ok(prepared) => prepared,
             Err(PlanError::Membership(reason)) => {
@@ -3193,6 +3261,7 @@ impl TxPoolAuthority {
             sequence,
             effects: MembershipEffects::Publish(EffectPolicy::Trusted),
             changed_retirement: retirement,
+            async_process_start,
         })?;
         Ok(DirectAdmissionDisposition::Accepted(PreparedApply {
             authority: self,
@@ -3226,7 +3295,8 @@ impl TxPoolAuthority {
             next_arrival: next_arrival(arrival)?,
             ..self.clocks
         };
-        let accepted = Self::direct_candidate(receipt, None, version, arrival);
+        let (accepted, async_process_start) =
+            Self::direct_candidate(receipt, None, version, arrival);
         let prepared = self
             .prepare_non_displacing_internal_candidate(&key, &accepted)?
             .ok_or(InternalPlugPlanError::WouldDisplace)?;
@@ -3239,6 +3309,7 @@ impl TxPoolAuthority {
             sequence,
             effects: MembershipEffects::SilentInternal,
             changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
+            async_process_start,
         })?;
         Ok(InternalPlugDisposition::Insert(PreparedApply {
             authority: self,
@@ -3268,7 +3339,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Backpressure(Backpressure::ProposalCollision));
         }
         let completed = receipt.completed();
-        let accepted = Self::direct_candidate(
+        let (accepted, _async_process_start) = Self::direct_candidate(
             receipt,
             None,
             self.clocks.next_version,
@@ -3286,25 +3357,29 @@ impl TxPoolAuthority {
         existing: Option<&OwnedTx>,
         version: EntryVersion,
         arrival: Arrival,
-    ) -> AcceptedEntry {
+    ) -> (AcceptedEntry, Option<AsyncProcessStart>) {
         let provenance = existing
             .and_then(OwnedTx::ingress_peer)
             .map_or(AcceptedProvenance::Trusted, |ingress| {
                 AcceptedProvenance::Peer { ingress }
             });
-        let (tx, proof, proposal, accepted_at) = receipt.into_membership_parts();
-        AcceptedEntry {
-            record: TxRecord {
-                tx,
-                identity: proof.payload().identity().clone(),
-                version,
-                arrival,
+        let (tx, proof, proposal, accepted_at, async_process_start) =
+            receipt.into_membership_parts();
+        (
+            AcceptedEntry {
+                record: TxRecord {
+                    tx,
+                    identity: proof.payload().identity().clone(),
+                    version,
+                    arrival,
+                },
+                provenance,
+                proof,
+                proposal,
+                accepted_at,
             },
-            provenance,
-            proof,
-            proposal,
-            accepted_at,
-        }
+            async_process_start,
+        )
     }
 
     /// Commit an owner-free ingress/resolve/verify rejection only while its
@@ -3455,7 +3530,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Phase));
         }
         self.validate_acceptance_evidence(preaccepted, &receipt)?;
-        let (proof, proposal, accepted_at) = receipt.into_membership_parts();
+        let (proof, proposal, accepted_at, async_process_start) = receipt.into_membership_parts();
         let version = self.clocks.next_version;
         let sequence = self.clocks.next_sequence;
         let base_clocks = AuthorityClocks {
@@ -3483,6 +3558,7 @@ impl TxPoolAuthority {
             sequence,
             effects: MembershipEffects::Publish(effect_policy),
             changed_retirement,
+            async_process_start,
         })
     }
 
@@ -3499,6 +3575,7 @@ impl TxPoolAuthority {
             sequence,
             effects,
             changed_retirement,
+            async_process_start,
         } = compilation;
         if existing.is_none() {
             self.reserve_primary_owner_insertions(1)?;
@@ -3583,6 +3660,7 @@ impl TxPoolAuthority {
             committed: CommittedChanges::One(CommittedChange {
                 sequence,
                 changed: key,
+                async_process_start,
             }),
         })
     }
@@ -3777,6 +3855,7 @@ impl TxPoolAuthority {
                 committed: CommittedChanges::One(CommittedChange {
                     sequence,
                     changed: key.clone(),
+                    async_process_start: None,
                 }),
             }),
             handoff: CommittedHandoff::None,

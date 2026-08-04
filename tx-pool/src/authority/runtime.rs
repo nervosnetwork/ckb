@@ -1669,6 +1669,7 @@ impl AuthorityRuntime {
             facts: _,
             committed_hashes,
             candidate_uncles,
+            attached_blocks,
             had_detached_chain: _,
             packaging: _,
             snapshot,
@@ -1683,6 +1684,7 @@ impl AuthorityRuntime {
         self.signals.publish_mutation();
         Ok(CommittedChainUpdate {
             candidate_uncles,
+            attached_blocks,
             snapshot,
         })
     }
@@ -2301,13 +2303,26 @@ impl AuthorityRuntime {
         &self,
         settlement: EffectSettlement,
     ) -> Result<(), EffectSettlementFailure> {
+        let rejection_metrics = settlement.rejection_metrics();
         let retirement = {
             let mut store = self.store.write();
             store.authority.apply_effect_settlement(settlement)?
         };
         drop(retirement);
         self.signals.publish_mutation();
+        rejection_metrics.publish();
         Ok(())
+    }
+
+    /// Publish a coalesced operational projection without creating another
+    /// state owner. The complete copy is captured under one authority read
+    /// guard; metric calls happen only after the guard is released.
+    pub(in crate::authority) fn publish_operational_metrics(&self) {
+        let metrics = {
+            let store = self.store.read();
+            store.authority.operational_metrics()
+        };
+        metrics.publish();
     }
 
     /// Close effect production after every state producer and compute
@@ -2872,6 +2887,7 @@ impl AuthorityRuntime {
                 }
             }
         };
+        committed.publish_async_process_metrics();
         drop(committed);
         self.signals.publish_mutation();
         Ok(AuthorityReadyOutcome::Applied { owners })

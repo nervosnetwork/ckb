@@ -494,38 +494,44 @@ async fn run_maintenance_driver_loop(
     // without manually computing an overflow-capable deadline.
     expiry.tick().await;
 
-    loop {
-        if cancel.is_cancelled() {
-            return Ok(());
-        }
+    let result = async {
+        loop {
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
 
-        // Subscribe before reading every level. A mutation between the last
-        // Idle result and suspension is therefore observed, while coalescing
-        // repeated hints cannot lose authoritative work.
-        let signal = runtime.mutation_signal();
-        let notified = signal.notified();
-        observe_round();
-        let step = run_maintenance_round(&runtime)?;
-        match step {
-            WorkerStep::Progress => {
-                tokio::task::yield_now().await;
-            }
-            WorkerStep::Wait => {
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(()),
-                    _ = notified => {}
-                    _ = expiry.tick() => {}
+            // Subscribe before reading every level. A mutation between the
+            // last Idle result and suspension is therefore observed, while
+            // coalescing repeated hints cannot lose authoritative work.
+            let signal = runtime.mutation_signal();
+            let notified = signal.notified();
+            observe_round();
+            runtime.publish_operational_metrics();
+            let step = run_maintenance_round(&runtime)?;
+            match step {
+                WorkerStep::Progress => {
+                    tokio::task::yield_now().await;
                 }
-            }
-            WorkerStep::Backoff => {
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(()),
-                    _ = notified => {}
-                    _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
+                WorkerStep::Wait => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        _ = notified => {}
+                        _ = expiry.tick() => {}
+                    }
+                }
+                WorkerStep::Backoff => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        _ = notified => {}
+                        _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
+                    }
                 }
             }
         }
     }
+    .await;
+    crate::metrics::OperationalMetrics::default().publish();
+    result
 }
 
 fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, AuthorityWorkerFault> {

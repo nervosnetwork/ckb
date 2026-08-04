@@ -253,6 +253,52 @@ fn pending_proposals_filter_conflicting_uncle_subtree() {
 }
 
 #[test]
+fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
+    use ckb_types::packed::ProposalShortId;
+
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let epoch = snapshot
+        .consensus()
+        .genesis_epoch_ext()
+        .number_with_fraction(1);
+    let proposal = ProposalShortId::from_tx_hash(&Byte32::new([3; 32]));
+    let conflicting = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .parent_hash(genesis.hash())
+        .proposals(vec![proposal.clone()])
+        .build()
+        .as_uncle();
+    let independent = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .timestamp(1)
+        .parent_hash(genesis.hash())
+        .build()
+        .as_uncle();
+    let base = 1_000;
+    let expected_uncle_size = super::BlockAssembler::uncle_size(&independent).unwrap();
+    let max = base + ProposalShortId::serialized_size() + expected_uncle_size;
+
+    let fitted = super::BlockAssembler::fit_optional_content(
+        &snapshot,
+        vec![proposal.clone()],
+        &[conflicting, independent.clone()],
+        base,
+        max,
+    )
+    .unwrap()
+    .expect("mandatory template content fits");
+
+    assert_eq!(fitted.proposals, vec![proposal]);
+    assert_eq!(fitted.uncles, vec![independent]);
+    assert_eq!(fitted.proposals_size, ProposalShortId::serialized_size());
+    assert_eq!(fitted.uncles_size, expected_uncle_size);
+    assert_eq!(fitted.total_size, max);
+}
+
+#[test]
 fn proposal_update_keeps_highest_scored_fitting_prefix() {
     use ckb_types::packed::ProposalShortId;
 

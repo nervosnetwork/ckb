@@ -30,12 +30,9 @@ use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::{
-    core::{EpochExt, UncleBlockView},
-    packed::ProposalShortId,
-};
+use ckb_types::core::{EpochExt, UncleBlockView};
 use ckb_util::Mutex;
-use std::{cmp, collections::HashSet, sync::Arc, time::Duration};
+use std::{cmp, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
 const TEMPLATE_ALLOCATION_RETRY: Duration = Duration::from_millis(1);
@@ -103,7 +100,7 @@ pub(super) struct TemplateRetrySourceCut {
 }
 
 pub(in crate::authority) struct AuthorityTemplateDriverHandles {
-    pub(in crate::authority) tasks: [AuthorityTemplateTask; 4],
+    pub(in crate::authority) tasks: [AuthorityTemplateTask; 5],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,6 +109,7 @@ pub(in crate::authority) enum AuthorityTemplateRole {
     Proposals,
     Transactions,
     Uncles,
+    Notification,
 }
 
 pub(in crate::authority) struct AuthorityTemplateTask {
@@ -131,6 +129,10 @@ pub(in crate::authority) struct AuthorityBlockAssembler {
     assembler: BlockAssembler,
     convergence: Arc<Mutex<TemplateConvergence>>,
     wake: Arc<Notify>,
+    /// Immediate replacement notification is a distinct observer edge. It
+    /// neither schedules template work nor owns a publication revision.
+    replacement_notification: Arc<Notify>,
+    notification_baseline: TemplateRevision,
 }
 
 pub(in crate::authority) struct PreparedFull {
@@ -159,6 +161,7 @@ impl AuthorityBlockAssembler {
         let input = runtime.template_input()?;
         let current = assembler.current.read().await;
         let reset_epoch = current.reset_epoch;
+        let notification_baseline = current.revision;
         drop(current);
         let epoch = next_epoch(input.snapshot())?;
         let (_, _, uncle_source) = assembler
@@ -170,6 +173,8 @@ impl AuthorityBlockAssembler {
             assembler,
             convergence: Arc::new(Mutex::new(convergence)),
             wake: Arc::new(Notify::new()),
+            replacement_notification: Arc::new(Notify::new()),
+            notification_baseline,
         })
     }
 
@@ -222,9 +227,80 @@ impl AuthorityBlockAssembler {
             TemplateComponent::Uncles,
             AuthorityTemplateRole::Uncles,
         );
+        let notification = AuthorityTemplateTask {
+            role: AuthorityTemplateRole::Notification,
+            handle: {
+                let driver = self.clone();
+                let cancel = cancel.child_token();
+                handle.spawn(async move {
+                    let enabled = driver.assembler.notifications_enabled();
+                    driver.run_notification_lane(cancel, enabled).await
+                })
+            },
+        };
         AuthorityTemplateDriverHandles {
-            tasks: [replacement, proposals, transactions, uncles],
+            tasks: [replacement, proposals, transactions, uncles, notification],
         }
+    }
+
+    /// Preserve the configured observer cadence without putting external I/O
+    /// in any publication lane. Reset/full wakes are immediate; optimistic
+    /// partial publications coalesce until the configured interval. Revision
+    /// is read from `CurrentTemplate`, so this task owns no shadow authority or
+    /// lossy dirty bit.
+    async fn run_notification_lane(
+        self,
+        cancel: CancellationToken,
+        enabled: bool,
+    ) -> Result<(), AuthorityTemplateDriverFault> {
+        let interval = Duration::from_millis(self.assembler.config.update_interval_millis);
+        if interval.is_zero() {
+            ckb_logger::warn!(
+                "block_assembler.update_interval_millis is zero; external template notification is disabled"
+            );
+            cancel.cancelled().await;
+            return Ok(());
+        }
+        if !enabled {
+            cancel.cancelled().await;
+            return Ok(());
+        }
+
+        let mut last_notified = self.notification_baseline;
+        let mut ticker = tokio::time::interval_at(tokio::time::Instant::now(), interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Ok(()),
+                _ = self.replacement_notification.notified() => {
+                    self.notify_if_changed(&mut last_notified).await;
+                }
+                _ = ticker.tick() => {
+                    self.notify_if_changed(&mut last_notified).await;
+                }
+            }
+        }
+    }
+
+    async fn notify_if_changed(&self, last_notified: &mut TemplateRevision) {
+        let revision = self.assembler.current.read().await.revision;
+        if revision == *last_notified {
+            return;
+        }
+        // Record the exact revision captured before notification. A racing
+        // later publication therefore remains different and cannot lose its
+        // next interval/replacement observation.
+        *last_notified = revision;
+        self.assembler.notify().await;
+    }
+
+    #[cfg(test)]
+    pub(super) async fn run_notification_lane_for_foundation(
+        self,
+        cancel: CancellationToken,
+    ) -> Result<(), AuthorityTemplateDriverFault> {
+        self.run_notification_lane(cancel, true).await
     }
 
     fn spawn_component_lane(
@@ -574,18 +650,25 @@ impl AuthorityBlockAssembler {
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
-        let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
-        let uncles = BlockAssembler::filter_uncles_conflicting_with_proposals(
-            input.snapshot(),
-            &prepared_uncles,
-            &proposal_set,
-        );
-        let basic_size = BlockAssembler::basic_block_size(
+        let fixed_size = BlockAssembler::basic_block_size(
             current.template.cellbase.data(),
-            &uncles,
-            proposals.iter(),
+            &[],
+            std::iter::empty(),
             current.template.extension.clone(),
         );
+        let optional = BlockAssembler::fit_optional_content(
+            input.snapshot(),
+            proposals,
+            &prepared_uncles,
+            fixed_size,
+            consensus.max_block_bytes() as usize,
+        )?
+        .ok_or(BlockAssemblerError::Overflow)?;
+        let proposals = optional.proposals;
+        let uncles = optional.uncles;
+        let proposals_size = optional.proposals_size;
+        let uncles_size = optional.uncles_size;
+        let basic_size = optional.total_size;
         let tx_bytes = (consensus.max_block_bytes() as usize)
             .checked_sub(basic_size)
             .ok_or(BlockAssemblerError::Overflow)?;
@@ -608,13 +691,7 @@ impl AuthorityBlockAssembler {
         // selected transaction, but an unexpected miss must degrade to the
         // checked subset rather than terminate a miner-facing worker or
         // mutate authoritative membership from incomplete overlay evidence.
-
         let txs_size = BlockAssembler::checked_entries_size(&checked_txs)?;
-        let proposals_size = proposals
-            .len()
-            .checked_mul(ProposalShortId::serialized_size())
-            .ok_or(BlockAssemblerError::Overflow)?;
-        let uncles_size = BlockAssembler::uncles_size(&uncles)?;
         let total = basic_size
             .checked_add(txs_size)
             .ok_or(BlockAssemblerError::Overflow)?;
@@ -690,36 +767,32 @@ impl AuthorityBlockAssembler {
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
-        let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
-        let uncles = BlockAssembler::filter_uncles_conflicting_with_proposals(
-            input.snapshot(),
-            &current.template.uncles,
-            &proposal_set,
-        );
-        let uncles_size = BlockAssembler::uncles_size(&uncles)?;
-        let proposals_size = proposals
-            .len()
-            .checked_mul(ProposalShortId::serialized_size())
-            .ok_or(BlockAssemblerError::Overflow)?;
-        let Some(total) = current
+        let base_total_size = current
             .size
-            .calc_total_by_uncles_and_proposals(uncles_size, proposals_size)
-        else {
-            return Err(BlockAssemblerError::Overflow.into());
-        };
-        if total > consensus.max_block_bytes() as usize {
-            self.require_full();
-            return Ok(None);
-        }
+            .total
+            .checked_sub(current.size.uncles)
+            .and_then(|size| size.checked_sub(current.size.proposals))
+            .ok_or(BlockAssemblerError::Overflow)?;
+        let optional = BlockAssembler::fit_optional_content(
+            input.snapshot(),
+            proposals,
+            &current.template.uncles,
+            base_total_size,
+            consensus.max_block_bytes() as usize,
+        )?
+        .ok_or(BlockAssemblerError::Overflow)?;
         let size = TemplateSize {
-            uncles: uncles_size,
-            proposals: proposals_size,
-            total,
+            uncles: optional.uncles_size,
+            proposals: optional.proposals_size,
+            total: optional.total_size,
             ..current.size
         };
         let updated = self.updated_current(
             &current,
-            TemplateContentUpdate::Proposals { uncles, proposals },
+            TemplateContentUpdate::Proposals {
+                uncles: optional.uncles,
+                proposals: optional.proposals,
+            },
             size,
         )?;
         Ok(Some(PreparedPartial {
@@ -817,36 +890,32 @@ impl AuthorityBlockAssembler {
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
-        let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
-        let uncles = BlockAssembler::filter_uncles_conflicting_with_proposals(
-            input.snapshot(),
-            &uncles,
-            &proposal_set,
-        );
-        let uncles_size = BlockAssembler::uncles_size(&uncles)?;
-        let proposals_size = proposals
-            .len()
-            .checked_mul(ProposalShortId::serialized_size())
-            .ok_or(BlockAssemblerError::Overflow)?;
-        let Some(total) = current
+        let base_total_size = current
             .size
-            .calc_total_by_uncles_and_proposals(uncles_size, proposals_size)
-        else {
-            return Err(BlockAssemblerError::Overflow.into());
-        };
-        if total > consensus.max_block_bytes() as usize {
-            self.require_full();
-            return Ok(None);
-        }
+            .total
+            .checked_sub(current.size.uncles)
+            .and_then(|size| size.checked_sub(current.size.proposals))
+            .ok_or(BlockAssemblerError::Overflow)?;
+        let optional = BlockAssembler::fit_optional_content(
+            input.snapshot(),
+            proposals,
+            &uncles,
+            base_total_size,
+            consensus.max_block_bytes() as usize,
+        )?
+        .ok_or(BlockAssemblerError::Overflow)?;
         let size = TemplateSize {
-            uncles: uncles_size,
-            proposals: proposals_size,
-            total,
+            uncles: optional.uncles_size,
+            proposals: optional.proposals_size,
+            total: optional.total_size,
             ..current.size
         };
         let updated = self.updated_current(
             &current,
-            TemplateContentUpdate::Proposals { uncles, proposals },
+            TemplateContentUpdate::Proposals {
+                uncles: optional.uncles,
+                proposals: optional.proposals,
+            },
             size,
         )?;
         Ok(Some(PreparedPartial {
@@ -854,12 +923,6 @@ impl AuthorityBlockAssembler {
             current: updated,
             prune: Some(prune),
         }))
-    }
-
-    fn require_full(&self) {
-        if self.convergence.lock().require_full() {
-            self.wake.notify_waiters();
-        }
     }
 
     fn updated_current(
@@ -913,6 +976,7 @@ impl AuthorityBlockAssembler {
         drop(convergence);
         drop(published);
         self.wake.notify_waiters();
+        self.replacement_notification.notify_one();
         Ok(AuthorityTemplateStep::Published)
     }
 
@@ -978,6 +1042,7 @@ impl AuthorityBlockAssembler {
         drop(convergence);
         drop(published);
         self.wake.notify_waiters();
+        self.replacement_notification.notify_one();
         Ok(AuthorityTemplateStep::Published)
     }
 }

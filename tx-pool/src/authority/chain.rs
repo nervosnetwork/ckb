@@ -7,9 +7,10 @@
 
 use super::rejection::CommittedPublicReject;
 use super::state::{
-    AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, CandidateMetrics,
-    ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration, PreAcceptedSource,
-    ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission, VerifiedFacts,
+    AcceptedAtMillis, AcceptedStatus, AdmissionValidationError, ApplySequence, AsyncProcessStart,
+    CandidateMetrics, ChainTipHash, ChainViewId, DependencyCut, EntryVersion, PoolGeneration,
+    PreAcceptedSource, ProposalBase, ProposalId, RawTxHash, ResolvedPayload, ValidatedAdmission,
+    VerifiedFacts,
 };
 use ckb_snapshot::Snapshot;
 use ckb_types::{
@@ -451,6 +452,7 @@ impl MembershipValidationWork {
             .verified
             .with_context(context)
             .ok_or(AdmissionEvidenceError::ScriptRulesChanged)?;
+        let (verified, async_process_start) = verified.into_accepted();
         Ok(MembershipReceipt {
             proof: AcceptedProof {
                 verified,
@@ -458,6 +460,7 @@ impl MembershipValidationWork {
             },
             proposal: ProposalContextReceipt::from_validation(status),
             accepted_at,
+            async_process_start,
         })
     }
 }
@@ -614,6 +617,7 @@ pub(super) struct MembershipReceipt {
     proof: AcceptedProof,
     proposal: ProposalContextReceipt,
     accepted_at: AcceptedAtMillis,
+    async_process_start: Option<AsyncProcessStart>,
 }
 
 impl MembershipReceipt {
@@ -624,6 +628,7 @@ impl MembershipReceipt {
         status: AcceptedStatus,
         accepted_at: AcceptedAtMillis,
     ) -> Self {
+        let (verified, async_process_start) = verified.into_accepted();
         Self {
             proof: AcceptedProof {
                 verified,
@@ -631,6 +636,7 @@ impl MembershipReceipt {
             },
             proposal: ProposalContextReceipt::from_validation(status),
             accepted_at,
+            async_process_start,
         }
     }
 
@@ -642,8 +648,20 @@ impl MembershipReceipt {
         &self.proof
     }
 
-    fn into_parts(self) -> (AcceptedProof, ProposalContextReceipt, AcceptedAtMillis) {
-        (self.proof, self.proposal, self.accepted_at)
+    fn into_parts(
+        self,
+    ) -> (
+        AcceptedProof,
+        ProposalContextReceipt,
+        AcceptedAtMillis,
+        Option<AsyncProcessStart>,
+    ) {
+        (
+            self.proof,
+            self.proposal,
+            self.accepted_at,
+            self.async_process_start,
+        )
     }
 }
 
@@ -780,7 +798,12 @@ impl FinalAdmissionReceipt {
 
     pub(super) fn into_membership_parts(
         self,
-    ) -> (AcceptedProof, ProposalContextReceipt, AcceptedAtMillis) {
+    ) -> (
+        AcceptedProof,
+        ProposalContextReceipt,
+        AcceptedAtMillis,
+        Option<AsyncProcessStart>,
+    ) {
         self.membership.into_parts()
     }
 }
@@ -813,6 +836,7 @@ impl DirectAdmissionReceipt {
         status: AcceptedStatus,
         accepted_at: AcceptedAtMillis,
     ) -> Self {
+        let (verified, async_process_start) = verified.into_accepted();
         Self {
             tx,
             membership: MembershipReceipt {
@@ -822,6 +846,7 @@ impl DirectAdmissionReceipt {
                 },
                 proposal: ProposalContextReceipt::from_validation(status),
                 accepted_at,
+                async_process_start,
             },
         }
     }
@@ -857,9 +882,10 @@ impl DirectAdmissionReceipt {
         AcceptedProof,
         ProposalContextReceipt,
         AcceptedAtMillis,
+        Option<AsyncProcessStart>,
     ) {
-        let (proof, proposal, accepted_at) = self.membership.into_parts();
-        (self.tx, proof, proposal, accepted_at)
+        let (proof, proposal, accepted_at, async_process_start) = self.membership.into_parts();
+        (self.tx, proof, proposal, accepted_at, async_process_start)
     }
 }
 

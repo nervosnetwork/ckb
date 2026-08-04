@@ -1,7 +1,7 @@
 # G5 Production Cutover Recovery Plan
 
-Status: G5.3c C0 service boundary implemented; complete closure gate passed;
-recoverable checkpoint pending; production cutover not started
+Status: G5.3c C1 production ownership cutover and C2 publication parity are
+wired; historical-behavior migration and physical legacy deletion are active
 Base checkpoint: c1650d596
 G5.3a checkpoint: d7c67a705
 G5.3b.2 checkpoint: bff9e5da2
@@ -14,20 +14,23 @@ G5.3b.7 slice 3 checkpoint: fb2ff7c27
 G5.3b.7 slice 4 checkpoint: 0b2c25ca7
 G5.3b.7 slice 5 checkpoint: 4a33169a35
 G5.3b.7 slice 6 checkpoint: d4b5a32b4
-Active slice: G5.3c C0 staged-boundary review and recoverable checkpoint; no
-production owner has switched
-Next exact action: inspect the staged boundary as one architecture change and
-freeze its recoverable checkpoint. Then execute C1 as the one coordinated
-production ownership switch; do not
-start endpoint-by-endpoint wiring. The unreachable adapter now closes direct
-Local/TestAccept, retained ingress and pressure outcomes, administration,
-replayable chain commands, all query/template projections, pure packing,
-coherent save/replay, move-only relay transfer, task topology/effect endpoints,
-and sealed internal PlugEntry. C1 must change service fields, dispatcher,
-builder/startup, ordered reorg, block-template inputs, persistence, effect
-endpoints, relay drain and topology shutdown together. C2 may then delete only
-code proven unreachable from production. Do not land a mixed legacy/UAK
-production authority.
+G5.3c C0 checkpoint: a2b552ae4
+Active slice: G5.3c C2 migrates every behavior-unique legacy regression before
+deleting the now production-unreachable legacy authority.
+Next exact action: classify the remaining legacy-only tests by UAK evidence,
+migrate only behavior-unique cases, then physically delete the disconnected
+`TxPool`/`PrePool`/legacy worker and effect-journal implementation. Publication
+parity is closed for callbacks, relay and known-filter reconciliation,
+recent-reject, peer ban/Sentry reporting, verification cache, persistence,
+fee-estimator chain projection, candidate uncles, all concurrent template
+lanes, miner notification, operational gauges, exact-once terminal rejection
+counters, sync/async processing histograms, failure-boundary counters, startup
+and ordered shutdown. Optional proposals and uncles now compile through one
+shared byte budget and only actually published proposal IDs suppress conflicting
+uncles. Evidence at this boundary: `cargo nextest run -p ckb-tx-pool --features
+internal --lib --no-fail-fast` passed 503/503 after one metric-only timestamp was
+correctly excluded from a semantic-equivalence assertion. Do not restore a
+mixed legacy/UAK production authority while deleting the unreachable code.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
@@ -2298,6 +2301,58 @@ C0 is allowed to compile in the tree because it is unconstructible from the
 production service. C1 must not retain a feature flag, runtime fallback,
 dual-write, shadow-read or second relay publication path. Rollback remains the
 Git checkpoint before C1.
+
+#### C1 construction and lifetime design (frozen before production edits)
+
+- `AuthorityService` becomes the sole concrete `TxPoolService`; it retains
+  only the unified runtime and immutable/derived service endpoints (config,
+  verification cache, fee estimator, recent-reject store, block assembler and
+  persistence writer). The legacy accepted `TxPool`, `PrePool`, epoch, effect
+  journal, ban fence, dirty journals and worker channels are not fields of the
+  production service after the switch.
+- `TxPoolServiceBuilder::new` constructs the bounded authority relay mailbox
+  and returns its move-only `TxVerificationResultReceiver` with the builder and
+  controller. Sync drains that receiver directly. There is no compatibility
+  forwarding task, cloneable sender, unbounded relay channel or dual
+  publication interval. All workspace callers change explicitly; an old
+  caller cannot compile while silently receiving no outcomes.
+- Startup order is total: validate/construct channels and the block assembler;
+  load bounded persistence bytes; assemble runtime, publisher, compute,
+  template and cache tasks; replay persistence through synchronous Local;
+  start the owned dispatcher/reorg generation; only then publish
+  `service_started`. Any failure consumes/shuts down the partial generation
+  and leaves the service unavailable.
+- Ordered reorg is a dedicated generation-owned task over the existing
+  capacity-one channel. It remains concurrent with ordinary controller
+  handlers and template component lanes, but it processes chain commands
+  strictly one at a time. Its cancellation can occur only before an Apply or
+  between exact-command allocation retries; it cannot abandon a partial chain
+  mutation. The generation joins it before closing/draining effects.
+- Full/reset keep the single replacement lane already owned by
+  `AuthorityBlockAssembler`; proposals, transactions and uncles retain the
+  three optimistic concurrent lanes. No dispatcher or reorg serialization is
+  allowed to collapse those four lanes.
+- The message dispatcher owns a bounded `JoinSet` of handlers and stops
+  receiving at the compiled concurrency limit, so the existing bounded
+  controller channel supplies backpressure. Join results replace detached
+  tasks plus `MessageHandlerGuard`: a programmer panic is observed as a join
+  fault, while legal rejection, resource pressure, stale work, cancellation
+  and endpoint degradation remain typed non-fatal outcomes.
+- Shutdown order is: mark service unavailable and close/drain queued requests;
+  cancel ingress; join every in-flight handler; cancel and join ordered reorg;
+  join compute workers; close and drain committed effects; join derived
+  template/cache tasks; persist only the resulting eligible coherent receipt.
+  No callback or external endpoint decides whether Apply happened.
+- Dispatch conversion is exhaustive for every `Message` variant. Plain legacy
+  responses use conservative compatibility values only for typed operational
+  pressure; structural authority faults are surfaced to the generation owner
+  and forbid persistence rather than being disguised as transaction policy.
+  Recent-reject and fee estimation remain derived services and cannot mutate
+  membership.
+- C1 disconnects the legacy ownership modules from compilation in the same
+  working-tree cut that installs the new service. C2 then physically deletes
+  those files and migrates any still-unique behavioral regression. No commit
+  may contain a production request path split between old and new ownership.
 
 1. Replace `TxPoolService` ownership fields with `AuthorityRuntime` and derived
    endpoints.

@@ -1,4 +1,5 @@
 use crate::error::Reject;
+#[cfg(test)]
 use crate::pool::TxPool;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -33,6 +34,7 @@ pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
     T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
 }
 
+#[cfg(test)]
 pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Result<(), Reject> {
     let short_id = tx.proposal_short_id();
     if let Some(existing) = tx_pool.pool_map.get_by_id(&short_id) {
@@ -52,6 +54,7 @@ pub(crate) fn check_txid_collision(tx_pool: &TxPool, tx: &TransactionView) -> Re
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn check_tx_fee(
     tx_pool: &TxPool,
     snapshot: &Snapshot,
@@ -217,6 +220,7 @@ pub(crate) async fn verify_rtx(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn time_relative_verify(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,

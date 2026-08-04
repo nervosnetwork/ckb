@@ -1,556 +1,442 @@
-//! Tx-pool message dispatching.
+//! Exhaustive conversion from controller messages to unified-authority APIs.
 
-use crate::component::pool_map::Status;
-use crate::pool_cell::PoolCell;
-use crate::service::{
-    AsyncRequest, BlockTemplateArgs, BlockTemplateResult, FeeEstimatesResult,
-    FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    PipelineTxLocation, ResolvedTxLocation, SubmitTxResult, SyncRequest, TestAcceptTxResult,
-    TxPoolService, map_pool_status, respond,
-};
-use crate::tx_source::TxSource;
-use ckb_error::AnyError;
-use ckb_snapshot::Snapshot;
-use ckb_store::ChainStore;
-use ckb_types::{
-    core::{
-        EstimateMode, TransactionView, UncleBlockView,
-        cell::{CellProvider, CellStatus, OverlayCellProvider},
-        tx_pool::{
-            PoolTxDetailInfo, TRANSACTION_SIZE_LIMIT, TransactionWithStatus, TxPoolEntryInfo,
-            TxPoolIds, TxPoolInfo, TxStatus,
+use crate::{
+    authority::{
+        query::{AuthorityPoolSummary, AuthorityTransactionLookup, PublicPoolStatus},
+        service::{
+            AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityPersistenceError,
+            AuthorityProjectionFault, AuthorityService, AuthorityServiceError,
         },
     },
-    packed::{Byte32, OutPoint, ProposalShortId},
+    service::{
+        AsyncRequest, Message, Notify, OneshotSender, RemoteTxSubmission, Request, SyncRequest,
+        respond,
+    },
 };
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use ckb_error::{AnyError, OtherError};
+use ckb_types::{
+    core::tx_pool::{
+        PoolTxDetailInfo, TRANSACTION_SIZE_LIMIT, TransactionWithStatus, TxPoolInfo, TxStatus,
+    },
+    packed::Byte32,
+};
 
-#[cfg(feature = "internal")]
-use crate::{component::entry::TxEntry, process::PlugTarget};
-
-pub(crate) async fn process(mut service: TxPoolService, message: Message) {
+/// Process one message. Only a structural authority contradiction is returned
+/// to the generation owner; legal rejection, pressure, cancellation and
+/// external derived-service errors are consumed at this compatibility edge.
+pub(crate) async fn process(
+    service: AuthorityService,
+    message: Message,
+) -> Result<(), AuthorityGenerationInvalidity> {
     match message {
-        Message::GetTxPoolInfo(req) => service.handle_get_tx_pool_info(req).await,
-        Message::GetLiveCell(req) => service.handle_get_live_cell(req).await,
-        Message::BlockTemplate(req) => service.handle_block_template(req).await,
-        Message::SubmitLocalTx(req) => service.handle_submit_local_tx(req).await,
-        Message::SubmitLocalTestTx(req) => service.handle_submit_local_test_tx(req).await,
-        Message::RemoveLocalTx(req) => service.handle_remove_local_tx(req).await,
-        Message::TestAcceptTx(req) => service.handle_test_accept_tx(req).await,
-        Message::SubmitRemoteTx(req) => service.handle_submit_remote_tx(req).await,
-        Message::NotifyTxs(req) => service.handle_notify_txs(req).await,
-        Message::FreshProposalsFilter(req) => service.handle_fresh_proposals_filter(req).await,
-        Message::GetTxStatus(req) => service.handle_get_tx_status(req).await,
-        Message::GetTransactionWithStatus(req) => {
-            service.handle_get_transaction_with_status(req).await;
+        Message::GetTxPoolInfo(request) => {
+            let Request { responder, .. } = request;
+            respond_outer(
+                responder,
+                service
+                    .pool_summary()
+                    .and_then(|summary| pool_info(&service, summary)),
+                "get_tx_pool_info",
+            )
         }
-        Message::FetchTxs(req) => service.handle_fetch_txs(req).await,
-        Message::FetchTxsWithCycles(req) => service.handle_fetch_txs_with_cycles(req).await,
-        Message::NewUncle(req) => service.handle_new_uncle(req).await,
-        Message::ClearPool(req) => service.handle_clear_pool(req).await,
-        Message::ClearPipeline(req) => service.handle_clear_pipeline(req).await,
-        Message::GetPoolTxDetails(req) => service.handle_get_pool_tx_details(req).await,
-        Message::GetAllEntryInfo(req) => service.handle_get_all_entry_info(req).await,
-        Message::GetAllIds(req) => service.handle_get_all_ids(req).await,
-        Message::SavePool(req) => service.handle_save_pool(req).await,
-        Message::UpdateIBDState(req) => service.handle_update_ibd_state(req).await,
-        Message::EstimateFeeRate(req) => service.handle_estimate_fee_rate(req).await,
+        Message::GetLiveCell(request) => {
+            let Request {
+                responder,
+                arguments: (out_point, with_data),
+            } = request;
+            respond(
+                responder,
+                service.live_cell_receipt(out_point).resolve(with_data),
+                "get_live_cell",
+            );
+            Ok(())
+        }
+        Message::BlockTemplate(request) => {
+            let Request { responder, .. } = request;
+            respond_nested_authority(responder, service.block_template().await, "block_template")
+        }
+        Message::SubmitLocalTx(request) | Message::SubmitLocalTestTx(request) => {
+            let Request {
+                responder,
+                arguments: transaction,
+            } = request;
+            respond_outer(
+                responder,
+                service
+                    .submit_local(transaction)
+                    .await
+                    .map(|result| result.map(|_| ())),
+                "submit_local_tx",
+            )
+        }
+        Message::RemoveLocalTx(request) => {
+            let Request {
+                responder,
+                arguments: hash,
+            } = request;
+            respond_outer(
+                responder,
+                service.remove_local(&hash).await,
+                "remove_local_tx",
+            )
+        }
+        Message::TestAcceptTx(request) => {
+            let Request {
+                responder,
+                arguments: transaction,
+            } = request;
+            respond_outer(
+                responder,
+                service.test_accept(transaction).await,
+                "test_accept_tx",
+            )
+        }
+        Message::SubmitRemoteTx(request) => {
+            let AsyncRequest {
+                responder,
+                arguments:
+                    RemoteTxSubmission {
+                        transaction,
+                        declared_cycles,
+                        peer,
+                    },
+            } = request;
+            let result = service
+                .submit_remote(transaction, declared_cycles, peer)
+                .await
+                .map(|_| ());
+            respond_outer(responder, result, "submit_remote_tx")
+        }
+        Message::NotifyTxs(Notify { arguments }) => {
+            for transaction in arguments {
+                if let Err(error) = service.submit_proposal(transaction).await {
+                    return settle_service_error(error);
+                }
+            }
+            Ok(())
+        }
+        Message::FreshProposalsFilter(request) => {
+            let AsyncRequest {
+                responder,
+                arguments,
+            } = request;
+            respond_outer(
+                responder,
+                service.filter_fresh_proposals(arguments),
+                "fresh_proposals_filter",
+            )
+        }
+        Message::FetchTxs(request) => {
+            let AsyncRequest {
+                responder,
+                arguments,
+            } = request;
+            respond_outer(
+                responder,
+                service.compact_transactions(arguments.into_iter().collect()),
+                "fetch_txs",
+            )
+        }
+        Message::FetchTxsWithCycles(request) => {
+            let AsyncRequest {
+                responder,
+                arguments,
+            } = request;
+            let result = service
+                .accepted_with_cycles(arguments.into_iter().collect())
+                .map(|entries| entries.into_iter().collect());
+            respond_outer(responder, result, "fetch_txs_with_cycles")
+        }
+        Message::GetTxStatus(request) => handle_get_tx_status(&service, request),
+        Message::GetTransactionWithStatus(request) => {
+            handle_get_transaction_with_status(&service, request)
+        }
+        Message::NewUncle(Notify { arguments }) => {
+            match service.receive_candidate_uncle(arguments) {
+                Ok(()) => Ok(()),
+                Err(error) => settle_service_error(error),
+            }
+        }
+        Message::ClearPool(request) => {
+            let Request {
+                responder,
+                arguments,
+            } = request;
+            respond_outer(responder, service.clear_pool(arguments).await, "clear_pool")
+        }
+        Message::ClearPipeline(request) => {
+            let Request { responder, .. } = request;
+            respond_outer(responder, service.clear_pipeline().await, "clear_pipeline")
+        }
+        Message::GetPoolTxDetails(request) => {
+            let Request {
+                responder,
+                arguments,
+            } = request;
+            respond_outer(
+                responder,
+                service
+                    .pool_detail(&arguments)
+                    .map(|detail| detail.unwrap_or_else(PoolTxDetailInfo::with_unknown)),
+                "get_pool_tx_details",
+            )
+        }
+        Message::GetAllEntryInfo(request) => {
+            let Request { responder, .. } = request;
+            respond_outer(responder, service.all_entry_info(), "get_all_entry_info")
+        }
+        Message::GetAllIds(request) => {
+            let Request { responder, .. } = request;
+            respond_outer(responder, service.pool_ids(), "get_all_ids")
+        }
+        Message::SavePool(request) => {
+            let Request { responder, .. } = request;
+            match service.save_pool().await {
+                Ok(()) => {
+                    respond(responder, (), "save_pool");
+                    Ok(())
+                }
+                Err(AuthorityPersistenceError::Snapshot(error)) => {
+                    drop(responder);
+                    settle_service_error(error)
+                }
+                Err(error) => {
+                    ckb_logger::error!("explicit tx-pool save failed: {error:?}");
+                    respond(responder, (), "save_pool");
+                    Ok(())
+                }
+            }
+        }
+        Message::UpdateIBDState(request) => {
+            let Request {
+                responder,
+                arguments,
+            } = request;
+            service.update_ibd_state(arguments);
+            respond(responder, (), "update_ibd_state");
+            Ok(())
+        }
+        Message::EstimateFeeRate(request) => {
+            let Request {
+                responder,
+                arguments: (mode, fallback),
+            } = request;
+            respond_derived(
+                responder,
+                service.estimate_fee_rate(mode, fallback),
+                "estimate_fee_rate",
+            )
+        }
+        Message::GetTotalRecentRejectNum(request) => {
+            let Request { responder, .. } = request;
+            respond(
+                responder,
+                service.total_recent_reject_num(),
+                "get_total_recent_reject_num",
+            );
+            Ok(())
+        }
         #[cfg(feature = "internal")]
-        Message::PlugEntry(req) => service.handle_plug_entry(req).await,
+        Message::PlugEntry(request) => {
+            let Request {
+                responder,
+                arguments: (entries, target),
+            } = request;
+            respond(
+                responder,
+                service.plug_entry(entries, target).await,
+                "plug_entry",
+            );
+            Ok(())
+        }
         #[cfg(feature = "internal")]
-        Message::PackageTxs(req) => service.handle_package_txs(req).await,
-        Message::GetTotalRecentRejectNum(req) => {
-            service.handle_get_total_recent_reject_num(req).await;
+        Message::PackageTxs(request) => {
+            let Request {
+                responder,
+                arguments,
+            } = request;
+            respond_outer(
+                responder,
+                service.package_transactions(arguments),
+                "package_txs",
+            )
         }
     }
 }
 
-impl TxPoolService {
-    async fn handle_get_tx_pool_info(&self, req: SyncRequest<(), TxPoolInfo>) {
-        let SyncRequest { responder, .. } = req;
-        let info = self.info().await;
-        respond(responder, info, "get_tx_pool_info");
-    }
+fn pool_info(
+    service: &AuthorityService,
+    summary: AuthorityPoolSummary,
+) -> Result<TxPoolInfo, AuthorityServiceError> {
+    let max_tx_pool_size = u64::try_from(service.config().max_tx_pool_size)
+        .map_err(|_| AuthorityServiceError::Projection(AuthorityProjectionFault::Resource))?;
+    Ok(TxPoolInfo {
+        tip_hash: summary.tip_hash,
+        tip_number: summary.tip_number,
+        pending_size: summary.pending_size,
+        proposed_size: summary.proposed_size,
+        orphan_size: summary.orphan_size,
+        total_tx_size: summary.total_tx_size,
+        total_tx_cycles: summary.total_tx_cycles,
+        min_fee_rate: service.config().min_fee_rate,
+        min_rbf_rate: service.config().min_rbf_rate,
+        last_txs_updated_at: summary.last_txs_updated_at,
+        tx_size_limit: TRANSACTION_SIZE_LIMIT,
+        max_tx_pool_size,
+        verify_queue_size: summary.verify_queue_size,
+    })
+}
 
-    async fn handle_get_live_cell(&self, req: SyncRequest<(OutPoint, bool), CellStatus>) {
-        let SyncRequest {
-            responder,
-            arguments: (out_point, with_data),
-        } = req;
-        let live_cell_status = self.get_live_cell(out_point, with_data).await;
-        respond(responder, live_cell_status, "get_live_cell");
-    }
-
-    async fn handle_block_template(
-        &self,
-        req: SyncRequest<BlockTemplateArgs, BlockTemplateResult>,
-    ) {
-        let SyncRequest { responder, .. } = req;
-        let block_template_result = self.get_block_template().await;
-        respond(responder, block_template_result, "block_template_result");
-    }
-
-    async fn handle_submit_local_tx(&self, req: SyncRequest<TransactionView, SubmitTxResult>) {
-        let SyncRequest {
-            responder,
-            arguments: tx,
-        } = req;
-        let result = self.process_tx(tx, TxSource::local()).await.map(|_| ());
-        respond(responder, result, "submit_local_tx");
-    }
-
-    async fn handle_submit_local_test_tx(&self, req: SyncRequest<TransactionView, SubmitTxResult>) {
-        let SyncRequest {
-            responder,
-            arguments: tx,
-        } = req;
-        // This integration-only RPC still has Local submission semantics. It
-        // must return the definitive validation result and must never create a
-        // test-only pre-pool owner (Local admission is structurally forbidden
-        // by PrePoolKernel).
-        let result = self.process_tx(tx, TxSource::local()).await.map(|_| ());
-        respond(responder, result, "submit_local_test_tx");
-    }
-
-    async fn handle_remove_local_tx(&self, req: SyncRequest<Byte32, bool>) {
-        let SyncRequest {
-            responder,
-            arguments: tx_hash,
-        } = req;
-        let result = match self.remove_tx(tx_hash.clone()).await {
-            crate::service::RemoveTxOutcome::Removed => true,
-            // A worker is mid-flight on this transaction and would commit it
-            // moments after a reported success, so the honest answer is
-            // "not removed"; the RPC stays boolean for compatibility.
-            crate::service::RemoveTxOutcome::InProgress => {
-                ckb_logger::debug!(
-                    "remove_local_tx {tx_hash:#x}: transaction is being processed, not removed"
-                );
-                false
-            }
-            crate::service::RemoveTxOutcome::NotFound => false,
-        };
-        respond(responder, result, "remove_tx");
-    }
-
-    async fn handle_test_accept_tx(&self, req: SyncRequest<TransactionView, TestAcceptTxResult>) {
-        let SyncRequest {
-            responder,
-            arguments: tx,
-        } = req;
-        let result = self.test_accept_tx(tx).await;
-        respond(responder, result.map(|r| r.into()), "test_accept_tx");
-    }
-
-    async fn handle_submit_remote_tx(&self, req: AsyncRequest<(TransactionView, TxSource), ()>) {
-        let AsyncRequest {
-            responder,
-            arguments: (tx, source),
-        } = req;
-        let _result = self.submit_remote_tx(tx, source).await;
-        respond(responder, (), "submit_remote_tx");
-    }
-
-    async fn handle_notify_txs(&self, req: Notify<crate::service::NotifyTxBatch>) {
-        let Notify { arguments: txs } = req;
-        for tx in txs {
-            let _ret = self.notify_tx(tx).await;
+fn handle_get_tx_status(
+    service: &AuthorityService,
+    request: SyncRequest<Byte32, crate::service::GetTxStatusResult>,
+) -> Result<(), AuthorityGenerationInvalidity> {
+    let Request {
+        responder,
+        arguments: hash,
+    } = request;
+    match service.transaction_lookup(&hash) {
+        Ok(AuthorityTransactionLookup::Live(transaction)) => {
+            respond(
+                responder,
+                Ok((public_status(transaction.status), transaction.cycles)),
+                "get_tx_status",
+            );
+            Ok(())
         }
-    }
-
-    async fn handle_fresh_proposals_filter(
-        &self,
-        req: AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>,
-    ) {
-        let AsyncRequest {
-            responder,
-            arguments: proposals,
-        } = req;
-        let new_proposals = self.exclude_existing_proposal(proposals).await;
-        respond(responder, new_proposals, "fresh_proposals_filter");
-    }
-
-    /// Look up a transaction in the main pool or in the in-flight pipeline.
-    async fn resolve_tx_location(&self, hash: &Byte32) -> ResolvedTxLocation {
-        let (pool_entry, kernel_location) = {
-            let tx_pool = self.pool.tx_pool.read().await;
-            let pool_entry = tx_pool.pool_map.get_by_hash(hash).map(|entry| {
-                let status = entry.status;
-                let entry = entry.inner.clone();
-                let min_replace_fee = if status == Status::Proposed {
-                    None
-                } else {
-                    tx_pool.min_replace_fee(&entry)
-                };
-                (status, entry, min_replace_fee)
-            });
-            let kernel_location = if pool_entry.is_none() {
-                // Universal nested order: TxPool -> kernel. A successful
-                // commit cannot be invisible between the two authorities.
-                self.find_pre_pool_tx_by_hash(hash)
-            } else {
-                None
-            };
-            (pool_entry, kernel_location)
-        };
-        if let Some((status, entry, min_replace_fee)) = pool_entry {
-            return ResolvedTxLocation::Pool {
-                status,
-                entry,
-                min_replace_fee,
-            };
-        }
-        if let Some(location) = kernel_location {
-            return ResolvedTxLocation::Pipeline(location);
-        }
-        ResolvedTxLocation::NotFound
-    }
-
-    async fn handle_get_tx_status(&self, req: SyncRequest<Byte32, GetTxStatusResult>) {
-        let SyncRequest {
-            responder,
-            arguments: hash,
-        } = req;
-        let ret = match self.resolve_tx_location(&hash).await {
-            ResolvedTxLocation::Pool { status, entry, .. } => {
-                Ok((map_pool_status(status), Some(entry.cycles)))
-            }
-            ResolvedTxLocation::Pipeline(PipelineTxLocation::ConflictHistory)
-            | ResolvedTxLocation::NotFound => {
-                self.lookup_recent_reject(
-                    &hash,
-                    |record| (TxStatus::Rejected(record), None),
-                    || (TxStatus::Unknown, None),
-                )
-                .await
-            }
-            ResolvedTxLocation::Pipeline(_) => Ok((TxStatus::Pending, None)),
-        };
-        respond(responder, ret, "get_tx_status");
-    }
-
-    async fn handle_get_transaction_with_status(
-        &self,
-        req: SyncRequest<Byte32, GetTransactionWithStatusResult>,
-    ) {
-        let SyncRequest {
-            responder,
-            arguments: hash,
-        } = req;
-        let ret = match self.resolve_tx_location(&hash).await {
-            ResolvedTxLocation::Pool {
-                status,
-                entry,
-                min_replace_fee,
-            } => Ok(TransactionWithStatus::with_status(
-                Some(entry.transaction().clone()),
-                entry.cycles,
-                entry.timestamp,
-                map_pool_status(status),
-                Some(entry.fee),
-                min_replace_fee,
-            )),
-            ResolvedTxLocation::Pipeline(location) => {
-                let (tx, tx_status, cycles, fee) = match location {
-                    PipelineTxLocation::Ordered { tx } => (tx, TxStatus::Pending, None, None),
-                    PipelineTxLocation::Verifying { tx, fee, status } => {
-                        let tx_status = if status == Status::Proposed {
-                            TxStatus::Proposed
-                        } else {
-                            TxStatus::Pending
-                        };
-                        (tx, tx_status, None, Some(fee))
-                    }
-                    PipelineTxLocation::Orphan { tx, cycle } => {
-                        (tx, TxStatus::Pending, Some(cycle), None)
-                    }
-                    PipelineTxLocation::ConflictHistory => {
-                        return respond(
-                            responder,
-                            self.lookup_recent_reject(
-                                &hash,
-                                TransactionWithStatus::with_rejected,
-                                TransactionWithStatus::with_unknown,
-                            )
-                            .await,
-                            "get_transaction_with_status",
-                        );
-                    }
-                };
-                Ok(TransactionWithStatus {
-                    transaction: Some(tx),
-                    tx_status,
-                    cycles,
-                    fee,
-                    min_replace_fee: None,
-                    time_added_to_pool: None,
+        Ok(AuthorityTransactionLookup::RecentRejectFallback) => {
+            let result = service.recent_reject_record(&hash).map(|record| {
+                record.map_or((TxStatus::Unknown, None), |record| {
+                    (TxStatus::Rejected(record), None)
                 })
-            }
-            ResolvedTxLocation::NotFound => {
-                self.lookup_recent_reject(
-                    &hash,
-                    TransactionWithStatus::with_rejected,
+            });
+            respond_derived(responder, result, "get_tx_status")
+        }
+        Err(error) => {
+            drop(responder);
+            settle_service_error(error)
+        }
+    }
+}
+
+fn handle_get_transaction_with_status(
+    service: &AuthorityService,
+    request: SyncRequest<Byte32, crate::service::GetTransactionWithStatusResult>,
+) -> Result<(), AuthorityGenerationInvalidity> {
+    let Request {
+        responder,
+        arguments: hash,
+    } = request;
+    match service.transaction_lookup(&hash) {
+        Ok(AuthorityTransactionLookup::Live(transaction)) => {
+            respond(
+                responder,
+                Ok(TransactionWithStatus {
+                    transaction: Some(transaction.transaction.as_ref().clone()),
+                    tx_status: public_status(transaction.status),
+                    cycles: transaction.cycles,
+                    fee: transaction.fee,
+                    min_replace_fee: transaction.min_replace_fee,
+                    time_added_to_pool: transaction.accepted_at,
+                }),
+                "get_transaction_with_status",
+            );
+            Ok(())
+        }
+        Ok(AuthorityTransactionLookup::RecentRejectFallback) => {
+            let result = service.recent_reject_record(&hash).map(|record| {
+                record.map_or_else(
                     TransactionWithStatus::with_unknown,
+                    TransactionWithStatus::with_rejected,
                 )
-                .await
-            }
-        };
-        respond(responder, ret, "get_transaction_with_status");
-    }
-
-    async fn handle_fetch_txs(
-        &self,
-        req: AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>,
-    ) {
-        let AsyncRequest {
-            responder,
-            arguments: short_ids,
-        } = req;
-        let txs_map = self.get_tx_for_compact_block(short_ids).await;
-        respond(responder, txs_map, "fetch_txs");
-    }
-
-    async fn handle_fetch_txs_with_cycles(
-        &self,
-        req: AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>,
-    ) {
-        let AsyncRequest {
-            responder,
-            arguments: short_ids,
-        } = req;
-        let tx_pool = self.pool.tx_pool.read().await;
-        let txs = short_ids
-            .into_iter()
-            .filter_map(|short_id| {
-                tx_pool
-                    .get_tx_with_cycles(&short_id)
-                    .map(|(tx, cycles)| (short_id, (tx, cycles)))
-            })
-            .collect();
-        respond(responder, txs, "fetch_txs_with_cycles");
-    }
-
-    async fn handle_new_uncle(&self, req: Notify<UncleBlockView>) {
-        let Notify { arguments: uncle } = req;
-        self.receive_candidate_uncle(uncle).await;
-    }
-
-    async fn handle_clear_pool(&mut self, req: SyncRequest<Arc<Snapshot>, ()>) {
-        let SyncRequest {
-            responder,
-            arguments: new_snapshot,
-        } = req;
-        self.clear_pool(new_snapshot).await;
-        respond(responder, (), "clear_pool");
-    }
-
-    async fn handle_clear_pipeline(&self, req: SyncRequest<(), ()>) {
-        let SyncRequest { responder, .. } = req;
-        self.clear_pipeline().await;
-        respond(responder, (), "clear_pipeline");
-    }
-
-    async fn handle_get_pool_tx_details(&self, req: SyncRequest<Byte32, PoolTxDetailInfo>) {
-        let SyncRequest {
-            responder,
-            arguments: tx_hash,
-        } = req;
-        let tx_pool = self.pool.tx_pool.read().await;
-        let id = ProposalShortId::from_tx_hash(&tx_hash);
-        let exact = tx_pool.get_tx_from_pool_by_hash(&tx_hash).is_some();
-        let tx_details = exact
-            .then(|| tx_pool.get_tx_detail(&id))
-            .flatten()
-            .unwrap_or(PoolTxDetailInfo::with_unknown());
-        respond(responder, tx_details, "get_pool_tx_details");
-    }
-
-    async fn handle_get_all_entry_info(&self, req: SyncRequest<(), TxPoolEntryInfo>) {
-        let SyncRequest { responder, .. } = req;
-        let info = self.all_entry_info().await;
-        respond(responder, info, "get_all_entry_info");
-    }
-
-    async fn handle_get_all_ids(&self, req: SyncRequest<(), TxPoolIds>) {
-        let SyncRequest { responder, .. } = req;
-        let tx_pool = self.pool.tx_pool.read().await;
-        let ids = tx_pool.get_ids();
-        respond(responder, ids, "get_ids");
-    }
-
-    async fn handle_save_pool(&self, req: SyncRequest<(), ()>) {
-        let SyncRequest { responder, .. } = req;
-        self.save_pool().await;
-        respond(responder, (), "save_pool");
-    }
-
-    async fn handle_update_ibd_state(&self, req: SyncRequest<bool, ()>) {
-        let SyncRequest {
-            responder,
-            arguments: in_ibd,
-        } = req;
-        self.update_ibd_state(in_ibd).await;
-        respond(responder, (), "update_ibd_state");
-    }
-
-    async fn handle_estimate_fee_rate(
-        &self,
-        req: SyncRequest<(EstimateMode, bool), FeeEstimatesResult>,
-    ) {
-        let SyncRequest {
-            responder,
-            arguments: (estimate_mode, enable_fallback),
-        } = req;
-        let fee_estimates_result = self.estimate_fee_rate(estimate_mode, enable_fallback).await;
-        respond(responder, fee_estimates_result, "fee_estimates_result");
-    }
-
-    #[cfg(feature = "internal")]
-    async fn handle_plug_entry(
-        &self,
-        req: SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), crate::error::Reject>>,
-    ) {
-        let SyncRequest {
-            responder,
-            arguments: (entries, target),
-        } = req;
-        let result = self.plug_entry(entries, target).await;
-        respond(responder, result, "plug_entry");
-    }
-
-    #[cfg(feature = "internal")]
-    async fn handle_package_txs(&self, req: SyncRequest<Option<u64>, Vec<TxEntry>>) {
-        let SyncRequest {
-            responder,
-            arguments: bytes_limit,
-        } = req;
-        let max_block_cycles = self.pool.consensus.max_block_cycles();
-        let max_block_bytes = self.pool.consensus.max_block_bytes();
-        let tx_pool = self.pool.tx_pool.read().await;
-        let txs = match tx_pool.package_txs(
-            max_block_cycles,
-            bytes_limit.unwrap_or(max_block_bytes) as usize,
-        ) {
-            Ok((txs, _size, _cycles)) => txs,
-            Err(error) => {
-                self.fail_tx_pool_generation(
-                    "internal package transaction selection failed",
-                    &crate::process::TxPoolGenerationFault::Selection(error),
-                );
-                Vec::new()
-            }
-        };
-        respond(responder, txs, "package_txs");
-    }
-
-    async fn handle_get_total_recent_reject_num(&self, req: SyncRequest<(), Option<u64>>) {
-        let SyncRequest { responder, .. } = req;
-        let total_recent_reject_num = self.get_total_recent_reject_num();
-        respond(
-            responder,
-            total_recent_reject_num,
-            "total_recent_reject_num",
-        );
-    }
-
-    /// Tx-pool information
-    pub(crate) async fn info(&self) -> TxPoolInfo {
-        // Read each lock in isolation to avoid holding multiple locks at once.
-        // TxPoolInfo is best-effort, so a consistent snapshot is not required.
-        let (
-            tip_hash,
-            tip_number,
-            pending_size,
-            proposed_size,
-            total_tx_size,
-            total_tx_cycles,
-            last_txs_updated_at,
-        ) = {
-            let tx_pool = self.pool.tx_pool.read().await;
-            let tip_header = tx_pool.snapshot.tip_header();
-            (
-                tip_header.hash(),
-                tip_header.number(),
-                tx_pool.pool_map.pending_size(),
-                tx_pool.pool_map.proposed_size(),
-                tx_pool.pool_map.stats.total_tx_size,
-                tx_pool.pool_map.stats.total_tx_cycles,
-                tx_pool.pool_map.get_max_update_time(),
-            )
-        };
-        let orphan_size = self
-            .pipeline
-            .kernel
-            .read(|kernel| kernel.waiting_parent_len());
-        let verify_queue_size = self
-            .pipeline
-            .kernel
-            .read(|kernel| kernel.queue_len(crate::component::pre_pool::WorkLane::Verify));
-        TxPoolInfo {
-            tip_hash,
-            tip_number,
-            pending_size,
-            proposed_size,
-            orphan_size,
-            total_tx_size,
-            total_tx_cycles,
-            min_fee_rate: self.pool.tx_pool_config.min_fee_rate,
-            min_rbf_rate: self.pool.tx_pool_config.min_rbf_rate,
-            last_txs_updated_at,
-            tx_size_limit: TRANSACTION_SIZE_LIMIT,
-            max_tx_pool_size: self.pool.tx_pool_config.max_tx_pool_size as u64,
-            verify_queue_size,
+            });
+            respond_derived(responder, result, "get_transaction_with_status")
+        }
+        Err(error) => {
+            drop(responder);
+            settle_service_error(error)
         }
     }
+}
 
-    pub(crate) fn get_total_recent_reject_num(&self) -> Option<u64> {
-        self.aux
-            .recent_reject
-            .as_ref()
-            .map(|r| r.get_estimate_total_keys_num())
+fn public_status(status: PublicPoolStatus) -> TxStatus {
+    match status {
+        PublicPoolStatus::Pending => TxStatus::Pending,
+        PublicPoolStatus::Proposed => TxStatus::Proposed,
     }
+}
 
-    /// Look up a transaction hash in the recent-reject database.
-    ///
-    /// Returns `on_rejected(record)` if the tx was recently rejected,
-    /// `on_unknown()` if it is unknown or there is no recent-reject db.
-    pub(crate) async fn lookup_recent_reject<T>(
-        &self,
-        hash: &Byte32,
-        on_rejected: impl FnOnce(String) -> T,
-        on_unknown: impl FnOnce() -> T,
-    ) -> Result<T, AnyError> {
-        if let Some(record) = self.relay.effects.pending_recent_reject(hash) {
-            return Ok(on_rejected(record));
+fn respond_outer<R, S>(
+    responder: S,
+    result: Result<R, AuthorityServiceError>,
+    message: &'static str,
+) -> Result<(), AuthorityGenerationInvalidity>
+where
+    R: std::fmt::Debug,
+    S: OneshotSender<R>,
+{
+    match result {
+        Ok(value) => {
+            respond(responder, value, message);
+            Ok(())
         }
-        if let Some(ref db) = self.aux.recent_reject {
-            match db.get(hash) {
-                Ok(Some(record)) => Ok(on_rejected(record)),
-                Ok(_) => Ok(on_unknown()),
-                Err(err) => Err(err),
-            }
-        } else {
-            Ok(on_unknown())
+        Err(error) => {
+            drop(responder);
+            settle_service_error(error)
         }
     }
+}
 
-    /// Get Live Cell Status
-    pub(crate) async fn get_live_cell(&self, out_point: OutPoint, eager_load: bool) -> CellStatus {
-        let tx_pool = self.pool.tx_pool.read().await;
-        let snapshot = tx_pool.snapshot();
-        let pool_cell = PoolCell::for_inputs(&tx_pool.pool_map);
-        let provider = OverlayCellProvider::new(&pool_cell, snapshot);
-
-        match provider.cell(&out_point, false) {
-            CellStatus::Live(mut cell_meta) => {
-                if eager_load && let Some((data, data_hash)) = snapshot.get_cell_data(&out_point) {
-                    cell_meta.mem_cell_data = Some(data);
-                    cell_meta.mem_cell_data_hash = Some(data_hash);
-                }
-                CellStatus::live_cell(cell_meta)
-            }
-            _ => CellStatus::Unknown,
+fn respond_nested_authority<R, S>(
+    responder: S,
+    result: Result<R, AuthorityServiceError>,
+    message: &'static str,
+) -> Result<(), AuthorityGenerationInvalidity>
+where
+    R: std::fmt::Debug,
+    S: OneshotSender<Result<R, AnyError>>,
+{
+    match result {
+        Ok(value) => {
+            respond(responder, Ok(value), message);
+            Ok(())
+        }
+        Err(error) => {
+            respond(responder, Err(authority_error_as_any(error)), message);
+            settle_service_error(error)
         }
     }
+}
+
+fn respond_derived<R, S>(
+    responder: S,
+    result: Result<R, AuthorityDerivedError>,
+    message: &'static str,
+) -> Result<(), AuthorityGenerationInvalidity>
+where
+    R: std::fmt::Debug,
+    S: OneshotSender<Result<R, AnyError>>,
+{
+    match result {
+        Ok(value) => {
+            respond(responder, Ok(value), message);
+            Ok(())
+        }
+        Err(AuthorityDerivedError::External(error)) => {
+            respond(responder, Err(error), message);
+            Ok(())
+        }
+        Err(AuthorityDerivedError::Authority(error)) => {
+            respond(responder, Err(authority_error_as_any(error)), message);
+            settle_service_error(error)
+        }
+    }
+}
+
+fn settle_service_error(error: AuthorityServiceError) -> Result<(), AuthorityGenerationInvalidity> {
+    AuthorityService::settle_operation_error(error)
+}
+
+fn authority_error_as_any(error: AuthorityServiceError) -> AnyError {
+    OtherError::new(format!("tx-pool authority service failed: {error:?}")).into()
 }

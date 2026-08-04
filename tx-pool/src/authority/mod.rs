@@ -21,6 +21,7 @@ pub(crate) mod query;
 mod read;
 mod rejection;
 mod relay;
+mod residency;
 mod resolver;
 mod resources;
 pub(crate) mod runtime;

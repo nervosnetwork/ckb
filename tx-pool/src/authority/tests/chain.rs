@@ -2065,6 +2065,7 @@ fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
     let proposal = transaction.proposal_short_id();
     let raw_hash = transaction.hash();
     let attached = BlockBuilder::default().transaction(transaction).build();
+    let attached_hash = attached.hash();
     let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::from([attached]),
@@ -2079,6 +2080,14 @@ fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
         .expect("cache, authority and snapshot share one commit cut");
 
     assert!(committed.candidate_uncles.is_empty());
+    assert_eq!(
+        committed
+            .attached_blocks
+            .front()
+            .map(ckb_types::core::BlockView::hash),
+        Some(attached_hash),
+        "the exact ordered attached block evidence crosses Apply for post-commit observers"
+    );
     assert_eq!(
         runtime.committed_hash_for_foundation(&proposal),
         Some(raw_hash)

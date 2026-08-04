@@ -74,6 +74,10 @@ impl NotifyScriptRunner {
 }
 
 impl BlockAssembler {
+    pub(crate) fn notifications_enabled(&self) -> bool {
+        !self.config.notify.is_empty() || !self.config.notify_scripts.is_empty()
+    }
+
     pub(crate) async fn notify(&self) {
         #[cfg(test)]
         self.notify_count
@@ -124,7 +128,7 @@ impl BlockAssembler {
     }
 
     fn need_to_notify(&self) -> bool {
-        !self.config.notify.is_empty() || !self.config.notify_scripts.is_empty()
+        self.notifications_enabled()
     }
 }
 

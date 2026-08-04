@@ -2463,6 +2463,7 @@ fn uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply() {
     };
     let committed = apply_committed_without_work(plan);
     assert_eq!(committed.retired_len(), 0);
+    assert_eq!(committed.async_process_observation_count(), 0);
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::Accepted(entry))
@@ -3433,7 +3434,12 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
                     .plan_accept_for_foundation(&expected.changed, version, AcceptedStatus::Pending)
                     .expect("canonical single reference accepts the same candidate"),
             );
-            assert_eq!(only_committed_change(&single), expected);
+            let actual = only_committed_change(&single);
+            // Timing is post-commit observability, not membership semantics;
+            // independently constructed equivalent executions need not share
+            // the same monotonic start instant.
+            assert_eq!(actual.sequence, expected.sequence);
+            assert_eq!(actual.changed, expected.changed);
         }
 
         assert!(
@@ -6852,11 +6858,12 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Ready(_))
     ));
-    apply_without_work(
-        authority
-            .plan_accept_for_foundation(&hash, accepted_version, AcceptedStatus::Proposed)
-            .expect("verified owner has one membership plan"),
-    );
+    let accepted = authority
+        .plan_accept_for_foundation(&hash, accepted_version, AcceptedStatus::Proposed)
+        .expect("verified owner has one membership plan")
+        .apply();
+    assert_eq!(accepted.async_process_observation_count(), 1);
+    apply_without_work(accepted);
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Proposed

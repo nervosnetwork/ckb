@@ -7,7 +7,6 @@ use super::resources::{
 };
 use crate::{
     component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
-    resolved_tx::compact_verified_resolved_transaction,
     util::compact_packed,
 };
 use ckb_network::PeerIndex;
@@ -17,7 +16,7 @@ use ckb_types::{
 };
 #[cfg(test)]
 use ckb_verification::cache::ScriptVerificationRules;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RawTxHash(pub(super) Byte32);
@@ -102,6 +101,23 @@ pub(super) struct AcceptedAtMillis(pub(super) u64);
 impl AcceptedAtMillis {
     #[cfg(test)]
     pub(super) const FOUNDATION: Self = Self(0);
+}
+
+/// Monotonic start of one retained (asynchronous) verification attempt.
+/// This observability capability exists only from verification preparation
+/// through final admission; it is stripped before Accepted ownership so
+/// metrics do not become long-lived transaction state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AsyncProcessStart(Instant);
+
+impl AsyncProcessStart {
+    pub(super) fn now() -> Self {
+        Self(Instant::now())
+    }
+
+    pub(super) fn elapsed_seconds(self) -> f64 {
+        self.0.elapsed().as_secs_f64()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -813,7 +829,7 @@ impl ResolvedPayload {
             Ok(payload) => payload,
             Err(shared) => (*shared).clone(),
         };
-        payload.resolved = compact_verified_resolved_transaction(payload.resolved);
+        payload.resolved = super::residency::compact_after_verification(payload.resolved);
         payload.resolved_resident_bytes = resolved_transaction_charge_bytes(
             payload.serialized_bytes,
             payload.resolved_transaction(),
@@ -895,6 +911,7 @@ pub(super) struct VerifiedFacts {
     script: ScriptReceipt,
     verify_class: VerifyCycleClass,
     metrics: CandidateMetrics,
+    async_process_start: Option<AsyncProcessStart>,
 }
 
 impl ResolvedFacts {
@@ -992,6 +1009,7 @@ impl VerifiedFacts {
         context: VerificationContextReceipt,
         verify_class: VerifyCycleClass,
         metrics: CandidateMetrics,
+        async_process_start: AsyncProcessStart,
     ) -> Self {
         let rules = context.rules();
         Self {
@@ -1001,6 +1019,7 @@ impl VerifiedFacts {
             script: ScriptReceipt::from_verification(rules),
             verify_class,
             metrics,
+            async_process_start: Some(async_process_start),
         }
     }
 
@@ -1019,6 +1038,7 @@ impl VerifiedFacts {
             script: ScriptReceipt::from_verification(rules),
             verify_class: VerifyCycleClass::Small,
             metrics,
+            async_process_start: None,
         }
     }
 
@@ -1042,6 +1062,7 @@ impl VerifiedFacts {
             script: ScriptReceipt::from_verification(rules),
             verify_class: VerifyCycleClass::Small,
             metrics,
+            async_process_start: None,
         }
     }
 
@@ -1076,6 +1097,7 @@ impl VerifiedFacts {
             script: ScriptReceipt::from_verification(rules),
             verify_class: VerifyCycleClass::Small,
             metrics,
+            async_process_start: None,
         }
     }
 
@@ -1101,6 +1123,11 @@ impl VerifiedFacts {
 
     pub(super) fn metrics(&self) -> &CandidateMetrics {
         &self.metrics
+    }
+
+    pub(super) fn into_accepted(mut self) -> (Self, Option<AsyncProcessStart>) {
+        let async_process_start = self.async_process_start.take();
+        (self, async_process_start)
     }
 
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {

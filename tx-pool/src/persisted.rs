@@ -1,4 +1,3 @@
-use crate::TxPool;
 use ckb_app_config::TxPoolConfig;
 use ckb_error::{AnyError, OtherError};
 use ckb_types::{
@@ -327,12 +326,6 @@ pub(crate) fn load_persistence_snapshot(
         });
     }
     Ok(PersistenceSnapshot::default())
-}
-
-impl TxPool {
-    pub(crate) fn load_persistence_snapshot(&self) -> Result<PersistenceSnapshot, AnyError> {
-        load_persistence_snapshot(&self.config)
-    }
 }
 
 #[cfg(test)]

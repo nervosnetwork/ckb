@@ -129,7 +129,7 @@ pub(in crate::authority) struct AuthorityTaskTopology {
     runtime: AuthorityRuntime,
     cancel: CancellationToken,
     workers: Vec<AuthorityWorkerTask>,
-    templates: Option<[Option<AuthorityTemplateTask>; 4]>,
+    templates: Option<[Option<AuthorityTemplateTask>; 5]>,
     publisher: Option<tokio::task::JoinHandle<Result<(), AuthorityEffectPublisherFault>>>,
     verification_cache: Option<tokio::task::JoinHandle<()>>,
 }
@@ -195,7 +195,7 @@ impl AuthorityTaskTopology {
 
     #[cfg(test)]
     pub(super) fn install_template_task_for_foundation(&mut self, task: AuthorityTemplateTask) {
-        self.templates = Some([Some(task), None, None, None]);
+        self.templates = Some([Some(task), None, None, None, None]);
     }
 
     /// Ordered graceful shutdown. A timeout or any authority-owning task

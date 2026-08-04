@@ -230,3 +230,7 @@ impl DependencyRelation {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/dependency_sort.rs"]
+mod tests;

@@ -10,16 +10,12 @@
 //! ```
 
 use crate::network::{DummyTxPoolNetwork, TxPoolNetworkHandle};
-use crate::pool::TxPool;
-use crate::service::builder::{TxPoolServiceBuilder, assemble_service};
-use crate::service::effects::{EffectEndpoints, run_effect_publisher};
-use crate::service::{TxPoolService, VerifyCacheUpdate};
+use crate::service::TxVerificationResultReceiver;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::attach_block_cell;
@@ -39,13 +35,13 @@ use ckb_types::{
 };
 use ckb_verification::cache::init_cache;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, criterion_group};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use std::time::{Duration, Instant};
-use tokio::sync::{Notify, RwLock, mpsc, watch};
+use std::time::Duration;
+use tokio::sync::{Notify, RwLock};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ALWAYS_SUCCESS_ISSUE_CAPACITY: u64 = 5_000;
@@ -213,53 +209,6 @@ struct SharedBench {
     secp_cell_deps: Option<Vec<CellDep>>,
 }
 
-struct BenchServiceParts {
-    service: TxPoolService,
-    signal: CancellationToken,
-    verify_cache_receiver: mpsc::Receiver<VerifyCacheUpdate>,
-    effect_publisher: tokio::task::JoinHandle<()>,
-}
-
-fn build_bench_service(
-    builder: TxPoolServiceBuilder,
-    network: TxPoolNetworkHandle,
-) -> BenchServiceParts {
-    let consensus = builder.snapshot.cloned_consensus();
-    let signal = builder.signal_receiver;
-    let tx_pool = TxPool::new(builder.tx_pool_config, builder.snapshot);
-    let (block_assembler_sender, _) = builder.block_assembler_channel;
-    let (verify_cache_sender, verify_cache_receiver) =
-        mpsc::channel::<VerifyCacheUpdate>(crate::constants::VERIFY_CACHE_CHANNEL_SIZE);
-    let service = assemble_service(
-        tx_pool,
-        consensus,
-        builder.block_assembler,
-        builder.callbacks,
-        network,
-        builder.txs_verify_cache,
-        builder.recent_reject,
-        builder.fee_estimator,
-        builder.tx_relay_sender,
-        block_assembler_sender,
-        verify_cache_sender,
-        signal.clone(),
-    )
-    .expect("benchmark pipeline configuration is valid");
-    let effect_publisher = builder.handle.spawn(run_effect_publisher(
-        Arc::clone(&service.relay.effects),
-        EffectEndpoints {
-            network: Arc::clone(&service.relay.network),
-            tx_relay_sender: service.relay.tx_relay_sender.clone(),
-        },
-    ));
-    BenchServiceParts {
-        service,
-        signal,
-        verify_cache_receiver,
-        effect_publisher,
-    }
-}
-
 /// Event-driven stable-state completion barrier for measured submissions.
 ///
 /// Polling the controller every millisecond adds timer quantization and
@@ -337,34 +286,29 @@ impl SharedBench {
             .collect()
     }
 
-    /// Start a full tx-pool service (with controller) for benchmark iterations.
+    /// Start the production unified-authority service for one benchmark iteration.
     ///
-    /// The returned [`ServiceHandle`] owns a clone of `tx_relay_sender` so that
-    /// dropping it closes the relay channel. It also owns the production main
-    /// dispatcher handle; awaiting both handles on drop proves every message
-    /// handler and worker has quiesced before the next iteration begins.
+    /// Setup owns an isolated persistence directory and the sole bounded relay
+    /// receiver. No compatibility forwarder or drain task is introduced: the
+    /// mailbox is deliberately nonblocking, and retaining its receiver exercises
+    /// the same overflow/reconciliation semantics as a temporarily slow relayer.
     fn start_controller(&self, max_workers: usize) -> ServiceHandle {
-        let config = tx_pool_config(max_workers);
-        let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-
-        // Drain relay results so the channel behaves like a real relayer consumer.
-        let drain_handle = self
-            .executor
-            .runtime
-            .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
+        let persistence = tempfile::TempDir::new().expect("create benchmark persistence directory");
+        let mut config = tx_pool_config(max_workers);
+        config.persisted_data = persistence.path().join("tx-pool");
 
         // Each controller gets a fresh, empty verify cache. init_cache() creates
         // a new LruCache with no global state, so cycle-measurement results from
         // BenchData::new() cannot leak into benchmark iterations.
-        let (mut builder, controller) = crate::TxPoolServiceBuilder::new(
+        let (mut builder, mut controller, relay_receiver) = crate::TxPoolServiceBuilder::new(
             config,
             Arc::clone(&self.snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
             &self.executor.ckb_handle,
-            tx_relay_sender.clone(),
             FeeEstimator::new_dummy(),
-        );
+        )
+        .expect("benchmark service configuration is valid");
         let completion = Arc::new(BenchCompletion::default());
         let completion_callback = Arc::clone(&completion);
         builder.register_pending(Box::new(move |_| completion_callback.record()));
@@ -372,15 +316,16 @@ impl SharedBench {
         // does not affect other benchmark iterations.
         let local_signal = CancellationToken::new();
         builder.signal_receiver = local_signal.clone();
+        controller.signal = local_signal.clone();
         let dispatcher_handle = builder.start_with_handle(Arc::clone(&self.executor.network));
         let service = ServiceHandle {
             controller,
             signal: local_signal,
-            tx_relay_sender: Some(tx_relay_sender),
-            drain_handle: Some(drain_handle),
+            relay_receiver: Some(relay_receiver),
             dispatcher_handle: Some(dispatcher_handle),
             runtime: self.executor.ckb_handle.clone(),
             completion,
+            _persistence: persistence,
         };
 
         // `start_inner` has spawned every worker, but Tokio is free to run the
@@ -447,37 +392,31 @@ fn await_handles(
 
 /// RAII handle for a benchmark service instance.
 ///
-/// On drop it cancels the [`CancellationToken`] (shutting down all spawned
-/// workers), drops the `tx_relay_sender` clone so the relay channel closes,
-/// and awaits the dispatcher plus drain handles so no worker or blocking
-/// thread overlaps the next iteration.
+/// On drop it cancels the [`CancellationToken`] and awaits the generation-owned
+/// dispatcher. The relay receiver and persistence directory outlive that join,
+/// so effect publication and the shutdown snapshot cannot observe a prematurely
+/// disconnected endpoint or removed path.
 struct ServiceHandle {
     controller: crate::TxPoolController,
     signal: CancellationToken,
-    /// Stored so we can explicitly drop it on shutdown, closing the relay
-    /// channel and letting the background drain task exit.
-    tx_relay_sender: Option<ckb_channel::Sender<crate::service::TxVerificationResult>>,
-    /// Handle for the blocking relay-drain task.
-    drain_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Sole bounded projection receiver; retaining it models a slow consumer
+    /// without adding a scheduling-noise task to the benchmark runtime.
+    relay_receiver: Option<TxVerificationResultReceiver>,
     /// Main dispatcher owns and quiesces every production worker handle.
     dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
     /// Runtime used to await service teardown on drop.
     runtime: ckb_async_runtime::Handle,
     /// Stable-state completion event used instead of controller polling.
     completion: Arc<BenchCompletion>,
+    /// Must outlive the service's shutdown persistence write.
+    _persistence: tempfile::TempDir,
 }
 
 impl Drop for ServiceHandle {
     fn drop(&mut self) {
         self.signal.cancel();
-        // Drop the sender explicitly so the relay drain task (spawn_blocking)
-        // sees a closed channel and exits instead of leaking.
-        self.tx_relay_sender.take();
-        let mut handles = Vec::with_capacity(2);
+        let mut handles = Vec::with_capacity(1);
         if let Some(handle) = self.dispatcher_handle.take() {
-            handles.push(handle);
-        }
-        if let Some(handle) = self.drain_handle.take() {
             handles.push(handle);
         }
         await_handles(
@@ -485,154 +424,7 @@ impl Drop for ServiceHandle {
             handles,
             Duration::from_secs(crate::constants::PIPELINE_SHUTDOWN_TIMEOUT_SECONDS + 5),
         );
-    }
-}
-
-/// RAII handle for the bare service used by cycle measurement.
-struct BenchServiceHandle {
-    /// Kept alive so that the underlying service is not dropped while
-    /// benchmark tasks are still running.
-    service: Option<TxPoolService>,
-    signal: CancellationToken,
-    /// Keeps stage command authority alive until teardown, matching the
-    /// production controller. Dropping the last sender is a worker shutdown
-    /// signal, so this cannot be a function-local temporary.
-    chunk_tx: Option<watch::Sender<ChunkCommand>>,
-    worker_handles: Vec<tokio::task::JoinHandle<()>>,
-    effect_publisher: Option<tokio::task::JoinHandle<()>>,
-    drain_handle: Option<tokio::task::JoinHandle<()>>,
-    runtime: ckb_async_runtime::Handle,
-}
-
-impl BenchServiceHandle {
-    fn service(&self) -> &TxPoolService {
-        self.service
-            .as_ref()
-            .expect("benchmark service is unavailable during teardown")
-    }
-}
-
-impl Drop for BenchServiceHandle {
-    fn drop(&mut self) {
-        self.signal.cancel();
-        self.chunk_tx.take();
-        // Worker tasks own service clones, so join them first. Then release the
-        // handle's final service (and relay sender) before awaiting the relay
-        // drain; doing these in one join set creates a sender/drain deadlock.
-        let worker_handles = std::mem::take(&mut self.worker_handles);
-        await_handles(&self.runtime, worker_handles, Duration::from_secs(5));
-        if let Some(service) = &self.service {
-            service.relay.effects.close();
-        }
-        if let Some(effect_publisher) = self.effect_publisher.take() {
-            await_handles(
-                &self.runtime,
-                vec![effect_publisher],
-                Duration::from_secs(5),
-            );
-        }
-        self.service.take();
-        if let Some(drain_handle) = self.drain_handle.take() {
-            await_handles(&self.runtime, vec![drain_handle], Duration::from_secs(5));
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Async helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// start_service — used by measure_cycles (needs direct TxPoolService access)
-// ---------------------------------------------------------------------------
-
-/// Build a [`TxPoolService`] together with its pipeline workers for direct
-/// method calls (e.g. `process_tx`, `test_accept_tx`).
-///
-/// This uses the production `assemble_service` constructor
-/// construction, ensuring the same assembly path as production code.  The
-/// returned [`BenchServiceHandle`] owns all spawned task handles and awaits
-/// their clean shutdown on drop.
-fn start_service(shared: &SharedBench, max_workers: usize) -> BenchServiceHandle {
-    let config = tx_pool_config(max_workers);
-    let (tx_relay_sender, tx_relay_receiver) = ckb_channel::bounded(1024);
-    let drain_handle = shared
-        .executor
-        .runtime
-        .spawn_blocking(move || while tx_relay_receiver.recv().is_ok() {});
-
-    let (mut builder, _controller) = crate::TxPoolServiceBuilder::new(
-        config,
-        Arc::clone(&shared.snapshot),
-        None,
-        Arc::new(RwLock::new(init_cache())),
-        &shared.executor.ckb_handle,
-        tx_relay_sender,
-        FeeEstimator::new_dummy(),
-    );
-    // Use a fresh exit token for the bench service so the pre-check workers are
-    // not affected by the process-wide exit signal used by the builder.
-    let local_signal = CancellationToken::new();
-    builder.signal_receiver = local_signal;
-    let parts = build_bench_service(builder, Arc::clone(&shared.executor.network));
-
-    let mut worker_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-
-    // Spawn the best-effort verification-cache update worker. Holding a full
-    // TxPoolService here would keep its channel sender open forever.
-    {
-        let handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
-        worker_handles.push(crate::service::spawn_verify_cache_worker(
-            &handle,
-            Arc::clone(&parts.service.aux.txs_verify_cache),
-            parts.verify_cache_receiver,
-            parts.signal.child_token(),
-        ));
-    }
-
-    // Spawn pipeline workers using the components from the builder.
-    let signal = parts.signal;
-
-    {
-        let pre_check_workers =
-            max_workers.min(std::thread::available_parallelism().map_or(4, |n| n.get()));
-        for _ in 0..pre_check_workers {
-            let svc = parts.service.clone();
-            worker_handles.push(tokio::spawn(
-                crate::service::workers::run_pre_check_worker_loop(svc),
-            ));
-        }
-    }
-
-    // Create a fresh command channel shared by stage workers.
-    let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-
-    worker_handles.push(crate::service::workers::spawn_pipeline_commit_worker(
-        &shared.executor.ckb_handle,
-        parts.service.clone(),
-        signal.child_token(),
-    ));
-    worker_handles.extend(crate::service::stages::spawn_verify_workers(
-        &shared.executor.ckb_handle,
-        parts.service.clone(),
-        chunk_rx,
-        signal.child_token(),
-    ));
-    worker_handles.push(crate::service::stages::spawn_ordered_resolver(
-        &shared.executor.ckb_handle,
-        parts.service.clone(),
-        chunk_tx.subscribe(),
-        signal.child_token(),
-    ));
-
-    BenchServiceHandle {
-        service: Some(parts.service),
-        signal,
-        chunk_tx: Some(chunk_tx),
-        worker_handles,
-        effect_publisher: Some(parts.effect_publisher),
-        drain_handle: Some(drain_handle),
-        runtime: shared.executor.ckb_handle.clone(),
+        self.relay_receiver.take();
     }
 }
 
@@ -646,8 +438,8 @@ enum MeasureMode {
     /// count to every transaction in the set (appropriate for always_success
     /// scripts whose verification cost is deterministic).
     Uniform,
-    /// Measure each tx individually via `process_tx`.  Required for dependent
-    /// chains whose inputs resolve through the pool's locked path.
+    /// Measure each tx through the production Proposal ingress. Required for
+    /// dependent chains whose parents must first become Accepted.
     PerTxProcess,
     /// Measure each tx individually via `test_accept_tx`.  Required for
     /// independent secp256k1 txs whose ECDSA verification cycles vary
@@ -655,49 +447,14 @@ enum MeasureMode {
     PerTxTest,
 }
 
-/// Poll the tx-pool service until at least `count` transactions reach the
-/// pending state.
-///
-/// This is the service-level counterpart of [`wait_for_pending`] and is used
-/// when no controller exists (e.g. during cycle measurement).
-async fn wait_for_pending_service(service: &TxPoolService, count: usize) {
-    let start = Instant::now();
-    let mut last_log = start;
-    let result = tokio::time::timeout(Duration::from_secs(120), async {
-        loop {
-            let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-            if pending >= count {
-                break;
-            }
-            let now = Instant::now();
-            if now.duration_since(last_log).as_secs() >= 5 {
-                eprintln!(
-                    "[wait_for_pending_service] pending={} after {:?}",
-                    pending,
-                    now.duration_since(start)
-                );
-                last_log = now;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    })
-    .await;
-    let pending = service.pool.tx_pool.read().await.pool_map.pending_size();
-    assert!(
-        result.is_ok(),
-        "pipeline did not process all txs in time: {}/{} pending",
-        pending,
-        count
-    );
-}
-
 /// Measure verification cycles for a set of transactions.
 ///
-/// For dependent chains, txs are submitted parent-first through the real
-/// pipeline via `notify_tx` (which does not require declared cycles), so cycle
-/// numbers reflect the full resolve -> verify -> submit path. The benchmark
-/// workload may reverse the already measured vector afterward to exercise
-/// dependency recovery without making cycle measurement itself order-sensitive.
+/// For dependent chains, transactions are submitted parent-first through the
+/// production Proposal ingress, which does not require declared cycles. The
+/// callback barrier proves each parent is Accepted before its child is sent;
+/// the final coherent query reads the cycles recorded by that same authority.
+/// The measured workload may reverse the vector afterward to exercise missing-
+/// parent recovery without making cycle measurement order-sensitive.
 ///
 /// secp256k1 ECDSA verification has non-deterministic cycle counts per tx
 /// (different signature values take different CKB-VM execution paths), so each
@@ -707,67 +464,55 @@ fn measure_cycles(
     txs: &[TransactionView],
     mode: MeasureMode,
 ) -> HashMap<ckb_types::packed::Byte32, u64> {
-    let handle = shared
-        .executor
-        .runtime
-        .block_on(async { start_service(shared, 8) });
+    let handle = shared.start_controller(8);
     let cycles = shared.executor.runtime.block_on(async {
         let mut cycles = HashMap::with_capacity(txs.len());
         match mode {
             MeasureMode::Uniform => {
                 let sample = &txs[0];
                 let c = handle
-                    .service()
+                    .controller
                     .test_accept_tx(sample.clone())
-                    .await
                     .expect("measure uniform cycle")
+                    .expect("uniform sample is accepted")
                     .cycles;
                 for tx in txs {
                     cycles.insert(tx.hash(), c);
                 }
             }
             MeasureMode::PerTxProcess => {
-                // Submit dependent chains one tx at a time, waiting for each to
-                // reach the pending pool before submitting the next.  This
-                // avoids the orphan-recovery race that occurs when a long chain
-                // is submitted all at once, while still measuring cycles through
-                // the real resolve -> verify -> submit pipeline.
-                for tx in txs {
-                    // Capture the target before enqueueing. `notify_tx` only
-                    // guarantees dispatch, and a fast worker may commit before
-                    // it returns; deriving `pending + 1` afterwards can wait for
-                    // a transaction that was never submitted.
-                    let expected_pending = {
-                        let pool = handle.service().pool.tx_pool.read().await;
-                        pool.pool_map.pending_size() + 1
-                    };
+                for (index, tx) in txs.iter().enumerate() {
                     handle
-                        .service()
-                        .notify_tx(tx.clone())
-                        .await
-                        .expect("measure cycles via notify_tx");
-                    wait_for_pending_service(handle.service(), expected_pending).await;
+                        .controller
+                        .notify_txs(vec![tx.clone()])
+                        .expect("measure cycles via Proposal ingress");
+                    handle.completion.wait_for(index + 1).await;
                 }
-                for tx in txs {
-                    let id = tx.proposal_short_id();
-                    let (_, c) = handle
-                        .service()
-                        .pool
-                        .tx_pool
-                        .read()
-                        .await
-                        .get_tx_with_cycles(&id)
-                        .expect("measured tx should be in pool");
-                    cycles.insert(tx.hash(), c);
+                let ids = txs
+                    .iter()
+                    .map(TransactionView::proposal_short_id)
+                    .collect::<HashSet<_>>();
+                let measured = handle
+                    .controller
+                    .fetch_txs_with_cycles(ids)
+                    .await
+                    .expect("fetch measured dependent transactions");
+                for (_, (tx, measured_cycles)) in measured {
+                    cycles.insert(tx.hash(), measured_cycles);
                 }
+                assert_eq!(
+                    cycles.len(),
+                    txs.len(),
+                    "every measured tx remains Accepted"
+                );
             }
             MeasureMode::PerTxTest => {
                 for tx in txs {
                     let c = handle
-                        .service()
+                        .controller
                         .test_accept_tx(tx.clone())
-                        .await
                         .expect("measure cycles via test_accept_tx")
+                        .expect("secp sample is accepted")
                         .cycles;
                     cycles.insert(tx.hash(), c);
                 }

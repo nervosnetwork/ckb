@@ -9,6 +9,7 @@ mod publisher;
 mod query;
 mod read;
 mod relay;
+mod residency;
 mod resolver;
 mod service;
 mod template;

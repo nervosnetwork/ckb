@@ -8,7 +8,6 @@ use ckb_app_config::{
 use ckb_async_runtime::{Handle, new_background_runtime};
 use ckb_chain_spec::SpecError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
@@ -21,7 +20,7 @@ use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
 use ckb_tx_pool::{
-    TokioRwLock, TxEntrySnapshot, TxPoolServiceBuilder, service::TxVerificationResult,
+    TokioRwLock, TxEntrySnapshot, TxPoolServiceBuilder, service::TxVerificationResultReceiver,
 };
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
@@ -401,8 +400,6 @@ impl SharedBuilder {
         let snapshot = Arc::new(snapshot);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
-        let (sender, receiver) = ckb_channel::unbounded();
-
         let fee_estimator_algo = fee_estimator_config
             .map(|config| config.algorithm)
             .unwrap_or(None);
@@ -414,15 +411,19 @@ impl SharedBuilder {
             None => FeeEstimator::new_dummy(),
         };
 
-        let (mut tx_pool_builder, tx_pool_controller) = TxPoolServiceBuilder::new(
-            tx_pool_config,
-            Arc::clone(&snapshot),
-            block_assembler_config,
-            Arc::clone(&txs_verify_cache),
-            &async_handle,
-            sender,
-            fee_estimator.clone(),
-        );
+        let (mut tx_pool_builder, tx_pool_controller, relay_tx_receiver) =
+            TxPoolServiceBuilder::new(
+                tx_pool_config,
+                Arc::clone(&snapshot),
+                block_assembler_config,
+                Arc::clone(&txs_verify_cache),
+                &async_handle,
+                fee_estimator.clone(),
+            )
+            .map_err(|error| {
+                eprintln!("build tx-pool service {error}");
+                ExitCode::Failure
+            })?;
 
         register_tx_pool_callback(
             &mut tx_pool_builder,
@@ -485,7 +486,7 @@ impl SharedBuilder {
         let pack = SharedPackage {
             chain_services_builder: Some(chain_services_builder),
             tx_pool_builder: Some(tx_pool_builder),
-            relay_tx_receiver: Some(receiver),
+            relay_tx_receiver: Some(relay_tx_receiver),
         };
 
         Ok((shared, pack))
@@ -497,7 +498,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     chain_services_builder: Option<ChainServicesBuilder>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
+    relay_tx_receiver: Option<TxVerificationResultReceiver>,
 }
 
 impl SharedPackage {
@@ -514,7 +515,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
+    pub fn take_relay_tx_receiver(&mut self) -> TxVerificationResultReceiver {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")

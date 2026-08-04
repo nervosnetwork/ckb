@@ -7,7 +7,6 @@ use ckb_app_config::SyncConfig;
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
-use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -26,7 +25,7 @@ use ckb_shared::{
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
-use ckb_tx_pool::service::TxVerificationResult;
+use ckb_tx_pool::service::{TxVerificationResult, TxVerificationResultReceiver};
 use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     U256,
@@ -1002,7 +1001,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<TxVerificationResult>,
+        tx_relay_receiver: TxVerificationResultReceiver,
     ) -> SyncShared {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
@@ -1349,7 +1348,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<TxVerificationResult>,
+    tx_relay_receiver: TxVerificationResultReceiver,
     min_chain_work: U256,
 }
 
@@ -1397,7 +1396,7 @@ impl SyncState {
     }
 
     pub fn take_relay_tx_verify_results(&self, limit: usize) -> Vec<TxVerificationResult> {
-        self.tx_relay_receiver.try_iter().take(limit).collect()
+        self.tx_relay_receiver.drain(limit)
     }
 
     pub fn shared_best_header(&self) -> HeaderIndexView {

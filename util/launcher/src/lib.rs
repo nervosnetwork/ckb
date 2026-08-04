@@ -9,7 +9,6 @@ use ckb_async_runtime::Handle;
 use ckb_block_filter::filter::BlockFilter as BlockFilterService;
 use ckb_build_info::Version;
 use ckb_chain::ChainController;
-use ckb_channel::Receiver;
 use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_light_client_protocol_server::LightClientProtocol;
@@ -27,7 +26,7 @@ use ckb_shared::shared_builder::{SharedBuilder, SharedPackage};
 use ckb_shared::{ChainServicesBuilder, Shared};
 use ckb_store::ChainDB;
 use ckb_sync::{BlockFilter, NetTimeProtocol, Relayer, SyncShared, Synchronizer};
-use ckb_tx_pool::service::TxVerificationResult;
+use ckb_tx_pool::service::TxVerificationResultReceiver;
 use ckb_verification::GenesisVerifier;
 use ckb_verification_traits::Verifier;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -416,7 +415,7 @@ impl Launcher {
         shared: &Shared,
         chain_controller: ChainController,
         miner_enable: bool,
-        relay_tx_receiver: Receiver<TxVerificationResult>,
+        relay_tx_receiver: TxVerificationResultReceiver,
     ) -> NetworkController {
         let sync_shared = Arc::new(SyncShared::new(
             shared.clone(),

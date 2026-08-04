@@ -6,7 +6,6 @@ mod cell_liveness;
 mod dao;
 mod json;
 mod notify;
-mod process;
 mod state;
 
 #[cfg(test)]
@@ -14,7 +13,6 @@ mod tests;
 
 use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
-use crate::service::{BlockAssemblerResetJournal, PendingBlockAssemblerReset};
 use crate::util::block_offload;
 pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
 pub use candidate_uncles::CandidateUncles;
@@ -24,6 +22,7 @@ use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_error::{AnyError, InternalErrorKind};
 use ckb_jsonrpc_types::BlockTemplate as JsonBlockTemplate;
+#[cfg(test)]
 use ckb_logger::{debug, trace, warn};
 use ckb_reward_calculator::RewardCalculator;
 use ckb_snapshot::Snapshot;
@@ -50,13 +49,25 @@ use std::sync::{
 use std::{cmp, iter};
 use tokio::sync::RwLock;
 
+#[cfg(test)]
 use crate::TxPool;
 pub(crate) use builder::{BlockTemplateBuilder, BlockTemplateDraft, TemplateContentUpdate};
-pub(crate) use process::{ResetApply, ResetNotification, process, process_reset};
 pub(crate) use state::{CurrentTemplate, ResetEpoch, TemplateRevision, TemplateSize};
+
+/// Deterministic optional-content prefix compiled against one exact block-byte
+/// budget. Proposals retain score order, uncles retain candidate order, and
+/// only proposals that actually fit may exclude a conflicting uncle.
+pub(crate) struct FittedOptionalContent {
+    pub(crate) proposals: Vec<ProposalShortId>,
+    pub(crate) uncles: Vec<UncleBlockView>,
+    pub(crate) proposals_size: usize,
+    pub(crate) uncles_size: usize,
+    pub(crate) total_size: usize,
+}
 
 /// Read-only result of reset preparation. Stale uncle cleanup is retained in
 /// the plan and becomes visible only if the matching reset token is applied.
+#[cfg(any())]
 pub(crate) struct PreparedResetTemplate {
     template: CurrentTemplate,
     stale_uncles: CandidateUnclePrune,
@@ -151,9 +162,19 @@ impl BlockAssembler {
 
         let cellbase = Self::build_cellbase(config, &snapshot)?;
         let extension = Self::build_extension(&snapshot)?;
-        let basic_block_size =
-            Self::basic_block_size(cellbase.data(), &uncles, iter::empty(), extension.clone());
-        let uncles_size = Self::uncles_size(&uncles)?;
+        let fixed_size =
+            Self::basic_block_size(cellbase.data(), &[], iter::empty(), extension.clone());
+        let optional = Self::fit_optional_content(
+            &snapshot,
+            Vec::new(),
+            &uncles,
+            fixed_size,
+            snapshot.consensus().max_block_bytes() as usize,
+        )?
+        .ok_or(BlockAssemblerError::Overflow)?;
+        let uncles = optional.uncles;
+        let uncles_size = optional.uncles_size;
+        let basic_block_size = optional.total_size;
 
         let (dao, _checked_txs, _failed_txs) =
             Self::calc_dao(&snapshot, current_epoch, cellbase.clone(), vec![], memo)?;
@@ -203,6 +224,7 @@ impl BlockAssembler {
             .map_err(|_| BlockAssemblerError::CounterExhausted(label))
     }
 
+    #[cfg(test)]
     pub(crate) async fn update_full(&self, tx_pool: &RwLock<TxPool>) -> Result<bool, AnyError> {
         // Full construction runs concurrently with optimistic partial work.
         // Publication ignores partial revisions (full wins) but is fenced by
@@ -323,6 +345,7 @@ impl BlockAssembler {
 
     /// Publish an optimistic partial update only when its complete source
     /// template is still current.
+    #[cfg(test)]
     async fn try_publish_partial(
         &self,
         mut new_current: CurrentTemplate,
@@ -349,6 +372,7 @@ impl BlockAssembler {
     /// Publish a full rebuild unless an authoritative reset landed after its
     /// source template was captured. Partial revisions are deliberately not a
     /// precondition: full publication has priority over partial publication.
+    #[cfg(test)]
     async fn try_publish_full(
         &self,
         mut new_current: CurrentTemplate,
@@ -374,6 +398,7 @@ impl BlockAssembler {
 
     /// Build a reset template without holding template authority or the reset
     /// journal. Publication is a separate exact-token Apply step.
+    #[cfg(any())]
     pub(crate) async fn prepare_reset_template(
         &self,
         snapshot: Arc<Snapshot>,
@@ -413,6 +438,7 @@ impl BlockAssembler {
     /// token that selected its snapshot. No lock in this method crosses an
     /// await point: the template write guard is acquired first, then the short
     /// synchronous reset-journal Apply runs as the innermost boundary.
+    #[cfg(any())]
     pub(crate) async fn publish_reset_template(
         &self,
         prepared: PreparedResetTemplate,
@@ -440,6 +466,7 @@ impl BlockAssembler {
 
     /// Apply a partial update to the current block template.
     ///
+    #[cfg(test)]
     async fn apply_partial_update(
         &self,
         current: Arc<CurrentTemplate>,
@@ -473,6 +500,7 @@ impl BlockAssembler {
             .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn update_uncles(&self) -> Result<bool, BlockAssemblerError> {
         // Uncle work follows the same optimistic protocol as proposals and
         // transactions. A racing full/reset swap invalidates this version;
@@ -536,6 +564,7 @@ impl BlockAssembler {
         .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn update_proposals(
         &self,
         tx_pool: &RwLock<TxPool>,
@@ -592,6 +621,44 @@ impl BlockAssembler {
         .await
     }
 
+    /// Compile the one optional-content policy shared by reset, full and both
+    /// optimistic component lanes. Proposal liveness has byte priority; only
+    /// the selected prefix participates in uncle-conflict filtering, then the
+    /// ordered compatible uncle prefix consumes the remainder. Returning
+    /// `None` means the mandatory cellbase/extension/transaction base already
+    /// exceeds the consensus byte limit.
+    pub(crate) fn fit_optional_content(
+        snapshot: &Snapshot,
+        mut proposals: Vec<ProposalShortId>,
+        prepared_uncles: &[UncleBlockView],
+        base_total_size: usize,
+        max_block_bytes: usize,
+    ) -> Result<Option<FittedOptionalContent>, BlockAssemblerError> {
+        let Some((proposals_size, proposals_total)) =
+            Self::fit_proposal_prefix(&mut proposals, base_total_size, max_block_bytes)
+        else {
+            return Ok(None);
+        };
+        let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
+        let mut uncles = Self::filter_uncles_conflicting_with_proposals(
+            snapshot,
+            prepared_uncles,
+            &proposal_set,
+        );
+        let Some((uncles_size, total_size)) =
+            Self::fit_uncle_prefix_after_base(&mut uncles, proposals_total, max_block_bytes)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(FittedOptionalContent {
+            proposals,
+            uncles,
+            proposals_size,
+            uncles_size,
+            total_size,
+        }))
+    }
+
     /// Keep the highest-scored proposal prefix that fits the remaining block
     /// bytes. Returning `None` means the non-proposal template already exceeds
     /// the limit. Exact fits are valid.
@@ -618,6 +685,14 @@ impl BlockAssembler {
         max_block_bytes: usize,
     ) -> Option<(usize, usize)> {
         let base_total_size = current_size.total.checked_sub(current_size.uncles)?;
+        Self::fit_uncle_prefix_after_base(uncles, base_total_size, max_block_bytes)
+    }
+
+    fn fit_uncle_prefix_after_base(
+        uncles: &mut Vec<UncleBlockView>,
+        base_total_size: usize,
+        max_block_bytes: usize,
+    ) -> Option<(usize, usize)> {
         let available = max_block_bytes.checked_sub(base_total_size)?;
         let mut fit_count = 0usize;
         let mut uncles_size = 0usize;
@@ -639,6 +714,7 @@ impl BlockAssembler {
     /// without a tip change. The extension already stored in the current
     /// template is reused instead of recomputing the MMR root on every update.
     /// A tip mismatch aborts the update early.
+    #[cfg(test)]
     pub(crate) async fn update_transactions(
         &self,
         tx_pool: &RwLock<TxPool>,

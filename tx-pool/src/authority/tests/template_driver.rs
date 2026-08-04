@@ -749,6 +749,55 @@ async fn uak_template_driver_publishes_the_exact_latest_reset_generation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_replacement_publication_wakes_the_coalesced_template_observer() {
+    let snapshot = template_snapshot();
+    let runtime = super::super::runtime::AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let assembler = BlockAssembler::new(template_config(), snapshot)
+        .expect("the block assembler fixture is valid");
+    let driver = AuthorityBlockAssembler::new(runtime, assembler.clone())
+        .await
+        .expect("the authority template adapter is valid");
+    let cancel = CancellationToken::new();
+    let notification_driver = driver.clone();
+    let notification_cancel = cancel.clone();
+    let notification = tokio::spawn(async move {
+        notification_driver
+            .run_notification_lane_for_foundation(notification_cancel)
+            .await
+    });
+
+    assert_eq!(
+        driver
+            .drive_replacement_once()
+            .await
+            .expect("the initial full template is publishable"),
+        AuthorityTemplateStep::Published
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while assembler
+            .notify_count
+            .load(std::sync::atomic::Ordering::SeqCst)
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("replacement publication wakes the observer without waiting for its interval");
+
+    cancel.cancel();
+    notification
+        .await
+        .expect("the notification lane does not panic")
+        .expect("notification cancellation is clean");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_template_drivers_cancel_cleanly_without_idle_publication() {
     let snapshot = template_snapshot();
     let runtime = super::super::runtime::AuthorityRuntime::new(

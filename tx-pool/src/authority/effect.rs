@@ -1393,6 +1393,39 @@ pub(super) struct EffectSettlement {
     disposition: EffectDisposition,
 }
 
+impl EffectSettlement {
+    /// Terminal rejection counters derived from the immutable committed batch.
+    /// An incomplete retained lease contributes nothing; a complete retained
+    /// lease is terminal because `plan_settlement` normalizes it to Published.
+    /// The runtime publishes this copy only after the settlement Apply
+    /// succeeds, so cancellation and lease replay cannot double-count it.
+    pub(super) fn rejection_metrics(&self) -> crate::metrics::RejectionMetrics {
+        let mut metrics = crate::metrics::RejectionMetrics::default();
+        if !self.processed.is_complete(&self.batch) {
+            return metrics;
+        }
+        for effect in self.batch.effects() {
+            match effect {
+                CommittedEffect::Rejected(rejection) => {
+                    metrics.record(rejection.public_reject().reject());
+                }
+                CommittedEffect::PeerCohortRevoked(revocation) => {
+                    if let Some(culprit) = revocation.culprit() {
+                        metrics.record(culprit.reason().reject());
+                    }
+                }
+                CommittedEffect::Accepted(_)
+                | CommittedEffect::ChainCommitted { .. }
+                | CommittedEffect::RemoteExpired { .. }
+                | CommittedEffect::RemoteIngressReleased(_)
+                | CommittedEffect::ParentTransactionsRequested(_)
+                | CommittedEffect::GenerationReset => {}
+            }
+        }
+        metrics
+    }
+}
+
 struct SettlementPlan {
     disposition: EffectDisposition,
     processed: EffectProgress,
@@ -1537,6 +1570,17 @@ impl EffectLog {
             latest_generation_reset: self.latest_generation_reset.clone(),
             usage: self.usage,
             closed: self.closed,
+        }
+    }
+
+    pub(super) fn operational_usage(&self) -> crate::metrics::EffectUsage {
+        crate::metrics::EffectUsage {
+            remote_batches: self.usage.remote.batches,
+            remote_bytes: self.usage.remote.bytes,
+            ordinary_batches: self.usage.ordinary.batches,
+            ordinary_bytes: self.usage.ordinary.bytes,
+            total_batches: self.usage.total.batches,
+            total_bytes: self.usage.total.bytes,
         }
     }
 

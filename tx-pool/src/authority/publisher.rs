@@ -194,7 +194,9 @@ impl AuthorityEffectEndpoints {
             // actual foreign-call boundary. Queueing delay in Tokio's blocking
             // pool must not silently extend the authority-owned deadline.
             if let Some(duration) = lease.remaining_at(Instant::now()) {
-                network.ban_peer(lease.peer(), duration, ban.reason);
+                let peer = lease.peer();
+                network.ban_peer(peer, duration, ban.reason.clone());
+                report_malformed_peer_ban(peer, duration, &ban.reason);
             }
         })
         .await;
@@ -270,6 +272,25 @@ impl AuthorityEffectEndpoints {
             }
         }
     }
+}
+
+fn report_malformed_peer_ban(peer: ckb_network::PeerIndex, duration: Duration, reason: &str) {
+    #[cfg(not(feature = "with_sentry"))]
+    let _ = (peer, duration, reason);
+
+    #[cfg(feature = "with_sentry")]
+    sentry::with_scope(
+        |scope| scope.set_fingerprint(Some(&["ckb-tx-pool", "receive-invalid-remote-tx"])),
+        || {
+            sentry::capture_message(
+                &format!(
+                    "Ban peer {peer} for {} seconds, reason: {reason}",
+                    duration.as_secs()
+                ),
+                sentry::Level::Info,
+            )
+        },
+    );
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

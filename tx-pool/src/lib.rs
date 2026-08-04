@@ -79,11 +79,14 @@ pub mod error;
 mod metrics;
 mod network;
 mod persisted;
+#[cfg(test)]
 pub mod pool;
+#[cfg(test)]
 mod pool_cell;
-mod process;
+#[cfg(test)]
 mod resolved_tx;
 pub mod service;
+#[cfg(test)]
 pub(crate) mod tx_source;
 mod util;
 
@@ -98,7 +101,14 @@ pub(crate) mod test_support;
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;
+#[cfg(test)]
 pub use pool::TxPool;
-pub use process::PlugTarget;
 pub use service::{TxPoolController, TxPoolServiceBuilder};
 pub use tokio::sync::RwLock as TokioRwLock;
+
+/// Internal/test injection target retained for block-reconstruction fixtures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlugTarget {
+    Pending,
+    Proposed,
+}

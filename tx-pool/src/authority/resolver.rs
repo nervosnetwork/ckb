@@ -16,9 +16,9 @@ use super::{
     rejection::{DirectTransactionRejection, duplicate_inputs_reject},
     resources::AcceptedCost,
     state::{
-        ApplySequence, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
-        InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy, RawTxHash,
-        ResolvedPayload, VerifyCycleClass,
+        ApplySequence, AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut,
+        DependencyKey, InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy,
+        RawTxHash, ResolvedPayload, VerifyCycleClass,
     },
     validation::{proposal_status, verification_environment},
     work::{
@@ -789,8 +789,7 @@ fn finish_resolution(
     tx_size: usize,
     min_fee_rate: FeeRate,
 ) -> Result<ResolvedComputation, Reject> {
-    let transaction =
-        crate::resolved_tx::compact_resolved_transaction_for_residency(Arc::new(resolved));
+    let transaction = super::residency::compact_after_resolution(Arc::new(resolved));
     let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)?;
     let resident_bytes = resolved_transaction_charge_bytes(tx_size, &transaction);
     Ok(ResolvedComputation {
@@ -1315,6 +1314,7 @@ pub(crate) struct TxPoolVerificationRequest {
     environment: Arc<TxVerifyEnv>,
     cache_key: TxVerificationCacheKey,
     max_cycles: ckb_types::core::Cycle,
+    started_at: AsyncProcessStart,
 }
 
 /// A retained verification capability paired with the only cache entry whose
@@ -1409,6 +1409,7 @@ impl VerificationJob {
             environment,
             cache_key,
             max_cycles,
+            started_at: AsyncProcessStart::now(),
         }
     }
 
@@ -1420,6 +1421,7 @@ impl VerificationJob {
         self.work.verified_with_time_context(
             cycles,
             super::chain::TimeContextReceipt::from_validation(rules),
+            AsyncProcessStart::now(),
         )
     }
 
@@ -1467,6 +1469,7 @@ impl CacheBoundTxPoolVerification {
                     environment,
                     cache_key,
                     max_cycles,
+                    started_at,
                 },
             cache_entry,
         } = self;
@@ -1499,6 +1502,7 @@ impl CacheBoundTxPoolVerification {
         let settlement = work.verified_with_time_context(
             completed.cycles,
             super::chain::TimeContextReceipt::from_validation(cache_key.script_rules()),
+            started_at,
         );
         let cache_update =
             (cache_entry.is_none() && policy_accepts_cycles).then_some(VerificationCacheUpdate {

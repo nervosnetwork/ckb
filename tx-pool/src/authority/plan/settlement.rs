@@ -202,7 +202,8 @@ impl TxPoolAuthority {
             };
             let mut record = fact.before.record.clone();
             record.version = version;
-            let (proof, proposal, accepted_at) = fact.receipt.into_membership_parts();
+            let (proof, proposal, accepted_at, async_process_start) =
+                fact.receipt.into_membership_parts();
             let after = AcceptedEntry {
                 record,
                 provenance: fact.before.source.accepted_provenance(),
@@ -213,6 +214,7 @@ impl TxPoolAuthority {
             committed.push(CommittedChange {
                 sequence,
                 changed: fact.before.record.identity.raw.clone(),
+                async_process_start,
             });
             changes.push(IndependentMembershipChange {
                 key: fact.before.record.identity.raw.clone(),

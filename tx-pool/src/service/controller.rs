@@ -4,9 +4,8 @@ use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_err
 use crate::service::{
     AsyncRequest, BlockTemplateResult, ChainReorgArgs, FeeEstimatesResult,
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    NotifyTxBatch, Request, SubmitTxResult, TestAcceptTxResult, TxPoolService,
+    NotifyTxBatch, RemoteTxSubmission, Request, SubmitTxResult, TestAcceptTxResult,
 };
-use crate::tx_source::TxSource;
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
@@ -32,7 +31,7 @@ use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "internal")]
-use crate::{component::entry::TxEntry, process::PlugTarget};
+use crate::{PlugTarget, component::entry::TxEntry};
 
 /// Controller to the tx-pool service.
 ///
@@ -182,9 +181,11 @@ impl TxPoolController {
         peer: PeerIndex,
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("submit_remote_tx");
-        let source = TxSource::remote(declared_cycles, peer);
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call((tx, source), responder);
+        let request = AsyncRequest::call(
+            RemoteTxSubmission::new(tx, declared_cycles, peer),
+            responder,
+        );
         self.sender
             .try_send(Message::SubmitRemoteTx(request))
             .map_err(|error| {
@@ -355,40 +356,6 @@ impl TxPoolController {
             .map_err(Into::into)
     }
 
-    /// Load persisted txs into the pool.
-    ///
-    /// The file written by `TxPool::save_into_file` is already topologically
-    /// ordered, but the reload path replays serially without retry: a child
-    /// stored before its parent would hit missing-input, be rejected, and be
-    /// recorded in recent_reject — permanently lost even though the parent
-    /// shows up moments later. Sort parents before children on the load side
-    /// too, so replay correctness never depends on the file's provenance
-    /// (older nodes, hand-edited files, or future changes to the writer).
-    pub(crate) fn load_persisted_data(
-        &self,
-        mut txs: Vec<TransactionView>,
-    ) -> Result<(), AnyError> {
-        if !txs.is_empty() {
-            info!("Loading persistent tx-pool data, total {} txs", txs.len());
-            TxPoolService::sort_txs_by_dependencies(&mut txs)?;
-            let mut failed_txs = 0usize;
-            for tx in txs {
-                if self.submit_local_tx(tx)?.is_err() {
-                    failed_txs = failed_txs.saturating_add(1);
-                }
-            }
-            if failed_txs == 0 {
-                info!("Persistent tx-pool data is loaded");
-            } else {
-                info!(
-                    "Persistent tx-pool data is loaded, {} stale txs are ignored",
-                    failed_txs
-                );
-            }
-        }
-        Ok(())
-    }
-
     /// Plug tx-pool entry to tx-pool, skip verification. only for test
     #[cfg(feature = "internal")]
     pub fn plug_entry(&self, entries: Vec<TxEntry>, target: PlugTarget) -> Result<(), AnyError> {
@@ -416,3 +383,7 @@ impl TxPoolController {
         send_message!(self, GetTotalRecentRejectNum, ())
     }
 }
+
+#[cfg(test)]
+#[path = "tests/controller.rs"]
+mod tests;

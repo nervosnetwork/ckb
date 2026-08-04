@@ -4,8 +4,8 @@ use super::resources::AcceptedCost;
 #[cfg(test)]
 use super::state::FoundationResolution;
 use super::state::{
-    CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut, DependencyKey,
-    DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
+    AsyncProcessStart, CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut,
+    DependencyKey, DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
     KnownDependencies, MissingDependencies, PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts,
     ResolvedPayload, TxIdentity, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
@@ -405,6 +405,7 @@ fn verified(
     resolved: ResolvedFacts,
     cycles: u64,
     time: TimeContextReceipt,
+    async_process_start: AsyncProcessStart,
 ) -> ComputeSettlement {
     let serialized_bytes = resolved.payload().serialized_bytes();
     if resolved.payload().footprint.edge_count() > token.grant.max_edges {
@@ -442,6 +443,7 @@ fn verified(
         context,
         verify_class,
         metrics,
+        async_process_start,
     )))
 }
 
@@ -716,9 +718,11 @@ impl VerifyWork {
     ) -> ComputeSettlement {
         let tip = self.token.chain_view().tip().0.clone();
         match self.bind_current(&tip) {
-            Ok(work) => {
-                work.verified_with_time_context(cycles, TimeContextReceipt::from_validation(rules))
-            }
+            Ok(work) => work.verified_with_time_context(
+                cycles,
+                TimeContextReceipt::from_validation(rules),
+                AsyncProcessStart::now(),
+            ),
             Err(stale) => stale,
         }
     }
@@ -756,8 +760,11 @@ impl ContinuousVerifyWork {
         cycles: u64,
         rules: ScriptVerificationRules,
     ) -> ComputeSettlement {
-        self.into_current()
-            .verified_with_time_context(cycles, TimeContextReceipt::from_validation(rules))
+        self.into_current().verified_with_time_context(
+            cycles,
+            TimeContextReceipt::from_validation(rules),
+            AsyncProcessStart::now(),
+        )
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
@@ -792,8 +799,9 @@ impl SnapshotBoundVerifyWork {
         self,
         cycles: u64,
         time: TimeContextReceipt,
+        async_process_start: AsyncProcessStart,
     ) -> ComputeSettlement {
-        verified(self.token, self.resolved, cycles, time)
+        verified(self.token, self.resolved, cycles, time, async_process_start)
     }
 
     pub(super) fn internal_failure(self) -> ComputeSettlement {
