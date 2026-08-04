@@ -18,13 +18,17 @@ G5.3b.7 slice 6 checkpoint: d4b5a32b4
 G5.3c C0 checkpoint: a2b552ae4
 G5.3c C1/C2 publication-parity checkpoint: 28521bc98
 G5.3c C2 legacy-deletion checkpoint: b4260009b
+G5/G6 relay-reconciliation checkpoint: 2b16dacce
 Active slice: G5/G6 audits the complete surviving UAK architecture for model
 minimality, invariant closure, Rust-static safety, progress/liveness,
 publication convergence, performance shape, test stacking, documentation, and
 every provisional historical adjudication.
-Next exact action: freeze the C2 checkpoint, inventory the production versus
-test-only UAK surface, then audit one-authority ownership and every legal
-transition before changing the surviving model. Publication parity is closed
+Next exact action: finish the current-code error/fail-stop, wait-for,
+manual-publication, and historical-adjudication audit; freeze the complete
+root-cause candidate set; then remove the already-proven proof-shadow fields
+(`AuthorityReadCut` generation/sequence and the unconsumed owners/status source
+clocks) as one zero-behavior slice before any further semantic change.
+Publication parity is closed
 for callbacks, relay and known-filter reconciliation,
 recent-reject, peer ban/Sentry reporting, verification cache, persistence,
 fee-estimator chain projection, candidate uncles, all concurrent template
@@ -32,11 +36,14 @@ lanes, miner notification, operational gauges, exact-once terminal rejection
 counters, sync/async processing histograms, failure-boundary counters, startup
 and ordered shutdown. Optional proposals and uncles now compile through one
 shared byte budget and only actually published proposal IDs suppress conflicting
-uncles. After physical retirement, `cargo nextest run -p ckb-tx-pool --features
-internal --lib --no-fail-fast` passes 400/400, `cargo check -p ckb-tx-pool
---features internal` passes, `cargo check -p ckb-shared` passes, formatting is
-clean, and the tx-pool diff removes 32,163 lines while adding 86. Do not restore
-a mixed legacy/UAK production authority during the global review.
+uncles. The relay-reset audit found and closed one real derived-liveness hole:
+a `GenerationReset` now starts a bounded source-cut rebuild of every still-live
+Remote missing-parent request from the sole authority. Runtime, mailbox and
+read-only rebuild capability are constructed in one bootstrap, so no second
+authority or mismatched configuration can be assembled. Checkpoint
+`2b16dacce` passes 401/401 isolated tx-pool tests plus `ckb-shared`, `ckb-sync`
+and `ckb-launcher` compilation. Formatting is clean. Do not restore a mixed
+legacy/UAK production authority during the global review.
 
 This is a temporary continuity artifact. It must be removed after the final
 architecture, review guide, behavior inventory, contracts, and release
