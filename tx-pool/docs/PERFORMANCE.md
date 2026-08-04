@@ -21,7 +21,7 @@ about:
 - validation and immutable-snapshot computation run outside authority locks;
 - Plan is read-only, Apply is total and single-consumption;
 - external I/O consumes only effects committed with authoritative mutation;
-- legal transaction, peer, capacity and stale-lease outcomes are typed and do
+- legal transaction, peer, capacity and stale-work outcomes are typed and do
   not reach invariant failure;
 - no optimization adds an inferred owner, mutable cache, unbounded task, queue
   scan or lock held across an await;

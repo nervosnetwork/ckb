@@ -23,8 +23,8 @@
     "ownership_key": "raw_tx_hash",
     "verification_cache_key": "inline_witness_hash_32_bytes_and_ScriptVerificationRules",
     "proposal_short_id_role": "collision_aware_index_and_consensus_protocol_only",
-    "entry_version": "process_global_non_reused_u128",
-    "compute_lease": "process_global_non_reused_u128",
+    "entry_version": "process_global_non_reused_u128_and_active_compute_identity",
+    "compute_capability": "move_only_checked_out_work_bound_to_entry_version",
     "chain_view": "monotonic_revision_and_tip_hash",
     "apply_sequence": "process_global_monotonic_u128"
   },

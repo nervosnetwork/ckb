@@ -18,12 +18,12 @@ use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
-    CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, ComputeLeaseId,
-    DependencyCut, DependencyKey, EntryVersion, ExpandedFootprint, FootprintError,
-    KnownDependencies, ObservedDependencies, OwnedTx, PayloadPolicy, PoolGeneration,
-    PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
-    RemoteResidencyLease, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts,
-    VerifyCapability, VerifyCycleClass, WorkPermit,
+    CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut,
+    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, KnownDependencies,
+    ObservedDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedPhase,
+    PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, RemoteResidencyLease,
+    ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability,
+    VerifyCycleClass, WorkPermit,
     test_support::{FoundationResolution, RejectionKind},
 };
 use super::super::work::{
@@ -1236,7 +1236,6 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
         old_accepted_source
     );
     assert_eq!(authority.clocks().next_version, old_clocks.next_version);
-    assert_eq!(authority.clocks().next_lease, old_clocks.next_lease);
     assert_eq!(authority.clocks().next_arrival, old_clocks.next_arrival);
     assert!(authority.primary_projection_consistent());
 
@@ -2897,7 +2896,6 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
     let phases = [
         PreAcceptedPhase::Queued(QueuedWork::Resolve),
         PreAcceptedPhase::Computing(ActiveWork {
-            lease: ComputeLeaseId(1),
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveThenVerify(VerifyCapability::Any),
             grant: ComputeGrant {
@@ -2948,7 +2946,6 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     assert_eq!(authority.chain_view(), &ChainViewId::initial());
     assert_eq!(authority.generation(), PoolGeneration(0));
     assert_eq!(authority.resources().remote().entries, 1);
-    assert_eq!(authority.clocks().next_lease, ComputeLeaseId(1));
     let declared_dependencies = match owner {
         OwnedTx::PreAccepted(entry) => entry.basis.dependencies().clone(),
         OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
@@ -2965,7 +2962,6 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     let variants = [
         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
         PreAcceptedPhase::Computing(ActiveWork {
-            lease: ComputeLeaseId(2),
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveOnly,
             grant: ComputeGrant {
@@ -2978,7 +2974,6 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             dependencies: declared_dependencies.clone(),
         }),
         PreAcceptedPhase::Computing(ActiveWork {
-            lease: ComputeLeaseId(3),
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::VerifyOnly(VerifyCapability::Any),
             grant: ComputeGrant {
@@ -6578,7 +6573,7 @@ fn uak_active_work_backpressure_is_precomputed_and_mutation_free() {
 }
 
 #[test]
-fn uak_stale_lease_is_mutation_free_across_aba() {
+fn uak_stale_compute_version_is_mutation_free_across_aba() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(27);
     let first = ValidatedAdmission::remote(transaction.clone(), PeerIndex::from(46))
@@ -6602,7 +6597,6 @@ fn uak_stale_lease_is_mutation_free_across_aba() {
     let stale_token = SettlementToken {
         hash: settlement.token.hash.clone(),
         version: settlement.token.version,
-        lease: settlement.token.lease,
     };
     apply_plan(
         authority
@@ -7290,7 +7284,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
 }
 
 #[test]
-fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
+fn uak_active_compute_capability_survives_chain_view_change() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let second_hash = admit_remote(&mut authority, 16, 35);
     let version = owner_version(&authority, &second_hash);
@@ -7309,27 +7303,10 @@ fn uak_stale_lease_is_mutation_free_after_chain_view_change() {
     let (verify, _) = continue_fixture_verify(second, payload);
     let settlement = verify.verified(0);
     authority.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([16; 32])));
-    let forged = ComputeSettlement {
-        token: SettlementToken {
-            hash: settlement.token.hash.clone(),
-            version: settlement.token.version,
-            lease: ComputeLeaseId(u128::MAX),
-        },
-        next: SettlementNext::Retry,
-    };
-    let before_forged = authority.normalized_snapshot();
-    let stale_lease = authority
-        .apply_settlement(forged)
-        .expect_err("a forged compute lease is stale");
-    assert_eq!(
-        stale_lease.recovery(),
-        &ComputeSettlementRecovery::Obsolete(StalePlan::Lease)
-    );
-    assert_eq!(authority.normalized_snapshot(), before_forged);
     apply_plan(
         authority
             .apply_settlement(settlement)
-            .expect("the genuine lease remains available after the forged token"),
+            .expect("the active capability remains settleable after a chain-view change"),
     );
     assert_resource_reference(&authority);
 }

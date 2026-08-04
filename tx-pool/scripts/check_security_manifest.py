@@ -154,6 +154,21 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
             "single authority store",
         )
     )
+
+    identity = contract.get("identity")
+    if not isinstance(identity, dict):
+        errors.append("architecture contract identity must be an object")
+        identity = {}
+    if identity.get("entry_version") != (
+        "process_global_non_reused_u128_and_active_compute_identity"
+    ):
+        errors.append("EntryVersion must remain the sole numeric active-compute identity")
+    if identity.get("compute_capability") != (
+        "move_only_checked_out_work_bound_to_entry_version"
+    ):
+        errors.append("compute capability must remain move-only work bound to EntryVersion")
+    if "compute_lease" in identity:
+        errors.append("architecture contract must not restore a second compute-lease counter")
     errors.extend(
         require_source_symbols(
             "tx-pool/src/authority/plan.rs",

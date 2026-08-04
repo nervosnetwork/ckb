@@ -12,10 +12,11 @@
       "id": "TP-OWN-001",
       "title": "Single transaction ownership and ABA safety",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/state.rs", "symbols": ["enum OwnedTx", "enum PreAcceptedPhase", "EntryVersion", "ComputeLeaseId"]},
+        {"path": "tx-pool/src/authority/state.rs", "symbols": ["enum OwnedTx", "enum PreAcceptedPhase", "EntryVersion"]},
+        {"path": "tx-pool/src/authority/work.rs", "symbols": ["struct SettlementToken", "enum CheckedOutWork"]},
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct TxPoolAuthority", "struct PreparedApply"]}
       ],
-      "required_behavior": "Each raw transaction hash has zero or one OwnedTx in TxPoolAuthority.entries. Every asynchronous mutation consumes the exact typed version, phase, lease, generation and chain view; queues, workers, receipts and effects never own lifecycle state.",
+      "required_behavior": "Each raw transaction hash has zero or one OwnedTx in TxPoolAuthority.entries. Compute consumes one move-only work value bound to the exact owner version and Computing phase; chain proof remains bound to its exact view, while other asynchronous receipts carry their own typed generation or source cut. Queues, workers, receipts and effects never own lifecycle state.",
       "hostile_case": "Duplicate ingress, source promotion, stale completion, remove/readmit ABA, clear or reorg must not create a second owner, erase the current owner or leave an uncharged payload.",
       "reviewer_questions": [
         "Can any payload exist outside entries after an authority guard opens?",
@@ -113,7 +114,7 @@
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthoritySignals", "fn publish_mutation", "fn try_checkout"]}
       ],
       "required_behavior": "Workers hold one move-only compute capability, perform expensive work without the store guard, and settle or cancel it exactly once. Every mutating AuthorityRuntime operation directly publishes one lossy hint after its guard and retirement carriers open; scheduling and waits recheck authoritative levels and remain fair and cancellation-aware.",
-      "hostile_case": "Missing, lost or coalesced mutation publication, saturated peer, stale head, allocation retry, cancellation or worker completion reordering must not lose a lease, abort unrelated work, spin or starve another eligible owner.",
+      "hostile_case": "Missing, lost or coalesced mutation publication, saturated peer, stale head, allocation retry, cancellation or worker completion reordering must not lose a work capability, abort unrelated work, spin or starve another eligible owner.",
       "reviewer_questions": [
         "Does every wait name an independent releaser?",
         "Can a worker exit while retaining the only active capability?",
@@ -292,7 +293,7 @@
   "unit_evidence": [
     {"test": "authority::tests::foundation::uak_all_four_preaccepted_phases_are_closed_variants", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T5"]},
     {"test": "authority::tests::foundation::uak_duplicate_and_promotion_never_create_second_owner", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3"]},
-    {"test": "authority::tests::foundation::uak_stale_lease_is_mutation_free_across_aba", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6"]},
+    {"test": "authority::tests::foundation::uak_stale_compute_version_is_mutation_free_across_aba", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6"]},
     {"test": "authority::tests::foundation::uak_active_trusted_witness_replacement_atomically_stales_obsolete_work", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T11"]},
     {"test": "authority::tests::foundation::uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T3", "T6", "T7"]},
 
@@ -633,7 +634,7 @@
       "behavior_ids": ["TP-DEP-001", "TP-WORKER-001", "TP-PERF-001"],
       "path": "test/src/specs/tx_pool/txs_relay_order.rs",
       "anchor": "TxsRelayOrder",
-      "boundary": "Same-lane continuation preserves exact lease ownership, dependency order and bounded fair progress.",
+      "boundary": "Same-lane continuation preserves exact work-capability ownership, dependency order and bounded fair progress.",
       "invariants": ["T2", "T4", "T5", "T8", "T10"],
       "unit_anchors": [
         "authority::tests::dependency::uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness",

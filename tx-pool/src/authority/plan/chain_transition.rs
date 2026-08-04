@@ -1242,7 +1242,6 @@ impl TxPoolAuthority {
             next_version: version,
             next_arrival: arrival,
             next_sequence: next_sequence(sequence)?,
-            ..self.clocks
         };
         let retired = retired_buffer(changes.len())?;
         let mut updates = Vec::new();
@@ -1384,7 +1383,6 @@ impl TxPoolAuthority {
             next_version: scratch.clocks.next_version,
             next_arrival: scratch.clocks.next_arrival,
             next_sequence: next_sequence(sequence)?,
-            ..self.clocks
         };
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let effect = self.effects.plan_generation_reset(sequence)?;

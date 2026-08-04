@@ -122,7 +122,8 @@ impl AuthorityServiceError {
 /// Move-only proof that a service error is a structural contradiction and
 /// therefore makes this authority generation ineligible for persistence.
 /// Operational outcomes cannot construct this type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use = "generation invalidity must be retained until controlled shutdown"]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AuthorityGenerationInvalidity(AuthorityIntegrityFault);
 
 /// Persistence failures are operational outcomes after a coherent read cut;

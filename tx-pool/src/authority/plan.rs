@@ -234,7 +234,6 @@ pub(super) enum StalePlan {
     Version,
     Phase,
     ChainRevision,
-    Lease,
     Dependency,
     Generation,
     SourceVersion,
@@ -263,10 +262,10 @@ pub(super) enum PlanError {
 }
 
 /// A compute settlement that could not be committed still owns the exact
-/// lease capability. Callers may turn it into a deterministic cancellation,
-/// or discard it only after proving the reported error makes the lease stale.
+/// work capability. Callers may turn it into a deterministic cancellation,
+/// or discard it only after proving the reported error makes the work stale.
 #[derive(Debug)]
-#[must_use = "a failed compute settlement still owns the active lease capability"]
+#[must_use = "a failed compute settlement still owns the active work capability"]
 pub(super) struct ComputeSettlementFailure {
     recovery: ComputeSettlementRecovery,
     token: SettlementToken,
@@ -333,7 +332,7 @@ impl ComputeSettlementFailure {
     }
 
     /// Discard an expensive result before reacquiring the authority guard and
-    /// retain only the lease identity required to requeue its owner.
+    /// retain only the versioned identity required to requeue its owner.
     pub(super) fn discard_result_for_cancellation(self) -> ComputeCancellation {
         let Self {
             token,
@@ -346,7 +345,7 @@ impl ComputeSettlementFailure {
 }
 
 #[derive(Debug)]
-#[must_use = "compute cancellation owns the only lease identity that can release active work"]
+#[must_use = "compute cancellation owns the only capability that can release active work"]
 pub(super) struct ComputeCancellation {
     token: SettlementToken,
 }
@@ -1374,16 +1373,6 @@ fn next_arrival(arrival: Arrival) -> Result<Arrival, PlanError> {
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
 }
 
-fn next_lease(
-    lease: super::state::ComputeLeaseId,
-) -> Result<super::state::ComputeLeaseId, PlanError> {
-    lease
-        .0
-        .checked_add(1)
-        .map(super::state::ComputeLeaseId)
-        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
-}
-
 fn next_sequence(sequence: ApplySequence) -> Result<ApplySequence, PlanError> {
     sequence
         .0
@@ -2077,7 +2066,6 @@ impl TxPoolAuthority {
             next_version: next_version(version)?,
             next_arrival: next_arrival(arrival)?,
             next_sequence: next_sequence(sequence)?,
-            ..self.clocks
         };
         let payload_bytes = admission.payload_bytes;
         let encoded_edges = admission.encoded_edges;
@@ -2516,7 +2504,6 @@ impl TxPoolAuthority {
             next_version: next_version(version)?,
             next_sequence: next_sequence(sequence)?,
             next_arrival,
-            ..self.clocks
         };
         let (accepted, async_process_start) =
             Self::direct_candidate(receipt, existing.as_ref(), version, arrival);
@@ -2590,7 +2577,6 @@ impl TxPoolAuthority {
             next_version: next_version(version)?,
             next_sequence: next_sequence(sequence)?,
             next_arrival: next_arrival(arrival)?,
-            ..self.clocks
         };
         let (accepted, async_process_start) =
             Self::direct_candidate(receipt, None, version, arrival);
@@ -3939,7 +3925,6 @@ impl TxPoolAuthority {
         let grant = reservation.grant;
         let charge = reservation.after_charge;
         let version = self.clocks.next_version;
-        let lease = self.clocks.next_lease;
         let sequence = self.clocks.next_sequence;
         let dependency_cut = match queued {
             QueuedWork::Resolve => DependencyCut(sequence),
@@ -3949,7 +3934,6 @@ impl TxPoolAuthority {
             settlement: SettlementToken {
                 hash: key.clone(),
                 version,
-                lease,
             },
             chain_view: self.chain_view.clone(),
             dependency_cut,
@@ -3969,7 +3953,6 @@ impl TxPoolAuthority {
         let after = existing
             .with_preaccepted_phase(
                 PreAcceptedPhase::Computing(super::state::ActiveWork {
-                    lease,
                     chain_view: self.chain_view.clone(),
                     permit,
                     grant,
@@ -3984,7 +3967,6 @@ impl TxPoolAuthority {
             .map_err(PlanError::Stale)?;
         let clocks = AuthorityClocks {
             next_version: next_version(version)?,
-            next_lease: next_lease(lease)?,
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
@@ -4050,12 +4032,9 @@ impl TxPoolAuthority {
         let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(ComputeCancellationError::Obsolete(StalePlan::Phase));
         };
-        let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
+        let PreAcceptedPhase::Computing(_) = &preaccepted.phase else {
             return Err(ComputeCancellationError::Obsolete(StalePlan::Phase));
         };
-        if active.lease != token.lease {
-            return Err(ComputeCancellationError::Obsolete(StalePlan::Lease));
-        }
         if preaccepted.charge.active_work != 1 {
             return Err(ComputeCancellationError::Fault(
                 AuthorityFault::ResourceProjection,
@@ -4188,10 +4167,10 @@ impl TxPoolAuthority {
         let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
             return Err(PlanError::Stale(StalePlan::Phase).into());
         };
-        if active.lease != token.lease {
-            return Err(PlanError::Stale(StalePlan::Lease).into());
-        }
-        // Entry version and lease decide completion authority. Chain identity
+        // The non-reused EntryVersion and Computing phase decide completion
+        // authority. The move-only work value prevents duplicate settlement;
+        // a second numeric compute identity would repeat the version without
+        // distinguishing any legal transition. Chain identity
         // decides only whether the resulting proof may be retained: a tip
         // change cannot invalidate the sole capability able to release this
         // Computing owner and its active charge.

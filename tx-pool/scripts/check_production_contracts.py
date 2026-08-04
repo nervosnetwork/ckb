@@ -20,6 +20,9 @@ TX_POOL_AUTHORITY_SERVICE = (
 TX_POOL_AUTHORITY_RUNTIME = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "runtime.rs"
 )
+TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
+TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
+TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
 RUST_CHAR_LITERAL = re.compile(
     r"'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}))'"
 )
@@ -284,6 +287,25 @@ def validate_authority_failure_algebra() -> list[str]:
             + " " * (invalidity.end() - invalidity.start())
             + masked[invalidity.end() :]
         )
+        capability_declaration = re.search(
+            r"(?P<attributes>(?:#\s*\[[^\]]*\]\s*)*)"
+            r"pub\s*\(crate\)\s+struct\s+AuthorityGenerationInvalidity\s*"
+            r"\(AuthorityIntegrityFault\)\s*;",
+            masked,
+        )
+        attributes = (
+            "" if capability_declaration is None else capability_declaration.group("attributes")
+        )
+        if "must_use" not in attributes:
+            errors.append("AuthorityGenerationInvalidity must remain must_use")
+        derive = re.findall(
+            r"#\s*\[\s*derive\s*\((?P<body>[^)]*)\)\s*\]", attributes
+        )
+        if any(re.search(r"\b(?:Clone|Copy)\b", body) for body in derive):
+            errors.append(
+                "AuthorityGenerationInvalidity is a move-only capability and must not "
+                "derive Clone or Copy"
+            )
     constructors = re.findall(
         r"\bAuthorityGenerationInvalidity\s*\(", constructor_source
     )
@@ -305,6 +327,41 @@ def validate_authority_failure_algebra() -> list[str]:
         if settlement.count("AuthorityGenerationInvalidity(fault)") != 1:
             errors.append(
                 "settle_operation_error must be the sole integrity-to-invalidity conversion"
+            )
+    return errors
+
+
+def validate_compute_capability_identity() -> list[str]:
+    """Keep EntryVersion as the sole numeric identity for active computation."""
+
+    try:
+        state = TX_POOL_AUTHORITY_STATE.read_text()
+        work = TX_POOL_AUTHORITY_WORK.read_text()
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+    except OSError as error:
+        return [f"cannot inspect compute capability identity: {error}"]
+
+    errors: list[str] = []
+    production = "\n".join((state, work, plan))
+    for retired in ("ComputeLeaseId", "next_lease", "StalePlan::Lease"):
+        if retired in production:
+            errors.append(
+                f"active computation must not restore redundant numeric identity {retired}"
+            )
+
+    settlement = re.search(
+        r"struct\s+SettlementToken\s*\{(?P<body>.*?)\n\}", work, re.S
+    )
+    if settlement is None:
+        errors.append("SettlementToken declaration disappeared")
+    else:
+        body = settlement.group("body")
+        if "version: EntryVersion" not in body:
+            errors.append("SettlementToken must bind active work to EntryVersion")
+        if re.search(r"\b(?:lease|generation|revision)\s*:", body):
+            errors.append(
+                "SettlementToken must not duplicate the owner version with another "
+                "numeric identity"
             )
     return errors
 
@@ -415,6 +472,7 @@ def main() -> int:
         *validate_startup_backpressure(),
         *validate_authority_mutation_publication(),
         *validate_authority_failure_algebra(),
+        *validate_compute_capability_identity(),
     ]
     if errors:
         for error in errors:

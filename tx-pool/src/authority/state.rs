@@ -29,9 +29,6 @@ pub(super) struct ProposalId(pub(super) ProposalShortId);
 pub(super) struct EntryVersion(pub(super) u128);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ComputeLeaseId(pub(super) u128);
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct ChainRevision(pub(super) u64);
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -1034,7 +1031,6 @@ pub(super) enum QueuedWork {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ActiveWork {
-    pub(super) lease: ComputeLeaseId,
     pub(super) chain_view: ChainViewId,
     pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
@@ -1450,7 +1446,6 @@ impl ValidatedAdmission {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AuthorityClocks {
     pub(super) next_version: EntryVersion,
-    pub(super) next_lease: ComputeLeaseId,
     pub(super) next_arrival: Arrival,
     pub(super) next_sequence: ApplySequence,
 }
@@ -1459,7 +1454,6 @@ impl AuthorityClocks {
     pub(super) const fn first() -> Self {
         Self {
             next_version: EntryVersion(1),
-            next_lease: ComputeLeaseId(1),
             next_arrival: Arrival(0),
             next_sequence: ApplySequence(1),
         }

@@ -2,8 +2,8 @@ use super::chain::{CellContentReceipt, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
 use super::resources::AcceptedCost;
 use super::state::{
-    AsyncProcessStart, CandidateMetrics, ChainViewId, ComputeGrant, ComputeLeaseId, DependencyCut,
-    DependencyKey, DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
+    AsyncProcessStart, CandidateMetrics, ChainViewId, ComputeGrant, DependencyCut, DependencyKey,
+    DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
     KnownDependencies, MissingDependencies, PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts,
     ResolvedPayload, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
 };
@@ -16,7 +16,6 @@ use std::sync::Arc;
 pub(super) struct SettlementToken {
     pub(super) hash: RawTxHash,
     pub(super) version: EntryVersion,
-    pub(super) lease: ComputeLeaseId,
 }
 
 #[derive(Debug)]

@@ -110,7 +110,7 @@ bounded or merely transferred.
 
 | Family | Verified `develop` structure and failure | Why a local patch is not a complete proof | UAK mechanism and cost | Disposition |
 |---|---|---|---|---|
-| F1 ownership and ABA | `VerifyQueue`, `OrphanPool`, active verifier work, conflict storage and accepted `PoolMap` independently retain or infer a transaction's location. Clear, peer removal and re-admission cross those structures. | Locking one handoff still leaves every other producer, cancellation and administrative path to coordinate the same partition. A complete local fix would have to introduce a common owner/version protocol, which is the structural change. | One `entries` map; three owner variants; one non-reused entry version and typed compute lease. One authority write guard sequences short transitions. | Ownership ambiguity is eliminated. Lock contention is a measurable cost, not hidden. |
+| F1 ownership and ABA | `VerifyQueue`, `OrphanPool`, active verifier work, conflict storage and accepted `PoolMap` independently retain or infer a transaction's location. Clear, peer removal and re-admission cross those structures. | Locking one handoff still leaves every other producer, cancellation and administrative path to coordinate the same partition. A complete local fix would have to introduce a common owner/version protocol, which is the structural change. | One `entries` map; three owner variants; one non-reused entry version and move-only checked-out work. One authority write guard sequences short transitions. | Ownership ambiguity is eliminated. Lock contention is a measurable cost, not hidden. |
 | F2 RBF and capacity atomicity | `process_rbf` removes victims and publishes rejection/conflict state before `_submit_entry` and `limit_size` have proved the replacement can remain accepted. | Moving one fee check earlier cannot make victim closure, descendant removal, accepted capacity, resource accounting, callbacks and failure recovery one transaction. Undo would add another fallible state machine. | Immutable membership/RBF compilation followed by one total Apply; optional victim history is installed by that Apply. Planning and closure work are bounded. | Partial replacement is eliminated. Bounded plan cost replaces rollback risk. |
 | F3 observable effects | Accepted mutation, callbacks, relay-known state, recent rejection, cache work and block-template notification occur in separate calls/tasks and can be separated by failure or saturation. | Adding retries to every endpoint cannot prove which state was committed and can duplicate or omit publication. | `EffectLog` is part of the authority; a bounded effect delta commits with ownership. One move-only publisher consumes it after the guard opens. | State/effect gaps are eliminated in-process. Crash durability and exactly-once external delivery remain explicit residual risks. |
 | F4 hostile resources | Accepted capacity, orphan count, verification cycles, conflict retention and auxiliary graph/index memory use different limits or omit metadata/active-work cost. | Independent ceilings do not prove the sum and allow transitions between structures to escape or double charge. | One `ResourceLedger` charges entries, bytes, edges, active work, compute envelopes, accepted cost, remote/per-peer state and replacement history; effect memory is separately bounded by the same construction inputs. | Uncharged residency is eliminated; conservative overcharging is an accepted bounded availability trade-off. |
@@ -152,7 +152,7 @@ Ready(VerifiedFacts)
 ```
 
 Resolve and Verify queue states share a typed `QueuedWork` enum. Computing
-contains the only active lease, exact chain view, work permit, resource grant,
+contains the only active work record, exact chain view, work permit, resource grant,
 attribution, payload policy and dependency cut. Waiting can represent only a
 non-empty missing-dependency observation. Replacement conflict history cannot
 be encoded as executable waiting work.
@@ -168,7 +168,7 @@ and cannot feed proposal or commit selection.
 | ID | Invariant |
 |---|---|
 | T1 OwnerPartition | For every raw hash, `entries` contains zero or one `OwnedTx`; no worker, queue, effect, cache or template owns lifecycle state. |
-| T2 CapabilityAndABA | A completion mutates only the exact entry version, phase, lease, generation and chain view it checked out. Stale work is mutation-free. |
+| T2 CapabilityAndABA | A compute completion mutates only the exact entry version and Computing phase it checked out; chain-bound proof is retained only under its exact chain view. The checked-out work value is move-only, and stale work is mutation-free. Other asynchronous receipts carry their own typed generation or source cut. |
 | T3 ContinuousResources | An owner is charged if and only if it exists; ownership and every charge coordinate change in the same Apply. |
 | T4 DependencyExactness | Canonical input/cell-dep/header/dep-group facts and reverse observations describe the same owner generation. Definitive loss cannot leave a surviving accepted consumer. |
 | T5 SchedulerExactness | Every executable PreAccepted owner has exactly the scheduler membership implied by its phase; no inert/history owner is executable. |
@@ -193,8 +193,8 @@ remove the invalid state.
 | `WitnessTxHash(Byte32)` | transaction witness identity inside authority evidence |
 | `TxVerificationCacheKey { [u8; 32], ScriptVerificationRules }` | copy-cheap, context-complete script cache identity |
 | `ProposalId(ProposalShortId)` | collision-aware consensus proposal index only |
-| `EntryVersion(u128)` | non-reused exact owner incarnation/phase |
-| `ComputeLeaseId(u128)` | move-only active computation capability |
+| `EntryVersion(u128)` | non-reused owner and active-compute identity; source-only transitions may deliberately preserve it |
+| `CheckedOutWork` / `SettlementToken` | sole move-only active computation capability; it carries `EntryVersion` rather than a redundant second counter |
 | `ApplySequence(u128)` | total committed authority/source/effect order |
 | `PoolGeneration(u64)` | clear/generation boundary |
 | `ChainViewId { ChainRevision, ChainTipHash }` | exact chain event and same-tip evidence scope |

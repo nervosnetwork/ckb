@@ -40,7 +40,7 @@
 //! so a partial update which landed just before the replacement is retried
 //! instead of lost.
 //!
-//! Input, policy, capacity, cancellation and stale-lease outcomes are typed
+//! Input, policy, capacity, cancellation and stale-work outcomes are typed
 //! errors. A typed structural contradiction marks the generation ineligible
 //! for persistence and requests controlled shutdown; legal transaction input
 //! cannot construct that path. Panics are not used for rejection, rollback,
