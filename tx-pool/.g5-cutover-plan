@@ -257,6 +257,44 @@ The fixed top-level plan remains: G5/G6 whole-model audit and root fixes (active
 -> P9.8 complete isolated/unit/integration evidence -> P10 reproducible
 profiling and fixed-binary A/B. Benchmark work must not start early.
 
+### Non-negotiable pre-benchmark architecture adjudication
+
+P10 is forbidden until one reviewer-facing, code-verified matrix closes all of
+the following questions. These are independent release gates; passing tests or
+good benchmark numbers cannot substitute for them.
+
+1. For every develop-era race or non-atomic submission failure claimed as a
+   reason for the refactor, identify the exact producer/transition/consumer
+   call graph and explain why a local patch cannot reliably close every legal
+   interleaving. A claim with no current code and regression evidence is not a
+   justification for retained architecture.
+2. For every UAK mechanism introduced to close such a failure, account for its
+   state variants, lock scope, version or lease, effect/log capacity, task and
+   shutdown owner, resource bound, and failure domain. Classify its outcome as
+   risk eliminated, risk bounded, or risk transferred; transferred risk must
+   be redesigned or explicitly accepted as a release blocker.
+3. Reconstruct the smallest constructively safe model from the current code:
+   one authoritative owner, read-only Plan, total atomic Apply, and external
+   I/O consuming only committed effects. Prove that every retained structure
+   and state is necessary, that legal or hostile input cannot cause an
+   invariant fault, and that the resulting model is demonstrably superior and
+   necessary relative to develop rather than merely different.
+4. Complete all statically derivable review before measurement: state and
+   transition closure, producer/consumer coverage, manual publication points,
+   lock/wait/task/shutdown graphs, stale evidence and ABA cuts, panic-like and
+   fail-stop reachability, checked arithmetic, resource and graph complexity,
+   bounded peer-controlled work, deterministic ordering, cache identity,
+   template convergence, cross-crate capability use, and zero-match test
+   anchors. Benchmark and profiling may validate cost attribution only; they
+   must not be used to discover correctness defects inferable from code.
+
+Every historical report and provisional adjudication must be re-evaluated
+against the surviving UAK code and end in exactly one ledger disposition:
+`confirmed-closed`, `superseded-by-proven-model`,
+`suppressed-with-current-counterevidence`, or `open-blocker`. The complete
+prior-adjudication reset is still active and must not be inferred complete from
+the already reverified subset.
+
 ## 1. Fixed roadmap
 
 - [x] G5.0: seal UAK worker/runtime ownership and typed settlement.
