@@ -295,7 +295,7 @@ async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() 
         runtime
             .try_drive_ready()
             .expect("the sealed Ready batch commits"),
-        AuthorityReadyOutcome::Applied { owners: 1 }
+        AuthorityReadyOutcome::Applied
     );
     let store = runtime.store.read();
     assert!(matches!(

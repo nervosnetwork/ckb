@@ -8,7 +8,6 @@ use crate::authority::{
     resources::{ResourceBatchPlan, ResourceError},
     state::{AcceptedEntry, OwnedTx, PreAcceptedEntry, RawTxHash},
 };
-use ckb_types::packed::OutPoint;
 use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
@@ -16,24 +15,6 @@ pub(in crate::authority::plan) struct IndependentMembershipChange {
     pub(in crate::authority::plan) key: RawTxHash,
     pub(in crate::authority::plan) before: PreAcceptedEntry,
     pub(in crate::authority::plan) after: AcceptedEntry,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum IndependentCoupling {
-    InputNotChainBacked(OutPoint),
-    DependencyNotChainBacked(OutPoint),
-    AcceptedSpender(OutPoint),
-    AcceptedConditionalEdge(OutPoint),
-    PoolParent(RawTxHash),
-    CohortInputConflict(OutPoint),
-    CohortConditionalEdge(OutPoint),
-    CohortCausalEdge(RawTxHash),
-    AcceptedChild(RawTxHash),
-    AcceptedCapacity,
-    /// Final validation replaced the Ready owner's resolved-cell payload.
-    /// That predecessor must be carried out of the authority guard, which the
-    /// allocation-free independent batch Apply deliberately cannot do.
-    LocationRefreshedPayload,
 }
 
 pub(in crate::authority::plan) struct PreparedIndependentMembership {
@@ -47,24 +28,20 @@ pub(in crate::authority::plan) struct PreparedIndependentMembership {
 )]
 pub(in crate::authority::plan) enum IndependentMembershipOutcome {
     Prepared(PreparedIndependentMembership),
-    Coupled(IndependentCoupling),
+    Coupled,
 }
 
 pub(in crate::authority::plan) fn prepare_independent_membership(
     authority: &mut TxPoolAuthority,
     changes: &[IndependentMembershipChange],
 ) -> Result<IndependentMembershipOutcome, PlanError> {
-    if let Some(coupling) = classify(authority, changes)? {
-        return Ok(IndependentMembershipOutcome::Coupled(coupling));
+    if classify(authority, changes)? {
+        return Ok(IndependentMembershipOutcome::Coupled);
     }
 
     let resource = match prepare_resources(authority, changes)? {
         Some(resource) => resource,
-        None => {
-            return Ok(IndependentMembershipOutcome::Coupled(
-                IndependentCoupling::AcceptedCapacity,
-            ));
-        }
+        None => return Ok(IndependentMembershipOutcome::Coupled),
     };
     let projection = prepare_projection(authority, changes)?;
     Ok(IndependentMembershipOutcome::Prepared(
@@ -78,83 +55,75 @@ pub(in crate::authority::plan) fn prepare_independent_membership(
 fn classify(
     authority: &TxPoolAuthority,
     changes: &[IndependentMembershipChange],
-) -> Result<Option<IndependentCoupling>, PlanError> {
+) -> Result<bool, PlanError> {
     for (index, change) in changes.iter().enumerate() {
         validate_owner(authority, change)?;
         let footprint = &change.after.proof.payload().footprint;
 
         for input in footprint.inputs() {
             if authority.membership.spender(input).is_some() {
-                return Ok(Some(IndependentCoupling::AcceptedSpender(input.clone())));
+                return Ok(true);
             }
             if authority
                 .membership
                 .dependency_readers(input)
                 .is_some_and(|readers| !readers.is_empty())
             {
-                return Ok(Some(IndependentCoupling::AcceptedConditionalEdge(
-                    input.clone(),
-                )));
+                return Ok(true);
             }
             let producer = RawTxHash(input.tx_hash());
             if is_accepted(authority, &producer) {
-                return Ok(Some(IndependentCoupling::PoolParent(producer)));
+                return Ok(true);
             }
             if changes
                 .iter()
                 .enumerate()
                 .any(|(other, candidate)| other != index && candidate.key == producer)
             {
-                return Ok(Some(IndependentCoupling::CohortCausalEdge(producer)));
+                return Ok(true);
             }
             if !change.after.proof.is_chain_input(input) {
-                return Ok(Some(IndependentCoupling::InputNotChainBacked(
-                    input.clone(),
-                )));
+                return Ok(true);
             }
         }
 
         for dependency in footprint.dependencies() {
             if authority.membership.spender(dependency).is_some() {
-                return Ok(Some(IndependentCoupling::AcceptedConditionalEdge(
-                    dependency.clone(),
-                )));
+                return Ok(true);
             }
             let producer = RawTxHash(dependency.tx_hash());
             if is_accepted(authority, &producer) {
-                return Ok(Some(IndependentCoupling::PoolParent(producer)));
+                return Ok(true);
             }
             if changes
                 .iter()
                 .enumerate()
                 .any(|(other, candidate)| other != index && candidate.key == producer)
             {
-                return Ok(Some(IndependentCoupling::CohortCausalEdge(producer)));
+                return Ok(true);
             }
             if !change.after.proof.is_chain_dependency(dependency) {
-                return Ok(Some(IndependentCoupling::DependencyNotChainBacked(
-                    dependency.clone(),
-                )));
+                return Ok(true);
             }
         }
 
-        if let Some(child) = accepted_child(authority, change) {
-            return Ok(Some(IndependentCoupling::AcceptedChild(child)));
+        if has_accepted_child(authority, change) {
+            return Ok(true);
         }
 
         for other in changes.iter().skip(index.saturating_add(1)) {
             if change.after.record.identity.proposal == other.after.record.identity.proposal {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
-            if let Some(input) = first_shared_input(change, other) {
-                return Ok(Some(IndependentCoupling::CohortInputConflict(input)));
+            if has_shared_input(change, other) {
+                return Ok(true);
             }
-            if let Some(out_point) = first_conditional_edge(change, other) {
-                return Ok(Some(IndependentCoupling::CohortConditionalEdge(out_point)));
+            if has_conditional_edge(change, other) {
+                return Ok(true);
             }
         }
     }
-    Ok(None)
+    Ok(false)
 }
 
 fn validate_owner(
@@ -199,20 +168,17 @@ fn is_accepted(authority: &TxPoolAuthority, hash: &RawTxHash) -> bool {
         .is_some_and(|entry| matches!(entry, OwnedTx::Accepted(_)))
 }
 
-fn accepted_child(
-    authority: &TxPoolAuthority,
-    change: &IndependentMembershipChange,
-) -> Option<RawTxHash> {
+fn has_accepted_child(authority: &TxPoolAuthority, change: &IndependentMembershipChange) -> bool {
     authority
         .accepted_children_of_candidate(&change.after)
-        .min()
-        .cloned()
+        .next()
+        .is_some()
 }
 
-fn first_shared_input(
+fn has_shared_input(
     left: &IndependentMembershipChange,
     right: &IndependentMembershipChange,
-) -> Option<OutPoint> {
+) -> bool {
     let right_inputs = right.after.proof.payload().footprint.inputs();
     left.after
         .proof
@@ -220,27 +186,23 @@ fn first_shared_input(
         .footprint
         .inputs()
         .iter()
-        .find(|input| right_inputs.binary_search(input).is_ok())
-        .cloned()
+        .any(|input| right_inputs.binary_search(input).is_ok())
 }
 
-fn first_conditional_edge(
+fn has_conditional_edge(
     left: &IndependentMembershipChange,
     right: &IndependentMembershipChange,
-) -> Option<OutPoint> {
+) -> bool {
     let left_footprint = &left.after.proof.payload().footprint;
     let right_footprint = &right.after.proof.payload().footprint;
     left_footprint
         .inputs()
         .iter()
-        .find(|input| right_footprint.dependencies().binary_search(input).is_ok())
-        .or_else(|| {
-            right_footprint
-                .inputs()
-                .iter()
-                .find(|input| left_footprint.dependencies().binary_search(input).is_ok())
-        })
-        .cloned()
+        .any(|input| right_footprint.dependencies().binary_search(input).is_ok())
+        || right_footprint
+            .inputs()
+            .iter()
+            .any(|input| left_footprint.dependencies().binary_search(input).is_ok())
 }
 
 fn prepare_resources(

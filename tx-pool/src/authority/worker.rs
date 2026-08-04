@@ -446,7 +446,7 @@ async fn run_ready_driver(
         let signal = runtime.mutation_signal();
         let notified = signal.notified();
         let step = match runtime.try_drive_ready() {
-            Ok(AuthorityReadyOutcome::Applied { .. }) => WorkerStep::Progress,
+            Ok(AuthorityReadyOutcome::Applied) => WorkerStep::Progress,
             Ok(AuthorityReadyOutcome::Idle) => WorkerStep::Wait,
             Err(error) => classify_driver_error(error)?,
         };
@@ -547,7 +547,7 @@ fn classify_maintenance_result(
     result: Result<super::runtime::AuthorityMaintenanceOutcome, AuthorityDriverError>,
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match result {
-        Ok(super::runtime::AuthorityMaintenanceOutcome::Applied { .. }) => Ok(WorkerStep::Progress),
+        Ok(super::runtime::AuthorityMaintenanceOutcome::Applied) => Ok(WorkerStep::Progress),
         Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::Wait),
         Err(error) => classify_driver_error(error),
     }

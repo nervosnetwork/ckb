@@ -2,7 +2,6 @@ mod eviction;
 mod independent;
 mod rbf;
 
-pub(in crate::authority) use independent::IndependentCoupling;
 pub(in crate::authority::plan) use independent::{
     IndependentMembershipChange, IndependentMembershipOutcome, PreparedIndependentMembership,
     prepare_independent_membership,

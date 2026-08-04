@@ -590,7 +590,7 @@ pub(in crate::authority) struct AuthorityComputeExecutionPermit {
 #[must_use = "maintenance progress determines whether another bounded step is useful"]
 pub(super) enum AuthorityMaintenanceOutcome {
     Idle,
-    Applied { owners: usize },
+    Applied,
 }
 
 /// Closed progress contract shared by authority-owned background drivers.
@@ -1133,10 +1133,10 @@ pub(in crate::authority) struct AuthorityVerificationOutcome {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-#[must_use = "Ready is a level; an applied count is only progress evidence"]
+#[must_use = "Ready is a level; a committed Apply is progress evidence"]
 pub(in crate::authority) enum AuthorityReadyOutcome {
     Idle,
-    Applied { owners: usize },
+    Applied,
 }
 
 enum EffectCheckoutState {
@@ -1608,10 +1608,9 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        let owners = committed.changed_owner_count();
         drop(committed);
         self.signals.publish_mutation();
-        Ok(AuthorityMaintenanceOutcome::Applied { owners })
+        Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
     /// Expire the oldest due Accepted root and its full descendant closure.
@@ -1637,10 +1636,9 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        let owners = committed.changed_owner_count();
         drop(committed);
         self.signals.publish_mutation();
-        Ok(AuthorityMaintenanceOutcome::Applied { owners })
+        Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
     /// Advance one dirty dependency edge or completion marker. The dependency
@@ -1660,10 +1658,9 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        let owners = committed.changed_owner_count();
         drop(committed);
         self.signals.publish_mutation();
-        Ok(AuthorityMaintenanceOutcome::Applied { owners })
+        Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
     pub(super) fn mutation_signal(&self) -> Arc<Notify> {
@@ -2550,7 +2547,7 @@ impl AuthorityRuntime {
         let disposition = batch
             .validate()
             .map_err(AuthorityDriverError::from_ready_validation)?;
-        let (owners, committed) = {
+        let committed = {
             let mut store = self.store.write();
             match disposition {
                 ReadyDisposition::Candidates(batch) => {
@@ -2559,20 +2556,11 @@ impl AuthorityRuntime {
                         .plan_settlement(&batch)
                         .map_err(AuthorityDriverError::from_ready_plan)?;
                     match plan {
-                        SettlementPlan::IndependentRun(plan) => {
-                            let committed = plan.apply();
-                            (committed.changed_owner_count(), committed)
-                        }
-                        SettlementPlan::CoupledComponent {
-                            disposition,
-                            reason: _,
-                        } => {
-                            let committed = match disposition {
-                                CandidateDispositionPlan::Accepted(plan) => plan.apply(),
-                                CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
-                            };
-                            (1, committed)
-                        }
+                        SettlementPlan::IndependentRun(plan) => plan.apply(),
+                        SettlementPlan::CoupledComponent(disposition) => match disposition {
+                            CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+                            CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+                        },
                     }
                 }
                 ReadyDisposition::Head(outcome) => {
@@ -2580,22 +2568,21 @@ impl AuthorityRuntime {
                         .authority
                         .plan_final_admission(outcome)
                         .map_err(AuthorityDriverError::from_ready_plan)?;
-                    let committed = match plan {
+                    match plan {
                         FinalAdmissionDispositionPlan::Candidate(plan) => match plan {
                             CandidateDispositionPlan::Accepted(plan) => plan.apply(),
                             CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
                         },
                         FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
                         FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
-                    };
-                    (1, committed)
+                    }
                 }
             }
         };
         committed.publish_async_process_metrics();
         drop(committed);
         self.signals.publish_mutation();
-        Ok(AuthorityReadyOutcome::Applied { owners })
+        Ok(AuthorityReadyOutcome::Applied)
     }
 }
 

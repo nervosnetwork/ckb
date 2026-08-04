@@ -2957,10 +2957,7 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
                     && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
         )
     }));
-    assert!(matches!(
-        committed.changes,
-        super::super::plan::CommittedChanges::ClearPoolControl(_)
-    ));
+    drop(committed);
     assert_resource_reference(&authority);
 }
 

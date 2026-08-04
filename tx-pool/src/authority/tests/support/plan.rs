@@ -16,9 +16,7 @@ use ckb_verification::cache::ScriptVerificationRules;
 
 pub(in crate::authority) use super::super::rejection::ComponentLimitKind;
 pub(in crate::authority) use super::membership::StatusCounts;
-pub(in crate::authority) use super::membership::{
-    IndependentCoupling, test_support::MembershipSnapshot,
-};
+pub(in crate::authority) use super::membership::test_support::MembershipSnapshot;
 pub(in crate::authority) use super::settlement::test_support::CandidateBatchError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,19 +131,34 @@ impl CommittedDelta {
     }
 
     pub(in crate::authority) fn async_process_observation_count(&self) -> usize {
-        match &self.changes {
-            CommittedChanges::One(change) => usize::from(change.async_process_start.is_some()),
-            CommittedChanges::IndependentRun(changes) => changes
-                .iter()
-                .filter(|change| change.async_process_start.is_some())
-                .count(),
-            CommittedChanges::DependencyControl(_)
-            | CommittedChanges::EffectControl(_)
-            | CommittedChanges::ClearPipelineControl { .. }
-            | CommittedChanges::ClearPoolControl(_)
-            | CommittedChanges::AdminControl { .. }
-            | CommittedChanges::ChainControl { .. } => 0,
+        match &self.async_process_observations {
+            AsyncProcessObservations::None => 0,
+            AsyncProcessObservations::One(_) => 1,
+            AsyncProcessObservations::Batch(observations) => observations.len(),
         }
+    }
+}
+
+impl RetiredGeneration {
+    fn owner_count(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+impl PreparedApply<'_> {
+    /// Inspect the already-sealed independent Apply order without retaining a
+    /// second production receipt after the transition commits.
+    pub(in crate::authority) fn independent_order_for_foundation(&self) -> Option<Vec<RawTxHash>> {
+        let AuthorityDelta::Independent(delta) = &self.delta else {
+            return None;
+        };
+        Some(
+            delta
+                .updates
+                .iter()
+                .map(|update| update.key.clone())
+                .collect(),
+        )
     }
 }
 
@@ -176,10 +189,6 @@ impl PreparedCandidateRejection<'_> {
 impl CommittedCheckout {
     pub(in crate::authority) fn into_work(self) -> CheckedOutWork {
         self.work
-    }
-
-    pub(in crate::authority) fn committed_delta_for_foundation(&self) -> &CommittedDelta {
-        &self.retirement
     }
 }
 
@@ -603,11 +612,7 @@ impl TxPoolAuthority {
                 effect: EffectDelta::default(),
                 retired: Vec::new(),
                 clocks,
-                committed: CommittedChanges::One(CommittedChange {
-                    sequence,
-                    changed: key.clone(),
-                    async_process_start: None,
-                }),
+                async_process_start: None,
             }),
         })
     }
@@ -741,11 +746,7 @@ impl TxPoolAuthority {
         };
         Ok(Some(PreparedApply {
             authority: self,
-            delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
-                control,
-                clocks,
-                sequence,
-            }),
+            delta: AuthorityDelta::Dependency(DependencyOnlyDelta { control, clocks }),
         }))
     }
 

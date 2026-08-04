@@ -468,40 +468,23 @@ impl From<PeerBanError> for PlanError {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct CommittedChange {
-    pub(super) sequence: ApplySequence,
-    pub(super) changed: RawTxHash,
-    async_process_start: Option<AsyncProcessStart>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum CommittedChanges {
-    One(CommittedChange),
-    IndependentRun(Vec<CommittedChange>),
-    DependencyControl(ApplySequence),
-    EffectControl(ApplySequence),
-    ClearPipelineControl {
-        sequence: ApplySequence,
-        changed_owners: usize,
-    },
-    ClearPoolControl(ApplySequence),
-    AdminControl {
-        sequence: ApplySequence,
-        cause: AdminCause,
-        changed_owners: usize,
-    },
-    ChainControl {
-        sequence: ApplySequence,
-        view: ChainViewId,
-        changed_owners: usize,
-    },
+/// Post-commit timing evidence consumed by the production metrics boundary.
+///
+/// This deliberately contains no owner hash, transition cause, chain view or
+/// Apply sequence. Those facts already live in the authority/effect state and
+/// retaining a second receipt solely for tests would create a shadow
+/// projection that every transition had to keep synchronized.
+#[derive(Debug)]
+enum AsyncProcessObservations {
+    None,
+    One(AsyncProcessStart),
+    Batch(Vec<AsyncProcessStart>),
 }
 
 #[derive(Debug)]
-#[must_use = "a committed delta owns post-Apply retirement and change evidence"]
+#[must_use = "a committed delta owns post-Apply retirement and timing evidence"]
 pub(super) struct CommittedDelta {
-    pub(super) changes: CommittedChanges,
+    async_process_observations: AsyncProcessObservations,
     #[cfg_attr(
         not(test),
         expect(
@@ -526,23 +509,31 @@ pub(super) struct CommittedDelta {
         )
     )]
     retired_effect: Option<Arc<EffectBatch>>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the generation carrier is retained solely so its owners are destroyed after the authority guard opens"
+        )
+    )]
     retired_generation: Option<RetiredGeneration>,
 }
 
 #[derive(Debug)]
 struct RetiredGeneration {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the map is an ownership carrier whose delayed Drop is the production behavior"
+        )
+    )]
     entries: HashMap<RawTxHash, OwnedTx>,
     _indexes: AuthorityIndexes,
     _resources: ResourceLedger,
     _membership: MembershipProjection,
     _scheduler: FairFrontier,
     _dependencies: DependencyFrontier,
-}
-
-impl RetiredGeneration {
-    fn owner_count(&self) -> usize {
-        self.entries.len()
-    }
 }
 
 enum EntryRetirement {
@@ -563,24 +554,6 @@ enum ChangedOwnerRetirement {
 }
 
 impl CommittedDelta {
-    /// Count authoritative owner locations changed by this committed Apply.
-    /// This is derived from the closed committed-change receipt, not from
-    /// retirement storage, whose size may differ for shared shells.
-    pub(in crate::authority) fn changed_owner_count(&self) -> usize {
-        match &self.changes {
-            CommittedChanges::One(_) => 1,
-            CommittedChanges::IndependentRun(changes) => changes.len(),
-            CommittedChanges::DependencyControl(_) | CommittedChanges::EffectControl(_) => 0,
-            CommittedChanges::ClearPipelineControl { changed_owners, .. }
-            | CommittedChanges::AdminControl { changed_owners, .. }
-            | CommittedChanges::ChainControl { changed_owners, .. } => *changed_owners,
-            CommittedChanges::ClearPoolControl(_) => self
-                .retired_generation
-                .as_ref()
-                .map_or(0, RetiredGeneration::owner_count),
-        }
-    }
-
     /// Publish the legacy asynchronous processing histogram only from the
     /// closed receipt of a successful membership Apply. Timing evidence is
     /// removed from Accepted ownership before this receipt is built, so a
@@ -589,24 +562,17 @@ impl CommittedDelta {
         let Some(metrics) = ckb_metrics::handle() else {
             return;
         };
-        let mut observe = |change: &CommittedChange| {
-            if let Some(started_at) = change.async_process_start {
-                metrics
-                    .ckb_tx_pool_async_process
-                    .observe(started_at.elapsed_seconds());
-            }
+        let mut observe = |started_at: &AsyncProcessStart| {
+            metrics
+                .ckb_tx_pool_async_process
+                .observe(started_at.elapsed_seconds());
         };
-        match &self.changes {
-            CommittedChanges::One(change) => observe(change),
-            CommittedChanges::IndependentRun(changes) => {
-                changes.iter().for_each(&mut observe);
+        match &self.async_process_observations {
+            AsyncProcessObservations::None => {}
+            AsyncProcessObservations::One(started_at) => observe(started_at),
+            AsyncProcessObservations::Batch(started_at) => {
+                started_at.iter().for_each(&mut observe);
             }
-            CommittedChanges::DependencyControl(_)
-            | CommittedChanges::EffectControl(_)
-            | CommittedChanges::ClearPipelineControl { .. }
-            | CommittedChanges::ClearPoolControl(_)
-            | CommittedChanges::AdminControl { .. }
-            | CommittedChanges::ChainControl { .. } => {}
         }
     }
 }
@@ -621,7 +587,6 @@ struct EntryDelta {
     dependency: DependencyDelta,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 struct EntryTransition {
@@ -714,7 +679,7 @@ struct MembershipDelta {
     effect: EffectDelta,
     retired: Vec<OwnedTx>,
     clocks: AuthorityClocks,
-    committed: CommittedChanges,
+    async_process_start: Option<AsyncProcessStart>,
 }
 
 /// Source-specific validation produces this immutable input; the shared
@@ -756,19 +721,17 @@ struct IndependentDelta {
     dependency: DependencyBatchDelta,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    committed: Vec<CommittedChange>,
+    async_process_starts: Vec<AsyncProcessStart>,
 }
 
 struct DependencyOnlyDelta {
     control: DependencyControlDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 struct EffectOnlyDelta {
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 struct FreshGeneration {
@@ -800,7 +763,6 @@ struct ClearPoolDelta {
     sources: SourceVersionDelta,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 struct ClearPipelineDelta {
@@ -808,15 +770,6 @@ struct ClearPipelineDelta {
     removal: OwnerRemovalBatch,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum AdminCause {
-    PeerRevocation(ckb_network::PeerIndex),
-    RemoteExpiry { cutoff: RemoteDeadline },
-    LocalRemoval { root: RawTxHash },
-    AcceptedExpiry { cutoff: AcceptedAtMillis },
 }
 
 enum AdminPlan {
@@ -836,31 +789,16 @@ enum AdminPlan {
     },
 }
 
-impl AdminPlan {
-    fn cause(&self) -> AdminCause {
-        match self {
-            Self::PeerRevocation { revocation, .. } => {
-                AdminCause::PeerRevocation(revocation.peer())
-            }
-            Self::RemoteExpiry { cutoff } => AdminCause::RemoteExpiry { cutoff: *cutoff },
-            Self::LocalRemoval { root } => AdminCause::LocalRemoval { root: root.clone() },
-            Self::AcceptedExpiry { cutoff, .. } => AdminCause::AcceptedExpiry { cutoff: *cutoff },
-        }
-    }
-}
-
 enum AdminControl {
     PeerRevocation { marker: PeerBanDelta },
     None,
 }
 
 struct AdminDelta {
-    cause: AdminCause,
     control: AdminControl,
     removal: OwnerRemovalBatch,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 /// Complete authoritative and derived transition for a set of owners moving
@@ -893,7 +831,6 @@ struct ChainDelta {
     effect: EffectDelta,
     retired: Vec<OwnedTx>,
     clocks: AuthorityClocks,
-    sequence: ApplySequence,
 }
 
 enum AuthorityDelta {
@@ -1178,11 +1115,7 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::One(CommittedChange {
-                sequence: delta.sequence,
-                changed: delta.key,
-                async_process_start: None,
-            }),
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1227,7 +1160,10 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: delta.committed,
+            async_process_observations: delta.async_process_start.map_or(
+                AsyncProcessObservations::None,
+                AsyncProcessObservations::One,
+            ),
             removals: delta.removals,
             retired,
             retired_effect,
@@ -1253,7 +1189,11 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::IndependentRun(delta.committed),
+            async_process_observations: if delta.async_process_starts.is_empty() {
+                AsyncProcessObservations::None
+            } else {
+                AsyncProcessObservations::Batch(delta.async_process_starts)
+            },
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1268,7 +1208,7 @@ impl PreparedApply<'_> {
         authority.dependencies.apply_control(delta.control);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::DependencyControl(delta.sequence),
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect: None,
@@ -1280,7 +1220,7 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::EffectControl(delta.sequence),
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1311,7 +1251,7 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::ClearPoolControl(delta.sequence),
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
             retired_effect,
@@ -1323,15 +1263,12 @@ impl PreparedApply<'_> {
         authority: &mut TxPoolAuthority,
         delta: ClearPipelineDelta,
     ) -> CommittedDelta {
-        let (changed_owners, retired) = Self::apply_owner_removal(authority, delta.removal);
+        let retired = Self::apply_owner_removal(authority, delta.removal);
         authority.generation = delta.generation;
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::ClearPipelineControl {
-                sequence: delta.sequence,
-                changed_owners,
-            },
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1340,7 +1277,7 @@ impl PreparedApply<'_> {
     }
 
     fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
-        let (changed_owners, retired) = Self::apply_owner_removal(authority, delta.removal);
+        let retired = Self::apply_owner_removal(authority, delta.removal);
         let retired_effect = authority.effects.apply(delta.effect);
         match delta.control {
             AdminControl::PeerRevocation { marker } => authority.peer_bans.apply(marker),
@@ -1348,11 +1285,7 @@ impl PreparedApply<'_> {
         }
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::AdminControl {
-                sequence: delta.sequence,
-                cause: delta.cause,
-                changed_owners,
-            },
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -1363,8 +1296,7 @@ impl PreparedApply<'_> {
     fn apply_owner_removal(
         authority: &mut TxPoolAuthority,
         removal: OwnerRemovalBatch,
-    ) -> (usize, Vec<OwnedTx>) {
-        let changed_owners = removal.hashes.len();
+    ) -> Vec<OwnedTx> {
         let mut retired = removal.retired;
         for hash in &removal.hashes {
             if let Some(owner) = authority.entries.remove(hash) {
@@ -1377,11 +1309,10 @@ impl PreparedApply<'_> {
         authority.membership.apply(removal.membership);
         authority.scheduler.apply_batch(removal.scheduler);
         authority.dependencies.apply_batch(removal.dependency);
-        (changed_owners, retired)
+        retired
     }
 
     fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> CommittedDelta {
-        let changed_owners = delta.updates.len();
         let mut retired = delta.retired;
         for update in delta.updates {
             let previous = match update.after {
@@ -1402,11 +1333,7 @@ impl PreparedApply<'_> {
         authority.chain_view = delta.view.clone();
         authority.clocks = delta.clocks;
         CommittedDelta {
-            changes: CommittedChanges::ChainControl {
-                sequence: delta.sequence,
-                view: delta.view,
-                changed_owners,
-            },
+            async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
             retired_effect,
@@ -3013,11 +2940,7 @@ impl TxPoolAuthority {
             effect,
             retired,
             clocks,
-            committed: CommittedChanges::One(CommittedChange {
-                sequence,
-                changed: key,
-                async_process_start,
-            }),
+            async_process_start,
         })
     }
 
@@ -3219,7 +3142,6 @@ impl TxPoolAuthority {
                 removal,
                 effect,
                 clocks,
-                sequence,
             }),
         })
     }
@@ -3250,7 +3172,6 @@ impl TxPoolAuthority {
                 sources,
                 effect,
                 clocks,
-                sequence,
             }),
         })
     }
@@ -3261,7 +3182,6 @@ impl TxPoolAuthority {
         plan: AdminPlan,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
-        let cause = plan.cause();
         let unique = hashes.iter().collect::<HashSet<_>>();
         if unique.len() != hashes.len() {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -3436,12 +3356,10 @@ impl TxPoolAuthority {
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Admin(AdminDelta {
-                cause,
                 control,
                 removal,
                 effect,
                 clocks,
-                sequence,
             }),
         })
     }
@@ -3650,11 +3568,7 @@ impl TxPoolAuthority {
         Ok(Some(PreparedEffectCheckout {
             plan: PreparedApply {
                 authority: self,
-                delta: AuthorityDelta::Effect(EffectOnlyDelta {
-                    effect,
-                    clocks,
-                    sequence,
-                }),
+                delta: AuthorityDelta::Effect(EffectOnlyDelta { effect, clocks }),
             },
             lease,
         }))
@@ -3681,7 +3595,7 @@ impl TxPoolAuthority {
             error: EffectSettlementError::CounterExhausted,
             settlement,
         })?;
-        Ok(self.prepared_effect_only(effect, sequence, next).apply())
+        Ok(self.prepared_effect_only(effect, next).apply())
     }
 
     pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, EffectCloseError> {
@@ -3693,7 +3607,7 @@ impl TxPoolAuthority {
         })?;
         let sequence = self.clocks.next_sequence;
         let next = next_sequence(sequence).map_err(|_| EffectCloseError::CounterExhausted)?;
-        Ok(self.prepared_effect_only(effect, sequence, next))
+        Ok(self.prepared_effect_only(effect, next))
     }
 
     pub(super) fn effects_closed_and_drained(&self) -> bool {
@@ -3713,13 +3627,12 @@ impl TxPoolAuthority {
             next_sequence: next_sequence(sequence)?,
             ..self.clocks
         };
-        Ok(self.prepared_effect_only(effect, sequence, clocks.next_sequence))
+        Ok(self.prepared_effect_only(effect, clocks.next_sequence))
     }
 
     fn prepared_effect_only(
         &mut self,
         effect: EffectDelta,
-        sequence: ApplySequence,
         next_sequence: ApplySequence,
     ) -> PreparedApply<'_> {
         let clocks = AuthorityClocks {
@@ -3728,11 +3641,7 @@ impl TxPoolAuthority {
         };
         PreparedApply {
             authority: self,
-            delta: AuthorityDelta::Effect(EffectOnlyDelta {
-                effect,
-                clocks,
-                sequence,
-            }),
+            delta: AuthorityDelta::Effect(EffectOnlyDelta { effect, clocks }),
         }
     }
 
@@ -3758,11 +3667,7 @@ impl TxPoolAuthority {
                 };
                 return Ok(Some(PreparedApply {
                     authority: self,
-                    delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
-                        control,
-                        clocks,
-                        sequence,
-                    }),
+                    delta: AuthorityDelta::Dependency(DependencyOnlyDelta { control, clocks }),
                 }));
             }
             DependencyMaintenanceAction::Requeue => {}
@@ -4225,7 +4130,6 @@ impl TxPoolAuthority {
                 dependency,
                 effect: EffectDelta::default(),
                 clocks,
-                sequence,
             }),
         }
         .apply())
@@ -4828,7 +4732,6 @@ impl TxPoolAuthority {
                 dependency,
                 effect,
                 clocks,
-                sequence,
             }),
         })
     }

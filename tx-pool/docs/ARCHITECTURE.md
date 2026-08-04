@@ -650,6 +650,14 @@ subject to the pre-benchmark minimality audit: every state, lock, task, clock,
 receipt and effect class must retain a business, compatibility, concurrency or
 attack owner.
 
+Post-Apply values are part of that audit. They may carry a linear capability,
+an outside-lock retirement carrier, a committed external effect or an
+operational observation that a production consumer actually uses. They must
+not duplicate owner hashes, causes, views, sequences or transition variants
+solely to let tests reconstruct the mutation. Tests inspect a sealed Plan
+before Apply and the authority/effect state after Apply; otherwise the test
+receipt becomes a second hand-maintained projection of the transition graph.
+
 ## 18. Implementation map
 
 | Concern | Primary implementation owner |

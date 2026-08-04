@@ -3,15 +3,11 @@ use super::super::effect::{
     CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
 };
 use super::super::plan::{
-    AcceptedOrderKey, AdminCause, AncestorAggregate, AuthorityFault, Backpressure,
-    CandidateDispositionPlan, CommittedChange, CommittedChanges, CommittedCheckout, CommittedDelta,
-    ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
-    DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
-    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
-    test_support::{
-        CandidateBatchError, ComponentLimitKind, IndependentCoupling, MembershipSnapshot,
-        StatusCounts,
-    },
+    AcceptedOrderKey, AncestorAggregate, AuthorityFault, Backpressure, CandidateDispositionPlan,
+    CommittedCheckout, CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery,
+    DescendantAggregate, DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError,
+    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
+    test_support::{CandidateBatchError, ComponentLimitKind, MembershipSnapshot, StatusCounts},
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ComputeReleaseError,
@@ -396,13 +392,6 @@ pub(super) fn take_resolve_work(committed: CommittedCheckout) -> (RawTxHash, Res
     (hash, work)
 }
 
-fn only_committed_change(committed: &CommittedDelta) -> &CommittedChange {
-    let CommittedChanges::One(change) = &committed.changes else {
-        panic!("fixture expected one committed change");
-    };
-    change
-}
-
 fn continue_fixture_verify(
     resolve: ContinuousResolveWork,
     payload: FoundationResolution,
@@ -781,16 +770,11 @@ pub(super) fn independent_batch(
     .expect("fixture batch is non-empty, unique and bounded")
 }
 
-fn coupled_reason_and_drop(plan: SettlementPlan<'_>) -> IndependentCoupling {
-    let SettlementPlan::CoupledComponent {
-        reason,
-        disposition,
-    } = plan
-    else {
+fn assert_coupled_and_drop(plan: SettlementPlan<'_>) {
+    let SettlementPlan::CoupledComponent(disposition) = plan else {
         panic!("fixture expected a coupled settlement");
     };
     drop(disposition);
-    reason
 }
 
 fn accepted_disposition(disposition: CandidateDispositionPlan<'_>) -> PreparedApply<'_> {
@@ -801,7 +785,7 @@ fn accepted_disposition(disposition: CandidateDispositionPlan<'_>) -> PreparedAp
 }
 
 fn rejected_coupled_reason_and_drop(plan: SettlementPlan<'_>) -> MembershipReject {
-    let SettlementPlan::CoupledComponent { disposition, .. } = plan else {
+    let SettlementPlan::CoupledComponent(disposition) = plan else {
         panic!("fixture expected a coupled settlement");
     };
     let CandidateDispositionPlan::Rejected(rejection) = disposition else {
@@ -1055,12 +1039,13 @@ fn uak_remote_admission_owns_and_charges_once() {
     let admission = ValidatedAdmission::remote(transaction, PeerIndex::from(7))
         .expect("fixture admission is valid");
     let hash = admission.identity.raw.clone();
-    let delta = authority
-        .plan_admission(admission)
-        .expect("bounded first admission plans")
-        .apply();
+    drop(
+        authority
+            .plan_admission(admission)
+            .expect("bounded first admission plans")
+            .apply(),
+    );
 
-    assert_eq!(only_committed_change(&delta).changed, hash);
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
     assert!(authority.primary_projection_consistent());
@@ -1158,12 +1143,11 @@ fn uak_accepted_source_ignores_preaccepted_work_and_status_only_changes() {
     assert_ne!(accepted_source, ApplySequence(0));
 
     let version = owner_version(&authority, &accepted);
-    let status_change = apply_plan_for_delta(
+    drop(apply_plan_for_delta(
         authority
             .plan_status_for_foundation(&accepted, version, AcceptedStatus::Pending)
             .expect("status-only transition plans"),
-    );
-    let _status_sequence = only_committed_change(&status_change).sequence;
+    ));
     assert_eq!(
         authority.accepted_source_for_reference(),
         accepted_source,
@@ -1237,10 +1221,6 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
         .plan_clear_pipeline()
         .expect("clear replans")
         .apply();
-    let CommittedChanges::ClearPipelineControl { changed_owners, .. } = committed.changes else {
-        panic!("fixture expected one pipeline-clear commit");
-    };
-    assert_eq!(changed_owners, 1);
     assert_eq!(committed.retired_len(), 1);
     assert_eq!(authority.owner_count(), 1);
     assert_eq!(authority.charged_count(), 1);
@@ -1294,10 +1274,6 @@ fn uak_clear_pool_derives_the_next_revision_without_draining_active_work() {
         .plan_clear_pool(next_tip.clone())
         .expect("clear derives the next chain revision")
         .apply();
-    assert!(matches!(
-        committed.changes,
-        CommittedChanges::ClearPoolControl(_)
-    ));
     assert_eq!(committed.retired_len(), 1);
     assert_eq!(authority.owner_count(), 0);
     assert_eq!(authority.chain_view().revision(), ChainRevision(1));
@@ -1427,13 +1403,13 @@ fn uak_runtime_expiry_owns_wall_clock_policy_and_bounded_progress() {
         runtime
             .expire_remote_due()
             .expect("runtime derives the remote cutoff and bounded slice"),
-        AuthorityMaintenanceOutcome::Applied { owners: 1 }
+        AuthorityMaintenanceOutcome::Applied
     );
     assert_eq!(
         runtime
             .expire_accepted_due()
             .expect("runtime derives the accepted cutoff from expiry_hours"),
-        AuthorityMaintenanceOutcome::Applied { owners: 2 }
+        AuthorityMaintenanceOutcome::Applied
     );
     assert_eq!(
         runtime
@@ -1471,14 +1447,6 @@ fn uak_local_accepted_removal_is_one_total_descendant_transition() {
         .expect("the complete descendant closure plans")
         .expect("the root is present")
         .apply();
-    assert!(matches!(
-        committed.changes,
-        CommittedChanges::AdminControl {
-            cause: AdminCause::LocalRemoval { ref root },
-            changed_owners: 2,
-            ..
-        } if root == &parent
-    ));
     assert_eq!(committed.retired_len(), 2);
     assert!(authority.entry(&parent).is_none());
     assert!(authority.entry(&child).is_none());
@@ -1613,16 +1581,6 @@ fn uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure() {
         .expect("the stable accepted deadline remains indexed")
         .expect("the oldest root is due")
         .apply();
-    assert!(matches!(
-        committed.changes,
-        CommittedChanges::AdminControl {
-            cause: AdminCause::AcceptedExpiry {
-                cutoff: AcceptedAtMillis(10)
-            },
-            changed_owners: 2,
-            ..
-        }
-    ));
     assert_eq!(committed.retired_len(), 2);
     assert!(authority.entry(&parent).is_none());
     assert!(authority.entry(&child).is_none());
@@ -1684,13 +1642,6 @@ fn uak_peer_revocation_removes_only_preaccepted_ingress_owners() {
         .plan_peer_revocation_for_foundation(banned)
         .expect("bounded peer cohort plans")
         .apply();
-    assert!(matches!(
-        &revoked.changes,
-        CommittedChanges::AdminControl {
-            cause: AdminCause::PeerRevocation(peer),
-            ..
-        } if *peer == banned
-    ));
     assert_eq!(revoked.retired_len(), 2);
     assert!(authority.entry(&queued).is_none());
     assert!(authority.entry(&promoted).is_none());
@@ -1849,16 +1800,6 @@ fn uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch() {
         .expect("the due deadline cohort plans")
         .expect("one owner is due")
         .apply();
-    assert!(matches!(
-        committed.changes,
-        CommittedChanges::AdminControl {
-            cause: AdminCause::RemoteExpiry {
-                cutoff: RemoteDeadline(10)
-            },
-            changed_owners: 1,
-            ..
-        }
-    ));
     assert_eq!(committed.retired_len(), 1);
     assert!(authority.entry(&expired).is_none());
     assert!(authority.entry(&future).is_some());
@@ -2917,7 +2858,6 @@ fn uak_terminal_outcome_and_effect_commit_together() {
         .expect("terminal plan is complete")
         .apply();
 
-    assert_eq!(only_committed_change(&terminal).changed, hash);
     assert_eq!(authority.owner_count(), 0);
     assert_eq!(authority.charged_count(), 0);
     assert!(authority.primary_projection_consistent());
@@ -3355,36 +3295,27 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
         else {
             panic!("chain-backed disjoint cohort must remain independent");
         };
-        let aggregate_committed = apply_plan_for_delta(plan);
-        let CommittedChanges::IndependentRun(committed) = &aggregate_committed.changes else {
-            panic!("aggregate Apply preserves the independent committed order");
-        };
-        assert_eq!(committed.len(), count);
+        let committed_order = plan
+            .independent_order_for_foundation()
+            .expect("the sealed Plan exposes its test-only independent order");
+        assert_eq!(committed_order.len(), count);
         assert_eq!(
-            committed
-                .iter()
-                .map(|change| change.changed.clone())
-                .collect::<Vec<_>>(),
+            committed_order,
             hashes.iter().rev().cloned().collect::<Vec<_>>()
         );
+        let aggregate_committed = apply_plan_for_delta(plan);
         assert!(aggregate_committed.removals.is_empty());
         assert_eq!(aggregate_committed.retired_len(), 0);
 
         let (mut reference, reference_hashes) = independent_fixture(count);
         assert_eq!(reference_hashes, hashes);
-        for expected in committed {
-            let version = owner_version(&reference, &expected.changed);
-            let single = apply_plan_for_delta(
+        for expected in &committed_order {
+            let version = owner_version(&reference, expected);
+            drop(apply_plan_for_delta(
                 reference
-                    .plan_accept_for_foundation(&expected.changed, version, AcceptedStatus::Pending)
+                    .plan_accept_for_foundation(expected, version, AcceptedStatus::Pending)
                     .expect("canonical single reference accepts the same candidate"),
-            );
-            let actual = only_committed_change(&single);
-            // Timing is post-commit observability, not membership semantics;
-            // independently constructed equivalent executions need not share
-            // the same monotonic start instant.
-            assert_eq!(actual.sequence, expected.sequence);
-            assert_eq!(actual.changed, expected.changed);
+            ));
         }
 
         assert!(
@@ -3520,14 +3451,10 @@ fn uak_independent_ready_order_is_invariant_to_worker_completion_permutations() 
         else {
             panic!("worker completion order cannot create coupling");
         };
-        let committed = apply_plan_for_delta(plan);
-        let CommittedChanges::IndependentRun(order) = committed.changes else {
-            panic!("cohort commits with one canonical order");
-        };
-        let order = order
-            .into_iter()
-            .map(|change| change.changed)
-            .collect::<Vec<_>>();
+        let order = plan
+            .independent_order_for_foundation()
+            .expect("cohort has one canonical sealed order");
+        drop(apply_plan_for_delta(plan));
         let snapshot = authority.normalized_snapshot();
         if let Some(expected) = &expected_snapshot {
             assert_eq!(&snapshot, expected);
@@ -3589,8 +3516,14 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
     else {
         panic!("disjoint Ready candidates remain independent");
     };
+    assert_eq!(
+        plan.independent_order_for_foundation()
+            .expect("trusted control selects one independent owner")
+            .len(),
+        1
+    );
     let committed = apply_plan_for_delta(plan);
-    assert_eq!(committed.changed_owner_count(), 1);
+    drop(committed);
     assert!(matches!(
         authority.entry(&proposal),
         Some(OwnedTx::Accepted(_))
@@ -3608,8 +3541,14 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
     else {
         panic!("the remaining chain-backed candidate is independent");
     };
+    assert_eq!(
+        plan.independent_order_for_foundation()
+            .expect("the remaining Remote owner is selected")
+            .len(),
+        1
+    );
     let committed = apply_plan_for_delta(plan);
-    assert_eq!(committed.changed_owner_count(), 1);
+    drop(committed);
     assert!(matches!(
         authority.entry(&remote),
         Some(OwnedTx::Accepted(_))
@@ -3679,15 +3618,11 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
     );
     let before = conflicts.normalized_snapshot();
     let batch = independent_batch(&conflicts, &[left, right]);
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         conflicts
             .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
-    assert!(matches!(
-        reason,
-        IndependentCoupling::CohortInputConflict(input) if input == shared_input
-    ));
     assert_eq!(conflicts.normalized_snapshot(), before);
 
     let spent = OutPoint::new(Byte32::new([213; 32]), 0);
@@ -3725,15 +3660,11 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
     );
     let before = conditional.normalized_snapshot();
     let batch = independent_batch(&conditional, &[spender, reader]);
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         conditional
             .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
-    assert!(matches!(
-        reason,
-        IndependentCoupling::CohortConditionalEdge(edge) if edge == spent
-    ));
     assert_eq!(conditional.normalized_snapshot(), before);
 }
 
@@ -3749,12 +3680,11 @@ fn uak_independent_capacity_is_aggregate_and_never_partially_applied() {
     let before = authority.normalized_snapshot();
     let batch = independent_batch(&authority, &[first, second]);
 
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         authority
             .plan_settlement(&batch)
             .expect("capacity coupling is a normal classification"),
     );
-    assert_eq!(reason, IndependentCoupling::AcceptedCapacity);
     assert_eq!(authority.normalized_snapshot(), before);
     assert_resource_reference(&authority);
 }
@@ -3831,15 +3761,11 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     );
     let before = conditional.normalized_snapshot();
     let batch = independent_batch(&conditional, &[spender]);
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         conditional
             .plan_settlement(&batch)
             .expect("accepted conditional edge routes normally"),
     );
-    assert!(matches!(
-        reason,
-        IndependentCoupling::AcceptedConditionalEdge(edge) if edge == conditional_cell
-    ));
     assert_eq!(conditional.normalized_snapshot(), before);
 
     let parent_tx = TransactionBuilder::default()
@@ -3862,16 +3788,13 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let child = verify_remote_transaction(&mut causal, child_tx, 222, Vec::new());
     let before = causal.normalized_snapshot();
     let batch = independent_batch(&causal, &[child]);
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         causal
             .plan_settlement(&batch)
             .expect("pool parent routes normally"),
     );
-    assert!(matches!(
-        reason,
-        IndependentCoupling::PoolParent(hash) if hash == parent
-    ));
     assert_eq!(causal.normalized_snapshot(), before);
+    assert!(matches!(causal.entry(&parent), Some(OwnedTx::Accepted(_))));
 
     let late_parent_tx = TransactionBuilder::default()
         .version(223u32)
@@ -3899,15 +3822,15 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
     let late_parent = verify_remote_transaction(&mut late, late_parent_tx, 223, Vec::new());
     let before = late.normalized_snapshot();
     let batch = independent_batch(&late, &[late_parent]);
-    let reason = coupled_reason_and_drop(
+    assert_coupled_and_drop(
         late.plan_settlement(&batch)
             .expect("accepted child routes normally"),
     );
-    assert!(matches!(
-        reason,
-        IndependentCoupling::AcceptedChild(hash) if hash == late_child
-    ));
     assert_eq!(late.normalized_snapshot(), before);
+    assert!(matches!(
+        late.entry(&late_child),
+        Some(OwnedTx::Accepted(_))
+    ));
 }
 
 #[test]
@@ -4116,16 +4039,12 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent {
-        reason,
-        disposition,
-    } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("late parent has one bounded coupled Plan")
     else {
         panic!("late parent must not use IndependentRun");
     };
-    assert_eq!(reason, IndependentCoupling::AcceptedChild(child.clone()));
     let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&parent),
@@ -4149,16 +4068,12 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&grandparent));
-    let SettlementPlan::CoupledComponent {
-        reason,
-        disposition,
-    } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("late grandparent has one bounded coupled Plan")
     else {
         panic!("late grandparent must not use IndependentRun");
     };
-    assert_eq!(reason, IndependentCoupling::AcceptedChild(parent.clone()));
     let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&grandparent),
@@ -4225,16 +4140,12 @@ fn uak_coupled_late_parent_deduplicates_an_existing_descendant_path() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent {
-        reason,
-        disposition,
-    } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("shared descendant path has one bounded coupled Plan")
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    assert_eq!(reason, IndependentCoupling::PoolParent(ancestor.clone()));
     let _ = accepted_disposition(disposition).apply();
 
     assert_eq!(
@@ -4376,7 +4287,7 @@ fn uak_coupled_late_parent_capacity_evicts_from_the_projected_graph() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { disposition, .. } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("late parent capacity is planned on the projected graph")
     else {
@@ -4452,7 +4363,7 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
         ),
     );
     let batch = independent_batch(&authority, std::slice::from_ref(&parent));
-    let SettlementPlan::CoupledComponent { disposition, .. } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("late-child eviction is compiled before Apply")
     else {
@@ -6738,6 +6649,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         .and_then(OwnedTx::preaccepted_charge)
         .expect("queued owner has an exact retained charge");
     let version = owner_version(&authority, &hash);
+    let checkout_sequence = authority.clocks().next_sequence;
     let checkout = authority
         .plan_checkout_for_foundation(
             &hash,
@@ -6746,10 +6658,8 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         )
         .expect("queued resolve accepts a continuous permit")
         .apply();
-    assert_eq!(
-        only_committed_change(checkout.committed_delta_for_foundation()).sequence,
-        ApplySequence(2)
-    );
+    assert_eq!(checkout_sequence, ApplySequence(2));
+    assert_eq!(authority.clocks().next_sequence, ApplySequence(3));
     let (compute_bytes, compute_edges) = authority
         .resources()
         .compute_limits()
@@ -6850,7 +6760,7 @@ fn uak_allocation_failure_discards_result_without_retaining_compute_capability()
         .expect("the immutable deadline remains valid across compute cancellation")
         .expect("the cancelled owner remains due")
         .apply();
-    assert_eq!(expired.changed_owner_count(), 1);
+    assert_eq!(expired.retired_len(), 1);
     assert!(authority.entry(&hash).is_none());
 }
 
@@ -8288,18 +8198,15 @@ fn uak_ready_frontier_and_independent_settlement_share_one_order() {
     else {
         panic!("chain-only candidates are independent");
     };
+    assert_eq!(
+        plan.independent_order_for_foundation()
+            .expect("Ready and settlement expose one sealed test order"),
+        vec![hashes[2].clone(), hashes[1].clone(), hashes[0].clone()]
+    );
     let committed = plan.apply();
     assert!(authority.ready_for_reference().is_empty());
     assert!(authority.primary_projection_consistent());
-    assert!(matches!(
-        committed.changes,
-        CommittedChanges::IndependentRun(changes)
-            if changes.iter().map(|change| &change.changed).eq([
-                &hashes[2],
-                &hashes[1],
-                &hashes[0],
-            ])
-    ));
+    drop(committed);
 }
 
 #[test]

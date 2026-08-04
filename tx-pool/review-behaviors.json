@@ -126,7 +126,7 @@
       "id": "TP-ADMIN-001",
       "title": "Cause-complete administration and peer revocation",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum AdminCause", "struct OwnerRemovalBatch", "fn plan_peer_revocation", "fn plan_local_removal"]},
+        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum AdminPlan", "struct OwnerRemovalBatch", "fn plan_administrative_removal", "fn plan_peer_revocation", "fn plan_local_removal"]},
         {"path": "tx-pool/src/authority/ban.rs", "symbols": ["struct PeerBanRegistry", "struct PeerBanLease"]}
       ],
       "required_behavior": "Clear, expiry, local removal and peer revocation use one cause-complete owner-removal compiler. Peer ban removes only not-yet-Accepted ingress owners; every delayed Remote message rejected by the peer fence commits its own exact relay release so another peer may refetch it.",

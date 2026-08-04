@@ -1,13 +1,13 @@
 use super::{
-    AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, CommittedChange,
-    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
-    next_sequence, next_version,
+    AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, IndependentDelta,
+    IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority, next_sequence,
+    next_version,
 };
 use crate::authority::{
     chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
     effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
     plan::membership::{
-        AncestorAggregate, DescendantAggregate, IndependentCoupling, IndependentMembershipChange,
+        AncestorAggregate, DescendantAggregate, IndependentMembershipChange,
         IndependentMembershipOutcome, PreparedIndependentMembership,
         prepare_independent_membership,
     },
@@ -68,17 +68,7 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
     /// The canonical strongest member is fully planned against the same
     /// authority. Remaining cohort members retain their Ready owner and
     /// are reclassified after this single coupled component commits.
-    CoupledComponent {
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "the typed coupling reason is regression evidence and a future profiling dimension; production disposition is identical for every reason"
-            )
-        )]
-        reason: IndependentCoupling,
-        disposition: CandidateDispositionPlan<'authority>,
-    },
+    CoupledComponent(CandidateDispositionPlan<'authority>),
 }
 
 struct CandidateFact {
@@ -144,19 +134,17 @@ impl TxPoolAuthority {
             // allocation, so use the single-candidate compiler that reserves
             // an outside-guard retirement carrier.
             let disposition = self.plan_candidate_disposition(strongest_receipt)?;
-            return Ok(SettlementPlan::CoupledComponent {
-                reason: IndependentCoupling::LocationRefreshedPayload,
-                disposition,
-            });
+            return Ok(SettlementPlan::CoupledComponent(disposition));
         }
 
         let mut clocks = self.clocks;
         let mut changes = Vec::new();
-        let mut committed = Vec::new();
+        let mut async_process_starts = Vec::new();
+        let mut source_sequence = None;
         changes
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        committed
+        async_process_starts
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         for fact in facts {
@@ -181,11 +169,10 @@ impl TxPoolAuthority {
                 proposal,
                 accepted_at,
             };
-            committed.push(CommittedChange {
-                sequence,
-                changed: fact.before.record.identity.raw.clone(),
-                async_process_start,
-            });
+            if let Some(started_at) = async_process_start {
+                async_process_starts.push(started_at);
+            }
+            source_sequence = Some(sequence);
             changes.push(IndependentMembershipChange {
                 key: fact.before.record.identity.raw.clone(),
                 before: fact.before,
@@ -198,21 +185,16 @@ impl TxPoolAuthority {
             projection,
         } = match prepare_independent_membership(self, &changes)? {
             IndependentMembershipOutcome::Prepared(prepared) => prepared,
-            IndependentMembershipOutcome::Coupled(reason) => {
+            IndependentMembershipOutcome::Coupled => {
                 // Coupling changes only the membership planner. Preserve the
                 // exact proof issued by final validation instead of creating
                 // a second proof-construction path at the handoff boundary.
                 let disposition = self.plan_candidate_disposition(strongest_receipt)?;
-                return Ok(SettlementPlan::CoupledComponent {
-                    reason,
-                    disposition,
-                });
+                return Ok(SettlementPlan::CoupledComponent(disposition));
             }
         };
-        let source_sequence = committed
-            .last()
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-            .sequence;
+        let source_sequence =
+            source_sequence.ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         let mut effects = Vec::new();
         effects
             .try_reserve(changes.len())
@@ -290,7 +272,7 @@ impl TxPoolAuthority {
                 dependency,
                 effect,
                 clocks,
-                committed,
+                async_process_starts,
             }),
         }))
     }

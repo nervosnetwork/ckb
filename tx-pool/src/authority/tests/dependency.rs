@@ -1,8 +1,5 @@
 use super::super::{
-    plan::{
-        CommittedChanges, DirectAdmissionDisposition, PlanError, SettlementBatch, StalePlan,
-        TxPoolAuthority,
-    },
+    plan::{DirectAdmissionDisposition, PlanError, SettlementBatch, StalePlan, TxPoolAuthority},
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime},
     state::{
@@ -51,8 +48,8 @@ fn input_transaction(version: u32, input: OutPoint) -> TransactionView {
         .build()
 }
 
-fn apply_plan(commit: impl FixtureCommit) -> CommittedChanges {
-    commit.into_committed().changes
+fn apply_plan(commit: impl FixtureCommit) {
+    drop(commit.into_committed());
 }
 
 fn owner_version(authority: &TxPoolAuthority, hash: &RawTxHash) -> EntryVersion {
@@ -185,13 +182,30 @@ fn accept_remote(
 fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
     let mut primary_requeues = 0;
     for _ in 0..64 {
+        let observed_owner = authority
+            .dependency_maintenance_observation_for_foundation()
+            .expect("dependency maintenance observation is valid")
+            .and_then(|(_, hash)| hash)
+            .and_then(|hash| {
+                authority
+                    .entry(&hash)
+                    .map(|owner| (hash, owner.record().version))
+            });
         let Some(plan) = authority
             .plan_dependency_maintenance()
             .expect("dependency maintenance planning is valid")
         else {
             return primary_requeues;
         };
-        if matches!(plan.apply().changes, CommittedChanges::One(_)) {
+        drop(plan.apply());
+        if observed_owner.is_some_and(|(hash, version)| {
+            matches!(
+                authority.entry(&hash),
+                Some(OwnedTx::PreAccepted(entry))
+                    if entry.record.version != version
+                        && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+            )
+        }) {
             primary_requeues += 1;
         }
     }
@@ -213,13 +227,13 @@ fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
         runtime
             .maintain_dependency()
             .expect("the first bounded step requeues one owner"),
-        AuthorityMaintenanceOutcome::Applied { owners: 1 }
+        AuthorityMaintenanceOutcome::Applied
     );
     assert_eq!(
         runtime
             .maintain_dependency()
             .expect("the second bounded step completes the dirty key"),
-        AuthorityMaintenanceOutcome::Applied { owners: 0 }
+        AuthorityMaintenanceOutcome::Applied
     );
     assert_eq!(
         runtime

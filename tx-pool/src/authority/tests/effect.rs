@@ -6,8 +6,8 @@ use super::super::{
         EffectPolicy, EffectPublication, ParentTransactionRequest, RejectionAudience,
     },
     plan::{
-        AuthorityFault, Backpressure, CommittedChanges, CommittedDelta, ComputeSettlementRecovery,
-        EffectCloseError, EffectSettlementError, MembershipReject, PlanError, TxPoolAuthority,
+        AuthorityFault, Backpressure, CommittedDelta, ComputeSettlementRecovery, EffectCloseError,
+        EffectSettlementError, MembershipReject, PlanError, TxPoolAuthority,
     },
     rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
@@ -179,13 +179,6 @@ fn checkout(authority: &mut TxPoolAuthority) -> EffectLease {
         .expect("one effect is pending")
         .apply()
         .into_effect_lease()
-}
-
-fn effect_control_sequence(committed: &CommittedDelta) -> ApplySequence {
-    let CommittedChanges::EffectControl(sequence) = &committed.changes else {
-        panic!("fixture expected an effect-only authority commit");
-    };
-    *sequence
 }
 
 #[tokio::test]
@@ -963,7 +956,10 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
             .plan_generation_reset_for_foundation()
             .expect("first generation reset plans"),
     );
-    let first_sequence = effect_control_sequence(&first);
+    let first_sequence = authority
+        .effect_observation_for_foundation()
+        .latest_generation_reset
+        .expect("the first reset is authoritative effect state");
     assert_eq!(first.retired_effect_len(), 0);
 
     let second = apply_plan(
@@ -971,7 +967,10 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
             .plan_generation_reset_for_foundation()
             .expect("newer generation reset plans"),
     );
-    let second_sequence = effect_control_sequence(&second);
+    let second_sequence = authority
+        .effect_observation_for_foundation()
+        .latest_generation_reset
+        .expect("the second reset replaces the first");
     assert!(second_sequence > first_sequence);
     assert_eq!(second.retired_effect_len(), 1);
     assert_eq!(
@@ -988,7 +987,11 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
             .plan_generation_reset_for_foundation()
             .expect("reset can advance while an older reset is active"),
     );
-    let third_sequence = effect_control_sequence(&third);
+    let third_sequence = authority
+        .effect_observation_for_foundation()
+        .latest_generation_reset
+        .expect("the third reset remains authoritative while the old lease is active");
+    drop(third);
     assert!(third_sequence > second_sequence);
     let retained = apply_plan(
         authority

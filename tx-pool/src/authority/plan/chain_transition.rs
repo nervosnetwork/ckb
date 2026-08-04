@@ -1271,7 +1271,6 @@ impl TxPoolAuthority {
                 effect,
                 retired,
                 clocks,
-                sequence,
             }),
         })
     }
@@ -1398,7 +1397,6 @@ impl TxPoolAuthority {
                 sources,
                 effect,
                 clocks,
-                sequence,
             }),
         })
     }

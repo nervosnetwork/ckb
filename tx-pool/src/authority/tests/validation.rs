@@ -8,7 +8,7 @@ use crate::authority::{
     plan::{
         CandidateDispositionPlan, DirectAdmissionDisposition, FinalAdmissionDispositionPlan,
         IndependentCandidate, PlanError, SettlementBatch, SettlementPlan, StalePlan,
-        TxPoolAuthority, test_support::IndependentCoupling,
+        TxPoolAuthority,
     },
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork,
@@ -552,16 +552,12 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
     assert!(!receipt.proof().is_chain_input(&input));
     let batch = SettlementBatch::new(vec![IndependentCandidate::new(receipt)])
         .expect("one Ready candidate is a valid batch");
-    let SettlementPlan::CoupledComponent {
-        reason,
-        disposition,
-    } = authority
+    let SettlementPlan::CoupledComponent(disposition) = authority
         .plan_settlement(&batch)
         .expect("refreshed payload routes through the retirement-aware compiler")
     else {
         panic!("a refreshed payload cannot use inline independent retirement");
     };
-    assert_eq!(reason, IndependentCoupling::LocationRefreshedPayload);
     let CandidateDispositionPlan::Accepted(plan) = disposition else {
         panic!("a live child of an Accepted parent must be admitted");
     };
