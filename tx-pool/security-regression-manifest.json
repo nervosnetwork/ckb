@@ -8,12 +8,8 @@
   "test_inventory": {"path": "tx-pool/test-inventory.txt"},
   "release_blockers": [
     {
-      "id": "CORRECTNESS-ACCEPTANCE",
-      "reason": "P9.8 static, hostile, differential and complete managed 150-spec integration acceptance has not yet been run against the final production wiring"
-    },
-    {
       "id": "PERFORMANCE-ACCEPTANCE",
-      "reason": "P10 controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B remains blocked until correctness acceptance closes"
+      "reason": "P10 controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B has not yet passed"
     }
   ]
 }

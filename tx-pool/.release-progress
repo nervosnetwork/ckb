@@ -14,12 +14,15 @@ the final completion review close.
 4. COMPLETE — comparison with `develop`, necessity/cost/minimality review,
    backward fault reachability, wait/publication/complexity/static audit,
    historical finding adjudication and documentation/CI convergence.
-5. ACTIVE — P9.8 complete related nextest and all 150 managed integration
-   specs; classify every failure before changing code.
-6. PENDING — P10 reproducible profiling and fixed-binary A/B against both
+5. COMPLETE — P9.8 complete related nextest and all 150 managed integration
+   specs; every failure was classified before changing code.
+6. ACTIVE — benchmark-preceding global static, model, liveness, manual-process
+   and convergence audit against current code and `develop`.
+7. PENDING — P10 reproducible profiling and fixed-binary A/B against both
    `develop` and the frozen pre-performance UAK checkpoint.
+8. PENDING — final production completion review and release handoff.
 
-The order is fixed. Benchmarking may not start before P9.8 closes.
+The order is fixed. Benchmarking may not start before phase 6 closes.
 
 ## Phase-4 checkpoint evidence
 
@@ -178,7 +181,7 @@ classified at its semantic owner:
   admission/read traffic and the five independent template lanes remain
   concurrent.
 
-Checkpoint-preparation evidence at the current working tree:
+Checkpoint-preparation evidence frozen in `8d5c27559`:
 
 - complete original failure group: 8/8 integration specs passed serially;
 - focused truncate/cell-dep ordering pair: 2/2 passed serially;
@@ -190,21 +193,62 @@ Checkpoint-preparation evidence at the current working tree:
   tests / 21 references, 19 security integration anchors and 150 managed
   specs.
 
-Next exact actions:
+Completion protocol used:
 
-1. Re-run the verification-wrapper integration group after the final
-   direct-cause compatibility tightening, then repeat the complete static,
-   nextest, Clippy, formatting and diff gates.
-2. Freeze this eight-failure root-correction checkpoint without staging the
+1. The verification-wrapper integration group and the complete static,
+   nextest, Clippy, formatting and diff gates were repeated after the final
+   direct-cause compatibility tightening.
+2. The eight-failure root-correction checkpoint was frozen without staging the
    user-owned root `.gitignore`.
-3. Re-run the exact generated 150-spec managed universe from the beginning;
-   neither a remainder nor a filtered subset satisfies P9.8.
-4. Classify any new failure before editing code or tests. A product defect
-   returns to producer/consumer, authority, transition, effect and adversarial
-   cost analysis; do not add retries, repair scans, watchdogs, second
-   authorities or test-only exceptions.
-5. Run all phase gates again and freeze P9.8 only at 150/150 with every
-   compatibility decision documented.
+3. The exact generated 150-spec managed universe was rerun from the beginning;
+   neither a remainder nor a filtered subset was treated as P9.8 evidence.
+4. Every observed failure was classified before editing code or tests. Product
+   defects returned to producer/consumer, authority, transition, effect and
+   adversarial cost analysis; no retry, repair scan, watchdog, second authority
+   or test-only product exception was added.
+5. P9.8 closed only after 150/150 and every compatibility decision was
+   documented.
+
+## P9.8 completion evidence
+
+The root-correction checkpoint is `8d5c27559`. Against its clean tracked tree
+(apart from the preserved user-owned root `.gitignore`):
+
+- `cargo nextest run -p ckb-tx-pool --features internal --lib
+  --no-fail-fast`: 410/410 passed;
+- strict internal-feature Clippy, default-feature `cargo check`, complete
+  review/static contracts, formatting and diff checks passed;
+- the exact generated managed integration universe ran from the beginning with
+  `-c 1`: 150/150 passed in 796.728373209 seconds;
+- the run included reorg recovery, Gap/proposal/uncle packaging, RBF,
+  persistence, relay, RPC truncate, dependent ordering, full proposal zones,
+  hard-fork verification and hostile/fork shapes.
+
+The `CORRECTNESS-ACCEPTANCE` manifest blocker is therefore closed at this
+checkpoint. A later semantic production change reopens the affected nextest,
+integration and compatibility gates; evidence is never inherited across such a
+change merely because P9.8 passed once.
+
+## Phase-6 exact action
+
+Before profiling or benchmark work:
+
+1. Re-derive the exact `develop` races and non-atomic transitions that cannot
+   be reliably fixed locally, and map every UAK mechanism to that necessity.
+2. Audit every state, lock, task, journal/effect, version, projection and
+   failure domain for duplicated authority, risk transfer and removable proof
+   surface.
+3. Statically audit legal-input fault reachability, panic-like operations,
+   arithmetic, identity/evidence context, manual publication, cancellation,
+   deadlock/livelock/wait cycles and hostile complexity bounds.
+4. Reconcile production code, isolated tests, integration evidence, behavior
+   registry, architecture contract, generated guide/inventory, scripts and CI
+   without hand-copied selectors or second authorities.
+5. Classify candidates together by root cause. Change code only for a proven
+   correctness/security/architecture issue or a measured high-value
+   simplification; do not accumulate local hardening patches.
+6. Repeat the phase gates, freeze a clean pre-performance checkpoint and only
+   then enter P10.
 
 ## P10 boundary
 

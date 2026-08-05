@@ -794,7 +794,7 @@ cannot silently reopen or forget them.
 | Strict/permissive marker allegedly required for same-tip cell reuse | `suppressed-with-current-counterevidence` | Chain-dead inputs cannot produce resolved evidence; per-input chain provenance plus exact snapshot/view is sufficient, and pool-produced cells always use the overlay. |
 | Constructorless `Waiting(Conflict)` | `superseded-by-proven-model` | The variant was removed; only successful displacement of an Accepted victim constructs inert `ReplacementHistory`. |
 | Phantom compute/proposal tokens and constructorless publisher collision | `confirmed-closed` | `EntryVersion` plus move-only work is the sole compute identity; the publisher is synchronously claimed before spawn. |
-| Zero-match test anchors, partial integration selection, stale machine contracts and missing cross-crate CI triggers | `confirmed-closed` for static process contracts | One-way evidence discovery fails dangling symbols/test arms and derives CI roots from registered evidence. P9.8 execution remains a release gate. |
+| Zero-match test anchors, partial integration selection, stale machine contracts and missing cross-crate CI triggers | `confirmed-closed` | One-way evidence discovery fails dangling symbols/test arms and derives CI roots from registered evidence. P9.8 passed the generated complete 150-spec universe at `8d5c27559`. |
 | Performance/noise claims from pre-UAK checkpoints | `superseded-as-release-evidence` | Historical profiles may select mechanisms, but only P10 fixed-current-binary A/B can accept the current architecture. |
 
 ## 18. Implementation map
@@ -853,7 +853,7 @@ The following are explicit boundaries, not claims of completion:
 | R5 | Derived template failure can retain the last valid template and underfill until a source change. |
 | R6 | Optional replacement history can be discarded as a complete set under its bounded sub-budget. |
 | R7 | Legacy v1 persistence remains an accepted compatibility input. |
-| R8 | The complete tx-pool-related integration universe remains the P9.8 gate. |
+| R8 | P9.8 passed the complete generated tx-pool-related integration universe at `8d5c27559`; any later semantic change reopens its affected acceptance gates. |
 | R9 | Reproducible fixed-binary performance acceptance remains the P10 gate. |
 
 The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
@@ -874,5 +874,5 @@ The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
    integration coverage and CI selectors agree exactly.
 
 The static architecture gate is therefore closed. P9.8 complete related test
-acceptance and P10 profiling/fixed-binary A/B remain independent release
-conditions; neither may be inferred from this review.
+acceptance passed at `8d5c27559`; P10 profiling/fixed-binary A/B remains an
+independent release condition and may not be inferred from correctness review.

@@ -7,8 +7,10 @@ matrix. It is not an implementation diary.
 
 The current architecture has not yet passed P10. Historical profiles below
 explain why mechanisms were selected or rejected, but they are not a release
-verdict for the final source. Correctness acceptance, including the complete
-managed integration universe, precedes P10.
+verdict for the final source. P9.8 correctness acceptance passed at
+`8d5c27559`: 410/410 internal-feature tx-pool tests and the complete 150/150
+managed integration universe passed. Any later semantic change reopens its
+affected correctness gates before performance evidence can be accepted.
 
 ## 1. Performance contract
 
