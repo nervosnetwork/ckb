@@ -139,6 +139,78 @@ not become the next hot path. This candidate is retained, but P10 remains open
 until later architecture candidates and the final medium fixed-binary matrix
 are adjudicated.
 
+Matched parent-first and child-first dependency captures reused the same fixed
+profiling binaries and the exact 500-transaction, one-peer, eight-worker,
+cold/warm-zero fixture. They are diagnostic operation-count captures, not a
+throughput verdict:
+
+| Dependency order | Wall change | Sampled CPU change | Authority writes | Ready attempts / work |
+|---|---:|---:|---:|---:|
+| parent-first | `-13.71%` | `-32.89%` | 57,388 -> 15,866 | 3,006 / 500 -> 1,000 / 500 |
+| child-first | `-13.61%` | `-33.92%` | 60,302 -> 15,381 | 3,273 / 500 -> 1,000 / 500 |
+
+Both candidate runs retained exactly 999 Resolve executions, 500 Verify
+executions, 500 Ready work slices and 999 effect publications. The reduction
+therefore removes failed scheduling probes rather than skipping dependency
+semantics, and the child-first order does not acquire a hidden retry path.
+
+### 3.2 Post-wake lower bound and candidate adjudication
+
+The common successful Remote lifecycle now exposes a constructive lower bound.
+This is a semantic bound, not a target obtained by weakening accounting or
+publication:
+
+| Boundary | Current common-path authority work | Constructive minimum | Disposition |
+|---|---|---|---|
+| Retained admission | one owner/charge/dedup Apply | one Apply | Required. Computing before ownership would recreate uncharged hostile work. |
+| Compute checkout | one successful `Queued -> Computing` Apply plus capability-mismatched probes | one successful Apply | The lease and active-work charge are required; failed probes are not. Route one typed baton to one compatible worker. |
+| Resolve/Verify handoff | zero extra Apply when a verifier continues Resolve into Verify, otherwise a queued-Verify settlement and checkout | zero extra Apply on the continuous path | Preserve the fallback, but make the compatible continuous path easier to select without creating a worker-owned queue. |
+| Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | one final membership Apply | `Ready` remains the charged fallback for effect pressure, coupling and deferred work. A chain-backed independent completion may reuse the same validator and membership compiler directly; it must not create a second fast-path policy. |
+| Ordinary effect publication | checkout Apply, external I/O, settlement Apply | one settlement Apply | The sole publisher can borrow a stable FIFO head because later appends and higher sequences cannot displace it. Generation-reset selection still requires active checkout state. |
+| External endpoints | no authority guard during I/O | no authority guard during I/O | Fixed contract. |
+
+For an ordinary independent transaction this gives a four-Apply steady-state
+floor: admission, compute checkout, atomic final membership, and ordinary
+effect settlement. It is not valid for a generation reset, RBF component,
+missing dependency, resource rejection or effect-capacity fallback.
+
+The next candidates were reviewed together rather than accumulated as local
+patches:
+
+1. **Capability-routed shared compute batons - selected first.** Resolve is one
+   executable level shared by the resolver and verifier helpers. A typed wake
+   reason makes the selected worker attempt that exact lane first. Small-Verify
+   is shared by all verifiers; Large-Verify is consumable only by an Any
+   verifier. This removes duplicate notifications and write-lock probes while
+   adding no owner, queue, lock, task, timer or retry state.
+2. **Direct verified commit - design-accepted after the baton result.** A
+   successful chain-backed independent verification may produce a sealed final
+   validation receipt while its exact Computing lease remains live, then use
+   the existing membership compiler in one total Apply. Stale view, changed
+   dependency cut, conflict/RBF, capacity pressure, allocation pressure and
+   effect pressure must use closed outcomes and the existing charged Ready or
+   re-resolve path. No validation rule may be copied into a second compiler.
+3. **Stable queued-effect lease - design-accepted after finalization.** The
+   existing sole-publisher claim can borrow the oldest ordinary queued envelope
+   without a checkout mutation; settlement validates sequence, batch identity
+   and progress before removing or retaining that same head. Generation reset
+   keeps the current active checkout because a newer reset may replace the
+   pending reset while I/O is in flight.
+4. **Ready delay/coalescing - not selected.** Opportunistic batches already use
+   the complete available prefix. Delaying a non-empty Ready level either adds
+   a timer/local scheduling authority or can strand trusted work behind a
+   paused or hostile active computation. True batch Plan/Apply remains open
+   only if later profiles prove that committed settlement, rather than failed
+   probes and redundant boundaries, is still dominant.
+
+Before each prototype, the falsification set is frozen: mixed Resolve/small/
+large levels, one-verifier topology, preexisting coalesced work, cancellation
+and pause, effect saturation, queued/reset ordering, partial endpoint progress,
+RBF/conflict, parent-first/child-first dependency order, peer revocation and
+chain revision races. A candidate is removed if it adds a decision authority,
+changes an externally visible outcome, loses progress under any of those
+interleavings, or fails fixed-binary A/B after the complete correctness gates.
+
 ## 4. Reproducible profiling
 
 The canonical runner is `tx-pool/scripts/profile.py`. It reuses benchmark

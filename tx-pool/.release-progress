@@ -931,24 +931,72 @@ hot path (`PreparedApply::apply` stayed about 0.4-1.3% inclusive). The remaining
 batching trade-off is not repaired inside the wake router: delay heuristics or
 a second ready queue would transfer risk and violate the model.
 
+Matched dependency captures close the remaining role-wake attribution gap.
+Both sides reused the frozen profiling binaries and the exact 500-transaction,
+one-peer, eight-worker, cold/warm-zero harness; only `parent_first` versus
+`child_first` changed. Candidate manifests and summaries are:
+
+- parent-first manifest
+  `/private/tmp/txpool-p10-wake/wake-uak-dep-parent-cold-1p8w.manifest.json`,
+  SHA-256
+  `c1242a6e5174e073b5e2a7a60239f03e35092bca93cfef24e311189e8237eb16`;
+- parent-first summary SHA-256
+  `cde13de39e4ee0c887e7f618061a33a1ff931ef644f01059d086384c713b8e7a`;
+- child-first manifest
+  `/private/tmp/txpool-p10-wake/wake-uak-dep-child-cold-1p8w.manifest.json`,
+  SHA-256
+  `3968e1c052f50bb54bda0edde56a712bdc17fb059abd0f69d7cfec01e1fd6f2c`;
+- child-first summary SHA-256
+  `d27f1c517ad40853000166e8f560b231d87a91eacb09ad070c9e1ffd73e67559`.
+
+Against the frozen `f78636e90` captures, parent-first wall/CPU moved by
+`-13.71%`/`-32.89%` and child-first by `-13.61%`/`-33.92%`. Semantic work did
+not disappear: both candidate runs retained 999 Resolve, 500 Verify, 500 Ready
+work and 999 effect publications. Authority write probes fell by `72.35%` and
+`74.49%`; Ready attempts fell from 3,006/3,273 to exactly 1,000 in both
+orders. The role-derived wake therefore removes schedule-independent failed
+probes without hiding child-first dependency work or adding an order-specific
+retry path. These are single diagnostic captures and operation-count evidence,
+not final throughput acceptance.
+
+The post-wake lifecycle lower-bound and joint candidate adjudication are now
+frozen in `docs/PERFORMANCE.md` section 3.2. The ordinary independent Remote
+floor is four authority Applies: charged admission, exclusive compute checkout,
+atomic final membership and ordinary effect settlement. The currently separate
+Ready transition and ordinary effect checkout are not semantic lower bounds.
+This floor does not apply to generation reset, missing dependency, RBF,
+resource rejection or effect-capacity fallback.
+
+Candidate order is fixed:
+
+1. capability-routed shared compute batons, because the matched profiles still
+   expose duplicate compatible-role probes and this step changes no lifecycle
+   state;
+2. direct verified commit through the one existing final validator and
+   membership compiler, with charged Ready/re-resolve as closed fallback;
+3. stable ordinary FIFO effect borrowing under the existing sole publisher,
+   retaining active checkout for replaceable generation reset;
+4. only if those profiles leave committed settlement dominant, reconsider a
+   true batch Plan/Apply design. Timer/local-state Ready delay is rejected.
+
+The frozen falsification matrix includes mixed Resolve/small/large levels,
+single-verifier topology, preexisting work, cancellation/pause, effect
+saturation, queued/reset ordering, partial publication, RBF/conflict,
+parent-first/child-first dependencies, peer revocation and chain revision.
+No slice may duplicate validation or membership policy.
+
 Exact resume action:
 
-1. Freeze the derived-wake measurement evidence and reviewer documentation in
-   a focused checkpoint without the user-owned root `.gitignore` change.
-2. Capture matched parent-first and child-first dependency operation counts
-   with the already fixed candidate binary; do not rebuild it.
-3. Derive the post-wake lower-bound cost ledger per lifecycle stage and group
-   the remaining serialized writes into semantic validation, capability
-   handoff, Ready membership Apply and effect checkout/settlement.
-4. Review at least three architecture candidates together: direct atomic
-   finalization for provably independent chain-backed transactions, derived
-   bounded Ready coalescing/true batch Plan-Apply, and removal of redundant
-   effect checkout mutation under the exclusive publisher claim. Reject any
-   model that adds a second authority, mutable staging queue, timer-dependent
-   correctness or weaker RBF/capacity/reorg validation.
-5. Freeze a proof and falsification plan before the next prototype. Re-run its
-   complete correctness gates and fixed-binary A/B/profile before retention;
-   final medium UAK-vs-checkpoint and UAK-vs-develop evidence remains later.
+1. Implement only the capability-routed shared compute baton slice. The wake
+   reason must select the exact first checkout permit and every worker must
+   retain a preexisting-level probe before waiting.
+2. Add mixed-level, one-verifier, stolen-baton, cancellation and pause
+   regressions; run complete correctness/static gates before measurement.
+3. Build candidate once, then run fixed-binary paired A/B and matched operation
+   profiles against `6f486cdf5`. Retain or remove from evidence, not intuition.
+4. Repeat the same design/proof/gate/profile sequence for direct verified
+   commit and stable ordinary effect borrowing. Final medium UAK-vs-checkpoint
+   and UAK-vs-develop evidence remains later.
 
 The optimization prototype is correctness-gated but not yet performance-
 accepted or production-accepted.
