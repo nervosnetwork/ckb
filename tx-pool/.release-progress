@@ -535,9 +535,45 @@ rejection test; the exact test then passed in 40 ms and an immediate complete
 isolated rerun passed 415/415 with no leak or skip. The marker was transient
 host scheduling, not inherited as an unexplained green result.
 
-Exact resume action: verify and freeze the calibrated span vocabulary, rebuild
-one fixed profiling binary, repeat the cheap and dependency controls, then
-compare causal signals before compiling any optimization candidate.
+The calibrated runs exposed a second infrastructure defect before candidate
+selection: the separate span execution synchronously formatted and wrote about
+11 MB / 70,000 records in roughly half a second. It did not contaminate the
+Samply run, but it materially changed scheduling, and repeated counts directly
+disproved the analyzer's claim that close counts were deterministic. The
+benchmark-only subscriber is being replaced by a fixed registry of relaxed
+atomic start counters activated only around target work, followed by one JSON
+write. Unknown producer names remain a hard error and the production node's
+optional tracing subscriber is unchanged. Counts become explicitly
+schedule-dependent causal observations; only CPU sampling and controlled A/B
+own timing conclusions.
+
+The low-perturbation counter implementation is complete in the working tree:
+
+- the fixed registry is mechanically checked against every production span
+  producer; unknown target spans fail the run rather than disappearing;
+- target activation is explicit, counter updates are lock-free relaxed atomics,
+  shutdown is bounded and waits only for already-entered callbacks, and one
+  schema-versioned JSON object is written after deactivation;
+- the analyzer requires the exact counter/manifest window, sorted unique names,
+  non-negative counts and a non-empty target observation. Manifest and summary
+  schemas are bumped; an older harness cannot silently reanalyze the artifact;
+- two isolated counter-window/unknown-name regressions are part of the normal
+  internal inventory and TP-PERF evidence. The generated universe is now 417
+  tests and the curated process universe remains 150 specs;
+- complete review contracts, strict all-target `internal,profiling` Clippy,
+  formatting and diff checks passed; the complete internal nextest universe
+  passed 417/417 with no leak or skip.
+
+High-view review: this changes only the benchmark subscriber and analyzer. It
+adds no production owner, lock, task, queue, lifecycle state or publication
+path. The optional production-node fmt subscriber remains available for human
+Tokio-console sessions, while reproducible benchmark counting no longer
+serializes workers on formatting or file I/O.
+
+Exact resume action: freeze the low-perturbation profiling checkpoint, rebuild
+only the benchmark binary from its clean revision, run one strict cheap control
+to validate the new artifact end to end, then repeat the necessary scenario
+controls before compiling any optimization candidate.
 
 ## Restart rule
 

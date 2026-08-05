@@ -36,8 +36,8 @@ def technical_sources() -> list[Path]:
 
 
 def allowed(path: Path, character: str) -> bool:
-    # macOS Instruments emits this exact unit token in its JSON export. The
-    # parser must spell the external token faithfully; it is not prose styling.
+    # Samply's profile schema emits this exact thread-CPU unit token. The parser
+    # must spell the external token faithfully; it is not prose styling.
     return path == PROFILE and character == EXTERNAL_MICROSECOND_SIGN
 
 

@@ -36,6 +36,8 @@ use ckb_types::{
 use ckb_verification::cache::init_cache;
 use criterion::{BatchSize, BenchmarkGroup, Criterion, SamplingMode, Throughput, criterion_group};
 use std::collections::{HashMap, HashSet};
+#[cfg(any(test, feature = "profiling"))]
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -982,8 +984,163 @@ fn unix_nanos() -> Result<u64, String> {
         .map_err(|_| "system timestamp does not fit in u64 nanoseconds".to_string())
 }
 
+#[cfg(any(test, feature = "profiling"))]
+const PROFILE_SPAN_NAMES: [&str; 12] = [
+    "tx_pool.authority.read_hold",
+    "tx_pool.authority.read_wait",
+    "tx_pool.authority.upgradable_read_hold",
+    "tx_pool.authority.upgradable_read_wait",
+    "tx_pool.authority.upgrade_wait",
+    "tx_pool.authority.write_hold",
+    "tx_pool.authority.write_wait",
+    "tx_pool.effects.publish",
+    "tx_pool.stage.ready_attempt",
+    "tx_pool.stage.ready_work",
+    "tx_pool.stage.resolve",
+    "tx_pool.stage.verify",
+];
+
+#[cfg(any(test, feature = "profiling"))]
+struct ProfileSpanCounters {
+    active: AtomicBool,
+    in_flight: AtomicUsize,
+    counts: [AtomicU64; PROFILE_SPAN_NAMES.len()],
+    unknown: AtomicU64,
+}
+
+#[cfg(any(test, feature = "profiling"))]
+impl ProfileSpanCounters {
+    fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            in_flight: AtomicUsize::new(0),
+            counts: std::array::from_fn(|_| AtomicU64::new(0)),
+            unknown: AtomicU64::new(0),
+        }
+    }
+
+    fn begin(&self) -> Result<(), String> {
+        if self.active.load(Ordering::Acquire) {
+            return Err("profile span counter window is already active".to_string());
+        }
+        for count in &self.counts {
+            count.store(0, Ordering::Relaxed);
+        }
+        self.unknown.store(0, Ordering::Relaxed);
+        if self.active.swap(true, Ordering::AcqRel) {
+            return Err("profile span counter window raced another activation".to_string());
+        }
+        Ok(())
+    }
+
+    fn record(&self, name: &str) {
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
+        if self.active.load(Ordering::Acquire) {
+            match PROFILE_SPAN_NAMES
+                .iter()
+                .position(|candidate| *candidate == name)
+            {
+                Some(index) => {
+                    self.counts[index].fetch_add(1, Ordering::Relaxed);
+                }
+                None => {
+                    self.unknown.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        self.in_flight.fetch_sub(1, Ordering::Release);
+    }
+
+    fn end(&self) -> Result<[u64; PROFILE_SPAN_NAMES.len()], String> {
+        if !self.active.swap(false, Ordering::AcqRel) {
+            return Err("profile span counter window is not active".to_string());
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while self.in_flight.load(Ordering::Acquire) != 0 {
+            if std::time::Instant::now() >= deadline {
+                return Err("profile span counter did not quiesce within one second".to_string());
+            }
+            std::thread::yield_now();
+        }
+        let unknown = self.unknown.load(Ordering::Relaxed);
+        if unknown != 0 {
+            return Err(format!(
+                "profile subscriber observed {unknown} unregistered target spans"
+            ));
+        }
+        Ok(std::array::from_fn(|index| {
+            self.counts[index].load(Ordering::Relaxed)
+        }))
+    }
+}
+
 #[cfg(feature = "profiling")]
-fn init_profile_span_log() -> Result<(), String> {
+struct ProfileSpanCountLayer {
+    counters: Arc<ProfileSpanCounters>,
+}
+
+#[cfg(feature = "profiling")]
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for ProfileSpanCountLayer {
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _context: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        self.counters.record(attributes.metadata().name());
+    }
+}
+
+#[cfg(feature = "profiling")]
+struct ProfileSpanRecorder {
+    output: std::fs::File,
+    counters: Arc<ProfileSpanCounters>,
+}
+
+#[cfg(feature = "profiling")]
+impl ProfileSpanRecorder {
+    fn begin(&self) -> Result<(), String> {
+        self.counters.begin()
+    }
+
+    fn end(&self) -> Result<[u64; PROFILE_SPAN_NAMES.len()], String> {
+        self.counters.end()
+    }
+
+    fn write(
+        &mut self,
+        window: &serde_json::Value,
+        counts: [u64; PROFILE_SPAN_NAMES.len()],
+    ) -> Result<(), String> {
+        use std::io::Write;
+
+        let spans = PROFILE_SPAN_NAMES
+            .iter()
+            .zip(counts)
+            .map(
+                |(name, start_count)| serde_json::json!({"name": name, "start_count": start_count}),
+            )
+            .collect::<Vec<_>>();
+        let record = serde_json::json!({
+            "schema_version": 1,
+            "measurement": "span_starts_during_target_work",
+            "window": window,
+            "spans": spans,
+        });
+        serde_json::to_writer(&mut self.output, &record)
+            .map_err(|error| format!("cannot encode profile span counters: {error}"))?;
+        self.output
+            .write_all(b"\n")
+            .and_then(|()| self.output.flush())
+            .map_err(|error| format!("cannot write profile span counters: {error}"))
+    }
+}
+
+#[cfg(feature = "profiling")]
+fn init_profile_span_recorder() -> Result<Option<ProfileSpanRecorder>, String> {
     use tracing_subscriber::Layer;
     use tracing_subscriber::filter::FilterFn;
     use tracing_subscriber::layer::SubscriberExt;
@@ -991,7 +1148,7 @@ fn init_profile_span_log() -> Result<(), String> {
 
     let path = match std::env::var("TX_POOL_PROFILE_TRACE_PATH") {
         Ok(path) => path,
-        Err(std::env::VarError::NotPresent) => return Ok(()),
+        Err(std::env::VarError::NotPresent) => return Ok(None),
         Err(std::env::VarError::NotUnicode(_)) => {
             return Err("TX_POOL_PROFILE_TRACE_PATH is not valid Unicode".to_string());
         }
@@ -1000,48 +1157,23 @@ fn init_profile_span_log() -> Result<(), String> {
         .write(true)
         .create_new(true)
         .open(&path)
-        .map_err(|error| format!("cannot create profile span log {path}: {error}"))?;
+        .map_err(|error| format!("cannot create profile span counters {path}: {error}"))?;
+    let counters = Arc::new(ProfileSpanCounters::new());
     let filter = FilterFn::new(|metadata| metadata.target() == "ckb_tx_pool_profile");
-    let layer = tracing_subscriber::fmt::layer()
-        .with_ansi(false)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
-        .with_writer(std::sync::Arc::new(output))
-        .with_filter(filter);
+    let layer = ProfileSpanCountLayer {
+        counters: Arc::clone(&counters),
+    }
+    .with_filter(filter);
     tracing_subscriber::registry()
         .with(layer)
         .try_init()
-        .map_err(|error| format!("cannot install profile span subscriber: {error}"))
-}
-
-#[cfg(feature = "profiling")]
-fn submit_and_wait_profiled(
-    runtime: &tokio::runtime::Runtime,
-    controller: &crate::TxPoolController,
-    completion: &BenchCompletion,
-    txs: Arc<Vec<TransactionView>>,
-    cycles: Arc<Vec<u64>>,
-    target_pending: usize,
-    submitters: usize,
-) -> Result<(u64, u64), String> {
-    let start_unix_nanos = unix_nanos()?;
-    runtime.block_on(submit_and_wait_inner(
-        controller,
-        completion,
-        txs,
-        cycles,
-        target_pending,
-        submitters,
-    ));
-    let end_unix_nanos = unix_nanos()?;
-    Ok((start_unix_nanos, end_unix_nanos))
+        .map_err(|error| format!("cannot install profile span subscriber: {error}"))?;
+    Ok(Some(ProfileSpanRecorder { output, counters }))
 }
 
 #[cfg(feature = "profiling")]
 fn run_profile_scenario(scenario: ProfileScenario) -> Result<(), String> {
-    init_profile_span_log()?;
+    let mut span_recorder = init_profile_span_recorder()?;
     let executor = Arc::new(BenchExecutor::new());
     let data = BenchData::new(
         scenario.tx_type,
@@ -1083,15 +1215,23 @@ fn run_profile_scenario(scenario: ProfileScenario) -> Result<(), String> {
         .get()
         .checked_add(if prefill { scenario.warm_pool_size } else { 0 })
         .ok_or_else(|| "profile target pending count overflows usize".to_string())?;
-    let (start_unix_nanos, end_unix_nanos) = submit_and_wait_profiled(
-        &executor.runtime,
+    let start_unix_nanos = unix_nanos()?;
+    if let Some(recorder) = span_recorder.as_ref() {
+        recorder.begin()?;
+    }
+    executor.runtime.block_on(submit_and_wait_inner(
         &handle.controller,
         &handle.completion,
         target_txs,
         target_cycles,
         target_pending,
         scenario.peers.get(),
-    )?;
+    ));
+    let span_counts = span_recorder
+        .as_ref()
+        .map(ProfileSpanRecorder::end)
+        .transpose()?;
+    let end_unix_nanos = unix_nanos()?;
     let record = serde_json::json!({
         "schema_version": 1,
         "scenario": scenario.name(),
@@ -1099,6 +1239,11 @@ fn run_profile_scenario(scenario: ProfileScenario) -> Result<(), String> {
         "end_unix_nanos": end_unix_nanos,
         "elapsed_nanos": end_unix_nanos.saturating_sub(start_unix_nanos),
     });
+    match (span_recorder.as_mut(), span_counts) {
+        (Some(recorder), Some(counts)) => recorder.write(&record, counts)?,
+        (None, None) => {}
+        _ => return Err("profile span recorder and snapshot disagree".to_string()),
+    }
     println!("TX_POOL_PROFILE_WINDOW {record}");
     drop(handle);
     Ok(())

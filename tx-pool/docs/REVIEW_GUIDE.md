@@ -539,7 +539,7 @@ Rust evidence:
 
 #### `TP-PERF-001` - Bounded work and preserved concurrency
 
-Generated focused command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(=authority::tests::foundation::uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots) | test(=authority::tests::foundation::uak_independent_ready_order_is_invariant_to_worker_completion_permutations) | test(=authority::tests::relay::uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating) | test(=authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking) | test(=block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound) | test(=component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights) | test(=service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full)'`
+Generated focused command: `cargo nextest run -p ckb-tx-pool --features internal -E 'test(=authority::tests::foundation::uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots) | test(=authority::tests::foundation::uak_independent_ready_order_is_invariant_to_worker_completion_permutations) | test(=authority::tests::relay::uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating) | test(=authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking) | test(=benchmark::debug_tests::profile_span_counters_observe_only_the_active_registered_window) | test(=benchmark::debug_tests::profile_span_counters_reject_an_unregistered_target_span) | test(=block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound) | test(=component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights) | test(=service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full)'`
 
 Rust evidence:
 
@@ -547,6 +547,8 @@ Rust evidence:
 - `authority::tests::foundation::uak_independent_ready_order_is_invariant_to_worker_completion_permutations` (T5, T8, T10)
 - `authority::tests::relay::uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating` (T7, T8, T10)
 - `authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking` (T7, T8, T10)
+- `benchmark::debug_tests::profile_span_counters_observe_only_the_active_registered_window` (T8)
+- `benchmark::debug_tests::profile_span_counters_reject_an_unregistered_target_span` (T8)
 - `block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound` (T8, T13)
 - `component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights` (T8, T13)
 - `service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full` (T8, T10)

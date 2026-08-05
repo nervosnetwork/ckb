@@ -125,11 +125,14 @@ python3 tx-pool/scripts/profile.py analyze \
   --manifest /private/tmp/txpool-secp-cold.manifest.json
 ```
 
-CPU sampling and feature-gated stage spans are separate executions of the same
-hash-verified binary. This avoids injecting span formatting and file I/O into
-the sampled run. Raw profiles may remain external, but the manifest records
-their path, size and SHA-256 and the committed analyzer must reproduce the
-summary.
+CPU sampling and feature-gated span counting are separate executions of the
+same hash-verified binary. The sampled run installs no span subscriber. The
+counter run uses a fixed registry of relaxed atomics only while target work is
+active and writes one JSON artifact after completion; it performs no per-span
+formatting, file locking or I/O. Counts are schedule-dependent control-flow
+observations, not timing. Raw artifacts may remain external, but the manifest
+records their path, size and SHA-256 and the committed analyzer must reproduce
+the summary.
 
 The UAK owns these low-cardinality profiling coordinates:
 

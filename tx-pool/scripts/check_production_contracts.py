@@ -24,6 +24,7 @@ TX_POOL_AUTHORITY_RUNTIME = (
 TX_POOL_AUTHORITY_PUBLISHER = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "publisher.rs"
 )
+TX_POOL_BENCHMARK = REPO_ROOT / "tx-pool" / "src" / "benchmark.rs"
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
@@ -297,6 +298,7 @@ def validate_authority_profiling_seams() -> list[str]:
     try:
         runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
         publisher = TX_POOL_AUTHORITY_PUBLISHER.read_text()
+        benchmark = TX_POOL_BENCHMARK.read_text()
     except OSError as error:
         return [f"cannot inspect authority profiling seams: {error}"]
 
@@ -379,6 +381,43 @@ def validate_authority_profiling_seams() -> list[str]:
     if publisher.count('"tx_pool.effects.publish"') != 1:
         errors.append(
             "effect profiling must cover one checked-out batch, not the permanent publisher task"
+        )
+
+    expected_counter_spans = sorted(
+        {
+            *expected_lock_spans,
+            "tx_pool.stage.resolve",
+            "tx_pool.stage.verify",
+            "tx_pool.stage.ready_attempt",
+            "tx_pool.stage.ready_work",
+            "tx_pool.effects.publish",
+        }
+    )
+    counter_registry = re.search(
+        r"const\s+PROFILE_SPAN_NAMES\s*:\s*\[&str;\s*\d+\]\s*=\s*"
+        r"\[(?P<body>.*?)\];",
+        benchmark,
+        re.S,
+    )
+    if counter_registry is None:
+        errors.append("profiling benchmark lost the derived span counter registry")
+    else:
+        counter_spans = re.findall(r'"(tx_pool\.[^"]+)"', counter_registry.group("body"))
+        if counter_spans != expected_counter_spans:
+            errors.append(
+                "profiling counter registry differs from the semantic producers: "
+                f"expected {expected_counter_spans}, found {counter_spans}"
+            )
+    for required in (
+        "fn on_new_span(",
+        '"span_starts_during_target_work"',
+        "serde_json::to_writer(&mut self.output, &record)",
+    ):
+        if required not in benchmark:
+            errors.append(f"profiling counter boundary lost {required!r}")
+    if "tracing_subscriber::fmt::layer()" in benchmark:
+        errors.append(
+            "benchmark profiling must not format or write one record per authority span"
         )
     return errors
 

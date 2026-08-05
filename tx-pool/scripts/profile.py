@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import bisect
 import datetime
-import decimal
 import gzip
 import hashlib
 import json
@@ -34,20 +33,9 @@ REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
 PROFILE_FEATURES = ("internal", "profiling")
 PROFILE_SCHEMA_VERSION = 1
-MANIFEST_SCHEMA_VERSION = 2
-SUMMARY_SCHEMA_VERSION = 1
-SPAN_CLOSE_RE = re.compile(
-    r"^(?P<timestamp>\S+)\s+.*?\s"
-    r"(?P<context>tx_pool\.[^ ]*): ckb_tx_pool_profile: close "
-    r"time\.busy=(?P<busy>[0-9.]+)(?P<busy_unit>ns|µs|ms|s) "
-    r"time\.idle=(?P<idle>[0-9.]+)(?P<idle_unit>ns|µs|ms|s)$"
-)
-NANOS_PER_UNIT = {
-    "ns": decimal.Decimal(1),
-    "µs": decimal.Decimal(1_000),
-    "ms": decimal.Decimal(1_000_000),
-    "s": decimal.Decimal(1_000_000_000),
-}
+MANIFEST_SCHEMA_VERSION = 3
+SUMMARY_SCHEMA_VERSION = 2
+SPAN_COUNTER_SCHEMA_VERSION = 1
 
 
 class ProfileError(RuntimeError):
@@ -234,7 +222,7 @@ def output_paths(prefix: Path) -> dict[str, Path]:
         "symbols": Path(f"{absolute}.json.syms.json"),
         "stdout": Path(f"{absolute}.stdout.log"),
         "stderr": Path(f"{absolute}.stderr.log"),
-        "spans": Path(f"{absolute}.spans.log"),
+        "spans": Path(f"{absolute}.spans.json"),
         "span_stdout": Path(f"{absolute}.span.stdout.log"),
         "span_stderr": Path(f"{absolute}.span.stderr.log"),
         "manifest": Path(f"{absolute}.manifest.json"),
@@ -563,10 +551,10 @@ def capture(args: argparse.Namespace) -> Path:
     if not paths["profile"].is_file() or not paths["symbols"].is_file():
         raise ProfileError("Samply capture did not produce profile and symbol artifacts")
 
-    # Span formatting is intentionally isolated from CPU sampling. Writing a
-    # close record for every kernel acquisition is useful causal evidence, but
-    # its subscriber locks and file I/O would otherwise manufacture the very
-    # contention that Samply is meant to attribute.
+    # Span counting is intentionally isolated from CPU sampling. The benchmark
+    # subscriber uses fixed relaxed-atomic counters while the target is active
+    # and writes one JSON artifact afterward; it performs no per-span format,
+    # file-lock or I/O work.
     span_env = scenario_environment(args)
     span_env["TX_POOL_PROFILE_TRACE_PATH"] = str(paths["spans"])
     span_command = [
@@ -634,7 +622,10 @@ def capture(args: argparse.Namespace) -> Path:
             "ended_utc": span_ended_utc,
             "command": span_command,
             "window": span_marker,
-            "isolation": "separate execution from CPU sampling",
+            "isolation": (
+                "separate execution from CPU sampling; in-memory span-start "
+                "counters with one post-window JSON write"
+            ),
         },
         "environment": environment_identity(paths["profile"].parent, build_env),
         "inputs": {
@@ -755,29 +746,7 @@ def ranked(counter: Counter[str], total: int, limit: int = 100) -> list[dict[str
     ]
 
 
-def timestamp_nanos(value: str) -> int:
-    try:
-        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise ProfileError(f"span log timestamp is invalid: {value}") from error
-    if parsed.tzinfo is None:
-        raise ProfileError(f"span log timestamp has no timezone: {value}")
-    epoch = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
-    elapsed = parsed.astimezone(datetime.timezone.utc) - epoch
-    return (
-        (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000
-        + elapsed.microseconds * 1_000
-    )
-
-
-def duration_nanos(value: str, unit: str) -> int:
-    try:
-        return int(decimal.Decimal(value) * NANOS_PER_UNIT[unit])
-    except (decimal.InvalidOperation, KeyError) as error:
-        raise ProfileError(f"span duration is invalid: {value}{unit}") from error
-
-
-def analyze_span_log(manifest: dict[str, Any], path: Path) -> dict[str, Any]:
+def analyze_span_counters(manifest: dict[str, Any], path: Path) -> dict[str, Any]:
     span_capture = manifest.get("span_capture")
     if not isinstance(span_capture, dict) or not isinstance(span_capture.get("window"), dict):
         raise ProfileError("profile manifest has no span-capture window")
@@ -786,47 +755,42 @@ def analyze_span_log(manifest: dict[str, Any], path: Path) -> dict[str, Any]:
     end = window.get("end_unix_nanos")
     if not isinstance(start, int) or not isinstance(end, int) or start >= end:
         raise ProfileError("span-capture window is invalid")
-    totals: dict[str, dict[str, int]] = {}
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as error:
-        raise ProfileError(f"cannot read span artifact {path}: {error}") from error
+    counters = read_json(path)
+    if set(counters) != {"schema_version", "measurement", "window", "spans"}:
+        raise ProfileError("span counter artifact has an unsupported shape")
+    if counters["schema_version"] != SPAN_COUNTER_SCHEMA_VERSION:
+        raise ProfileError("span counter artifact schema version is unsupported")
+    if counters["measurement"] != "span_starts_during_target_work":
+        raise ProfileError("span counter artifact has an unsupported measurement")
+    if counters["window"] != window:
+        raise ProfileError("span counter artifact and manifest windows differ")
+    spans = counters["spans"]
+    if not isinstance(spans, list) or not spans:
+        raise ProfileError("span counter artifact has no registered coordinates")
+    names: list[str] = []
     selected = 0
-    for line in lines:
-        match = SPAN_CLOSE_RE.fullmatch(line)
-        if match is None:
-            continue
-        closed_at = timestamp_nanos(match.group("timestamp"))
-        if not start <= closed_at <= end:
-            continue
-        name = match.group("context").rsplit(":", 1)[-1]
-        current = totals.setdefault(
-            name,
-            {
-                "close_count": 0,
-                "reported_busy_nanos": 0,
-                "reported_idle_nanos": 0,
-                "max_reported_busy_nanos": 0,
-                "max_reported_idle_nanos": 0,
-            },
-        )
-        busy = duration_nanos(match.group("busy"), match.group("busy_unit"))
-        idle = duration_nanos(match.group("idle"), match.group("idle_unit"))
-        current["close_count"] += 1
-        current["reported_busy_nanos"] += busy
-        current["reported_idle_nanos"] += idle
-        current["max_reported_busy_nanos"] = max(current["max_reported_busy_nanos"], busy)
-        current["max_reported_idle_nanos"] = max(current["max_reported_idle_nanos"], idle)
-        selected += 1
+    for span in spans:
+        if not isinstance(span, dict) or set(span) != {"name", "start_count"}:
+            raise ProfileError("span counter entry has an unsupported shape")
+        name = span["name"]
+        count = span["start_count"]
+        if not isinstance(name, str) or not name.startswith("tx_pool."):
+            raise ProfileError("span counter entry has an invalid name")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ProfileError(f"span counter {name} has an invalid count")
+        names.append(name)
+        selected += count
+    if names != sorted(set(names)):
+        raise ProfileError("span counter names must be unique and sorted")
     if selected == 0:
-        raise ProfileError("span artifact contains no close records in its target window")
+        raise ProfileError("span counter artifact contains no target-window work")
     return {
         "window": window,
-        "selected_close_records": selected,
-        "spans": [dict(name=name, **totals[name]) for name in sorted(totals)],
+        "selected_span_starts": selected,
+        "spans": spans,
         "measurement_caveat": (
-            "close counts are deterministic control-flow evidence; reported busy/idle values "
-            "come from the separately instrumented execution and are not benchmark timing"
+            "start counts are schedule-dependent control-flow observations from a separate "
+            "low-overhead execution; CPU samples and controlled A/B own timing conclusions"
         ),
     }
 
@@ -944,7 +908,7 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
         "threads": thread_summaries,
         "top_leaf_symbols": top_leaf,
         "top_inclusive_symbols": ranked(inclusive, total_samples),
-        "span_capture": analyze_span_log(manifest, paths["spans"]),
+        "span_capture": analyze_span_counters(manifest, paths["spans"]),
     }
 
 
