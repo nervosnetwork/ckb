@@ -1179,6 +1179,68 @@ Exact next action:
 4. Evaluate ordinary effect borrowing only after that phase review. Final
    medium UAK-versus-checkpoint and UAK-versus-develop remain release gates.
 
+Direct verified-commit design freeze:
+
+- objective: remove only the non-semantic `Computing -> Ready` Apply and Ready
+  recapture for the common fully chain-backed independent transaction. Ready
+  remains the charged, ordered and level-triggered fallback; no second policy,
+  owner, queue or worker-local admission authority is permitted;
+- eligibility is constructive and conjunctive: the verification and final
+  validation use the same `ChainViewId`; every input, cell dep and expanded
+  dep-group cell carries tx-pool-only positive chain-location evidence; no
+  stronger already-Ready owner is bypassed; and the existing single-element
+  `prepare_independent_membership` classifier returns `Prepared` at the final
+  authority cut;
+- same-view positive chain evidence permits the existing final validator to
+  use a sealed `ChainBacked` origin mode without allocating or populating an
+  Accepted overlay. Proposal status, script rules, time/DAO context, chain
+  sensitivity and membership receipt construction remain in that one
+  validator. Block validation never consumes this evidence;
+- verification retains one linear fallback settlement. Fast validation may
+  clone only its immutable proof shell. A successful independent Plan consumes
+  the same Computing version and atomically changes owner, charge, indexes,
+  projections and effects to Accepted. A failed eligibility/Plan attempt
+  settles the original capability through the existing `SettlementNext::Ready`
+  path; it does not synthesize a retry or terminal outcome;
+- RBF, an existing spender/reader/parent/child, pool-produced dependency,
+  Accepted-capacity pressure, effect capacity, allocation pressure, stale
+  chain/dependency evidence, changed rules, validation rejection and location
+  refresh all retain the ordinary Ready path. Coupled candidates therefore
+  preserve strict source/economic ordering and existing batch opportunities;
+- direct success may drop only a proof shell whose payload Arc is retained by
+  the new Accepted owner. Any path that could release the last resolved payload
+  reference must fall back or carry retirement outside the store guard;
+- no fault is converted into acceptance or silently swallowed. Legal OCC
+  staleness becomes fallback settlement; a structural projection defect must
+  remain a typed worker/supervisor fault after the active capability is safely
+  discharged.
+
+Direct verified-commit falsification matrix:
+
+1. chain-backed independent success performs one final membership Apply,
+   releases active work and publishes acceptance/cache/timing exactly once;
+2. pool parent, conditional dependency, same-input conflict and RBF candidate
+   enter Ready and retain canonical ordering/policy;
+3. preexisting stronger Ready work is not bypassed;
+4. tip/revision or dependency-cut change during VM/final validation requeues
+   through the existing settlement algebra without stale acceptance;
+5. effect saturation and allocation pressure retain a charged Ready owner and
+   later make progress with no lost wake or capability;
+6. wrong declared cycles, VM rejection, pause/cancellation, peer revocation and
+   generation reset keep their current terminal/stale outcomes;
+7. location refresh never destroys a last payload reference under the guard;
+8. operation profiles must show fewer Ready work/authority writes on
+   independent transactions without adding work to dependent/RBF shapes;
+9. paired A/B must include cheap, secp, warm, parent-first and child-first
+   shapes before retention. A multi-peer shape must test whether losing Ready
+   batching outweighs the removed boundary.
+
+Implementation order is fixed: derive the sealed same-view chain-backed
+validator mode; factor the existing independent membership compiler without
+copying policy; add the linear fast-finalization/fallback capability; wire the
+worker; run static/focused/full gates; perform the whole-architecture review;
+then and only then build fixed binaries and profile/A-B.
+
 ## Restart rule
 
 After compaction or restart:
