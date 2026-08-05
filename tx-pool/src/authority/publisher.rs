@@ -655,6 +655,49 @@ impl Drop for RetainedEffectLease {
     }
 }
 
+/// Publish and settle one already-checked-out bounded effect batch.
+///
+/// The span is intentionally scoped to one lease rather than the permanent
+/// publisher task. It observes post-commit I/O only and never overlaps an
+/// authority guard.
+#[cfg_attr(
+    feature = "profiling",
+    tracing::instrument(
+        name = "tx_pool.effects.publish",
+        target = "ckb_tx_pool_profile",
+        level = "trace",
+        skip_all
+    )
+)]
+async fn publish_checked_out_effect_batch(
+    runtime: &AuthorityRuntime,
+    endpoints: &mut AuthorityEffectEndpoints,
+    lease: EffectLease,
+) -> Result<(), AuthorityEffectPublisherFault> {
+    let mut retained = RetainedEffectLease::new(runtime.clone(), lease);
+    let mut disposition = EndpointDisposition::Published;
+    'batch: while let Some((effect_index, mut endpoint, effect)) = retained.current() {
+        let mut outcome = compile_committed_effect(effect);
+        loop {
+            disposition =
+                disposition.join(endpoints.publish_endpoint(&mut outcome, endpoint).await);
+            if retained.mark_current_processed()? {
+                break 'batch;
+            }
+            let Some((next_effect_index, next_endpoint, _)) = retained.current() else {
+                return Err(AuthorityEffectPublisherFault::progress(
+                    EffectProgressError::Incomplete,
+                ));
+            };
+            if next_effect_index != effect_index {
+                break;
+            }
+            endpoint = next_endpoint;
+        }
+    }
+    retained.settle(disposition)
+}
+
 /// Drain with the move-only claim acquired before any topology task starts.
 /// This entry point makes duplicate-consumer failure a construction outcome,
 /// rather than an asynchronous task exit after partial startup.
@@ -672,28 +715,7 @@ pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
             info!("tx-pool authority effect publisher drained and exited");
             return Ok(());
         };
-        let mut retained = RetainedEffectLease::new(runtime.clone(), lease);
-        let mut disposition = EndpointDisposition::Published;
-        'batch: while let Some((effect_index, mut endpoint, effect)) = retained.current() {
-            let mut outcome = compile_committed_effect(effect);
-            loop {
-                disposition =
-                    disposition.join(endpoints.publish_endpoint(&mut outcome, endpoint).await);
-                if retained.mark_current_processed()? {
-                    break 'batch;
-                }
-                let Some((next_effect_index, next_endpoint, _)) = retained.current() else {
-                    return Err(AuthorityEffectPublisherFault::progress(
-                        EffectProgressError::Incomplete,
-                    ));
-                };
-                if next_effect_index != effect_index {
-                    break;
-                }
-                endpoint = next_endpoint;
-            }
-        }
-        retained.settle(disposition)?;
+        publish_checked_out_effect_batch(&runtime, &mut endpoints, lease).await?;
     }
 }
 

@@ -78,7 +78,7 @@ use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
 use ckb_types::core::{EntryCompleted, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
-use ckb_util::{RwLock, parking_lot::RwLockUpgradableReadGuard};
+use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard, parking_lot::RwLockUpgradableReadGuard};
 use ckb_verification::cache::ScriptVerificationRules;
 use lru::LruCache;
 use std::{
@@ -473,6 +473,163 @@ pub(crate) struct AuthorityStore {
     committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
 }
 
+/// The one physical authority lock and its centralized profiling boundary.
+///
+/// The default build returns the native parking-lot guards directly. The
+/// profiling build wraps each guard only long enough to close its hold span
+/// after the guard has released, so trace formatting never extends the
+/// measured critical section. Keeping acquisition here prevents manual span
+/// sites from drifting away from newly added authority reads or writes.
+#[repr(transparent)]
+struct AuthorityStoreLock {
+    inner: RwLock<AuthorityStore>,
+}
+
+#[cfg(not(feature = "profiling"))]
+type AuthorityStoreGuard<G> = G;
+
+#[cfg(feature = "profiling")]
+struct AuthorityStoreGuard<G> {
+    // Rust drops fields in declaration order: release the authority lock
+    // before closing the hold span and writing its trace record.
+    guard: G,
+    _hold_span: tracing::span::EnteredSpan,
+}
+
+#[cfg(feature = "profiling")]
+impl<G: std::ops::Deref> std::ops::Deref for AuthorityStoreGuard<G> {
+    type Target = G::Target;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+#[cfg(feature = "profiling")]
+impl<G: std::ops::DerefMut> std::ops::DerefMut for AuthorityStoreGuard<G> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
+
+impl AuthorityStoreLock {
+    fn new(store: AuthorityStore) -> Self {
+        Self {
+            inner: RwLock::new(store),
+        }
+    }
+
+    #[inline]
+    fn read(&self) -> AuthorityStoreGuard<RwLockReadGuard<'_, AuthorityStore>> {
+        #[cfg(not(feature = "profiling"))]
+        {
+            self.inner.read()
+        }
+        #[cfg(feature = "profiling")]
+        {
+            let wait_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile",
+                "tx_pool.authority.read_wait"
+            )
+            .entered();
+            let guard = self.inner.read();
+            drop(wait_span);
+            AuthorityStoreGuard {
+                guard,
+                _hold_span: tracing::trace_span!(
+                    target: "ckb_tx_pool_profile",
+                    "tx_pool.authority.read_hold"
+                )
+                .entered(),
+            }
+        }
+    }
+
+    #[inline]
+    fn write(&self) -> AuthorityStoreGuard<RwLockWriteGuard<'_, AuthorityStore>> {
+        #[cfg(not(feature = "profiling"))]
+        {
+            self.inner.write()
+        }
+        #[cfg(feature = "profiling")]
+        {
+            let wait_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile",
+                "tx_pool.authority.write_wait"
+            )
+            .entered();
+            let guard = self.inner.write();
+            drop(wait_span);
+            AuthorityStoreGuard {
+                guard,
+                _hold_span: tracing::trace_span!(
+                    target: "ckb_tx_pool_profile",
+                    "tx_pool.authority.write_hold"
+                )
+                .entered(),
+            }
+        }
+    }
+
+    #[inline]
+    fn upgradable_read(
+        &self,
+    ) -> AuthorityStoreGuard<RwLockUpgradableReadGuard<'_, AuthorityStore>> {
+        #[cfg(not(feature = "profiling"))]
+        {
+            self.inner.upgradable_read()
+        }
+        #[cfg(feature = "profiling")]
+        {
+            let wait_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile",
+                "tx_pool.authority.upgradable_read_wait"
+            )
+            .entered();
+            let guard = self.inner.upgradable_read();
+            drop(wait_span);
+            AuthorityStoreGuard {
+                guard,
+                _hold_span: tracing::trace_span!(
+                    target: "ckb_tx_pool_profile",
+                    "tx_pool.authority.upgradable_read_hold"
+                )
+                .entered(),
+            }
+        }
+    }
+
+    #[inline]
+    fn upgrade(
+        store: AuthorityStoreGuard<RwLockUpgradableReadGuard<'_, AuthorityStore>>,
+    ) -> AuthorityStoreGuard<RwLockWriteGuard<'_, AuthorityStore>> {
+        #[cfg(not(feature = "profiling"))]
+        {
+            RwLockUpgradableReadGuard::upgrade(store)
+        }
+        #[cfg(feature = "profiling")]
+        {
+            let AuthorityStoreGuard { guard, _hold_span } = store;
+            drop(_hold_span);
+            let wait_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile",
+                "tx_pool.authority.upgrade_wait"
+            )
+            .entered();
+            let guard = RwLockUpgradableReadGuard::upgrade(guard);
+            drop(wait_span);
+            AuthorityStoreGuard {
+                guard,
+                _hold_span: tracing::trace_span!(
+                    target: "ckb_tx_pool_profile",
+                    "tx_pool.authority.write_hold"
+                )
+                .entered(),
+            }
+        }
+    }
+}
+
 /// Read-only capability for rebuilding the relayer's missing-parent level.
 ///
 /// The relayer receives this projection reader rather than an
@@ -480,7 +637,7 @@ pub(crate) struct AuthorityStore {
 /// settlement authority. The store remains the sole owner and every page is
 /// bound to an exact source cut.
 pub(in crate::authority) struct AuthorityRelayParentReader {
-    store: Arc<RwLock<AuthorityStore>>,
+    store: Arc<AuthorityStoreLock>,
 }
 
 /// Lossy wake hints around the one authoritative scheduler. A hint carries no
@@ -532,7 +689,7 @@ impl Drop for AuthorityEffectPublisherClaim {
 /// cannot choose a second ordering or forget one post-commit edge.
 #[derive(Clone)]
 pub(crate) struct AuthorityRuntime {
-    store: Arc<RwLock<AuthorityStore>>,
+    store: Arc<AuthorityStoreLock>,
     signals: Arc<AuthoritySignals>,
     resolution_policy: ResolutionPolicy,
     expiry_policy: ExpiryPolicy,
@@ -1204,7 +1361,7 @@ impl AuthorityRuntime {
         let verify_workers = runtime.verify_workers;
         let transient_compute = ComputeGate::new(runtime.transient_compute_permits);
         Ok(Self {
-            store: Arc::new(RwLock::new(AuthorityStore::from_runtime(
+            store: Arc::new(AuthorityStoreLock::new(AuthorityStore::from_runtime(
                 runtime, snapshot,
             )?)),
             signals: Arc::new(AuthoritySignals::new()),
@@ -1538,7 +1695,7 @@ impl AuthorityRuntime {
             None => detached_recoveries,
         };
 
-        let mut store = RwLockUpgradableReadGuard::upgrade(store);
+        let mut store = AuthorityStoreLock::upgrade(store);
         let plan = match receipt {
             Some(receipt) => match store.authority.plan_chain_transition(receipt) {
                 Ok(plan) => plan,
@@ -2382,6 +2539,15 @@ impl AuthorityRuntime {
         clippy::result_large_err,
         reason = "the offloaded closure returns the exact unboxed compute settlement capability; allocation would penalize missing and hostile resolution paths"
     )]
+    #[cfg_attr(
+        feature = "profiling",
+        tracing::instrument(
+            name = "tx_pool.stage.resolve",
+            target = "ckb_tx_pool_profile",
+            level = "trace",
+            skip_all
+        )
+    )]
     fn execute_resolution(
         &self,
         mut job: ResolutionJob,
@@ -2491,6 +2657,15 @@ impl AuthorityRuntime {
     /// exact capability before returning. The request already owns the result
     /// of its exact cache-key lookup, so callers cannot provide nearby cached
     /// evidence while the cache guard remains open across no await.
+    #[cfg_attr(
+        feature = "profiling",
+        tracing::instrument(
+            name = "tx_pool.stage.verify",
+            target = "ckb_tx_pool_profile",
+            level = "trace",
+            skip_all
+        )
+    )]
     pub(in crate::authority) async fn execute_verification(
         &self,
         request: AuthorityCacheBoundVerification,
@@ -2525,6 +2700,15 @@ impl AuthorityRuntime {
     /// Common independent candidates share one membership Apply. If any
     /// member has a special validation outcome, only the strongest owner is
     /// disposed and the next iteration captures a fresh coherent cut.
+    #[cfg_attr(
+        feature = "profiling",
+        tracing::instrument(
+            name = "tx_pool.stage.ready",
+            target = "ckb_tx_pool_profile",
+            level = "trace",
+            skip_all
+        )
+    )]
     pub(in crate::authority) fn try_drive_ready(
         &self,
     ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {

@@ -401,6 +401,99 @@ After P9.8 only, follow `PERFORMANCE.md` and `BENCHMARK.md`:
 - preserve correctness, deterministic order, resource accounting and template
   lane concurrency regardless of a benchmark result.
 
+## P10 active ledger
+
+Frozen source and artifact coordinates:
+
+- pre-performance UAK checkpoint `4135df3c7`;
+- `develop` comparison anchor
+  `91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`;
+- clean equal-length worktrees `/private/tmp/txp-uak-4135` and
+  `/private/tmp/txp-dev-91b9`;
+- the develop worktree is at `bed532ea6`, whose only two commits over the
+  anchor add and register the byte-identical stable-public-API one-shot
+  workload harness. It changes no develop production code;
+- P10 artifacts use `/private/tmp/txpool-p10-4135` and must retain manifests,
+  exact binary hashes, raw samples and deterministic summaries.
+
+Fixed P10 execution route:
+
+1. Audit the performance infrastructure before measurement. Separate the
+   current UAK Criterion/profile harness from the cross-version one-shot
+   harness and prove which claim each can support.
+2. Build each binary once, cool after compilation, then profile current UAK
+   independent cheap/secp and parent-first/child-first dependency paths. Reuse
+   the exact hashed profiling binary for every current-UAK capture.
+3. Run balanced cross-version A/B on independent cheap/secp and independent,
+   deep-chain, reverse-chain, forest, fanout and fan-in topology shapes. The
+   stable public harness must be byte-identical on both sides and product code
+   must remain the recorded checkpoint/anchor.
+4. Reconcile the required RBF, full-pool, reorg, template and peer-pressure
+   matrix with executable operation-count or profiling evidence. Current
+   behavior tests do not automatically count as performance evidence. Add a
+   scenario only when a named complexity claim otherwise remains unproved;
+   never expand a throughput harness merely to make a table look complete.
+5. Group profile and A/B findings by removed work, necessary safety cost and
+   architecture boundary. Design several candidates where evidence supports
+   them; do not select a cache, second authority, shard or retry protocol by
+   intuition.
+6. Prototype candidates in recoverable checkpoints. After each prototype,
+   profile and A/B before deciding; retain only a measured, scenario-safe
+   improvement that preserves all Phase-6 correctness and concurrency gates.
+7. Run final medium repeated evidence against both `develop` and the frozen
+   pre-performance UAK checkpoint. Quick is diagnostic; full is not required
+   on this host. Update reviewer-facing evidence only from final clean source.
+
+Known infrastructure boundary under adjudication:
+
+- `benchmark.py` and `profile.py` consume the current `pipeline` bench and
+  cannot compile that internal API at the plain develop anchor. They can prove
+  current-UAK attribution and post-checkpoint deltas, not cross-version parity.
+- The historical `profile_one_shot` harness compiles against both public APIs
+  and already covers more dependency shapes, but it has no current committed
+  runner and does not cover RBF, reorg or template construction. Reuse or
+  promote it only after a reproducibility/duplication review; do not silently
+  claim the complete P10 matrix from the six Criterion families.
+
+The first clean UAK capture used binary SHA-256
+`ecfe1dfe0ec8721fadc882d055953f6a6d205d00ecf3c96f7b93bb7a18180ec5`.
+Its CPU run completed, but the separately instrumented run produced a zero-byte
+span log and the strict analyzer rejected it. Static producer review found the
+root cause: the UAK cutover deleted every old pre-pool profiling span while the
+subscriber, analyzer and documentation survived. This is evidence-graph drift,
+not a product performance result. The analyzer remains strict. The active
+slice is to restore one centralized, feature-gated UAK lock boundary plus
+sealed resolve, verify, Ready and effect-batch spans, add a static drift gate,
+rerun correctness checks, and freeze a replacement profiling checkpoint before
+building another binary.
+
+Profiling-boundary checkpoint preparation:
+
+- `AuthorityStoreLock` wraps the existing single store lock and is the only
+  producer of read/write/upgradable acquisition and hold spans. With profiling
+  disabled, `AuthorityStoreGuard<G>` is the native guard type alias; no
+  resident field, lock, state, counter or tracing operation was added.
+- Resolve, Verify and bounded Ready settlement are instrumented at their sealed
+  runtime entry points. Effect publication is instrumented per checked-out
+  bounded lease rather than around the permanent publisher task.
+- The production contract checker rejects a lock bypass, a missing semantic
+  stage owner, or drift in the low-cardinality span coordinates. The strict
+  profile analyzer still rejects an empty target window.
+- Default library compile and all-target `internal,profiling` compile passed;
+  strict all-target `internal,profiling` Clippy passed with warnings denied;
+  the isolated internal-feature universe passed 415/415 with zero skips; all
+  six discovered review contracts, formatting and diff checks passed.
+- High-view review found no new authority, lifecycle state, lock, task, queue,
+  retry, cache, publication edge or external failure domain. The publisher
+  extraction preserves the exact lease retain/cancellation/settlement order.
+  Default lock topology and full/reset versus optimistic template-lane
+  concurrency are unchanged.
+
+Exact resume action: freeze this clean instrumentation checkpoint, build its
+profiling binary once in an equal-length clean worktree, cool down, then repeat
+the rejected independent-cheap capture and strict analysis. No optimization
+candidate is active.
+
 ## Restart rule
 
 After compaction or restart:

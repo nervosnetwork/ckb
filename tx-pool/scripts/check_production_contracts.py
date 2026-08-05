@@ -21,6 +21,9 @@ TX_POOL_AUTHORITY_SERVICE = (
 TX_POOL_AUTHORITY_RUNTIME = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "runtime.rs"
 )
+TX_POOL_AUTHORITY_PUBLISHER = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "publisher.rs"
+)
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
@@ -284,6 +287,87 @@ def validate_authority_mutation_publication() -> list[str]:
         errors.append(
             "mutation publication must remain directly inside an AuthorityRuntime method: "
             f"found {all_publications - method_publications} outside the impl"
+        )
+    return errors
+
+
+def validate_authority_profiling_seams() -> list[str]:
+    """Keep profiling complete, centralized and absent from default behavior."""
+
+    try:
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        publisher = TX_POOL_AUTHORITY_PUBLISHER.read_text()
+    except OSError as error:
+        return [f"cannot inspect authority profiling seams: {error}"]
+
+    errors: list[str] = []
+    if runtime.count("struct AuthorityStoreLock") != 1:
+        errors.append("the authority lock must have one centralized profiling wrapper")
+    if runtime.count("Arc<AuthorityStoreLock>") != 2:
+        errors.append(
+            "AuthorityRuntime and AuthorityRelayParentReader must share the profiled lock type"
+        )
+    if "Arc<RwLock<AuthorityStore>>" in runtime:
+        errors.append("authority callers must not bypass AuthorityStoreLock")
+    for required in (
+        '#[cfg(not(feature = "profiling"))]\ntype AuthorityStoreGuard<G> = G;',
+        "inner: RwLock<AuthorityStore>",
+        "AuthorityStoreLock::upgrade(store)",
+    ):
+        if required not in runtime:
+            errors.append(f"authority profiling boundary lost {required!r}")
+
+    expected_lock_spans = {
+        "tx_pool.authority.read_wait": 1,
+        "tx_pool.authority.read_hold": 1,
+        "tx_pool.authority.write_wait": 1,
+        # Direct writes and upgradable-read promotion share one write-hold
+        # coordinate; the acquisition coordinates remain distinct.
+        "tx_pool.authority.write_hold": 2,
+        "tx_pool.authority.upgradable_read_wait": 1,
+        "tx_pool.authority.upgradable_read_hold": 1,
+        "tx_pool.authority.upgrade_wait": 1,
+    }
+    for span, expected in expected_lock_spans.items():
+        actual = runtime.count(f'"{span}"')
+        if actual != expected:
+            errors.append(
+                f"authority profiling span {span} must have {expected} centralized "
+                f"producer(s), found {actual}"
+            )
+
+    def validate_instrumented_function(
+        source: str, function: str, span: str, owner: str
+    ) -> None:
+        declaration = re.search(rf"\b(?:async\s+)?fn\s+{re.escape(function)}\b", source)
+        if declaration is None:
+            errors.append(f"profiling owner {owner}::{function} disappeared")
+            return
+        attributes = source[max(0, declaration.start() - 600) : declaration.start()]
+        if (
+            f'name = "{span}"' not in attributes
+            or 'target = "ckb_tx_pool_profile"' not in attributes
+            or 'feature = "profiling"' not in attributes
+        ):
+            errors.append(
+                f"profiling owner {owner}::{function} must produce feature-gated span {span}"
+            )
+
+    for function, span in (
+        ("execute_resolution", "tx_pool.stage.resolve"),
+        ("execute_verification", "tx_pool.stage.verify"),
+        ("try_drive_ready", "tx_pool.stage.ready"),
+    ):
+        validate_instrumented_function(runtime, function, span, "AuthorityRuntime")
+    validate_instrumented_function(
+        publisher,
+        "publish_checked_out_effect_batch",
+        "tx_pool.effects.publish",
+        "authority publisher",
+    )
+    if publisher.count('"tx_pool.effects.publish"') != 1:
+        errors.append(
+            "effect profiling must cover one checked-out batch, not the permanent publisher task"
         )
     return errors
 
@@ -640,6 +724,7 @@ def main() -> int:
         *validate_chain_transition_publication(),
         *validate_startup_backpressure(),
         *validate_authority_mutation_publication(),
+        *validate_authority_profiling_seams(),
         *validate_authority_failure_algebra(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
@@ -652,7 +737,8 @@ def main() -> int:
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
         "bounded chain-control backpressure plus authority mutation wake coverage, "
-        "the typed authority failure algebra and current production vocabulary"
+        "centralized profiling seams, the typed authority failure algebra and "
+        "current production vocabulary"
     )
     return 0
 

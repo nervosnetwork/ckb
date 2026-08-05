@@ -282,6 +282,8 @@
       "id": "TP-PERF-001",
       "title": "Bounded work and preserved concurrency",
       "implementation_owners": [
+        {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthorityStoreLock", "fn execute_resolution", "fn execute_verification", "fn try_drive_ready"]},
+        {"path": "tx-pool/src/authority/publisher.rs", "symbols": ["fn publish_checked_out_effect_batch"]},
         {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct ReadyKey"]},
         {"path": "tx-pool/src/authority/relay.rs", "symbols": ["struct AuthorityRelaySink", "struct AuthorityRelayReceiver", "fn production_authority_relay_mailbox"]},
         {"path": "tx-pool/src/block_assembler/candidate_uncles.rs", "symbols": ["struct CandidateUncles"]}
