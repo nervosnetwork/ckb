@@ -250,6 +250,99 @@ Before profiling or benchmark work:
 6. Repeat the phase gates, freeze a clean pre-performance checkpoint and only
    then enter P10.
 
+## Phase-6 active audit ledger
+
+This ledger is the restart authority for the current collect-first audit. A
+candidate is not a request for a local patch: related producer, consumer,
+failure, liveness, resource and documentation surfaces are adjudicated
+together before any production change.
+
+Recovery coordinates at this pause:
+
+- branch `zhangsoledad/txpool-pipeline`, base comparison
+  `develop@91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`;
+- last production/correctness checkpoint `8d5c27559`, P9.8 status checkpoint
+  `47962711b`;
+- tracked working change: this recovery file only; the root `.gitignore` is a
+  pre-existing user-owned modification and must remain unstaged;
+- current production Rust size observed during the audit: 40,207 lines
+  excluding tests and benchmark code; `authority/` contributes 34,868 lines.
+  This is context for minimality review, not a deletion target.
+
+- **Confirmed process-contract drift:** P9.8 is complete in this file,
+  `ARCHITECTURE.md` and the release manifest, while
+  `architecture-contract.json` R8 still says that P9.8 is pending.
+  `check_security_manifest.py` validates only the residual-risk key set and
+  document row presence, so the stale semantic value passes `check_all.py`.
+  Root question: dynamic release state must not be copied into the stable
+  architecture vocabulary; machine values must either have an exact semantic
+  owner or be removed.
+- **Under adjudication — mutation wake surface:** runtime Apply sites still
+  spell a post-guard `publish_mutation()` call individually. A static source
+  validator proves one direct top-level publication with no escaping control
+  flow. Determine whether that checked explicit form is the minimal Rust model
+  or whether a sealed commit capability can remove hand publication without
+  hiding Plan/Apply, coupling core state to runtime signals or increasing the
+  hot path.
+- **Under adjudication — broad Plan error algebra:** several boundaries map
+  variants that comments call unreachable under their same-cut or sealed
+  capability. Audit producer reachability before deciding whether narrower
+  planner result types can remove fail-stop surface and repeated conversion
+  code.
+- **Under adjudication — chain-update guard scope:** chain transition
+  validation uses an upgradable read guard until Apply. It performs no I/O or
+  await and preserves one coherent view, but excludes ordinary writers during
+  potentially large transition compilation. Compare a versioned release-and-
+  revalidate design against its extra allocation, retry and proof surface;
+  do not trade concurrency blindly for OCC complexity.
+- **Under adjudication — derived accounting saturation:** relay mailbox receive
+  uses saturating byte subtraction. Prove whether construction makes
+  underflow impossible and whether saturation can hide a derived projection
+  defect, then either encode exactness or record why this is deliberate
+  non-authoritative accounting.
+- **Under adjudication — narrowing casts and typed order:** the internal block
+  template stores `Consensus::max_uncles_num(): usize` as `u8`, which can
+  silently truncate a valid configured consensus value above 255 before RPC
+  projection. Related `max_block_bytes(): u64 -> usize` casts occur at runtime
+  assembly/template/query boundaries and require either a supported-platform
+  proof or one checked startup conversion. Separately, resolver missing-cell
+  ordering casts `CellRole` to `u8`; deriving and comparing `Ord` directly is a
+  zero-behavior type-level cleanup, not a semantic fix.
+- **Preliminary static negatives, not final closure:** production searches
+  found no `unsafe` and no panic-like macro/method after excluding dedicated
+  tests and benchmark code; apparent `expect` hits were lint attributes or
+  named helper functions. The complete await inventory showed async locks only
+  at derived verification-cache/template boundaries and no textual same-line
+  authority-lock/await pair. Clippy already passed, but lexical searches do not
+  replace the pending scope-aware lock/wait graph audit.
+- **Machine-contract scope observation:** most prose-valued fields in
+  `architecture-contract.json` are not consumed individually by the validator;
+  Rust enum sets and selected identity symbols are checked, while residual
+  risk values are not. Decide the stable machine vocabulary first. Do not add
+  a brittle second prose comparison: dynamic release status belongs only to
+  `security-regression-manifest.json` and this temporary progress authority.
+
+Exact resume sequence:
+
+1. Read this ledger and inspect `git status --short` plus the latest five
+   commits; do not rerun P9.8.
+2. Complete the architecture-contract ownership decision. Preferred root
+   direction to adjudicate: keep only stable R2-R7 residual risks in the
+   architecture contract/document, keep stable release-gate definitions
+   separate, and let the release manifest be the sole current blocker state.
+3. Finish Plan-error producer-to-boundary reachability, especially same-guard
+   administrative/checkout/maintenance paths and legal-input construction of
+   every `AuthorityIntegrityFault`.
+4. Finish the full wait-for/cancellation/shutdown graph and the chain-update
+   upgradable-guard cost/proof comparison.
+5. Complete arithmetic/identity/hostile-bound, manual-publication and
+   docs/tests/scripts/CI derivation audits; then group and adjudicate all
+   candidates before editing production code.
+6. Apply only root corrections that survive that grouped review, rerun affected
+   gates, update public contracts, and freeze the phase-6 checkpoint.
+
+Profiling and benchmarking remain prohibited until all six resume steps close.
+
 ## P10 boundary
 
 After P9.8 only, follow `PERFORMANCE.md` and `BENCHMARK.md`:
