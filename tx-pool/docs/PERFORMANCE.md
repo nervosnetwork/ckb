@@ -86,6 +86,59 @@ as current UAK throughput. Their surviving value is methodological:
 4. profile a candidate before retaining or rejecting it;
 5. use controlled paired A/B, not flame-graph percentages, for acceptance.
 
+### 3.1 Current P10 candidate evidence
+
+Product checkpoint `6f486cdf5` replaces the heterogeneous global authority
+mutation broadcast with role-specific hints derived from one committed
+before/after authority projection. The hints contain no work identity or
+decision state. Resolve, capability-specific Verify, Ready, dependency
+maintenance and effect publication use wake-one only where the selected role
+can service the level; heterogeneous effect-capacity waiters and optimistic
+template lanes retain broadcast.
+
+The cross-checkpoint workload is byte-identical on both sides (harness SHA-256
+`0efe6eef81c4be10473785bd204bb7dbf695f483ea2036668fe683dc5e473702`).
+The baseline binary is the frozen `f78636e90` UAK and the candidate binary is
+the same harness over `6f486cdf5`. A balanced six-pair diagnostic produced a
+`+1.84%` throughput geometric mean. Two initially noisy shapes were repeated
+for ten balanced pairs rather than accepted or rejected from the first sample:
+
+| Scenario | Candidate vs `f78636e90` | Paired relative MAD |
+|---|---:|---:|
+| independent always-success, 1 peer / 8 workers | `+6.52%` | `0.52%` |
+| independent always-success, 4 peers / 8 workers | `+1.57%` | `1.86%` |
+| independent secp256k1, 4 peers / 8 workers | `-0.08%` | `0.24%` |
+| dependency forest, depth 10, 4 peers / 8 workers | `+3.00%` | `0.84%` |
+| parent-first fanout, 4 peers / 8 workers | `+2.77%` | `1.25%` |
+| chain-backed fan-in 8, 4 peers / 8 workers | `+1.12%` | `0.85%` |
+
+Exact feature-gated counters explain the result without relying on timing:
+
+| Same 2,000-transaction workload | `f78636e90` | `6f486cdf5` | Change |
+|---|---:|---:|---:|
+| 1-peer authority writes | 154,350 | 26,005 | `-83.2%` |
+| 1-peer authority reads | 19,915 | 8,000 | `-59.8%` |
+| 1-peer Ready attempts / work | 8,679 / 1,995 | 4,000 / 2,000 | failed probes removed |
+| 1-peer sampled CPU | 926,199 us | 627,561 us | `-32.2%` |
+| 4-peer authority writes | 30,738 | 17,941 | `-41.6%` |
+| 4-peer authority reads | 6,316 | 5,051 | `-20.0%` |
+| 4-peer Ready attempts / work | 1,817 / 945 | 1,989 / 1,062 | smaller, earlier batches |
+| 4-peer sampled CPU | 1,208,563 us | 1,124,267 us | `-7.0%` |
+
+The 4-peer row exposes the remaining trade-off: removing irrelevant wakeups
+reduces lock traffic, but a prompt Ready driver can observe smaller batches and
+therefore emit more Apply/effect batches. This is evidence for separately
+reviewing derived bounded coalescing or a true batch Plan/Apply path; it is not
+permission to add a delay, mutable queue or heuristic to the wake router.
+
+The candidate passed 418/418 isolated library tests, strict all-target Clippy,
+the complete generated evidence checks, formatting and diff validation before
+measurement. `PreparedApply::apply` remained about 0.4-1.3% inclusive in the
+matched profiles, so the three fair-lane head reads and one Ready head read did
+not become the next hot path. This candidate is retained, but P10 remains open
+until later architecture candidates and the final medium fixed-binary matrix
+are adjudicated.
+
 ## 4. Reproducible profiling
 
 The canonical runner is `tx-pool/scripts/profile.py`. It reuses benchmark

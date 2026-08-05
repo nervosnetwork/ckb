@@ -876,23 +876,79 @@ allocation-free and adds no state, but it extends the authority critical
 section. A scheduler wake clock, resident mirror or atomic fast path remains
 forbidden unless fixed-binary profiling proves this cost material.
 
+Derived-wake measurement verdict:
+
+- product checkpoint: `6f486cdf5`; the equal-length measurement worktree adds
+  only the three frozen cross-version harness commits;
+- one-shot candidate binary:
+  `/private/tmp/txpool-p10-cross/binaries/profile-one-shot-uak-6f48-ea90c6296cc46a89`,
+  SHA-256
+  `ea90c6296cc46a89aa4dbff81650546123f0d2d0a496f35fe1c54ba32f824ecd`;
+- profiling candidate binary:
+  `/private/tmp/txpool-p10-wake/binaries/pipeline-6f486cdf5-2d0582aa7e2fc08b`,
+  SHA-256
+  `2d0582aa7e2fc08bc2706c75db0ab6a9567b18484d7505c99bcde64deee1ffe9`;
+- six-scenario paired diagnostic:
+  `/private/tmp/txpool-p10-cross/wake-vs-f786-diagnostic-v1.json`, SHA-256
+  `229247e4eca15b40c0660acdd60b6774af1300e2c6f397c7a9e802bf2b91604f`;
+- ten-pair repeat of the two noisy shapes:
+  `/private/tmp/txpool-p10-cross/wake-vs-f786-noisy-shapes-v2.json`, SHA-256
+  `2abc6fcd94581ec04de71645d6e8071d7844cbec2d360e2ba999151a5567e98b`.
+
+The first six-scenario pass had a `+1.843%` throughput geometric mean. Stable
+paired deltas were `+6.516%` for one-peer independent, `-0.079%` for four-peer
+secp, `+3.001%` for depth-10 forest and `+2.769%` for fanout. The ten-pair
+repeat resolved the initially noisy four-peer independent and fan-in shapes at
+`+1.572%` (1.863% paired relative MAD) and `+1.123%` (0.848% MAD).
+
+Exact current-harness profiles explain the result:
+
+- one-peer independent writes fell from 154,350 to 26,005, reads from 19,915
+  to 8,000 and Ready attempts from 8,679 to 4,000 while Resolve, Verify and
+  about 2,000 Ready/effect completions remained. Sampled CPU fell from 926,199
+  us to 627,561 us; CPU-profile wall fell from 511.242 ms to 474.391 ms and
+  counter wall from 509.461 ms to 448.647 ms;
+- four-peer independent writes fell from 30,738 to 17,941 and reads from 6,316
+  to 5,051. Sampled CPU fell from 1,208,563 us to 1,124,267 us. Ready work and
+  effect batches rose from 945 to 1,062 because less contention exposes
+  smaller batches sooner; this is the measured remaining batching trade-off;
+- one-shot fan-in wall moved from 94.061 ms to 92.577 ms and sampled CPU from
+  285,800 us to 264,222 us. Checkout inclusive samples fell from 18.73% to
+  12.97%; settlement became the next visible serialized boundary.
+
+Strict manifests and summaries are retained under
+`/private/tmp/txpool-p10-wake`; the exact warm-zero one-peer manifest SHA-256 is
+`a9c95575e8e909e9c8779f4aa532f007d28ce01c948c1d12c1d9ec0fefd9ab67`
+and the four-peer manifest SHA-256 is
+`46750de751cdccc4b7842ab1d84de2cad5b85f13a2ca7883cf6efc44b0782190`.
+An earlier candidate capture used warm size 100 while the old baseline used
+zero; it is explicitly non-comparable and contributes no A/B claim.
+
+High-view disposition: retain the derived-wake checkpoint. It removes measured
+failed probes without adding authority state, locks, tasks, queues, caches,
+retries or failure domains. The scheduler head projection did not become a
+hot path (`PreparedApply::apply` stayed about 0.4-1.3% inclusive). The remaining
+batching trade-off is not repaired inside the wake router: delay heuristics or
+a second ready queue would transfer risk and violate the model.
+
 Exact resume action:
 
-1. Freeze the derived-wake prototype in a focused checkpoint without the
-   user-owned root `.gitignore` change.
-2. Build one clean fixed candidate binary from an equal-length temporary
-   worktree; record its source and binary hashes beside the existing
-   `f78636e90` baseline.
-3. Run paired candidate-vs-`f78636e90` quick diagnostics for one-peer and
-   four-peer cheap independent traffic, four-peer secp, dependency forest,
-   fanout and fan-in. Do not use develop alone to attribute prototype value.
-4. Profile the candidate and `f78636e90` on fan-in and the most changed
-   independent scenario. Compare wall time, sampled CPU, store-lock waits,
-   checkout/Ready attempts and scheduler-head projection cost.
-5. Retain, revise or remove the prototype only after benchmark plus profile
-   analysis. Then update reviewer-facing performance evidence and decide
-   whether effect-checkout simplification or true batch Plan/Apply still has
-   measured value.
+1. Freeze the derived-wake measurement evidence and reviewer documentation in
+   a focused checkpoint without the user-owned root `.gitignore` change.
+2. Capture matched parent-first and child-first dependency operation counts
+   with the already fixed candidate binary; do not rebuild it.
+3. Derive the post-wake lower-bound cost ledger per lifecycle stage and group
+   the remaining serialized writes into semantic validation, capability
+   handoff, Ready membership Apply and effect checkout/settlement.
+4. Review at least three architecture candidates together: direct atomic
+   finalization for provably independent chain-backed transactions, derived
+   bounded Ready coalescing/true batch Plan-Apply, and removal of redundant
+   effect checkout mutation under the exclusive publisher claim. Reject any
+   model that adds a second authority, mutable staging queue, timer-dependent
+   correctness or weaker RBF/capacity/reorg validation.
+5. Freeze a proof and falsification plan before the next prototype. Re-run its
+   complete correctness gates and fixed-binary A/B/profile before retention;
+   final medium UAK-vs-checkpoint and UAK-vs-develop evidence remains later.
 
 The optimization prototype is correctness-gated but not yet performance-
 accepted or production-accepted.
