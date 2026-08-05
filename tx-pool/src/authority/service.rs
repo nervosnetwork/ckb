@@ -785,7 +785,7 @@ impl AuthorityService {
         peer: PeerIndex,
     ) -> Result<(), AuthorityServiceError> {
         loop {
-            let signal = self.runtime.mutation_signal();
+            let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
             match self
                 .runtime
@@ -837,7 +837,7 @@ impl AuthorityService {
         pressure: RemoteIngressPressure,
     ) -> Result<(), AuthorityServiceError> {
         loop {
-            let signal = self.runtime.mutation_signal();
+            let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
             match self
                 .runtime
@@ -861,7 +861,7 @@ impl AuthorityService {
         tx: TransactionView,
     ) -> Result<(), AuthorityServiceError> {
         loop {
-            let signal = self.runtime.mutation_signal();
+            let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
             match self.runtime.submit_proposal_ingress(tx.clone()) {
                 Ok(_commit) => return Ok(()),
@@ -930,7 +930,7 @@ impl AuthorityService {
             };
             let verified = match resolution {
                 AuthorityDirectResolutionOutcome::Rejected(rejection) => {
-                    let signal = self.runtime.mutation_signal();
+                    let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
                     match self.runtime.settle_direct_transaction_rejection(rejection) {
                         Ok(AuthorityDirectRejectionExecution::Local(reason)) if !test_accept => {
@@ -988,7 +988,7 @@ impl AuthorityService {
             };
             match verified {
                 AuthorityDirectVerificationOutcome::Rejected(rejection) => {
-                    let signal = self.runtime.mutation_signal();
+                    let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
                     match self.runtime.settle_direct_transaction_rejection(rejection) {
                         Ok(AuthorityDirectRejectionExecution::Local(reason)) if !test_accept => {
@@ -1021,7 +1021,7 @@ impl AuthorityService {
                     }
                 }
                 AuthorityDirectVerificationOutcome::Candidate(candidate) => {
-                    let signal = self.runtime.mutation_signal();
+                    let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
                     let outcome = match self.runtime.settle_verified_direct_admission(candidate) {
                         Ok(outcome) => outcome,
@@ -1122,7 +1122,7 @@ impl AuthorityService {
         mut attempt: impl FnMut() -> Result<T, AuthorityAdministrationError>,
     ) -> Result<T, AuthorityServiceError> {
         loop {
-            let signal = self.runtime.mutation_signal();
+            let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
             match attempt() {
                 Ok(value) => return Ok(value),

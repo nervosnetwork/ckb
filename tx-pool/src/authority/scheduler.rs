@@ -348,6 +348,20 @@ pub(super) struct SchedulerBatchDelta {
     added: BTreeSet<SchedulerSlot>,
 }
 
+/// Allocation-free runnable heads derived from the committed scheduler.
+///
+/// `EntryVersion` is globally unique within one authority generation. A
+/// changed non-empty value therefore proves that a capability class has a new
+/// head worth probing without copying a transaction identity or maintaining a
+/// second ready flag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SchedulerWakeProjection {
+    pub(super) resolve: Option<EntryVersion>,
+    pub(super) verify_small: Option<EntryVersion>,
+    pub(super) verify_any: Option<EntryVersion>,
+    pub(super) ready: Option<EntryVersion>,
+}
+
 #[derive(Debug, Default)]
 struct OwnerQueue {
     small: BTreeSet<QueueKey>,
@@ -705,6 +719,24 @@ impl FairFrontier {
         match lane {
             QueueLane::Resolve => self.resolve.owner_count(lane, capability),
             QueueLane::Verify => self.verify.owner_count(lane, capability),
+        }
+    }
+
+    pub(super) fn wake_projection(&self) -> SchedulerWakeProjection {
+        SchedulerWakeProjection {
+            resolve: self
+                .resolve
+                .next(QueueLane::Resolve, VerifyCapability::Any)
+                .map(|(_, key)| key.version()),
+            verify_small: self
+                .verify
+                .next(QueueLane::Verify, VerifyCapability::SmallCycleOnly)
+                .map(|(_, key)| key.version()),
+            verify_any: self
+                .verify
+                .next(QueueLane::Verify, VerifyCapability::Any)
+                .map(|(_, key)| key.version()),
+            ready: self.ready.last().map(ReadyKey::version),
         }
     }
 

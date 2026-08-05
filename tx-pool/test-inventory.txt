@@ -15,6 +15,7 @@ authority::runtime::tests::runtime_continuous_worker_and_ready_driver_close_one_
 authority::runtime::tests::runtime_effect_boundary_retains_and_drains_a_closed_log_in_sequence
 authority::runtime::tests::runtime_effect_close_wakes_an_idle_level_waiter
 authority::runtime::tests::runtime_resolution_uses_assembled_policy_and_settles_before_returning
+authority::runtime::tests::runtime_role_batons_drain_a_coalesced_preexisting_frontier
 authority::runtime::tests::runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle
 authority::runtime::tests::runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work
 authority::runtime::tests::runtime_stale_plan_disposition_depends_on_the_producer_boundary

@@ -20,7 +20,7 @@ use ckb_async_runtime::Handle;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
-use std::{future::pending, ops::ControlFlow, sync::Arc, time::Duration};
+use std::{ops::ControlFlow, sync::Arc, time::Duration};
 use tokio::sync::{RwLock, mpsc, watch};
 
 const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
@@ -114,7 +114,8 @@ enum WorkerRole {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkerStep {
     Progress,
-    Wait,
+    WaitForWork,
+    WaitForEffectCapacity,
     Backoff,
 }
 
@@ -209,11 +210,11 @@ impl ComputeWorker {
                 continue;
             }
 
-            // Subscribe before reading either authoritative level. The one
-            // mutation hint carries no lane state; this ordering prevents a
-            // mutation between the empty read and suspension from being lost.
-            let signal = self.runtime.mutation_signal();
-            let notified = signal.notified();
+            // Subscribe to both possible releasers before checkout. The step
+            // result selects exactly one future, so ordinary effect release
+            // does not wake workers that merely observed an empty scheduler.
+            let work_notified = self.work_signal().notified();
+            let capacity_notified = self.runtime.effect_capacity_signal().notified();
             let execution = match self.runtime.acquire_compute_execution(&cancel).await {
                 Some(execution) => execution,
                 None => return Ok(()),
@@ -223,11 +224,12 @@ impl ComputeWorker {
                 continue;
             }
 
-            let retry_delay = async {
-                if step == WorkerStep::Backoff {
-                    tokio::time::sleep(TRANSIENT_RETRY_DELAY).await;
-                } else {
-                    pending().await
+            let wait = async {
+                match step {
+                    WorkerStep::WaitForWork => work_notified.await,
+                    WorkerStep::WaitForEffectCapacity => capacity_notified.await,
+                    WorkerStep::Backoff => tokio::time::sleep(TRANSIENT_RETRY_DELAY).await,
+                    WorkerStep::Progress => {}
                 }
             };
             tokio::select! {
@@ -237,9 +239,15 @@ impl ComputeWorker {
                         return Ok(());
                     }
                 }
-                _ = notified => {}
-                _ = retry_delay => {}
+                _ = wait => {}
             }
+        }
+    }
+
+    fn work_signal(&self) -> &tokio::sync::Notify {
+        match &self.role {
+            WorkerRole::OrderedResolve => self.runtime.resolver_signal(),
+            WorkerRole::Verifier { capability, .. } => self.runtime.verifier_signal(*capability),
         }
     }
 
@@ -250,7 +258,7 @@ impl ComputeWorker {
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         let job = match self.checkout(execution) {
             Ok(ControlFlow::Continue(Some(job))) => job,
-            Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::Wait),
+            Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::WaitForWork),
             Ok(ControlFlow::Break(pending)) => return self.recover_settlement(pending).await,
             Err(error) => return self.handle_runtime_error(error).await,
         };
@@ -362,7 +370,7 @@ impl ComputeWorker {
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         match error {
             AuthorityComputeError::Allocation => Ok(WorkerStep::Backoff),
-            AuthorityComputeError::EffectCapacity => Ok(WorkerStep::Wait),
+            AuthorityComputeError::EffectCapacity => Ok(WorkerStep::WaitForEffectCapacity),
             AuthorityComputeError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
             AuthorityComputeError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
             AuthorityComputeError::Resolution(kind) => classify_resolution_kind(kind),
@@ -397,8 +405,7 @@ impl ComputeWorker {
                 }
             }
 
-            let signal = self.runtime.mutation_signal();
-            let notified = signal.notified();
+            let notified = self.runtime.effect_capacity_signal().notified();
             let settlement = failure.into_settlement();
             match self.runtime.settle(settlement) {
                 Ok(()) => {
@@ -443,27 +450,27 @@ async fn run_ready_driver(
     cancel: CancellationToken,
 ) -> Result<(), AuthorityWorkerFault> {
     loop {
-        let signal = runtime.mutation_signal();
-        let notified = signal.notified();
+        let work_notified = runtime.ready_signal().notified();
+        let capacity_notified = runtime.effect_capacity_signal().notified();
         let step = match runtime.try_drive_ready() {
             Ok(AuthorityReadyOutcome::Applied) => WorkerStep::Progress,
-            Ok(AuthorityReadyOutcome::Idle) => WorkerStep::Wait,
+            Ok(AuthorityReadyOutcome::Idle) => WorkerStep::WaitForWork,
             Err(error) => classify_driver_error(error)?,
         };
         if step == WorkerStep::Progress {
             continue;
         }
-        let retry_delay = async {
-            if step == WorkerStep::Backoff {
-                tokio::time::sleep(TRANSIENT_RETRY_DELAY).await;
-            } else {
-                pending().await
+        let wait = async {
+            match step {
+                WorkerStep::WaitForWork => work_notified.await,
+                WorkerStep::WaitForEffectCapacity => capacity_notified.await,
+                WorkerStep::Backoff => tokio::time::sleep(TRANSIENT_RETRY_DELAY).await,
+                WorkerStep::Progress => {}
             }
         };
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            _ = notified => {}
-            _ = retry_delay => {}
+            _ = wait => {}
         }
     }
 }
@@ -499,11 +506,11 @@ async fn run_maintenance_driver_loop(
                 return Ok(());
             }
 
-            // Subscribe before reading every level. A mutation between the
-            // last Idle result and suspension is therefore observed, while
-            // coalescing repeated hints cannot lose authoritative work.
-            let signal = runtime.mutation_signal();
-            let notified = signal.notified();
+            // Subscribe before reading every level. A relevant Apply between
+            // the last Idle result and suspension is therefore observed,
+            // while coalescing repeated hints cannot lose authoritative work.
+            let work_notified = runtime.maintenance_signal().notified();
+            let capacity_notified = runtime.effect_capacity_signal().notified();
             observe_round();
             runtime.publish_operational_metrics();
             let step = run_maintenance_round(&runtime)?;
@@ -511,17 +518,22 @@ async fn run_maintenance_driver_loop(
                 WorkerStep::Progress => {
                     tokio::task::yield_now().await;
                 }
-                WorkerStep::Wait => {
+                WorkerStep::WaitForWork => {
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
-                        _ = notified => {}
+                        _ = work_notified => {}
                         _ = expiry.tick() => {}
+                    }
+                }
+                WorkerStep::WaitForEffectCapacity => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        _ = capacity_notified => {}
                     }
                 }
                 WorkerStep::Backoff => {
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
-                        _ = notified => {}
                         _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
                     }
                 }
@@ -548,7 +560,7 @@ fn classify_maintenance_result(
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match result {
         Ok(super::runtime::AuthorityMaintenanceOutcome::Applied) => Ok(WorkerStep::Progress),
-        Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::Wait),
+        Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::WaitForWork),
         Err(error) => classify_driver_error(error),
     }
 }
@@ -557,7 +569,10 @@ fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     match (left, right) {
         (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
         (WorkerStep::Backoff, _) | (_, WorkerStep::Backoff) => WorkerStep::Backoff,
-        (WorkerStep::Wait, WorkerStep::Wait) => WorkerStep::Wait,
+        (WorkerStep::WaitForEffectCapacity, _) | (_, WorkerStep::WaitForEffectCapacity) => {
+            WorkerStep::WaitForEffectCapacity
+        }
+        (WorkerStep::WaitForWork, WorkerStep::WaitForWork) => WorkerStep::WaitForWork,
     }
 }
 
@@ -601,7 +616,7 @@ fn classify_driver_error(error: AuthorityDriverError) -> Result<WorkerStep, Auth
     match error {
         AuthorityDriverError::Stale => Ok(WorkerStep::Progress),
         AuthorityDriverError::Allocation => Ok(WorkerStep::Backoff),
-        AuthorityDriverError::EffectCapacity => Ok(WorkerStep::Wait),
+        AuthorityDriverError::EffectCapacity => Ok(WorkerStep::WaitForEffectCapacity),
         AuthorityDriverError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
         AuthorityDriverError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
     }

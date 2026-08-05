@@ -24,12 +24,12 @@ use super::{
         RetainedIngressCommit, RetainedIngressRejection, direct,
     },
     plan::{
-        AuthorityConfigError, AuthorityFault, Backpressure, CandidateDispositionPlan,
-        ComputeCancellation, ComputeCancellationError, ComputeSettlementFailure,
-        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectCheckoutError,
-        EffectCloseError, EffectSettlementFailure, FinalAdmissionDispositionPlan,
-        IndependentCandidate, MembershipConfig, MembershipReject, PlanError,
-        RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        AuthorityConfigError, AuthorityFault, AuthorityPostCommit, AuthorityWakeTransition,
+        Backpressure, CandidateDispositionPlan, CommittedDelta, ComputeCancellation,
+        ComputeCancellationError, ComputeSettlementFailure, DirectAdmissionDisposition,
+        DirectAdmissionEvaluation, EffectCheckoutError, EffectCloseError, EffectSettlementFailure,
+        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
+        PlanError, RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
@@ -54,7 +54,7 @@ use super::{
     scheduler::VerifyOrder,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, ChainRevision, ChainViewId, RawTxHash,
-        RemoteDeadline, WorkPermit,
+        RemoteDeadline, VerifyCapability, WorkPermit,
     },
     template::{AuthorityTemplateInput, TemplateReadError},
     validation::{
@@ -645,24 +645,81 @@ pub(in crate::authority) struct AuthorityRelayParentReader {
 /// the store guard, and subscribes before that attempt so a concurrent Apply
 /// cannot be missed.
 struct AuthoritySignals {
-    mutation: Arc<Notify>,
+    resolver: Notify,
+    small_verifier: Notify,
+    any_verifier: Notify,
+    ready: Notify,
+    maintenance: Notify,
+    effect_publisher: Notify,
+    effect_capacity: Notify,
+    template: Notify,
     effect_publisher_running: AtomicBool,
 }
 
 impl AuthoritySignals {
     fn new() -> Self {
         Self {
-            mutation: Arc::new(Notify::new()),
+            resolver: Notify::new(),
+            small_verifier: Notify::new(),
+            any_verifier: Notify::new(),
+            ready: Notify::new(),
+            maintenance: Notify::new(),
+            effect_publisher: Notify::new(),
+            effect_capacity: Notify::new(),
+            template: Notify::new(),
             effect_publisher_running: AtomicBool::new(false),
         }
     }
 
-    fn publish_mutation(&self) {
-        // Publication occurs only after the authority guard has opened and
-        // retirement carriers have been destroyed. One shared hint avoids a
-        // hand-maintained transition-to-signal table and duplicate wake
-        // publication; each consumer reads its own authoritative level.
-        self.mutation.notify_waiters();
+    fn publish_post_commit(&self, post_commit: AuthorityPostCommit) {
+        self.publish_wake(post_commit.publish_metrics_and_take_wake());
+    }
+
+    fn publish_post_commit_pair(
+        &self,
+        first: AuthorityPostCommit,
+        second: Option<AuthorityPostCommit>,
+    ) {
+        let first = first.publish_metrics_and_take_wake();
+        let wake = second.map_or(first, |second| {
+            first.then(second.publish_metrics_and_take_wake())
+        });
+        self.publish_wake(wake);
+    }
+
+    fn publish_wake(&self, wake: AuthorityWakeTransition) {
+        let resolve = wake.resolve_advanced();
+        let verify_small = wake.verify_small_advanced();
+        let verify_any = wake.verify_any_advanced();
+        if resolve {
+            self.resolver.notify_one();
+        }
+        if resolve || verify_small {
+            self.small_verifier.notify_one();
+        }
+        if resolve || verify_any {
+            self.any_verifier.notify_one();
+        }
+        if wake.ready_advanced() {
+            self.ready.notify_one();
+        }
+        if wake.dependency_maintenance_activated() {
+            self.maintenance.notify_one();
+        }
+        if wake.effect_publisher_advanced() {
+            self.effect_publisher.notify_one();
+        }
+        if wake.effect_capacity_released() {
+            // Waiters carry heterogeneous effect classes and batch sizes. A
+            // wake-one protocol cannot prove that its selected waiter fits the
+            // released region while another waiter would make progress.
+            self.effect_capacity.notify_waiters();
+        }
+        if wake.template_source_advanced() {
+            // The five existing lanes retain independent source-cut OCC and
+            // publication guards. This is only their common lossy prompt.
+            self.template.notify_waiters();
+        }
     }
 }
 
@@ -1549,8 +1606,7 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(true)
     }
 
@@ -1567,8 +1623,7 @@ impl AuthorityRuntime {
                 .map_err(AuthorityAdministrationError::from_plan)?
                 .apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(())
     }
 
@@ -1594,10 +1649,10 @@ impl AuthorityRuntime {
                 std::mem::replace(&mut store.committed_txs_hash_cache, fresh_hash_cache);
             (committed, retired_snapshot, retired_hash_cache)
         };
-        drop(committed);
+        let post_commit = committed.into_post_commit();
         drop(retired_snapshot);
         drop(retired_hash_cache);
-        self.signals.publish_mutation();
+        self.signals.publish_post_commit(post_commit);
         Ok(())
     }
 
@@ -1739,9 +1794,9 @@ impl AuthorityRuntime {
             store.committed_txs_hash_cache.put(proposal, hash);
         }
         drop(store);
-        drop(committed);
+        let post_commit = committed.into_post_commit();
         drop(retired_snapshot);
-        self.signals.publish_mutation();
+        self.signals.publish_post_commit(post_commit);
         Ok(CommittedChainUpdate {
             candidate_uncles,
             attached_blocks,
@@ -1766,8 +1821,7 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
@@ -1794,8 +1848,7 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
@@ -1816,13 +1869,44 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(AuthorityMaintenanceOutcome::Applied)
     }
 
-    pub(super) fn mutation_signal(&self) -> Arc<Notify> {
-        Arc::clone(&self.signals.mutation)
+    fn publish_committed(&self, committed: CommittedDelta) {
+        self.signals
+            .publish_post_commit(committed.into_post_commit());
+    }
+
+    pub(super) fn resolver_signal(&self) -> &Notify {
+        &self.signals.resolver
+    }
+
+    pub(super) fn verifier_signal(&self, capability: VerifyCapability) -> &Notify {
+        match capability {
+            VerifyCapability::SmallCycleOnly => &self.signals.small_verifier,
+            VerifyCapability::Any => &self.signals.any_verifier,
+        }
+    }
+
+    pub(super) fn ready_signal(&self) -> &Notify {
+        &self.signals.ready
+    }
+
+    pub(super) fn maintenance_signal(&self) -> &Notify {
+        &self.signals.maintenance
+    }
+
+    pub(super) fn effect_publisher_signal(&self) -> &Notify {
+        &self.signals.effect_publisher
+    }
+
+    pub(super) fn effect_capacity_signal(&self) -> &Notify {
+        &self.signals.effect_capacity
+    }
+
+    pub(in crate::authority) fn template_signal(&self) -> &Notify {
+        &self.signals.template
     }
 
     /// Acquire one shared tx-pool execution slot before any retained checkout
@@ -1884,8 +1968,7 @@ impl AuthorityRuntime {
             };
             plan.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(AuthorityInternalPlugOutcome::Inserted)
     }
 
@@ -1922,8 +2005,7 @@ impl AuthorityRuntime {
                 .plan_direct_transaction_rejection(rejection)?
                 .apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(reason)
     }
 
@@ -1992,8 +2074,7 @@ impl AuthorityRuntime {
                 )
             }
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(outcome)
     }
 
@@ -2249,8 +2330,7 @@ impl AuthorityRuntime {
             };
             plan.apply().into_parts()
         };
-        drop(retirement);
-        self.signals.publish_mutation();
+        self.publish_committed(retirement);
         Ok(EffectCheckoutState::Lease(lease))
     }
 
@@ -2262,8 +2342,7 @@ impl AuthorityRuntime {
         &self,
     ) -> Result<Option<EffectLease>, EffectCheckoutError> {
         loop {
-            let signal = self.mutation_signal();
-            let notified = signal.notified();
+            let notified = self.effect_publisher_signal().notified();
             match self.try_effect_checkout()? {
                 EffectCheckoutState::Idle => notified.await,
                 EffectCheckoutState::Lease(lease) => return Ok(Some(lease)),
@@ -2281,8 +2360,7 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store.authority.apply_effect_settlement(settlement)?
         };
-        drop(retirement);
-        self.signals.publish_mutation();
+        self.publish_committed(retirement);
         rejection_metrics.publish();
         Ok(())
     }
@@ -2306,8 +2384,7 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store.authority.plan_effect_close()?.apply()
         };
-        drop(retirement);
-        self.signals.publish_mutation();
+        self.publish_committed(retirement);
         Ok(())
     }
 
@@ -2367,8 +2444,7 @@ impl AuthorityRuntime {
         };
         // Effect and transaction retirement carriers are destroyed only after
         // the single authority guard is open.
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(outcome)
     }
 
@@ -2383,8 +2459,7 @@ impl AuthorityRuntime {
                 .plan_retained_ingress_rejection(rejection)?
                 .apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(IngressRejectionCommit)
     }
 
@@ -2450,9 +2525,10 @@ impl AuthorityRuntime {
                 }
             }
         };
-        drop(checkout_retirement);
-        drop(settlement_retirement);
-        self.signals.publish_mutation();
+        let checkout_post_commit = checkout_retirement.into_post_commit();
+        let settlement_post_commit = settlement_retirement.map(CommittedDelta::into_post_commit);
+        self.signals
+            .publish_post_commit_pair(checkout_post_commit, settlement_post_commit);
         result
     }
 
@@ -2495,8 +2571,7 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store.authority.apply_settlement(settlement)?
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(())
     }
 
@@ -2508,8 +2583,7 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store.authority.apply_compute_cancellation(cancellation)?
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(())
     }
 
@@ -2770,9 +2844,7 @@ impl AuthorityRuntime {
                 }
             }
         };
-        committed.publish_async_process_metrics();
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(AuthorityReadyOutcome::Applied)
     }
 }

@@ -33,7 +33,9 @@ RUST_CHAR_LITERAL = re.compile(
 )
 RUST_RAW_STRING = re.compile(r'(?:br|cr|r)(?P<hashes>#{0,255})"')
 AUTHORITY_MUTATION = re.compile(r"\.\s*apply(?:_[a-z][A-Za-z0-9_]*)?\s*\(")
-MUTATION_PUBLICATION = re.compile(r"\.\s*publish_mutation\s*\(")
+POST_COMMIT_PUBLICATION = re.compile(
+    r"\.\s*(?:publish_committed|publish_post_commit(?:_pair)?)\s*\("
+)
 EARLY_EXIT = re.compile(r"\b(?:return|break|continue)\b|\?")
 
 
@@ -219,7 +221,7 @@ def top_level_statement_end(masked: str, offset: int) -> int | None:
 
 
 def validate_authority_mutation_publication() -> list[str]:
-    """Prove every runtime authority mutation has one lock-external wake edge."""
+    """Prove every runtime mutation consumes one lock-external post-commit receipt."""
 
     try:
         source = TX_POOL_AUTHORITY_RUNTIME.read_text()
@@ -233,13 +235,20 @@ def validate_authority_mutation_publication() -> list[str]:
     method_publications = 0
     for name, body, line in methods:
         mutations = list(AUTHORITY_MUTATION.finditer(body))
-        publications = list(MUTATION_PUBLICATION.finditer(body))
+        publications = list(POST_COMMIT_PUBLICATION.finditer(body))
         method_mutations += len(mutations)
         method_publications += len(publications)
+        if name == "publish_committed":
+            if mutations or len(publications) != 1 or "into_post_commit" not in body:
+                errors.append(
+                    "AuthorityRuntime::publish_committed must only convert and publish "
+                    f"one post-commit receipt near runtime.rs:{line}"
+                )
+            continue
         if not mutations:
             if publications:
                 errors.append(
-                    f"AuthorityRuntime::{name} publishes a mutation without applying one "
+                    f"AuthorityRuntime::{name} publishes a post-commit receipt without Apply "
                     f"near runtime.rs:{line}"
                 )
             continue
@@ -252,7 +261,7 @@ def validate_authority_mutation_publication() -> list[str]:
         publication = publications[0]
         if brace_depth(body, publication.start()) != 0:
             errors.append(
-                f"AuthorityRuntime::{name} mutation publication must be a top-level "
+                f"AuthorityRuntime::{name} post-commit publication must be a top-level "
                 f"post-guard operation near runtime.rs:{line}"
             )
         last_mutation = mutations[-1]
@@ -274,11 +283,11 @@ def validate_authority_mutation_publication() -> list[str]:
             escape = "return early via ?" if escaping.group(0) == "?" else escaping.group(0)
             errors.append(
                 f"AuthorityRuntime::{name} can {escape} between mutation and "
-                f"publication near runtime.rs:{line}"
+                f"post-commit publication near runtime.rs:{line}"
             )
 
     all_mutations = len(AUTHORITY_MUTATION.findall(masked))
-    all_publications = len(MUTATION_PUBLICATION.findall(masked))
+    all_publications = len(POST_COMMIT_PUBLICATION.findall(masked))
     if method_mutations != all_mutations:
         errors.append(
             "authority mutation must remain directly inside an AuthorityRuntime method: "
@@ -286,7 +295,7 @@ def validate_authority_mutation_publication() -> list[str]:
         )
     if method_publications != all_publications:
         errors.append(
-            "mutation publication must remain directly inside an AuthorityRuntime method: "
+            "post-commit publication must remain directly inside an AuthorityRuntime method: "
             f"found {all_publications - method_publications} outside the impl"
         )
     return errors
@@ -786,7 +795,7 @@ def main() -> int:
         return 1
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
-        "bounded chain-control backpressure plus authority mutation wake coverage, "
+        "bounded chain-control backpressure plus authority post-commit wake coverage, "
         "centralized profiling seams, the typed authority failure algebra and "
         "current production vocabulary"
     )

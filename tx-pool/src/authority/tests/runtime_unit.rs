@@ -114,8 +114,7 @@ fn queue_remote_rejection(runtime: &AuthorityRuntime, nonce: u32) {
             .expect("the runtime effect fixture fits its region")
             .apply()
     };
-    drop(retirement);
-    runtime.signals.publish_mutation();
+    runtime.publish_committed(retirement);
 }
 
 fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
@@ -483,6 +482,60 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
         0,
         "structured cancellation cannot strand checked-out work"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn runtime_role_batons_drain_a_coalesced_preexisting_frontier() {
+    const TRANSACTIONS: usize = 64;
+
+    let runtime = runtime();
+    let mut keys = Vec::new();
+    keys.try_reserve(TRANSACTIONS)
+        .expect("the bounded fixture reserves its key list");
+    for index in 0..TRANSACTIONS {
+        let nonce = 1_000u32
+            .checked_add(u32::try_from(index).expect("the fixture count fits u32"))
+            .expect("the fixture nonce remains bounded");
+        let admission = admission(nonce, index % 4 + 1);
+        keys.push(admission.identity.raw.clone());
+        runtime
+            .admit(admission)
+            .expect("every preexisting admission commits");
+    }
+
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
+    let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
+    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let cancel = CancellationToken::new();
+    let handles = runtime
+        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
+        .expect("the validated topology reserves its handle vector");
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let accepted = {
+                let store = runtime.store.read();
+                keys.iter()
+                    .filter(|key| matches!(store.authority.entry(key), Some(OwnedTx::Accepted(_))))
+                    .count()
+            };
+            if accepted == keys.len() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("role-specific wake-one batons must drain every preexisting head");
+
+    cancel.cancel();
+    for task in handles.tasks {
+        task.handle
+            .await
+            .expect("authority worker task remains healthy")
+            .expect("authority worker exits without a structural fault");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

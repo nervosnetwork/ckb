@@ -23,7 +23,8 @@ use super::effect::{
     CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease, EffectBatch,
     EffectBuildError, EffectClosePlanError, EffectConfigError, EffectDelta, EffectError,
     EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
-    EffectSettlementPlanError, ParentTransactionRequest, PendingRecentReject, RejectionAudience,
+    EffectSettlementPlanError, EffectWakeProjection, ParentTransactionRequest, PendingRecentReject,
+    RejectionAudience,
 };
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
 use super::ingress::{
@@ -40,7 +41,7 @@ use super::resources::{
 };
 use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
-    VerifyOrder,
+    SchedulerWakeProjection, VerifyOrder,
 };
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
@@ -207,6 +208,15 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn template_source_versions(&self) -> PoolTemplateVersions {
         self.source_versions.template()
+    }
+
+    fn wake_projection(&self) -> AuthorityWakeProjection {
+        AuthorityWakeProjection {
+            scheduler: self.scheduler.wake_projection(),
+            dependency_maintenance: self.dependencies.maintenance_pending(),
+            effects: self.effects.wake_projection(),
+            template: self.source_versions.template(),
+        }
     }
 }
 
@@ -480,42 +490,107 @@ enum AsyncProcessObservations {
     Batch(Vec<AsyncProcessStart>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AuthorityWakeProjection {
+    scheduler: SchedulerWakeProjection,
+    dependency_maintenance: bool,
+    effects: EffectWakeProjection,
+    template: PoolTemplateVersions,
+}
+
+/// Exact before/after runnable projection produced by one committed Apply.
+///
+/// It carries no authority state and cannot select work. The runtime consumes
+/// it only after the store guard and retirement payloads have been released.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AuthorityWakeTransition {
+    before: AuthorityWakeProjection,
+    after: AuthorityWakeProjection,
+}
+
+impl AuthorityWakeTransition {
+    fn head_advanced(before: Option<EntryVersion>, after: Option<EntryVersion>) -> bool {
+        after.is_some() && before != after
+    }
+
+    pub(super) fn resolve_advanced(self) -> bool {
+        Self::head_advanced(self.before.scheduler.resolve, self.after.scheduler.resolve)
+    }
+
+    pub(super) fn verify_small_advanced(self) -> bool {
+        Self::head_advanced(
+            self.before.scheduler.verify_small,
+            self.after.scheduler.verify_small,
+        )
+    }
+
+    pub(super) fn verify_any_advanced(self) -> bool {
+        Self::head_advanced(
+            self.before.scheduler.verify_any,
+            self.after.scheduler.verify_any,
+        )
+    }
+
+    pub(super) fn ready_advanced(self) -> bool {
+        Self::head_advanced(self.before.scheduler.ready, self.after.scheduler.ready)
+    }
+
+    pub(super) fn dependency_maintenance_activated(self) -> bool {
+        !self.before.dependency_maintenance && self.after.dependency_maintenance
+    }
+
+    pub(super) fn effect_publisher_advanced(self) -> bool {
+        self.after
+            .effects
+            .publisher_advanced_from(self.before.effects)
+    }
+
+    pub(super) fn effect_capacity_released(self) -> bool {
+        self.after
+            .effects
+            .capacity_released_from(self.before.effects)
+    }
+
+    pub(super) fn template_source_advanced(self) -> bool {
+        self.before.template != self.after.template
+    }
+
+    pub(super) fn then(self, next: Self) -> Self {
+        Self {
+            before: self.before,
+            after: next.after,
+        }
+    }
+}
+
 #[derive(Debug)]
 #[must_use = "a committed delta owns post-Apply retirement and timing evidence"]
 pub(super) struct CommittedDelta {
     async_process_observations: AsyncProcessObservations,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "removal storage is intentionally retired only after the authority guard opens"
-        )
-    )]
+    /// Removal observations remain available to model tests and are destroyed
+    /// with the retirement carrier before post-commit publication.
     pub(super) removals: Vec<MembershipRemoval>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "removed owners are intentionally destroyed only after the authority guard opens"
-        )
-    )]
     retired: Vec<OwnedTx>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "replaced effect storage is intentionally destroyed only after the authority guard opens"
-        )
-    )]
     retired_effect: Option<Arc<EffectBatch>>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the generation carrier is retained solely so its owners are destroyed after the authority guard opens"
-        )
-    )]
     retired_generation: Option<RetiredGeneration>,
+    wake: AuthorityWakeTransition,
+}
+
+struct ApplyRetirement {
+    async_process_observations: AsyncProcessObservations,
+    removals: Vec<MembershipRemoval>,
+    retired: Vec<OwnedTx>,
+    retired_effect: Option<Arc<EffectBatch>>,
+    retired_generation: Option<RetiredGeneration>,
+}
+
+/// Lock-external capability produced only after every retired authority value
+/// has been destroyed. The runtime must consume it to publish derived wake
+/// hints and asynchronous timing evidence.
+#[must_use = "a post-commit receipt must be published after retirement"]
+pub(super) struct AuthorityPostCommit {
+    async_process_observations: AsyncProcessObservations,
+    wake: AuthorityWakeTransition,
 }
 
 #[derive(Debug)]
@@ -553,13 +628,37 @@ enum ChangedOwnerRetirement {
 }
 
 impl CommittedDelta {
+    /// Destroy all potentially large retired values after the authority guard
+    /// opens, then return the only capability that may publish this Apply's
+    /// derived wake and timing observations.
+    pub(in crate::authority) fn into_post_commit(self) -> AuthorityPostCommit {
+        let Self {
+            async_process_observations,
+            removals,
+            retired,
+            retired_effect,
+            retired_generation,
+            wake,
+        } = self;
+        drop(removals);
+        drop(retired);
+        drop(retired_effect);
+        drop(retired_generation);
+        AuthorityPostCommit {
+            async_process_observations,
+            wake,
+        }
+    }
+}
+
+impl AuthorityPostCommit {
     /// Publish the legacy asynchronous processing histogram only from the
     /// closed receipt of a successful membership Apply. Timing evidence is
     /// removed from Accepted ownership before this receipt is built, so a
     /// stale plan, retry, cancellation or journal replay cannot double-count.
-    pub(in crate::authority) fn publish_async_process_metrics(&self) {
+    pub(in crate::authority) fn publish_metrics_and_take_wake(self) -> AuthorityWakeTransition {
         let Some(metrics) = ckb_metrics::handle() else {
-            return;
+            return self.wake;
         };
         let mut observe = |started_at: &AsyncProcessStart| {
             metrics
@@ -573,6 +672,7 @@ impl CommittedDelta {
                 started_at.iter().for_each(&mut observe);
             }
         }
+        self.wake
     }
 }
 
@@ -1113,20 +1213,39 @@ impl PreparedCandidateRejection<'_> {
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
         let Self { authority, delta } = self;
-        match delta {
-            AuthorityDelta::Entry(delta) => Self::apply_entry(authority, delta),
-            AuthorityDelta::Membership(delta) => Self::apply_membership(authority, delta),
-            AuthorityDelta::Independent(delta) => Self::apply_independent(authority, delta),
-            AuthorityDelta::Dependency(delta) => Self::apply_dependency(authority, delta),
-            AuthorityDelta::Effect(delta) => Self::apply_effect(authority, delta),
-            AuthorityDelta::ClearPipeline(delta) => Self::apply_clear_pipeline(authority, delta),
-            AuthorityDelta::ClearPool(delta) => Self::apply_clear_pool(authority, delta),
-            AuthorityDelta::Admin(delta) => Self::apply_admin(authority, delta),
-            AuthorityDelta::Chain(delta) => Self::apply_chain(authority, delta),
+        let before = authority.wake_projection();
+        let retirement = match delta {
+            AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, delta),
+            AuthorityDelta::Membership(delta) => Self::apply_membership(&mut *authority, delta),
+            AuthorityDelta::Independent(delta) => Self::apply_independent(&mut *authority, delta),
+            AuthorityDelta::Dependency(delta) => Self::apply_dependency(&mut *authority, delta),
+            AuthorityDelta::Effect(delta) => Self::apply_effect(&mut *authority, delta),
+            AuthorityDelta::ClearPipeline(delta) => {
+                Self::apply_clear_pipeline(&mut *authority, delta)
+            }
+            AuthorityDelta::ClearPool(delta) => Self::apply_clear_pool(&mut *authority, delta),
+            AuthorityDelta::Admin(delta) => Self::apply_admin(&mut *authority, delta),
+            AuthorityDelta::Chain(delta) => Self::apply_chain(&mut *authority, delta),
+        };
+        let after = authority.wake_projection();
+        let ApplyRetirement {
+            async_process_observations,
+            removals,
+            retired,
+            retired_effect,
+            retired_generation,
+        } = retirement;
+        CommittedDelta {
+            async_process_observations,
+            removals,
+            retired,
+            retired_effect,
+            retired_generation,
+            wake: AuthorityWakeTransition { before, after },
         }
     }
 
-    fn apply_entry(authority: &mut TxPoolAuthority, delta: EntryDelta) -> CommittedDelta {
+    fn apply_entry(authority: &mut TxPoolAuthority, delta: EntryDelta) -> ApplyRetirement {
         let previous = match delta.after {
             Some(entry) => authority.entries.insert(delta.key.clone(), entry),
             None => authority.entries.remove(&delta.key),
@@ -1149,7 +1268,7 @@ impl PreparedApply<'_> {
         authority.dependencies.apply(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
@@ -1161,7 +1280,7 @@ impl PreparedApply<'_> {
     fn apply_membership(
         authority: &mut TxPoolAuthority,
         mut delta: MembershipDelta,
-    ) -> CommittedDelta {
+    ) -> ApplyRetirement {
         let mut retired = delta.retired;
         for removal in &mut delta.removals {
             let previous = match removal.take_after() {
@@ -1194,7 +1313,7 @@ impl PreparedApply<'_> {
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: delta.async_process_start.map_or(
                 AsyncProcessObservations::None,
                 AsyncProcessObservations::One,
@@ -1209,7 +1328,7 @@ impl PreparedApply<'_> {
     fn apply_independent(
         authority: &mut TxPoolAuthority,
         delta: IndependentDelta,
-    ) -> CommittedDelta {
+    ) -> ApplyRetirement {
         for update in delta.updates {
             // Independent acceptance also replaces a pre-accepted shell whose
             // immutable transaction and resolved facts are shared by `after`.
@@ -1223,7 +1342,7 @@ impl PreparedApply<'_> {
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: if delta.async_process_starts.is_empty() {
                 AsyncProcessObservations::None
             } else {
@@ -1239,10 +1358,10 @@ impl PreparedApply<'_> {
     fn apply_dependency(
         authority: &mut TxPoolAuthority,
         delta: DependencyOnlyDelta,
-    ) -> CommittedDelta {
+    ) -> ApplyRetirement {
         authority.dependencies.apply_control(delta.control);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
@@ -1251,10 +1370,10 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_effect(authority: &mut TxPoolAuthority, delta: EffectOnlyDelta) -> CommittedDelta {
+    fn apply_effect(authority: &mut TxPoolAuthority, delta: EffectOnlyDelta) -> ApplyRetirement {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
@@ -1263,7 +1382,7 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_clear_pool(authority: &mut TxPoolAuthority, delta: ClearPoolDelta) -> CommittedDelta {
+    fn apply_clear_pool(authority: &mut TxPoolAuthority, delta: ClearPoolDelta) -> ApplyRetirement {
         let FreshGeneration {
             entries,
             indexes,
@@ -1285,7 +1404,7 @@ impl PreparedApply<'_> {
         authority.source_versions.apply(delta.sources);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired: Vec::new(),
@@ -1297,12 +1416,12 @@ impl PreparedApply<'_> {
     fn apply_clear_pipeline(
         authority: &mut TxPoolAuthority,
         delta: ClearPipelineDelta,
-    ) -> CommittedDelta {
+    ) -> ApplyRetirement {
         let retired = Self::apply_owner_removal(authority, delta.removal);
         authority.generation = delta.generation;
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
@@ -1311,7 +1430,7 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> CommittedDelta {
+    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> ApplyRetirement {
         let retired = Self::apply_owner_removal(authority, delta.removal);
         let retired_effect = authority.effects.apply(delta.effect);
         match delta.control {
@@ -1319,7 +1438,7 @@ impl PreparedApply<'_> {
             AdminControl::None => {}
         }
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,
@@ -1347,7 +1466,7 @@ impl PreparedApply<'_> {
         retired
     }
 
-    fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> CommittedDelta {
+    fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> ApplyRetirement {
         let mut retired = delta.retired;
         for update in delta.updates {
             let previous = match update.after {
@@ -1367,7 +1486,7 @@ impl PreparedApply<'_> {
         let retired_effect = authority.effects.apply(delta.effect);
         authority.chain_view = delta.view.clone();
         authority.clocks = delta.clocks;
-        CommittedDelta {
+        ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
             retired,

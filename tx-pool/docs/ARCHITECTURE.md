@@ -360,11 +360,19 @@ applied twice or against another authority.
 
 ### 7.3 Apply
 
-`PreparedApply::apply(self) -> CommittedDelta` is total. It swaps all fields in
-one short authority critical section, advances the clocks and returns change
-evidence plus outside-guard retirement. Large retired payloads and generations
-are carried out of the guard before destruction. Apply performs no external I/O
-and has no rollback path.
+`PreparedApply::apply(self) -> CommittedDelta` is total. It captures the
+allocation-free runnable projection before and after swapping all fields in one
+short authority critical section, advances the clocks and returns one derived
+wake transition plus outside-guard retirement. Large retired payloads and
+generations are carried out of the guard before destruction. Apply performs no
+external I/O and has no rollback path.
+
+Consuming `CommittedDelta` first destroys retirement storage and produces a
+move-only post-commit receipt. One runtime router then publishes timing evidence
+and lossy role hints. The hints contain no transaction identity or decision
+state and are never consulted by Plan: scheduler, dependency, effect and source
+levels remain the only truth. This order prevents notification while a large
+retirement still extends the authority critical section.
 
 Specialized `PreparedCheckout` and `PreparedEffectCheckout` types contain their
 move-only compute/effect capability beside the generic plan by construction.
@@ -387,8 +395,8 @@ sequenceDiagram
     D->>S: Plan under coherent cut
     Note over S: validate stale/budget/policy<br/>reserve capacity; build complete delta
     D->>S: consume total Apply
-    S-->>D: typed capability + CommittedDelta retirement
-    Note over D,S: authority guard opens before destruction or await
+    S-->>D: typed capability + CommittedDelta retirement/wake receipt
+    Note over D,S: guard opens, retirement drops, typed role hints publish
     P->>S: checkout committed effect progress
     P->>E: perform external I/O
     P->>S: settle exact effect progress
@@ -444,10 +452,11 @@ level. This same-cut composition prevents parent commitment from falsely
 waking an RBF victim while its winner still owns the spend; it requires no
 cache, second projection, repair scan or extra lock.
 
-Workers subscribe to the mutation hint before checking the authoritative
-level. The hint may be coalesced or lost because the level is the truth.
-Maintenance operates in bounded slices and re-arms only when a relevant source
-cut advances. A timeout may diagnose failure but is never the progress proof.
+Workers subscribe to their role hint before checking the authoritative level.
+The hint may be coalesced or lost because the level is the truth. Maintenance
+operates in bounded slices and re-arms only when its dirty frontier activates
+or the independent expiry timer fires. A timeout may diagnose failure but is
+never the progress proof.
 
 The production resolver must not expose a PreAccepted output as chain-backed
 dependency evidence for an unrelated transaction. Accepted pool-produced
@@ -534,12 +543,20 @@ work. `AuthorityRuntime` exposes concrete operations rather than a generic
 mutation closure.
 
 Every authority mutation remains directly visible in an `AuthorityRuntime`
-method. After the write guard and retirement carriers open, that method emits
-one top-level lossy mutation hint; no fallible or escaping control flow lies
-between the committed mutation and the hint. A source validator enforces this
-shape and rejects hidden Apply helpers, conditional post-commit publication or
-an unpaired hint. This preserves lock-external coalescing without adding signal
-state to the authority or maintaining a second transition-to-wake table.
+method. After the write guard opens, that method consumes one top-level
+post-commit receipt; no fallible or escaping control flow lies between Apply
+and receipt consumption. A source validator rejects hidden Apply helpers,
+conditional publication or an unpaired receipt.
+
+The exhaustive Apply compiler, rather than each caller, derives changed
+Resolve, small-Verify, any-Verify and Ready heads, dependency activation,
+effect availability/capacity and template source versions. The runtime routes
+those facts to role-specific lossy hints. Wake-one batons are used only where
+every selected waiter can service that role; Resolve also has a dedicated
+resolver hint so a verifier cannot consume its sole progress edge. Effect
+capacity and changed template sources retain bounded broadcast because their
+waiters have heterogeneous batch sizes or independent optimistic source cuts.
+No hint is a scheduler, level mirror or second authority.
 
 Other locks protect derived outputs only: verification cache, relay mailbox,
 candidate uncles, current block template and template convergence. They cannot
@@ -576,11 +593,13 @@ Every wait must name an independently running releaser:
 | Wait | Held authority capability | Releaser |
 |---|---|---|
 | compute semaphore | none | completion/cancellation of another checked-out computation |
-| mutation `Notify` | none | every runtime Apply publishes once after its guard opens; waiter rechecks level first |
-| effect capacity | the exact failed settlement capability, no store guard | sole effect publisher settlement or cancellation |
+| resolver/verifier/Ready level hint | none | a changed committed scheduler head; each role rechecks its exact level first |
+| dependency-maintenance hint or expiry timer | none | dirty frontier activation or the independent wall-clock tick |
+| effect publisher hint | none | committed effect checkout availability or closed-and-drained transition |
+| effect capacity | possibly the exact failed settlement capability, never a store guard | sole effect publisher settlement or cancellation; release broadcasts across heterogeneous batch shapes |
 | verification cache channel | no owner or store guard | cache updater; cache failure is derived degradation |
 | ordered chain-control channel | chain or clear request at producer boundary, no store guard | ordered chain-control driver |
-| template source change | no authority guard | authority Apply or candidate-uncle source mutation |
+| template source change | no authority guard | exact pool source-version advance or candidate-uncle source mutation |
 | shutdown joins | topology owner only | cancellation-aware owned task or bounded operational timeout |
 
 The complete deadlock/livelock/lost-wake/starvation audit and constructive

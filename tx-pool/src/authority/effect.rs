@@ -1283,6 +1283,39 @@ enum EffectMutation {
 #[derive(Default)]
 pub(super) struct EffectDelta(EffectMutation);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EffectPublisherLevel {
+    Idle,
+    Available,
+    ClosedAndDrained,
+}
+
+/// Copy-only effect state used to derive post-commit wake edges.
+///
+/// The journal remains authoritative. This projection is captured before and
+/// after Apply and is never retained by the authority or consulted for effect
+/// selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct EffectWakeProjection {
+    publisher: EffectPublisherLevel,
+    usage: EffectRegionUsage,
+}
+
+impl EffectWakeProjection {
+    pub(super) fn publisher_advanced_from(self, before: Self) -> bool {
+        self.publisher != EffectPublisherLevel::Idle && self.publisher != before.publisher
+    }
+
+    pub(super) fn capacity_released_from(self, before: Self) -> bool {
+        self.usage.remote.batches < before.usage.remote.batches
+            || self.usage.remote.bytes < before.usage.remote.bytes
+            || self.usage.ordinary.batches < before.usage.ordinary.batches
+            || self.usage.ordinary.bytes < before.usage.ordinary.bytes
+            || self.usage.total.batches < before.usage.total.batches
+            || self.usage.total.bytes < before.usage.total.bytes
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct EffectLog {
     limits: EffectLimits,
@@ -1389,6 +1422,22 @@ impl EffectLog {
             ordinary_bytes: self.usage.ordinary.bytes,
             total_batches: self.usage.total.batches,
             total_bytes: self.usage.total.bytes,
+        }
+    }
+
+    pub(super) fn wake_projection(&self) -> EffectWakeProjection {
+        let publisher = if self.is_closed_and_drained() {
+            EffectPublisherLevel::ClosedAndDrained
+        } else if self.active.is_none()
+            && (!self.queued.is_empty() || self.latest_generation_reset.is_some())
+        {
+            EffectPublisherLevel::Available
+        } else {
+            EffectPublisherLevel::Idle
+        };
+        EffectWakeProjection {
+            publisher,
+            usage: self.usage,
         }
     }
 

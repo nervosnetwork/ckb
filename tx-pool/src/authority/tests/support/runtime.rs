@@ -177,8 +177,7 @@ impl AuthorityRuntime {
                 .map_err(FoundationEffectQueueError::Plan)?
                 .apply()
         };
-        drop(retirement);
-        self.signals.publish_mutation();
+        self.publish_committed(retirement);
         Ok(())
     }
 
@@ -192,8 +191,7 @@ impl AuthorityRuntime {
                 .plan_generation_reset_for_foundation()?
                 .apply()
         };
-        drop(retirement);
-        self.signals.publish_mutation();
+        self.publish_committed(retirement);
         Ok(())
     }
 
@@ -214,8 +212,7 @@ impl AuthorityRuntime {
             let mut store = self.store.write();
             store.authority.plan_admission(admission)?.apply()
         };
-        drop(committed);
-        self.signals.publish_mutation();
+        self.publish_committed(committed);
         Ok(())
     }
 
@@ -228,7 +225,12 @@ impl AuthorityRuntime {
         AuthorityComputeError,
     > {
         loop {
-            let signal = self.mutation_signal();
+            let signal = match permit {
+                WorkPermit::ResolveOnly => self.resolver_signal(),
+                WorkPermit::VerifyOnly(capability) | WorkPermit::ResolveThenVerify(capability) => {
+                    self.verifier_signal(capability)
+                }
+            };
             let notified = signal.notified();
             let Some(execution) = self.acquire_compute_execution(cancel).await else {
                 return Ok(ControlFlow::Continue(None));

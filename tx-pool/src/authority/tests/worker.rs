@@ -32,8 +32,6 @@ async fn uak_maintenance_driver_fairly_drains_every_preexisting_level() {
     let task = tokio::spawn(run_maintenance_driver(runtime.clone(), cancel.clone()));
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let signal = runtime.mutation_signal();
-            let notified = signal.notified();
             let converged = runtime.with_authority_for_foundation(|authority| {
                 authority.entry(&remote).is_none()
                     && authority.entry(&parent).is_none()
@@ -52,7 +50,7 @@ async fn uak_maintenance_driver_fairly_drains_every_preexisting_level() {
             if converged {
                 break;
             }
-            notified.await;
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
     })
     .await
@@ -92,7 +90,7 @@ async fn uak_idle_maintenance_driver_waits_instead_of_spinning() {
     assert_eq!(
         rounds.load(Ordering::Relaxed),
         1,
-        "an idle authority must suspend until a mutation or wall-clock tick"
+        "an idle authority must suspend until maintenance work or a wall-clock tick"
     );
 
     cancel.cancel();

@@ -783,12 +783,10 @@ projection, not a caller-maintained notification map:
 
 This candidate adds no lifecycle state, mutable authority, lock, worker, retry,
 cache or repair scan. It replaces heterogeneous global broadcast and failed
-unique-write probes with a derived projection. It is not yet accepted: source
-APIs, all `CommittedDelta` consumers, liveness under coalesced ingress, mixed
-small/large verification, heterogeneous capacity waiters, maintenance and
-template lanes must first close a static proof. Direct remote admission, effect
-checkout removal and true batch Plan/Apply remain later candidates and must not
-be layered on before this result is measured.
+unique-write probes with a derived projection. The recoverable prototype is now
+implemented, but it is not performance-accepted. Direct remote admission,
+effect checkout removal and true batch Plan/Apply remain later candidates and
+must not be layered on before this result is measured.
 
 Static design closure before the prototype:
 
@@ -834,28 +832,70 @@ Static design closure before the prototype:
   generation construction and unit fixtures deliberately discard wake receipts
   because they expose no runtime consumer.
 
-The static proof still requires checking the exact scheduler-head query cost
-inside Apply. The first prototype may use immutable head reads with no resident
-mirror; a new scheduler wake clock or atomic fast path is forbidden unless the
-fixed-binary profile proves those reads material. Correctness tests precede any
-performance verdict.
+Prototype checkpoint review:
+
+- `PreparedApply::apply` is the only before/after projection compiler; helper
+  Apply functions return private retirement data and cannot publish.
+- `CommittedDelta::into_post_commit` destroys all retirement carriers before a
+  move-only `AuthorityPostCommit` reaches the one runtime wake router.
+- Resolve has its own signal and also prompts both verifier capability classes;
+  small and any Verify signals follow their exact scheduler heads. Ready,
+  maintenance and effect publication have one consumer each. Effect capacity
+  and template source changes retain only the two justified broadcasts.
+- Compute, Ready and maintenance distinguish `WaitForWork` from
+  `WaitForEffectCapacity`; every wait subscribes before the authoritative
+  attempt and holds no store guard. The effect publisher close/drain level and
+  cancellation-aware service waits retain their independent releasers.
+- Full/reset serialization, partial/proposal/transaction/uncle OCC and the
+  candidate-uncle local wake remain unchanged.
+- The existing mixed small/large capability tests, preexisting-level probe,
+  effect-capacity retention, dependency-maintenance fairness, exact template
+  source tests and idle no-spin test cover the surrounding role boundaries.
+  `runtime_role_batons_drain_a_coalesced_preexisting_frontier` additionally
+  starts the complete sealed worker set after 64 admissions and proves that
+  coalesced wake-one permits drain the preexisting frontier.
+- Static review found no new production panic-like operation, lock, task,
+  queue, channel or retry. The only new lock/channel construction is in the
+  worker regression fixture. The old global mutation signal has no production
+  use.
+
+Prototype gates on the working tree:
+
+- `cargo check -p ckb-tx-pool --features internal`: pass;
+- `cargo check -p ckb-tx-pool --features internal --tests`: pass;
+- focused runtime tests: 16/16 pass;
+- focused worker tests: 2/2 pass;
+- isolated full library nextest: 418/418 pass in 33.277 seconds;
+- strict all-target Clippy with `internal`: pass;
+- full `tx-pool/scripts/check_all.py`, format check and `git diff --check`:
+  pass.
+
+The remaining unproved cost is the before/after scheduler head lookup inside
+every Apply: three fair-lane head queries plus one Ready head read. It is
+allocation-free and adds no state, but it extends the authority critical
+section. A scheduler wake clock, resident mirror or atomic fast path remains
+forbidden unless fixed-binary profiling proves this cost material.
 
 Exact resume action:
 
-1. Audit O(1) runnable-level APIs in scheduler, dependency and effect owners,
-   plus every `CommittedDelta` consumer.
-2. Write the complete derived-wake authority, liveness, ordering, capacity,
-   cancellation and concurrency proof into this restart authority before code.
-3. Choose a consuming post-commit capability that cannot publish before
-   retirement destruction or silently omit publication.
-4. Implement a recoverable prototype only if the static review closes; add
-   preexisting-level, baton-drain, wrong-lane, verifier-role, capacity-waiter,
-   dependency-maintenance, template-source and idle-probe regressions.
-5. Run isolated nextest and all affected static/integration gates, then build
-   one fixed candidate binary and profile/A-B against both `f78636e90` and
-   develop before retaining it.
+1. Freeze the derived-wake prototype in a focused checkpoint without the
+   user-owned root `.gitignore` change.
+2. Build one clean fixed candidate binary from an equal-length temporary
+   worktree; record its source and binary hashes beside the existing
+   `f78636e90` baseline.
+3. Run paired candidate-vs-`f78636e90` quick diagnostics for one-peer and
+   four-peer cheap independent traffic, four-peer secp, dependency forest,
+   fanout and fan-in. Do not use develop alone to attribute prototype value.
+4. Profile the candidate and `f78636e90` on fan-in and the most changed
+   independent scenario. Compare wall time, sampled CPU, store-lock waits,
+   checkout/Ready attempts and scheduler-head projection cost.
+5. Retain, revise or remove the prototype only after benchmark plus profile
+   analysis. Then update reviewer-facing performance evidence and decide
+   whether effect-checkout simplification or true batch Plan/Apply still has
+   measured value.
 
-No optimization prototype has been compiled or accepted.
+The optimization prototype is correctness-gated but not yet performance-
+accepted or production-accepted.
 
 ## Restart rule
 

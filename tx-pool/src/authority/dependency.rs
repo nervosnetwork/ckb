@@ -468,6 +468,10 @@ impl DependencyFrontier {
         })))
     }
 
+    pub(super) fn maintenance_pending(&self) -> bool {
+        !self.dirty.is_empty()
+    }
+
     pub(super) fn next_maintenance(
         &self,
     ) -> Result<Option<DependencyMaintenanceTicket>, DependencyError> {

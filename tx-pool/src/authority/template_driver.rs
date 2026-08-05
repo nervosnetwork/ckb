@@ -325,7 +325,7 @@ impl AuthorityBlockAssembler {
             if cancel.is_cancelled() {
                 return Ok(());
             }
-            let authority_signal = self.runtime.mutation_signal();
+            let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
             match self.drive_replacement_once().await {
@@ -381,7 +381,7 @@ impl AuthorityBlockAssembler {
             if cancel.is_cancelled() {
                 return Ok(());
             }
-            let authority_signal = self.runtime.mutation_signal();
+            let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
             match self.drive_component_once(component).await {
@@ -528,7 +528,7 @@ impl AuthorityBlockAssembler {
             if cancel.is_cancelled() {
                 return None;
             }
-            let authority_signal = self.runtime.mutation_signal();
+            let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
             let current = self.retry_source_cut().await;
