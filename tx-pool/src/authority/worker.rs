@@ -119,6 +119,18 @@ enum WorkerStep {
     Backoff,
 }
 
+/// Lock-free scheduling intent derived from the exact level that woke a
+/// worker. `Probe` is used only at startup and after progress so preexisting
+/// work remains level-triggered; every wake path names its compatible first
+/// checkout and cannot spend the baton on another lane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckoutIntent {
+    Probe,
+    Resolve,
+    VerifySmall,
+    VerifyAny,
+}
+
 struct ComputeWorker {
     runtime: AuthorityRuntime,
     role: WorkerRole,
@@ -199,6 +211,7 @@ impl ComputeWorker {
         mut command_rx: watch::Receiver<ChunkCommand>,
         cancel: CancellationToken,
     ) -> Result<(), AuthorityWorkerFault> {
+        let mut intent = CheckoutIntent::Probe;
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -210,44 +223,92 @@ impl ComputeWorker {
                 continue;
             }
 
-            // Subscribe to both possible releasers before checkout. The step
-            // result selects exactly one future, so ordinary effect release
-            // does not wake workers that merely observed an empty scheduler.
-            let work_notified = self.work_signal().notified();
+            // Subscribe to every compatible committed level before checkout.
+            // If the probe observes no work, a concurrent Apply has either
+            // stored one exact Notify permit or the level remains visible to
+            // the next probe. Effect capacity stays a separate heterogeneous
+            // releaser and is awaited only after its typed outcome.
+            let resolve_notified = self.runtime.resolve_signal().notified();
+            let verify_small_notified = self.runtime.verify_small_signal().notified();
+            let verify_any_notified = self.runtime.verify_any_signal().notified();
             let capacity_notified = self.runtime.effect_capacity_signal().notified();
             let execution = match self.runtime.acquire_compute_execution(&cancel).await {
                 Some(execution) => execution,
                 None => return Ok(()),
             };
-            let step = self.try_process_one(&mut command_rx, execution).await?;
+            let step = self
+                .try_process_one(&mut command_rx, execution, intent)
+                .await?;
+            intent = CheckoutIntent::Probe;
             if step == WorkerStep::Progress {
                 continue;
             }
 
-            let wait = async {
-                match step {
-                    WorkerStep::WaitForWork => work_notified.await,
-                    WorkerStep::WaitForEffectCapacity => capacity_notified.await,
-                    WorkerStep::Backoff => tokio::time::sleep(TRANSIENT_RETRY_DELAY).await,
-                    WorkerStep::Progress => {}
-                }
-            };
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(()),
-                changed = command_rx.changed() => {
-                    if changed.is_err() {
-                        return Ok(());
+            match step {
+                WorkerStep::WaitForWork => {
+                    let work = async {
+                        match &self.role {
+                            WorkerRole::OrderedResolve => {
+                                resolve_notified.await;
+                                CheckoutIntent::Resolve
+                            }
+                            WorkerRole::Verifier {
+                                capability: VerifyCapability::SmallCycleOnly,
+                                ..
+                            } => {
+                                tokio::select! {
+                                    biased;
+                                    _ = verify_small_notified => CheckoutIntent::VerifySmall,
+                                    _ = resolve_notified => CheckoutIntent::Resolve,
+                                }
+                            }
+                            WorkerRole::Verifier {
+                                capability: VerifyCapability::Any,
+                                ..
+                            } => {
+                                tokio::select! {
+                                    biased;
+                                    _ = verify_any_notified => CheckoutIntent::VerifyAny,
+                                    _ = verify_small_notified => CheckoutIntent::VerifySmall,
+                                    _ = resolve_notified => CheckoutIntent::Resolve,
+                                }
+                            }
+                        }
+                    };
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        changed = command_rx.changed() => {
+                            if changed.is_err() {
+                                return Ok(());
+                            }
+                        }
+                        next = work => intent = next,
                     }
                 }
-                _ = wait => {}
+                WorkerStep::WaitForEffectCapacity => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        changed = command_rx.changed() => {
+                            if changed.is_err() {
+                                return Ok(());
+                            }
+                        }
+                        _ = capacity_notified => {}
+                    }
+                }
+                WorkerStep::Backoff => {
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        changed = command_rx.changed() => {
+                            if changed.is_err() {
+                                return Ok(());
+                            }
+                        }
+                        _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
+                    }
+                }
+                WorkerStep::Progress => {}
             }
-        }
-    }
-
-    fn work_signal(&self) -> &tokio::sync::Notify {
-        match &self.role {
-            WorkerRole::OrderedResolve => self.runtime.resolver_signal(),
-            WorkerRole::Verifier { capability, .. } => self.runtime.verifier_signal(*capability),
         }
     }
 
@@ -255,8 +316,9 @@ impl ComputeWorker {
         &self,
         command_rx: &mut watch::Receiver<ChunkCommand>,
         execution: AuthorityComputeExecutionPermit,
+        intent: CheckoutIntent,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
-        let job = match self.checkout(execution) {
+        let job = match self.checkout(execution, intent) {
             Ok(ControlFlow::Continue(Some(job))) => job,
             Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::WaitForWork),
             Ok(ControlFlow::Break(pending)) => return self.recover_settlement(pending).await,
@@ -317,49 +379,61 @@ impl ComputeWorker {
     fn checkout(
         &self,
         execution: AuthorityComputeExecutionPermit,
+        intent: CheckoutIntent,
     ) -> Result<
         ControlFlow<AuthorityPendingSettlement, Option<super::runtime::AuthorityComputeJob>>,
         AuthorityComputeError,
     > {
         match &self.role {
-            WorkerRole::OrderedResolve => {
-                match self
-                    .runtime
-                    .try_checkout(WorkPermit::ResolveOnly, execution)?
-                {
-                    ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
-                    ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
-                        Ok(ControlFlow::Continue(Some(job)))
-                    }
-                    ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
-                        drop(execution);
-                        Ok(ControlFlow::Continue(None))
-                    }
-                }
-            }
+            WorkerRole::OrderedResolve => self.checkout_exact(WorkPermit::ResolveOnly, execution),
             WorkerRole::Verifier { capability, .. } => {
-                match self
-                    .runtime
-                    .try_checkout(WorkPermit::VerifyOnly(*capability), execution)?
-                {
-                    ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
-                    ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
-                        Ok(ControlFlow::Continue(Some(job)))
-                    }
-                    ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => match self
+                match intent {
+                    CheckoutIntent::Probe => match self
                         .runtime
-                        .try_checkout(WorkPermit::ResolveThenVerify(*capability), execution)?
+                        .try_checkout(WorkPermit::VerifyOnly(*capability), execution)?
                     {
                         ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
                         ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
                             Ok(ControlFlow::Continue(Some(job)))
                         }
-                        ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
-                            drop(execution);
-                            Ok(ControlFlow::Continue(None))
-                        }
+                        ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => self
+                            .checkout_exact(WorkPermit::ResolveThenVerify(*capability), execution),
                     },
+                    CheckoutIntent::Resolve => {
+                        self.checkout_exact(WorkPermit::ResolveThenVerify(*capability), execution)
+                    }
+                    CheckoutIntent::VerifySmall => self.checkout_exact(
+                        WorkPermit::VerifyOnly(VerifyCapability::SmallCycleOnly),
+                        execution,
+                    ),
+                    CheckoutIntent::VerifyAny => {
+                        // Only an Any verifier subscribes to this signal. If
+                        // a future topology violates that constructor rule,
+                        // retain the worker's narrower capability rather than
+                        // allowing it to execute large work.
+                        self.checkout_exact(WorkPermit::VerifyOnly(*capability), execution)
+                    }
                 }
+            }
+        }
+    }
+
+    fn checkout_exact(
+        &self,
+        permit: WorkPermit,
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, Option<super::runtime::AuthorityComputeJob>>,
+        AuthorityComputeError,
+    > {
+        match self.runtime.try_checkout(permit, execution)? {
+            ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
+            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                Ok(ControlFlow::Continue(Some(job)))
+            }
+            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                drop(execution);
+                Ok(ControlFlow::Continue(None))
             }
         }
     }

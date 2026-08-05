@@ -15,8 +15,8 @@ use crate::authority::effect::{
 use crate::authority::plan::{AuthorityConfigError, AuthorityFault, Backpressure, StalePlan};
 use crate::authority::resources::ResourceConfigError;
 use crate::authority::state::{
-    ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission,
-    VerifyCapability, WorkPermit, test_support::RejectionKind,
+    ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RemoteResidencyLease,
+    ValidatedAdmission, VerifyCapability, WorkPermit, test_support::RejectionKind,
 };
 use crate::authority::validation::FinalAdmissionValidationError;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
@@ -123,6 +123,30 @@ fn admission(nonce: u32, peer: usize) -> ValidatedAdmission {
         PeerIndex::from(peer),
     )
     .expect("the runtime fixture has valid ingress evidence")
+}
+
+fn admission_with_cycles(nonce: u32, peer: usize, declared_cycles: u64) -> ValidatedAdmission {
+    ValidatedAdmission::remote_with_lease(
+        TransactionBuilder::default().version(nonce).build(),
+        RemoteResidencyLease::for_foundation(PeerIndex::from(peer)),
+        declared_cycles,
+    )
+    .expect("the runtime fixture has valid ingress evidence")
+}
+
+async fn expect_signal(signal: &tokio::sync::Notify, message: &str) {
+    tokio::time::timeout(std::time::Duration::from_millis(50), signal.notified())
+        .await
+        .expect(message);
+}
+
+async fn expect_no_signal(signal: &tokio::sync::Notify, message: &str) {
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(10), signal.notified())
+            .await
+            .is_err(),
+        "{message}"
+    );
 }
 
 fn retry(job: AuthorityComputeJob) -> AuthorityComputeSettlement {
@@ -261,6 +285,92 @@ fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
     ));
+}
+
+#[tokio::test]
+async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() {
+    let runtime = runtime();
+
+    runtime
+        .admit(admission(1_064, 99))
+        .expect("the small-cycle admission commits");
+    expect_signal(
+        runtime.resolve_signal(),
+        "admission must publish the shared Resolve level",
+    )
+    .await;
+    expect_no_signal(
+        runtime.verify_small_signal(),
+        "Resolve admission must not publish a Verify hint",
+    )
+    .await;
+    expect_no_signal(
+        runtime.verify_any_signal(),
+        "Resolve admission must not duplicate a Verify hint",
+    )
+    .await;
+
+    let small = continued(
+        runtime
+            .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+            .expect("small-cycle resolution checkout remains healthy"),
+    )
+    .expect("small-cycle resolution is ready");
+    assert!(matches!(
+        continued(
+            runtime
+                .execute_compute(small)
+                .expect("small-cycle resolution settles")
+        ),
+        AuthorityComputeOutcome::Settled
+    ));
+    expect_signal(
+        runtime.verify_small_signal(),
+        "a shared Small/Any head must publish exactly the Small signal",
+    )
+    .await;
+    expect_no_signal(
+        runtime.verify_any_signal(),
+        "a shared Small/Any head must not publish a duplicate Any signal",
+    )
+    .await;
+
+    let large_cycles = runtime_config()
+        .max_tx_verify_cycles
+        .checked_add(1)
+        .expect("the fixture cycle declaration is bounded");
+    runtime
+        .admit(admission_with_cycles(1_065, 1, large_cycles))
+        .expect("the large-cycle admission commits");
+    expect_signal(
+        runtime.resolve_signal(),
+        "the second admission must republish the Resolve baton",
+    )
+    .await;
+    let large = continued(
+        runtime
+            .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+            .expect("large-cycle resolution checkout remains healthy"),
+    )
+    .expect("large-cycle resolution is ready");
+    assert!(matches!(
+        continued(
+            runtime
+                .execute_compute(large)
+                .expect("large-cycle resolution settles")
+        ),
+        AuthorityComputeOutcome::Settled
+    ));
+    expect_signal(
+        runtime.verify_any_signal(),
+        "a distinct large head must publish the Any-only signal",
+    )
+    .await;
+    expect_no_signal(
+        runtime.verify_small_signal(),
+        "an unchanged Small head must not receive another hint",
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -528,6 +638,124 @@ async fn runtime_role_batons_drain_a_coalesced_preexisting_frontier() {
     })
     .await
     .expect("role-specific wake-one batons must drain every preexisting head");
+
+    cancel.cancel();
+    for task in handles.tasks {
+        task.handle
+            .await
+            .expect("authority worker task remains healthy")
+            .expect("authority worker exits without a structural fault");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_consumed() {
+    const TRANSACTIONS: usize = 32;
+
+    let mut config = runtime_config();
+    config.max_tx_verify_workers = 1;
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
+        .expect("the single-verifier topology is valid");
+    let large_cycles = config
+        .max_tx_verify_cycles
+        .checked_add(1)
+        .expect("the fixture cycle declaration is bounded");
+    let mut keys = Vec::new();
+    keys.try_reserve(TRANSACTIONS)
+        .expect("the bounded fixture reserves its key list");
+
+    for index in 0..TRANSACTIONS {
+        let nonce = 1_100u32
+            .checked_add(u32::try_from(index).expect("the fixture count fits u32"))
+            .expect("the fixture nonce remains bounded");
+        let declared_cycles = if index % 2 == 0 { 0 } else { large_cycles };
+        let admission = admission_with_cycles(nonce, index % 4 + 1, declared_cycles);
+        keys.push(admission.identity.raw.clone());
+        runtime
+            .admit(admission)
+            .expect("every mixed admission commits");
+        let job = continued(
+            runtime
+                .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+                .expect("every resolution checkout remains healthy"),
+        )
+        .expect("the just-admitted resolution is ready");
+        assert!(matches!(
+            continued(
+                runtime
+                    .execute_compute(job)
+                    .expect("every mixed resolution settles")
+            ),
+            AuthorityComputeOutcome::Settled
+        ));
+    }
+
+    // Consume every coalesced hint without doing work. The sealed topology
+    // must still recover from the authoritative levels through its initial
+    // probe; notifications never become a second work authority.
+    expect_signal(
+        runtime.resolve_signal(),
+        "coalesced admissions retain one Resolve hint",
+    )
+    .await;
+    expect_signal(
+        runtime.verify_small_signal(),
+        "the mixed frontier retains one Small hint",
+    )
+    .await;
+    // Depending on the fair-owner cursor, the current Any head may be the
+    // same Small entry and therefore have no separate permit. Consume a
+    // distinct Any permit when present without making duplicated publication
+    // a requirement.
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_millis(10),
+        runtime.verify_any_signal().notified(),
+    )
+    .await;
+
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
+    let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
+    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let cancel = CancellationToken::new();
+    let handles = runtime
+        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
+        .expect("the single-verifier worker set starts");
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let pending = {
+                let store = runtime.store.read();
+                keys.iter()
+                    .filter(|key| {
+                        matches!(store.authority.entry(key), Some(OwnedTx::PreAccepted(_)))
+                    })
+                    .count()
+            };
+            if pending == 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("one Any verifier must settle coalesced Small and Large levels");
+
+    let (accepted, rejected) = {
+        let store = runtime.store.read();
+        let accepted = keys
+            .iter()
+            .filter(|key| matches!(store.authority.entry(key), Some(OwnedTx::Accepted(_))))
+            .count();
+        let rejected = keys
+            .iter()
+            .filter(|key| store.authority.entry(key).is_none())
+            .count();
+        (accepted, rejected)
+    };
+    assert_eq!(accepted, TRANSACTIONS / 2);
+    assert_eq!(rejected, TRANSACTIONS / 2);
 
     cancel.cancel();
     for task in handles.tasks {

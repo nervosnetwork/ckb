@@ -508,27 +508,71 @@ pub(super) struct AuthorityWakeTransition {
     after: AuthorityWakeProjection,
 }
 
+/// Capability-compatible compute levels derived from one committed scheduler
+/// transition. These bits carry no owner identity and cannot select work; they
+/// only prevent publishing the same head to several disjoint waiter sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ComputeWakeTransition {
+    resolve: bool,
+    verify_small: bool,
+    verify_any: bool,
+}
+
+impl ComputeWakeTransition {
+    pub(super) const fn resolve(self) -> bool {
+        self.resolve
+    }
+
+    pub(super) const fn verify_small(self) -> bool {
+        self.verify_small
+    }
+
+    pub(super) const fn verify_any(self) -> bool {
+        self.verify_any
+    }
+}
+
 impl AuthorityWakeTransition {
     fn head_advanced(before: Option<EntryVersion>, after: Option<EntryVersion>) -> bool {
         after.is_some() && before != after
     }
 
-    pub(super) fn resolve_advanced(self) -> bool {
+    fn resolve_advanced(self) -> bool {
         Self::head_advanced(self.before.scheduler.resolve, self.after.scheduler.resolve)
     }
 
-    pub(super) fn verify_small_advanced(self) -> bool {
+    fn verify_small_advanced(self) -> bool {
         Self::head_advanced(
             self.before.scheduler.verify_small,
             self.after.scheduler.verify_small,
         )
     }
 
-    pub(super) fn verify_any_advanced(self) -> bool {
+    fn verify_any_advanced(self) -> bool {
         Self::head_advanced(
             self.before.scheduler.verify_any,
             self.after.scheduler.verify_any,
         )
+    }
+
+    /// Route each executable compute head to one compatible waiter class.
+    ///
+    /// Every compute worker can resolve, every verifier can execute a small
+    /// verification, and only an Any verifier can execute the remaining Any
+    /// head. When the Small and Any projections name the same globally unique
+    /// entry version, one shared Small hint is sufficient. A later successful
+    /// checkout advances the committed head and republishes the baton.
+    pub(super) fn compute(self) -> ComputeWakeTransition {
+        let resolve = self.resolve_advanced();
+        let verify_small_advanced = self.verify_small_advanced();
+        let verify_any_advanced = self.verify_any_advanced();
+        let shared_verify_head = self.after.scheduler.verify_small.is_some()
+            && self.after.scheduler.verify_small == self.after.scheduler.verify_any;
+        ComputeWakeTransition {
+            resolve,
+            verify_small: verify_small_advanced || (shared_verify_head && verify_any_advanced),
+            verify_any: verify_any_advanced && !shared_verify_head,
+        }
     }
 
     pub(super) fn ready_advanced(self) -> bool {

@@ -985,15 +985,50 @@ saturation, queued/reset ordering, partial publication, RBF/conflict,
 parent-first/child-first dependencies, peer revocation and chain revision.
 No slice may duplicate validation or membership policy.
 
+Capability-shared compute baton implementation ledger:
+
+- The one Apply-derived compute wake receipt now routes Resolve to one shared
+  compute signal, a shared Small/Any head to one Small signal, and only a
+  distinct large-capability head to the Any signal. The three existing Notify
+  objects remain lossy derived hints; no authority state, lock, task, queue,
+  timer, retry, cache or repair path was added.
+- A private `CheckoutIntent` carries the exact woken level to the first worker
+  checkout. Startup and every successful progress path retain the old Probe,
+  so preexisting state and a consumed/stolen hint remain level-triggered.
+  Resolve still has one dedicated worker; every verifier may help Resolve,
+  every verifier consumes Small, and only an Any verifier consumes distinct
+  Any work.
+- The test-only wait helper now subscribes to the same complete capability set;
+  it no longer encodes the retired one-role/one-signal assumption.
+- Exact regressions prove Resolve-only routing, shared Small de-duplication,
+  distinct Any routing, a one-verifier mixed Small/Large frontier after every
+  stored baton is deliberately consumed, the existing 64-owner coalesced
+  frontier, and pause/cancellation lifecycle closure. The mixed fixture
+  deliberately declares half the cycle claims incorrectly and proves the
+  exact 16 Accepted / 16 terminal-rejected outcome with zero PreAccepted
+  residue; an initial all-Accepted assertion was classified as a fixture
+  expectation error, not hidden with a longer timeout.
+- Correctness gates at this working tree: focused wake/liveness tests 4/4;
+  complete isolated library nextest 420/420; strict all-target internal-feature
+  Clippy; default-feature cargo check; generated behavior/evidence graph and
+  every static/document/test-layout contract; format and diff checks all pass.
+  The registry now owns 105 exact tx-pool tests / 281 invariant references.
+- Static phase review found no new production panic-like operation, lock/task
+  construction, mutable authority, manual publication point or concurrency
+  serialization. Every successful checkout publishes the next committed head
+  before lock-external compute, so a wake-one chain fills available workers;
+  the dedicated resolver remains the starvation backstop.
+
 Exact resume action:
 
-1. Implement only the capability-routed shared compute baton slice. The wake
-   reason must select the exact first checkout permit and every worker must
-   retain a preexisting-level probe before waiting.
-2. Add mixed-level, one-verifier, stolen-baton, cancellation and pause
-   regressions; run complete correctness/static gates before measurement.
-3. Build candidate once, then run fixed-binary paired A/B and matched operation
-   profiles against `6f486cdf5`. Retain or remove from evidence, not intuition.
+1. Freeze the correctness-gated capability-shared prototype without staging
+   the user-owned root `.gitignore`.
+2. Build the candidate binary exactly once, then run fixed-binary paired A/B
+   and matched operation profiles against frozen `6f486cdf5`; inspect both
+   throughput and work/lock attribution before retaining or removing it.
+3. Perform the phase-wide architecture review after the measurement. Only a
+   retained result may update public performance evidence and reopen the next
+   candidate, direct verified commit through the existing final compiler.
 4. Repeat the same design/proof/gate/profile sequence for direct verified
    commit and stable ordinary effect borrowing. Final medium UAK-vs-checkpoint
    and UAK-vs-develop evidence remains later.

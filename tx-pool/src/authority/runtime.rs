@@ -54,7 +54,7 @@ use super::{
     scheduler::VerifyOrder,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, ChainRevision, ChainViewId, RawTxHash,
-        RemoteDeadline, VerifyCapability, WorkPermit,
+        RemoteDeadline, WorkPermit,
     },
     template::{AuthorityTemplateInput, TemplateReadError},
     validation::{
@@ -645,9 +645,9 @@ pub(in crate::authority) struct AuthorityRelayParentReader {
 /// the store guard, and subscribes before that attempt so a concurrent Apply
 /// cannot be missed.
 struct AuthoritySignals {
-    resolver: Notify,
-    small_verifier: Notify,
-    any_verifier: Notify,
+    resolve: Notify,
+    verify_small: Notify,
+    verify_any: Notify,
     ready: Notify,
     maintenance: Notify,
     effect_publisher: Notify,
@@ -659,9 +659,9 @@ struct AuthoritySignals {
 impl AuthoritySignals {
     fn new() -> Self {
         Self {
-            resolver: Notify::new(),
-            small_verifier: Notify::new(),
-            any_verifier: Notify::new(),
+            resolve: Notify::new(),
+            verify_small: Notify::new(),
+            verify_any: Notify::new(),
             ready: Notify::new(),
             maintenance: Notify::new(),
             effect_publisher: Notify::new(),
@@ -688,17 +688,22 @@ impl AuthoritySignals {
     }
 
     fn publish_wake(&self, wake: AuthorityWakeTransition) {
-        let resolve = wake.resolve_advanced();
-        let verify_small = wake.verify_small_advanced();
-        let verify_any = wake.verify_any_advanced();
-        if resolve {
-            self.resolver.notify_one();
+        let compute = wake.compute();
+        if compute.resolve() {
+            // Resolver and verifier helpers subscribe to this one level. The
+            // selected worker receives a typed Resolve intent and therefore
+            // cannot consume the baton by servicing an unrelated Verify head.
+            self.resolve.notify_one();
         }
-        if resolve || verify_small {
-            self.small_verifier.notify_one();
+        if compute.verify_small() {
+            // Small work is executable by every verifier. Any workers share
+            // this signal instead of receiving a duplicate class hint.
+            self.verify_small.notify_one();
         }
-        if resolve || verify_any {
-            self.any_verifier.notify_one();
+        if compute.verify_any() {
+            // This head is distinct from the Small head and requires an Any
+            // verifier; the small-only worker never subscribes here.
+            self.verify_any.notify_one();
         }
         if wake.ready_advanced() {
             self.ready.notify_one();
@@ -1878,15 +1883,16 @@ impl AuthorityRuntime {
             .publish_post_commit(committed.into_post_commit());
     }
 
-    pub(super) fn resolver_signal(&self) -> &Notify {
-        &self.signals.resolver
+    pub(super) fn resolve_signal(&self) -> &Notify {
+        &self.signals.resolve
     }
 
-    pub(super) fn verifier_signal(&self, capability: VerifyCapability) -> &Notify {
-        match capability {
-            VerifyCapability::SmallCycleOnly => &self.signals.small_verifier,
-            VerifyCapability::Any => &self.signals.any_verifier,
-        }
+    pub(super) fn verify_small_signal(&self) -> &Notify {
+        &self.signals.verify_small
+    }
+
+    pub(super) fn verify_any_signal(&self) -> &Notify {
+        &self.signals.verify_any
     }
 
     pub(super) fn ready_signal(&self) -> &Notify {

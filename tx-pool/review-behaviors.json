@@ -111,6 +111,7 @@
       "id": "TP-WORKER-001",
       "title": "Capability-owned workers and progress",
       "implementation_owners": [
+        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct AuthorityWakeTransition", "struct ComputeWakeTransition"]},
         {"path": "tx-pool/src/authority/worker.rs", "symbols": ["struct ComputeWorker", "run_ready_driver", "run_maintenance_driver"]},
         {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct CheckoutTicket"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthoritySignals", "fn publish_post_commit", "fn publish_wake", "fn try_checkout"]}
@@ -124,7 +125,7 @@
         "Does every runtime mutation consume one top-level post-commit receipt with no escaping control flow?",
         "Can any role consume the only hint for work that role cannot guarantee to service?"
       ],
-      "performance_bound": "Resolve/verify remains parallel. Allocation-free committed-head projections route wake-one batons by executable role; heterogeneous effect-capacity and changed template sources alone retain bounded broadcast. No signal is a second scheduler or membership authority."
+      "performance_bound": "Resolve/verify remains parallel. Allocation-free committed-head projections route wake-one batons to one capability-compatible waiter set; heterogeneous effect-capacity and changed template sources alone retain bounded broadcast. No signal is a second scheduler or membership authority."
     },
     {
       "id": "TP-ADMIN-001",
@@ -338,6 +339,8 @@
 
     {"test": "authority::runtime::tests::runtime_checkout_observes_preexisting_level_without_a_wake_hint", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
     {"test": "authority::runtime::tests::runtime_role_batons_drain_a_coalesced_preexisting_frontier", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
+    {"test": "authority::runtime::tests::runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
+    {"test": "authority::runtime::tests::runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_consumed", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
     {"test": "authority::tests::foundation::uak_resolve_to_verify_continuation_changes_no_authority_state", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
     {"test": "authority::tests::worker::uak_idle_maintenance_driver_waits_instead_of_spinning", "behavior_id": "TP-WORKER-001", "invariants": ["T10"]},
     {"test": "authority::tests::foundation::uak_runner_cancellation_settles_one_exact_work_capability_before_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},

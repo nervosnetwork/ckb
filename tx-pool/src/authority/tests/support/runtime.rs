@@ -1,4 +1,4 @@
-use super::super::state::ValidatedAdmission;
+use super::super::state::{ValidatedAdmission, VerifyCapability};
 use super::*;
 
 impl ComputeGate {
@@ -225,13 +225,13 @@ impl AuthorityRuntime {
         AuthorityComputeError,
     > {
         loop {
-            let signal = match permit {
-                WorkPermit::ResolveOnly => self.resolver_signal(),
-                WorkPermit::VerifyOnly(capability) | WorkPermit::ResolveThenVerify(capability) => {
-                    self.verifier_signal(capability)
-                }
-            };
-            let notified = signal.notified();
+            // Register every level accepted by the permit before observing the
+            // authority. In particular, an Any verifier shares the Small
+            // signal and receives the distinct Any signal only when the two
+            // scheduler heads differ.
+            let resolve_notified = self.resolve_signal().notified();
+            let verify_small_notified = self.verify_small_signal().notified();
+            let verify_any_notified = self.verify_any_signal().notified();
             let Some(execution) = self.acquire_compute_execution(cancel).await else {
                 return Ok(ControlFlow::Continue(None));
             };
@@ -244,9 +244,36 @@ impl AuthorityRuntime {
                     drop(execution);
                 }
             }
+            let work = async {
+                match permit {
+                    WorkPermit::ResolveOnly => resolve_notified.await,
+                    WorkPermit::ResolveThenVerify(VerifyCapability::SmallCycleOnly) => {
+                        tokio::select! {
+                            _ = resolve_notified => {}
+                            _ = verify_small_notified => {}
+                        }
+                    }
+                    WorkPermit::ResolveThenVerify(VerifyCapability::Any) => {
+                        tokio::select! {
+                            _ = resolve_notified => {}
+                            _ = verify_small_notified => {}
+                            _ = verify_any_notified => {}
+                        }
+                    }
+                    WorkPermit::VerifyOnly(VerifyCapability::SmallCycleOnly) => {
+                        verify_small_notified.await
+                    }
+                    WorkPermit::VerifyOnly(VerifyCapability::Any) => {
+                        tokio::select! {
+                            _ = verify_small_notified => {}
+                            _ = verify_any_notified => {}
+                        }
+                    }
+                }
+            };
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(ControlFlow::Continue(None)),
-                _ = notified => {}
+                _ = work => {}
             }
         }
     }
