@@ -570,10 +570,292 @@ path. The optional production-node fmt subscriber remains available for human
 Tokio-console sessions, while reproducible benchmark counting no longer
 serializes workers on formatting or file I/O.
 
-Exact resume action: freeze the low-perturbation profiling checkpoint, rebuild
-only the benchmark binary from its clean revision, run one strict cheap control
-to validate the new artifact end to end, then repeat the necessary scenario
-controls before compiling any optimization candidate.
+The low-perturbation profiler is frozen at `f78636e90`. Its clean fixed binary
+is retained at
+`/private/tmp/txpool-p10-624c/binaries/pipeline-f78636e90-0002528ca8d24f57`
+with SHA-256
+`0002528ca8d24f5793f5604fcf3416119a43187dfcc4b88697eff5a6f758ca48`
+and size 20,554,704 bytes. All captures below use that exact binary; their
+strict manifests and reanalysis pass:
+
+| scenario | CPU wall | counter wall | leaf cvwait | inclusive write/read | read/write acquisitions | resolve/verify | Ready attempt/work | effects |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| cheap cold, 4 peers / 8 workers, 2,000 txs | 256.514 ms | 243.809 ms | 62.62% | 18.58% / 5.20% | 6,316 / 30,738 | 2,000 / 2,000 | 1,817 / 945 | 945 |
+| cheap cold, 1 peer / 8 workers, 2,000 txs | 511.242 ms | 509.461 ms | 75.90% | 4.85% / 1.26% | 19,915 / 154,350 | 2,000 / 2,000 | 8,679 / 1,995 | 1,995 |
+| secp cold, 4 peers / 8 workers, 500 txs | 271.128 ms | 253.151 ms | 56.05% | 4.93% / 1.66% | 3,984 / 22,048 | 500 / 500 | 1,606 / 456 | 456 |
+| dependent parent-first, 1 peer / 8 workers, 500 pairs | 301.733 ms | 316.055 ms | 82.16% | 17.04% / 2.37% | 6,498 / 57,388 | 999 / 500 | 3,006 / 500 | 999 |
+| dependent child-first, 1 peer / 8 workers, 500 pairs | 300.200 ms | 330.503 ms | 82.59% | 13.93% / 2.34% | 7,016 / 60,303 | 999 / 500 | 3,273 / 500 | 999 |
+
+Artifact prefixes are, in table order,
+`/private/tmp/txpool-p10-624c/f786-uak-cheap-cold-4p8w`,
+`/private/tmp/txpool-p10-624c/f786-uak-cheap-cold-1p8w`,
+`/private/tmp/txpool-p10-624c/f786-uak-secp-cold-4p8w`,
+`/private/tmp/txpool-p10-624c/f786-uak-dep-parent-cold-1p8w` and
+`/private/tmp/txpool-p10-624c/f786-uak-dep-child-cold-1p8w`.
+
+The counter artifact is 975 bytes instead of the old approximately 11 MB
+formatted trace. The first four-peer counter control completed in 243.809 ms
+versus 256.514 ms for the independent CPU capture, while the retired formatted
+run took approximately 500 ms. This validates the intended low-perturbation
+boundary; span counts remain scheduling observations rather than timing data.
+
+Current attribution hypothesis, not yet an optimization verdict: the dominant
+cost is lifecycle handoff and wake topology rather than arithmetic inside an
+authority critical section. Single-peer cheap traffic performs about 77 write
+acquisitions per transaction and nearly one Ready work/effect batch per
+transaction; four peers reduce that to about 15 writes per transaction and
+2.12 transactions per Ready work batch. Dependency shapes inherently expose
+one Ready work per accepted transaction and about 115-121 writes per submitted
+pair. `AuthoritySignals::publish_mutation()` currently broadcasts through one
+shared notification to heterogeneous waiters, and failed checkout probes also
+take the unique authority write lock. Replacing the broadcast with
+`notify_one` is not a valid local fix: the wrong capability class can consume
+the hint and strand runnable work.
+
+The complete compute, Ready, maintenance and effect wait/checkout topology has
+now been audited far enough to bound the first design space. One resolver,
+multiple verifiers, the Ready driver, maintenance driver, effect publisher and
+service backpressure waiters consume the same global mutation broadcast. With
+eight verifiers, one mutation can therefore cause roughly one resolver probe,
+up to sixteen verifier probes, three maintenance probes, one publisher probe
+and one Ready read. Successful checkout and settlement publish the same global
+broadcast again. The profiling harness disables block assembly, so template
+lanes did not cause the measured amplification. Develop's separate verify
+queue uses a wake-one plus drain protocol, but that queue is a second mutable
+authority and retains the old race and panic/catch failure surfaces; it is not
+an acceptable design to restore.
+
+The bounded candidate set, none selected yet, is:
+
+- immutable empty probes before write checkout, which can remove lock traffic
+  but not unnecessary scheduling;
+- typed level hints and same-capability batons derived mechanically from the
+  authoritative projection, never a caller-maintained transition map;
+- a typed commutative direct-admission Plan/Apply path for independently
+  resolved, chain-backed, non-conflicting transactions, with all coupled,
+  capacity and RBF cases retaining ordered settlement;
+- removal of redundant effect checkout mutation if the existing exclusive
+  publisher claim, partial endpoint progress and reset-generation semantics
+  can prove one-settlement publication; and
+- bounded Ready coalescing or true batch Plan/Apply, only after the preceding
+  evidence identifies the remaining necessary serialized work.
+
+Cross-version diagnostic evidence is now in progress against product anchors
+`91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987` (develop) and `f78636e90`
+(UAK). The harness is byte-identical on both sides, SHA-256
+`0efe6eef81c4be10473785bd204bb7dbf695f483ea2036668fe683dc5e473702`;
+only service construction outside the measured window is selected by the
+`cross-version-legacy-adapter` build feature. Fixed binaries are:
+
+- develop:
+  `/private/tmp/txpool-p10-cross/binaries/profile-one-shot-dev-91b9-8336293d1373c041`,
+  SHA-256
+  `8336293d1373c041f524539e78d324893a54c3642f4e4e75e40c8a5d971ef8e1`;
+- UAK:
+  `/private/tmp/txpool-p10-cross/binaries/profile-one-shot-uak-f786-30aa40d61bb822ba`,
+  SHA-256
+  `30aa40d61bb822baf580aab61ed3ff323b48260187c7bfb0a163a42f70db883b`.
+
+The first balanced six-pair artifact is
+`/private/tmp/txpool-p10-cross/f786-vs-develop-diagnostic.json`. Its runner is
+retained as `/private/tmp/txpool-p10-cross/cross_ab_v1.py`, SHA-256
+`de7d79928635733f381204b4f885a44e6b6407e1c8ba7fed582039c82ac90afe`.
+Accepted diagnostic results are:
+
+| scenario | develop median | UAK median | paired median delta | paired MAD |
+| --- | ---: | ---: | ---: | ---: |
+| cheap independent, one peer / eight workers | 11,593.893 tx/s | 4,308.938 tx/s | -62.906% | 2.115% |
+| cheap independent, four peers / eight workers | 11,593.424 tx/s | 8,615.178 tx/s | -26.602% | 2.101% |
+| secp, four peers / eight workers | 2,628.407 tx/s | 1,979.491 tx/s | -24.705% | 0.872% |
+
+The secp UAK spread is 23.24% because one of six candidate samples is a large
+low outlier; the paired median remains diagnostic rather than a release
+verdict. No result above has selected or justified a production optimization.
+
+The schema-2 remaining-topology artifact is
+`/private/tmp/txpool-p10-cross/remaining-topologies-v2.json`. Its completed
+balanced six-pair results are:
+
+| scenario | develop median | UAK median | paired median delta | paired MAD |
+| --- | ---: | ---: | ---: | ---: |
+| dependency forest, depth 10, four peers | 10,616.600 tx/s | 7,935.635 tx/s | -25.230% | 1.382% |
+| parent-first fanout, four peers | 11,325.202 tx/s | 7,682.705 tx/s | -32.679% | 2.012% |
+| chain-backed fan-in 8, four peers | 10,920.165 tx/s | 5,048.880 tx/s | -53.629% | 1.376% |
+
+Develop did not complete the 30-second pilot for either the 400-transaction
+child-first chain or the 500-transaction child-first fanout. UAK accepted all
+400 chain transactions in a 204.615 ms target window and all 500 fanout
+transactions in a 101.443 ms target window. These are capability/liveness
+results and are not included in the comparable throughput aggregate.
+
+The first runner stopped before checkpointing pilots or failures when develop
+could not complete a deep parent-first chain. The exact old runner was
+preserved and a schema-2 runner was added at
+`/private/tmp/txpool-p10-cross/cross_ab.py`, SHA-256
+`d3f6815740306356e4f5509fccead87b3e1c98d72700554497879ebc6b5d7944`.
+It checkpoints setup, every pilot, every measurement and every timeout or
+nonzero exit, and marks a failed scenario non-comparable instead of discarding
+the artifact or aborting later scenarios.
+
+The capability artifact
+`/private/tmp/txpool-p10-cross/dependent-depth250-capability-v2.json` proves the
+following on the fixed binaries: UAK accepted all 250 transactions (50 warm +
+200 measured) with an 85.892 ms target window, while develop did not complete
+within the runner's five-second pilot bound. A separate exact develop run with
+the harness's internal 120-second bound ended with
+`timed out after accepting 60/250 transactions`. A smaller develop run with
+50 warm + 100 measured completed all 150 in 26.239 ms. Because the first 150
+transactions are identical prefixes, this discontinuity is evidence of a
+schedule/observation-dependent liveness failure rather than a valid throughput
+ratio. Static review identifies a concrete candidate: a missing child can be
+observed before it is inserted into the orphan pool, while the parent can
+commit and finish `process_orphan_tx` before that later insertion; no
+level-triggered recheck follows.
+
+The root verdict is now closed. On develop, a verify worker returns a missing
+result from `_process_tx` before `after_process` inserts the child into the
+orphan pool. A different worker can commit the parent and complete the only
+`process_orphan_tx` scan during that interval. The first worker can then insert
+the child after the parent event, with no authoritative level or subsequent
+recheck to observe that the dependency is already available. This is a legal
+interleaving and exactly explains why an identical chain prefix can either
+finish or strand according to batch scheduling. Current UAK regression anchors
+`uak_direct_missing_rejection_stales_when_the_parent_becomes_available` and
+`uak_retired_indexed_level_preserves_an_unindexed_race` construct the two cuts
+that close this window; their focused isolated nextest run passed 2/2. Thus the
+deep-chain result is a develop liveness defect and UAK capability evidence, not
+a throughput sample.
+
+Cross-version fan-in attribution is complete. It uses the exact fixed binaries
+and byte-identical harness recorded above. Reproducible inputs are:
+
+- UAK Samply profile and summary:
+  `/private/tmp/txpool-p10-cross/fanin8-uak-f786.json.gz` and
+  `/private/tmp/txpool-p10-cross/fanin8-uak-f786.summary.json`;
+- develop Samply profile and summary:
+  `/private/tmp/txpool-p10-cross/fanin8-develop-91b9.json.gz` and
+  `/private/tmp/txpool-p10-cross/fanin8-develop-91b9.summary.json`;
+- target-window analyzer:
+  `/private/tmp/txpool-p10-cross/analyze_one_shot.py`, SHA-256
+  `70478fb975002d9447f6f77168c1733e2f89dff1364c31f5d4ad7188ad4d7da2`.
+
+The UAK measured 500 target transactions in 94.059 ms at 4,784.252 tx/s,
+with 1,287 target-window samples and 285,800 us of complete sampled CPU
+intervals. Leaf `__psynch_cvwait` was 77.93%. Inclusive authority work included
+35.51% exclusive parking-lot slow path, 18.80% compute checkout, 18.73%
+`try_checkout`, 9.87% settlement, 9.71% script verification, 5.83% Ready,
+5.28% shared-lock slow path, 4.90% ingress, 3.34% prepared Apply, 2.80%
+retained-ingress commit, 2.49% effect settlement, 2.02% dependency batch Apply
+and 1.86% dependency attach.
+
+Develop measured the same 500 target transactions in 50.417 ms at 8,925.649
+tx/s, with 481 target-window samples and 304,224 us of complete sampled CPU
+intervals. Script verification was 45.74% inclusive and VM initialization was
+34.93% leaf. The comparable CPU total was slightly greater than UAK while its
+wall time was nearly half. The primary UAK loss is therefore failure to expose
+parallelism through scheduling, wake and authority handoff, not extra
+dependency-edge arithmetic. Per-edge dependency-frontier Apply/attach work is
+only a few percent. This is attribution evidence, not permission to weaken the
+single authority or deterministic settlement policy.
+
+The first architecture candidate is now narrowed to a derived typed wake
+projection, not a caller-maintained notification map:
+
+1. The exhaustive `PreparedApply::apply` compiler captures an O(1) before/after
+   runnable-level projection and returns a typed post-commit wake receipt with
+   `CommittedDelta`.
+2. Resolve, small-verify, any-verify, Ready, dependency maintenance, effect
+   availability/capacity and template-source consumers receive distinct hints.
+   Hints remain derived and lossy; authority levels remain the only truth.
+3. Non-empty same-capability levels use a wake-one baton: a successful
+   checkout/settlement republishes only while matching work remains. Capacity
+   release remains broadcast or separately proves size-aware progress because
+   waiter batch sizes differ.
+4. Initial consumers probe the level before waiting, and every wait remains
+   subscribe-before-level-read. A wrong capability must be unable to consume
+   the sole progress hint.
+5. Publication must be mechanically tied to Apply. The required order remains
+   authority guard release, retirement destruction, then wake publication;
+   therefore notification cannot move into the write-guard destructor.
+6. Full/reset serialization and proposal/transaction/uncle optimistic template
+   concurrency remain unchanged. Template hints publish only when their exact
+   source versions change.
+
+This candidate adds no lifecycle state, mutable authority, lock, worker, retry,
+cache or repair scan. It replaces heterogeneous global broadcast and failed
+unique-write probes with a derived projection. It is not yet accepted: source
+APIs, all `CommittedDelta` consumers, liveness under coalesced ingress, mixed
+small/large verification, heterogeneous capacity waiters, maintenance and
+template lanes must first close a static proof. Direct remote admission, effect
+checkout removal and true batch Plan/Apply remain later candidates and must not
+be layered on before this result is measured.
+
+Static design closure before the prototype:
+
+- Scheduler wake identity is the next committed `EntryVersion` for Resolve,
+  small-cycle Verify, any-cycle Verify and Ready. `EntryVersion` is globally
+  unique, so a changed non-empty head is an allocation-free progress edge;
+  an unchanged tail insertion does not need another hint because the existing
+  head already owns a stored/waiting hint and its checkout changes the head.
+- Resolve cannot share one wake-one signal indiscriminately with verifiers. A
+  verifier may consume that hint and correctly prefer Verify work, leaving the
+  Resolve head unchanged. The sealed topology therefore has three role hints:
+  dedicated resolver, small verifier and any verifier. A Resolve-head change
+  notifies all three; a small-Verify change notifies small and any as selected
+  by their exact scheduler heads; a large-Verify change notifies any. The
+  dedicated resolver makes helper consumption unable to strand Resolve.
+- Ready, dependency maintenance and effect publication each have one consumer
+  and use one stored wake-one hint. Dependency publication needs only the
+  empty-to-nonempty edge because the sole driver continues after every bounded
+  successful step. Remote and Accepted expiry retain the independent one-second
+  wall-clock tick.
+- Effect-capacity release is not a work hint. Service, Ready, maintenance and
+  compute paths must return a typed `WaitEffectCapacity` step and subscribe
+  before their attempt. A release broadcasts because waiter effect classes and
+  batch byte sizes differ; wake-one cannot prove that the selected waiter fits.
+- The effect publisher wakes only when checkout becomes possible or closed and
+  drained becomes observable. Template lanes retain their local candidate-uncle
+  wake and receive an authority broadcast only when the exact pool template
+  source versions change; their current source-cut OCC remains unchanged.
+- `PreparedApply::apply` is the sole composite before/after wake compiler. Its
+  helper functions return retirement data, and the outer exhaustive match adds
+  one `AuthorityWakeTransition`. This avoids a per-transition caller map.
+- `CommittedDelta::into_post_commit` explicitly destroys removals, owners,
+  replaced effect storage and generations after the authority guard opens,
+  then returns a move-only post-commit receipt. `AuthoritySignals` consumes
+  that receipt, publishes timing observations and routes derived hints. The
+  checkout-plus-capture-failure path composes consecutive transitions so no
+  intermediate under-lock level is published. Notification from a lock-guard
+  destructor remains forbidden because it would precede retirement.
+- Production consumers have been enumerated: retained/direct ingress,
+  administration, ordered chain Apply, expiry/dependency maintenance, compute
+  checkout/settlement/cancellation, Ready, effect checkout/settlement/close,
+  effect-capacity retry loops and the five existing template tasks. Scratch
+  generation construction and unit fixtures deliberately discard wake receipts
+  because they expose no runtime consumer.
+
+The static proof still requires checking the exact scheduler-head query cost
+inside Apply. The first prototype may use immutable head reads with no resident
+mirror; a new scheduler wake clock or atomic fast path is forbidden unless the
+fixed-binary profile proves those reads material. Correctness tests precede any
+performance verdict.
+
+Exact resume action:
+
+1. Audit O(1) runnable-level APIs in scheduler, dependency and effect owners,
+   plus every `CommittedDelta` consumer.
+2. Write the complete derived-wake authority, liveness, ordering, capacity,
+   cancellation and concurrency proof into this restart authority before code.
+3. Choose a consuming post-commit capability that cannot publish before
+   retirement destruction or silently omit publication.
+4. Implement a recoverable prototype only if the static review closes; add
+   preexisting-level, baton-drain, wrong-lane, verifier-role, capacity-waiter,
+   dependency-maintenance, template-source and idle-probe regressions.
+5. Run isolated nextest and all affected static/integration gates, then build
+   one fixed candidate binary and profile/A-B against both `f78636e90` and
+   develop before retaining it.
+
+No optimization prototype has been compiled or accepted.
 
 ## Restart rule
 
