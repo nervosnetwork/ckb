@@ -1114,6 +1114,71 @@ Exact current action:
    commit through the existing final compiler. If not, profile the failed
    hypothesis before redesigning it; do not silently discard the experiment.
 
+Capability-shared liveness checkpoint and fixed-binary preflight:
+
+- the root fix and its evidence are frozen at `17088e240`; the only remaining
+  main-worktree modification is the user-owned root `.gitignore` plus this
+  recovery-ledger continuation;
+- the clean equal-length candidate worktree `/private/tmp/txp-uak-b1da` now
+  points at `17088e240`. Its fixed quick binary is
+  `/private/tmp/txp-uak-b1da/target/tx-pool-bench/release/deps/pipeline-391cf27c27114dc3`,
+  SHA-256
+  `2777ac7f69bc09b421fad85417bcdf958d3a447d841c09d30a6b7e8941c5ea42`;
+- four independent regular-quick executions of the exact formerly failing
+  `pipeline_1peer_8worker_warm_always_success_100` scenario passed. Each used
+  the production quick shape (3-second warm-up, 30 samples, 10-second target
+  window), not the shortened preflight. Median point throughput was 4.456-4.497
+  Ktx/s and no generation timed out;
+- the next exact action is the balanced six-pair focused quick A/B for cold and
+  warm `always_success_100` against frozen `6f486cdf5`, followed by matched
+  operation profiling before the retain/remove decision.
+
+Capability-shared performance disposition:
+
+- the balanced six-pair focused quick record completed with no liveness
+  failure. Cold throughput moved `+0.37%` with `1.05%` paired relative MAD;
+  warm moved `-0.54%` with `0.29%` MAD. The geometric mean was `-0.08%`, within
+  the quick 2% diagnostic boundary;
+- baseline JSON
+  `/private/tmp/txp-shared-baseline-v1.json` has SHA-256
+  `942ed3616cae2284de673f2277996f031e82d7b51a40065515e98a060a5fdf8e`;
+  candidate JSON `/private/tmp/txp-shared-candidate-v1.json` has SHA-256
+  `bf0ffad44b6c6d40e76df81ef1d425547dac96d12d2fbd1077e1f1678b78cc09`;
+- the candidate internal+profiling binary has SHA-256
+  `03b658237b3fffbed10a333cee0238d9bc244150f31b7205a049f56531ba429b`.
+  Its independent manifest/summary hashes are
+  `e63c37845b81eea9d9903527c0f0bb9fafdeb93b7c8ea675102d14faa1535c1b` /
+  `ab35e15757325f24d8820364d72e53f992c33dccc42af67f4b4490478b2e4b43`;
+- matched operation profiles retained identical semantic work. Authority write
+  probes fell 26,005 -> 20,097 for 2,000 independent transactions, 15,866 ->
+  13,145 for 500 parent-first transactions and 15,381 -> 12,740 for 500
+  child-first transactions. Their candidate manifest/summary hashes are
+  parent
+  `45f26cfcdd6103e556c0749efcd11ba655822736e140898abaaab009d2cafbe4` /
+  `a35c0ce86b0432ec9959805e04ed0ca87aa1f2602562954bd91c889ebf2893f6`
+  and child
+  `52bd42d2b5d977ff412c1f1e96930f8de946fe6553042a251b22eac0b9d5ee8e` /
+  `aca61859544046c1b787607b9574e4eeb0f2163bf23578fcdc805111da3948e3`;
+  deterministic re-analysis passed for all three manifests;
+- single profile wall/CPU varied `+0.9%` to `+2.9%`; this is recorded as
+  diagnostic noise/potential cost, not hidden. The balanced Criterion A/B owns
+  timing acceptance, and the final medium matrix remains the production gate;
+- retain `17088e240`: it closes a legal-input liveness failure and removes
+  measured failed probes without new authority, mutable state, lock, task,
+  queue, timer, retry or failure domain. The phase-wide review found no
+  snowball complexity or concurrency loss.
+
+Exact next action:
+
+1. Freeze the public performance evidence update.
+2. Reopen the direct verified-commit candidate only through the existing final
+   validator and membership compiler. First freeze its legal fast-path and
+   closed fallback algebra; do not copy policy or remove charged Ready.
+3. Add the falsification tests, run all correctness gates, then fixed-binary
+   A/B and matched profiles before retaining it.
+4. Evaluate ordinary effect borrowing only after that phase review. Final
+   medium UAK-versus-checkpoint and UAK-versus-develop remain release gates.
+
 ## Restart rule
 
 After compaction or restart:

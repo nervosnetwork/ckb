@@ -177,12 +177,15 @@ missing dependency, resource rejection or effect-capacity fallback.
 The next candidates were reviewed together rather than accumulated as local
 patches:
 
-1. **Capability-routed shared compute batons - selected first.** Resolve is one
+1. **Capability-routed shared compute batons - retained.** Resolve is one
    executable level shared by the resolver and verifier helpers. A typed wake
    reason makes the selected worker attempt that exact lane first. Small-Verify
    is shared by all verifiers; Large-Verify is consumable only by an Any
-   verifier. This removes duplicate notifications and write-lock probes while
-   adding no owner, queue, lock, task, timer or retry state.
+   verifier. Runnable publication derives both scheduler heads and release of
+   the existing active-work charge, because a stable head can be temporarily
+   ineligible under a global, Remote or per-peer limit. This removes duplicate
+   notifications and write-lock probes while adding no owner, queue, lock,
+   task, timer or retry state.
 2. **Direct verified commit - design-accepted after the baton result.** A
    successful chain-backed independent verification may produce a sealed final
    validation receipt while its exact Computing lease remains live, then use
@@ -210,6 +213,57 @@ RBF/conflict, parent-first/child-first dependency order, peer revocation and
 chain revision races. A candidate is removed if it adds a decision authority,
 changes an externally visible outcome, loses progress under any of those
 interleavings, or fails fixed-binary A/B after the complete correctness gates.
+
+### 3.3 Shared compute baton result
+
+The first shared-baton prototype exposed a real liveness defect before any
+performance result was accepted. A verifier could consume the only Small wake
+while the submitting peer's active-work slot was still held by Resolve. The
+Verify head then remained unchanged, so releasing the final slot emitted no
+head-change edge and left every transaction charged in `Queued(Verify)`. The
+fix derives the complete predicate:
+
+```text
+Runnable = QueueHead AND ResourceEligible
+```
+
+The existing ledger remains the sole resource authority. A decrease in total
+preaccepted active work republishes retained compatible heads; every Remote or
+per-peer release necessarily decreases that same total. An unrelated release
+may therefore cause a conservative probe, but the work is bounded by completed
+compute and creates no repair scan, timeout, watchdog or mutable wake state.
+
+Checkpoint `17088e240` passed 421/421 isolated library tests. Its service-level
+regression starts 32 fresh idle worker generations and submits the formerly
+stranded one-peer burst to each. Four additional executions of the exact warm
+Criterion shape (30 samples and a 10-second target window) all completed before
+the timing comparison.
+
+The balanced six-pair quick comparison reused baseline `6f486cdf5` and fixed
+binary hashes `94db5131c9c7...` / `2777ac7f69bc...`:
+
+| Scenario | Candidate delta | Paired relative MAD |
+|---|---:|---:|
+| cold always-success, 1 peer / 8 workers | `+0.37%` | `1.05%` |
+| warm always-success, 1 peer / 8 workers | `-0.54%` | `0.29%` |
+
+The throughput geometric mean was `-0.08%`; both shapes pass the quick 2%
+diagnostic boundary. The baseline and candidate JSON SHA-256 values are
+`942ed3616cae...` and `bf0ffad44b6c...` respectively.
+
+Matched feature-gated profiles used the same 2,000-transaction independent and
+500-transaction parent/child fixtures as section 3.1. Semantic work counts did
+not change. Authority write probes fell from 26,005 to 20,097 for independent
+work (`-22.7%`), 15,866 to 13,145 for parent-first (`-17.1%`), and 15,381 to
+12,740 for child-first (`-17.2%`). Resolve, Verify, Ready work and effect counts
+were identical on each pair. Single-capture wall and sampled CPU varied by
+about `+0.9%` to `+2.9%`; those captures explain work and are not timing
+acceptance evidence. The paired Criterion result owns the timing conclusion.
+
+The candidate is retained because it closes a legal-input liveness failure and
+removes measured failed probes without transferring authority or adding a
+failure domain. It does not yet establish a general throughput improvement;
+the final medium matrix remains the production gate.
 
 ## 4. Reproducible profiling
 
