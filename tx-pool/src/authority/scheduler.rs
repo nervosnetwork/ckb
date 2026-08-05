@@ -2,6 +2,7 @@ use super::state::{
     Arrival, EntryVersion, OwnedTx, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
     RawTxHash, VerifyCapability, VerifyCycleClass,
 };
+use crate::util::fee_rate_cross_product;
 use ckb_network::PeerIndex;
 use std::{
     cmp::Ordering,
@@ -156,11 +157,8 @@ struct VerifyKey {
 
 impl Ord for VerifyKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Both operands originate as `u64`, so the mathematical product fits
-        // in `u128`; saturating multiplication makes that proof explicit to
-        // the production arithmetic lint without changing the ordering.
-        let left_rate = u128::from(self.fee).saturating_mul(u128::from(other.serialized_bytes));
-        let right_rate = u128::from(other.fee).saturating_mul(u128::from(self.serialized_bytes));
+        let left_rate = fee_rate_cross_product(self.fee, other.serialized_bytes);
+        let right_rate = fee_rate_cross_product(other.fee, self.serialized_bytes);
         let source_and_order = self
             .source
             .cmp(&other.source)
@@ -282,8 +280,8 @@ impl Ord for ReadyKey {
         // earlier arrival before deterministic identity/version ties. There
         // is no aging state. Remote residency expiry bounds hostile retention;
         // trusted work has no per-entry service-latency guarantee.
-        let left_rate = u128::from(self.fee).saturating_mul(u128::from(other.serialized_bytes));
-        let right_rate = u128::from(other.fee).saturating_mul(u128::from(self.serialized_bytes));
+        let left_rate = fee_rate_cross_product(self.fee, other.serialized_bytes);
+        let right_rate = fee_rate_cross_product(other.fee, self.serialized_bytes);
         self.source
             .cmp(&other.source)
             .then_with(|| left_rate.cmp(&right_rate))

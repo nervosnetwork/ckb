@@ -5,7 +5,7 @@
 //! race atomically with the ban transition that removes its complete ingress
 //! cohort. The network consumes the committed effect afterwards.
 
-use crate::constants::MALFORMED_TX_BAN_SECONDS;
+use crate::constants::{MALFORMED_TX_BAN_SECONDS, PEER_BAN_FENCE_CAPACITY};
 use ckb_network::PeerIndex;
 use std::{
     collections::{HashMap, VecDeque},
@@ -36,7 +36,7 @@ impl PeerBanDeadline {
 pub(super) struct PeerBanDelta {
     lease: PeerBanLease,
     observed_at: Instant,
-    expiration: Option<Instant>,
+    record: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,13 +74,24 @@ pub(super) enum PeerBanError {
     Allocation,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct PeerBanRegistry {
     entries: HashMap<PeerIndex, PeerBanDeadline>,
-    /// One deadline per expiring peer, ordered because every first ban uses
-    /// the same fixed duration and `Instant` observations are monotonic.
+    /// One row per peer in first-ban order. Fixed-duration deadlines are also
+    /// expiry ordered; process-lifetime overflow fallbacks remain at the tail.
     /// A live marker is never extended, so the queue has no stale duplicates.
-    expirations: VecDeque<(Instant, PeerIndex)>,
+    order: VecDeque<(PeerBanDeadline, PeerIndex)>,
+    capacity: usize,
+}
+
+impl Default for PeerBanRegistry {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            capacity: PEER_BAN_FENCE_CAPACITY,
+        }
+    }
 }
 
 impl PeerBanRegistry {
@@ -100,44 +111,58 @@ impl PeerBanRegistry {
             return Ok(PeerBanDelta {
                 lease: PeerBanLease { peer, deadline },
                 observed_at,
-                expiration: None,
+                record: false,
             });
         }
 
-        self.entries
-            .try_reserve(1)
-            .map_err(|_| PeerBanError::Allocation)?;
+        // At the hard bound Apply retires one existing row first, so both
+        // collections reuse their already-owned slots. Below the bound the
+        // physical growth is reserved while Plan still owns the exact input.
+        if self.entries.len() < self.capacity {
+            self.entries
+                .try_reserve(1)
+                .map_err(|_| PeerBanError::Allocation)?;
+            self.order
+                .try_reserve(1)
+                .map_err(|_| PeerBanError::Allocation)?;
+        }
         let deadline = PeerBanDeadline::after_malformed_ban(observed_at);
-        let expiration = match deadline {
-            PeerBanDeadline::At(deadline) => {
-                self.expirations
-                    .try_reserve(1)
-                    .map_err(|_| PeerBanError::Allocation)?;
-                Some(deadline)
-            }
-            PeerBanDeadline::ProcessLifetime => None,
-        };
         Ok(PeerBanDelta {
             lease: PeerBanLease { peer, deadline },
             observed_at,
-            expiration,
+            record: true,
         })
     }
 
     pub(super) fn apply(&mut self, delta: PeerBanDelta) {
-        while let Some(&(deadline, peer)) = self.expirations.front() {
-            if deadline > delta.observed_at {
+        while let Some(&(deadline, peer)) = self.order.front() {
+            if deadline.is_active_at(delta.observed_at) {
                 break;
             }
-            self.expirations.pop_front();
-            if self.entries.get(&peer) == Some(&PeerBanDeadline::At(deadline)) {
+            self.order.pop_front();
+            if self.entries.get(&peer) == Some(&deadline) {
+                self.entries.remove(&peer);
+            }
+        }
+        if !delta.record {
+            return;
+        }
+        while self.entries.len() >= self.capacity {
+            let Some((deadline, peer)) = self.order.pop_front() else {
+                // The queue is derived solely from `entries`. If a programmer
+                // defect ever desynchronizes it, preserve the hard security
+                // bound and degrade to an empty fence set instead of panicking
+                // or retaining attacker-controlled memory.
+                self.entries.clear();
+                break;
+            };
+            if self.entries.get(&peer) == Some(&deadline) {
                 self.entries.remove(&peer);
             }
         }
         self.entries.insert(delta.lease.peer, delta.lease.deadline);
-        if let Some(deadline) = delta.expiration {
-            self.expirations.push_back((deadline, delta.lease.peer));
-        }
+        self.order
+            .push_back((delta.lease.deadline, delta.lease.peer));
     }
 
     pub(super) fn contains_at(&self, peer: PeerIndex, now: Instant) -> bool {

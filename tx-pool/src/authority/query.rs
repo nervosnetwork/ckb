@@ -577,7 +577,8 @@ impl FeeEstimateReadReceipt {
         }
         Ok(Self {
             closest: snapshot.consensus().tx_proposal_window().closest(),
-            max_block_bytes: snapshot.consensus().max_block_bytes() as usize,
+            max_block_bytes: usize::try_from(snapshot.consensus().max_block_bytes())
+                .map_err(|_| AuthorityReadError::Arithmetic)?,
             max_block_cycles: snapshot.consensus().max_block_cycles(),
             min_fee_rate,
             candidates,

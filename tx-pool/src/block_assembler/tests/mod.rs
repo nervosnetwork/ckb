@@ -2,8 +2,8 @@ use ckb_types::core::{BlockBuilder, EpochNumberWithFraction};
 
 use crate::block_assembler::candidate_uncles::CandidateUncles;
 
-use super::CellLivenessMemo;
-use ckb_chain_spec::consensus::ConsensusBuilder;
+use super::{BlockTemplateDraft, CellLivenessMemo};
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_snapshot::Snapshot;
 use ckb_store::attach_block_cell;
 use ckb_test_chain_utils::MockStore;
@@ -15,7 +15,10 @@ use ckb_types::{
 use std::{collections::HashSet, sync::Arc};
 
 fn genesis_snapshot() -> Arc<Snapshot> {
-    let consensus = Arc::new(ConsensusBuilder::default().build());
+    snapshot_with_consensus(Arc::new(ConsensusBuilder::default().build()))
+}
+
+fn snapshot_with_consensus(consensus: Arc<Consensus>) -> Arc<Snapshot> {
     let store = MockStore::default();
     let genesis = consensus.genesis_block();
     let epoch_ext = consensus.genesis_epoch_ext().clone();
@@ -56,6 +59,24 @@ fn genesis_snapshot() -> Arc<Snapshot> {
         Default::default(),
         consensus,
     ))
+}
+
+#[test]
+fn block_template_preserves_consensus_uncle_limit_above_u8() {
+    let mut consensus = ConsensusBuilder::default().build();
+    consensus.max_uncles_num = 300;
+    let snapshot = snapshot_with_consensus(Arc::new(consensus));
+    let epoch = snapshot.consensus().genesis_epoch_ext();
+    let template = BlockTemplateDraft::new(&snapshot, epoch)
+        .expect("the configured uncle limit is lossless")
+        .build(
+            snapshot.consensus().genesis_block().transactions()[0].clone(),
+            0,
+            Byte32::zero(),
+            0,
+        );
+
+    assert_eq!(template.uncles_count_limit, 300);
 }
 
 #[test]

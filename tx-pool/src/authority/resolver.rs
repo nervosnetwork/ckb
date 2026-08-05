@@ -55,7 +55,7 @@ use std::{
 };
 use tokio::sync::watch;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum CellRole {
     Input,
     Dependency,
@@ -934,7 +934,7 @@ fn collect_missing_against_cut(
     missing.sort_unstable_by(|left, right| {
         left.out_point
             .cmp(&right.out_point)
-            .then_with(|| (left.role as u8).cmp(&(right.role as u8)))
+            .then_with(|| left.role.cmp(&right.role))
     });
     missing.dedup();
     Ok(missing)

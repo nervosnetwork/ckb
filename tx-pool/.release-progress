@@ -6,23 +6,23 @@ the final completion review close.
 
 ## Fixed route
 
-1. COMPLETE — recoverable checkpoints and one restart authority.
-2. COMPLETE — UAK production cutover, publication parity and physical deletion
+1. COMPLETE - recoverable checkpoints and one restart authority.
+2. COMPLETE - UAK production cutover, publication parity and physical deletion
    of the previous transaction authority.
-3. COMPLETE — production/test isolation and the one-way
+3. COMPLETE - production/test isolation and the one-way
    Rust -> behavior -> exact unit/integration evidence graph.
-4. COMPLETE — comparison with `develop`, necessity/cost/minimality review,
+4. COMPLETE - comparison with `develop`, necessity/cost/minimality review,
    backward fault reachability, wait/publication/complexity/static audit,
    historical finding adjudication and documentation/CI convergence.
-5. COMPLETE — P9.8 complete related nextest and all 150 managed integration
+5. COMPLETE - P9.8 complete related nextest and all 150 managed integration
    specs; every failure was classified before changing code.
-6. ACTIVE — benchmark-preceding global static, model, liveness, manual-process
-   and convergence audit against current code and `develop`.
-7. PENDING — P10 reproducible profiling and fixed-binary A/B against both
+6. COMPLETE - benchmark-preceding global static, model, liveness,
+   manual-process and convergence audit against current code and `develop`.
+7. ACTIVE - P10 reproducible profiling and fixed-binary A/B against both
    `develop` and the frozen pre-performance UAK checkpoint.
-8. PENDING — final production completion review and release handoff.
+8. PENDING - final production completion review and release handoff.
 
-The order is fixed. Benchmarking may not start before phase 6 closes.
+The order is fixed. Phase 6 is closed; P10 is the only active phase.
 
 ## Phase-4 checkpoint evidence
 
@@ -250,98 +250,144 @@ Before profiling or benchmark work:
 6. Repeat the phase gates, freeze a clean pre-performance checkpoint and only
    then enter P10.
 
-## Phase-6 active audit ledger
+## Phase-6 completion ledger
 
-This ledger is the restart authority for the current collect-first audit. A
-candidate is not a request for a local patch: related producer, consumer,
-failure, liveness, resource and documentation surfaces are adjudicated
-together before any production change.
+This is the sole restart authority for the current collect-first audit. Related
+producer, consumer, liveness, failure, resource, performance and evidence
+surfaces are adjudicated together; a candidate is not permission for a local
+hardening patch.
 
-Recovery coordinates at this pause:
+Recovery coordinates:
 
-- branch `zhangsoledad/txpool-pipeline`, base comparison
+- branch `zhangsoledad/txpool-pipeline`, comparison anchor
   `develop@91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`;
-- last production/correctness checkpoint `8d5c27559`, P9.8 status checkpoint
-  `47962711b`;
-- tracked working change: this recovery file only; the root `.gitignore` is a
-  pre-existing user-owned modification and must remain unstaged;
-- current production Rust size observed during the audit: 40,207 lines
-  excluding tests and benchmark code; `authority/` contributes 34,868 lines.
-  This is context for minimality review, not a deletion target.
+- production/correctness checkpoint `8d5c27559`, P9.8 status checkpoint
+  `47962711b`, phase-6 starting checkpoint `d069d26d5`;
+- the root `.gitignore` is a pre-existing user-owned modification and must
+  remain unstaged, unreverted and unmodified;
+- the phase-6 root-correction slice below is the material frozen by the
+  pre-performance checkpoint; the root `.gitignore` is not part of it.
 
-- **Confirmed process-contract drift:** P9.8 is complete in this file,
-  `ARCHITECTURE.md` and the release manifest, while
-  `architecture-contract.json` R8 still says that P9.8 is pending.
-  `check_security_manifest.py` validates only the residual-risk key set and
-  document row presence, so the stale semantic value passes `check_all.py`.
-  Root question: dynamic release state must not be copied into the stable
-  architecture vocabulary; machine values must either have an exact semantic
-  owner or be removed.
-- **Under adjudication — mutation wake surface:** runtime Apply sites still
-  spell a post-guard `publish_mutation()` call individually. A static source
-  validator proves one direct top-level publication with no escaping control
-  flow. Determine whether that checked explicit form is the minimal Rust model
-  or whether a sealed commit capability can remove hand publication without
-  hiding Plan/Apply, coupling core state to runtime signals or increasing the
-  hot path.
-- **Under adjudication — broad Plan error algebra:** several boundaries map
-  variants that comments call unreachable under their same-cut or sealed
-  capability. Audit producer reachability before deciding whether narrower
-  planner result types can remove fail-stop surface and repeated conversion
-  code.
-- **Under adjudication — chain-update guard scope:** chain transition
-  validation uses an upgradable read guard until Apply. It performs no I/O or
-  await and preserves one coherent view, but excludes ordinary writers during
-  potentially large transition compilation. Compare a versioned release-and-
-  revalidate design against its extra allocation, retry and proof surface;
-  do not trade concurrency blindly for OCC complexity.
-- **Under adjudication — derived accounting saturation:** relay mailbox receive
-  uses saturating byte subtraction. Prove whether construction makes
-  underflow impossible and whether saturation can hide a derived projection
-  defect, then either encode exactness or record why this is deliberate
-  non-authoritative accounting.
-- **Under adjudication — narrowing casts and typed order:** the internal block
-  template stores `Consensus::max_uncles_num(): usize` as `u8`, which can
-  silently truncate a valid configured consensus value above 255 before RPC
-  projection. Related `max_block_bytes(): u64 -> usize` casts occur at runtime
-  assembly/template/query boundaries and require either a supported-platform
-  proof or one checked startup conversion. Separately, resolver missing-cell
-  ordering casts `CellRole` to `u8`; deriving and comparing `Ord` directly is a
-  zero-behavior type-level cleanup, not a semantic fix.
-- **Preliminary static negatives, not final closure:** production searches
-  found no `unsafe` and no panic-like macro/method after excluding dedicated
-  tests and benchmark code; apparent `expect` hits were lint attributes or
-  named helper functions. The complete await inventory showed async locks only
-  at derived verification-cache/template boundaries and no textual same-line
-  authority-lock/await pair. Clippy already passed, but lexical searches do not
-  replace the pending scope-aware lock/wait graph audit.
-- **Machine-contract scope observation:** most prose-valued fields in
-  `architecture-contract.json` are not consumed individually by the validator;
-  Rust enum sets and selected identity symbols are checked, while residual
-  risk values are not. Decide the stable machine vocabulary first. Do not add
-  a brittle second prose comparison: dynamic release status belongs only to
-  `security-regression-manifest.json` and this temporary progress authority.
+Closed architecture adjudications:
 
-Exact resume sequence:
+- The stable machine contract contains only consumed owner/state/identity,
+  T1-T13 and durable R2-R8 vocabulary. Dynamic release disposition lives only
+  in `security-regression-manifest.json`; generated guide and inventory facts
+  flow one way from Rust/test discovery.
+- Direct runtime Apply/drop/wake publication remains explicit and is checked
+  structurally. The checker rejects top-level `return`, `break`,
+  `continue` and `?` after commit; a hidden Drop publisher would add a less
+  visible side effect and is rejected.
+- Ordered chain validation retains one coherent upgradable authority cut.
+  Releasing it permits a newly admitted affected consumer to escape every
+  captured owner version; whole-authority OCC would add retry starvation and
+  another publication contract. Fork payload work remains outside the guard.
+- Same-cut planner contradictions remain typed structural faults; stale
+  lock-external receipts remain ordinary retry outcomes. Backward constructor
+  tracing found no valid or hostile transaction input that can create
+  generation invalidity.
+- The wait-for graph contains no authority-lock, effect-capacity, channel or
+  lost-wake cycle. Every lossy notification is subscribe-before-level-read;
+  shutdown joins cancellation-owned tasks and retains a soft timeout only for
+  bounded synchronous poll work.
+- The UAK retains one lifecycle authority. Membership, dependency, scheduler,
+  resource and source structures are derived projections changed by the same
+  Apply; template, relay, cache, metrics and persistence are not decision
+  authorities. No nested undo, second DAG, shard owner or universal actor is
+  justified.
+- Full/reset share one ordered template replacement lane. Proposal,
+  transaction and uncle lanes remain optimistic and concurrent, with a
+  separate coalesced notification lane. No phase-6 correction serializes those
+  paths.
 
-1. Read this ledger and inspect `git status --short` plus the latest five
-   commits; do not rerun P9.8.
-2. Complete the architecture-contract ownership decision. Preferred root
-   direction to adjudicate: keep only stable R2-R7 residual risks in the
-   architecture contract/document, keep stable release-gate definitions
-   separate, and let the release manifest be the sole current blocker state.
-3. Finish Plan-error producer-to-boundary reachability, especially same-guard
-   administrative/checkout/maintenance paths and legal-input construction of
-   every `AuthorityIntegrityFault`.
-4. Finish the full wait-for/cancellation/shutdown graph and the chain-update
-   upgradable-guard cost/proof comparison.
-5. Complete arithmetic/identity/hostile-bound, manual-publication and
-   docs/tests/scripts/CI derivation audits; then group and adjudicate all
-   candidates before editing production code.
-6. Apply only root corrections that survive that grouped review, rerun affected
-   gates, update public contracts, and freeze the phase-6 checkpoint.
+Root-correction slice in the working tree:
 
-Profiling and benchmarking remain prohibited until all six resume steps close.
+- `PeerBanRegistry` now has a hard 1,024-session bound. Saturation retires the
+  oldest fence; any delayed message from that session re-enters complete
+  bounded validation and can still be fetched through another peer. Accepted
+  owners remain outside peer revocation.
+- Relay mailbox byte accounting is exact. Either undercount or overcount
+  clears only the rebuildable projection and emits `GenerationReset`; the
+  O(1) empty/zero equivalence adds no scan, state or authority failure.
+- Administrative owner removal validates uniqueness once while preserving the
+  caller's semantic order. Explicit clear/revocation callers sort where order
+  is intentionally canonical; Remote expiry retains its due prefix and effect
+  order.
+- Fee-rate cross-products use exact `u128` multiplication because both
+  operands are `u64`. Pairwise independent-membership iteration no longer
+  uses saturation to express an exact slice relation.
+- Consensus block-byte and uncle-count values remain lossless across internal
+  and RPC/template boundaries; `CellRole` uses typed ordering. Candidate
+  uncles keep the existing hard global bound and validate a rejected target
+  before evicting unrelated entries.
+- Persistence startup bounds use checked arithmetic. Reads reserve fallibly,
+  remain bounded if the file grows after metadata, and reject a bound that
+  cannot carry its overflow sentinel before I/O.
+- The architecture complexity table now explicitly owns the only full
+  Accepted-population chain scans: a script-rules change and an indexed
+  tip-context-sensitive revalidation. Ordinary ingress/settlement has no full
+  owner scan.
+- ASCII technical-text, publication, architecture-vocabulary, test-layout,
+  zero-match evidence and generated-document checks are part of the discovered
+  review gate.
+
+Current evidence:
+
+- the exact develop call graphs in section 3 were re-read at the comparison
+  anchor: non-atomic RBF removal/admission/limit/recovery, missing
+  `Gap -> Pending`, witness/raw cache-key substitution, detached-uncle
+  insertion before reconciliation, uncle proposal suppression and RPC
+  Pending/Gap conflation remain verified;
+- an AST-aware production scan found no `panic!`, `assert!`, `unwrap()`,
+  `expect()` or `catch_unwind` outside tests/benchmark code;
+- manual lock/wait review found no authority guard across await or inverse
+  authority/template lock path;
+- all six discovered repository contracts pass through
+  `python3 tx-pool/scripts/check_all.py`;
+- default and internal-feature compile checks pass; strict all-target internal
+  Clippy passes with warnings denied;
+- the complete isolated internal-feature tx-pool nextest universe passes
+  415/415 with zero skipped tests;
+- the generated 150-spec managed integration universe passes 150/150 with exit
+  code zero in 830.179 seconds. The fixed binaries used SHA-256
+  `aae86f835818a6f1c53ca7d784c6739431b5b76c5af42d2f5304900004c5c679`
+  (`ckb`) and
+  `bf21b2a86d742a9b4b453cdc3eb85a028a9ea2e90c9f6e810bb26b0d640e4142`
+  (`ckb-test`);
+- generated discovery reports 415 internal-feature nextest tests, 150 managed
+  integration specs and one explicit release blocker (P10);
+- the new persistence, peer-ban, relay-accounting and uncle-limit regressions
+  are mapped into the behavior evidence graph, not merely listed in the raw
+  test inventory.
+
+Phase-6 closeout review:
+
+1. No duplicated mutable authority was introduced. Membership, dependency,
+   scheduler, resources and sources remain projections committed by one UAK
+   Apply; template, relay, cache and persistence remain derived consumers.
+2. No lifecycle state, lock, task, channel, retry layer, rollback protocol or
+   second graph was added. `OwnerRemovalKeys` is an ephemeral validated Plan
+   input, not resident authority state.
+3. Risk was eliminated rather than hidden for exact arithmetic, narrowing
+   conversions, relay byte accounting and persistence reads. Peer-fence
+   saturation is the one explicit availability trade-off: bounded retained
+   history falls back to full bounded validation, never trust or global Remote
+   denial.
+4. Legal and hostile input still maps to typed rejection, backpressure, stale
+   work or derived rebuild. Backward fault construction and the production
+   panic-like scan found no new reachable service-wide fail-stop.
+5. Existing concurrency is preserved: full/reset retain one ordered lane;
+   proposals, transactions, uncles and notifications remain optimistic and
+   concurrent. New hot-path work is O(1); persistence and consensus conversion
+   checks are outside ordinary admission.
+6. Wire, RPC, persistence v1 and consensus behavior remain compatible. The
+   block-template representation is now lossless for supported consensus
+   values rather than silently narrowing them.
+
+Exact resume action: start P10 from the frozen pre-performance source, follow
+`PERFORMANCE.md` and `BENCHMARK.md`, retain fixed binaries and environment
+fingerprints, profile before choosing any optimization, and decide only after
+scenario-specific A/B plus profile attribution.
 
 ## P10 boundary
 

@@ -16,8 +16,8 @@ and Markdown tables are discovered, generated or checked.
 
 | File | Authority and purpose | Consumer | Update rule |
 |---|---|---|---|
-| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1–T13 obligations, concurrency/resource contracts and current residual risks. The validator derives owner/phase/status variants and identity anchors from Rust and rejects disagreement. | `check_security_manifest.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums into a validator. |
-| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1–T13 mappings and curated unit/integration evidence. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
+| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T13 obligations and durable residual risks. The validator derives owner/phase/status variants and identity anchors from Rust and rejects disagreement; current release status is deliberately absent. | `check_security_manifest.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums into a validator. |
+| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1-T13 mappings and curated unit/integration evidence. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
 | [`integration-impact.json`](../integration-impact.json) | Curated complete set of registered process specs whose production paths cross tx-pool ingress, verification, pool mutation, relay, mining/template or transaction-bearing reorg boundaries. | `check_review_guide.py`, `check_security_manifest.py` | Hand-edit when a relevant spec is added, removed, renamed or its boundary changes. Integration CI checks it against `ckb-test --list-specs`. |
 | [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory and explicit release blockers. It stores no derived count or individual evidence. | `check_security_manifest.py` | Edit only when an assembly input or release decision changes. Test counts are always derived. |
 | [`test-layout-manifest.json`](../test-layout-manifest.json) | Allowed dedicated test roots plus named irreducible test observation seams. Module wiring and `cfg(test)` sites are discovered from Rust rather than copied. | `check_test_layout.py` | Edit only for a deliberate directory boundary or exceptional seam. A current observation is never accepted merely by copying it into an allowlist. |
@@ -26,24 +26,24 @@ and Markdown tables are discovered, generated or checked.
 The evidence direction is one-way:
 
 ```text
-Rust source ─────discovers────► owner/state/identity facts
-nextest + ckb-test ─discovers─► complete executable test universe
-         │
-         ▼ exact reconciliation
-architecture-contract.json ──► T1–T13 vocabulary
-review-behaviors.json ────────► semantic rules + exact owners/evidence
-integration-impact.json ──────► curated process boundary
-         │
-         ├────generates───────► REVIEW_GUIDE.md commands and tables
-         ├────generates───────► test-inventory.txt
-         └────validates───────► test-layout exceptions and CI gates
+Rust source -------- discovers -------> owner/state/identity facts
+nextest + ckb-test -- discovers -------> complete executable test universe
+         |
+         v exact reconciliation
+architecture-contract.json -----------> T1-T13 vocabulary
+review-behaviors.json -----------------> semantic rules + exact owners/evidence
+integration-impact.json --------------> curated process boundary
+         |
+         +-- generates ----------------> REVIEW_GUIDE.md commands and tables
+         +-- generates ----------------> test-inventory.txt
+         +-- validates ----------------> test-layout exceptions and CI gates
 ```
 
 The only manual layer is semantic: why a rule exists, its attack case,
 compatibility and performance bounds, and whether a residual risk is accepted.
 Everything mechanically derivable has one owner and is generated or checked.
 CI is read-only and fails on dangling symbols, zero-match evidence, missing
-T1–T13 coverage, unregistered relevant process specs, stale inventory,
+T1-T13 coverage, unregistered relevant process specs, stale inventory,
 test-code leakage or generated Markdown drift.
 
 ## Tools
@@ -51,8 +51,9 @@ test-code leakage or generated Markdown drift.
 | Command | Purpose | Writes by default |
 |---|---|---|
 | `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery for the lightweight CI workflow. | No |
+| `python3 tx-pool/scripts/check_ascii.py` | Reject non-ASCII styling in technical source, contracts and generated documentation while allowing the profiler's exact external microsecond unit token. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
-| `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, keep reorg and generation clears on one capacity-one ordered control lane, structurally prove that each direct `AuthorityRuntime` mutation has one top-level post-guard wake publication with no escaping control flow, and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |
+| `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, keep reorg and generation clears on one capacity-one ordered control lane, structurally prove that each direct `AuthorityRuntime` mutation has one top-level post-guard wake publication with no explicit or `?` early exit after its committed statement, and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions, reviewed test-only seams, and the explicit dormant-tx-pool retirement boundary used by chain-only sync tests. | No |
 | `python3 tx-pool/scripts/check_security_manifest.py` | Discover nextest tests and validate the architecture, behavior, integration and inventory contracts. | No |

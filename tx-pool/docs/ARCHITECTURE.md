@@ -320,6 +320,13 @@ known before asynchronous controller delivery, every already-queued message
 that reaches the live peer fence later commits an exact
 `RemoteIngressReleased` effect of its own. Another peer can therefore supply
 the same raw transaction in either ordering; Accepted owners remain accepted.
+The fence registry retains at most `PEER_BAN_FENCE_CAPACITY = 1024` distinct
+sessions. Exact retirement would require a second cross-layer lease protocol
+covering relayer batches, controller queues and checked-out handlers. On
+saturation the oldest fence is therefore retired: a later delayed submission
+from that session re-enters complete per-peer/resource/verification policy,
+while newer fences remain effective. Saturation never bypasses validation,
+removes Accepted ownership or stops all Remote admission.
 
 ## 7. Validate, Plan, Apply and effects
 
@@ -626,14 +633,18 @@ The completed static complexity inventory is:
 | Remote/trusted ingress, checkout and compute settlement | Transition-local index/projection deltas. Queue checkout visits at most the charged owner rows; Ready selects at most `MAX_READY_BATCH = 8`. | Hot path; no full owner scan or attacker-sized destruction. |
 | RBF, eviction and accepted causal removal | Complete indexed conflict/descendant cohort capped by `MAX_POOL_MUTATION_CANDIDATES = 100`, with configured ancestor/descendant bounds. | Atomic membership requires the complete closure; over-bound input is rejected or the chain generation is rebuilt. |
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
-| Ordered reorg | Work proportional to the actual fork plus bounded accepted closures. Over-bound recovery replaces the ephemeral generation instead of retaining partial state. | Chain generation is trusted consensus work and must reconcile as one ordered cut. Block traversal and payload compaction occur before the write guard. |
+| Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Over-bound recovery replaces the ephemeral generation instead of retaining partial state. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Block traversal and payload compaction occur before the write guard. |
 | `ClearPipeline` / `ClearPool` | All live owners in an explicit administrative command. | Deliberate whole-generation operation, never ordinary ingress. Retired payload destruction happens after the guard opens. |
 | RPC, persistence, relay rebuild and template capture | Bounded read capture/page under a shared guard; sorting, serialization, parent expansion and template packing occur after it opens. | Coherent projection requires one read cut but not exclusive ownership. |
 | Template graph algorithms | Outside the authority lock; selected dependency occurrences and descendant-cache memberships are each capped at 200,000 and conditional-cycle shedding at 64 rounds. | Derived consensus packaging with deterministic underfill fallback. |
 | Candidate uncles and committed-hash cache | Hard limits of 128 and 100,000 respectively, outside lifecycle authority decisions. | Bounded compatibility/template projections; exhaustion degrades or evicts derived data only. |
+| Peer-ban fence | At most `PEER_BAN_FENCE_CAPACITY = 1024` session rows; expiry and oldest-live retirement are incremental. | Bounds session-churn memory without a second relayer/controller lease authority. Saturation may send one old delayed submission back through full bounded validation, never through a trust fast path. |
 
-No other population scan is admitted. Adding one requires an explicit row,
-attack bound and complexity regression before implementation.
+No other population scan is admitted. The chain-transition population cases
+above are bounded by charged Accepted ownership and driven only by an ordered,
+consensus-validated chain command, not peer transaction ingress. Adding a scan
+requires an explicit row, attack bound and complexity regression before
+implementation.
 
 ## 15. Rust-native failure model
 
@@ -692,6 +703,14 @@ The architecture preserves parallelism where CKB permits it:
 - authority read queries are shared;
 - block-template component construction stays optimistic and parallel;
 - external effects, cache writes and persistence I/O stay outside the guard.
+
+Ordered chain reconciliation is the deliberate exception to ordinary short
+write-side planning. It keeps one upgradable read cut through semantic
+validation so a concurrent admission cannot create a newly affected consumer
+that is absent from every captured owner version. Releasing that cut would
+require a whole-authority OCC version, retry policy and starvation proof; it
+would not be a free concurrency improvement. Fork payload preparation remains
+outside the guard and Apply/destruction/publication retain their narrow scopes.
 
 Resolve and Verify queues use committed per-owner round-robin fairness. Ready
 admission deliberately does not: it is strict `Recovery > Proposal > Remote`,
@@ -841,11 +860,12 @@ from before/after owner state to source versions, effects and wake levels. A
 variant with consumers but no producer, or a publication point with no
 consumer/rebuild rule, fails review.
 
-## 20. Residual risks and release conditions
+## 20. Residual risks and release evidence
 
-The following are explicit boundaries, not claims of completion:
+The following stable boundaries are owned by
+`architecture-contract.json`. They are not dynamic release status:
 
-| ID | Residual risk or release condition |
+| ID | Residual risk |
 |---|---|
 | R2 | External effects are not crash durable or universally exactly-once. |
 | R3 | Persistence is best effort and every replayed transaction re-enters validation. |
@@ -853,8 +873,7 @@ The following are explicit boundaries, not claims of completion:
 | R5 | Derived template failure can retain the last valid template and underfill until a source change. |
 | R6 | Optional replacement history can be discarded as a complete set under its bounded sub-budget. |
 | R7 | Legacy v1 persistence remains an accepted compatibility input. |
-| R8 | P9.8 passed the complete generated tx-pool-related integration universe at `8d5c27559`; any later semantic change reopens its affected acceptance gates. |
-| R9 | Reproducible fixed-binary performance acceptance remains the P10 gate. |
+| R8 | Peer-ban fence saturation evicts the oldest fence; a delayed submission from that session must re-enter full bounded validation. |
 
 The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
 17 now:
@@ -873,6 +892,8 @@ The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
 6. make documentation, machine contracts, isolated tests, full related
    integration coverage and CI selectors agree exactly.
 
-The static architecture gate is therefore closed. P9.8 complete related test
-acceptance passed at `8d5c27559`; P10 profiling/fixed-binary A/B remains an
-independent release condition and may not be inferred from correctness review.
+Current release disposition has one authority:
+`security-regression-manifest.json`. P9.8 complete related test acceptance
+passed at `8d5c27559`; a later semantic change reopens its affected evidence.
+P10 profiling/fixed-binary A/B remains the current manifest blocker and may
+not be inferred from correctness review.

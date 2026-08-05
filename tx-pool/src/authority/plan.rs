@@ -800,6 +800,42 @@ struct AdminDelta {
     clocks: AuthorityClocks,
 }
 
+/// Unique owner-removal input whose caller-selected order is preserved.
+/// Duplicate rejection happens once before cause-specific effects or derived
+/// deltas are compiled; truncation of a prefix preserves the proof.
+struct OwnerRemovalKeys(Vec<RawTxHash>);
+
+impl OwnerRemovalKeys {
+    fn new(hashes: Vec<RawTxHash>) -> Result<Self, PlanError> {
+        let mut unique = HashSet::new();
+        unique
+            .try_reserve(hashes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for hash in &hashes {
+            if !unique.insert(hash) {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            }
+        }
+        Ok(Self(hashes))
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.0.truncate(len);
+    }
+
+    fn into_inner(self) -> Vec<RawTxHash> {
+        self.0
+    }
+}
+
+impl std::ops::Deref for OwnerRemovalKeys {
+    type Target = [RawTxHash];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Complete authoritative and derived transition for a set of owners moving
 /// to Nowhere. Administrative causes and generation control reuse this one
 /// compiler, so resource release, membership removal, dependency publication,
@@ -3112,7 +3148,6 @@ impl TxPoolAuthority {
                 .map(|(hash, _)| hash.clone()),
         );
         hashes.sort_unstable();
-
         let generation = next_generation(self.generation)?;
         let sequence = self.clocks.next_sequence;
         let clocks = AuthorityClocks {
@@ -3120,7 +3155,7 @@ impl TxPoolAuthority {
             ..self.clocks
         };
         let effect = self.effects.plan_generation_reset(sequence)?;
-        let removal = self.plan_owner_removal_batch(hashes, sequence)?;
+        let removal = self.plan_owner_removal_batch(OwnerRemovalKeys::new(hashes)?, sequence)?;
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::ClearPipeline(ClearPipelineDelta {
@@ -3164,15 +3199,12 @@ impl TxPoolAuthority {
 
     fn plan_administrative_removal(
         &mut self,
-        mut hashes: Vec<RawTxHash>,
+        hashes: Vec<RawTxHash>,
         plan: AdminPlan,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
-        let unique = hashes.iter().collect::<HashSet<_>>();
-        if unique.len() != hashes.len() {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
-        for hash in &hashes {
+        let mut hashes = OwnerRemovalKeys::new(hashes)?;
+        for hash in hashes.iter() {
             let owner = self
                 .entries
                 .get(hash)
@@ -3228,7 +3260,7 @@ impl TxPoolAuthority {
                         }
                     }
                     OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {
-                        if hashes.as_slice() != std::slice::from_ref(root) {
+                        if &*hashes != std::slice::from_ref(root) {
                             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                         }
                     }
@@ -3269,7 +3301,7 @@ impl TxPoolAuthority {
                 effects
                     .try_reserve(hashes.len())
                     .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-                for hash in &hashes {
+                for hash in hashes.iter() {
                     effects.push(CommittedEffect::RemoteExpired {
                         tx_hash: hash.clone(),
                     });
@@ -3317,7 +3349,7 @@ impl TxPoolAuthority {
                 effects
                     .try_reserve(hashes.len())
                     .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-                for hash in &hashes {
+                for hash in hashes.iter() {
                     let owner = self
                         .entries
                         .get(hash)
@@ -3352,13 +3384,9 @@ impl TxPoolAuthority {
 
     fn plan_owner_removal_batch(
         &mut self,
-        hashes: Vec<RawTxHash>,
+        hashes: OwnerRemovalKeys,
         sequence: ApplySequence,
     ) -> Result<OwnerRemovalBatch, PlanError> {
-        let unique = hashes.iter().collect::<HashSet<_>>();
-        if unique.len() != hashes.len() {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
         let accepted_removals = hashes
             .iter()
             .filter(|hash| matches!(self.entries.get(*hash), Some(OwnedTx::Accepted(_))))
@@ -3374,7 +3402,7 @@ impl TxPoolAuthority {
         owner_refs
             .try_reserve(hashes.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for hash in &hashes {
+        for hash in hashes.iter() {
             owner_refs.push(
                 self.entries
                     .get(hash)
@@ -3419,7 +3447,7 @@ impl TxPoolAuthority {
         let owners = DerivedOwnerDelta { indexes, sources };
         let retired = retired_buffer(hashes.len())?;
         Ok(OwnerRemovalBatch {
-            hashes,
+            hashes: hashes.into_inner(),
             owners,
             resources,
             membership,

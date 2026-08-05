@@ -210,6 +210,8 @@ impl AuthorityRuntimeConfig {
             .checked_mul(INDEX_SLOTS_PER_DEPENDENCY)
             .ok_or(RuntimeConfigError::Arithmetic)?;
         let pipeline_bytes = config.tx_pipeline_resident_size_budget();
+        let max_block_bytes = usize::try_from(consensus.max_block_bytes())
+            .map_err(|_| RuntimeConfigError::Arithmetic)?;
         if pipeline_bytes <= entry_metadata_bytes {
             return Err(RuntimeConfigError::PipelineBudgetTooSmall);
         }
@@ -256,7 +258,7 @@ impl AuthorityRuntimeConfig {
             .checked_sub(compute_bytes)
             .ok_or(RuntimeConfigError::Arithmetic)?;
 
-        let desired_expanded_edges = (consensus.max_block_bytes() as usize)
+        let desired_expanded_edges = max_block_bytes
             .checked_div(32)
             .and_then(|count| count.checked_add(1))
             .ok_or(RuntimeConfigError::Arithmetic)?
@@ -370,7 +372,7 @@ impl AuthorityRuntimeConfig {
         let effects = EffectLimits::production(
             config.max_tx_pool_size,
             retained_bytes,
-            consensus.max_block_bytes() as usize,
+            max_block_bytes,
             compute_edges_per_work,
         )
         .map_err(|error| match error {

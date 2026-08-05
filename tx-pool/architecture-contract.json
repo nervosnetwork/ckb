@@ -1,32 +1,16 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
   "authority": {
     "store": "AuthorityStore",
-    "transaction_owner": "TxPoolAuthority",
-    "primary_map": "entries_by_raw_tx_hash",
-    "paired_chain_evidence": "snapshot_and_ChainViewId",
-    "derived_state": [
-      "AuthorityIndexes",
-      "MembershipProjection",
-      "FairFrontier",
-      "DependencyFrontier",
-      "ResourceLedger",
-      "AuthoritySourceVersions",
-      "EffectLog",
-      "PeerBanRegistry"
-    ]
+    "transaction_owner": "TxPoolAuthority"
   },
   "identity": {
-    "ownership_key": "raw_tx_hash",
-    "verification_cache_key": "inline_witness_hash_32_bytes_and_ScriptVerificationRules",
-    "proposal_short_id_role": "collision_aware_index_and_consensus_protocol_only",
     "entry_version": "process_global_non_reused_u128_and_active_compute_identity",
     "compute_capability": "move_only_checked_out_work_bound_to_entry_version",
-    "chain_view": "monotonic_revision_and_tip_hash",
-    "apply_sequence": "process_global_monotonic_u128"
+    "verification_cache_key": "inline_witness_hash_32_bytes_and_ScriptVerificationRules"
   },
   "owner_algebra": {
     "variants": [
@@ -48,111 +32,17 @@
       "Pending",
       "Gap",
       "Proposed"
-    ],
-    "forbidden_persistent_states": [
-      "Committing",
-      "Invalidated",
-      "RaceLost",
-      "Undoing",
-      "UnchargedOwner",
-      "WorkerOwnedPayload",
-      "UncommittedEffect"
     ]
   },
-  "transition_pipeline": {
-    "validation": "typed_evidence_bound_to_exact_transaction_chain_view_and_policy",
-    "plan": "semantically_read_only_preallocation_and_closed_delta_construction",
-    "apply": "single_consumption_total_infallible_authority_transition",
-    "effects": "bounded_effect_delta_committed_by_the_same_apply",
-    "external_io": "consumes_only_committed_effect_leases_after_the_store_guard_opens",
-    "ordinary_outcomes": [
-      "Apply",
-      "Reject",
-      "Backpressure",
-      "Stale",
-      "Duplicate",
-      "Cancelled"
-    ]
-  },
-  "failure_model": {
-    "operational": "direct_AuthorityServiceError_variants",
-    "integrity": "AuthorityServiceError_Integrity_of_AuthorityIntegrityFault",
-    "generation_invalidity": "constructible_only_from_AuthorityIntegrityFault",
-    "derived_boundaries": "cannot_veto_committed_authority_or_forbid_persistence",
-    "ordered_chain_error": "closed_Cancelled_or_Integrity_domain_after_internal_allocation_retry",
-    "reachability": "backward_constructor_audit_excludes_valid_hostile_stale_resource_external_and_derived_inputs"
-  },
-  "commands": [
-    "retained_ingress",
-    "trusted_promotion",
-    "compute_checkout",
-    "compute_settlement",
-    "direct_admission",
-    "ready_admission",
-    "dependency_maintenance",
-    "administrative_removal",
-    "peer_revocation",
-    "chain_transition",
-    "clear_pipeline",
-    "clear_pool",
-    "effect_checkout",
-    "effect_settlement",
-    "effect_close"
-  ],
-  "concurrency": {
-    "authority_lock": "one_synchronous_rwlock_with_no_await",
-    "parallel_work": "resolve_verify_and_immutable_plan_computation_outside_the_authority_guard",
-    "transient_compute_gate": "count_only_semaphore_without_transaction_ownership",
-    "wake_contract": "one_checked_post_guard_hint_per_runtime_mutation_plus_level_triggered_authority_recheck",
-    "ordered_chain_lane": "capacity_one_reliable_best_tip_transition",
-    "template_lanes": [
-      "ordered_full_or_reset_replacement",
-      "optimistic_proposals",
-      "optimistic_transactions",
-      "optimistic_uncles",
-      "coalesced_external_notification"
-    ],
-    "forbidden": [
-      "authority_guard_across_await",
-      "external_io_under_authority_guard",
-      "second_transaction_owner",
-      "generic_mutation_closure",
-      "timing_based_stale_work_acceptance"
-    ]
-  },
-  "effect_log": {
-    "owner": "TxPoolAuthority",
-    "classes": [
-      "Remote",
-      "Trusted",
-      "Critical"
-    ],
-    "replacement_record": "GenerationReset",
-    "publication": "single_move_only_publisher_claim",
-    "capacity_rule": "largest_indivisible_batch_fits_by_construction"
-  },
-  "resource_coordinates": [
-    "entries",
-    "resident_bytes",
-    "dependency_edges",
-    "active_work",
-    "reserved_compute_bytes",
-    "reserved_compute_edges",
-    "accepted_size_and_cycles",
-    "remote_total",
-    "per_peer",
-    "replacement_history",
-    "effect_batches_and_bytes"
-  ],
   "root_families": {
-    "F1": "ownership_and_ABA",
-    "F2": "membership_RBF_and_capacity_atomicity",
-    "F3": "committed_effects_and_publication",
-    "F4": "bounded_resources_and_adversarial_work",
-    "F5": "dependency_liveness_and_progress",
-    "F6": "replacement_history_and_recovery",
-    "F7": "chain_administration_and_template_convergence",
-    "F8": "identity_evidence_and_public_projection"
+    "F1": "ownership and ABA",
+    "F2": "RBF and capacity atomicity",
+    "F3": "observable effects",
+    "F4": "hostile resources",
+    "F5": "dependency progress",
+    "F6": "conflict recovery",
+    "F7": "chain and template convergence",
+    "F8": "identity and evidence"
   },
   "target_invariants": {
     "T1": "OwnerPartition",
@@ -170,20 +60,12 @@
     "T13": "TemplateConvergence"
   },
   "residual_risks": {
-    "R2": "external_effect_delivery_is_not_crash_durable_or_exactly_once",
-    "R3": "persistence_is_best_effort_and_all_replay_reenters_validation",
-    "R4": "process_OOM_abort_FFI_and_memory_corruption_are_out_of_model",
-    "R5": "derived_template_failure_retains_the_last_valid_template_and_may_underfill",
-    "R6": "bounded_optional_replacement_history_may_be_dropped_under_pressure",
-    "R7": "legacy_v1_persistence_remains_a_compatibility_input",
-    "R8": "complete_related_integration_acceptance_is_pending_P9_8",
-    "R9": "controlled_fixed_binary_performance_acceptance_is_pending_P10"
-  },
-  "release_gates": [
-    "current_UAK_contract_and_test_evidence_converge",
-    "all_historical_adjudications_have_current_code_dispositions",
-    "all_statically_derivable_correctness_security_liveness_and_complexity_findings_close",
-    "complete_related_nextest_and_integration_universe_passes",
-    "reproducible_fixed_binary_AB_meets_the_performance_contract"
-  ]
+    "R2": "External effects are not crash durable or universally exactly-once.",
+    "R3": "Persistence is best effort and every replayed transaction re-enters validation.",
+    "R4": "Process OOM abort, FFI failure and memory corruption are outside the tx-pool model.",
+    "R5": "Derived template failure can retain the last valid template and underfill until a source change.",
+    "R6": "Optional replacement history can be discarded as a complete set under its bounded sub-budget.",
+    "R7": "Legacy v1 persistence remains an accepted compatibility input.",
+    "R8": "Peer-ban fence saturation evicts the oldest fence; a delayed submission from that session must re-enter full bounded validation."
+  }
 }

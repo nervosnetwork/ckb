@@ -22,6 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}
 REQUIRED_TARGET_INVARIANTS = {f"T{number}" for number in range(1, 14)}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -136,8 +138,8 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 5:
-        errors.append("architecture contract schema_version must be 5")
+    if contract.get("schema_version") != 6:
+        errors.append("architecture contract schema_version must be 6")
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):
@@ -167,6 +169,12 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         "move_only_checked_out_work_bound_to_entry_version"
     ):
         errors.append("compute capability must remain move-only work bound to EntryVersion")
+    if identity.get("verification_cache_key") != (
+        "inline_witness_hash_32_bytes_and_ScriptVerificationRules"
+    ):
+        errors.append(
+            "verification cache identity must bind the inline witness hash and script rules"
+        )
     if "compute_lease" in identity:
         errors.append("architecture contract must not restore a second compute-lease counter")
     errors.extend(
@@ -217,15 +225,20 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         )
     )
 
-    if set(contract.get("root_families", {})) != REQUIRED_ROOT_FAMILIES:
+    root_families = contract.get("root_families", {})
+    if not isinstance(root_families, dict) or set(root_families) != REQUIRED_ROOT_FAMILIES:
         errors.append("architecture contract must define exactly F1-F8")
-    if set(contract.get("target_invariants", {})) != REQUIRED_TARGET_INVARIANTS:
+    target_invariants = contract.get("target_invariants", {})
+    if (
+        not isinstance(target_invariants, dict)
+        or set(target_invariants) != REQUIRED_TARGET_INVARIANTS
+    ):
         errors.append("architecture contract must define exactly T1-T13")
     residual_risks = contract.get("residual_risks")
     if not isinstance(residual_risks, dict) or set(residual_risks) != {
-        f"R{number}" for number in range(2, 10)
+        f"R{number}" for number in range(2, 9)
     }:
-        errors.append("architecture contract must define exactly current residual risks R2-R9")
+        errors.append("architecture contract must define exactly stable residual risks R2-R8")
 
     evidence = invariant_unit_evidence(registry)
     if set(evidence) != REQUIRED_TARGET_INVARIANTS:
@@ -257,16 +270,22 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         except (OSError, ValueError):
             pass
         else:
-            target_invariants = contract.get("target_invariants", {})
+            for family, name in root_families.items():
+                if authority.count(f"| {family} {name} |") != 1:
+                    errors.append(
+                        f"architecture document must define {family} exactly once"
+                    )
             for invariant, name in target_invariants.items():
                 if authority.count(f"| {invariant} {name} |") != 1:
                     errors.append(
                         f"architecture document must define {invariant} exactly once"
                     )
-            for risk in residual_risks if isinstance(residual_risks, dict) else ():
-                if authority.count(f"| {risk} |") != 1:
+            for risk, description in (
+                residual_risks.items() if isinstance(residual_risks, dict) else ()
+            ):
+                if authority.count(f"| {risk} | {description} |") != 1:
                     errors.append(
-                        f"architecture document must define residual {risk} exactly once"
+                        f"architecture document must reproduce residual {risk} exactly once"
                     )
     return errors
 

@@ -32,6 +32,16 @@ pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
     T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
 }
 
+/// Exact cross-product term for comparing two `u64` fee/weight ratios.
+#[inline]
+#[allow(
+    clippy::arithmetic_side_effects,
+    reason = "the product of two u64 values is representable in u128"
+)]
+pub(crate) fn fee_rate_cross_product(fee: u64, weight: u64) -> u128 {
+    u128::from(fee) * u128::from(weight)
+}
+
 pub(crate) fn check_tx_fee_with_min_fee_rate(
     snapshot: &Snapshot,
     rtx: &ResolvedTransaction,

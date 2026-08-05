@@ -91,6 +91,11 @@ pub struct BlockAssembler {
 }
 
 impl BlockAssembler {
+    pub(crate) fn max_block_bytes(snapshot: &Snapshot) -> Result<usize, BlockAssemblerError> {
+        usize::try_from(snapshot.consensus().max_block_bytes())
+            .map_err(|_| BlockAssemblerError::Overflow)
+    }
+
     /// Construct new block generator
     pub fn new(config: BlockAssemblerConfig, snapshot: Arc<Snapshot>) -> Result<Self, AnyError> {
         let consensus = snapshot.consensus();
@@ -102,7 +107,7 @@ impl BlockAssembler {
 
         let work_id = AtomicU64::new(0);
         let cell_liveness_memo = Arc::new(StdMutex::new(CellLivenessMemo::for_block_bytes(
-            snapshot.consensus().max_block_bytes() as usize,
+            Self::max_block_bytes(&snapshot)?,
         )));
         let current = Self::build_base_template(
             &config,
@@ -157,7 +162,7 @@ impl BlockAssembler {
             Vec::new(),
             &uncles,
             fixed_size,
-            snapshot.consensus().max_block_bytes() as usize,
+            Self::max_block_bytes(&snapshot)?,
         )?
         .ok_or(BlockAssemblerError::Overflow)?;
         let uncles = optional.uncles;

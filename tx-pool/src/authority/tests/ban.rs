@@ -42,4 +42,27 @@ fn live_marker_is_never_shortened_and_expired_markers_are_pruned_on_record() {
     assert!(!registry.contains_at(first, after_expiry));
     assert!(registry.contains_at(second, after_expiry));
     assert_eq!(registry.snapshot().len(), 1);
+    assert!(registry.semantically_consistent());
+}
+
+#[test]
+fn saturation_evicts_the_oldest_fence_and_keeps_a_hard_bound() {
+    let mut registry = PeerBanRegistry::with_limit_for_test(2);
+    let start = Instant::now();
+    let first = PeerIndex::from(1);
+    let second = PeerIndex::from(2);
+    let third = PeerIndex::from(3);
+
+    for (offset, peer) in [(0, first), (1, second), (2, third)] {
+        let delta = registry
+            .plan_record(peer, start + Duration::from_secs(offset))
+            .expect("the fixed-capacity fixture reuses an owned slot");
+        registry.apply(delta);
+        assert!(registry.semantically_consistent());
+    }
+
+    assert!(!registry.contains_at(first, start + Duration::from_secs(3)));
+    assert!(registry.contains_at(second, start + Duration::from_secs(3)));
+    assert!(registry.contains_at(third, start + Duration::from_secs(3)));
+    assert_eq!(registry.snapshot().len(), 2);
 }

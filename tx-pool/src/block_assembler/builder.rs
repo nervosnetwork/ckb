@@ -19,7 +19,7 @@ pub(crate) struct BlockTemplate {
     pub(crate) parent_hash: Byte32,
     pub(crate) cycles_limit: Cycle,
     pub(crate) bytes_limit: u64,
-    pub(crate) uncles_count_limit: u8,
+    pub(crate) uncles_count_limit: u64,
 
     // option
     pub(crate) uncles: Vec<UncleBlockView>,
@@ -40,7 +40,7 @@ struct TemplateParts {
     parent_hash: Byte32,
     cycles_limit: Cycle,
     bytes_limit: u64,
-    uncles_count_limit: u8,
+    uncles_count_limit: u64,
     uncles: Vec<UncleBlockView>,
     transactions: Vec<TxEntry>,
     proposals: Vec<ProposalShortId>,
@@ -100,7 +100,8 @@ impl BlockTemplateDraft {
         let version = consensus.block_version();
         let max_block_bytes = consensus.max_block_bytes();
         let cycles_limit = consensus.max_block_cycles();
-        let uncles_count_limit = consensus.max_uncles_num() as u8;
+        let uncles_count_limit =
+            u64::try_from(consensus.max_uncles_num()).map_err(|_| BlockAssemblerError::Overflow)?;
 
         Ok(Self {
             parts: TemplateParts {

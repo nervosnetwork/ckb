@@ -559,6 +559,7 @@ impl AuthorityBlockAssembler {
         };
 
         let consensus = input.snapshot().consensus();
+        let max_block_bytes = BlockAssembler::max_block_bytes(input.snapshot())?;
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
@@ -573,7 +574,7 @@ impl AuthorityBlockAssembler {
             proposals,
             &prepared_uncles,
             fixed_size,
-            consensus.max_block_bytes() as usize,
+            max_block_bytes,
         )?
         .ok_or(BlockAssemblerError::Overflow)?;
         let proposals = optional.proposals;
@@ -581,7 +582,7 @@ impl AuthorityBlockAssembler {
         let proposals_size = optional.proposals_size;
         let uncles_size = optional.uncles_size;
         let basic_size = optional.total_size;
-        let tx_bytes = (consensus.max_block_bytes() as usize)
+        let tx_bytes = max_block_bytes
             .checked_sub(basic_size)
             .ok_or(BlockAssemblerError::Overflow)?;
         let packed = input
@@ -676,6 +677,7 @@ impl AuthorityBlockAssembler {
             return Ok(None);
         };
         let consensus = input.snapshot().consensus();
+        let max_block_bytes = BlockAssembler::max_block_bytes(input.snapshot())?;
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
@@ -690,7 +692,7 @@ impl AuthorityBlockAssembler {
             proposals,
             &current.template.uncles,
             base_total_size,
-            consensus.max_block_bytes() as usize,
+            max_block_bytes,
         )?
         .ok_or(BlockAssemblerError::Overflow)?;
         let size = TemplateSize {
@@ -728,13 +730,14 @@ impl AuthorityBlockAssembler {
             return Ok(None);
         };
         let consensus = input.snapshot().consensus();
+        let max_block_bytes = BlockAssembler::max_block_bytes(input.snapshot())?;
         let basic_size = BlockAssembler::basic_block_size(
             current.template.cellbase.data(),
             &current.template.uncles,
             current.template.proposals.iter(),
             current.template.extension.clone(),
         );
-        let tx_bytes = (consensus.max_block_bytes() as usize)
+        let tx_bytes = max_block_bytes
             .checked_sub(basic_size)
             .ok_or(BlockAssemblerError::Overflow)?;
         let packed = input
@@ -799,6 +802,7 @@ impl AuthorityBlockAssembler {
             return Ok(None);
         };
         let consensus = input.snapshot().consensus();
+        let max_block_bytes = BlockAssembler::max_block_bytes(input.snapshot())?;
         let proposals = input
             .selection()
             .proposal_short_ids(consensus.max_block_proposals_limit())?;
@@ -813,7 +817,7 @@ impl AuthorityBlockAssembler {
             proposals,
             &uncles,
             base_total_size,
-            consensus.max_block_bytes() as usize,
+            max_block_bytes,
         )?
         .ok_or(BlockAssemblerError::Overflow)?;
         let size = TemplateSize {

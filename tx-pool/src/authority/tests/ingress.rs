@@ -309,6 +309,39 @@ fn uak_delayed_revoked_remote_ingress_commits_a_later_filter_release() {
 }
 
 #[test]
+fn uak_peer_fence_saturation_revalidates_the_oldest_delayed_session() {
+    let consensus = ConsensusBuilder::default().build();
+    let first = PeerIndex::from(31);
+    let second = PeerIndex::from(32);
+    let transaction = ingress_tx(7);
+    let expected_hash = super::super::state::RawTxHash(transaction.hash());
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    authority.set_peer_ban_limit_for_foundation(1);
+
+    for peer in [first, second] {
+        drop(
+            authority
+                .plan_peer_revocation_for_foundation(peer)
+                .expect("the bounded peer fence plans")
+                .apply(),
+        );
+    }
+    assert!(!authority.peer_is_banned_for_reference(first));
+    assert!(authority.peer_is_banned_for_reference(second));
+
+    let delayed = remote_at_for_foundation(transaction, 10, first, 100, &consensus)
+        .expect("the delayed Remote message remains structurally valid");
+    let RetainedAdmissionDisposition::Retained(plan) = authority
+        .plan_retained_admission(delayed)
+        .expect("an evicted oldest fence falls back to complete bounded admission")
+    else {
+        panic!("fence saturation must not create a trust fast path or global Remote stop");
+    };
+    drop(plan.apply());
+    assert!(authority.entry(&expected_hash).is_some());
+}
+
+#[test]
 fn uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact() {
     let consensus = ConsensusBuilder::default().build();
     let transaction = ingress_tx(4);

@@ -30,7 +30,7 @@ RUST_CHAR_LITERAL = re.compile(
 RUST_RAW_STRING = re.compile(r'(?:br|cr|r)(?P<hashes>#{0,255})"')
 AUTHORITY_MUTATION = re.compile(r"\.\s*apply(?:_[a-z][A-Za-z0-9_]*)?\s*\(")
 MUTATION_PUBLICATION = re.compile(r"\.\s*publish_mutation\s*\(")
-EARLY_CONTROL_FLOW = re.compile(r"\b(?:return|break|continue)\b")
+EARLY_EXIT = re.compile(r"\b(?:return|break|continue)\b|\?")
 
 
 def mask_rust_non_code(source: str) -> str:
@@ -184,6 +184,36 @@ def brace_depth(masked: str, offset: int) -> int:
     return masked[:offset].count("{") - masked[:offset].count("}")
 
 
+def top_level_statement_end(masked: str, offset: int) -> int | None:
+    """Find the semicolon that commits the top-level expression containing offset."""
+
+    braces = 0
+    parentheses = 0
+    brackets = 0
+    for cursor, character in enumerate(masked):
+        if character == "{":
+            braces += 1
+        elif character == "}":
+            braces -= 1
+        elif character == "(":
+            parentheses += 1
+        elif character == ")":
+            parentheses -= 1
+        elif character == "[":
+            brackets += 1
+        elif character == "]":
+            brackets -= 1
+        elif (
+            cursor >= offset
+            and character == ";"
+            and braces == 0
+            and parentheses == 0
+            and brackets == 0
+        ):
+            return cursor + 1
+    return None
+
+
 def validate_authority_mutation_publication() -> list[str]:
     """Prove every runtime authority mutation has one lock-external wake edge."""
 
@@ -228,12 +258,18 @@ def validate_authority_mutation_publication() -> list[str]:
                 f"runtime.rs:{line}"
             )
             continue
-        escaping = EARLY_CONTROL_FLOW.search(
-            body[mutations[0].end() : publication.start()]
-        )
-        if escaping is not None:
+        commit_end = top_level_statement_end(body, last_mutation.start())
+        if commit_end is None or commit_end > publication.start():
             errors.append(
-                f"AuthorityRuntime::{name} can {escaping.group(0)} between mutation and "
+                f"AuthorityRuntime::{name} mutation must finish one top-level committed "
+                f"statement before publication near runtime.rs:{line}"
+            )
+            continue
+        escaping = EARLY_EXIT.search(body[commit_end : publication.start()])
+        if escaping is not None:
+            escape = "return early via ?" if escaping.group(0) == "?" else escaping.group(0)
+            errors.append(
+                f"AuthorityRuntime::{name} can {escape} between mutation and "
                 f"publication near runtime.rs:{line}"
             )
 

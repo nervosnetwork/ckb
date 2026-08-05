@@ -577,7 +577,7 @@ def render_generated(registry: dict, impact: dict) -> str:
     lines.extend(("", "### Executable evidence", ""))
     for behavior in registry["behaviors"]:
         behavior_id = behavior["id"]
-        lines.extend((f"#### `{behavior_id}` — {behavior['title']}", ""))
+        lines.extend((f"#### `{behavior_id}` - {behavior['title']}", ""))
         lines.append(f"Generated focused command: `{unit_command(registry, behavior_id)}`")
         lines.append("")
         lines.append("Rust evidence:")
@@ -603,7 +603,7 @@ def render_generated(registry: dict, impact: dict) -> str:
                     sorted(evidence["invariants"], key=_invariant_key)
                 )
                 lines.append(
-                    f"- `{evidence['path']}::{evidence['test']}` ({invariants}) — "
+                    f"- `{evidence['path']}::{evidence['test']}` ({invariants}) - "
                     f"{_markdown(evidence['boundary'])}"
                 )
         if specs[behavior_id]:
@@ -614,7 +614,7 @@ def render_generated(registry: dict, impact: dict) -> str:
                 )
                 lines.append(
                     f"- `{evidence['id']}`: `{evidence['path']}::{evidence['anchor']}` "
-                    f"({invariants}) — {_markdown(evidence['boundary'])} "
+                    f"({invariants}) - {_markdown(evidence['boundary'])} "
                     f"Paired units: {', '.join(f'`{anchor}`' for anchor in evidence['unit_anchors'])}. "
                     f"Command: `{integration_command(registry, [evidence['anchor']])}`"
                 )

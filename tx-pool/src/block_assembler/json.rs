@@ -17,7 +17,7 @@ impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {
             parent_hash: (&template.parent_hash).into(),
             cycles_limit: template.cycles_limit.into(),
             bytes_limit: template.bytes_limit.into(),
-            uncles_count_limit: u64::from(template.uncles_count_limit).into(),
+            uncles_count_limit: template.uncles_count_limit.into(),
             uncles: template.uncles.iter().map(uncle_to_template).collect(),
             transactions: template
                 .transactions

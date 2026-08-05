@@ -22,6 +22,7 @@ const LEGACY_VERSION: u32 = 1;
 const MAGIC: &[u8; 8] = b"CKBTPV2\0";
 const HEADER_BYTES: usize = 20;
 const RECOVERY_META_BYTES: usize = 20;
+const PERSISTENCE_READ_ALLOWANCE: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PersistenceSnapshot {
@@ -113,7 +114,7 @@ fn broken(path: &Path, detail: impl std::fmt::Display) -> AnyError {
 }
 
 fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, AnyError> {
-    let mut file = OpenOptions::new().read(true).open(path).map_err(|err| {
+    let file = OpenOptions::new().read(true).open(path).map_err(|err| {
         OtherError::new(format!(
             "Failed to open the tx-pool persisted data file [{path:?}], cause: {err}"
         ))
@@ -126,7 +127,12 @@ fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, AnyError> {
             ))
         })?
         .len();
-    let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    let max_bytes_u64 = u64::try_from(max_bytes).map_err(|_| {
+        broken(
+            path,
+            "configured read bound does not fit the file-size domain",
+        )
+    })?;
     if length > max_bytes_u64 {
         return Err(broken(
             path,
@@ -135,13 +141,39 @@ fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, AnyError> {
     }
     let length = usize::try_from(length)
         .map_err(|_| broken(path, "file length does not fit this platform"))?;
-    let mut buffer = Vec::with_capacity(length);
-    file.read_to_end(&mut buffer).map_err(|err| {
-        OtherError::new(format!(
-            "Failed to read the tx-pool persisted data file [{path:?}], cause: {err}"
-        ))
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(length)
+        .map_err(|err| broken(path, format!("cannot reserve persisted payload: {err}")))?;
+    let read_limit = max_bytes_u64.checked_add(1).ok_or_else(|| {
+        broken(
+            path,
+            "configured read bound cannot carry an overflow sentinel",
+        )
     })?;
+    file.take(read_limit)
+        .read_to_end(&mut buffer)
+        .map_err(|err| {
+            OtherError::new(format!(
+                "Failed to read the tx-pool persisted data file [{path:?}], cause: {err}"
+            ))
+        })?;
+    if buffer.len() > max_bytes {
+        return Err(broken(
+            path,
+            format!("file grew beyond bound {max_bytes} while being read"),
+        ));
+    }
     Ok(buffer)
+}
+
+fn persistence_read_bound(config: &TxPoolConfig) -> Result<usize, AnyError> {
+    config
+        .max_tx_pool_size
+        .checked_add(config.tx_pipeline_resident_size_budget())
+        .and_then(|bytes| bytes.checked_mul(2))
+        .and_then(|bytes| bytes.checked_add(PERSISTENCE_READ_ALLOWANCE))
+        .ok_or_else(|| OtherError::new("tx-pool persistence read bound overflow").into())
 }
 
 fn decode_transactions(path: &Path, bytes: &[u8]) -> Result<Vec<TransactionView>, AnyError> {
@@ -307,11 +339,7 @@ pub(crate) fn load_persistence_snapshot(
 ) -> Result<PersistenceSnapshot, AnyError> {
     let v2 = versioned_path(&config.persisted_data, VERSION);
     let v1 = versioned_path(&config.persisted_data, LEGACY_VERSION);
-    let max_bytes = config
-        .max_tx_pool_size
-        .saturating_add(config.tx_pipeline_resident_size_budget())
-        .saturating_mul(2)
-        .saturating_add(1024 * 1024);
+    let max_bytes = persistence_read_bound(config)?;
     let v2_tmp = v2.with_extension(format!("v{VERSION}.tmp"));
     let v1_tmp = v1.with_extension(format!("v{LEGACY_VERSION}.tmp"));
     let _ = std::fs::remove_file(v2_tmp);

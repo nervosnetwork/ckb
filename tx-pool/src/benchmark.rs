@@ -172,7 +172,7 @@ fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>
 }
 
 // ---------------------------------------------------------------------------
-// SharedBench — resources shared across all benchmark iterations
+// SharedBench - resources shared across all benchmark iterations
 // ---------------------------------------------------------------------------
 
 struct BenchExecutor {
@@ -458,7 +458,7 @@ enum MeasureMode {
 ///
 /// secp256k1 ECDSA verification has non-deterministic cycle counts per tx
 /// (different signature values take different CKB-VM execution paths), so each
-/// tx must be measured individually — we cannot just measure one and multiply.
+/// tx must be measured individually; we cannot just measure one and multiply.
 fn measure_cycles(
     shared: &SharedBench,
     txs: &[TransactionView],
@@ -687,7 +687,7 @@ fn build_single_dependent_chain(shared: &SharedBench, count: usize) -> Vec<Trans
 }
 
 // ---------------------------------------------------------------------------
-// BenchData — pre-built transactions and cycle counts for one tx type
+// BenchData - pre-built transactions and cycle counts for one tx type
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
@@ -1108,7 +1108,7 @@ fn run_profile_scenario(scenario: ProfileScenario) -> Result<(), String> {
 // Benchmark matrix
 // ---------------------------------------------------------------------------
 
-// Full matrix: all combinations — runs in ~30+ minutes.
+// Full matrix: all combinations; runs in ~30+ minutes.
 const SIZES: &[usize] = &[50, 100];
 const PEER_COUNTS: &[usize] = &[1, 2, 4, 8];
 const WORKER_COUNTS: &[usize] = &[4, 8, 12];
@@ -1116,7 +1116,7 @@ const WARM_POOL_SIZE: usize = 30;
 const DEPENDENT_SIZES: &[usize] = &[10, 20];
 const DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
-// Medium matrix: a balanced tier — runs in roughly 10–15 minutes.
+// Medium matrix: a balanced tier; runs in roughly 10-15 minutes.
 // This is the **default** matrix (no env var needed).
 const MEDIUM_SIZES: &[usize] = &[100];
 const MEDIUM_PEER_COUNTS: &[usize] = &[1, 4];
@@ -1125,7 +1125,7 @@ const MEDIUM_WARM_POOL_SIZE: usize = 30;
 const MEDIUM_DEPENDENT_SIZES: &[usize] = &[10];
 const MEDIUM_DEPENDENT_WARM_POOL_SIZE: usize = 10;
 
-// Quick matrix: runs in about 5 minutes — activate with QUICK_BENCH=1.
+// Quick matrix: runs in about 5 minutes; activate with QUICK_BENCH=1.
 const QUICK_SIZES: &[usize] = &[100];
 const QUICK_PEER_COUNTS: &[usize] = &[1];
 const QUICK_WORKER_COUNTS: &[usize] = &[8];
@@ -1309,7 +1309,7 @@ fn register_warm_bench(
     // The setup closure (iter_batched_ref) creates a fresh controller with an empty
     // verify cache, then submits warm_txs which populate the cache with those
     // entries.  The measured closure then submits target_txs (different hashes),
-    // so they miss the cache and undergo full verification — matching the real
+    // so they miss the cache and undergo full verification, matching the real
     // behaviour of a node that already holds verified txs in its pool.
     group.bench_function(
         format!("{mode}_{peers}peer_{workers}worker_warm_{tx_type}_{size}"),
@@ -1397,7 +1397,7 @@ fn bench(c: &mut Criterion) {
     ];
 
     // Dependent chain cycle measurement (PerTxProcess) relies on the pipeline's
-    // classify → ordered-resolve → verify path.
+    // classify -> ordered-resolve -> verify path.
     {
         let dep_max = *matrix
             .dependent_sizes

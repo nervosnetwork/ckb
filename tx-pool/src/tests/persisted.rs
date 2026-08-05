@@ -63,11 +63,7 @@ fn persistence_v2_rejects_oversized_file_before_reading_payload() {
     let directory = tempfile::TempDir::new().expect("temporary persistence directory");
     let base = directory.path().join("tx_pool");
     let config = config(&base);
-    let max_bytes = config
-        .max_tx_pool_size
-        .saturating_add(config.tx_pipeline_resident_size_budget())
-        .saturating_mul(2)
-        .saturating_add(1024 * 1024);
+    let max_bytes = persistence_read_bound(&config).expect("fixture read bound is representable");
     let path = versioned_path(&base, VERSION);
     let file = OpenOptions::new()
         .create(true)
@@ -85,6 +81,19 @@ fn persistence_v2_rejects_oversized_file_before_reading_payload() {
     assert!(
         load_persistence_snapshot(&config).is_err(),
         "metadata length is rejected before allocating or reading the sparse payload"
+    );
+}
+
+#[test]
+fn persistence_loader_rejects_an_unrepresentable_read_bound_before_io() {
+    let directory = tempfile::TempDir::new().expect("temporary persistence directory");
+    let base = directory.path().join("tx_pool");
+    let mut config = config(&base);
+    config.max_tx_pool_size = usize::MAX;
+
+    assert!(
+        load_persistence_snapshot(&config).is_err(),
+        "configuration overflow cannot relax the persisted-file read bound"
     );
 }
 

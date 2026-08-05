@@ -132,14 +132,15 @@
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum AdminPlan", "struct OwnerRemovalBatch", "fn plan_administrative_removal", "fn plan_peer_revocation", "fn plan_local_removal"]},
         {"path": "tx-pool/src/authority/ban.rs", "symbols": ["struct PeerBanRegistry", "struct PeerBanLease"]}
       ],
-      "required_behavior": "Clear, expiry, local removal and peer revocation use one cause-complete owner-removal compiler. Peer ban removes only not-yet-Accepted ingress owners; every delayed Remote message rejected by the peer fence commits its own exact relay release so another peer may refetch it.",
-      "hostile_case": "Ban during compute, promoted remote ingress, delayed controller delivery after the revocation reset, accepted descendants, repeated ban, expiry, clear or local removal must not leave active work, dependency edges, charge or known-filter state behind; Accepted owners must not be removed by peer ban.",
+      "required_behavior": "Clear, expiry, local removal and peer revocation use one cause-complete owner-removal compiler. Peer ban removes only not-yet-Accepted ingress owners; every delayed Remote message rejected by a retained peer fence commits its own exact relay release so another peer may refetch it. The fence registry has a hard count bound; saturation retires the oldest fence and sends any later delayed submission through complete bounded validation instead of blocking all Remote ingress.",
+      "hostile_case": "Ban during compute, promoted remote ingress, delayed controller delivery after the revocation reset, accepted descendants, repeated ban, unbounded distinct-session churn, expiry, clear or local removal must not leave unbounded state, active work, dependency edges, charge or known-filter state behind; Accepted owners must not be removed by peer ban.",
       "reviewer_questions": [
         "Does each cause map all owner variants exhaustively?",
         "Are Accepted and not-yet-Accepted ban semantics separated by type?",
-        "Does every remote removal publish refetch cleanliness exactly once?"
+        "Does every remote removal publish refetch cleanliness exactly once?",
+        "Is peer-fence saturation hard-bounded and limited to the documented oldest-session validation fallback?"
       ],
-      "performance_bound": "Removal follows exact indexed cohorts and bounded descendant closure; no active-work drain or repair scan."
+      "performance_bound": "Removal follows exact indexed cohorts and bounded descendant closure; the peer fence is fixed-size with amortized expiry/oldest eviction and no active-work drain, full scan or global Remote stop."
     },
     {
       "id": "TP-EFFECT-001",
@@ -185,12 +186,12 @@
         {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn save_pool", "fn replay_persisted"]},
         {"path": "tx-pool/src/persisted.rs", "symbols": ["struct PersistenceWriter", "struct PersistenceSnapshot"]}
       ],
-      "required_behavior": "Persistence captures Accepted and Recovery-source owners from one authority read cut, releases the guard, orders parent-first, writes one bounded atomic snapshot and revalidates every replayed transaction.",
-      "hostile_case": "Save racing reorg/clear, recovery in any phase, malformed or oversized file, duplicate partitions, writer failure or legacy v1 input must not persist an ownership splice, allocate unbounded data or trust stale verification evidence.",
+      "required_behavior": "Persistence captures Accepted and Recovery-source owners from one authority read cut, releases the guard, orders parent-first, writes one bounded atomic snapshot and revalidates every replayed transaction. Startup derives one checked read ceiling and enforces it both before allocation and while the file is read.",
+      "hostile_case": "Save racing reorg/clear, recovery in any phase, malformed, growing or oversized file, configuration arithmetic overflow, duplicate partitions, writer failure or legacy v1 input must not persist an ownership splice, allocate unbounded data or trust stale verification evidence.",
       "reviewer_questions": [
         "Are ReplacementHistory, Remote and Proposal owners excluded?",
         "Does sorting and file I/O occur after the authority guard opens?",
-        "Are file count/bytes checked before allocation and replay fully validated?"
+        "Are configured and observed file bounds checked before allocation, during reading and before fully validated replay?"
       ],
       "performance_bound": "Persistence clone/sort/I/O is off admission paths and serialized by one writer capability."
     },
@@ -339,6 +340,8 @@
     {"test": "authority::tests::foundation::uak_fair_frontier_round_robins_owners_only_after_apply", "behavior_id": "TP-WORKER-001", "invariants": ["T5", "T10"]},
 
     {"test": "authority::tests::foundation::uak_peer_revocation_removes_only_preaccepted_ingress_owners", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T7"]},
+    {"test": "authority::tests::ban::saturation_evicts_the_oldest_fence_and_keeps_a_hard_bound", "behavior_id": "TP-ADMIN-001", "invariants": ["T8", "T10"]},
+    {"test": "authority::tests::ingress::uak_peer_fence_saturation_revalidates_the_oldest_delayed_session", "behavior_id": "TP-ADMIN-001", "invariants": ["T3", "T8", "T10", "T11"]},
     {"test": "authority::tests::ingress::uak_delayed_revoked_remote_ingress_commits_a_later_filter_release", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T6", "T7", "T10"]},
     {"test": "authority::tests::foundation::uak_local_non_remote_preaccepted_removal_does_not_release_relay_state", "behavior_id": "TP-ADMIN-001", "invariants": ["T7", "T11"]},
     {"test": "authority::tests::foundation::uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure", "behavior_id": "TP-ADMIN-001", "invariants": ["T3", "T4", "T6"]},
@@ -363,6 +366,7 @@
 
     {"test": "authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T12"]},
     {"test": "authority::tests::service::uak_service_persists_one_coherent_authority_receipt_outside_the_guard", "behavior_id": "TP-PERSIST-001", "invariants": ["T9", "T10", "T12"]},
+    {"test": "persisted::tests::persistence_loader_rejects_an_unrepresentable_read_bound_before_io", "behavior_id": "TP-PERSIST-001", "invariants": ["T8", "T11"]},
     {"test": "persisted::tests::persistence_v2_rejects_oversized_file_before_reading_payload", "behavior_id": "TP-PERSIST-001", "invariants": ["T8", "T11"]},
     {"test": "persisted::tests::persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["T11", "T12"]},
     {"test": "persisted::tests::persistence_writer_admits_only_one_snapshot_owner", "behavior_id": "TP-PERSIST-001", "invariants": ["T10", "T12"]},
@@ -392,6 +396,7 @@
     {"test": "authority::tests::template_driver::uak_template_driver_full_priority_and_partial_occ_use_one_output_revision", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T9", "T10", "T13"]},
     {"test": "authority::tests::template_driver::uak_template_source_probe_skips_irrelevant_population_captures", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T10", "T13"]},
     {"test": "block_assembler::tests::optional_content_uses_one_budget_and_filters_only_published_conflicts", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T8", "T13"]},
+    {"test": "block_assembler::tests::block_template_preserves_consensus_uncle_limit_above_u8", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T8", "T11", "T13"]},
     {"test": "authority::tests::packing::uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T4", "T8", "T13"]},
     {"test": "authority::tests::template::uak_template_read_receipt_shares_order_and_complete_resolved_payload", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T4", "T9", "T12", "T13"]},
 
@@ -405,6 +410,7 @@
     {"test": "authority::tests::foundation::uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},
     {"test": "block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T13"]},
     {"test": "authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking", "behavior_id": "TP-PERF-001", "invariants": ["T7", "T8", "T10"]},
+    {"test": "authority::tests::relay::uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating", "behavior_id": "TP-PERF-001", "invariants": ["T7", "T8", "T10"]},
     {"test": "service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T10"]},
     {"test": "component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T13"]}
   ],

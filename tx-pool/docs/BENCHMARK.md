@@ -13,7 +13,7 @@ cargo bench -p ckb-tx-pool --features internal
 ### Using the comparison script
 
 ```bash
-# default medium matrix (~10–15 minutes)
+# default medium matrix (~10-15 minutes)
 python3 tx-pool/scripts/benchmark.py
 
 # small quick matrix (~5 minutes)
@@ -131,9 +131,9 @@ commit/dirty metadata plus the common harness fingerprint.
 
 The matrix is selected at compile time via environment variables:
 
-- `FULL_BENCH=1` — full matrix.
-- `QUICK_BENCH=1` — quick matrix.
-- default (no env var) — medium matrix.
+- `FULL_BENCH=1` - full matrix.
+- `QUICK_BENCH=1` - quick matrix.
+- default (no env var) - medium matrix.
 
 ### Full matrix (`FULL_BENCH=1`)
 
@@ -264,8 +264,8 @@ distinct `PeerIndex`. It is not merely a task-concurrency multiplier, so medium
 and full runs exercise the per-peer scheduler and budget boundaries they claim
 to cover.
 
-Dependent-chain latency includes a fixed notify → resolve → verify → commit →
-journal → callback path. That fixed cost can dilute the percentage impact of a
+Dependent-chain latency includes a fixed notify -> resolve -> verify -> commit ->
+journal -> callback path. That fixed cost can dilute the percentage impact of a
 change isolated to one stage. Review both the absolute median times in the A/B
 summaries and the paired ratios; do not interpret a ratio near one as proof
 that an individual stage is unchanged.

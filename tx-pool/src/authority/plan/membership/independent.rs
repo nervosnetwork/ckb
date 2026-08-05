@@ -111,7 +111,9 @@ fn classify(
             return Ok(true);
         }
 
-        for other in changes.iter().skip(index.saturating_add(1)) {
+        // `index` comes from this exact slice. Skipping the indexed element
+        // separately avoids arithmetic or saturation in the pairwise proof.
+        for other in changes.iter().skip(index).skip(1) {
             if change.after.record.identity.proposal == other.after.record.identity.proposal {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }

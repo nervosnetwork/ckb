@@ -225,6 +225,27 @@ fn uak_relay_mailbox_disconnect_is_a_stable_local_disposition() {
 }
 
 #[test]
+fn uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating() {
+    for corrupted_bytes in [0, usize::MAX] {
+        let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
+            .expect("the bounded relay mailbox fixture is valid");
+        assert_eq!(
+            sink.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([7; 32]),
+            }),
+            RelayMailboxDisposition::Exact
+        );
+        receiver.corrupt_bytes_for_test(corrupted_bytes);
+
+        assert!(matches!(
+            receiver.try_recv(),
+            Some(TxVerificationResult::GenerationReset)
+        ));
+        assert_eq!(receiver.observation(), (0, 0));
+    }
+}
+
+#[test]
 fn uak_relay_parent_rebuild_pages_the_authoritative_missing_level() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let _queued = admit_remote_until(&mut authority, 901, 41, 1);

@@ -51,6 +51,31 @@ struct RelayMailboxState {
     bytes: usize,
 }
 
+impl RelayMailboxState {
+    fn pop_front(&mut self) -> Option<TxVerificationResult> {
+        let envelope = self.queue.pop_front()?;
+        let Some(bytes) = self.bytes.checked_sub(envelope.bytes) else {
+            return Some(self.reset_after_accounting_mismatch());
+        };
+        if self.queue.is_empty() != (bytes == 0) {
+            return Some(self.reset_after_accounting_mismatch());
+        }
+        self.bytes = bytes;
+        Some(envelope.result)
+    }
+
+    fn reset_after_accounting_mismatch(&mut self) -> TxVerificationResult {
+        // This mailbox is a rebuildable projection. If its private byte
+        // ledger ever disagrees with its owned envelopes, discard the
+        // remaining detail and force an authoritative relay rebuild. The
+        // empty/zero equivalence detects both undercount and overcount without
+        // scanning the queue; never hide either mismatch with saturation.
+        self.queue.clear();
+        self.bytes = 0;
+        TxVerificationResult::GenerationReset
+    }
+}
+
 struct RelayMailboxInner {
     state: Mutex<RelayMailboxState>,
     receiver_alive: AtomicBool,
@@ -225,10 +250,7 @@ impl AuthorityRelaySink {
 
 impl AuthorityRelayReceiver {
     pub(super) fn try_recv(&self) -> Option<TxVerificationResult> {
-        let mut state = self.inner.state.lock();
-        let envelope = state.queue.pop_front()?;
-        state.bytes = state.bytes.saturating_sub(envelope.bytes);
-        Some(envelope.result)
+        self.inner.state.lock().pop_front()
     }
 }
 

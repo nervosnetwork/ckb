@@ -1,5 +1,9 @@
 pub(crate) const SECONDS_PER_DAY: i32 = 24 * 60 * 60;
 pub(crate) const MALFORMED_TX_BAN_SECONDS: u64 = 3 * (SECONDS_PER_DAY as u64);
+/// Maximum authority-local peer fences retained for controller-delayed Remote
+/// ingress. Saturation evicts the oldest fence; it never blocks all Remote
+/// admission or grows with unbounded session churn.
+pub(crate) const PEER_BAN_FENCE_CAPACITY: usize = 1024;
 
 pub(crate) const MIN_ESTIMATE_TARGET: u64 = 3;
 pub(crate) const MAX_ESTIMATE_TARGET: u64 = 131;

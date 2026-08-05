@@ -19,7 +19,7 @@ The machine-readable contracts consumed by validation and CI live beside this
 README:
 
 - [`architecture-contract.json`](architecture-contract.json) freezes the
-  architecture vocabulary, T1–T13 proof obligations and residual-risk IDs.
+  architecture vocabulary, T1-T13 proof obligations and residual-risk IDs.
 - [`review-behaviors.json`](review-behaviors.json) owns the `TP-*` behavior and
   executable-evidence mapping.
 - [`integration-impact.json`](integration-impact.json) owns the complete

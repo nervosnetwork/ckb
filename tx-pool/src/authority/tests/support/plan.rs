@@ -698,6 +698,10 @@ impl TxPoolAuthority {
         self.plan_administrative_removal(hashes, AdminPlan::PeerRevocation { marker, revocation })
     }
 
+    pub(in crate::authority) fn set_peer_ban_limit_for_foundation(&mut self, capacity: usize) {
+        self.peer_bans = PeerBanRegistry::with_limit_for_test(capacity);
+    }
+
     pub(in crate::authority) fn plan_effect_checkout_for_foundation(
         &mut self,
     ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {

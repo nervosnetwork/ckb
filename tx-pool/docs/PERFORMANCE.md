@@ -72,9 +72,9 @@ the smallest on secp verification:
 A later pre-UAK six-scenario run was approximately 17.6% below `develop` in
 geometric throughput. Windowed samples attributed cheap multi-peer cost to
 authority acquisition, stage publication/checkout and runtime parking rather
-than verification compute. Several plausible local changes—extra wakes,
+than verification compute. Several plausible local changes - extra wakes,
 parallel mutation authorities, dirty scheduler state, copy-on-write dependency
-sets and alternative projection Apply paths—were neutral or slower and were
+sets and alternative projection Apply paths - were neutral or slower and were
 removed.
 
 Those numbers were captured on earlier type/state models and cannot be quoted
@@ -195,7 +195,7 @@ The final comparisons are:
 Quick mode is diagnostic and uses its documented 2% threshold/noise limits.
 Medium or full repeated records close P10; full may be run on a more suitable
 host, but all artifacts must satisfy the same fingerprint contract. A noisy or
-unexplained result blocks the claim—it does not authorize a compensating cache,
+unexplained result blocks the claim; it does not authorize a compensating cache,
 retry path or second authority.
 
 ## 7. Reviewer questions
