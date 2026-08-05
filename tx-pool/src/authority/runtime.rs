@@ -2703,7 +2703,7 @@ impl AuthorityRuntime {
     #[cfg_attr(
         feature = "profiling",
         tracing::instrument(
-            name = "tx_pool.stage.ready",
+            name = "tx_pool.stage.ready_attempt",
             target = "ckb_tx_pool_profile",
             level = "trace",
             skip_all
@@ -2720,6 +2720,12 @@ impl AuthorityRuntime {
         else {
             return Ok(AuthorityReadyOutcome::Idle);
         };
+        #[cfg(feature = "profiling")]
+        let _ready_work_span = tracing::trace_span!(
+            target: "ckb_tx_pool_profile",
+            "tx_pool.stage.ready_work"
+        )
+        .entered();
         let prepared = work
             .prepare()
             .map_err(AuthorityDriverError::from_ready_preparation)?;

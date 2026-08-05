@@ -494,6 +494,51 @@ profiling binary once in an equal-length clean worktree, cool down, then repeat
 the rejected independent-cheap capture and strict analysis. No optimization
 candidate is active.
 
+First accepted P10 profile evidence:
+
+- clean source `624c6c6ea`, worktree `/private/tmp/txp-uak-624c`;
+- fixed binary SHA-256
+  `0ae1e05c24b49c46d0481e08dd07794357352e5a6bfa9ee2e456a58152eafd3c`,
+  size 20,549,216 bytes;
+- artifact prefix
+  `/private/tmp/txpool-p10-624c/uak-cheap-cold-4p8w`;
+- scenario: 2,000 cold independent always-success transactions, four peers,
+  eight workers; CPU target window 254.113 ms with 3,940 samples;
+- strict manifest and analysis passed with a clean tracked/untracked identity.
+  The separately instrumented target selected 73,012 close records across all
+  required semantic coordinates;
+- first attribution only, not an optimization verdict: 67.84% of leaf samples
+  were in `__psynch_cvwait`; authority write/read acquisition was 21.22%/4.92%
+  inclusive. The span run observed 28,233 writes, 5,240 reads, 2,000 resolve,
+  2,000 verify, 1,291 Ready driver attempts and 776 effect batches. The first
+  span vocabulary incorrectly called every Ready attempt a settlement; it
+  cannot support a batch-fill conclusion and is corrected below.
+
+The initial sandboxed Samply start failed with macOS process-monitoring error
+1100. Direct execution proved the span producer and format; the exact fixed
+binary and command then succeeded with profiler permission. This is an
+environmental capture precondition, not a product result or a reason to relax
+the artifact contract.
+
+Profiling calibration review found that the initial `tx_pool.stage.ready` span
+covered the complete `try_drive_ready` call, including `Idle`. Cross-scenario
+attempt counts disproved its documented settlement meaning before any product
+optimization was selected. The instrumentation is therefore split into
+`ready_attempt` and `ready_work`; the latter begins only after a non-empty
+bounded Ready slice is captured. Existing CPU, lock, resolve, verify and effect
+evidence remains valid, while the old Ready count is explicitly attempt-only.
+
+Calibration gates passed: complete review contracts, strict all-target
+`internal,profiling` Clippy, formatting and diff checks. A first complete
+nextest run passed 415/415 but reported one process-exit leak marker on a pure
+rejection test; the exact test then passed in 40 ms and an immediate complete
+isolated rerun passed 415/415 with no leak or skip. The marker was transient
+host scheduling, not inherited as an unexplained green result.
+
+Exact resume action: verify and freeze the calibrated span vocabulary, rebuild
+one fixed profiling binary, repeat the cheap and dependency controls, then
+compare causal signals before compiling any optimization candidate.
+
 ## Restart rule
 
 After compaction or restart:

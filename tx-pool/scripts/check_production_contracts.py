@@ -356,9 +356,20 @@ def validate_authority_profiling_seams() -> list[str]:
     for function, span in (
         ("execute_resolution", "tx_pool.stage.resolve"),
         ("execute_verification", "tx_pool.stage.verify"),
-        ("try_drive_ready", "tx_pool.stage.ready"),
+        ("try_drive_ready", "tx_pool.stage.ready_attempt"),
     ):
         validate_instrumented_function(runtime, function, span, "AuthorityRuntime")
+    ready_body = function_body(runtime, "try_drive_ready")
+    if ready_body is None:
+        errors.append("AuthorityRuntime::try_drive_ready disappeared")
+    else:
+        capture = ready_body.find("let Some(work)")
+        active_span = ready_body.find('"tx_pool.stage.ready_work"')
+        preparation = ready_body.find("let prepared")
+        if min(capture, active_span, preparation) < 0 or not capture < active_span < preparation:
+            errors.append(
+                "Ready profiling must distinguish every driver attempt from non-idle work"
+            )
     validate_instrumented_function(
         publisher,
         "publish_checked_out_effect_batch",
