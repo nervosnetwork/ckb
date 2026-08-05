@@ -1,8 +1,11 @@
 use super::{CommittedPublicReject, ComponentLimitKind, MembershipReject};
 use crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
 use crate::error::Reject;
+use ckb_error::ErrorKind;
+use ckb_jsonrpc_types::PoolTransactionReject;
+use ckb_script::ScriptError;
 use ckb_types::{
-    core::{Capacity, FeeRate, error::OutPointError},
+    core::{Capacity, FeeRate, error::OutPointError, error::TransactionError},
     packed::{Byte32, OutPoint},
 };
 
@@ -114,6 +117,33 @@ fn committed_public_rejection_bounds_diagnostics_without_changing_policy() {
     assert!(!committed.is_malformed());
     assert!(committed.should_record());
     assert!(committed.relay_allowed());
+}
+
+#[test]
+fn committed_verification_rejection_preserves_the_public_error_shape() {
+    let cases = [
+        Reject::Verification(TransactionError::InvalidSince { index: 0 }.into()),
+        Reject::Verification(
+            ScriptError::Other("bounded script fixture".to_owned())
+                .output_type_script(0)
+                .into(),
+        ),
+        Reject::Verification(
+            ErrorKind::Transaction.because(ErrorKind::Script.other("nested fixture")),
+        ),
+    ];
+
+    for original in cases {
+        let expected_display = original.to_string();
+        let expected_public = PoolTransactionReject::from(original.clone());
+        let committed = CommittedPublicReject::new(original);
+
+        assert_eq!(committed.reject().to_string(), expected_display);
+        assert_eq!(
+            PoolTransactionReject::from(committed.reject().clone()),
+            expected_public
+        );
+    }
 }
 
 #[test]

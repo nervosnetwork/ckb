@@ -129,7 +129,7 @@ async fn service_assembly_with_config(
     let (bootstrap, relay) = AuthorityService::prepare(config, Arc::clone(&snapshot))
         .expect("the production relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-    let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
+    let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
@@ -143,7 +143,7 @@ async fn service_assembly_with_config(
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),
-            reorg_receiver,
+            chain_control_receiver,
             chunk_rx,
             cancel,
         },
@@ -277,7 +277,7 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     let (bootstrap, _relay) = AuthorityService::prepare(config, snapshot)
         .expect("the relay handoff is constructed before service startup");
     let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
-    let (_reorg_sender, reorg_receiver) = mpsc::channel(1);
+    let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
         &handle,
@@ -290,7 +290,7 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),
-            reorg_receiver,
+            chain_control_receiver,
             chunk_rx,
             cancel: CancellationToken::new(),
         },

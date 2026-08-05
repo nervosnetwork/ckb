@@ -1,5 +1,5 @@
 use super::*;
-use crate::service::{AsyncRequest, Notify, NotifyTxBatch, RemoteTxSubmission};
+use crate::service::{AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission};
 use crate::test_support::genesis_snapshot;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
@@ -12,7 +12,7 @@ use std::{
 
 fn full_controller() -> TxPoolController {
     let (sender, _receiver) = mpsc::channel(1);
-    let (reorg_sender, _reorg_receiver) = mpsc::channel(1);
+    let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
     let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
     assert!(
         sender
@@ -25,7 +25,7 @@ fn full_controller() -> TxPoolController {
 
     TxPoolController {
         sender,
-        reorg_sender,
+        chain_control_sender,
         chunk_tx: Arc::new(chunk_tx),
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
@@ -36,11 +36,11 @@ fn full_controller() -> TxPoolController {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
     let (sender, _receiver) = mpsc::channel(1);
-    let (reorg_sender, mut reorg_receiver) = mpsc::channel(1);
+    let (chain_control_sender, mut chain_control_receiver) = mpsc::channel(1);
     let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
     let controller = TxPoolController {
         sender,
-        reorg_sender,
+        chain_control_sender,
         chunk_tx: Arc::new(chunk_tx),
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
@@ -58,24 +58,27 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
         )
         .expect("the pre-start bounded channel retains the authoritative delta");
 
-    let delivered = reorg_receiver
+    let delivered = chain_control_receiver
         .try_recv()
         .expect("readiness cannot suppress an authoritative chain transition");
-    assert!(delivered.arguments.0.is_empty());
-    assert!(delivered.arguments.1.is_empty());
-    assert!(delivered.arguments.2.is_empty());
-    assert_eq!(delivered.arguments.3.tip_hash(), snapshot.tip_hash());
+    let ChainControl::Reconcile(arguments) = delivered else {
+        panic!("the ordered control must retain the exact chain transition");
+    };
+    assert!(arguments.0.is_empty());
+    assert!(arguments.1.is_empty());
+    assert!(arguments.2.is_empty());
+    assert_eq!(arguments.3.tip_hash(), snapshot.tip_hash());
 }
 
 #[test]
 fn closed_reorg_consumer_fails_without_waiting() {
     let (sender, _receiver) = mpsc::channel(1);
-    let (reorg_sender, reorg_receiver) = mpsc::channel(1);
+    let (chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
-    drop(reorg_receiver);
+    drop(chain_control_receiver);
     let controller = TxPoolController {
         sender,
-        reorg_sender,
+        chain_control_sender,
         chunk_tx: Arc::new(chunk_tx),
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
@@ -91,6 +94,52 @@ fn closed_reorg_consumer_fails_without_waiting() {
         )
         .expect_err("an explicitly disabled tx-pool has no chain consumer");
     assert!(error.to_string().contains("channel closed"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let (chain_control_sender, mut chain_control_receiver) = mpsc::channel(1);
+    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let controller = TxPoolController {
+        sender,
+        chain_control_sender,
+        chunk_tx: Arc::new(chunk_tx),
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(true)),
+        signal: CancellationToken::new(),
+    };
+    let snapshot = genesis_snapshot();
+
+    controller
+        .update_tx_pool_for_reorg(
+            VecDeque::new(),
+            VecDeque::new(),
+            HashSet::new(),
+            Arc::clone(&snapshot),
+        )
+        .expect("the chain transition enters the ordered lane");
+
+    let clear_controller = controller.clone();
+    let clear_snapshot = Arc::clone(&snapshot);
+    let clear = tokio::task::spawn_blocking(move || clear_controller.clear_pool(clear_snapshot));
+
+    assert!(matches!(
+        chain_control_receiver.recv().await,
+        Some(ChainControl::Reconcile(_))
+    ));
+    let Some(ChainControl::ClearPool(Request { responder, .. })) =
+        chain_control_receiver.recv().await
+    else {
+        panic!("clear_pool must follow the already-enqueued chain transition");
+    };
+    responder
+        .send(())
+        .expect("the synchronous clear caller retains its response");
+    clear
+        .await
+        .expect("the clear caller task does not panic")
+        .expect("the ordered clear receives its response");
 }
 
 async fn assert_fast_error<F, T>(future: F)
@@ -121,11 +170,11 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
         .expect("current-thread runtime builds");
     runtime.block_on(async {
         let (sender, mut receiver) = mpsc::channel(1);
-        let (reorg_sender, _reorg_receiver) = mpsc::channel(1);
+        let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
         let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
         let controller = TxPoolController {
             sender,
-            reorg_sender,
+            chain_control_sender,
             chunk_tx: Arc::new(chunk_tx),
             handle: new_background_runtime(),
             started: Arc::new(AtomicBool::new(true)),

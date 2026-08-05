@@ -280,8 +280,28 @@ fn run_get_block_template_case(node0: &Node, submit_spender_first: bool) {
         node0.submit_transaction(&tx_b);
     }
 
-    // Inside `mine`, RPC `get_block_template` will be involved, that's our testing interface.
-    node0.mine(node0.consensus().tx_proposal_window().farthest());
+    // Partial block-template publication is optimistic. Wait for the source
+    // level produced by both completed direct admissions instead of consuming
+    // the still-valid one-owner projection that may briefly precede it.
+    let block = node0.new_block_with_blocking(|template| template.transactions.len() != 2);
+    let hashes = block
+        .transactions()
+        .iter()
+        .map(|transaction| transaction.hash())
+        .collect::<Vec<_>>();
+    let c_position = hashes
+        .iter()
+        .position(|hash| hash == &tx_c.hash())
+        .expect("the dependency transaction is selected");
+    let b_position = hashes
+        .iter()
+        .position(|hash| hash == &tx_b.hash())
+        .expect("the spender transaction is selected");
+    assert!(
+        c_position < b_position,
+        "the dependency reader must precede the same-block spender"
+    );
+    node0.submit_block(&block);
 
     assert!(is_transaction_committed(node0, &tx_b));
     assert!(is_transaction_committed(node0, &tx_c));

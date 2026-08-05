@@ -9,7 +9,8 @@ pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
 pub(crate) use dispatch::process;
 pub(crate) use message::{
-    AsyncRequest, Message, NotifyTxBatch, RemoteTxSubmission, SyncRequest, TestAcceptTxResult,
+    AsyncRequest, ChainControl, Message, NotifyTxBatch, RemoteTxSubmission, SyncRequest,
+    TestAcceptTxResult,
 };
 pub(crate) use message::{
     BlockTemplateResult, FeeEstimatesResult, FetchTxsWithCyclesResult,
@@ -33,9 +34,9 @@ use std::{
 /// creates more than its compiled number of owned handler tasks.
 pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 
-/// Ordered reorg deltas are never dropped and retain at most one queued block
-/// tree beyond the generation-owned consumer.
-pub(crate) const REORG_CHANNEL_SIZE: usize = 1;
+/// Ordered chain/generation controls are never dropped and retain at most one
+/// queued command beyond the generation-owned consumer.
+pub(crate) const CHAIN_CONTROL_CHANNEL_SIZE: usize = 1;
 
 pub(crate) trait OneshotSender<R: fmt::Debug> {
     fn send(self, value: R) -> Result<(), R>;

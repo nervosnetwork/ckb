@@ -1,6 +1,6 @@
 //! Tx-pool service message definitions.
 
-use crate::service::{Notify, Request};
+use crate::service::{ChainReorgArgs, Notify, Request};
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -156,12 +156,6 @@ pub(crate) enum Message {
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
     NewUncle(Notify<UncleBlockView>),
-    /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
-    /// every pre-pool location as one generation.
-    ClearPool(SyncRequest<Arc<Snapshot>, ()>),
-    /// Retire every pre-pool location as one generation without touching the
-    /// accepted pool.
-    ClearPipeline(SyncRequest<(), ()>),
     GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
     GetAllIds(SyncRequest<(), TxPoolIds>),
     SavePool(SyncRequest<(), ()>),
@@ -177,6 +171,23 @@ pub(crate) enum Message {
     #[cfg(feature = "internal")]
     PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
     SubmitLocalTestTx(SyncRequest<TransactionView, SubmitTxResult>),
+}
+
+/// Rare generation controls that must preserve producer order with chain
+/// reconciliation.
+///
+/// Keeping these commands on one bounded lane prevents a clear that follows
+/// an installed chain transition from being overtaken by that transition's
+/// detached-transaction recovery. Ordinary admission and read traffic remain
+/// on the concurrent dispatcher.
+pub(crate) enum ChainControl {
+    Reconcile(ChainReorgArgs),
+    /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
+    /// every pre-pool location as one generation.
+    ClearPool(SyncRequest<Arc<Snapshot>, ()>),
+    /// Retire every pre-pool location as one generation without touching the
+    /// accepted pool.
+    ClearPipeline(SyncRequest<(), ()>),
 }
 
 /// Synchronous request using the `ckb_channel` oneshot responder.

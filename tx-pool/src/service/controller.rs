@@ -2,9 +2,9 @@
 
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::service::{
-    AsyncRequest, BlockTemplateResult, ChainReorgArgs, FeeEstimatesResult,
-    FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    NotifyTxBatch, RemoteTxSubmission, Request, SubmitTxResult, TestAcceptTxResult,
+    AsyncRequest, BlockTemplateResult, ChainControl, FeeEstimatesResult, FetchTxsWithCyclesResult,
+    GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify, NotifyTxBatch,
+    RemoteTxSubmission, Request, SubmitTxResult, TestAcceptTxResult,
 };
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
@@ -39,7 +39,7 @@ use crate::{PlugTarget, component::entry::TxEntry};
 #[derive(Clone)]
 pub struct TxPoolController {
     pub(crate) sender: mpsc::Sender<Message>,
-    pub(crate) reorg_sender: mpsc::Sender<Notify<ChainReorgArgs>>,
+    pub(crate) chain_control_sender: mpsc::Sender<ChainControl>,
     pub(crate) chunk_tx: Arc<watch::Sender<ChunkCommand>>,
     pub(crate) handle: Handle,
     pub(crate) started: Arc<AtomicBool>,
@@ -73,6 +73,26 @@ macro_rules! send_notify {
                 let (_m, e) = handle_try_send_error(e);
                 e.into()
             })
+    }};
+}
+
+macro_rules! send_chain_control {
+    ($self:ident, $command:ident, $args:expr) => {{
+        let (responder, response) = oneshot::channel();
+        let request = Request::call($args, responder);
+        block_in_place(|| {
+            $self.handle.block_on(
+                $self
+                    .chain_control_sender
+                    .send(ChainControl::$command(request)),
+            )
+        })
+        .map_err(|error| {
+            ckb_error::OtherError::new(format!("send ordered chain control fails: {error}"))
+        })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }};
 }
 
@@ -135,7 +155,7 @@ impl TxPoolController {
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("update_tx_pool_for_reorg");
-        let notify = Notify::new((
+        let command = ChainControl::Reconcile((
             detached_blocks,
             attached_blocks,
             detached_proposal_id,
@@ -149,8 +169,12 @@ impl TxPoolController {
         // the chain worker instead. `block_in_place` mirrors the controller's
         // synchronous request API while `handle.block_on` drives the async
         // bounded send without busy waiting.
-        block_in_place(|| self.handle.block_on(self.reorg_sender.send(notify))).map_err(|e| {
-            ckb_error::OtherError::new(format!("send reorg notification fails: {e}")).into()
+        block_in_place(|| {
+            self.handle
+                .block_on(self.chain_control_sender.send(command))
+        })
+        .map_err(|error| {
+            ckb_error::OtherError::new(format!("send chain reconciliation fails: {error}")).into()
         })
     }
 
@@ -291,7 +315,7 @@ impl TxPoolController {
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         reject_callback_mutation!("clear_pool");
-        send_message!(self, ClearPool, new_snapshot)
+        send_chain_control!(self, ClearPool, new_snapshot)
     }
 
     /// Clears every kernel-owned pre-pool lifecycle entry without
@@ -299,7 +323,7 @@ impl TxPoolController {
     /// controller API compatibility.
     pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
         reject_callback_mutation!("clear_verify_queue");
-        send_message!(self, ClearPipeline, ())
+        send_chain_control!(self, ClearPipeline, ())
     }
 
     /// Returns information about all transactions in the pool.

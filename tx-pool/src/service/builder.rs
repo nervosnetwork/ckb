@@ -14,7 +14,7 @@ use crate::{
     },
     network::{TxPoolNetwork, TxPoolNetworkHandle},
     service::{
-        ChainReorgArgs, DEFAULT_CHANNEL_SIZE, Message, Notify, TxPoolController,
+        CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE, Message, TxPoolController,
         TxVerificationResultReceiver, process,
     },
 };
@@ -51,7 +51,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) txs_verify_cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) callbacks: Callbacks,
     pub(crate) receiver: mpsc::Receiver<Message>,
-    pub(crate) reorg_receiver: mpsc::Receiver<Notify<ChainReorgArgs>>,
+    pub(crate) chain_control_receiver: mpsc::Receiver<ChainControl>,
     pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
@@ -82,14 +82,15 @@ impl TxPoolServiceBuilder {
         AnyError,
     > {
         let (sender, receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (reorg_sender, reorg_receiver) = mpsc::channel(crate::service::REORG_CHANNEL_SIZE);
+        let (chain_control_sender, chain_control_receiver) =
+            mpsc::channel(CHAIN_CONTROL_CHANNEL_SIZE);
         let process_exit = new_tokio_exit_rx();
         let signal_receiver = service_cancellation_token(&process_exit);
         let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
         let controller = TxPoolController {
             sender,
-            reorg_sender,
+            chain_control_sender,
             handle: handle.clone(),
             chunk_tx: Arc::new(chunk_tx),
             started: Arc::clone(&started),
@@ -116,7 +117,7 @@ impl TxPoolServiceBuilder {
                 txs_verify_cache,
                 callbacks: Callbacks::new(),
                 receiver,
-                reorg_receiver,
+                chain_control_receiver,
                 signal_receiver,
                 handle: handle.clone(),
                 chunk_rx,
@@ -214,7 +215,7 @@ impl TxPoolServiceBuilder {
             txs_verify_cache,
             callbacks,
             receiver,
-            reorg_receiver,
+            chain_control_receiver,
             signal_receiver,
             handle,
             chunk_rx,
@@ -251,7 +252,7 @@ impl TxPoolServiceBuilder {
                 persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
                 recent_reject,
                 fee_estimator,
-                reorg_receiver,
+                chain_control_receiver,
                 chunk_rx,
                 cancel: signal_receiver.clone(),
             },

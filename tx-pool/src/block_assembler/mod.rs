@@ -275,7 +275,7 @@ impl BlockAssembler {
         let mut fit_count = 0usize;
         let mut uncles_size = 0usize;
         for uncle in uncles.iter() {
-            let next_size = uncles_size.checked_add(Self::uncle_size(uncle).ok()?)?;
+            let next_size = uncles_size.checked_add(Self::uncle_size(uncle))?;
             if next_size > available {
                 break;
             }
@@ -437,20 +437,12 @@ impl BlockAssembler {
         compatible
     }
 
-    /// The byte contribution of one uncle on the template's accounting
-    /// basis (`serialized_size_without_uncle_proposals`, the same basis as
-    /// `basic_block_size` and the consensus block-bytes limit): the packed
-    /// in-block size minus its proposal ids.
-    fn uncle_size(uncle: &UncleBlockView) -> Result<usize, BlockAssemblerError> {
-        let proposal_bytes = uncle
-            .data()
-            .proposals()
-            .len()
-            .checked_mul(ProposalShortId::serialized_size())
-            .ok_or(BlockAssemblerError::Overflow)?;
+    /// The canonical byte contribution of one uncle on the
+    /// `serialized_size_without_uncle_proposals` basis. The packed helper
+    /// already excludes the uncle's proposal payload; subtracting those ids
+    /// again would underflow for proposal-heavy uncles.
+    fn uncle_size(_uncle: &UncleBlockView) -> usize {
         UncleBlockView::serialized_size_in_block()
-            .checked_sub(proposal_bytes)
-            .ok_or(BlockAssemblerError::Overflow)
     }
 
     pub(crate) fn basic_block_size<'a>(

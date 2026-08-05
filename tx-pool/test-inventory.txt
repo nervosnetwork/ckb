@@ -1,6 +1,7 @@
 [unit]
 authority::rejection::tests::committed_public_rejection_bounds_diagnostics_without_changing_policy
 authority::rejection::tests::committed_public_rejection_detaches_spare_string_capacity
+authority::rejection::tests::committed_verification_rejection_preserves_the_public_error_shape
 authority::rejection::tests::membership_recent_reject_classification_matches_the_public_policy
 authority::rejection::tests::membership_rejection_compiler_preserves_public_rule_semantics
 authority::runtime::tests::runtime_capture_failure_requeues_before_returning_the_typed_error
@@ -379,7 +380,7 @@ block_assembler::tests::cell_liveness_memo_caches_and_invalidates_on_tip_change
 block_assembler::tests::optional_content_uses_one_budget_and_filters_only_published_conflicts
 block_assembler::tests::pending_proposals_filter_conflicting_uncle_subtree
 block_assembler::tests::proposal_update_keeps_highest_scored_fitting_prefix
-block_assembler::tests::uncle_size_matches_basic_block_size_basis
+block_assembler::tests::uncle_size_matches_the_canonical_block_size_basis
 callback::tests::publish_dispatches_the_typed_event
 callback::tests::scoped_callback_marker_restores_the_reused_thread
 component::tests::entry::test_min_fee_and_weight_evict
@@ -401,6 +402,7 @@ persisted::tests::persistence_writer_admits_only_one_snapshot_owner
 service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full
 service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness
 service::controller::tests::closed_reorg_consumer_fails_without_waiting
+service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition
 service::controller::tests::remote_submit_waits_without_blocking_a_current_thread_runtime
 service::message::tests::notify_tx_batch_rejects_bytes_before_dispatch
 service::message::tests::notify_tx_batch_rejects_count_before_dispatch

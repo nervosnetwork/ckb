@@ -163,16 +163,19 @@
       "implementation_owners": [
         {"path": "tx-pool/src/authority/chain_boundary.rs", "symbols": ["struct ChainUpdateRequest", "enum ChainPackaging", "enum ChainBoundaryError"]},
         {"path": "tx-pool/src/authority/plan/chain_transition.rs", "symbols": ["fn plan_chain_transition", "fn plan_chain_generation_replacement"]},
+        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn run_ordered_chain_control_driver"]},
+        {"path": "tx-pool/src/service/message.rs", "symbols": ["enum ChainControl"]},
         {"path": "chain/src/verify.rs", "symbols": ["install_chain_tip_transition"]}
       ],
-      "required_behavior": "One readiness-independent capacity-one chain boundary pairs each installed snapshot with its exact fork delta. One ordered UAK Apply reconciles status, membership, recovery, dependencies, resources, effects and chain view.",
-      "hostile_case": "Blank-fork reorg, Gap outside the new window, detached dependency tree, short-ID collision, over-bound recovery, startup readiness false or truncate must not lose a tip delta, expose a partial owner generation or strand re-proposal.",
+      "required_behavior": "One readiness-independent capacity-one control boundary pairs each installed snapshot with its exact fork delta and orders later generation clears after that reconciliation. One UAK Apply reconciles status, membership, recovery, dependencies, resources, effects and chain view.",
+      "hostile_case": "Blank-fork reorg, Gap outside the new window, detached dependency tree, short-ID collision, over-bound recovery, startup readiness false or truncate followed by clear must not lose a tip delta, let delayed recovery overtake clear, expose a partial owner generation or strand re-proposal.",
       "reviewer_questions": [
         "Does every best-tip installation call the sole reliable boundary?",
+        "Can ClearPool or ClearPipeline overtake an already-published chain transition?",
         "Can any derived retry replay authoritative chain mutation?",
         "Are recovered owners parent-first and ordinary validation inputs?"
       ],
-      "performance_bound": "One ordered chain Apply; packaging and sorting occur outside the guard and derived template work remains separate."
+      "performance_bound": "Only chain reconciliation and rare generation clears share the ordered lane; admission remains concurrent, packaging and sorting occur outside the guard, and derived template work remains separate."
     },
     {
       "id": "TP-PERSIST-001",
@@ -341,6 +344,7 @@
     {"test": "authority::tests::foundation::uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure", "behavior_id": "TP-ADMIN-001", "invariants": ["T3", "T4", "T6"]},
     {"test": "authority::tests::foundation::uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T7", "T10"]},
     {"test": "authority::tests::foundation::uak_clear_pipeline_preserves_accepted_and_invalidates_active_work", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T6"]},
+    {"test": "authority::tests::foundation::uak_runtime_clear_scopes_and_snapshot_pairing_are_indivisible", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T2", "T3", "T6", "T9", "T12"]},
 
     {"test": "authority::tests::effect::uak_effect_full_preserves_ready_owner_and_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T3", "T6", "T7"]},
     {"test": "authority::tests::effect::uak_effect_lease_preserves_sequence_and_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T3", "T7"]},
@@ -354,6 +358,7 @@
     {"test": "authority::tests::chain::uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child", "behavior_id": "TP-REORG-001", "invariants": ["T4", "T10"]},
     {"test": "service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
     {"test": "service::controller::tests::closed_reorg_consumer_fails_without_waiting", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
+    {"test": "service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T9", "T10"]},
     {"test": "authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9", "T10"]},
 
     {"test": "authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T12"]},
@@ -513,6 +518,18 @@
       "unit_anchors": [
         "authority::tests::chain::uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot",
         "authority::tests::template_driver::uak_template_driver_full_priority_and_partial_occ_use_one_output_revision"
+      ]
+    },
+    {
+      "id": "truncate-clear-order",
+      "behavior_ids": ["TP-REORG-001", "TP-ADMIN-001"],
+      "path": "test/src/specs/rpc/truncate.rs",
+      "anchor": "RpcTruncate",
+      "boundary": "A clear issued by truncate after the chain transition is ordered after detached recovery and leaves one empty generation at the truncated snapshot.",
+      "invariants": ["T1", "T3", "T6", "T9", "T10", "T12"],
+      "unit_anchors": [
+        "service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition",
+        "authority::tests::foundation::uak_runtime_clear_scopes_and_snapshot_pairing_are_indivisible"
       ]
     },
     {

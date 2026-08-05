@@ -14,6 +14,7 @@ CHAIN_VERIFY = REPO_ROOT / "chain" / "src" / "verify.rs"
 TX_POOL_SERVICE = REPO_ROOT / "tx-pool" / "src" / "service.rs"
 TX_POOL_CONTROLLER = REPO_ROOT / "tx-pool" / "src" / "service" / "controller.rs"
 TX_POOL_BUILDER = REPO_ROOT / "tx-pool" / "src" / "service" / "builder.rs"
+TX_POOL_MESSAGE = REPO_ROOT / "tx-pool" / "src" / "service" / "message.rs"
 TX_POOL_AUTHORITY_SERVICE = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "service.rs"
 )
@@ -367,7 +368,7 @@ def validate_compute_capability_identity() -> list[str]:
 
 
 def validate_ordered_chain_error_domain() -> list[str]:
-    """Keep the sole ordered reorg task free of droppable service errors."""
+    """Keep the sole ordered chain-control task free of droppable errors."""
 
     try:
         source = TX_POOL_AUTHORITY_SERVICE.read_text()
@@ -405,9 +406,9 @@ def validate_ordered_chain_error_domain() -> list[str]:
             "AuthorityService::apply_chain_update must return the closed chain error domain"
         )
 
-    driver = function_body(source, "run_ordered_reorg_driver")
+    driver = function_body(source, "run_ordered_chain_control_driver")
     if driver is None:
-        errors.append("run_ordered_reorg_driver disappeared")
+        errors.append("run_ordered_chain_control_driver disappeared")
     else:
         for required in (
             "Err(AuthorityChainUpdateError::Cancelled)",
@@ -415,10 +416,21 @@ def validate_ordered_chain_error_domain() -> list[str]:
         ):
             if driver.count(required) != 1:
                 errors.append(
-                    "ordered reorg driver must exhaustively settle " f"{required}"
+                    "ordered chain-control driver must exhaustively settle " f"{required}"
                 )
         if re.search(r"Err\s*\(\s*(?:error|other|operational)\s*\)", driver):
-            errors.append("ordered reorg driver must not regain a broad fallback error arm")
+            errors.append(
+                "ordered chain-control driver must not regain a broad fallback error arm"
+            )
+        for required in (
+            "ChainControl::Reconcile(arguments)",
+            "ChainControl::ClearPool(",
+            "ChainControl::ClearPipeline(",
+        ):
+            if driver.count(required) != 1:
+                errors.append(
+                    "ordered chain-control driver must own exactly one " f"{required} arm"
+                )
 
     mapping = function_body(source, "map_chain_integrity")
     if mapping is None:
@@ -519,7 +531,7 @@ def validate_chain_transition_publication() -> list[str]:
         )
     if reorg_publishers != ["chain/src/verify.rs"]:
         errors.append(
-            "the ordered tx-pool reorg channel must have one production publisher, "
+            "the ordered tx-pool chain-control lane must have one reorg publisher, "
             f"found {reorg_publishers}"
         )
     if chain.count("self.install_chain_tip_transition(&fork, new_snapshot);") != 2:
@@ -535,32 +547,55 @@ def validate_startup_backpressure() -> list[str]:
     service = TX_POOL_SERVICE.read_text()
     controller = TX_POOL_CONTROLLER.read_text()
     builder = TX_POOL_BUILDER.read_text()
+    message = TX_POOL_MESSAGE.read_text()
     authority_service = TX_POOL_AUTHORITY_SERVICE.read_text()
 
-    if "const REORG_CHANNEL_SIZE: usize = 1;" not in service:
-        errors.append("the ordered reorg startup boundary must retain capacity one")
+    if "const CHAIN_CONTROL_CHANNEL_SIZE: usize = 1;" not in service:
+        errors.append("the ordered chain-control boundary must retain capacity one")
     update = function_body(controller, "update_tx_pool_for_reorg")
     if update is None:
         errors.append("TxPoolController::update_tx_pool_for_reorg disappeared")
     else:
-        if "reorg_sender.send(notify)" not in update:
+        if "chain_control_sender.send(command)" not in update:
             errors.append("authoritative reorg delivery must use bounded async send")
         if "try_send" in update or "service_started" in update:
             errors.append(
                 "authoritative reorg delivery may neither drop on capacity nor gate on readiness"
             )
 
+    message_enum = re.search(r"enum\s+Message\s*\{(?P<body>.*?)\n\}", message, re.S)
+    control_enum = re.search(
+        r"enum\s+ChainControl\s*\{(?P<body>.*?)\n\}", message, re.S
+    )
+    if message_enum is None or control_enum is None:
+        errors.append("Message and ChainControl must remain explicit closed enums")
+    else:
+        for command in ("ClearPool", "ClearPipeline"):
+            if command in message_enum.group("body"):
+                errors.append(
+                    f"{command} must not race chain reconciliation on the concurrent dispatcher"
+                )
+            if command not in control_enum.group("body"):
+                errors.append(f"{command} disappeared from the ordered chain-control lane")
+    for method, fragment in (
+        ("clear_pool", "send_chain_control!(self, ClearPool"),
+        ("clear_verify_queue", "send_chain_control!(self, ClearPipeline"),
+    ):
+        body = function_body(controller, method)
+        if body is None or fragment not in body:
+            errors.append(f"TxPoolController::{method} must use the ordered control lane")
+
     assemble = builder.find("AuthorityService::assemble(")
     replay = builder.find("service.replay_persisted(")
     ready = builder.find("started.store(true, Ordering::Release)")
     if min(assemble, replay, ready) < 0 or not assemble < replay < ready:
         errors.append(
-            "startup must assemble the reorg consumer before persistence replay and publish "
+            "startup must assemble the chain-control consumer before persistence replay and publish "
             "RPC readiness only after replay"
         )
     assembly = function_body(authority_service, "assemble")
-    if assembly is None or "run_ordered_reorg_driver" not in assembly:
-        errors.append("AuthorityService::assemble must own the ordered reorg consumer")
+    if assembly is None or "run_ordered_chain_control_driver" not in assembly:
+        errors.append("AuthorityService::assemble must own the ordered control consumer")
     return errors
 
 
@@ -580,7 +615,7 @@ def main() -> int:
         return 1
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
-        "bounded reorg backpressure plus authority mutation wake coverage, "
+        "bounded chain-control backpressure plus authority mutation wake coverage, "
         "the typed authority failure algebra and current production vocabulary"
     )
     return 0

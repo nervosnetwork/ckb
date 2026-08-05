@@ -134,20 +134,77 @@ checks. The registry now maps 93 exact tx-pool tests / 247 invariant references,
 9 cross-crate tests / 21 references and 18 security integration anchors across
 the same 150 managed specs.
 
+The combined RBF availability/adjudication checkpoint is frozen at
+`91eefd6f3`. The first exact generated 150-spec run against that frozen release
+binary completed in 920.95 seconds: 142 passed and 8 failed. The complete
+failure set was:
+
+- `ValidSince`, `CheckVmBExtension`, `CheckRelativeEpochSince`,
+  `CheckAbsoluteEpochSince`, and `CheckCellDeps`;
+- `RpcTruncate`, `FeeOfMultipleMaxBlockProposalsLimit`, and
+  `CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple`.
+
+The complete runner log is
+`/private/tmp/ckb-txpool-managed-150-91eefd6f3.log`. Every failure has now been
+classified at its semantic owner:
+
+- Committed verification errors detached the complete already-prefixed
+  display string and then reconstructed the typed prefix, producing
+  `Transaction(Transaction(...))` and `Script(Script(...))`. The journal now
+  stores the bounded direct inner diagnostic and lets the typed kind render
+  exactly once. A nested-error unit proves that intermediate context is also
+  preserved rather than collapsed to the deepest root cause.
+- `UncleBlockView::serialized_size_in_block()` already uses the consensus
+  block-size basis that excludes uncle proposal payload. Subtracting proposal
+  bytes a second time could underflow and suppress optional template content.
+  The helper is now infallible on the canonical basis with an exact-size unit.
+- `FeeOfMultipleMaxBlockProposalsLimit` counted the union of top-level and
+  legal uncle proposals while asserting a top-level consensus limit. It now
+  waits for the exact template height and asserts the top-level proposal zone.
+- The same-block cell-dep/spender integration consumed a valid intermediate
+  one-owner template from the intentionally optimistic partial lane. It now
+  waits for the source level containing both completed admissions and directly
+  asserts dependency-reader-before-spender order in the selected block.
+- `RpcTruncate` assumed a resubmitted transaction always required a fresh
+  top-level proposal. A detached proposal may remain valid through a legal
+  uncle, so the test now observes the required committed outcome.
+- Repeated execution exposed a separate product race: chain reconcile used the
+  dedicated ordered channel, while `ClearPool` and `ClearPipeline` used the
+  concurrent dispatcher. A clear issued after truncate could Apply first and
+  then be overtaken by delayed detached recovery. The existing capacity-one
+  lane is now the closed `ChainControl` sum of `Reconcile | ClearPool |
+  ClearPipeline`; all three run to completion in producer order. No authority
+  state, lock, version, task, rollback or repair path was added. Ordinary
+  admission/read traffic and the five independent template lanes remain
+  concurrent.
+
+Checkpoint-preparation evidence at the current working tree:
+
+- complete original failure group: 8/8 integration specs passed serially;
+- focused truncate/cell-dep ordering pair: 2/2 passed serially;
+- `cargo nextest run -p ckb-tx-pool --features internal --lib
+  --no-fail-fast`: 410/410 passed;
+- strict internal-feature Clippy and default-feature `cargo check`: passed;
+- complete review/static contracts, formatting and diff checks: passed;
+- registry: 95 exact tx-pool tests / 256 invariant references, 9 cross-crate
+  tests / 21 references, 19 security integration anchors and 150 managed
+  specs.
+
 Next exact actions:
 
-1. Freeze the combined RBF availability/adjudication checkpoint without
-   staging the user-owned root `.gitignore`.
-2. Re-run the exact generated 150-spec managed universe from the beginning,
-   serially through `make integration`; do not substitute a directory, the
-   previous runner remainder, or a name subset.
-3. For each failure, preserve logs and classify it as product defect, obsolete
-   test, harness defect or environment failure before any edit.
-4. A product defect returns to architecture/producer-consumer analysis. Do not
-   add a retry, repair scan, watchdog, second authority or test-only exception.
-5. Re-run the failed exact spec, its full semantic group and then all 150.
-6. Run the phase-4 static/nextest/Clippy gates again and freeze the P9.8
-   checkpoint.
+1. Re-run the verification-wrapper integration group after the final
+   direct-cause compatibility tightening, then repeat the complete static,
+   nextest, Clippy, formatting and diff gates.
+2. Freeze this eight-failure root-correction checkpoint without staging the
+   user-owned root `.gitignore`.
+3. Re-run the exact generated 150-spec managed universe from the beginning;
+   neither a remainder nor a filtered subset satisfies P9.8.
+4. Classify any new failure before editing code or tests. A product defect
+   returns to producer/consumer, authority, transition, effect and adversarial
+   cost analysis; do not add retries, repair scans, watchdogs, second
+   authorities or test-only exceptions.
+5. Run all phase gates again and freeze P9.8 only at 150/150 with every
+   compatibility decision documented.
 
 ## P10 boundary
 

@@ -274,13 +274,23 @@ fn bound_reject_diagnostic(reject: Reject) -> Reject {
             Reject::Malformed(bounded_text(kind, half), bounded_text(message, half))
         }
         // Never retain a foreign dynamic error graph in the committed
-        // journal, even when its Display text happens to be short. The typed
-        // error kind and a detached bounded diagnostic are the complete
-        // public contract.
-        Reject::Verification(error) => Reject::Verification(error.kind().other(bounded_text(
-            error.to_string(),
-            MAX_DYNAMIC_REJECT_TEXT_BYTES,
-        ))),
+        // journal, even when its Display text happens to be short. Preserve
+        // the established public shape by detaching the direct inner
+        // diagnostic and letting the typed kind add its prefix exactly once.
+        // Detaching `error.to_string()` would duplicate the top-level kind;
+        // detaching `root_cause()` would instead erase any meaningful
+        // intermediate error context.
+        Reject::Verification(error) => {
+            let kind = error.kind();
+            let detached = match error.cause() {
+                Some(cause) => kind.other(bounded_text(
+                    cause.to_string(),
+                    MAX_DYNAMIC_REJECT_TEXT_BYTES,
+                )),
+                None => kind.into(),
+            };
+            Reject::Verification(detached)
+        }
         Reject::RBFRejected(message) => {
             Reject::RBFRejected(bounded_text(message, MAX_DYNAMIC_REJECT_TEXT_BYTES))
         }

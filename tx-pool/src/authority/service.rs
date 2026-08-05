@@ -52,7 +52,10 @@ use crate::{
     dependency_sort::DependencySortError,
     error::Reject,
     network::TxPoolNetworkHandle,
-    service::{ChainReorgArgs, DEFAULT_CHANNEL_SIZE, TxVerificationResult},
+    service::{
+        ChainControl, ChainReorgArgs, DEFAULT_CHANNEL_SIZE, OneshotSender, Request,
+        TxVerificationResult, respond,
+    },
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::Handle;
@@ -218,7 +221,7 @@ pub(crate) struct AuthorityServiceInputs {
     pub(crate) persistence_writer: Arc<crate::persisted::PersistenceWriter>,
     pub(crate) recent_reject: Option<Arc<crate::component::recent_reject::RecentReject>>,
     pub(crate) fee_estimator: FeeEstimator,
-    pub(crate) reorg_receiver: mpsc::Receiver<crate::service::Notify<ChainReorgArgs>>,
+    pub(crate) chain_control_receiver: mpsc::Receiver<ChainControl>,
     pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
     pub(crate) cancel: CancellationToken,
 }
@@ -402,7 +405,7 @@ pub(crate) enum AuthorityShutdownOutcome {
 /// or reconstruct the linear fault capability.
 pub(crate) struct AuthorityGeneration {
     topology: Option<AuthorityTaskTopology>,
-    reorg: Option<tokio::task::JoinHandle<Result<(), AuthorityGenerationInvalidity>>>,
+    chain_control: Option<tokio::task::JoinHandle<Result<(), AuthorityGenerationInvalidity>>>,
     cancel: CancellationToken,
     invalid: Option<AuthorityServiceGenerationFault>,
 }
@@ -417,15 +420,15 @@ enum AuthorityServiceGenerationFault {
         )]
         AuthorityGenerationInvalidity,
     ),
-    Reorg(
+    ChainControl(
         #[expect(
             dead_code,
-            reason = "the reorg-invalid capability is retained until shutdown and rendered in the operational fault log"
+            reason = "the ordered-control invalid capability is retained until shutdown and rendered in the operational fault log"
         )]
         AuthorityGenerationInvalidity,
     ),
-    ReorgJoin(tokio::task::JoinError),
-    ReorgTimeout,
+    ChainControlJoin(tokio::task::JoinError),
+    ChainControlTimeout,
 }
 
 impl AuthorityGeneration {
@@ -437,23 +440,25 @@ impl AuthorityGeneration {
         if self.invalid.is_some() {
             return AuthorityGenerationEvent::GenerationInvalid;
         }
-        let event = match (self.topology.as_mut(), self.reorg.as_mut()) {
-            (Some(topology), Some(reorg)) => {
+        let event = match (self.topology.as_mut(), self.chain_control.as_mut()) {
+            (Some(topology), Some(chain_control)) => {
                 tokio::select! {
                     event = topology.next_event() => GenerationBoundaryEvent::Topology(event),
-                    result = reorg => GenerationBoundaryEvent::Reorg(result),
+                    result = chain_control => GenerationBoundaryEvent::ChainControl(result),
                 }
             }
             (Some(topology), None) => {
                 GenerationBoundaryEvent::Topology(topology.next_event().await)
             }
-            (None, Some(reorg)) => GenerationBoundaryEvent::Reorg(reorg.await),
+            (None, Some(chain_control)) => {
+                GenerationBoundaryEvent::ChainControl(chain_control.await)
+            }
             (None, None) => return AuthorityGenerationEvent::ShutdownRequested,
         };
         match event {
             GenerationBoundaryEvent::Topology(event) => self.classify_topology_event(event),
-            GenerationBoundaryEvent::Reorg(result) => {
-                self.reorg = None;
+            GenerationBoundaryEvent::ChainControl(result) => {
+                self.chain_control = None;
                 match result {
                     Ok(Ok(())) => {
                         if !self.cancel.is_cancelled() {
@@ -464,11 +469,13 @@ impl AuthorityGeneration {
                         AuthorityGenerationEvent::ShutdownRequested
                     }
                     Ok(Err(fault)) => {
-                        self.retain_invalid(AuthorityServiceGenerationFault::Reorg(fault));
+                        self.retain_invalid(AuthorityServiceGenerationFault::ChainControl(fault));
                         AuthorityGenerationEvent::GenerationInvalid
                     }
                     Err(error) => {
-                        self.retain_invalid(AuthorityServiceGenerationFault::ReorgJoin(error));
+                        self.retain_invalid(AuthorityServiceGenerationFault::ChainControlJoin(
+                            error,
+                        ));
                         AuthorityGenerationEvent::GenerationInvalid
                     }
                 }
@@ -510,19 +517,19 @@ impl AuthorityGeneration {
 
     pub(crate) async fn shutdown(mut self, timeout: Duration) -> AuthorityShutdownOutcome {
         self.cancel.cancel();
-        if let Some(mut reorg) = self.reorg.take() {
-            match tokio::time::timeout(timeout, &mut reorg).await {
+        if let Some(mut chain_control) = self.chain_control.take() {
+            match tokio::time::timeout(timeout, &mut chain_control).await {
                 Ok(Ok(Ok(()))) => {}
                 Ok(Ok(Err(fault))) => {
-                    self.retain_invalid(AuthorityServiceGenerationFault::Reorg(fault));
+                    self.retain_invalid(AuthorityServiceGenerationFault::ChainControl(fault));
                 }
                 Ok(Err(error)) => {
-                    self.retain_invalid(AuthorityServiceGenerationFault::ReorgJoin(error));
+                    self.retain_invalid(AuthorityServiceGenerationFault::ChainControlJoin(error));
                 }
                 Err(_) => {
-                    reorg.abort();
-                    let _ = reorg.await;
-                    self.retain_invalid(AuthorityServiceGenerationFault::ReorgTimeout);
+                    chain_control.abort();
+                    let _ = chain_control.await;
+                    self.retain_invalid(AuthorityServiceGenerationFault::ChainControlTimeout);
                 }
             }
         }
@@ -537,7 +544,7 @@ impl AuthorityGeneration {
             }
             Some(fault) => {
                 ckb_logger::error!(
-                    "tx-pool ordered reorg generation failed; persistence is forbidden: {fault:?}"
+                    "tx-pool ordered chain-control generation failed; persistence is forbidden: {fault:?}"
                 );
                 drop(topology);
                 return AuthorityShutdownOutcome::PersistenceForbidden;
@@ -570,14 +577,15 @@ fn service_failure_boundary(
 ) -> crate::metrics::FailureBoundary {
     match fault {
         AuthorityServiceGenerationFault::Authority(fault) => authority_failure_boundary(fault),
-        AuthorityServiceGenerationFault::Service(_) | AuthorityServiceGenerationFault::Reorg(_) => {
+        AuthorityServiceGenerationFault::Service(_)
+        | AuthorityServiceGenerationFault::ChainControl(_) => {
             crate::metrics::FailureBoundary::TypedFault
         }
-        AuthorityServiceGenerationFault::ReorgJoin(error) if error.is_panic() => {
+        AuthorityServiceGenerationFault::ChainControlJoin(error) if error.is_panic() => {
             crate::metrics::FailureBoundary::HandlerUnwind
         }
-        AuthorityServiceGenerationFault::ReorgJoin(_)
-        | AuthorityServiceGenerationFault::ReorgTimeout => {
+        AuthorityServiceGenerationFault::ChainControlJoin(_)
+        | AuthorityServiceGenerationFault::ChainControlTimeout => {
             crate::metrics::FailureBoundary::WorkerExit
         }
     }
@@ -629,7 +637,7 @@ pub(super) fn derived_failure_boundary(
 
 enum GenerationBoundaryEvent {
     Topology(AuthorityTopologyEvent),
-    Reorg(Result<Result<(), AuthorityGenerationInvalidity>, tokio::task::JoinError>),
+    ChainControl(Result<Result<(), AuthorityGenerationInvalidity>, tokio::task::JoinError>),
 }
 
 impl AuthorityService {
@@ -702,7 +710,7 @@ impl AuthorityService {
             persistence_writer,
             recent_reject,
             fee_estimator,
-            reorg_receiver,
+            chain_control_receiver,
             chunk_rx,
             cancel: parent_cancel,
         } = inputs;
@@ -749,16 +757,21 @@ impl AuthorityService {
             recent_reject,
             fee_estimator,
         };
-        let reorg_service = service.clone();
-        let reorg_cancel = cancel.child_token();
-        let reorg = handle.spawn(async move {
-            run_ordered_reorg_driver(reorg_service, reorg_receiver, reorg_cancel).await
+        let control_service = service.clone();
+        let control_cancel = cancel.child_token();
+        let chain_control = handle.spawn(async move {
+            run_ordered_chain_control_driver(
+                control_service,
+                chain_control_receiver,
+                control_cancel,
+            )
+            .await
         });
         Ok(AuthorityServiceAssembly {
             service,
             generation: AuthorityGeneration {
                 topology: Some(topology),
-                reorg: Some(reorg),
+                chain_control: Some(chain_control),
                 cancel,
                 invalid: None,
             },
@@ -1589,27 +1602,68 @@ async fn allocation_backoff_or_cancel(cancel: &CancellationToken) -> bool {
     }
 }
 
-async fn run_ordered_reorg_driver(
+async fn run_ordered_chain_control_driver(
     service: AuthorityService,
-    mut receiver: mpsc::Receiver<crate::service::Notify<ChainReorgArgs>>,
+    mut receiver: mpsc::Receiver<ChainControl>,
     cancel: CancellationToken,
 ) -> Result<(), AuthorityGenerationInvalidity> {
     loop {
-        let update = tokio::select! {
+        let command = tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            update = receiver.recv() => update,
+            command = receiver.recv() => command,
         };
-        let Some(crate::service::Notify { arguments }) = update else {
+        let Some(command) = command else {
             return Ok(());
         };
-        match service.apply_chain_update(arguments).await {
-            Ok(()) => {}
-            Err(AuthorityChainUpdateError::Cancelled) => return Ok(()),
-            Err(AuthorityChainUpdateError::Integrity(fault)) => {
-                return AuthorityService::settle_operation_error(AuthorityServiceError::Integrity(
-                    fault,
-                ));
+        match command {
+            ChainControl::Reconcile(arguments) => {
+                match service.apply_chain_update(arguments).await {
+                    Ok(()) => {}
+                    Err(AuthorityChainUpdateError::Cancelled) => return Ok(()),
+                    Err(AuthorityChainUpdateError::Integrity(fault)) => {
+                        return AuthorityService::settle_operation_error(
+                            AuthorityServiceError::Integrity(fault),
+                        );
+                    }
+                }
             }
+            ChainControl::ClearPool(Request {
+                responder,
+                arguments,
+            }) => {
+                settle_ordered_administration(
+                    responder,
+                    service.clear_pool(arguments).await,
+                    "clear_pool",
+                )?;
+            }
+            ChainControl::ClearPipeline(Request { responder, .. }) => {
+                settle_ordered_administration(
+                    responder,
+                    service.clear_pipeline().await,
+                    "clear_pipeline",
+                )?;
+            }
+        }
+    }
+}
+
+fn settle_ordered_administration<S>(
+    responder: S,
+    result: Result<(), AuthorityServiceError>,
+    operation: &'static str,
+) -> Result<(), AuthorityGenerationInvalidity>
+where
+    S: OneshotSender<()>,
+{
+    match result {
+        Ok(()) => {
+            respond(responder, (), operation);
+            Ok(())
+        }
+        Err(error) => {
+            drop(responder);
+            AuthorityService::settle_operation_error(error)
         }
     }
 }

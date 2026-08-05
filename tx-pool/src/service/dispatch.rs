@@ -154,17 +154,6 @@ pub(crate) async fn process(
             service.receive_candidate_uncle(arguments);
             Ok(())
         }
-        Message::ClearPool(request) => {
-            let Request {
-                responder,
-                arguments,
-            } = request;
-            respond_outer(responder, service.clear_pool(arguments).await, "clear_pool")
-        }
-        Message::ClearPipeline(request) => {
-            let Request { responder, .. } = request;
-            respond_outer(responder, service.clear_pipeline().await, "clear_pipeline")
-        }
         Message::GetPoolTxDetails(request) => {
             let Request {
                 responder,

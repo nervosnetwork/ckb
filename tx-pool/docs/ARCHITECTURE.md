@@ -168,7 +168,7 @@ review boundary against risk transfer and accidental complexity.
 | Count-only compute semaphore and worker topology | Parallel validation plus F4 | Bounded permits and configured resolver/verifier tasks. The semaphore contains no transaction identity; checked-out work remains move-only and cancellation-owned. | Bounds transient hostile work without serializing validation. Remove or resize only from profiling and resource evidence. |
 | Bounded `EffectLog` and sole publisher | F3 and peer/refetch security | Three capacity regions, one claimed publisher task, exact progress lease, and startup-proved indivisible batch limits. Endpoint I/O is outside the lock. | Eliminates in-process mutation/publication gaps. Crash durability and universal exactly-once delivery remain external risk, not hidden owner state. |
 | `ReplacementHistory` | F2, F6 | Inert optional owner under a separate hard count/byte/edge sub-budget; never scheduled, persisted or exposed as live RPC state. | Eliminates speculative victim restore/undo. Saturation drops the complete optional set while preserving the winner; no partial history is legal. |
-| Capacity-one ordered chain lane plus five template lanes | F7 | One reliable reorg task; full/reset share one ordered replacement lane while proposal/transaction/uncle/notification work stays optimistic and derived. | Eliminates chain/authority split without serializing template construction. Any topology change must preserve the established lane concurrency. |
+| Capacity-one ordered chain-control lane plus five template lanes | F7 | One reliable task orders chain reconciliation with generation-clearing controls; full/reset share a separate ordered replacement lane while proposal/transaction/uncle/notification work stays optimistic and derived. | Eliminates chain/authority and reorg/clear split ordering without serializing admission or template construction. Any topology change must preserve the established lane concurrency. |
 | 100,000-entry committed-hash compatibility cache | Compact-block lookup compatibility | Bounded LRU from proposal short ID to raw hash, committed with the paired snapshot. Full raw-hash and short-ID checks occur before a transaction is returned. | Collision can only underfill a derived compact-block response; it cannot select an owner or wrong payload. Delete when the compatibility lookup no longer needs it. |
 
 The UAK is justified only while each retained mechanism maps to one of these
@@ -450,7 +450,7 @@ evidence is represented through the membership overlay and causal compiler.
 
 The chain layer owns one tip-installation boundary: install the new snapshot,
 then send the exact fork delta on a reliable capacity-one ordered channel. RPC
-readiness cannot suppress this transition. The ordered reorg driver packages
+readiness cannot suppress this transition. The ordered chain-control driver packages
 detached/attached inputs outside the authority guard, then one chain Plan/Apply
 pairs the new `Arc<Snapshot>` and `ChainViewId` with all owner, membership,
 status, recovery, dependency, resource and effect changes.
@@ -459,11 +459,14 @@ Normal best-block and truncate paths use this same boundary. IBD and
 candidate-uncle notifications remain readiness-gated derived signals and must
 not be placed on the authoritative ordered channel.
 
-Clear, peer revocation, local removal, remote expiry and accepted expiry use a
-cause-complete owner-removal compiler. It updates every projection and required
-effect once. `ClearPipeline` preserves Accepted owners; `ClearPool` creates a
-fresh empty generation. Reorg and clear do not use a recovery lock, nested undo
-or detached-block payload owner.
+`ClearPipeline` preserves Accepted owners; `ClearPool` creates a fresh empty
+generation. Both share the chain-control lane so a clear issued after an
+installed chain transition cannot be overtaken by that transition's detached
+recovery. This ordering adds no lock or state token and does not serialize
+ordinary admission. Peer revocation, local removal, remote expiry and accepted
+expiry use a cause-complete owner-removal compiler that updates every projection
+and required effect once. Reorg and clear use neither a recovery lock, nested
+undo nor a detached-block payload owner.
 
 ## 10. Committed effects and external failure
 
@@ -551,7 +554,7 @@ task and owns:
 - the derived verification-cache updater;
 - optional block-template lanes.
 
-The service generation separately owns the ordered reorg driver. Cancellation
+The service generation separately owns the ordered chain-control driver. Cancellation
 closes producers first, joins authority workers, closes and drains effects,
 then joins derived tasks. Every task exit is classified by what it owns;
 template/cache degradation retains authoritative state, while loss of the sole
@@ -569,7 +572,7 @@ Every wait must name an independently running releaser:
 | mutation `Notify` | none | every runtime Apply publishes once after its guard opens; waiter rechecks level first |
 | effect capacity | the exact failed settlement capability, no store guard | sole effect publisher settlement or cancellation |
 | verification cache channel | no owner or store guard | cache updater; cache failure is derived degradation |
-| ordered chain channel | chain request at producer boundary, no store guard | ordered reorg driver |
+| ordered chain-control channel | chain or clear request at producer boundary, no store guard | ordered chain-control driver |
 | template source change | no authority guard | authority Apply or candidate-uncle source mutation |
 | shutdown joins | topology owner only | cancellation-aware owned task or bounded operational timeout |
 
@@ -653,7 +656,7 @@ forces every new service outcome to choose its failure domain at compile time.
 The ordered chain consumer is narrower still: `AuthorityChainUpdateError`
 contains only cancellation and integrity. Allocation retains and retries the
 exact request; a future operational service variant cannot silently terminate
-the sole reorg task.
+the sole chain-control task.
 Rebuildable candidate-uncle collection and response/config conversion remain
 outside the integrity domain; a dedicated ingress-rejection commit proof keeps
 unrelated successful dispositions unrepresentable at the Remote-pressure call
@@ -668,7 +671,7 @@ The backward constructor audit is closed as follows:
 | Resource projection | An existing owner/charge row disagrees, checked subtraction underflows, or a sealed membership compiler returns a resource outcome it had already proved impossible. | Ordinary allocation and all configured total/Remote/peer/accepted/compute/history limits are typed backpressure or rejection before Apply. |
 | Membership/index/scheduler/dependency projection | Same-cut owner-derived structures disagree, or a supposedly exact move-only capability names no matching owner/phase. | Lock-external stale evidence is an ordinary stale result. Under one guard, these structures are changed only by the same total Apply and validated by model/projection regressions. |
 | Effect projection | A prevalidated indivisible batch no longer fits its configured region, effect index/progress disagrees, or a rebuildable chain delta leaks raw capacity pressure. | Full/allocation/closed endpoint outcomes remain operational; only contradiction with the startup-proved effect algebra reaches this class. |
-| Effect lifecycle closed during ordered reorg | A state producer observes the effect log closed before producer cancellation/join. | Shutdown owns producers-before-effect-close ordering. No input closes effects; occurrence proves a topology/programmer defect and cannot be ignored without losing the paired chain transition. |
+| Effect lifecycle closed during ordered chain control | A state producer observes the effect log closed before producer cancellation/join. | Shutdown owns producers-before-effect-close ordering. No input closes effects; occurrence proves a topology/programmer defect and cannot be ignored without losing the paired chain transition or clear. |
 
 This is not a panic-free or restart-based architecture. Structural faults
 remain typed defense in depth for programmer defects; they are not validation,

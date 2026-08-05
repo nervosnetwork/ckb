@@ -90,27 +90,21 @@ fn cell_liveness_memo_caches_and_invalidates_on_tip_change() {
     );
 }
 
-/// Bug #49: `uncle_size` must use the same accounting basis as
-/// `basic_block_size` and the consensus block-bytes limit:
-/// `serialized_size_in_block` minus the proposal ids (which are
-/// accounted separately in the template's proposals section).
+/// Uncle proposals are excluded by the consensus block-size accounting
+/// basis. The canonical per-uncle increment is therefore independent of the
+/// number of proposal ids carried by that uncle.
 #[test]
-fn uncle_size_matches_basic_block_size_basis() {
+fn uncle_size_matches_the_canonical_block_size_basis() {
     use ckb_types::packed::ProposalShortId;
 
-    // An uncle with no proposals: size == serialized_size_in_block.
+    let snapshot = genesis_snapshot();
+    let cellbase = snapshot.consensus().genesis_block().transactions()[0].data();
     let bare = BlockBuilder::default()
         .number(1)
         .epoch(EpochNumberWithFraction::new(0, 0, 1))
         .build()
         .as_uncle();
-    assert_eq!(
-        super::BlockAssembler::uncle_size(&bare).unwrap(),
-        ckb_types::core::UncleBlockView::serialized_size_in_block()
-    );
-
-    // An uncle with proposals: size == serialized_size_in_block - proposals * id_size.
-    let proposals: Vec<ProposalShortId> = (0..3u8)
+    let proposals: Vec<ProposalShortId> = (0..32u8)
         .map(|i| ProposalShortId::from_tx_hash(&Byte32::new([i; 32])))
         .collect();
     let with_proposals = BlockBuilder::default()
@@ -119,18 +113,24 @@ fn uncle_size_matches_basic_block_size_basis() {
         .proposals(proposals.clone())
         .build()
         .as_uncle();
-    let expected = ckb_types::core::UncleBlockView::serialized_size_in_block()
-        - proposals.len() * ProposalShortId::serialized_size();
-    assert_eq!(
-        super::BlockAssembler::uncle_size(&with_proposals).unwrap(),
-        expected,
-        "uncle_size must subtract proposal ids from the in-block size"
+    let base = super::BlockAssembler::basic_block_size(
+        cellbase.clone(),
+        &[],
+        std::iter::empty::<&ProposalShortId>(),
+        None,
     );
-    assert!(
-        super::BlockAssembler::uncle_size(&with_proposals).unwrap()
-            < super::BlockAssembler::uncle_size(&bare).unwrap(),
-        "an uncle with proposals must account for fewer bytes than a bare one"
-    );
+    let expected = ckb_types::core::UncleBlockView::serialized_size_in_block();
+
+    for uncle in [bare, with_proposals] {
+        assert_eq!(super::BlockAssembler::uncle_size(&uncle), expected);
+        let with_uncle = super::BlockAssembler::basic_block_size(
+            cellbase.clone(),
+            &[uncle],
+            std::iter::empty::<&ProposalShortId>(),
+            None,
+        );
+        assert_eq!(with_uncle.checked_sub(base), Some(expected));
+    }
 }
 
 /// Bug #56: a committed uncle plan must remove candidates that are already on
@@ -278,7 +278,7 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
         .build()
         .as_uncle();
     let base = 1_000;
-    let expected_uncle_size = super::BlockAssembler::uncle_size(&independent).unwrap();
+    let expected_uncle_size = super::BlockAssembler::uncle_size(&independent);
     let max = base + ProposalShortId::serialized_size() + expected_uncle_size;
 
     let fitted = super::BlockAssembler::fit_optional_content(
