@@ -680,6 +680,12 @@ impl AuthoritySignals {
         first: AuthorityPostCommit,
         second: Option<AuthorityPostCommit>,
     ) {
+        // This composition is valid only for checkout followed immediately by
+        // capture-failure settlement under the same store guard. No waiter can
+        // observe the intermediate Computing owner, and the caller retains the
+        // execution capability and must probe again (or report a structural
+        // fault). Do not use `then` to combine independently observable Applies:
+        // doing so could erase a transient scheduler or resource-ready edge.
         let first = first.publish_metrics_and_take_wake();
         let wake = second.map_or(first, |second| {
             first.then(second.publish_metrics_and_take_wake())

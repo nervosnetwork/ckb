@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn controller_repeated_idle_then_burst_never_loses_compute_wake() {
+    const GENERATIONS: usize = 32;
+    const TRANSACTIONS: usize = 30;
+
+    let executor = Arc::new(BenchExecutor::new());
+    let data = BenchData::new(
+        TxType::AlwaysSuccess,
+        TRANSACTIONS,
+        TRANSACTIONS,
+        Arc::clone(&executor),
+    );
+    let (txs, cycles) = data.warm();
+
+    for generation in 0..GENERATIONS {
+        let handle = data.shared.start_controller(8);
+        let settled = executor.runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                submit_and_wait_inner(
+                    &handle.controller,
+                    &handle.completion,
+                    Arc::clone(&txs),
+                    Arc::clone(&cycles),
+                    TRANSACTIONS,
+                    1,
+                ),
+            )
+            .await
+        });
+        assert!(
+            settled.is_ok(),
+            "service generation {generation} lost the idle-to-burst compute wake: {}/{} accepted",
+            handle.completion.completed.load(Ordering::Acquire),
+            TRANSACTIONS
+        );
+    }
+}
+
+#[test]
 fn controller_dependent_secp_chain_reverse() {
     let executor = Arc::new(BenchExecutor::new());
     let (mut shared, cell_deps) = SharedBench::new_secp(2, executor);

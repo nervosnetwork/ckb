@@ -1036,6 +1036,84 @@ Exact resume action:
 The optimization prototype is correctness-gated but not yet performance-
 accepted or production-accepted.
 
+Capability-shared measurement red light after the checkpoint:
+
+- the correctness-gated prototype is frozen at `b1daeed55`;
+- the equal-length frozen baseline worktree is
+  `/private/tmp/txp-uak-6f48` at `da9bf9935`, whose product parent is
+  `6f486cdf5`; the candidate worktree is `/private/tmp/txp-uak-b1da` at
+  `b1daeed55`;
+- the fixed baseline binary SHA-256 is
+  `94db5131c9c73b894b588a5fc533bccccac95a33cb335ce97c597d1c4be67e6f`;
+  the fixed candidate binary SHA-256 is
+  `8ec32747c427e59a6fe42acb57b5e667609ac4bb679353ee74dc30d0af1c3dda`;
+- both global preflights passed and all six cold
+  `pipeline_1peer_8worker_always_success_100` AB/BA pairs completed;
+- the filter also selected the warm variant. Its baseline pilot completed,
+  but the candidate pilot timed out after 120 seconds with
+  `pipeline did not complete all txs in time: 0/30 accepted`. The runner
+  exited before writing final JSON, so the cold observations are not accepted
+  A/B evidence;
+- this is a mandatory liveness red light, not benchmark noise. No timeout,
+  retry, polling, extra notification state or benchmark filtering may hide it.
+
+The exact active action supersedes the measurement steps above:
+
+1. Inspect the warm fixture and completion accounting to distinguish compute
+   progress from committed-effect callback progress.
+2. Reproduce the already-idle-then-burst shape with deterministic authority
+   and worker evidence, including a red regression before changing production
+   code.
+3. Trace the producer/consumer and stored-permit lifecycle for every shared
+   compute notification. Resolve the design at the wake topology boundary;
+   do not lengthen the timeout or add a repair wake.
+4. Re-run the complete correctness gates before repeating any fixed-binary
+   A/B/profile. Retain the prototype only if the legal idle-before-burst shape
+   is live and the measured benefit survives.
+
+Capability-shared idle-to-burst root resolution:
+
+- the deterministic service-level regression
+  `controller_repeated_idle_then_burst_never_loses_compute_wake` reproduced the
+  failure before the production change: a live service retained 30 charged
+  `Queued(Verify)` owners with zero Computing, Ready or Accepted owners;
+- the failed predicate was not `QueueHead` but
+  `Runnable = QueueHead AND ResourceEligible`. A Small verifier could consume
+  the sole head-change hint while the submitting peer's active-work slot was
+  still charged to Resolve. Later Resolve settlements kept the same Verify
+  head, and the final capacity release published no new head edge;
+- the authority wake projection now derives both scheduler heads and the
+  existing ledger's aggregate active-work usage. A decrease republishes every
+  retained compatible compute head. Per-peer and Remote releases necessarily
+  decrease this same aggregate; unrelated releases may cause only a bounded
+  failed probe, not a second authority or unbounded repair protocol;
+- all ledger mutations remain inside `PreparedApply::apply`. The only composed
+  receipt is checkout plus immediate capture-failure settlement under one store
+  guard; its retained execution capability must probe again or report a typed
+  structural fault, so no independently observable readiness edge is erased;
+- no mutable state, lock, queue, task, timer, retry, cache, watchdog or manual
+  scheduler publication point was added. Resolve/Verify parallelism and the
+  template OCC topology are unchanged;
+- focused wake/liveness regressions pass 4/4, including 32 fresh
+  idle-before-burst service generations; complete isolated library nextest
+  passes 421/421. Strict all-target internal Clippy, default-feature check,
+  `check_all.py`, format and diff checks pass;
+- the behavior registry now owns 106 exact tx-pool tests / 284 invariant
+  references. The user-owned root `.gitignore` remains outside this slice.
+
+Exact current action:
+
+1. Regenerate the reviewer guide after the final resource-readiness question,
+   inspect and freeze this focused checkpoint without `.gitignore`.
+2. Build one new fixed candidate binary. Run the exact warm idle-to-burst
+   preflight repeatedly before any paired comparison.
+3. Only after the warm preflight is stable, repeat paired A/B and matched
+   operation profiling against frozen `6f486cdf5`; judge throughput, work and
+   lock attribution together before retaining the candidate.
+4. If retained, update public performance evidence and reopen direct verified
+   commit through the existing final compiler. If not, profile the failed
+   hypothesis before redesigning it; do not silently discard the experiment.
+
 ## Restart rule
 
 After compaction or restart:

@@ -366,9 +366,9 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
         "a distinct large head must publish the Any-only signal",
     )
     .await;
-    expect_no_signal(
+    expect_signal(
         runtime.verify_small_signal(),
-        "an unchanged Small head must not receive another hint",
+        "releasing an active-work slot must republish the unchanged Small head",
     )
     .await;
 }

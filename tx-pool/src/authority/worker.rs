@@ -114,7 +114,7 @@ enum WorkerRole {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkerStep {
     Progress,
-    WaitForWork,
+    WaitForRunnable,
     WaitForEffectCapacity,
     Backoff,
 }
@@ -245,7 +245,7 @@ impl ComputeWorker {
             }
 
             match step {
-                WorkerStep::WaitForWork => {
+                WorkerStep::WaitForRunnable => {
                     let work = async {
                         match &self.role {
                             WorkerRole::OrderedResolve => {
@@ -320,7 +320,7 @@ impl ComputeWorker {
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
         let job = match self.checkout(execution, intent) {
             Ok(ControlFlow::Continue(Some(job))) => job,
-            Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::WaitForWork),
+            Ok(ControlFlow::Continue(None)) => return Ok(WorkerStep::WaitForRunnable),
             Ok(ControlFlow::Break(pending)) => return self.recover_settlement(pending).await,
             Err(error) => return self.handle_runtime_error(error).await,
         };
@@ -528,7 +528,7 @@ async fn run_ready_driver(
         let capacity_notified = runtime.effect_capacity_signal().notified();
         let step = match runtime.try_drive_ready() {
             Ok(AuthorityReadyOutcome::Applied) => WorkerStep::Progress,
-            Ok(AuthorityReadyOutcome::Idle) => WorkerStep::WaitForWork,
+            Ok(AuthorityReadyOutcome::Idle) => WorkerStep::WaitForRunnable,
             Err(error) => classify_driver_error(error)?,
         };
         if step == WorkerStep::Progress {
@@ -536,7 +536,7 @@ async fn run_ready_driver(
         }
         let wait = async {
             match step {
-                WorkerStep::WaitForWork => work_notified.await,
+                WorkerStep::WaitForRunnable => work_notified.await,
                 WorkerStep::WaitForEffectCapacity => capacity_notified.await,
                 WorkerStep::Backoff => tokio::time::sleep(TRANSIENT_RETRY_DELAY).await,
                 WorkerStep::Progress => {}
@@ -592,7 +592,7 @@ async fn run_maintenance_driver_loop(
                 WorkerStep::Progress => {
                     tokio::task::yield_now().await;
                 }
-                WorkerStep::WaitForWork => {
+                WorkerStep::WaitForRunnable => {
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
                         _ = work_notified => {}
@@ -634,7 +634,7 @@ fn classify_maintenance_result(
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match result {
         Ok(super::runtime::AuthorityMaintenanceOutcome::Applied) => Ok(WorkerStep::Progress),
-        Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::WaitForWork),
+        Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::WaitForRunnable),
         Err(error) => classify_driver_error(error),
     }
 }
@@ -646,7 +646,7 @@ fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
         (WorkerStep::WaitForEffectCapacity, _) | (_, WorkerStep::WaitForEffectCapacity) => {
             WorkerStep::WaitForEffectCapacity
         }
-        (WorkerStep::WaitForWork, WorkerStep::WaitForWork) => WorkerStep::WaitForWork,
+        (WorkerStep::WaitForRunnable, WorkerStep::WaitForRunnable) => WorkerStep::WaitForRunnable,
     }
 }
 

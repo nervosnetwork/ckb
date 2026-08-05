@@ -213,6 +213,7 @@ impl TxPoolAuthority {
     fn wake_projection(&self) -> AuthorityWakeProjection {
         AuthorityWakeProjection {
             scheduler: self.scheduler.wake_projection(),
+            active_work: self.resources.preaccepted().active_work,
             dependency_maintenance: self.dependencies.maintenance_pending(),
             effects: self.effects.wake_projection(),
             template: self.source_versions.template(),
@@ -493,6 +494,7 @@ enum AsyncProcessObservations {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct AuthorityWakeProjection {
     scheduler: SchedulerWakeProjection,
+    active_work: usize,
     dependency_maintenance: bool,
     effects: EffectWakeProjection,
     template: PoolTemplateVersions,
@@ -509,8 +511,9 @@ pub(super) struct AuthorityWakeTransition {
 }
 
 /// Capability-compatible compute levels derived from one committed scheduler
-/// transition. These bits carry no owner identity and cannot select work; they
-/// only prevent publishing the same head to several disjoint waiter sets.
+/// and resource transition. These bits carry no owner identity and cannot
+/// select work; they only prevent publishing the same head to several
+/// disjoint waiter sets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ComputeWakeTransition {
     resolve: bool,
@@ -555,23 +558,33 @@ impl AuthorityWakeTransition {
         )
     }
 
-    /// Route each executable compute head to one compatible waiter class.
+    /// Route each potentially executable compute head to one compatible
+    /// waiter class.
     ///
     /// Every compute worker can resolve, every verifier can execute a small
     /// verification, and only an Any verifier can execute the remaining Any
     /// head. When the Small and Any projections name the same globally unique
     /// entry version, one shared Small hint is sufficient. A later successful
-    /// checkout advances the committed head and republishes the baton.
+    /// checkout advances the committed head and republishes the baton. A
+    /// released active-work slot also republishes every retained head because
+    /// per-source and per-peer charging can make a stable scheduler head
+    /// temporarily ineligible without removing it.
     pub(super) fn compute(self) -> ComputeWakeTransition {
+        let compute_slot_released = self.after.active_work < self.before.active_work;
         let resolve = self.resolve_advanced();
         let verify_small_advanced = self.verify_small_advanced();
         let verify_any_advanced = self.verify_any_advanced();
         let shared_verify_head = self.after.scheduler.verify_small.is_some()
             && self.after.scheduler.verify_small == self.after.scheduler.verify_any;
         ComputeWakeTransition {
-            resolve,
-            verify_small: verify_small_advanced || (shared_verify_head && verify_any_advanced),
-            verify_any: verify_any_advanced && !shared_verify_head,
+            resolve: resolve || (compute_slot_released && self.after.scheduler.resolve.is_some()),
+            verify_small: verify_small_advanced
+                || (shared_verify_head && verify_any_advanced)
+                || (compute_slot_released && self.after.scheduler.verify_small.is_some()),
+            verify_any: (verify_any_advanced && !shared_verify_head)
+                || (compute_slot_released
+                    && self.after.scheduler.verify_any.is_some()
+                    && !shared_verify_head),
         }
     }
 
