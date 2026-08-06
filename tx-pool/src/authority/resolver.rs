@@ -12,7 +12,7 @@ use super::{
         CellLocationReceipt, DirectAdmissionWork, TimeContextReceipt, VerificationContextReceipt,
     },
     ingress::{DirectCommand, DirectTransaction},
-    plan::TxPoolAuthority,
+    plan::{AuthorityFault, TxPoolAuthority},
     rejection::{DirectTransactionRejection, duplicate_inputs_reject},
     resources::AcceptedCost,
     state::{
@@ -20,11 +20,15 @@ use super::{
         DependencyKey, InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy,
         RawTxHash, ResolvedPayload, VerifyCycleClass,
     },
-    validation::{proposal_status, verification_environment},
+    validation::{
+        FinalAdmissionValidation, FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
+        proposal_status, verification_environment,
+    },
     work::{
         ComputeSettlement, ContinuousResolution, ContinuousResolveWork, ContinuousVerifyWork,
-        ReceiptFailure, ResolutionEvidence, ResolutionReceiptError, ResolveWork,
-        SnapshotBoundVerifyWork, VerifyWork,
+        FinalAdmissionBinding, ReceiptFailure, ResolutionEvidence, ResolutionReceiptError,
+        ResolveWork, SnapshotBoundVerifyWork, VerificationSettlement, VerifiedComputeSettlement,
+        VerifyWork,
     },
 };
 use crate::{
@@ -1301,9 +1305,69 @@ impl VerificationCacheUpdate {
 
 #[derive(Debug)]
 #[must_use = "verification completion must be settled and its optional cache effect published"]
-pub(in crate::authority) struct VerificationExecution {
-    pub(in crate::authority) settlement: ComputeSettlement,
-    pub(in crate::authority) cache_update: Option<VerificationCacheUpdate>,
+pub(in crate::authority) enum VerificationExecution {
+    Settlement {
+        settlement: ComputeSettlement,
+        cache_update: Option<VerificationCacheUpdate>,
+    },
+    /// Lock-external validation found a programmer-level evidence mismatch.
+    /// The exact Ready fallback still owns the Computing capability so the
+    /// runtime can hand one typed fault to supervision without stranding work.
+    Structural {
+        settlement: ComputeSettlement,
+        fault: AuthorityFault,
+    },
+}
+
+impl VerificationExecution {
+    fn from_verified(
+        completion: VerifiedComputeSettlement,
+        snapshot: Arc<Snapshot>,
+        cache_update: Option<VerificationCacheUpdate>,
+    ) -> Self {
+        let work = completion.final_admission_work();
+        let Some(chain_backed) = work.into_tx_pool_chain_backed() else {
+            return Self::Settlement {
+                settlement: completion.into_ready_settlement(),
+                cache_update,
+            };
+        };
+        match FinalAdmissionValidation::validate_tx_pool_chain_backed(snapshot, chain_backed) {
+            Ok(FinalAdmissionValidationOutcome::Candidate(receipt)) => {
+                match completion.bind_final_admission(receipt) {
+                    FinalAdmissionBinding::Settlement(settlement) => Self::Settlement {
+                        settlement,
+                        cache_update,
+                    },
+                    FinalAdmissionBinding::SubjectMismatch(settlement) => Self::Structural {
+                        settlement,
+                        fault: AuthorityFault::MembershipProjection,
+                    },
+                }
+            }
+            Ok(
+                FinalAdmissionValidationOutcome::Rejected(_)
+                | FinalAdmissionValidationOutcome::Reresolve(_),
+            )
+            | Err(FinalAdmissionValidationError::StaleView)
+            | Err(FinalAdmissionValidationError::Allocation) => Self::Settlement {
+                settlement: completion.into_ready_settlement(),
+                cache_update,
+            },
+            Err(
+                FinalAdmissionValidationError::MissingChainLocation(_)
+                | FinalAdmissionValidationError::CellContentMismatch(_)
+                | FinalAdmissionValidationError::ContextReceipt,
+            ) => Self::Structural {
+                settlement: completion.into_ready_settlement(),
+                fault: AuthorityFault::MembershipProjection,
+            },
+            Err(FinalAdmissionValidationError::Arithmetic) => Self::Structural {
+                settlement: completion.into_ready_settlement(),
+                fault: AuthorityFault::ResourceProjection,
+            },
+        }
+    }
 }
 
 impl VerificationJob {
@@ -1402,6 +1466,11 @@ impl CacheBoundTxPoolVerification {
             cache_entry,
         } = self;
         let VerificationJob { work, snapshot } = job;
+        // The retained provenance and the VM invocation intentionally share
+        // one immutable snapshot. Splitting these captures would invalidate
+        // the same-view positive-location proof used only by tx-pool final
+        // admission.
+        let verification_snapshot = Arc::clone(&snapshot);
         let policy = work.payload_policy();
         let resolved = Arc::clone(work.resolved_transaction());
         let verified = verify_rtx(
@@ -1416,7 +1485,7 @@ impl CacheBoundTxPoolVerification {
         let completed = match verified {
             Ok(completed) => completed,
             Err(reject) => {
-                return VerificationExecution {
+                return VerificationExecution::Settlement {
                     settlement: work.rejected(reject),
                     cache_update: None,
                 };
@@ -1436,9 +1505,16 @@ impl CacheBoundTxPoolVerification {
                 key: cache_key,
                 completed,
             });
-        VerificationExecution {
-            settlement,
-            cache_update,
+        match settlement {
+            VerificationSettlement::Verified(completion) => VerificationExecution::from_verified(
+                completion,
+                verification_snapshot,
+                cache_update,
+            ),
+            VerificationSettlement::Ordinary(settlement) => VerificationExecution::Settlement {
+                settlement,
+                cache_update,
+            },
         }
     }
 }

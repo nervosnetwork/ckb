@@ -13,7 +13,7 @@ use super::{
         DirectAdmissionRetry, DirectAdmissionSubject, DirectAdmissionWork, FinalAdmissionReceipt,
         FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
         MembershipReceipt, MembershipValidationWork, ReadyPayloadRelation, TimeContextReceipt,
-        VerificationContextReceipt,
+        TxPoolChainBackedFinalAdmissionWork, VerificationContextReceipt,
     },
     plan::TxPoolAuthority,
     rejection::CommittedPublicReject,
@@ -113,6 +113,15 @@ struct AcceptedOriginOverlay {
     // exact order. This avoids cloning and sorting peer-controlled outpoints
     // while the authority guard is held.
     pool_origin: Vec<bool>,
+}
+
+/// Closed origin evidence consumed by the one final-membership validator.
+/// The chain-backed branch is constructible only from successful tx-pool
+/// verification at the same `ChainViewId`; block validation and ordinary
+/// Ready recapture continue through their existing independent paths.
+enum MembershipOriginEvidence {
+    AcceptedOverlay(AcceptedOriginOverlay),
+    TxPoolChainBacked,
 }
 
 impl AcceptedOriginOverlay {
@@ -323,34 +332,62 @@ impl FinalAdmissionValidation {
             snapshot,
             overlay,
         } = self;
-        let (key, expected, validation) = work.into_validation_parts();
-        let view = validation.view().clone();
-        let dependency_cut = validation.dependency_cut();
-        let seal = AdmissionValidationSeal(());
-        let subject =
-            FinalAdmissionSubject::new(seal, key.clone(), expected, view.clone(), dependency_cut);
-        match validate_membership(validation, snapshot, overlay, seal)? {
-            MembershipValidationOutcome::Candidate {
+        validate_final_admission(
+            work,
+            snapshot,
+            MembershipOriginEvidence::AcceptedOverlay(overlay),
+        )
+    }
+
+    /// Validate a successful tx-pool verification against the exact snapshot
+    /// that produced its positive chain-location evidence. The typed input
+    /// proves that no pool-origin cell exists, so allocating and populating an
+    /// Accepted overlay would add no information. Final authority OCC still
+    /// rechecks the exact view, dependency cut, owner version, and membership.
+    pub(super) fn validate_tx_pool_chain_backed(
+        snapshot: Arc<Snapshot>,
+        work: TxPoolChainBackedFinalAdmissionWork,
+    ) -> Result<FinalAdmissionValidationOutcome, FinalAdmissionValidationError> {
+        validate_final_admission(
+            work.into_work(),
+            snapshot,
+            MembershipOriginEvidence::TxPoolChainBacked,
+        )
+    }
+}
+
+fn validate_final_admission(
+    work: FinalAdmissionWork,
+    snapshot: Arc<Snapshot>,
+    origins: MembershipOriginEvidence,
+) -> Result<FinalAdmissionValidationOutcome, FinalAdmissionValidationError> {
+    let (key, expected, validation) = work.into_validation_parts();
+    let view = validation.view().clone();
+    let dependency_cut = validation.dependency_cut();
+    let seal = AdmissionValidationSeal(());
+    let subject =
+        FinalAdmissionSubject::new(seal, key.clone(), expected, view.clone(), dependency_cut);
+    match validate_membership(validation, snapshot, origins, seal)? {
+        MembershipValidationOutcome::Candidate {
+            membership,
+            payload_relation,
+        } => Ok(FinalAdmissionValidationOutcome::Candidate(
+            FinalAdmissionReceipt::from_validation(
+                seal,
+                key,
+                expected,
                 membership,
                 payload_relation,
-            } => Ok(FinalAdmissionValidationOutcome::Candidate(
-                FinalAdmissionReceipt::from_validation(
-                    seal,
-                    key,
-                    expected,
-                    membership,
-                    payload_relation,
-                ),
-            )),
-            MembershipValidationOutcome::Rejected(reason) => {
-                Ok(FinalAdmissionValidationOutcome::Rejected(
-                    FinalAdmissionRejection::new(seal, subject, reason),
-                ))
-            }
-            MembershipValidationOutcome::Reresolve => Ok(
-                FinalAdmissionValidationOutcome::Reresolve(FinalAdmissionRetry::new(seal, subject)),
             ),
+        )),
+        MembershipValidationOutcome::Rejected(reason) => {
+            Ok(FinalAdmissionValidationOutcome::Rejected(
+                FinalAdmissionRejection::new(seal, subject, reason),
+            ))
         }
+        MembershipValidationOutcome::Reresolve => Ok(FinalAdmissionValidationOutcome::Reresolve(
+            FinalAdmissionRetry::new(seal, subject),
+        )),
     }
 }
 
@@ -389,7 +426,12 @@ impl DirectAdmissionValidation {
             validation.view().clone(),
             accepted_source,
         );
-        match validate_membership(validation, snapshot, overlay, seal)? {
+        match validate_membership(
+            validation,
+            snapshot,
+            MembershipOriginEvidence::AcceptedOverlay(overlay),
+            seal,
+        )? {
             MembershipValidationOutcome::Candidate { membership, .. } => {
                 Ok(DirectAdmissionValidationOutcome::Candidate(
                     DirectAdmissionReceipt::from_validation(seal, tx, membership),
@@ -416,7 +458,7 @@ mod test_support;
 fn validate_membership(
     validation: MembershipValidationWork,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
+    origins: MembershipOriginEvidence,
     seal: AdmissionValidationSeal,
 ) -> Result<MembershipValidationOutcome, FinalAdmissionValidationError> {
     let (view, verified) = validation.into_parts();
@@ -433,15 +475,26 @@ fn validate_membership(
     }
 
     let same_chain_state = verified.chain_view().has_same_chain_state(&view);
-    let location_result = if same_chain_state {
-        refresh_locations(verified.payload_arc(), true, &snapshot, &overlay)
-    } else {
-        // Header/cell reads can hit RocksDB. No authority guard is held while
-        // the complete changed-tip lookup slice runs off the async executor.
-        block_offload(|| {
-            validate_header_dependencies(verified.payload(), &snapshot)?;
-            refresh_locations(verified.payload_arc(), false, &snapshot, &overlay)
-        })
+    let location_result = match origins {
+        MembershipOriginEvidence::TxPoolChainBacked if same_chain_state => Ok((
+            Arc::clone(verified.payload_arc()),
+            ReadyPayloadRelation::Shared,
+        )),
+        MembershipOriginEvidence::TxPoolChainBacked => {
+            return Err(FinalAdmissionValidationError::StaleView);
+        }
+        MembershipOriginEvidence::AcceptedOverlay(overlay) if same_chain_state => {
+            refresh_locations(verified.payload_arc(), true, &snapshot, &overlay)
+        }
+        MembershipOriginEvidence::AcceptedOverlay(overlay) => {
+            // Header/cell reads can hit RocksDB. No authority guard is held
+            // while the complete changed-tip lookup slice runs off the async
+            // executor.
+            block_offload(|| {
+                validate_header_dependencies(verified.payload(), &snapshot)?;
+                refresh_locations(verified.payload_arc(), false, &snapshot, &overlay)
+            })
+        }
     };
     let (payload, payload_relation) = match location_result {
         Ok(value) => value,
@@ -454,33 +507,37 @@ fn validate_membership(
     };
     let context_is_reusable =
         payload_relation == ReadyPayloadRelation::Shared && verified.context_is_for(&view);
-    if !context_is_reusable
-        && let Err(reason) = revalidate_tx_context(
+    let verified = if context_is_reusable {
+        // The existing context already owns the exact view, location sets,
+        // and script rules consumed here. Reconstructing it would allocate and
+        // sort identical outpoint vectors on every ordinary Ready admission.
+        verified
+    } else {
+        if let Err(reason) = revalidate_tx_context(
             Arc::clone(&snapshot),
             Arc::clone(payload.resolved_transaction()),
             Arc::new(environment),
-        )
-    {
-        return Ok(MembershipValidationOutcome::Rejected(
-            CommittedPublicReject::new(reason),
-        ));
-    }
-
-    let location = super::chain::CellLocationReceipt::from_resolution(view, &payload);
-    let context = VerificationContextReceipt::from_validation(
-        location,
-        TimeContextReceipt::from_validation(rules),
-    );
-    let sensitivity = chain_sensitivity(payload.resolved_transaction());
-    let verified = match payload_relation {
-        ReadyPayloadRelation::Shared => verified,
-        ReadyPayloadRelation::LocationRefreshed => {
-            verified.with_refreshed_locations(LocationRefreshSeal(()), Arc::clone(&payload))
+        ) {
+            return Ok(MembershipValidationOutcome::Rejected(
+                CommittedPublicReject::new(reason),
+            ));
         }
+        let location = super::chain::CellLocationReceipt::from_resolution(view, &payload);
+        let context = VerificationContextReceipt::from_validation(
+            location,
+            TimeContextReceipt::from_validation(rules),
+        );
+        let verified = match payload_relation {
+            ReadyPayloadRelation::Shared => verified,
+            ReadyPayloadRelation::LocationRefreshed => {
+                verified.with_refreshed_locations(LocationRefreshSeal(()), Arc::clone(&payload))
+            }
+        };
+        verified
+            .with_context(context)
+            .ok_or(FinalAdmissionValidationError::ContextReceipt)?
     };
-    let verified = verified
-        .with_context(context)
-        .ok_or(FinalAdmissionValidationError::ContextReceipt)?;
+    let sensitivity = chain_sensitivity(verified.payload().resolved_transaction());
     let membership = MembershipReceipt::from_validation(
         seal,
         verified,

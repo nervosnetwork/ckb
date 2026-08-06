@@ -1241,6 +1241,117 @@ copying policy; add the linear fast-finalization/fallback capability; wire the
 worker; run static/focused/full gates; perform the whole-architecture review;
 then and only then build fixed binaries and profile/A-B.
 
+Direct verified-commit implementation checkpoint (uncommitted working tree):
+
+- The chain-backed eligibility proof is represented by the private
+  `TxPoolChainBackedFinalAdmissionWork` capability. It is constructed only
+  when every input, cell dep and expanded dep-group cell carries positive
+  chain-location evidence captured with the same `Arc<Snapshot>` as VM
+  verification. Pool-produced cells cannot construct it. This evidence is
+  tx-pool-only; no block-verification path consumes it.
+- Final validation/classification runs lock-external in the verification
+  executor. Runtime receives only a sealed `VerificationExecution::Settlement`
+  or `VerificationExecution::Structural`; it owns no validation policy and
+  still routes every mutation through the sole `AuthorityRuntime::settle`
+  Apply/publication boundary.
+- The first prototype manually split Apply from `publish_committed`. The
+  production-contract gate rejected that duplicate publication point. The
+  root correction added transient `SettlementNext::FinalAdmission` and kept
+  `TxPoolAuthority::apply_settlement` plus `AuthorityRuntime::settle` as the
+  only Apply/publication owners; no checker exception or allowlist was added.
+- The first sealed receipt duplicated `VerifiedFacts` and
+  `FinalAdmissionReceipt`, expanding several hot enums. Strict Clippy exposed
+  the representation cost. The root correction is the compact private
+  `TxPoolComputeAdmissionReceipt`: hash/version remain in `SettlementToken`,
+  the sealed receipt owns only membership evidence, and exact Ready timing is
+  reconstructed by consuming the original proof shell on fallback. No box,
+  allocation or large-enum exemption was added.
+- `compile_independent_run` is factored into the read-only
+  `compile_independent_delta`; the outer settlement planner alone wraps the
+  owned delta in `PreparedApply`. Direct failure delegates to the canonical
+  charged `SettlementNext::Ready` compiler. Effect/capacity pressure and a
+  preexisting Ready owner therefore retain the existing ordering and progress
+  semantics.
+- `FinalAdmissionBinding::{Settlement, SubjectMismatch}` prevents a subject
+  mismatch from becoming a panic, public rejection or silent fallback. A
+  structural failure retains the exact linear settlement capability for the
+  supervisor boundary. Cache publication is released only after successful
+  settlement.
+- Moving same-view receipt reuse exposed a test-evidence defect: the fixture
+  claimed chain-location payload while constructing an empty verification
+  context. The fixture now constructs both from the same locations. Product
+  semantics were not weakened to preserve the lying fixture.
+- Focused regressions prove direct Accepted completion without a Ready driver
+  round trip, canonical fallback under effect saturation or an existing Ready
+  owner, and constructive rejection of pool-origin input/cell-dep evidence.
+  Existing final-validation, ABA/stale-cut, independent-classifier, RBF and
+  dependency suites remain part of the full gate.
+
+Current direct-candidate evidence:
+
+- `cargo nextest run -p ckb-tx-pool --features internal --lib
+  --no-fail-fast`: 423/423 passed with zero skip;
+- strict all-target internal-feature Clippy and default-feature `cargo check`:
+  passed;
+- `python3 tx-pool/scripts/check_all.py`: passed, including ASCII,
+  production/publication contracts, generated review evidence, zero-match
+  selectors and test-layout isolation;
+- generated discovery owns 423 internal-feature tests, 19 integration anchors
+  and the unchanged 150-spec managed integration universe; one release blocker
+  remains P10 performance acceptance;
+- `git diff --check` passes. The root `.gitignore` remains user-owned and is
+  outside the candidate. The direct candidate is not committed, integrated,
+  performance-accepted or production-accepted yet.
+- the complete generated managed integration universe was run through the
+  exact Make target with `-o submodule-init` only to avoid a sandbox write to
+  an already-clean executable submodule. All 150/150 specs passed in
+  824.540253833 seconds, including
+  `ReorgRecoversDependentPendingTree`, RBF, relay, fork/reorg, persistence,
+  orphan, template and hostile-cycle shapes. The release binaries used by the
+  run are SHA-256
+  `3f0575f7960fdbac9b0e470def3723a63899d7053490ab0e404d536c7151f41b`
+  (`target/release/ckb`) and
+  `93ae47316c8c9a2ebdb5ffff0a9e18452a0d60051d2672a184204d8690cc358f`
+  (`target/release/ckb-test`). Two earlier attempts are invalid evidence, not
+  failures: one supplied `CKB_TEST_ARGS` as an environment variable and ran
+  zero specs because Make prepended its default concurrency; one sandboxed
+  run lacked permission to bind local ports and was terminated before any
+  spec completed.
+- the freeze review found no second authority, lock, task, queue, cache,
+  publication owner, block-verification evidence reuse, legal-input panic or
+  unbounded work. Ownership/resource/index/effect clocks still change in the
+  canonical independent delta and one total Apply. The candidate nevertheless
+  adds one transient `Computing -> Accepted` branch and approximately 592 net
+  production lines. It is therefore frozen only as an experimental checkpoint,
+  not accepted as production architecture: fixed-binary A/B and matched
+  profiles must prove that deleting the Ready round trip is worth this proof
+  and maintenance surface. A test-only helper that previously collapsed an
+  unexpected structural verification fault into ordinary settlement now fails
+  loudly, preventing false-green evidence.
+- post-review gates remain green: 423/423 nextest with zero skip, strict
+  all-target Clippy, formatting, static contracts and generated evidence.
+
+Exact active action after restart:
+
+1. Finish the whole-diff static/model audit of direct success and fallback:
+   RBF/same-input conflict, pool dependencies, stale chain/dependency cuts,
+   effect/capacity/allocation pressure, cache timing, linear capability and the
+   sole Apply/publication owner. The one-way behavior registry and generated
+   reviewer guide/inventory are already current. Add only uniquely falsifying
+   regressions; do not stack tests already proved by an existing exact owner.
+2. Perform the phase-wide necessity, authority, invariant, failure-domain,
+   concurrency, complexity and code-size review. Freeze a focused checkpoint
+   without `.gitignore` only if the candidate remains structurally smaller
+   than the work it removes.
+3. Build each fixed binary once, then run paired cheap/secp/warm,
+   parent-first/child-first and multi-peer A/B plus matched operation profiles.
+   Retain the candidate only if it materially removes Ready work/authority
+   writes without shifting cost or weakening safety. Otherwise remove this
+   candidate cleanly and preserve the negative evidence.
+4. Evaluate stable ordinary FIFO effect borrowing only after the direct phase
+   has an explicit retain/remove disposition. Final medium UAK-versus-frozen
+   checkpoint and UAK-versus-develop remain release gates.
+
 ## Restart rule
 
 After compaction or restart:

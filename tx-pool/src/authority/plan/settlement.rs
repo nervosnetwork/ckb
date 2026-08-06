@@ -1,10 +1,10 @@
 use super::{
     AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, IndependentDelta,
-    IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority, next_sequence,
-    next_version,
+    IndependentUpdate, PlanError, PrepareSettlementError, PreparedApply, StalePlan,
+    TxPoolAuthority, next_sequence, next_version,
 };
 use crate::authority::{
-    chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
+    chain::{FinalAdmissionReceipt, ReadyPayloadRelation, TxPoolComputeAdmissionReceipt},
     effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
     plan::membership::{
         AncestorAggregate, DescendantAggregate, IndependentMembershipChange,
@@ -12,7 +12,8 @@ use crate::authority::{
         prepare_independent_membership,
     },
     scheduler::ReadyKey,
-    state::{AcceptedEntry, OwnedTx, PreAcceptedPhase},
+    state::{AcceptedEntry, ApplySequence, AsyncProcessStart, OwnedTx, PreAcceptedPhase},
+    work::{SettlementNext, SettlementToken},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,6 +196,178 @@ impl TxPoolAuthority {
         };
         let source_sequence =
             source_sequence.ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let delta = self.compile_independent_delta(
+            changes,
+            PreparedIndependentMembership {
+                resource,
+                projection,
+            },
+            clocks,
+            source_sequence,
+            async_process_starts,
+            policy,
+        )?;
+        Ok(SettlementPlan::IndependentRun(PreparedApply {
+            authority: self,
+            delta,
+        }))
+    }
+}
+
+impl TxPoolAuthority {
+    /// Plan one successful verification through the sole settlement Apply.
+    /// The common independent case reaches Accepted directly; every ordinary
+    /// miss delegates to the established Computing-to-Ready planner. Runtime
+    /// therefore owns neither a second Apply protocol nor a publication point.
+    #[expect(
+        clippy::result_large_err,
+        reason = "a structural failure retains the exact unboxed verified facts with the linear settlement capability"
+    )]
+    pub(super) fn prepare_verified_compute_settlement<'a>(
+        &'a mut self,
+        token: &SettlementToken,
+        receipt: TxPoolComputeAdmissionReceipt,
+    ) -> Result<PreparedApply<'a>, PrepareSettlementError> {
+        // Ready remains the sole source/economic ordering authority. Even a
+        // weaker existing head wins this boundary; the next Ready batch can
+        // classify both owners together without an alternate rank compiler.
+        if self.scheduler.has_ready() {
+            return self
+                .prepare_settlement(token, SettlementNext::Ready(receipt.into_ready_facts()));
+        }
+        if let Err(error) = self.effects.ensure_open() {
+            return Err(preserve_settlement_error(
+                error.into(),
+                SettlementNext::FinalAdmission(receipt),
+            ));
+        }
+
+        let key = token.hash.clone();
+        let existing = match self.entries.get(&key).cloned() {
+            Some(existing) if existing.record().version == token.version => existing,
+            Some(_) | None => {
+                return self
+                    .prepare_settlement(token, SettlementNext::Ready(receipt.into_ready_facts()));
+            }
+        };
+        let OwnedTx::PreAccepted(before) = existing else {
+            return self
+                .prepare_settlement(token, SettlementNext::Ready(receipt.into_ready_facts()));
+        };
+        if !matches!(&before.phase, PreAcceptedPhase::Computing(_)) {
+            return self
+                .prepare_settlement(token, SettlementNext::Ready(receipt.into_ready_facts()));
+        }
+        if let Err(error) = self.validate_compute_acceptance_evidence(&before, &receipt) {
+            return match error {
+                PlanError::Stale(_) => self
+                    .prepare_settlement(token, SettlementNext::Ready(receipt.into_ready_facts())),
+                error => Err(preserve_settlement_error(
+                    error,
+                    SettlementNext::FinalAdmission(receipt),
+                )),
+            };
+        }
+
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let clocks = match next_version(version).and_then(|next_version| {
+            Ok(AuthorityClocks {
+                next_version,
+                next_sequence: next_sequence(sequence)?,
+                ..self.clocks
+            })
+        }) {
+            Ok(clocks) => clocks,
+            Err(error) => {
+                return Err(preserve_settlement_error(
+                    error,
+                    SettlementNext::FinalAdmission(receipt),
+                ));
+            }
+        };
+        // From here the receipt is consumed into the candidate Accepted owner.
+        // Keep one Arc-only shell for the ordinary fallback; direct success
+        // drops it only after the prepared delta owns the same payload.
+        let verified = receipt.ready_facts();
+        let mut record = before.record.clone();
+        record.version = version;
+        let (proof, proposal, accepted_at, async_process_start) = receipt.into_membership_parts();
+        let after = AcceptedEntry {
+            record,
+            provenance: before.source.accepted_provenance(),
+            proof,
+            proposal,
+            accepted_at,
+        };
+        let policy = EffectPolicy::for_preaccepted_source(before.source);
+        let mut changes = Vec::new();
+        if changes.try_reserve_exact(1).is_err() {
+            return self.prepare_settlement(token, SettlementNext::Ready(verified));
+        }
+        changes.push(IndependentMembershipChange { key, before, after });
+        let prepared = match prepare_independent_membership(self, &changes) {
+            Ok(IndependentMembershipOutcome::Prepared(prepared)) => prepared,
+            Ok(IndependentMembershipOutcome::Coupled) => {
+                return self.prepare_settlement(token, SettlementNext::Ready(verified));
+            }
+            Err(error) if direct_fallback_error(&error) => {
+                return self.prepare_settlement(token, SettlementNext::Ready(verified));
+            }
+            Err(error) => {
+                return Err(preserve_settlement_error(
+                    error,
+                    SettlementNext::Ready(verified),
+                ));
+            }
+        };
+        let mut async_process_starts = Vec::new();
+        if let Some(started_at) = async_process_start {
+            if async_process_starts.try_reserve_exact(1).is_err() {
+                return self.prepare_settlement(token, SettlementNext::Ready(verified));
+            }
+            async_process_starts.push(started_at);
+        }
+        match self.compile_independent_delta(
+            changes,
+            prepared,
+            clocks,
+            sequence,
+            async_process_starts,
+            policy,
+        ) {
+            // `receipt` moved the shared payload Arc into the prepared
+            // Accepted owner, so dropping the remaining `verified` shell while
+            // this borrow is live cannot destroy resolved payload storage.
+            Ok(delta) => Ok(PreparedApply {
+                authority: self,
+                delta,
+            }),
+            Err(error) if direct_fallback_error(&error) => {
+                self.prepare_settlement(token, SettlementNext::Ready(verified))
+            }
+            Err(error) => Err(preserve_settlement_error(
+                error,
+                SettlementNext::Ready(verified),
+            )),
+        }
+    }
+
+    /// Compile the mechanical half of independent membership exactly once for
+    /// both a Ready batch and the one-member Computing fast path.
+    fn compile_independent_delta(
+        &mut self,
+        changes: Vec<IndependentMembershipChange>,
+        prepared: PreparedIndependentMembership,
+        clocks: AuthorityClocks,
+        source_sequence: ApplySequence,
+        async_process_starts: Vec<AsyncProcessStart>,
+        policy: EffectPolicy,
+    ) -> Result<AuthorityDelta, PlanError> {
+        let PreparedIndependentMembership {
+            resource,
+            projection,
+        } = prepared;
         let mut effects = Vec::new();
         effects
             .try_reserve(changes.len())
@@ -261,19 +434,24 @@ impl TxPoolAuthority {
                 .map(|update| (&update.key, entries.get(&update.key), Some(&update.after))),
         )?;
         let owners = super::DerivedOwnerDelta { indexes, sources };
-        Ok(SettlementPlan::IndependentRun(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Independent(IndependentDelta {
-                updates,
-                owners,
-                resource,
-                projection,
-                scheduler,
-                dependency,
-                effect,
-                clocks,
-                async_process_starts,
-            }),
+        Ok(AuthorityDelta::Independent(IndependentDelta {
+            updates,
+            owners,
+            resource,
+            projection,
+            scheduler,
+            dependency,
+            effect,
+            clocks,
+            async_process_starts,
         }))
     }
+}
+
+fn direct_fallback_error(error: &PlanError) -> bool {
+    matches!(error, PlanError::Stale(_) | PlanError::Backpressure(_))
+}
+
+fn preserve_settlement_error(error: PlanError, next: SettlementNext) -> PrepareSettlementError {
+    PrepareSettlementError::Preserve { error, next }
 }

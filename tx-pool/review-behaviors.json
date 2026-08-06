@@ -30,16 +30,17 @@
       "title": "Read-only Plan and total Apply",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct PreparedApply", "fn plan_final_admission", "fn apply_membership", "struct IndependentDelta"]},
-        {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["fn try_drive_ready", "fn complete_ready_batch"]}
+        {"path": "tx-pool/src/authority/plan/settlement.rs", "symbols": ["fn prepare_verified_compute_settlement", "fn compile_independent_delta"]},
+        {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["fn execute_verification", "fn try_drive_ready", "fn complete_ready_batch"]}
       ],
-      "required_behavior": "All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. Apply is total; dropped or stale plans are semantically mutation-free.",
-      "hostile_case": "Concurrent Ready work, chain-view ABA, RBF rejection, capacity pressure, effect saturation or allocation failure must not expose partial membership or require rollback.",
+      "required_behavior": "All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. Apply is total; dropped or stale plans are semantically mutation-free. A verified Computing owner may bypass the intermediate Ready location only when a sealed exact-view chain-backed capability and the existing independent membership compiler both prove the direct transition; every miss consumes the same settlement through canonical charged Ready.",
+      "hostile_case": "Concurrent Ready work, chain-view ABA, RBF or same-input conflict, pool-produced dependency, capacity pressure, effect saturation or allocation failure must not expose partial membership, bypass canonical policy or require rollback.",
       "reviewer_questions": [
         "Does Plan change any authoritative semantic fact?",
         "Can Apply return an ordinary failure or allocate fallibly?",
         "Are independent batches proven commuting, unique and bounded before Apply?"
       ],
-      "performance_bound": "Fallible work and large destruction stay outside Apply; independent verified transactions may commit in bounded commuting batches."
+      "performance_bound": "Fallible work and large destruction stay outside Apply. Independent verified transactions may commit in bounded commuting Ready batches; an exact chain-backed singleton may remove the non-semantic Ready round trip without adding a second validation, membership or publication owner."
     },
     {
       "id": "TP-RBF-001",
@@ -268,11 +269,11 @@
       "title": "Exact transaction and evidence identity",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct TxIdentity", "struct RawTxHash", "struct WitnessTxHash", "struct ProposalId"]},
-        {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt"]},
+        {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt", "struct TxPoolChainBackedFinalAdmissionWork", "struct TxPoolComputeAdmissionReceipt"]},
         {"path": "verification/src/cache.rs", "symbols": ["struct TxVerificationCacheKey", "enum ScriptVerificationRules"]},
         {"path": "tx-pool/src/authority/validation.rs", "symbols": ["struct FinalAdmissionValidation", "fn validate_membership"]}
       ],
-      "required_behavior": "Ownership uses raw hash, script-cache reuse uses inline witness hash plus script rules, proposal short ID is collision-aware protocol indexing, and chain evidence is bound to an exact snapshot/view and per-cell provenance.",
+      "required_behavior": "Ownership uses raw hash, script-cache reuse uses inline witness hash plus script rules, proposal short ID is collision-aware protocol indexing, and chain evidence is bound to an exact snapshot/view and per-cell provenance. The tx-pool-only direct-finalization capability requires the verification context's exact ChainViewId and positive chain provenance for every input and expanded cell dependency; block validation cannot construct or consume it.",
       "hostile_case": "Witness variant, short-ID collision, nearby cache request, hardfork rule change, mixed snapshot, same-tip unproven cell or chain-view ABA must not reuse another transaction or context's proof.",
       "reviewer_questions": [
         "Can a cache caller omit either witness identity or script-rule generation?",
@@ -312,6 +313,8 @@
     {"test": "authority::tests::foundation::uak_independent_run_matches_every_canonical_single_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T3", "T4", "T5", "T6"]},
     {"test": "authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T7"]},
     {"test": "authority::tests::chain::uak_final_admission_receipt_is_stale_after_chain_view_aba", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
+    {"test": "authority::runtime::tests::runtime_chain_backed_verification_finalizes_without_ready_round_trip", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::runtime::tests::runtime_direct_finalization_falls_back_for_effect_pressure_and_existing_ready", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T5", "T6", "T7", "T10"]},
 
     {"test": "authority::tests::foundation::uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T6", "T7"]},
     {"test": "authority::tests::foundation::uak_rbf_replaces_the_complete_descendant_closure_atomically", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6"]},
@@ -414,6 +417,7 @@
     {"test": "authority::tests::foundation::uak_short_id_collision_cannot_alias_primary_identity", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T11"]},
     {"test": "authority::tests::validation::uak_final_validation_rejects_a_mixed_authority_snapshot_cut", "behavior_id": "TP-IDENTITY-001", "invariants": ["T9", "T11"]},
     {"test": "authority::tests::validation::uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin", "behavior_id": "TP-IDENTITY-001", "invariants": ["T9", "T11"]},
+    {"test": "authority::tests::foundation::uak_tx_pool_chain_backed_finalization_rejects_pool_origin_cells_by_construction", "behavior_id": "TP-IDENTITY-001", "invariants": ["T2", "T9", "T11"]},
 
     {"test": "authority::tests::foundation::uak_independent_ready_order_is_invariant_to_worker_completion_permutations", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T8", "T10"]},
     {"test": "authority::tests::foundation::uak_checkout_attack_work_is_bounded_by_owner_heads_and_active_slots", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},

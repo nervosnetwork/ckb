@@ -45,7 +45,7 @@ use super::{
         DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerificationRequest,
         DirectVerifiedCandidate, ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob,
         ResolutionProbeObservation, TxPoolVerificationRequest, VerificationCacheUpdate,
-        VerificationJob,
+        VerificationExecution, VerificationJob,
     },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
@@ -2764,10 +2764,33 @@ impl AuthorityRuntime {
             request,
             execution: compute_execution,
         } = request;
-        let verification = request.execute(command_rx).await;
-        let cache_update = verification.cache_update;
-        let result = self.settle(verification.settlement);
-        match result {
+        match request.execute(command_rx).await {
+            VerificationExecution::Settlement {
+                settlement,
+                cache_update,
+            } => self.commit_verification_settlement(settlement, compute_execution, cache_update),
+            VerificationExecution::Structural { settlement, fault } => {
+                let failure =
+                    ComputeSettlementFailure::preserving(PlanError::Fault(fault), settlement);
+                Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                    failure,
+                    SettlementOrigin::Completion,
+                    compute_execution,
+                )))
+            }
+        }
+    }
+
+    fn commit_verification_settlement(
+        &self,
+        settlement: ComputeSettlement,
+        compute_execution: AuthorityComputeExecutionPermit,
+        cache_update: Option<VerificationCacheUpdate>,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityVerificationOutcome>,
+        AuthorityComputeError,
+    > {
+        match self.settle(settlement) {
             Ok(()) => {
                 drop(compute_execution);
                 Ok(ControlFlow::Continue(AuthorityVerificationOutcome {

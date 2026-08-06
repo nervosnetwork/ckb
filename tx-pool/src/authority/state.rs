@@ -931,6 +931,21 @@ impl VerifiedFacts {
         (self, async_process_start)
     }
 
+    /// Reverse only the timing extraction performed by `into_accepted` when a
+    /// sealed final-admission receipt loses its direct OCC attempt and must
+    /// become Ready. The private chain-module seal prevents general callers
+    /// from manufacturing or retaining Accepted timing state.
+    pub(super) fn restore_ready_timing(
+        self,
+        _seal: super::chain::ReadyFallbackSeal,
+        async_process_start: Option<AsyncProcessStart>,
+    ) -> Self {
+        Self {
+            async_process_start,
+            ..self
+        }
+    }
+
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.context.is_chain_input(input)
     }
