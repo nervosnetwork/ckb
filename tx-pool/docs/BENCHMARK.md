@@ -127,6 +127,55 @@ the median valid even if two isolated samples are contaminated. Each worktree
 still uses its isolated Cargo target, and both records retain independent
 commit/dirty metadata plus the common harness fingerprint.
 
+### Cross-version one-shot A/B
+
+Use the one-shot runner when two revisions cannot expose the same Criterion
+harness API, especially for the final UAK-to-develop comparison. The benchmark
+fixture and its Cargo bench declaration must be committed in both measurement
+worktrees; `profile_one_shot.rs` must be byte-identical. A compatibility
+feature may adapt only the benchmark's service-construction call to an older
+API. It must not change the workload, completion condition or measured window.
+
+```bash
+python3 tx-pool/scripts/cross_version_benchmark.py \
+  --baseline-root /private/tmp/txp-medium-base0 \
+  --candidate-root /private/tmp/txp-medium-cand0 \
+  --baseline-target-dir /private/tmp/txp-target-base0 \
+  --candidate-target-dir /private/tmp/txp-target-cand0 \
+  --baseline-build-features cross-version-legacy-bench-adapter \
+  --output /private/tmp/txp-medium-result.json \
+  --scenario always_success,400,100,8,1 \
+  --scenario always_success,400,100,8,4 \
+  --scenario secp256k1,200,50,8,4 \
+  --scenario dependent_forest_10,400,100,8,4
+```
+
+The default path builds each side exactly once with `--locked`, incremental
+compilation disabled, an isolated Cargo target and a common remapped logical
+source prefix. It then runs ten balanced adjacent pairs from the immutable
+binary hashes, with a 15-second initial cooldown and ten seconds between
+attempts. A scenario is comparable only when its paired-ratio relative MAD is
+at most 1.5%. The JSON checkpoint is rewritten atomically after every attempt,
+so an interrupted run retains all completed evidence.
+
+Both source roots, and both build target paths when the runner builds both
+sides, must have equal UTF-8 byte length. This bounds path-derived code-layout
+noise that source remapping cannot remove. The worktrees must be completely
+clean, including untracked files. The record binds each source commit,
+`Cargo.lock`, workspace and crate manifests, runner, byte-identical harness,
+toolchain, host metadata, build flags and binary SHA-256. Source, harness,
+runner and binary identities are checked again after measurement. Existing
+fixed binaries may be supplied with `--baseline-binary` and
+`--candidate-binary`; their hashes remain the execution authority.
+
+The one-shot harness supports `always_success`, `secp256k1`, `dependent`,
+`dependent_reverse`, `dependent_forest_<depth>`, `fanout`, `fanout_reverse`
+and `always_success_fanin_<width>`. Reverse-order capability cases must use a
+zero warm count because their unresolved prefix is itself the behavior under
+test. Run capability cases separately with `--allow-noncomparable`: a timeout
+or nonzero exit is useful compatibility evidence, but it is never folded into
+the throughput aggregate or treated as a noisy performance sample.
+
 ## Matrices
 
 The matrix is selected at compile time via environment variables:
@@ -284,4 +333,5 @@ Example:
 tx_pool_pipeline/pipeline_1peer_8worker_warm_dependent_secp_child_first_20
 ```
 
-`tx_pool_bench.py` parses the `time:` and `thrpt:` lines after each ID and produces the comparison table.
+`benchmark.py` parses the `time:` and `thrpt:` lines after each ID and produces
+the comparison table.

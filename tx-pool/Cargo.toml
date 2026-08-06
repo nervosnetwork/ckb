@@ -73,7 +73,12 @@ name = "pipeline"
 harness = false
 required-features = ["internal"]
 
+[[bench]]
+name = "profile_one_shot"
+harness = false
+
 [features]
+cross-version-legacy-bench-adapter = []
 internal = [
     "criterion",
     "ckb-hash",
