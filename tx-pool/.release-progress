@@ -960,12 +960,14 @@ retry path. These are single diagnostic captures and operation-count evidence,
 not final throughput acceptance.
 
 The post-wake lifecycle lower-bound and joint candidate adjudication are now
-frozen in `docs/PERFORMANCE.md` section 3.2. The ordinary independent Remote
-floor is four authority Applies: charged admission, exclusive compute checkout,
-atomic final membership and ordinary effect settlement. The currently separate
-Ready transition and ordinary effect checkout are not semantic lower bounds.
-This floor does not apply to generation reset, missing dependency, RBF,
-resource rejection or effect-capacity fallback.
+frozen in `docs/PERFORMANCE.md` section 3.2. The retained ordinary independent
+Remote floor is five authority Applies: charged admission, exclusive compute
+checkout, Computing-to-Ready handoff, atomic Ready membership and ordinary
+effect settlement. Direct-finalization measurement proved that Ready is a
+necessary pipeline concurrency boundary in this topology even though it is not
+a business-state boundary. Ordinary effect checkout remains non-semantic. This
+floor does not apply to generation reset, missing dependency, RBF, resource
+rejection or effect-capacity fallback.
 
 Candidate order is fixed:
 
@@ -973,9 +975,10 @@ Candidate order is fixed:
    expose duplicate compatible-role probes and this step changes no lifecycle
    state;
 2. direct verified commit through the one existing final validator and
-   membership compiler, with charged Ready/re-resolve as closed fallback;
-3. stable ordinary FIFO effect borrowing under the existing sole publisher,
-   retaining active checkout for replaceable generation reset;
+   membership compiler - measured and rejected because it lengthened the
+   compute bottleneck despite deleting work;
+3. one-settlement effect publication under the existing sole publisher, now
+   reopened as a unified read-lease design rather than an ordinary-only patch;
 4. only if those profiles leave committed settlement dominant, reconsider a
    true batch Plan/Apply design. Timer/local-state Ready delay is rejected.
 
@@ -1290,10 +1293,93 @@ Direct verified-commit measured disposition:
   candidate already passed 150/150 managed integration specs, and the restored
   product checkpoint has its own complete integration evidence, so no behavior
   remains that requires a third identical integration run;
-- the exact next action is to freeze the revert plus measured disposition as a
-  checkpoint, then design ordinary FIFO effect borrowing from the existing
-  sole-publisher invariant before writing production code. Do not add an
+- the revert plus measured disposition is frozen at `d462c5154`. The exact
+  next action is the unified effect read-lease design below. Do not add an
   effect queue, publisher actor, retry protocol or second lease authority.
+
+Unified effect read-lease design freeze:
+
+- baseline: `EffectLog` currently moves either the FIFO head or latest reset
+  through `queued/latest_generation_reset -> active -> queued/removed` and
+  advances `ApplySequence` both at checkout and settlement. External I/O still
+  occurs outside the guard, but checkout is a non-semantic authority write;
+- ordinary-only borrowing was considered and rejected before implementation.
+  It would add a read-borrow protocol while preserving a second active-checkout
+  protocol solely for rare reset work, increasing transition and test surface;
+- selected model: a committed effect remains in exactly one authoritative log
+  location until settlement. The sole publisher borrows an immutable receipt
+  for the minimum sequence of the charged FIFO head and coalesced reset. Local
+  endpoint progress is tentative evidence. One settlement Plan validates and
+  atomically commits the advanced cursor or terminal removal;
+- queued envelopes and generation resets become distinct concrete resident
+  types. A charged queued record cannot carry `class = None`, and a reset
+  cannot acquire a charged class. The resident `active` variant and generic
+  checkout mutation disappear;
+- a queued head is stable while borrowed: every producer can only append a
+  strictly higher sequence, replace the coalesced reset, or close production.
+  None can remove, reorder or mutate that head. Settlement therefore validates
+  exact source, sequence, Arc identity and original cursor before retaining or
+  removing it;
+- a borrowed reset may be replaced by a newer reset while I/O is in flight.
+  Exact-current settlement updates/removes that reset. A strictly newer reset
+  yields a typed mutation-free `Superseded` outcome and the old receipt retires
+  outside the guard; it can never overwrite or resurrect the newer reset.
+  Missing, older or identity-mismatched residents remain structural faults;
+- `AuthorityEffectPublisherClaim` becomes the compile-time exclusivity proof,
+  not an unused RAII flag. Acquisition requires its mutable borrow and returns
+  a publication lease whose lifetime retains that borrow. Safe code therefore
+  cannot acquire a second receipt or drop/release the claim while a receipt is
+  live. The production lease remains bound to the runtime that issued it;
+- cancellation retains the exact completed endpoint prefix through the same
+  settlement path. For a superseded reset, the newer full reset subsumes that
+  prefix. The existing unavoidable current-endpoint action/acknowledgement
+  window remains unchanged;
+- resource and pending-reject charge stays resident until terminal settlement.
+  External endpoint I/O remains lock-free. Close stays level-triggered: an idle
+  closed log wakes the publisher, while a borrowed resident keeps the log
+  observably non-drained until settlement;
+- expected mechanical change per ordinary batch is one authority read and one
+  settlement write instead of checkout write plus settlement write. It also
+  removes one clock advance, checkout wake derivation and the active resident
+  location. No queue, actor, lock, task, timer, cache, retry or fallback state
+  is added;
+- reject alternatives that move the FIFO prefix into publisher-local storage,
+  batch several resident envelopes into a second owner, commit progress after
+  every endpoint, or keep an atomic in-flight bit outside the authority. They
+  respectively duplicate ownership, enlarge cancellation rollback, add writes
+  or create another publication authority.
+
+Effect read-lease falsification matrix:
+
+1. a dropped read plan changes neither log, clocks, usage nor wake projection;
+2. queued append, reset replacement and close in every position between borrow
+   and settlement cannot displace or reorder a borrowed queued head;
+3. exact reset settlement removes/retains only that reset; a newer reset makes
+   the old result `Superseded` and old Retain never resurrects it;
+4. partial endpoint progress resumes at the first unprocessed endpoint, and
+   publisher cancellation settles before the sole claim can be released;
+5. a foreign, duplicated, wrong-source, wrong-sequence, wrong-Arc or regressed
+   cursor is mutation-free and typed as stale/projection failure;
+6. pending recent-reject lookup remains live while borrowed and disappears
+   only with the exact terminal charged batch;
+7. effect capacity release, blocked compute settlement, close/drain and idle
+   wake remain level-triggered with no repair notification;
+8. counter exhaustion returns the exact settlement capability; acquisition no
+   longer consumes a counter and cannot fail from counter pressure;
+9. generation reset, peer revocation, remote release, accepted/rejected, parent
+   request and partial relay/callback circuit behavior preserve endpoint order;
+10. operation profiles must show one checkout Apply/write removed per ordinary
+    batch with identical Resolve, Verify, Ready, effect and endpoint counts;
+11. paired A/B must cover cold/warm cheap independent traffic and at least one
+    dependency/effect-heavy shape. Full affected nextest and all 150 managed
+    integration specs must pass before retention.
+
+Implementation order is fixed: introduce typed resident records and the
+read-only minimum-sequence receipt; make the publisher claim a lifetime-bound
+exclusive capability; replace active settlement with queued/reset closed
+dispositions; delete checkout state and types; adapt cancellation and tests;
+run static/focused/full gates and the whole-architecture review; only then
+build fixed binaries for operation profiles and paired A/B.
 
 ## Restart rule
 

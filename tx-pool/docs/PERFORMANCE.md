@@ -166,7 +166,7 @@ publication:
 | Compute checkout | one successful `Queued -> Computing` Apply plus capability-mismatched probes | one successful Apply | The lease and active-work charge are required; failed probes are not. Route one typed baton to one compatible worker. |
 | Resolve/Verify handoff | zero extra Apply when a verifier continues Resolve into Verify, otherwise a queued-Verify settlement and checkout | zero extra Apply on the continuous path | Preserve the fallback, but make the compatible continuous path easier to select without creating a worker-owned queue. |
 | Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | two Applies in the retained pipeline topology | `Ready` is both the charged authority handoff and the concurrency boundary that releases compute before final membership. A one-Apply experiment deleted work but measurably reduced throughput by lengthening the compute stage. |
-| Ordinary effect publication | checkout Apply, external I/O, settlement Apply | one settlement Apply | The sole publisher can borrow a stable FIFO head because later appends and higher sequences cannot displace it. Generation-reset selection still requires active checkout state. |
+| Ordinary effect publication | checkout Apply, external I/O, settlement Apply | one settlement Apply | The sole claimed publisher can borrow the minimum committed record because later appends cannot displace the FIFO head and a newer coalesced reset subsumes an older reset receipt. The candidate must bind exclusivity to the claim's type and preserve exact partial progress. |
 | External endpoints | no authority guard during I/O | no authority guard during I/O | Fixed contract. |
 
 For an ordinary independent transaction the retained constructive floor is
@@ -197,12 +197,14 @@ patches:
    between later verification and the Ready driver. Stable paired A/B regressed
    beyond the quick boundary, so the experiment was removed rather than
    compensated with another queue or actor.
-3. **Stable queued-effect lease - next design candidate.** The
-   existing sole-publisher claim can borrow the oldest ordinary queued envelope
-   without a checkout mutation; settlement validates sequence, batch identity
-   and progress before removing or retaining that same head. Generation reset
-   keeps the current active checkout because a newer reset may replace the
-   pending reset while I/O is in flight.
+3. **Unified effect read lease - next design candidate.** The existing sole
+   publisher claim can borrow the minimum committed FIFO/reset record without
+   moving it to an active authority location. Settlement validates source,
+   sequence, batch identity and progress before retaining or removing the
+   record. A newer generation reset is a typed mutation-free supersession of
+   an older borrowed reset; it can never be overwritten or resurrected. The
+   claim must be lifetime-bound to the lease so two read receipts are
+   unrepresentable in safe production code.
 4. **Ready delay/coalescing - not selected.** Opportunistic batches already use
    the complete available prefix. Delaying a non-empty Ready level either adds
    a timer/local scheduling authority or can strand trusted work behind a
