@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-verification-contextual-v1.1.1...ckb-verification-contextual-v1.1.2) - 2026-08-06
+
+### Changed
+
+- enable needless_lifetimes and extra_unused_lifetimes lints (#5281) (by @eval-exec)
+
+### Contributors
+
+- @eval-exec
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-verification-contextual-v1.1.0...ckb-verification-contextual-v1.1.1) - 2026-06-08
 
 ### Changed
