@@ -1446,10 +1446,33 @@ Unified effect read-lease implementation checkpoint:
   generated contracts and the full isolated 423/423 nextest universe with zero
   skips.
 
-Exact next action: freeze the correctness-gated candidate checkpoint, then run
-all 150 managed integration specs before fixed-binary operation profiles and
-paired A/B against
-`d462c5154`/the product-equivalent `d90de5f52` baseline.
+The correctness-gated implementation checkpoint is `e2f310f16`; only the
+user-owned root `.gitignore` remains outside that commit.
+
+The post-checkpoint integration gate is now complete:
+
+- the command was generated directly from `integration-impact.json` and
+  asserted the canonical count of 150 before invoking `make integration` with
+  concurrency one;
+- all 150/150 managed specs passed in one complete ordered run with exit code
+  zero. This includes the reorg pending-tree regression, both dependent-reorg
+  variants, persistence, RBF concurrency/cycling/CPFP, Gap/proposed conflicts,
+  parent-first/reverse dependency relay, orphan and fork shapes;
+- the first launch attempt was blocked before test execution by the managed
+  sandbox denying a Git submodule-config write. The identical canonical
+  command was then run with the required filesystem permission; this was an
+  environment failure, not a product retry or a filtered substitute;
+- the exact release binaries used by the complete run hash to
+  `b67b2d5c4f7974d5464c11e37d5bf68b25814c0ea8297707956251e359e20fe5`
+  (`target/release/ckb`) and
+  `36bb89b335ae2474b5d378ded1129e89f2635db5d7d6b105828325f07e4f52d5`
+  (`target/release/ckb-test`).
+
+Exact next action: freeze this integration evidence, then run fixed-binary
+operation profiles and balanced paired A/B for cold/warm cheap independent and
+dependency/effect-heavy shapes against `d462c5154` (with `d90de5f52` retained
+as its product-equivalent design baseline). Profile and explain the result
+before deciding whether the effect-receipt implementation is retained.
 
 ## Restart rule
 
