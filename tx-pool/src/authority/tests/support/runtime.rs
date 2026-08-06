@@ -277,6 +277,29 @@ impl AuthorityRuntime {
             }
         }
     }
+
+    /// Test-only level probe for effect cursor tests that exercise settlement
+    /// directly. Production obtains the same receipt only while mutably
+    /// borrowing `AuthorityEffectPublisherClaim`.
+    pub(in crate::authority) async fn wait_effect_publication_for_foundation(
+        &self,
+    ) -> Option<EffectReceipt> {
+        loop {
+            let notified = self.effect_publisher_signal().notified();
+            match self.try_effect_publication() {
+                EffectPublicationState::Idle => notified.await,
+                EffectPublicationState::Receipt(receipt) => return Some(receipt),
+                EffectPublicationState::ClosedAndDrained => return None,
+            }
+        }
+    }
+
+    pub(in crate::authority) fn settle_effect_for_foundation(
+        &self,
+        settlement: EffectSettlement,
+    ) -> Result<(), EffectSettlementFailure> {
+        self.settle_effect(settlement)
+    }
 }
 
 #[derive(Debug)]

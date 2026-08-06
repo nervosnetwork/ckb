@@ -65,7 +65,7 @@ flowchart TB
     Compute --> Plan
     Local --> Plan
     Plan -->|"single-use total Apply"| Owners
-    Derived -->|"committed effect lease"| Effects
+    Derived -->|"claim-bound effect read receipt"| Effects
     Store --> Reads
     Store --> Template
 
@@ -166,7 +166,7 @@ review boundary against risk transfer and accidental complexity.
 | `EntryVersion`, `ApplySequence`, `PoolGeneration`, `ChainViewId` | F1, F5, F7, F8 | One version per owner, two process clocks, and revision plus tip identity. Checked `u128`/`u64` advancement; no duplicate compute counter remains. | Eliminates ABA, same-tip refresh ambiguity and hand-authored publication cuts. A token with no unique invalidation/publication role must be removed. |
 | Membership, dependency, scheduler, resource and source projections | F2, F4, F5, F7 | Derived indexes changed by the same Apply; no duplicate payload owner. Ordinary transitions are local/bounded; named cold scans are listed in section 14. | Eliminates repeated population inference. Any projection that becomes a decision authority or lacks a rebuild/validation rule is rejected. |
 | Count-only compute semaphore and worker topology | Parallel validation plus F4 | Bounded permits and configured resolver/verifier tasks. The semaphore contains no transaction identity; checked-out work remains move-only and cancellation-owned. | Bounds transient hostile work without serializing validation. Remove or resize only from profiling and resource evidence. |
-| Bounded `EffectLog` and sole publisher | F3 and peer/refetch security | Three capacity regions, one claimed publisher task, exact progress lease, and startup-proved indivisible batch limits. Endpoint I/O is outside the lock. | Eliminates in-process mutation/publication gaps. Crash durability and universal exactly-once delivery remain external risk, not hidden owner state. |
+| Bounded `EffectLog` and sole publisher | F3 and peer/refetch security | Three capacity regions, one claimed publisher task, a lifetime-bound read receipt with tentative progress, and startup-proved indivisible batch limits. Endpoint I/O is outside the lock. | Eliminates in-process mutation/publication gaps. Crash durability and universal exactly-once delivery remain external risk, not hidden owner state. |
 | `ReplacementHistory` | F2, F6 | Inert optional owner under a separate hard count/byte/edge sub-budget; never scheduled, persisted or exposed as live RPC state. | Eliminates speculative victim restore/undo. Saturation drops the complete optional set while preserving the winner; no partial history is legal. |
 | Capacity-one ordered chain-control lane plus five template lanes | F7 | One reliable task orders chain reconciliation with generation-clearing controls; full/reset share a separate ordered replacement lane while proposal/transaction/uncle/notification work stays optimistic and derived. | Eliminates chain/authority and reorg/clear split ordering without serializing admission or template construction. Any topology change must preserve the established lane concurrency. |
 | 100,000-entry committed-hash compatibility cache | Compact-block lookup compatibility | Bounded LRU from proposal short ID to raw hash, committed with the paired snapshot. Full raw-hash and short-ID checks occur before a transaction is returned. | Collision can only underfill a derived compact-block response; it cannot select an owner or wrong payload. Delete when the compatibility lookup no longer needs it. |
@@ -360,8 +360,8 @@ builds a private closed delta containing:
 - resource charge changes;
 - clock values;
 - the exact bounded effect mutation;
-- retirement carriers and, only for specialized checkout plans, the exact
-  move-only worker or publisher capability.
+- retirement carriers and, only for specialized compute checkout plans, the
+  exact move-only worker capability.
 
 Ordinary outcomes such as rejection, backpressure, duplicate, stale evidence
 and cancellation are decided before Apply and represented by closed enums. A
@@ -384,11 +384,11 @@ state and are never consulted by Plan: scheduler, dependency, effect and source
 levels remain the only truth. This order prevents notification while a large
 retirement still extends the authority critical section.
 
-Specialized `PreparedCheckout` and `PreparedEffectCheckout` types contain their
-move-only compute/effect capability beside the generic plan by construction.
-Generic plans and `CommittedDelta` cannot carry either capability, so a
-successful checkout cannot discover a missing handoff afterward and an
-ordinary transition cannot manufacture one.
+Specialized `PreparedCheckout` contains its move-only compute capability beside
+the generic plan by construction. Effect acquisition is deliberately not an
+Apply: the sole publisher claim borrows the minimum immutable resident record,
+and only exact settlement mutates its cursor or removes it. Generic plans and
+`CommittedDelta` cannot manufacture either capability.
 
 ```mermaid
 sequenceDiagram
@@ -407,7 +407,7 @@ sequenceDiagram
     D->>S: consume total Apply
     S-->>D: typed capability + CommittedDelta retirement/wake receipt
     Note over D,S: guard opens, retirement drops, typed role hints publish
-    P->>S: checkout committed effect progress
+    P->>S: borrow minimum committed effect receipt
     P->>E: perform external I/O
     P->>S: settle exact effect progress
 ```
@@ -507,10 +507,15 @@ settlement, peer-cohort revocation, remote expiry/release, parent requests and
 generation reset. A pending-recent-reject index is a charged lookup into the
 same resident batches.
 
-One synchronously claimed publisher task is the sole consumer. It checks out a
-move-only lease, executes endpoints after the store guard opens and settles the
-exact progress token. Endpoint failure cannot roll back or reinterpret the
-committed owner transition. Relay publication uses a bounded nonblocking
+One synchronously claimed publisher task is the sole consumer. A mutable borrow
+of that claim yields a read-only receipt for the minimum sequence; the resident
+record never moves to an in-flight authority location. Endpoint progress is
+tentative until one exact settlement Apply advances or removes that record. A
+newer coalesced reset subsumes an older reset receipt without mutation, while a
+queued FIFO head cannot be displaced by append, reset or close. The claim
+borrow lives through cancellation and settlement, so safe Rust cannot publish
+the same head concurrently. Endpoint failure cannot roll back or reinterpret
+the committed owner transition. Relay publication uses a bounded nonblocking
 mailbox; overflow converges through `GenerationReset` and bounded level rebuild.
 
 Effect-index inconsistency is an authority projection fault. JSON encoding,
@@ -605,7 +610,7 @@ Every wait must name an independently running releaser:
 | compute semaphore | none | completion/cancellation of another checked-out computation |
 | resolver/verifier/Ready level hint | none | a changed committed scheduler head; each role rechecks its exact level first |
 | dependency-maintenance hint or expiry timer | none | dirty frontier activation or the independent wall-clock tick |
-| effect publisher hint | none | committed effect checkout availability or closed-and-drained transition |
+| effect publisher hint | none | committed effect availability or closed-and-drained transition |
 | effect capacity | possibly the exact failed settlement capability, never a store guard | sole effect publisher settlement or cancellation; release broadcasts across heterogeneous batch shapes |
 | verification cache channel | no owner or store guard | cache updater; cache failure is derived degradation |
 | ordered chain-control channel | chain or clear request at producer boundary, no store guard | ordered chain-control driver |

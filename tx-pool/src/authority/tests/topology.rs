@@ -147,7 +147,10 @@ async fn uak_topology_relay_disconnect_is_local_degradation_not_shutdown() {
                 .effect_observation_for_foundation()
                 .queued
                 .is_empty()
-                && runtime.effect_observation_for_foundation().active.is_none()
+                && runtime
+                    .effect_observation_for_foundation()
+                    .latest_generation_reset
+                    .is_none()
             {
                 break;
             }
@@ -249,7 +252,7 @@ async fn uak_topology_relay_overflow_cannot_pin_effect_blocked_compute() {
         loop {
             let effects_drained = {
                 let observation = runtime.effect_observation_for_foundation();
-                observation.active.is_none() && observation.queued.is_empty()
+                observation.queued.is_empty() && observation.latest_generation_reset.is_none()
             };
             let candidate_settled = runtime
                 .with_authority_for_foundation(|authority| authority.entry(&rejected).is_none());
@@ -329,7 +332,7 @@ async fn uak_topology_bounds_one_stuck_callback_without_forbidding_persistence()
     tokio::time::timeout(Duration::from_millis(1_500), async {
         loop {
             let observation = runtime.effect_observation_for_foundation();
-            if observation.active.is_none() && observation.queued.is_empty() {
+            if observation.queued.is_empty() && observation.latest_generation_reset.is_none() {
                 break;
             }
             tokio::task::yield_now().await;

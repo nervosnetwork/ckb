@@ -22,9 +22,9 @@ use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
     CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease, EffectBatch,
     EffectBuildError, EffectClosePlanError, EffectConfigError, EffectDelta, EffectError,
-    EffectLease, EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectSettlement,
-    EffectSettlementPlanError, EffectWakeProjection, ParentTransactionRequest, PendingRecentReject,
-    RejectionAudience,
+    EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectReceipt, EffectSettlement,
+    EffectSettlementPlan, EffectSettlementPlanError, EffectWakeProjection,
+    ParentTransactionRequest, PendingRecentReject, RejectionAudience,
 };
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
 use super::ingress::{
@@ -369,11 +369,6 @@ pub(super) enum ComputeCancellationError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EffectCheckoutError {
-    CounterExhausted,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum EffectSettlementError {
     StaleLease,
     Projection,
@@ -388,10 +383,10 @@ pub(super) enum EffectCloseError {
 }
 
 /// Effect settlement has the same linear handoff rule as compute: planning
-/// failure must return the publisher capability instead of silently leaving
-/// an active effect without its only completion.
+/// failure must return the publisher receipt instead of silently losing the
+/// only tentative endpoint cursor for the resident record.
 #[derive(Debug)]
-#[must_use = "a failed effect settlement still owns the active effect capability"]
+#[must_use = "a failed effect settlement still owns the exact publication receipt"]
 pub(super) struct EffectSettlementFailure {
     error: EffectSettlementError,
     #[cfg_attr(
@@ -408,6 +403,16 @@ impl EffectSettlementFailure {
     pub(super) fn error(&self) -> EffectSettlementError {
         self.error
     }
+}
+
+#[must_use = "a superseded reset receipt must retire outside the authority guard"]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Applied is the ordinary hot path and already has to carry CommittedDelta across the authority guard; boxing it would add one allocation to every effect settlement solely to shrink the rare superseded-reset disposition"
+)]
+pub(super) enum EffectSettlementCommit {
+    Applied(CommittedDelta),
+    Superseded(EffectSettlement),
 }
 
 impl From<ResourceError> for PlanError {
@@ -1103,22 +1108,6 @@ pub(super) struct CommittedCheckout {
     retirement: CommittedDelta,
 }
 
-/// A prepared effect checkout owns the publisher lease by construction.
-/// Keeping the capability beside, rather than inside, the generic Apply plan
-/// prevents a successful authority mutation from producing a missing lease or
-/// an ordinary transition from manufacturing one.
-#[must_use = "a prepared effect checkout must be applied exactly once"]
-pub(super) struct PreparedEffectCheckout<'authority> {
-    plan: PreparedApply<'authority>,
-    lease: EffectLease,
-}
-
-#[must_use = "the effect lease and its retirement carrier must leave the authority guard together"]
-pub(super) struct CommittedEffectCheckout {
-    lease: EffectLease,
-    retirement: CommittedDelta,
-}
-
 impl PreparedCheckout<'_> {
     pub(super) fn apply(self) -> CommittedCheckout {
         let Self { plan, work } = self;
@@ -1132,22 +1121,6 @@ impl CommittedCheckout {
     /// opens; the compute job itself may then cross the worker boundary.
     pub(in crate::authority) fn into_parts(self) -> (CheckedOutWork, CommittedDelta) {
         (self.work, self.retirement)
-    }
-}
-
-impl PreparedEffectCheckout<'_> {
-    pub(super) fn apply(self) -> CommittedEffectCheckout {
-        let Self { plan, lease } = self;
-        let retirement = plan.apply();
-        CommittedEffectCheckout { lease, retirement }
-    }
-}
-
-impl CommittedEffectCheckout {
-    /// The runtime keeps `retirement` alive until the authority guard opens;
-    /// only then may the move-only publisher lease cross the async boundary.
-    pub(in crate::authority) fn into_parts(self) -> (EffectLease, CommittedDelta) {
-        (self.lease, self.retirement)
     }
 }
 
@@ -3743,33 +3716,16 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn plan_effect_checkout(
-        &mut self,
-    ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {
-        let Some((effect, lease)) = self.effects.plan_checkout() else {
-            return Ok(None);
-        };
-        let sequence = self.clocks.next_sequence;
-        let next = next_sequence(sequence).map_err(|_| EffectCheckoutError::CounterExhausted)?;
-        let clocks = AuthorityClocks {
-            next_sequence: next,
-            ..self.clocks
-        };
-        Ok(Some(PreparedEffectCheckout {
-            plan: PreparedApply {
-                authority: self,
-                delta: AuthorityDelta::Effect(EffectOnlyDelta { effect, clocks }),
-            },
-            lease,
-        }))
+    pub(super) fn effect_publication_receipt(&self) -> Option<EffectReceipt> {
+        self.effects.publication_receipt()
     }
 
     pub(super) fn apply_effect_settlement(
         &mut self,
         settlement: EffectSettlement,
-    ) -> Result<CommittedDelta, EffectSettlementFailure> {
-        let effect = match self.effects.plan_settlement(&settlement) {
-            Ok(effect) => effect,
+    ) -> Result<EffectSettlementCommit, EffectSettlementFailure> {
+        let plan = match self.effects.plan_settlement(&settlement) {
+            Ok(plan) => plan,
             Err(error) => {
                 return Err(EffectSettlementFailure {
                     error: match error {
@@ -3780,12 +3736,17 @@ impl TxPoolAuthority {
                 });
             }
         };
+        let EffectSettlementPlan::Apply(effect) = plan else {
+            return Ok(EffectSettlementCommit::Superseded(settlement));
+        };
         let sequence = self.clocks.next_sequence;
         let next = next_sequence(sequence).map_err(|_| EffectSettlementFailure {
             error: EffectSettlementError::CounterExhausted,
             settlement,
         })?;
-        Ok(self.prepared_effect_only(effect, next).apply())
+        Ok(EffectSettlementCommit::Applied(
+            self.prepared_effect_only(effect, next).apply(),
+        ))
     }
 
     pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, EffectCloseError> {

@@ -970,11 +970,16 @@ impl EffectRegionUsage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct EffectEnvelope {
+struct EffectRecord {
     sequence: ApplySequence,
-    class: Option<EffectClass>,
     batch: Arc<EffectBatch>,
     processed: EffectProgress,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct QueuedEffectRecord {
+    record: EffectRecord,
+    class: EffectClass,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -997,7 +1002,7 @@ pub(super) enum EffectClosePlanError {
 }
 
 struct AppendPlan {
-    envelope: EffectEnvelope,
+    record: QueuedEffectRecord,
     usage: EffectRegionUsage,
 }
 
@@ -1033,16 +1038,6 @@ impl PendingRecentReject {
     }
 }
 
-#[derive(Clone, Copy)]
-enum CheckoutSource {
-    Queued,
-    GenerationReset,
-}
-
-struct CheckoutPlan {
-    source: CheckoutSource,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EffectDisposition {
     Published,
@@ -1052,8 +1047,15 @@ enum EffectDisposition {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct EffectToken {
+    source: EffectLeaseSource,
     sequence: ApplySequence,
     processed: EffectProgress,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EffectLeaseSource {
+    Queued,
+    GenerationReset,
 }
 
 /// One deterministic external endpoint position within a committed outcome.
@@ -1124,16 +1126,16 @@ pub(super) struct EffectWork<'batch> {
 
 #[derive(Debug)]
 #[must_use = "effect I/O must return its exact authority settlement"]
-pub(super) struct EffectLease {
+pub(super) struct EffectReceipt {
     token: EffectToken,
     batch: Arc<EffectBatch>,
     processed: EffectProgress,
 }
 
-impl EffectLease {
-    /// The first not-yet-processed endpoint in this exclusive batch lease.
-    /// Progress is local to the move-only capability while endpoint I/O runs;
-    /// only Retain commits it back into the authority.
+impl EffectReceipt {
+    /// The first not-yet-processed endpoint in this immutable batch receipt.
+    /// Progress is tentative and local while endpoint I/O runs; only
+    /// settlement can advance or remove the resident authority record.
     pub(super) fn current(&self) -> Option<EffectWork<'_>> {
         self.processed.current(&self.batch)
     }
@@ -1153,16 +1155,18 @@ impl EffectLease {
         }
     }
 
-    pub(super) fn into_complete(self) -> Result<CompletedEffectLease, EffectCompletionFailure> {
+    pub(super) fn into_complete(
+        self,
+    ) -> Result<CompletedEffectReceipt, EffectReceiptCompletionFailure> {
         if self.processed.is_complete(&self.batch) {
-            Ok(CompletedEffectLease {
+            Ok(CompletedEffectReceipt {
                 token: self.token,
                 batch: self.batch,
             })
         } else {
-            Err(EffectCompletionFailure {
+            Err(EffectReceiptCompletionFailure {
                 error: EffectProgressError::Incomplete,
-                lease: self,
+                receipt: self,
             })
         }
     }
@@ -1176,26 +1180,26 @@ pub(super) enum EffectProgressError {
 }
 
 #[derive(Debug)]
-#[must_use = "an incomplete effect lease still owns the active capability"]
-pub(super) struct EffectCompletionFailure {
+#[must_use = "an incomplete effect receipt still requires settlement"]
+pub(super) struct EffectReceiptCompletionFailure {
     error: EffectProgressError,
-    lease: EffectLease,
+    receipt: EffectReceipt,
 }
 
-impl EffectCompletionFailure {
-    pub(super) fn into_parts(self) -> (EffectProgressError, EffectLease) {
-        (self.error, self.lease)
+impl EffectReceiptCompletionFailure {
+    pub(super) fn into_parts(self) -> (EffectProgressError, EffectReceipt) {
+        (self.error, self.receipt)
     }
 }
 
 #[derive(Debug)]
-#[must_use = "a completed effect lease must settle the authority charge"]
-pub(super) struct CompletedEffectLease {
+#[must_use = "a completed effect receipt must settle the authority charge"]
+pub(super) struct CompletedEffectReceipt {
     token: EffectToken,
     batch: Arc<EffectBatch>,
 }
 
-impl CompletedEffectLease {
+impl CompletedEffectReceipt {
     pub(super) fn published(self) -> EffectSettlement {
         let processed = EffectProgress(self.batch.publication_steps());
         EffectSettlement {
@@ -1259,14 +1263,24 @@ impl EffectSettlement {
     }
 }
 
-struct SettlementPlan {
+struct SettlementMutation {
     disposition: EffectDisposition,
     processed: EffectProgress,
     after_usage: EffectRegionUsage,
 }
 
+enum SettlementTarget {
+    Queued(SettlementMutation),
+    GenerationReset(SettlementMutation),
+}
+
+pub(super) enum EffectSettlementPlan {
+    Apply(EffectDelta),
+    Superseded,
+}
+
 struct ResetPlan {
-    envelope: EffectEnvelope,
+    record: EffectRecord,
 }
 
 #[derive(Default)]
@@ -1274,8 +1288,7 @@ enum EffectMutation {
     #[default]
     None,
     Append(AppendPlan),
-    Checkout(CheckoutPlan),
-    Settle(SettlementPlan),
+    Settle(SettlementTarget),
     Reset(ResetPlan),
     Close,
 }
@@ -1319,9 +1332,8 @@ impl EffectWakeProjection {
 #[derive(Debug)]
 pub(super) struct EffectLog {
     limits: EffectLimits,
-    queued: VecDeque<EffectEnvelope>,
-    active: Option<EffectEnvelope>,
-    latest_generation_reset: Option<EffectEnvelope>,
+    queued: VecDeque<QueuedEffectRecord>,
+    latest_generation_reset: Option<EffectRecord>,
     /// Derived, charged lookup into resident immutable batches. Sequence is
     /// part of the value so completion of an older rejection cannot erase a
     /// newer result for the same raw transaction hash.
@@ -1340,7 +1352,6 @@ impl EffectLog {
         Ok(Self {
             limits,
             queued,
-            active: None,
             latest_generation_reset: None,
             pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
@@ -1428,9 +1439,7 @@ impl EffectLog {
     pub(super) fn wake_projection(&self) -> EffectWakeProjection {
         let publisher = if self.is_closed_and_drained() {
             EffectPublisherLevel::ClosedAndDrained
-        } else if self.active.is_none()
-            && (!self.queued.is_empty() || self.latest_generation_reset.is_some())
-        {
+        } else if !self.queued.is_empty() || self.latest_generation_reset.is_some() {
             EffectPublisherLevel::Available
         } else {
             EffectPublisherLevel::Idle
@@ -1471,11 +1480,13 @@ impl EffectLog {
                 .checked_charge(class, bytes)
                 .ok_or(EffectError::Projection)?;
             return Ok(EffectDelta(EffectMutation::Append(AppendPlan {
-                envelope: EffectEnvelope {
-                    sequence,
-                    class: Some(class),
-                    batch: Arc::clone(&publication.batch),
-                    processed: EffectProgress::default(),
+                record: QueuedEffectRecord {
+                    record: EffectRecord {
+                        sequence,
+                        batch: Arc::clone(&publication.batch),
+                        processed: EffectProgress::default(),
+                    },
+                    class,
                 },
                 usage,
             })));
@@ -1524,87 +1535,124 @@ impl EffectLog {
 
     fn reset_delta(&self, sequence: ApplySequence) -> EffectDelta {
         EffectDelta(EffectMutation::Reset(ResetPlan {
-            envelope: EffectEnvelope {
+            record: EffectRecord {
                 sequence,
-                class: None,
                 batch: Arc::clone(&self.generation_reset_batch),
                 processed: EffectProgress::default(),
             },
         }))
     }
 
-    pub(super) fn plan_checkout(&self) -> Option<(EffectDelta, EffectLease)> {
-        if self.active.is_some() {
-            return None;
-        }
+    /// Borrow the minimum committed publication record without moving it out
+    /// of the authority. Production can call this only through the linear sole
+    /// publisher claim; producer transitions cannot remove a queued head and a
+    /// newer reset semantically subsumes an older reset receipt.
+    pub(super) fn publication_receipt(&self) -> Option<EffectReceipt> {
         let queued = self.queued.front();
         let reset = self.latest_generation_reset.as_ref();
-        let (source, envelope) = match (queued, reset) {
-            (Some(queued), Some(reset)) if reset.sequence < queued.sequence => {
-                (CheckoutSource::GenerationReset, reset)
+        let (source, record) = match (queued, reset) {
+            (Some(queued), Some(reset)) if reset.sequence < queued.record.sequence => {
+                (EffectLeaseSource::GenerationReset, reset)
             }
-            (Some(queued), _) => (CheckoutSource::Queued, queued),
-            (None, Some(reset)) => (CheckoutSource::GenerationReset, reset),
+            (Some(queued), _) => (EffectLeaseSource::Queued, &queued.record),
+            (None, Some(reset)) => (EffectLeaseSource::GenerationReset, reset),
             (None, None) => return None,
         };
-        Some((
-            EffectDelta(EffectMutation::Checkout(CheckoutPlan { source })),
-            EffectLease {
-                token: EffectToken {
-                    sequence: envelope.sequence,
-                    processed: envelope.processed,
-                },
-                batch: Arc::clone(&envelope.batch),
-                processed: envelope.processed,
+        Some(EffectReceipt {
+            token: EffectToken {
+                source,
+                sequence: record.sequence,
+                processed: record.processed,
             },
-        ))
+            batch: Arc::clone(&record.batch),
+            processed: record.processed,
+        })
     }
 
     pub(super) fn plan_settlement(
         &self,
         settlement: &EffectSettlement,
-    ) -> Result<EffectDelta, EffectSettlementPlanError> {
-        let active = self
-            .active
-            .as_ref()
-            .ok_or(EffectSettlementPlanError::StaleLease)?;
-        if active.sequence != settlement.token.sequence
-            || !Arc::ptr_eq(&active.batch, &settlement.batch)
-            || active.processed != settlement.token.processed
+    ) -> Result<EffectSettlementPlan, EffectSettlementPlanError> {
+        match settlement.token.source {
+            EffectLeaseSource::Queued => {
+                let queued = self
+                    .queued
+                    .front()
+                    .ok_or(EffectSettlementPlanError::StaleLease)?;
+                Self::validate_exact_record(&queued.record, settlement)?;
+                let disposition = Self::validated_disposition(settlement)?;
+                let after_usage = match disposition {
+                    EffectDisposition::Published | EffectDisposition::CircuitDisposed => self
+                        .usage
+                        .checked_release(queued.class, queued.record.batch.charge_bytes()),
+                    EffectDisposition::Retain => Some(self.usage),
+                }
+                .ok_or(EffectSettlementPlanError::Projection)?;
+                Ok(EffectSettlementPlan::Apply(EffectDelta(
+                    EffectMutation::Settle(SettlementTarget::Queued(SettlementMutation {
+                        disposition,
+                        processed: settlement.processed,
+                        after_usage,
+                    })),
+                )))
+            }
+            EffectLeaseSource::GenerationReset => {
+                if !Arc::ptr_eq(&settlement.batch, &self.generation_reset_batch) {
+                    return Err(EffectSettlementPlanError::StaleLease);
+                }
+                let reset = self
+                    .latest_generation_reset
+                    .as_ref()
+                    .ok_or(EffectSettlementPlanError::StaleLease)?;
+                if reset.sequence > settlement.token.sequence {
+                    Self::validated_disposition(settlement)?;
+                    return Ok(EffectSettlementPlan::Superseded);
+                }
+                Self::validate_exact_record(reset, settlement)?;
+                let disposition = Self::validated_disposition(settlement)?;
+                Ok(EffectSettlementPlan::Apply(EffectDelta(
+                    EffectMutation::Settle(SettlementTarget::GenerationReset(SettlementMutation {
+                        disposition,
+                        processed: settlement.processed,
+                        after_usage: self.usage,
+                    })),
+                )))
+            }
+        }
+    }
+
+    fn validate_exact_record(
+        record: &EffectRecord,
+        settlement: &EffectSettlement,
+    ) -> Result<(), EffectSettlementPlanError> {
+        if record.sequence != settlement.token.sequence
+            || !Arc::ptr_eq(&record.batch, &settlement.batch)
+            || record.processed != settlement.token.processed
         {
             return Err(EffectSettlementPlanError::StaleLease);
         }
-        if settlement.processed < active.processed
-            || settlement.processed.0 > active.batch.publication_steps()
+        Ok(())
+    }
+
+    fn validated_disposition(
+        settlement: &EffectSettlement,
+    ) -> Result<EffectDisposition, EffectSettlementPlanError> {
+        if settlement.processed < settlement.token.processed
+            || settlement.processed.0 > settlement.batch.publication_steps()
         {
             return Err(EffectSettlementPlanError::Projection);
         }
-        let disposition = match settlement.disposition {
+        match settlement.disposition {
             EffectDisposition::Published | EffectDisposition::CircuitDisposed
-                if !settlement.processed.is_complete(&active.batch) =>
+                if !settlement.processed.is_complete(&settlement.batch) =>
             {
-                return Err(EffectSettlementPlanError::Projection);
+                Err(EffectSettlementPlanError::Projection)
             }
-            EffectDisposition::Retain if settlement.processed.is_complete(&active.batch) => {
-                EffectDisposition::Published
+            EffectDisposition::Retain if settlement.processed.is_complete(&settlement.batch) => {
+                Ok(EffectDisposition::Published)
             }
-            disposition => disposition,
-        };
-        let after_usage = match disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
-                active.class.map_or(Some(self.usage), |class| {
-                    self.usage
-                        .checked_release(class, active.batch.charge_bytes())
-                })
-            }
-            EffectDisposition::Retain => Some(self.usage),
+            disposition => Ok(disposition),
         }
-        .ok_or(EffectSettlementPlanError::Projection)?;
-        Ok(EffectDelta(EffectMutation::Settle(SettlementPlan {
-            disposition,
-            processed: settlement.processed,
-            after_usage,
-        })))
     }
 
     pub(super) fn plan_close(&self) -> Result<EffectDelta, EffectClosePlanError> {
@@ -1619,8 +1667,8 @@ impl EffectLog {
             EffectMutation::None => None,
             EffectMutation::Append(plan) => {
                 self.usage = plan.usage;
-                let sequence = plan.envelope.sequence;
-                let batch = Arc::clone(&plan.envelope.batch);
+                let sequence = plan.record.record.sequence;
+                let batch = Arc::clone(&plan.record.record.batch);
                 for (effect_index, rejection) in batch.pending_recent_rejects() {
                     self.pending_recent_rejects.insert(
                         rejection.raw_hash(),
@@ -1631,27 +1679,19 @@ impl EffectLog {
                         },
                     );
                 }
-                self.queued.push_back(plan.envelope);
+                self.queued.push_back(plan.record);
                 None
             }
-            EffectMutation::Checkout(plan) => {
-                let selected = match plan.source {
-                    CheckoutSource::Queued => self.queued.pop_front(),
-                    CheckoutSource::GenerationReset => self.latest_generation_reset.take(),
-                };
-                // The exclusive prepared plan proves this source is present.
-                // Keeping the Option branch explicit avoids panic-based
-                // invariant handling if future code violates that contract.
-                if let Some(selected) = selected {
-                    self.active = Some(selected);
-                }
-                None
+            EffectMutation::Settle(SettlementTarget::Queued(plan)) => {
+                self.apply_queued_settlement(plan)
             }
-            EffectMutation::Settle(plan) => self.apply_settlement(plan),
+            EffectMutation::Settle(SettlementTarget::GenerationReset(plan)) => {
+                self.apply_reset_settlement(plan)
+            }
             EffectMutation::Reset(plan) => self
                 .latest_generation_reset
-                .replace(plan.envelope)
-                .map(|envelope| envelope.batch),
+                .replace(plan.record)
+                .map(|record| record.batch),
             EffectMutation::Close => {
                 self.closed = true;
                 None
@@ -1659,56 +1699,50 @@ impl EffectLog {
         }
     }
 
-    fn apply_settlement(&mut self, plan: SettlementPlan) -> Option<Arc<EffectBatch>> {
-        let active = self.active.take()?;
+    fn apply_queued_settlement(&mut self, plan: SettlementMutation) -> Option<Arc<EffectBatch>> {
+        let mut queued = self.queued.pop_front()?;
         self.usage = plan.after_usage;
         match plan.disposition {
             EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
-                for (effect_index, rejection) in active.batch.pending_recent_rejects() {
+                for (effect_index, rejection) in queued.record.batch.pending_recent_rejects() {
                     let hash = rejection.raw_hash();
                     if self
                         .pending_recent_rejects
                         .get(&hash)
                         .is_some_and(|pending| {
-                            pending.sequence == active.sequence
+                            pending.sequence == queued.record.sequence
                                 && pending.effect_index == effect_index
-                                && Arc::ptr_eq(&pending.batch, &active.batch)
+                                && Arc::ptr_eq(&pending.batch, &queued.record.batch)
                         })
                     {
                         self.pending_recent_rejects.remove(&hash);
                     }
                 }
-                Some(active.batch)
+                Some(queued.record.batch)
             }
-            EffectDisposition::Retain => match active.class {
-                Some(_) => {
-                    let mut active = active;
-                    active.processed = plan.processed;
-                    self.queued.push_front(active);
-                    None
-                }
-                None => {
-                    let mut active = active;
-                    active.processed = plan.processed;
-                    if self
-                        .latest_generation_reset
-                        .as_ref()
-                        .is_some_and(|latest| latest.sequence > active.sequence)
-                    {
-                        Some(active.batch)
-                    } else {
-                        self.latest_generation_reset = Some(active);
-                        None
-                    }
-                }
-            },
+            EffectDisposition::Retain => {
+                queued.record.processed = plan.processed;
+                self.queued.push_front(queued);
+                None
+            }
+        }
+    }
+
+    fn apply_reset_settlement(&mut self, plan: SettlementMutation) -> Option<Arc<EffectBatch>> {
+        let mut reset = self.latest_generation_reset.take()?;
+        match plan.disposition {
+            EffectDisposition::Published | EffectDisposition::CircuitDisposed => Some(reset.batch),
+            EffectDisposition::Retain => {
+                reset.processed = plan.processed;
+                self.latest_generation_reset = Some(reset);
+                None
+            }
         }
     }
 
     pub(super) fn is_closed_and_drained(&self) -> bool {
         self.closed
             && self.queued.is_empty()
-            && self.active.is_none()
             && self.latest_generation_reset.is_none()
             && self.pending_recent_rejects.is_empty()
             && self.usage == EffectRegionUsage::default()
@@ -1724,14 +1758,12 @@ impl EffectLog {
     }
 
     fn validate_new_sequence(&self, sequence: ApplySequence) -> Result<(), EffectError> {
-        let latest = self
-            .queued
-            .back()
-            .into_iter()
-            .chain(self.active.iter())
-            .chain(self.latest_generation_reset.iter())
-            .map(|envelope| envelope.sequence)
-            .max();
+        let queued = self.queued.back().map(|queued| queued.record.sequence);
+        let reset = self
+            .latest_generation_reset
+            .as_ref()
+            .map(|reset| reset.sequence);
+        let latest = queued.into_iter().chain(reset).max();
         if latest.is_some_and(|latest| latest >= sequence) {
             Err(EffectError::Projection)
         } else {

@@ -18,7 +18,10 @@ use super::{
     chain_boundary::{
         ChainBoundaryError, ChainUpdateCommand, ChainUpdateFailure, CommittedChainUpdate,
     },
-    effect::{EffectConfigError, EffectLease, EffectLimits, EffectSettlement},
+    effect::{
+        EffectConfigError, EffectLimits, EffectProgressError, EffectReceipt, EffectSettlement,
+        EffectWork,
+    },
     ingress::{
         DirectCommand, DirectTransaction, IngressRejectionCommit, RetainedIngress,
         RetainedIngressCommit, RetainedIngressRejection, direct,
@@ -27,9 +30,10 @@ use super::{
         AuthorityConfigError, AuthorityFault, AuthorityPostCommit, AuthorityWakeTransition,
         Backpressure, CandidateDispositionPlan, CommittedDelta, ComputeCancellation,
         ComputeCancellationError, ComputeSettlementFailure, DirectAdmissionDisposition,
-        DirectAdmissionEvaluation, EffectCheckoutError, EffectCloseError, EffectSettlementFailure,
-        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
-        PlanError, RetainedAdmissionDisposition, SettlementBatch, SettlementPlan, TxPoolAuthority,
+        DirectAdmissionEvaluation, EffectCloseError, EffectSettlementCommit,
+        EffectSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
+        MembershipConfig, MembershipReject, PlanError, RetainedAdmissionDisposition,
+        SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
@@ -73,6 +77,7 @@ use super::{
 use crate::component::entry::TxEntry;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
+use ckb_logger::error;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::FeeRate;
@@ -735,11 +740,110 @@ impl AuthoritySignals {
 }
 
 /// Move-only claim for the sole consumer of the authority effect sequence.
-/// The effect log already serializes checkout; this claim additionally makes
-/// a second idle consumer fail immediately instead of waiting forever behind
-/// the first consumer's active lease.
+/// The claim is the only publication-exclusivity authority: the effect log
+/// retains each committed record in place until settlement and carries no
+/// second in-flight flag or active location.
 pub(in crate::authority) struct AuthorityEffectPublisherClaim {
     signals: Arc<AuthoritySignals>,
+}
+
+/// Read-only committed effect evidence tied to the sole publisher capability.
+/// The mutable claim borrow makes a second concurrent receipt unrepresentable
+/// while the first receipt or its cancellation guard remains live.
+pub(in crate::authority) struct AuthorityEffectPublicationLease<'runtime, 'claim> {
+    runtime: &'runtime AuthorityRuntime,
+    receipt: Option<EffectReceipt>,
+    _claim: &'claim mut AuthorityEffectPublisherClaim,
+}
+
+#[derive(Debug)]
+pub(in crate::authority) enum AuthorityEffectPublicationFault {
+    Settlement(
+        #[expect(
+            dead_code,
+            reason = "the exact linear settlement capability is retained through generation shutdown"
+        )]
+        EffectSettlementFailure,
+    ),
+    Progress(
+        #[expect(
+            dead_code,
+            reason = "the exact progress fault is rendered by the operational Debug boundary"
+        )]
+        EffectProgressError,
+    ),
+}
+
+#[derive(Clone, Copy)]
+enum EffectTerminalDisposition {
+    Published,
+    CircuitDisposed,
+}
+
+impl AuthorityEffectPublicationLease<'_, '_> {
+    pub(in crate::authority) fn current(&self) -> Option<EffectWork<'_>> {
+        self.receipt.as_ref().and_then(EffectReceipt::current)
+    }
+
+    pub(in crate::authority) fn mark_current_processed(
+        &mut self,
+    ) -> Result<bool, EffectProgressError> {
+        self.receipt
+            .as_mut()
+            .ok_or(EffectProgressError::Incomplete)?
+            .mark_current_processed()
+    }
+
+    pub(in crate::authority) fn publish(self) -> Result<(), AuthorityEffectPublicationFault> {
+        self.settle(EffectTerminalDisposition::Published)
+    }
+
+    pub(in crate::authority) fn circuit_dispose(
+        self,
+    ) -> Result<(), AuthorityEffectPublicationFault> {
+        self.settle(EffectTerminalDisposition::CircuitDisposed)
+    }
+
+    fn settle(
+        mut self,
+        disposition: EffectTerminalDisposition,
+    ) -> Result<(), AuthorityEffectPublicationFault> {
+        let receipt = self
+            .receipt
+            .take()
+            .ok_or(AuthorityEffectPublicationFault::Progress(
+                EffectProgressError::Incomplete,
+            ))?;
+        let completed = match receipt.into_complete() {
+            Ok(completed) => completed,
+            Err(failure) => {
+                let (error, receipt) = failure.into_parts();
+                self.receipt = Some(receipt);
+                return Err(AuthorityEffectPublicationFault::Progress(error));
+            }
+        };
+        let settlement = match disposition {
+            EffectTerminalDisposition::Published => completed.published(),
+            EffectTerminalDisposition::CircuitDisposed => completed.circuit_disposed(),
+        };
+        self.runtime
+            .settle_effect(settlement)
+            .map_err(AuthorityEffectPublicationFault::Settlement)
+    }
+}
+
+impl Drop for AuthorityEffectPublicationLease<'_, '_> {
+    fn drop(&mut self) {
+        let Some(receipt) = self.receipt.take() else {
+            return;
+        };
+        if let Err(failure) = self.runtime.settle_effect(receipt.retain()) {
+            error!(
+                "failed to retain cancelled tx-pool effect publication: {:?}",
+                failure.error()
+            );
+        }
+    }
 }
 
 impl Drop for AuthorityEffectPublisherClaim {
@@ -1365,9 +1469,9 @@ pub(in crate::authority) enum AuthorityReadyOutcome {
     Applied,
 }
 
-enum EffectCheckoutState {
+enum EffectPublicationState {
     Idle,
-    Lease(EffectLease),
+    Receipt(EffectReceipt),
     ClosedAndDrained,
 }
 
@@ -2330,49 +2434,51 @@ impl AuthorityRuntime {
             })
     }
 
-    fn try_effect_checkout(&self) -> Result<EffectCheckoutState, EffectCheckoutError> {
-        let (lease, retirement) = {
-            let mut store = self.store.write();
-            let Some(plan) = store.authority.plan_effect_checkout()? else {
-                return if store.authority.effects_closed_and_drained() {
-                    Ok(EffectCheckoutState::ClosedAndDrained)
-                } else {
-                    Ok(EffectCheckoutState::Idle)
-                };
-            };
-            plan.apply().into_parts()
-        };
-        self.publish_committed(retirement);
-        Ok(EffectCheckoutState::Lease(lease))
+    fn try_effect_publication(&self) -> EffectPublicationState {
+        let store = self.store.read();
+        match store.authority.effect_publication_receipt() {
+            Some(receipt) => EffectPublicationState::Receipt(receipt),
+            None if store.authority.effects_closed_and_drained() => {
+                EffectPublicationState::ClosedAndDrained
+            }
+            None => EffectPublicationState::Idle,
+        }
     }
 
-    /// Wait for the next committed effect capability. `None` means the log is
-    /// closed and fully drained. The sole publisher calls this only while it
-    /// owns no prior lease; cancellation during the wait owns no capability,
-    /// and there is no suspension point after checkout succeeds.
-    pub(in crate::authority) async fn wait_effect_checkout(
-        &self,
-    ) -> Result<Option<EffectLease>, EffectCheckoutError> {
+    /// Wait for the next committed effect receipt. `None` means the log is
+    /// closed and fully drained. The mutable publisher claim remains borrowed
+    /// by the returned receipt, so safe production code cannot observe the same
+    /// resident head concurrently or release the claim before settlement.
+    pub(in crate::authority) async fn wait_effect_publication<'runtime, 'claim>(
+        &'runtime self,
+        claim: &'claim mut AuthorityEffectPublisherClaim,
+    ) -> Option<AuthorityEffectPublicationLease<'runtime, 'claim>> {
         loop {
             let notified = self.effect_publisher_signal().notified();
-            match self.try_effect_checkout()? {
-                EffectCheckoutState::Idle => notified.await,
-                EffectCheckoutState::Lease(lease) => return Ok(Some(lease)),
-                EffectCheckoutState::ClosedAndDrained => return Ok(None),
+            match self.try_effect_publication() {
+                EffectPublicationState::Idle => notified.await,
+                EffectPublicationState::Receipt(receipt) => {
+                    return Some(AuthorityEffectPublicationLease {
+                        runtime: self,
+                        receipt: Some(receipt),
+                        _claim: claim,
+                    });
+                }
+                EffectPublicationState::ClosedAndDrained => return None,
             }
         }
     }
 
-    pub(in crate::authority) fn settle_effect(
-        &self,
-        settlement: EffectSettlement,
-    ) -> Result<(), EffectSettlementFailure> {
+    fn settle_effect(&self, settlement: EffectSettlement) -> Result<(), EffectSettlementFailure> {
         let rejection_metrics = settlement.rejection_metrics();
-        let retirement = {
+        let commit = {
             let mut store = self.store.write();
             store.authority.apply_effect_settlement(settlement)?
         };
-        self.publish_committed(retirement);
+        match commit {
+            EffectSettlementCommit::Applied(retirement) => self.publish_committed(retirement),
+            EffectSettlementCommit::Superseded(settlement) => drop(settlement),
+        }
         rejection_metrics.publish();
         Ok(())
     }
@@ -2389,8 +2495,8 @@ impl AuthorityRuntime {
     }
 
     /// Close effect production after every state producer and compute
-    /// capability has drained. Already committed queued/active effects remain
-    /// checkout-able until `effects_closed_and_drained` becomes true.
+    /// capability has drained. Already committed queued/reset effects remain
+    /// publishable until `effects_closed_and_drained` becomes true.
     pub(in crate::authority) fn close_effects(&self) -> Result<(), EffectCloseError> {
         let retirement = {
             let mut store = self.store.write();

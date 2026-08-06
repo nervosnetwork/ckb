@@ -197,7 +197,7 @@ patches:
    between later verification and the Ready driver. Stable paired A/B regressed
    beyond the quick boundary, so the experiment was removed rather than
    compensated with another queue or actor.
-3. **Unified effect read lease - next design candidate.** The existing sole
+3. **Unified effect read lease - correctness-gated candidate.** The existing sole
    publisher claim can borrow the minimum committed FIFO/reset record without
    moving it to an active authority location. Settlement validates source,
    sequence, batch identity and progress before retaining or removing the
@@ -365,7 +365,7 @@ The UAK owns these low-cardinality profiling coordinates:
 | `tx_pool.authority.upgradable_read_wait`, `upgradable_read_hold`, `upgrade_wait` | The ordered chain-transition read cut and its atomic promotion to Apply. |
 | `tx_pool.stage.resolve`, `stage.verify` | One checked-out resolution or verification operation. |
 | `tx_pool.stage.ready_attempt`, `stage.ready_work` | Every level-triggered Ready probe versus the subset that captured a non-empty bounded slice. Their difference measures idle/coalesced wake cost without treating it as settlement. |
-| `tx_pool.effects.publish` | One checked-out post-commit effect batch, never the permanent publisher task. |
+| `tx_pool.effects.publish` | One immutable committed effect batch, never the permanent publisher task. |
 
 With `profiling` disabled, `AuthorityStoreGuard` is the native parking-lot
 guard type and no tracing subscriber or span is constructed. The production

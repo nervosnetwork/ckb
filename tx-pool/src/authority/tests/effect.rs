@@ -2,12 +2,13 @@ use super::super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
         CommittedRejection, CommittedRemoteIngressRelease, EffectBatchBound, EffectBatchBounds,
-        EffectBuildError, EffectCapacity, EffectConfigError, EffectLease, EffectLimits,
-        EffectPolicy, EffectPublication, ParentTransactionRequest, RejectionAudience,
+        EffectBuildError, EffectCapacity, EffectConfigError, EffectLimits, EffectPolicy,
+        EffectPublication, EffectReceipt, ParentTransactionRequest, RejectionAudience,
     },
     plan::{
         AuthorityFault, Backpressure, CommittedDelta, ComputeSettlementRecovery, EffectCloseError,
-        EffectSettlementError, MembershipReject, PlanError, TxPoolAuthority,
+        EffectSettlementCommit, EffectSettlementError, MembershipReject, PlanError,
+        TxPoolAuthority,
     },
     rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
@@ -70,7 +71,7 @@ fn uak_peer_revocation_commits_one_constant_size_cohort_effect() {
     assert!(authority.entry(&first).is_none());
     assert!(authority.entry(&second).is_none());
 
-    let lease = checkout(&mut authority);
+    let lease = publication_receipt(&mut authority);
     assert!(matches!(
         lease.effects(),
         [CommittedEffect::PeerCohortRevoked(revocation)]
@@ -172,13 +173,10 @@ fn publish(authority: &mut TxPoolAuthority, publication: &EffectPublication) -> 
     apply_plan(plan)
 }
 
-fn checkout(authority: &mut TxPoolAuthority) -> EffectLease {
+fn publication_receipt(authority: &mut TxPoolAuthority) -> EffectReceipt {
     authority
-        .plan_effect_checkout_for_foundation()
-        .expect("effect checkout plans")
+        .effect_publication_receipt_for_foundation()
         .expect("one effect is pending")
-        .apply()
-        .into_effect_lease()
 }
 
 #[tokio::test]
@@ -234,12 +232,11 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
     );
 
     let first_lease = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("the first effect checks out")
         .expect("the effect log remains open");
     runtime
-        .settle_effect(first_lease.complete_for_foundation().published())
+        .settle_effect_for_foundation(first_lease.complete_for_foundation().published())
         .expect("the older effect settles");
     assert_eq!(
         runtime
@@ -250,12 +247,11 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
     );
 
     let second_lease = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("the second effect checks out")
         .expect("the effect log remains open");
     runtime
-        .settle_effect(second_lease.complete_for_foundation().published())
+        .settle_effect_for_foundation(second_lease.complete_for_foundation().published())
         .expect("the latest effect settles");
     assert_eq!(
         runtime
@@ -317,7 +313,7 @@ fn uak_pending_recent_reject_uses_effect_position_within_one_batch() {
         .expect("the projection is structurally valid");
     assert_eq!(pending, RejectionKind::Policy.into());
 
-    let lease = checkout(&mut authority);
+    let lease = publication_receipt(&mut authority);
     drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
@@ -657,7 +653,7 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
                 && entry.charge.active_work == 1
     ));
 
-    let occupied_lease = checkout(&mut authority);
+    let occupied_lease = publication_receipt(&mut authority);
     drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
@@ -672,7 +668,7 @@ fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
     ));
     assert!(authority.entry(&hash).is_none());
 
-    let rejection = checkout(&mut authority);
+    let rejection = publication_receipt(&mut authority);
     assert!(matches!(
         rejection.effects(),
         [CommittedEffect::Rejected(CommittedRejection::Validation {
@@ -738,7 +734,7 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
-    let occupied_lease = checkout(&mut authority);
+    let occupied_lease = publication_receipt(&mut authority);
     drop(apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
@@ -758,7 +754,7 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
                 && entry.charge.active_work == 0
     ));
 
-    let request = checkout(&mut authority);
+    let request = publication_receipt(&mut authority);
     let [CommittedEffect::ParentTransactionsRequested(request)] = request.effects() else {
         panic!("the wait commits exactly one parent-transaction request");
     };
@@ -801,7 +797,7 @@ fn uak_effect_full_preserves_ready_owner_and_charge() {
 }
 
 #[test]
-fn uak_effect_lease_preserves_sequence_and_charge() {
+fn uak_effect_receipt_preserves_sequence_and_charge() {
     let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
     let publication = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(730)));
     drop(publish(&mut authority, &publication));
@@ -810,19 +806,19 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let expected_charge = queued.total_usage;
 
     let before_dropped_plan = authority.normalized_snapshot();
-    let checkout_plan = authority
-        .plan_effect_checkout_for_foundation()
-        .expect("effect checkout plans")
+    let dropped_receipt = authority
+        .effect_publication_receipt_for_foundation()
         .expect("one effect is pending");
-    drop(checkout_plan);
+    drop(dropped_receipt);
     assert_eq!(authority.normalized_snapshot(), before_dropped_plan);
 
-    let lease = checkout(&mut authority);
+    let lease = publication_receipt(&mut authority);
     assert_eq!(lease.sequence(), expected_sequence);
     assert_eq!(lease.charge_bytes(), expected_charge.bytes);
-    let active = authority.effect_observation_for_foundation();
-    assert_eq!(active.active, Some(expected_sequence));
-    assert_eq!(active.total_usage, expected_charge);
+    let borrowed = authority.effect_observation_for_foundation();
+    assert_eq!(borrowed.queued, vec![expected_sequence]);
+    assert_eq!(borrowed.queued_processed_steps, vec![0]);
+    assert_eq!(borrowed.total_usage, expected_charge);
 
     let mut unrelated_authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
     let unrelated_publication = rejected_publication(
@@ -831,21 +827,24 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
         Arc::new(tx(732)),
     );
     drop(publish(&mut unrelated_authority, &unrelated_publication));
-    let unrelated_lease = checkout(&mut unrelated_authority);
+    let unrelated_lease = publication_receipt(&mut unrelated_authority);
     assert_eq!(unrelated_lease.sequence(), expected_sequence);
     let before_stale = authority.normalized_snapshot();
     let stale = authority
         .apply_effect_settlement_for_foundation(unrelated_lease.retain())
-        .expect_err("an unrelated effect lease is stale");
+        .expect_err("an unrelated effect receipt is stale");
     assert_eq!(stale.error(), EffectSettlementError::StaleLease);
     assert_eq!(authority.normalized_snapshot(), before_stale);
 
     let resumable_sequence = authority.clocks().next_sequence;
+    drop(lease);
     authority.force_next_sequence(ApplySequence(u128::MAX));
+    let lease = publication_receipt(&mut authority);
+    assert_eq!(lease.sequence(), expected_sequence);
     let before_exhaustion = authority.normalized_snapshot();
     let exhausted = authority
         .apply_effect_settlement_for_foundation(lease.retain())
-        .expect_err("counter exhaustion cannot consume the publisher capability");
+        .expect_err("counter exhaustion cannot consume the publication receipt");
     assert_eq!(exhausted.error(), EffectSettlementError::CounterExhausted);
     assert_eq!(authority.normalized_snapshot(), before_exhaustion);
     authority.force_next_sequence(resumable_sequence);
@@ -853,31 +852,31 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     let retained = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(exhausted.into_settlement())
-            .expect("the exact lease can be retained"),
+            .expect("the exact receipt can be retained"),
     );
     assert_eq!(retained.retired_effect_len(), 0);
     let requeued = authority.effect_observation_for_foundation();
     assert_eq!(requeued.queued, vec![expected_sequence]);
-    assert_eq!(requeued.active, None);
+    assert_eq!(requeued.queued_processed_steps, vec![0]);
     assert_eq!(requeued.total_usage, expected_charge);
 
-    let lease = checkout(&mut authority);
+    let lease = publication_receipt(&mut authority);
     let published = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
-            .expect("the exact lease publishes"),
+            .expect("the exact receipt publishes"),
     );
     assert_eq!(published.retired_effect_len(), 1);
     let empty = authority.effect_observation_for_foundation();
     assert!(empty.queued.is_empty());
-    assert_eq!(empty.active, None);
+    assert!(empty.queued_processed_steps.is_empty());
     assert_eq!(empty.total_usage.batches, 0);
     assert_eq!(empty.total_usage.bytes, 0);
     drop(published);
 
     let accepted = accepted_publication(&authority, EffectPolicy::Trusted, Arc::new(tx(731)));
     drop(publish(&mut authority, &accepted));
-    let lease = checkout(&mut authority);
+    let lease = publication_receipt(&mut authority);
     let disposed = apply_plan(
         authority
             .apply_effect_settlement_for_foundation(
@@ -887,6 +886,130 @@ fn uak_effect_lease_preserves_sequence_and_charge() {
     );
     assert_eq!(disposed.retired_effect_len(), 1);
     drop(disposed);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_effect_receipt_keeps_the_committed_head_stable_across_producer_applies() {
+    let mut authority = authority_with_effect_limits(effect_limits(4, 2, 2, 1));
+    let first = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(733)));
+    drop(publish(&mut authority, &first));
+    let first_receipt = publication_receipt(&mut authority);
+    let first_sequence = first_receipt.sequence();
+
+    let second = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(734)));
+    drop(publish(&mut authority, &second));
+    let second_sequence = authority.effect_observation_for_foundation().queued[1];
+    drop(apply_plan(
+        authority
+            .plan_generation_reset_for_foundation()
+            .expect("a newer reset can commit while the queue head is borrowed"),
+    ));
+    let reset_sequence = authority
+        .effect_observation_for_foundation()
+        .latest_generation_reset
+        .expect("the reset remains a distinct resident record");
+    drop(apply_plan(
+        authority
+            .plan_effect_close_for_foundation()
+            .expect("close cannot displace committed publication records"),
+    ));
+
+    let interposed = authority.effect_observation_for_foundation();
+    assert_eq!(interposed.queued, vec![first_sequence, second_sequence]);
+    assert!(first_sequence < second_sequence && second_sequence < reset_sequence);
+    assert!(interposed.closed);
+    assert_eq!(
+        publication_receipt(&mut authority).sequence(),
+        first_sequence,
+        "read acquisition itself cannot remove or reorder the borrowed head"
+    );
+
+    drop(apply_plan(
+        authority
+            .apply_effect_settlement_for_foundation(
+                first_receipt.complete_for_foundation().published(),
+            )
+            .expect("the exact borrowed head settles after interposed producers"),
+    ));
+    let second_receipt = publication_receipt(&mut authority);
+    assert_eq!(second_receipt.sequence(), second_sequence);
+    drop(apply_plan(
+        authority
+            .apply_effect_settlement_for_foundation(
+                second_receipt.complete_for_foundation().published(),
+            )
+            .expect("the second FIFO record settles next"),
+    ));
+    let reset_receipt = publication_receipt(&mut authority);
+    assert_eq!(reset_receipt.sequence(), reset_sequence);
+    drop(apply_plan(
+        authority
+            .apply_effect_settlement_for_foundation(
+                reset_receipt.complete_for_foundation().published(),
+            )
+            .expect("the later reset settles after the earlier queue records"),
+    ));
+    assert!(authority.effects_closed_and_drained_for_foundation());
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_effect_settlement_rejects_forged_source_sequence_and_cursor_without_mutation() {
+    let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
+    let publication = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(735)));
+    drop(publish(&mut authority, &publication));
+    let exact_sequence = authority.effect_observation_for_foundation().queued[0];
+
+    for forged in [
+        publication_receipt(&mut authority)
+            .retain()
+            .claim_generation_reset_source_for_foundation(),
+        publication_receipt(&mut authority)
+            .retain()
+            .with_sequence_for_foundation(ApplySequence(exact_sequence.0 + 1)),
+    ] {
+        let before = authority.normalized_snapshot();
+        let failure = authority
+            .apply_effect_settlement_for_foundation(forged)
+            .expect_err("forged receipt identity is stale");
+        assert_eq!(failure.error(), EffectSettlementError::StaleLease);
+        assert_eq!(authority.normalized_snapshot(), before);
+        drop(failure);
+    }
+
+    let mut first = publication_receipt(&mut authority);
+    first
+        .mark_current_processed()
+        .expect("the first endpoint advances tentatively");
+    drop(apply_plan(
+        authority
+            .apply_effect_settlement_for_foundation(first.retain())
+            .expect("Retain commits the exact partial cursor"),
+    ));
+    assert_eq!(
+        authority
+            .effect_observation_for_foundation()
+            .queued_processed_steps,
+        vec![1]
+    );
+
+    for forged in [
+        publication_receipt(&mut authority)
+            .retain()
+            .with_processed_steps_for_foundation(0),
+        publication_receipt(&mut authority)
+            .retain()
+            .with_processed_steps_for_foundation(usize::MAX),
+    ] {
+        let before = authority.normalized_snapshot();
+        let failure = authority
+            .apply_effect_settlement_for_foundation(forged)
+            .expect_err("a regressed or overrun cursor is a projection fault");
+        assert_eq!(failure.error(), EffectSettlementError::Projection);
+        assert_eq!(authority.normalized_snapshot(), before);
+        drop(failure);
+    }
     assert!(authority.primary_projection_consistent());
 }
 
@@ -980,25 +1103,28 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
         Some(second_sequence)
     );
 
-    let old_active = checkout(&mut authority);
-    assert_eq!(old_active.sequence(), second_sequence);
+    let old_receipt = publication_receipt(&mut authority);
+    assert_eq!(old_receipt.sequence(), second_sequence);
     let third = apply_plan(
         authority
             .plan_generation_reset_for_foundation()
-            .expect("reset can advance while an older reset is active"),
+            .expect("reset can advance while an older reset receipt is live"),
     );
     let third_sequence = authority
         .effect_observation_for_foundation()
         .latest_generation_reset
-        .expect("the third reset remains authoritative while the old lease is active");
+        .expect("the third reset remains authoritative while the old receipt is live");
     drop(third);
     assert!(third_sequence > second_sequence);
-    let retained = apply_plan(
-        authority
-            .apply_effect_settlement_for_foundation(old_active.retain())
-            .expect("old reset lease settles"),
-    );
-    assert_eq!(retained.retired_effect_len(), 1);
+    let before_superseded = authority.normalized_snapshot();
+    let superseded = authority
+        .effect_settlement_for_foundation(old_receipt.retain())
+        .expect("a valid older reset receipt has a typed disposition");
+    let EffectSettlementCommit::Superseded(old_settlement) = superseded else {
+        panic!("a newer reset must subsume the older receipt without an Apply");
+    };
+    assert_eq!(authority.normalized_snapshot(), before_superseded);
+    drop(old_settlement);
     assert_eq!(
         authority
             .effect_observation_for_foundation()
@@ -1006,7 +1132,7 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
         Some(third_sequence)
     );
 
-    let newest = checkout(&mut authority);
+    let newest = publication_receipt(&mut authority);
     assert_eq!(newest.sequence(), third_sequence);
     assert!(matches!(
         newest.effects(),
@@ -1057,7 +1183,7 @@ fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
     );
 
     for _ in 0..2 {
-        let lease = checkout(&mut authority);
+        let lease = publication_receipt(&mut authority);
         drop(apply_plan(
             authority
                 .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())

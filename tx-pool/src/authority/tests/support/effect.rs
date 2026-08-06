@@ -3,9 +3,8 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct EffectSnapshot {
-    queued: VecDeque<EffectEnvelope>,
-    active: Option<EffectEnvelope>,
-    latest_generation_reset: Option<EffectEnvelope>,
+    queued: VecDeque<QueuedEffectRecord>,
+    latest_generation_reset: Option<EffectRecord>,
     usage: EffectRegionUsage,
     closed: bool,
 }
@@ -99,31 +98,41 @@ impl EffectSnapshot {
     /// Compares the externally committed effect stream while deliberately
     /// ignoring journal batch boundaries and their accounting envelope.
     pub(in crate::authority) fn equivalent_stream(&self, other: &Self) -> bool {
-        fn flatten(
-            envelopes: impl IntoIterator<Item = EffectEnvelope>,
+        fn flatten_queued(
+            records: impl IntoIterator<Item = QueuedEffectRecord>,
         ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
-            envelopes
+            records
                 .into_iter()
-                .flat_map(|envelope| {
-                    envelope
+                .flat_map(|queued| {
+                    queued
+                        .record
                         .batch
                         .effects()
                         .iter()
                         .cloned()
-                        .map(move |effect| (envelope.class, effect))
+                        .map(move |effect| (Some(queued.class), effect))
                         .collect::<Vec<_>>()
                 })
                 .collect()
         }
 
-        let active = self.active.clone().into_iter();
-        let other_active = other.active.clone().into_iter();
-        let reset = self.latest_generation_reset.clone().into_iter();
-        let other_reset = other.latest_generation_reset.clone().into_iter();
+        fn flatten_reset(
+            record: Option<EffectRecord>,
+        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
+            record.map_or_else(Vec::new, |record| {
+                record
+                    .batch
+                    .effects()
+                    .iter()
+                    .cloned()
+                    .map(|effect| (None, effect))
+                    .collect()
+            })
+        }
 
-        flatten(self.queued.clone()) == flatten(other.queued.clone())
-            && flatten(active) == flatten(other_active)
-            && flatten(reset) == flatten(other_reset)
+        flatten_queued(self.queued.clone()) == flatten_queued(other.queued.clone())
+            && flatten_reset(self.latest_generation_reset.clone())
+                == flatten_reset(other.latest_generation_reset.clone())
             && self.closed == other.closed
     }
 }
@@ -131,9 +140,9 @@ impl EffectSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct EffectObservation {
     pub(in crate::authority) queued: Vec<ApplySequence>,
-    pub(in crate::authority) active: Option<ApplySequence>,
-    pub(in crate::authority) active_processed_steps: Option<usize>,
+    pub(in crate::authority) queued_processed_steps: Vec<usize>,
     pub(in crate::authority) latest_generation_reset: Option<ApplySequence>,
+    pub(in crate::authority) generation_reset_processed_steps: Option<usize>,
     pub(in crate::authority) remote_usage: EffectUsage,
     pub(in crate::authority) ordinary_usage: EffectUsage,
     pub(in crate::authority) total_usage: EffectUsage,
@@ -141,7 +150,7 @@ pub(in crate::authority) struct EffectObservation {
     pub(in crate::authority) closed: bool,
 }
 
-impl EffectLease {
+impl EffectReceipt {
     pub(in crate::authority) fn sequence(&self) -> ApplySequence {
         self.token.sequence
     }
@@ -154,12 +163,35 @@ impl EffectLease {
         self.batch.charge_bytes()
     }
 
-    pub(in crate::authority) fn complete_for_foundation(mut self) -> CompletedEffectLease {
+    pub(in crate::authority) fn complete_for_foundation(mut self) -> CompletedEffectReceipt {
         self.processed = EffectProgress(self.batch.publication_steps());
-        CompletedEffectLease {
+        CompletedEffectReceipt {
             token: self.token,
             batch: self.batch,
         }
+    }
+}
+
+impl EffectSettlement {
+    pub(in crate::authority) fn claim_generation_reset_source_for_foundation(mut self) -> Self {
+        self.token.source = EffectLeaseSource::GenerationReset;
+        self
+    }
+
+    pub(in crate::authority) fn with_sequence_for_foundation(
+        mut self,
+        sequence: ApplySequence,
+    ) -> Self {
+        self.token.sequence = sequence;
+        self
+    }
+
+    pub(in crate::authority) fn with_processed_steps_for_foundation(
+        mut self,
+        processed: usize,
+    ) -> Self {
+        self.processed = EffectProgress(processed);
+        self
     }
 }
 
@@ -169,7 +201,6 @@ impl EffectLog {
         Self {
             limits,
             queued: VecDeque::with_capacity(limits.regions.total.batches),
-            active: None,
             latest_generation_reset: None,
             pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
@@ -183,14 +214,21 @@ impl EffectLog {
             queued: self
                 .queued
                 .iter()
-                .map(|envelope| envelope.sequence)
+                .map(|queued| queued.record.sequence)
                 .collect(),
-            active: self.active.as_ref().map(|envelope| envelope.sequence),
-            active_processed_steps: self.active.as_ref().map(|envelope| envelope.processed.0),
+            queued_processed_steps: self
+                .queued
+                .iter()
+                .map(|queued| queued.record.processed.0)
+                .collect(),
             latest_generation_reset: self
                 .latest_generation_reset
                 .as_ref()
-                .map(|envelope| envelope.sequence),
+                .map(|record| record.sequence),
+            generation_reset_processed_steps: self
+                .latest_generation_reset
+                .as_ref()
+                .map(|record| record.processed.0),
             remote_usage: self.usage.remote,
             ordinary_usage: self.usage.ordinary,
             total_usage: self.usage.total,
@@ -202,7 +240,6 @@ impl EffectLog {
     pub(in crate::authority) fn snapshot(&self) -> EffectSnapshot {
         EffectSnapshot {
             queued: self.queued.clone(),
-            active: self.active.clone(),
             latest_generation_reset: self.latest_generation_reset.clone(),
             usage: self.usage,
             closed: self.closed,
@@ -216,13 +253,11 @@ impl EffectLog {
         let queued_ordered = self
             .queued
             .iter()
-            .try_fold(None, |previous, envelope| {
-                if envelope.class.is_none()
-                    || previous.is_some_and(|previous| previous >= envelope.sequence)
-                {
+            .try_fold(None, |previous, queued| {
+                if previous.is_some_and(|previous| previous >= queued.record.sequence) {
                     None
                 } else {
-                    Some(Some(envelope.sequence))
+                    Some(Some(queued.record.sequence))
                 }
             })
             .is_some();
@@ -230,53 +265,44 @@ impl EffectLog {
             return false;
         }
         let mut rebuilt = EffectRegionUsage::default();
-        for envelope in self.queued.iter().chain(self.active.iter()) {
-            let Some(class) = envelope.class else {
-                if self.active.as_ref() != Some(envelope) {
-                    return false;
-                }
-                continue;
-            };
-            let Some(next) = rebuilt.checked_charge(class, envelope.batch.charge_bytes()) else {
+        for queued in &self.queued {
+            let Some(next) =
+                rebuilt.checked_charge(queued.class, queued.record.batch.charge_bytes())
+            else {
                 return false;
             };
             rebuilt = next;
         }
-        let all_sequences_before_clock = self
+        let queued_sequences_before_clock = self
             .queued
             .iter()
-            .chain(self.active.iter())
-            .chain(self.latest_generation_reset.iter())
-            .all(|envelope| envelope.sequence < next_sequence);
-        let all_progress_incomplete = self
+            .all(|queued| queued.record.sequence < next_sequence);
+        let reset_sequence_before_clock = self
+            .latest_generation_reset
+            .as_ref()
+            .is_none_or(|reset| reset.sequence < next_sequence);
+        let queued_progress_incomplete = self
             .queued
             .iter()
-            .chain(self.active.iter())
-            .chain(self.latest_generation_reset.iter())
-            .all(|envelope| envelope.processed.is_pending(&envelope.batch));
-        let active_precedes_pending = self.active.as_ref().is_none_or(|active| {
-            self.queued
-                .front()
-                .is_none_or(|queued| active.sequence < queued.sequence)
-                && self
-                    .latest_generation_reset
-                    .as_ref()
-                    .is_none_or(|reset| active.sequence < reset.sequence)
-        });
-        let resident = self.queued.iter().chain(self.active.iter());
+            .all(|queued| queued.record.processed.is_pending(&queued.record.batch));
+        let reset_progress_incomplete = self
+            .latest_generation_reset
+            .as_ref()
+            .is_none_or(|reset| reset.processed.is_pending(&reset.batch));
         let pending_projection_complete =
-            resident.clone().all(|envelope| {
-                envelope
+            self.queued.iter().all(|queued| {
+                queued
+                    .record
                     .batch
                     .pending_recent_rejects()
                     .all(|(effect_index, rejection)| {
                         self.pending_recent_rejects
                             .get(&rejection.raw_hash())
                             .is_some_and(|pending| {
-                                pending.sequence > envelope.sequence
-                                    || (pending.sequence == envelope.sequence
+                                pending.sequence > queued.record.sequence
+                                    || (pending.sequence == queued.record.sequence
                                         && pending.effect_index >= effect_index
-                                        && Arc::ptr_eq(&pending.batch, &envelope.batch))
+                                        && Arc::ptr_eq(&pending.batch, &queued.record.batch))
                             })
                     })
             }) && self.pending_recent_rejects.iter().all(|(hash, pending)| {
@@ -286,24 +312,21 @@ impl EffectLog {
                     .get(pending.effect_index)
                     .and_then(CommittedEffect::recordable_rejection)
                     .is_some_and(|rejection| rejection.raw_hash() == *hash)
-                    && self
-                        .queued
-                        .iter()
-                        .chain(self.active.iter())
-                        .any(|envelope| {
-                            envelope.sequence == pending.sequence
-                                && Arc::ptr_eq(&envelope.batch, &pending.batch)
-                        })
+                    && self.queued.iter().any(|queued| {
+                        queued.record.sequence == pending.sequence
+                            && Arc::ptr_eq(&queued.record.batch, &pending.batch)
+                    })
             });
         rebuilt == self.usage
             && self.usage_within_limits()
-            && all_sequences_before_clock
-            && all_progress_incomplete
-            && active_precedes_pending
-            && self
-                .latest_generation_reset
-                .as_ref()
-                .is_none_or(|reset| reset.class.is_none() && reset.batch.charge_bytes() == 0)
+            && queued_sequences_before_clock
+            && reset_sequence_before_clock
+            && queued_progress_incomplete
+            && reset_progress_incomplete
+            && self.latest_generation_reset.as_ref().is_none_or(|reset| {
+                reset.batch.charge_bytes() == 0
+                    && Arc::ptr_eq(&reset.batch, &self.generation_reset_batch)
+            })
             && pending_projection_complete
     }
 

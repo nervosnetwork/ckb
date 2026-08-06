@@ -3,21 +3,23 @@
 //! The compiler in this module consumes only [`CommittedEffect`] values. It
 //! never rereads transaction authority after Apply, so a later admission,
 //! reorg, or replacement cannot change the meaning of an older outcome. The
-//! publisher owns one move-only effect lease at a time; cancellation returns
-//! the complete lease to the authority head before the task disappears.
+//! publisher owns one claim-bound read receipt at a time; cancellation settles
+//! its tentative cursor before the task can release the sole publisher claim.
 
 use super::rejection::{bounded_commit_ban_reason, serialized_recent_reject};
 use super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedRejection, EffectEndpoint, EffectLease, EffectProgressError, RejectionAudience,
+        CommittedRejection, EffectEndpoint, RejectionAudience,
     },
-    plan::{EffectCheckoutError, EffectSettlementFailure},
     relay::{
         AuthorityRelaySink, RelayMailboxDisposition, RelayParentProjectionError,
         project_parent_request,
     },
-    runtime::{AuthorityEffectPublisherClaim, AuthorityRuntime},
+    runtime::{
+        AuthorityEffectPublicationFault, AuthorityEffectPublicationLease,
+        AuthorityEffectPublisherClaim, AuthorityRuntime,
+    },
     state::{AcceptedStatus, RawTxHash},
 };
 use crate::{
@@ -37,38 +39,7 @@ use std::{
 
 const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[derive(Debug)]
-pub(crate) enum AuthorityEffectPublisherFault {
-    Checkout(EffectCheckoutError),
-    Settlement(
-        #[expect(
-            dead_code,
-            reason = "the exact linear settlement capability is retained through generation shutdown"
-        )]
-        EffectSettlementFailure,
-    ),
-    Progress(
-        #[expect(
-            dead_code,
-            reason = "the exact progress fault is rendered by the operational Debug boundary"
-        )]
-        EffectProgressError,
-    ),
-}
-
-impl AuthorityEffectPublisherFault {
-    fn checkout(error: EffectCheckoutError) -> Self {
-        Self::Checkout(error)
-    }
-
-    fn settlement(failure: EffectSettlementFailure) -> Self {
-        Self::Settlement(failure)
-    }
-
-    fn progress(error: EffectProgressError) -> Self {
-        Self::Progress(error)
-    }
-}
+pub(in crate::authority) type AuthorityEffectPublisherFault = AuthorityEffectPublicationFault;
 
 /// Stable foreign endpoints and their one-way circuit breakers.
 ///
@@ -584,80 +555,9 @@ async fn run_blocking_effect<T: Send + 'static>(
     }
 }
 
-struct RetainedEffectLease {
-    runtime: AuthorityRuntime,
-    lease: Option<EffectLease>,
-}
-
-impl RetainedEffectLease {
-    fn new(runtime: AuthorityRuntime, lease: EffectLease) -> Self {
-        Self {
-            runtime,
-            lease: Some(lease),
-        }
-    }
-
-    fn current(&self) -> Option<(usize, EffectEndpoint, CommittedEffect)> {
-        self.lease
-            .as_ref()
-            .and_then(EffectLease::current)
-            .map(|work| (work.effect_index, work.endpoint, work.effect.clone()))
-    }
-
-    fn mark_current_processed(&mut self) -> Result<bool, AuthorityEffectPublisherFault> {
-        self.lease
-            .as_mut()
-            .ok_or_else(|| {
-                AuthorityEffectPublisherFault::progress(EffectProgressError::Incomplete)
-            })?
-            .mark_current_processed()
-            .map_err(AuthorityEffectPublisherFault::progress)
-    }
-
-    fn settle(
-        mut self,
-        disposition: EndpointDisposition,
-    ) -> Result<(), AuthorityEffectPublisherFault> {
-        let Some(lease) = self.lease.take() else {
-            return Err(AuthorityEffectPublisherFault::progress(
-                EffectProgressError::Incomplete,
-            ));
-        };
-        let completed = match lease.into_complete() {
-            Ok(completed) => completed,
-            Err(failure) => {
-                let (error, lease) = failure.into_parts();
-                self.lease = Some(lease);
-                return Err(AuthorityEffectPublisherFault::progress(error));
-            }
-        };
-        let settlement = match disposition {
-            EndpointDisposition::Published => completed.published(),
-            EndpointDisposition::CircuitDisposed => completed.circuit_disposed(),
-        };
-        self.runtime
-            .settle_effect(settlement)
-            .map_err(AuthorityEffectPublisherFault::settlement)
-    }
-}
-
-impl Drop for RetainedEffectLease {
-    fn drop(&mut self) {
-        let Some(lease) = self.lease.take() else {
-            return;
-        };
-        if let Err(failure) = self.runtime.settle_effect(lease.retain()) {
-            error!(
-                "failed to retain cancelled tx-pool effect lease: {:?}",
-                failure.error()
-            );
-        }
-    }
-}
-
-/// Publish and settle one already-checked-out bounded effect batch.
+/// Publish and settle one immutable committed effect batch.
 ///
-/// The span is intentionally scoped to one lease rather than the permanent
+/// The span is intentionally scoped to one receipt rather than the permanent
 /// publisher task. It observes post-commit I/O only and never overlaps an
 /// authority guard.
 #[cfg_attr(
@@ -669,33 +569,39 @@ impl Drop for RetainedEffectLease {
         skip_all
     )
 )]
-async fn publish_checked_out_effect_batch(
-    runtime: &AuthorityRuntime,
+async fn publish_committed_effect_batch(
     endpoints: &mut AuthorityEffectEndpoints,
-    lease: EffectLease,
+    mut publication: AuthorityEffectPublicationLease<'_, '_>,
 ) -> Result<(), AuthorityEffectPublisherFault> {
-    let mut retained = RetainedEffectLease::new(runtime.clone(), lease);
     let mut disposition = EndpointDisposition::Published;
-    'batch: while let Some((effect_index, mut endpoint, effect)) = retained.current() {
-        let mut outcome = compile_committed_effect(effect);
+    'batch: while let Some(work) = publication.current() {
+        let effect_index = work.effect_index;
+        let mut endpoint = work.endpoint;
+        let mut outcome = compile_committed_effect(work.effect.clone());
         loop {
             disposition =
                 disposition.join(endpoints.publish_endpoint(&mut outcome, endpoint).await);
-            if retained.mark_current_processed()? {
+            if publication
+                .mark_current_processed()
+                .map_err(AuthorityEffectPublicationFault::Progress)?
+            {
                 break 'batch;
             }
-            let Some((next_effect_index, next_endpoint, _)) = retained.current() else {
-                return Err(AuthorityEffectPublisherFault::progress(
-                    EffectProgressError::Incomplete,
+            let Some(next) = publication.current() else {
+                return Err(AuthorityEffectPublicationFault::Progress(
+                    super::effect::EffectProgressError::Incomplete,
                 ));
             };
-            if next_effect_index != effect_index {
+            if next.effect_index != effect_index {
                 break;
             }
-            endpoint = next_endpoint;
+            endpoint = next.endpoint;
         }
     }
-    retained.settle(disposition)
+    match disposition {
+        EndpointDisposition::Published => publication.publish(),
+        EndpointDisposition::CircuitDisposed => publication.circuit_dispose(),
+    }
 }
 
 /// Drain with the move-only claim acquired before any topology task starts.
@@ -704,18 +610,14 @@ async fn publish_checked_out_effect_batch(
 pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
     runtime: AuthorityRuntime,
     mut endpoints: AuthorityEffectEndpoints,
-    _claim: AuthorityEffectPublisherClaim,
+    mut claim: AuthorityEffectPublisherClaim,
 ) -> Result<(), AuthorityEffectPublisherFault> {
     loop {
-        let Some(lease) = runtime
-            .wait_effect_checkout()
-            .await
-            .map_err(AuthorityEffectPublisherFault::checkout)?
-        else {
+        let Some(lease) = runtime.wait_effect_publication(&mut claim).await else {
             info!("tx-pool authority effect publisher drained and exited");
             return Ok(());
         };
-        publish_checked_out_effect_batch(&runtime, &mut endpoints, lease).await?;
+        publish_committed_effect_batch(&mut endpoints, lease).await?;
     }
 }
 

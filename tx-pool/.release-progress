@@ -1381,6 +1381,76 @@ dispositions; delete checkout state and types; adapt cancellation and tests;
 run static/focused/full gates and the whole-architecture review; only then
 build fixed binaries for operation profiles and paired A/B.
 
+Unified effect read-lease implementation checkpoint:
+
+- active base remains `d90de5f52`; the semantic implementation is an unstaged
+  working tree so the user-owned root `.gitignore` remains visibly separate and
+  untouched;
+- `EffectLog` now has concrete charged FIFO and uncharged reset resident types,
+  no `active` location and no checkout mutation. Acquisition is a coherent read
+  of the minimum sequence; settlement is the only possible Apply;
+- the publisher receipt owns both its tentative cursor and a mutable borrow of
+  the sole publisher claim through cancellation and successful settlement.
+  Core runtime settlement is private. A static production contract rejects the
+  retired checkout protocol or a public settlement bypass;
+- queued append, reset replacement and close cannot displace a borrowed FIFO
+  head. Exact reset settlement mutates only the resident reset; a newer reset
+  yields typed mutation-free `Superseded` and retires the old receipt outside
+  the guard;
+- the internal-feature test target compiles without warnings. The complete
+  effect/publisher-focused nextest slice passes 46/46. Formatting and all six
+  generated/static contracts pass; the registry owns 108 exact tx-pool tests /
+  291 invariant references, 9 cross-crate tests / 21 references, 19 integration
+  anchors and the same 150 managed specs across 423 discovered nextest tests;
+- the complete isolated internal-feature library universe passes 423/423 with
+  zero skips. The former service-boundary failure was a test-only race between
+  observing a pending rejection journal resident and the faster read-only
+  publisher draining it. The regression now observes the composed public
+  recent-reject surface, which remains gap-free before and after settlement;
+- two new falsification anchors prove interposed producer Applies cannot move a
+  borrowed head and forged source/sequence/cursor settlements are mutation-free.
+  The reset regression now asserts the closed `Superseded` disposition rather
+  than inheriting the deleted active-return protocol.
+- the whole-model review found and removed the last naming ambiguity: the
+  immutable kernel evidence is `EffectReceipt`, while only the lifetime-bound
+  `AuthorityEffectPublicationLease` carries publisher exclusivity. Receipt and
+  lease therefore no longer imply the same ownership role;
+- one authoritative resident still owns every effect: a charged FIFO record or
+  the uncharged coalesced reset. The receipt owns only immutable Arc evidence
+  and tentative progress. Exact terminal settlement changes the resident,
+  charge and pending-rejection projection together; superseded reset evidence
+  changes none of them;
+- minimum-sequence selection remains deterministic across append, reset
+  replacement and close. A queued head cannot be displaced; an exact reset is
+  settled in place; a newer reset subsumes an older receipt; and an intervening
+  queued sequence is observed before the newer reset. No producer can reorder
+  or remove a borrowed FIFO head;
+- receipt acquisition holds only a coherent read guard and no guard crosses an
+  await. Endpoint I/O and retired-value destruction stay outside the authority
+  lock. Cancellation settles its exact prefix before the mutable publisher
+  claim can be released, while every idle/replacement publisher rechecks the
+  level after subscribing;
+- safe production code cannot forge or duplicate a receipt because the core
+  settlement method is private and acquisition borrows the sole claim. Stale
+  identity/progress remains a typed internal fault; reset supersession is the
+  only mutation-free legal disposition. No new fail-stop path is reachable
+  from valid or hostile endpoint input;
+- the four changed production files are 393 insertions / 392 deletions. The
+  model removes the resident `active` state, checkout mutation, checkout clock
+  advance, publisher-local runtime clone and duplicate cancellation wrapper,
+  while adding no lock, task, queue, cache, timer, retry or fallback protocol.
+  The one large-enum lint expectation deliberately avoids allocating the
+  ordinary `CommittedDelta` hot path and will fail if its size premise expires;
+- post-review gates pass again after the semantic naming cleanup: strict
+  all-target Clippy, formatting, diff/static/panic/ASCII checks, all six
+  generated contracts and the full isolated 423/423 nextest universe with zero
+  skips.
+
+Exact next action: freeze the correctness-gated candidate checkpoint, then run
+all 150 managed integration specs before fixed-binary operation profiles and
+paired A/B against
+`d462c5154`/the product-equivalent `d90de5f52` baseline.
+
 ## Restart rule
 
 After compaction or restart:

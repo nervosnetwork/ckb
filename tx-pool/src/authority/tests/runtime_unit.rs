@@ -565,7 +565,7 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
     .expect("the sealed workers converge the transaction to Accepted");
     let update = tokio::time::timeout(std::time::Duration::from_secs(1), cache_rx.recv())
         .await
-        .expect("the best-effort cache effect is not delayed")
+        .expect("the cache receiver responds")
         .expect("the cache receiver remains open");
     let expected_witness: [u8; 32] = TransactionBuilder::default()
         .version(906u32)
@@ -815,12 +815,11 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
     .expect("the rejected settlement remains Computing while publication is full");
 
     let occupied_lease = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("effect checkout remains healthy")
         .expect("the occupied effect is queued");
     runtime
-        .settle_effect(occupied_lease.complete_for_foundation().published())
+        .settle_effect_for_foundation(occupied_lease.complete_for_foundation().published())
         .expect("the occupied publication settles through the runtime boundary");
 
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -860,9 +859,8 @@ async fn runtime_effect_boundary_retains_and_drains_a_closed_log_in_sequence() {
     queue_remote_rejection(&runtime, 910);
 
     let first = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("the first checkout remains healthy")
         .expect("the first effect is committed");
     let first_sequence = first.sequence();
     runtime
@@ -876,34 +874,31 @@ async fn runtime_effect_boundary_retains_and_drains_a_closed_log_in_sequence() {
     );
 
     runtime
-        .settle_effect(first.retain())
-        .expect("Retain returns the exact active capability to the head");
+        .settle_effect_for_foundation(first.retain())
+        .expect("Retain commits the exact tentative cursor to the resident head");
     let retained = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("retained checkout remains healthy")
         .expect("the retained head is still committed");
     assert_eq!(retained.sequence(), first_sequence);
     runtime
-        .settle_effect(retained.complete_for_foundation().published())
+        .settle_effect_for_foundation(retained.complete_for_foundation().published())
         .expect("the retained head publishes exactly once");
 
     let second = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("the second checkout remains healthy")
         .expect("the second effect remains queued after close");
     assert!(second.sequence() > first_sequence);
     assert!(!runtime.effects_closed_and_drained());
     runtime
-        .settle_effect(second.complete_for_foundation().circuit_disposed())
+        .settle_effect_for_foundation(second.complete_for_foundation().circuit_disposed())
         .expect("a stable endpoint circuit may dispose its exact batch");
 
     assert!(
         runtime
-            .wait_effect_checkout()
+            .wait_effect_publication_for_foundation()
             .await
-            .expect("the drained observation remains healthy")
             .is_none()
     );
     assert!(runtime.effects_closed_and_drained());
@@ -914,19 +909,18 @@ async fn runtime_effect_close_wakes_an_idle_level_waiter() {
     let runtime = runtime();
     let waiter = {
         let runtime = runtime.clone();
-        tokio::spawn(async move { runtime.wait_effect_checkout().await })
+        tokio::spawn(async move { runtime.wait_effect_publication_for_foundation().await })
     };
     tokio::task::yield_now().await;
 
     runtime
         .close_effects()
         .expect("an idle authority closes without a synthetic effect");
-    let checkout = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+    let publication = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
         .await
         .expect("close cannot lose the idle publisher wake")
-        .expect("the publisher task remains healthy")
-        .expect("effect checkout remains healthy");
-    assert!(checkout.is_none());
+        .expect("the publisher task remains healthy");
+    assert!(publication.is_none());
     assert!(runtime.effects_closed_and_drained());
 }
 

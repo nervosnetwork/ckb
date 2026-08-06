@@ -16,7 +16,8 @@ use super::super::{
 use super::foundation::{genesis_snapshot, runtime_config};
 use crate::{
     PlugTarget, TxEntry, block_assembler::CandidateUncleMutationError, callback::Callbacks,
-    network::DummyTxPoolNetwork, service::TxVerificationResult,
+    component::recent_reject::RecentReject, network::DummyTxPoolNetwork,
+    service::TxVerificationResult,
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::Handle;
@@ -125,6 +126,17 @@ async fn service_assembly_with_config(
     Arc<ckb_snapshot::Snapshot>,
     AuthorityRelayDrain,
 ) {
+    service_assembly_with_config_and_recent_reject(config, None).await
+}
+
+async fn service_assembly_with_config_and_recent_reject(
+    config: TxPoolConfig,
+    recent_reject: Option<Arc<RecentReject>>,
+) -> (
+    AuthorityServiceAssembly,
+    Arc<ckb_snapshot::Snapshot>,
+    AuthorityRelayDrain,
+) {
     let snapshot = genesis_snapshot();
     let (bootstrap, relay) = AuthorityService::prepare(config, Arc::clone(&snapshot))
         .expect("the production relay handoff is constructed before service startup");
@@ -141,7 +153,7 @@ async fn service_assembly_with_config(
             callbacks: Callbacks::new(),
             network: Arc::new(DummyTxPoolNetwork),
             persistence_writer: Arc::new(crate::persisted::PersistenceWriter::default()),
-            recent_reject: None,
+            recent_reject,
             fee_estimator: FeeEstimator::new_dummy(),
             chain_control_receiver,
             chunk_rx,
@@ -323,7 +335,15 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_service_boundary_preserves_direct_mutation_and_read_only_semantics() {
-    let (assembly, _snapshot, _relay) = service_assembly().await;
+    let recent_reject_dir = tempfile::Builder::new()
+        .tempdir()
+        .expect("the recent-reject fixture directory is available");
+    let recent_reject = Arc::new(
+        RecentReject::build(recent_reject_dir.path(), 1, 100, -1)
+            .expect("the recent-reject fixture store opens"),
+    );
+    let (assembly, _snapshot, _relay) =
+        service_assembly_with_config_and_recent_reject(runtime_config(), Some(recent_reject)).await;
 
     let malformed = TransactionBuilder::default().version(1u32).build();
     let test_result = assembly
@@ -350,8 +370,8 @@ async fn uak_service_boundary_preserves_direct_mutation_and_read_only_semantics(
     assert!(
         assembly
             .service
-            .pending_recent_reject(&malformed.hash())
-            .expect("the pending effect projection is coherent")
+            .recent_reject_record(&malformed.hash())
+            .expect("pending and persisted rejection views form one coherent surface")
             .is_some()
     );
 

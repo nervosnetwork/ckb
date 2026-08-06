@@ -245,6 +245,27 @@ def validate_authority_mutation_publication() -> list[str]:
                     f"one post-commit receipt near runtime.rs:{line}"
                 )
             continue
+        if name == "settle_effect":
+            closed_settlement = re.search(
+                r"match\s+commit\s*\{\s*"
+                r"EffectSettlementCommit::Applied\(retirement\)\s*=>\s*"
+                r"self\.publish_committed\(retirement\),\s*"
+                r"EffectSettlementCommit::Superseded\(settlement\)\s*=>\s*"
+                r"drop\(settlement\),\s*\}",
+                body,
+            )
+            if len(mutations) != 1 or len(publications) != 1 or closed_settlement is None:
+                errors.append(
+                    "AuthorityRuntime::settle_effect must keep the closed Applied -> "
+                    "post-commit publication / Superseded -> mutation-free retirement algebra "
+                    f"near runtime.rs:{line}"
+                )
+            elif publications[0].start() <= mutations[0].end():
+                errors.append(
+                    "AuthorityRuntime::settle_effect publishes before its possible Apply "
+                    f"near runtime.rs:{line}"
+                )
+            continue
         if not mutations:
             if publications:
                 errors.append(
@@ -383,13 +404,13 @@ def validate_authority_profiling_seams() -> list[str]:
             )
     validate_instrumented_function(
         publisher,
-        "publish_checked_out_effect_batch",
+        "publish_committed_effect_batch",
         "tx_pool.effects.publish",
         "authority publisher",
     )
     if publisher.count('"tx_pool.effects.publish"') != 1:
         errors.append(
-            "effect profiling must cover one checked-out batch, not the permanent publisher task"
+            "effect profiling must cover one committed batch, not the permanent publisher task"
         )
 
     expected_counter_spans = sorted(
@@ -655,6 +676,42 @@ def validate_production_vocabulary() -> list[str]:
     return errors
 
 
+def validate_effect_publication_authority() -> list[str]:
+    """Keep effect acquisition read-only and settlement claim-bound."""
+
+    runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+    publisher = TX_POOL_AUTHORITY_PUBLISHER.read_text()
+    effect = (REPO_ROOT / "tx-pool" / "src" / "authority" / "effect.rs").read_text()
+    errors: list[str] = []
+    required_runtime = (
+        "struct AuthorityEffectPublicationLease<'runtime, 'claim>",
+        "_claim: &'claim mut AuthorityEffectPublisherClaim",
+        "fn try_effect_publication(&self) -> EffectPublicationState",
+        "runtime: self,",
+        "receipt: Some(receipt),",
+    )
+    for fragment in required_runtime:
+        if runtime.count(fragment) != 1:
+            errors.append(f"effect publication capability lost {fragment!r}")
+    if re.search(r"pub[^\n]*fn\s+settle_effect\s*\(", runtime):
+        errors.append("core effect settlement must remain private to the claim-bound runtime receipt")
+    if runtime.count("fn settle_effect(") != 1:
+        errors.append("effect settlement must have one runtime implementation owner")
+    if publisher.count("wait_effect_publication(&mut claim)") != 1:
+        errors.append("the sole publisher must borrow every receipt from its mutable claim")
+    for retired in (
+        "PreparedEffectCheckout",
+        "EffectCheckoutError",
+        "plan_effect_checkout",
+        "wait_effect_checkout",
+        "EffectMutation::Checkout",
+        "publish_checked_out_effect_batch",
+    ):
+        if retired in runtime or retired in publisher or retired in effect:
+            errors.append(f"retired effect checkout protocol resurfaced as {retired!r}")
+    return errors
+
+
 def production_rust_sources() -> list[Path]:
     sources: list[Path] = []
     excluded = {".git", "target", "test", "tests", "benches"}
@@ -788,6 +845,7 @@ def main() -> int:
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
+        *validate_effect_publication_authority(),
     ]
     if errors:
         for error in errors:
@@ -796,8 +854,8 @@ def main() -> int:
     print(
         "validated cross-crate chain-tip publication, startup ordering and "
         "bounded chain-control backpressure plus authority post-commit wake coverage, "
-        "centralized profiling seams, the typed authority failure algebra and "
-        "current production vocabulary"
+        "claim-bound effect publication, centralized profiling seams, the typed "
+        "authority failure algebra and current production vocabulary"
     )
     return 0
 

@@ -511,8 +511,8 @@ async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head()
     let result = run_authority_effect_publisher(runtime.clone(), endpoints).await;
     assert!(result.is_ok());
     let drained = runtime.effect_observation_for_foundation();
-    assert_eq!(drained.active, None);
     assert!(drained.queued.is_empty());
+    assert!(drained.latest_generation_reset.is_none());
     assert!(runtime.effects_closed_and_drained());
     assert!(runtime.claim_effect_publisher().is_some());
 }
@@ -531,7 +531,7 @@ fn uak_effect_publisher_claim_is_move_only_and_exclusive() {
 }
 
 #[tokio::test]
-async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
+async fn uak_cancelled_publisher_settles_its_tentative_cursor_to_the_fifo_head() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production runtime fixture is valid");
@@ -578,17 +578,18 @@ async fn uak_cancelled_publisher_returns_the_complete_lease_to_the_fifo_head() {
     })
     .await
     .expect("the publisher checks out the committed head and enters its callback");
-    let active_sequence = runtime
+    let borrowed_sequence = runtime
         .effect_observation_for_foundation()
-        .active
-        .expect("the active lease has one sequence");
+        .queued
+        .first()
+        .copied()
+        .expect("the borrowed receipt remains at the FIFO head");
 
     publisher.abort();
     let abort = publisher.await;
     assert!(abort.is_err_and(|error| error.is_cancelled()));
     let retained = runtime.effect_observation_for_foundation();
-    assert_eq!(retained.active, None);
-    assert_eq!(retained.queued.first(), Some(&active_sequence));
+    assert_eq!(retained.queued.first(), Some(&borrowed_sequence));
 
     {
         let (released, ready) = &*callback_gate;
@@ -649,9 +650,8 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
         .expect("the bounded two-effect batch commits atomically");
 
     let mut lease = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("effect checkout remains healthy")
         .expect("the committed batch is available");
     assert!(matches!(
         lease.current(),
@@ -676,13 +676,12 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
         }
     }
     runtime
-        .settle_effect(lease.retain())
+        .settle_effect_for_foundation(lease.retain())
         .expect("Retain commits the processed prefix into the sole authority");
 
     let mut retained = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("retained checkout remains healthy")
         .expect("the unfinished batch remains charged");
     assert!(matches!(
         retained.current(),
@@ -698,7 +697,7 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
         }
     }
     runtime
-        .settle_effect(
+        .settle_effect_for_foundation(
             retained
                 .into_complete()
                 .expect("the processed suffix creates a completed capability")
@@ -733,9 +732,8 @@ async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor()
     let callbacks = Arc::new(callbacks);
 
     let mut lease = runtime
-        .wait_effect_checkout()
+        .wait_effect_publication_for_foundation()
         .await
-        .expect("effect checkout remains healthy")
         .expect("the committed rejection is available");
     while lease
         .current()
@@ -754,7 +752,7 @@ async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor()
                 && matches!(work.effect, CommittedEffect::Rejected(_))
     ));
     runtime
-        .settle_effect(lease.retain())
+        .settle_effect_for_foundation(lease.retain())
         .expect("cancellation retains the first unprocessed endpoint");
 
     let (relay, relay_rx) = relay_mailbox(2);

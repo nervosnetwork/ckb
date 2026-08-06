@@ -192,12 +192,6 @@ impl CommittedCheckout {
     }
 }
 
-impl CommittedEffectCheckout {
-    pub(in crate::authority) fn into_effect_lease(self) -> EffectLease {
-        self.lease
-    }
-}
-
 impl TxPoolAuthority {
     pub(in crate::authority) fn chain_validation_work(
         &self,
@@ -702,16 +696,29 @@ impl TxPoolAuthority {
         self.peer_bans = PeerBanRegistry::with_limit_for_test(capacity);
     }
 
-    pub(in crate::authority) fn plan_effect_checkout_for_foundation(
-        &mut self,
-    ) -> Result<Option<PreparedEffectCheckout<'_>>, EffectCheckoutError> {
-        self.plan_effect_checkout()
+    pub(in crate::authority) fn effect_publication_receipt_for_foundation(
+        &self,
+    ) -> Option<EffectReceipt> {
+        self.effect_publication_receipt()
     }
 
     pub(in crate::authority) fn apply_effect_settlement_for_foundation(
         &mut self,
         settlement: EffectSettlement,
     ) -> Result<CommittedDelta, EffectSettlementFailure> {
+        self.apply_effect_settlement(settlement)
+            .map(|commit| match commit {
+                EffectSettlementCommit::Applied(delta) => delta,
+                EffectSettlementCommit::Superseded(_) => {
+                    panic!("the exact foundation settlement was unexpectedly superseded")
+                }
+            })
+    }
+
+    pub(in crate::authority) fn effect_settlement_for_foundation(
+        &mut self,
+        settlement: EffectSettlement,
+    ) -> Result<EffectSettlementCommit, EffectSettlementFailure> {
         self.apply_effect_settlement(settlement)
     }
 
