@@ -207,14 +207,15 @@
         {"path": "tx-pool/src/authority/read.rs", "symbols": ["struct AuthorityReadView", "enum AuthorityReadState", "fn rpc_status_for_accepted"]},
         {"path": "tx-pool/src/authority/query.rs", "symbols": ["enum AuthorityTransactionLookup", "struct PersistenceReceipt"]}
       ],
-      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries capture one coherent authority cut and finish fallible or external work after releasing the guard. Compatibility mapping never drives internal state.",
-      "hostile_case": "Concurrent clear/reorg/admission, short-ID collision, ReplacementHistory lookup, storage delay or allocation failure must not splice generations, fabricate proof/status or hold the authority lock across I/O.",
+      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries observe one coherent authority cut. Compatibility mapping never drives internal state. The target receipt contract moves fallible population work outside the guard; current full-pool ID/info, detail-rank and fee-estimate paths remain open under D1-QUERY-LOCK-COST.",
+      "hostile_case": "Concurrent clear/reorg/admission, short-ID collision, ReplacementHistory lookup, storage delay, allocation failure or repeated small RPC queries must not splice generations, fabricate proof/status, amplify without a bound or delay every Apply through O(pool) shared-lock work.",
       "reviewer_questions": [
         "Does each receipt own every value needed after the guard opens?",
         "Is ReplacementHistory hidden from the live RPC state?",
-        "Can public Pending ever be reused as an internal phase decision?"
+        "Can public Pending ever be reused as an internal phase decision?",
+        "What are the exact query concurrency, response-residency and lock-hold bounds?"
       ],
-      "performance_bound": "Shared read cuts stay short; sorting, lookup and serialization are outside the store guard."
+      "performance_bound": "Coherent reads remain read-only. M2/M3 must close the current population-lock gap before claiming short read cuts; output-size compatibility cannot hide lock amplification."
     },
     {
       "id": "TP-DEFECT-001",
@@ -301,6 +302,25 @@
         "Has every statically inferable complexity issue closed before profiling?"
       ],
       "performance_bound": "No optimization claim is accepted without operation-count evidence and fixed-binary A/B after correctness gates."
+    },
+    {
+      "id": "TP-HANDOFF-001",
+      "title": "Bounded controller request conservation",
+      "implementation_owners": [
+        {"path": "tx-pool/src/service.rs", "symbols": ["DEFAULT_CHANNEL_SIZE", "CHAIN_CONTROL_CHANNEL_SIZE", "struct Request", "fn respond"]},
+        {"path": "tx-pool/src/service/builder.rs", "symbols": ["fn run_dispatcher", "handler_limit", "JoinSet"]},
+        {"path": "tx-pool/src/service/controller.rs", "symbols": ["struct TxPoolController", "send_message", "send_chain_control"]},
+        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn respond_outer"]}
+      ],
+      "required_behavior": "Every controller command payload occupies exactly one caller, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
+      "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress or suppress an already committed authority result.",
+      "reviewer_questions": [
+        "Does every payload move between ownership locations exactly once while acknowledgement remains a separate fact?",
+        "Are request count, payload bytes, handler concurrency and response residency bounded separately?",
+        "Can responder loss influence authority mutation or only result delivery?",
+        "Are ordinary concurrent requests kept separate from ordered chain controls?"
+      ],
+      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit; the ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls. M2 separately closes payload-byte and O(pool) query amplification bounds."
     }
   ],
   "unit_evidence": [
@@ -424,10 +444,12 @@
     {"test": "block_assembler::candidate_uncles::tests::full_container_keeps_a_hard_global_bound", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T13"]},
     {"test": "authority::tests::relay::uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking", "behavior_id": "TP-PERF-001", "invariants": ["T7", "T8", "T10"]},
     {"test": "authority::tests::relay::uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating", "behavior_id": "TP-PERF-001", "invariants": ["T7", "T8", "T10"]},
-    {"test": "service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T10"]},
     {"test": "component::tests::score_key::ancestor_score_order_is_deterministic_at_extreme_weights", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T13"]},
     {"test": "benchmark::debug_tests::profile_span_counters_observe_only_the_active_registered_window", "behavior_id": "TP-PERF-001", "invariants": ["T8"]},
-    {"test": "benchmark::debug_tests::profile_span_counters_reject_an_unregistered_target_span", "behavior_id": "TP-PERF-001", "invariants": ["T8"]}
+    {"test": "benchmark::debug_tests::profile_span_counters_reject_an_unregistered_target_span", "behavior_id": "TP-PERF-001", "invariants": ["T8"]},
+
+    {"test": "service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full", "behavior_id": "TP-HANDOFF-001", "invariants": ["T8", "T10"]},
+    {"test": "service::controller::tests::remote_submit_waits_without_blocking_a_current_thread_runtime", "behavior_id": "TP-HANDOFF-001", "invariants": ["T7", "T10"]}
   ],
   "workspace_evidence": [
     {

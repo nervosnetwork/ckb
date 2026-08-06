@@ -5,12 +5,16 @@ This document is the reviewer-facing performance companion to
 model, reproducible profiling method, evidence strength and final acceptance
 matrix. It is not an implementation diary.
 
-The current architecture has not yet passed P10. Historical profiles below
-explain why mechanisms were selected or rejected, but they are not a release
-verdict for the final source. The pre-performance checkpoint `4135df3c7`
-passed 415/415 internal-feature tx-pool tests and the complete 150/150 managed
-integration universe. Any later semantic change reopens its affected
-correctness gates before performance evidence can be accepted.
+The current architecture has not yet passed either the M0-M4 mathematical/
+refinement/minimality gate or the later controlled performance gate. New
+timing experiments are paused until the semantic model derives a complete
+candidate; benchmark results cannot reveal that a required concurrency
+mechanism is absent. Historical profiles below explain why mechanisms were
+considered or rejected, but they are not a release verdict for the final
+source. The pre-performance checkpoint `4135df3c7` passed 415/415
+internal-feature tx-pool tests and the complete 150/150 managed integration
+universe. Any later semantic change reopens its affected correctness gates
+before performance evidence can be accepted.
 
 ## 1. Performance contract
 
@@ -39,11 +43,12 @@ Its purpose is to expose independent frontiers and bounded commuting batches.
 A resident second DAG or lifecycle shard requires a proof of cross-shard
 RBF/chain atomicity and a measured benefit before it can be considered.
 
-## 2. Current cost model
+## 2. Current implementation cost model
 
-The architecture cost ledger and lock-held complexity inventory are normative
-in sections 3.1 and 14 of `ARCHITECTURE.md`. The performance review focuses on
-four measurable costs:
+The mathematical cost algebra in `ARCHITECTURE.md` is normative. The table
+below describes costs in the current implementation and remains evidence for
+M3; it does not prove that the current stage/task topology is minimal. The
+performance review focuses on four measurable costs:
 
 | Cost | Expected shape | Required observation |
 |---|---|---|

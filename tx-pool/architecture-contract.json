@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
@@ -11,6 +11,15 @@
     "entry_version": "process_global_non_reused_u128_and_active_compute_identity",
     "compute_capability": "move_only_checked_out_work_bound_to_entry_version",
     "verification_cache_key": "inline_witness_hash_32_bytes_and_ScriptVerificationRules"
+  },
+  "proof_policy": {
+    "primary_evidence": "executable_mathematical_model_and_mechanical_check_before_prose",
+    "system_transition": "total_Step_over_AuthoritySlot_P_D_L_with_KernelStep_over_Omega_A_K",
+    "batch_equivalence": "ObsKernel_CommitBatch_Omega_equals_no_interleave_canonical_KernelStep_fold",
+    "conservation": "exact_owner_charge_effect_capability_and_compute_permit_conservation",
+    "progress": "per_obligation_rank_or_monotonic_level_under_named_fairness_premises",
+    "model_review": "phase_boundary_model_delta_and_refinement_audit",
+    "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
   },
   "owner_algebra": {
     "variants": [
@@ -32,6 +41,352 @@
       "Pending",
       "Gap",
       "Proposed"
+    ]
+  },
+  "model_boundary_algebra": {
+    "service_builder_methods": {
+      "new": "startup_protocol",
+      "recent_reject": "derived_accelerator",
+      "register_pending": "callback_publication",
+      "register_proposed": "callback_publication",
+      "register_reject": "callback_publication",
+      "start": "lifecycle_protocol"
+    },
+    "controller_methods": {
+      "clear_pool": "chain_control",
+      "clear_verify_queue": "chain_control",
+      "continue_chunk_process": "verification_control",
+      "estimate_fee_rate": "authority_read",
+      "fetch_txs": "authority_read",
+      "fetch_txs_with_cycles": "authority_read",
+      "fresh_proposals_filter": "authority_read",
+      "get_all_entry_info": "authority_read",
+      "get_all_ids": "authority_read",
+      "get_block_template": "template_protocol",
+      "get_live_cell": "authority_read",
+      "get_total_recent_reject_num": "authority_read",
+      "get_transaction_with_status": "authority_read",
+      "get_tx_detail": "authority_read",
+      "get_tx_pool_info": "authority_read",
+      "get_tx_status": "authority_read",
+      "handle": "lifecycle_protocol",
+      "notify_new_uncle": "template_protocol",
+      "notify_txs": "proposal_ingress",
+      "notify_txs_async": "proposal_ingress",
+      "package_txs": "internal_fixture",
+      "plug_entry": "internal_fixture",
+      "remove_local_tx": "administration",
+      "save_pool": "persistence_protocol",
+      "service_started": "lifecycle_protocol",
+      "stop": "lifecycle_protocol",
+      "submit_local_test_tx": "integration_test_rpc",
+      "submit_local_tx": "local_submit",
+      "submit_remote_tx": "remote_ingress",
+      "suspend_chunk_process": "verification_control",
+      "test_accept_tx": "test_accept",
+      "update_ibd_state": "derived_accelerator",
+      "update_tx_pool_for_reorg": "chain_control"
+    },
+    "relay_receiver_methods": {
+      "drain": "relay_settlement",
+      "try_recv": "relay_settlement"
+    },
+    "recent_reject_methods": {
+      "get": "recent_reject_store",
+      "get_estimate_total_keys_num": "recent_reject_store",
+      "new": "recent_reject_store",
+      "put": "recent_reject_store"
+    },
+    "block_assembler_methods": {
+      "new": "template_protocol"
+    },
+    "candidate_uncles_methods": {
+      "contains": "template_protocol",
+      "insert": "template_protocol",
+      "is_empty": "template_protocol",
+      "len": "template_protocol",
+      "new": "template_protocol",
+      "prepare_and_commit_for_test": "internal_fixture",
+      "remove_by_number": "template_protocol",
+      "values": "template_protocol"
+    },
+    "service_messages": {
+      "BlockTemplate": "template_protocol",
+      "SubmitLocalTx": "local_submit",
+      "RemoveLocalTx": "administration",
+      "TestAcceptTx": "test_accept",
+      "SubmitRemoteTx": "remote_ingress",
+      "NotifyTxs": "proposal_ingress",
+      "FreshProposalsFilter": "authority_read",
+      "FetchTxs": "authority_read",
+      "FetchTxsWithCycles": "authority_read",
+      "GetTxPoolInfo": "authority_read",
+      "GetLiveCell": "authority_read",
+      "GetTxStatus": "authority_read",
+      "GetTransactionWithStatus": "authority_read",
+      "NewUncle": "template_protocol",
+      "GetAllEntryInfo": "authority_read",
+      "GetAllIds": "authority_read",
+      "SavePool": "persistence_protocol",
+      "GetPoolTxDetails": "authority_read",
+      "GetTotalRecentRejectNum": "authority_read",
+      "UpdateIBDState": "derived_accelerator",
+      "EstimateFeeRate": "authority_read",
+      "PlugEntry": "internal_fixture",
+      "PackageTxs": "internal_fixture",
+      "SubmitLocalTestTx": "integration_test_rpc"
+    },
+    "plug_targets": {
+      "Pending": "internal_fixture",
+      "Proposed": "internal_fixture"
+    },
+    "block_assembler_errors": {
+      "CounterExhausted": "template_protocol",
+      "MissingTipEpoch": "template_protocol",
+      "Overflow": "template_protocol"
+    },
+    "chain_controls": {
+      "Reconcile": "chain_control",
+      "ClearPool": "chain_control",
+      "ClearPipeline": "chain_control"
+    },
+    "committed_effects": {
+      "Accepted": "acceptance_publication",
+      "Rejected": "rejection_publication",
+      "ChainCommitted": "relay_settlement",
+      "PeerCohortRevoked": "relay_and_ban_settlement",
+      "RemoteExpired": "relay_release",
+      "RemoteIngressReleased": "relay_release",
+      "ParentTransactionsRequested": "relay_parent_request",
+      "GenerationReset": "relay_generation_reset"
+    },
+    "committed_acceptances": {
+      "Admission": "acceptance_publication",
+      "Duplicate": "acceptance_publication",
+      "ChainStatusChange": "acceptance_publication"
+    },
+    "committed_rejections": {
+      "Validation": "rejection_publication",
+      "Membership": "rejection_publication",
+      "Replaced": "rejection_publication",
+      "CapacityEvicted": "rejection_publication",
+      "Expired": "rejection_publication",
+      "ChainConflict": "rejection_publication"
+    },
+    "chain_removals": {
+      "Committed": "chain_control",
+      "Recovery": "chain_control",
+      "ChainConflict": "chain_control",
+      "ProposalWindowExpired": "chain_control"
+    },
+    "read_states": {
+      "PreAccepted": "authority_read",
+      "Accepted": "authority_read",
+      "ReplacementHistory": "authority_read"
+    },
+    "rpc_statuses": {
+      "Pending": "authority_read",
+      "Proposed": "authority_read"
+    },
+    "preaccepted_sources": {
+      "Remote": "remote_ingress",
+      "Proposal": "proposal_ingress",
+      "Recovery": "chain_control"
+    },
+    "proposal_bases": {
+      "Trusted": "proposal_ingress",
+      "Remote": "proposal_remote_origin"
+    },
+    "payload_policies": {
+      "RemoteDeclaredCycles": "remote_payload",
+      "Trusted": "trusted_payload"
+    },
+    "chunk_commands": {
+      "Suspend": "verification_control",
+      "Resume": "verification_control",
+      "Stop": "verification_control"
+    },
+    "relay_results": {
+      "Ok": "relay_settlement",
+      "UnknownParents": "relay_parent_request",
+      "Reject": "relay_settlement",
+      "GenerationReset": "relay_generation_reset"
+    },
+    "relay_mailbox_dispositions": {
+      "Exact": "relay_settlement",
+      "Reconciled": "relay_generation_reset",
+      "Unavailable": "relay_release",
+      "Disconnected": "relay_release"
+    },
+    "callback_events": {
+      "Pending": "callback_publication",
+      "Proposed": "callback_publication",
+      "Reject": "callback_publication"
+    },
+    "template_publications": {
+      "Published": "template_protocol",
+      "Stale": "template_protocol"
+    },
+    "template_steps": {
+      "Idle": "template_protocol",
+      "Published": "template_protocol",
+      "Stale": "template_protocol"
+    },
+    "template_roles": {
+      "Replacement": "template_protocol",
+      "Proposals": "template_protocol",
+      "Transactions": "template_protocol",
+      "Uncles": "template_protocol",
+      "Notification": "template_protocol"
+    },
+    "topology_events": {
+      "ShutdownRequested": "lifecycle_protocol",
+      "DerivedDegraded": "lifecycle_protocol",
+      "GenerationInvalid": "lifecycle_protocol"
+    },
+    "generation_events": {
+      "ShutdownRequested": "lifecycle_protocol",
+      "DerivedDegraded": "lifecycle_protocol",
+      "GenerationInvalid": "lifecycle_protocol"
+    },
+    "shutdown_statuses": {
+      "PersistenceEligible": "lifecycle_protocol",
+      "PersistenceForbidden": "lifecycle_protocol"
+    },
+    "effect_endpoint_order": [
+      "RecentReject",
+      "Callback",
+      "Ban",
+      "Relay"
+    ]
+  },
+  "model_cross_cutting_evidence": {
+    "ordinary_controller_request_conservation": {
+      "boundary_domains": [
+        "service_messages"
+      ],
+      "behavior_ids": [
+        "TP-HANDOFF-001"
+      ]
+    },
+    "ordered_chain_request_conservation": {
+      "boundary_domains": [
+        "chain_controls"
+      ],
+      "behavior_ids": [
+        "TP-HANDOFF-001",
+        "TP-REORG-001"
+      ]
+    }
+  },
+  "model_family_evidence": {
+    "acceptance_publication": [
+      "TP-COMMIT-001",
+      "TP-EFFECT-001"
+    ],
+    "administration": [
+      "TP-ADMIN-001"
+    ],
+    "authority_read": [
+      "TP-QUERY-001"
+    ],
+    "callback_publication": [
+      "TP-EFFECT-001"
+    ],
+    "chain_control": [
+      "TP-REORG-001"
+    ],
+    "derived_accelerator": [
+      "TP-PERF-001",
+      "TP-QUERY-001"
+    ],
+    "integration_test_rpc": [
+      "TP-COMMIT-001",
+      "TP-DEFECT-001",
+      "TP-OWN-001"
+    ],
+    "internal_fixture": [
+      "TP-COMMIT-001",
+      "TP-QUERY-001",
+      "TP-TEMPLATE-001"
+    ],
+    "lifecycle_protocol": [
+      "TP-DEFECT-001",
+      "TP-EFFECT-001",
+      "TP-PERSIST-001",
+      "TP-WORKER-001"
+    ],
+    "local_submit": [
+      "TP-COMMIT-001",
+      "TP-IDENTITY-001",
+      "TP-OWN-001"
+    ],
+    "persistence_protocol": [
+      "TP-PERSIST-001"
+    ],
+    "proposal_ingress": [
+      "TP-IDENTITY-001",
+      "TP-OWN-001",
+      "TP-TEMPLATE-001"
+    ],
+    "proposal_remote_origin": [
+      "TP-ADMIN-001",
+      "TP-IDENTITY-001"
+    ],
+    "rejection_publication": [
+      "TP-EFFECT-001"
+    ],
+    "relay_and_ban_settlement": [
+      "TP-ADMIN-001",
+      "TP-EFFECT-001"
+    ],
+    "relay_generation_reset": [
+      "TP-EFFECT-001",
+      "TP-REORG-001"
+    ],
+    "relay_parent_request": [
+      "TP-DEP-001",
+      "TP-EFFECT-001"
+    ],
+    "relay_release": [
+      "TP-ADMIN-001",
+      "TP-EFFECT-001"
+    ],
+    "relay_settlement": [
+      "TP-EFFECT-001"
+    ],
+    "remote_ingress": [
+      "TP-ADMIN-001",
+      "TP-BUDGET-001",
+      "TP-IDENTITY-001",
+      "TP-OWN-001"
+    ],
+    "remote_payload": [
+      "TP-BUDGET-001",
+      "TP-IDENTITY-001"
+    ],
+    "recent_reject_store": [
+      "TP-EFFECT-001",
+      "TP-QUERY-001"
+    ],
+    "startup_protocol": [
+      "TP-DEFECT-001",
+      "TP-PERSIST-001",
+      "TP-WORKER-001"
+    ],
+    "template_protocol": [
+      "TP-TEMPLATE-001"
+    ],
+    "test_accept": [
+      "TP-COMMIT-001",
+      "TP-IDENTITY-001",
+      "TP-QUERY-001"
+    ],
+    "trusted_payload": [
+      "TP-IDENTITY-001"
+    ],
+    "verification_control": [
+      "TP-WORKER-001"
     ]
   },
   "root_families": {

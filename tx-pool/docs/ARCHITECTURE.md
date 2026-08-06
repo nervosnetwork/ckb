@@ -237,6 +237,254 @@ These invariants are checked by construction first and by bounded validation as
 defense in depth. A runtime check is not a substitute for a type that can
 remove the invalid state.
 
+### 4.5 Executable mathematical proof kernel
+
+Prose is not the primary proof of this state machine. The model is one labeled
+transition system with conservative modules, not several competing
+authorities:
+
+```text
+M = (E, Sigma, Legal, Step, Inv, Obs, Equivalent, Live, Cost)
+
+E = (consensus, static policy and limits, validation functions,
+     process-monotonic and operational wall-clock semantics,
+     external endpoint contracts)
+
+A = (generation, snapshot_view_pair, owners, indexes, source_versions,
+     resources, membership, scheduler, dependency, effects, peer_bans,
+     clocks)
+
+K = linear authority capabilities and their stale-retirement state
+P = bounded controller request/response, relay, effect and derived handoffs
+D = rebuildable derived projections and accelerators
+L = task, cancellation, shutdown and restart lifecycle
+
+Omega = (A, K)
+U = NoAuthority | LiveAuthority(Omega)
+Sigma = (U, P, D, L)
+```
+
+`E` states the trusted boundary; it is not silently folded into authority
+state. `snapshot_view_pair` is the exact `Arc<Snapshot>` and `ChainViewId`
+installed under one store guard. `Legal` distinguishes hostile but valid
+commands from malformed trusted control input and programmer defects. `Step`
+contains deterministic kernel commands plus explicitly nondeterministic
+external acknowledgement, time and cancellation steps. `KernelStep_E` is the
+atomic authority/capability sub-transition over `Omega`, legal only for a live
+authority slot: checkout produces the unique capability in the same step that
+changes `A`, and settlement consumes or replaces it in the same step.
+Process `Instant` is monotonic, but the Unix clock is a distinct legal input
+which may repeat or move backward. Public `accepted_at` remains exact; current
+Remote/Accepted expiry is therefore conditionally live only when wall time
+eventually reaches the recorded deadline. A wall-clock deadline is never used
+as an unconditional monotonic-level proof.
+`ProtocolStep_E` advances protocol/capability, derived or lifecycle state and
+invokes a kernel step for authority settlement; it cannot retroactively decide
+a commit. The tagged slot is required because bounded controller queues and
+`service_started()` exist before a complete authority is assembled. Lifecycle
+phases distinguish `Constructing(NoAuthority)`,
+`Initializing(LiveAuthority)`, `Running`, `Draining` and offline outcomes.
+Persistence replay and reliable ordered chain control may advance the complete
+initializing authority before readiness; ordinary dispatcher requests remain
+queued. Startup or initialization failure closes or drains every capability
+before going offline and never exposes a partially live authority.
+
+The production authority stores an immutable membership configuration, but
+the abstraction maps it to the validated static policy in `E`; it is not a
+mutable model fact. The store's committed short-ID cache belongs to `D`; every
+hit is revalidated against the paired snapshot and a miss may only underfill a
+compact-block response.
+
+The production `OwnedTx` and phase enums checked by the architecture contract
+are refinement facts, not axioms of the reference model. The model begins with
+semantic residency, accepted membership, optional recoverable victim evidence
+and move-only validation claims. A production phase, queue or version appears
+in the model only when removing it loses an observation, conservation law,
+progress theorem or cost bound; otherwise it is implementation topology to be
+fused or deleted.
+
+`Obs` is defined at named stable cuts. At an authority cut no private prepared
+delta holds the guard; checked-out capabilities remain explicit state. At a
+protocol cut channel contents, claims and acknowledgements are represented
+rather than hidden inside a call. A crash cut exposes only the documented
+durable projection. `Obs` includes per-command dispositions, public
+readiness/controller handoff, owner/status and resource results,
+query/template/persistence/relay projections, and the exact ordered committed-
+effect stream. Endpoint execution after effect commitment is a separate
+protocol trace. Opaque internal
+identifiers may be alpha-renamed only after proving that they affect no
+ordering, validity cut, deadline or public result. `ApplySequence`, source cuts
+and committed-effect order remain exact.
+
+The machine contract gives every discovered public operation or state variant
+one semantic family, but one-family ownership does not erase cross-cutting
+protocols. It also binds the complete discovered `Message` domain to ordinary
+controller-request conservation and the complete `ChainControl` domain to the
+ordered request protocol. These bindings name behavior evidence without
+copying individual Rust variants, so a new message must satisfy both its
+semantic family and every shared law for its domain.
+The shared law partitions command-payload ownership into caller, queued,
+handler-owned or terminal locations. Enqueue acknowledgement and optional
+response sender/receiver state are orthogonal: a no-responder notification may
+return accepted while the payload is still queued, whereas abandoning a result
+receiver cannot change a later authority commit.
+
+Derived observations retain their documented weaker equivalence rather than
+pretending to be authority facts. Pending recent-reject records overlay the
+external store exactly per hash until endpoint settlement; the TTL/sharded
+store may later evict within its bound, its public total is approximate and
+does not include pending log records, and disabled storage is exactly `None`.
+Fee-estimator history and template/cache contents likewise converge from named
+source cuts but cannot decide or invalidate a transaction transition.
+
+For every valid system state and legal environment event, the full transition
+is total and invariant-preserving:
+
+```text
+Step_E(Sigma, event)
+  = NoAdvance(ordinary_observation)
+  | Advance(Sigma', trace_delta, ordinary_observation)
+
+Inv(Sigma) and event in Legal_E(Sigma)
+  implies Inv(Sigma') or NoAdvance
+```
+
+An external request may span multiple system steps. Its linearization point is
+the named authority Commit/read cut or an ordinary pre-authority disposition.
+When the authority slot is absent, only bounded enqueue, readiness, cancellation
+and closure protocol steps are legal; no kernel command can run. An initializing
+live slot accepts only replay, ordered chain control and the capability/effect
+work they create; the ordinary dispatcher opens only at the Running transition.
+
+For one legal kernel command, the reference transition is total over every
+valid authority/capability state:
+
+```text
+KernelStep_E(Omega, command)
+  = NoAuthorityCommit((A, K'), ordinary_disposition)
+  | AuthorityCommit((A', K'), committed_effects, ordinary_disposition)
+
+Omega in InvKernel and command in LegalKernel
+  implies the returned Omega' is in InvKernel
+```
+
+`NoAuthorityCommit` keeps `A` exact but may consume a stale/cancelled
+capability or return an owner-free compute permit in `K`. It is not a claim
+that all of `Omega` stayed unchanged.
+
+An integrity stop is not a third legal-input disposition. It denotes an
+already-invalid `A`, a violated trusted-boundary premise, or a programmer
+defect proven unreachable from `Legal`. Planning may reserve physical
+container capacity, but does not change `ObsKernel(Omega)`. Once a sealed prepared delta
+has retained the exclusive authority borrow, Apply is infallible, total and
+consumed exactly once. Lock-external evidence is revalidated while creating
+that delta, not deferred to Apply.
+
+Every current or future multi-owner optimization must define a canonical
+single-item transition and mechanically establish the kernel theorem from the
+same initial state with no intervening authoritative command:
+
+```text
+ObsKernel(CommitBatch_E(Omega, X))
+  = ObsKernel(FoldNoInterleave(KernelStep_E, Omega, Canon_Omega(X)))
+```
+
+The fold's intermediate states are not observable; the atomic batch is one
+legal linearization, not a claim that every concurrent interleaving has the
+same result. Concurrent histories have a separate linearizability obligation:
+each read or write must map to a legal sequential history that preserves
+real-time precedence and exact public effect order.
+
+The owner/resource law is exact, not merely a count equality. Let `O` be the
+owner map and `C.rows` the per-owner resource rows:
+
+```text
+Dom(O) = Dom(C.rows)
+for every h in Dom(O): C.rows[h] = charge_record(O[h])
+C.aggregates = CheckedHierarchicalFold(C.rows)
+effect_usage = CheckedFold(committed_effect_log)
+```
+
+The fold is a partial checked algebra over total, Remote, per-peer,
+replacement-history, Accepted and effect partitions. Overflow or a configured
+limit produces an ordinary pre-Apply outcome; it cannot become projection
+corruption. Materialized membership, dependency, scheduler and index facts
+each have an explicit reconstruction or transition invariant and remain part
+of the same Apply.
+
+Capability conservation is stated only at stable cuts and deliberately allows
+stale work:
+
+```text
+O[h] = PreAccepted(Computing(v))  implies |Caps(h, v)| = 1
+for every (h, v): |Caps(h, v)| <= 1
+Stale(c, A) implies MutationRight(c, A) = empty
+
+FreeComputePermits + |HeldComputePermits| = ConfiguredComputePermits
+RetainedComputingOwners = |CurrentRetainedWorkCapabilities(A)|
+                       = C.aggregates.active_work
+```
+
+Checkout atomically creates the current Computing state and releases its one
+move-only capability when the guard opens. A chain/admin transition may retire
+the owner while that capability is executing; the resulting stale capability
+has no mutation right and must settle in bounded work. Effect publication and
+ordered chain control have analogous single-claim laws. Owner-free
+Local/TestAccept holds a bounded compute permit and request capability but no
+owner row. An endpoint lease names the exact committed effect-log token; it
+does not move the record out of authority before settlement.
+
+Transaction composition is state-dependent. Cell reads/writes are necessary
+but not sufficient: exact raw/witness identity, proposal short-id collision,
+pool parent/reader edges, source and peer policy, deadlines, accepted capacity,
+eviction and package order, fee/cycle/size metrics, time/`since`/DAO/maturity
+context, resource partitions, effect capacity, chain/rule cuts and fairness
+cursors are also footprint components. A cohort is classified as:
+
+- `IndependentComposable`: its logical member transitions commute and one
+  canonical compiler assigns exact tokens and effects;
+- `CanonicalOrdered`: order is observable, but one Plan can simulate the
+  complete named sequential fold before one Apply;
+- `Coupled`: RBF, dependency, eviction, chain or indivisible-effect semantics
+  require one joint component plan.
+
+These are ephemeral proof results, not retained lifecycle flags or a second
+DAG. Failure to construct one is an ordinary fallback to the exact coupled
+planner.
+
+Progress is local to an obligation, not one global rank for an indefinitely
+running service. Under named executor fairness and external-environment
+premises, each request, command or linear capability uses a finite rank while
+its evidence epoch is stable, or waits on a monotonic level with a named
+transition that can release it. A new view may create a new obligation, but
+the superseded one retires in bounded work. Retry against the same authority
+cut, evidence epoch and source level is forbidden. Allocator availability has
+no such level, so repeated timer retry is not a progress proof.
+
+The quantitative proof precedes timing measurement. For a batch with `B`
+owners, `E` dependency/conflict edges and coupled components `G`:
+
+```text
+Cost(B, E, G)
+  <= C_fixed + B * C_item + E * C_edge
+     + sum(C_coupled(size(g)) for g in G)
+```
+
+The model must separately bound lock hold, allocation, resident bytes, edges,
+wakeups, retries and wasted compute under adversarial graph shapes. A measured
+speedup cannot repair an absent asymptotic or hostile-input bound.
+
+The executable reference model, property/concurrency falsifiers and generated
+trace gates are the evidence owners for these equations. This document records
+their trusted boundary and rationale; a formula written only in Markdown does
+not satisfy the gate. Consensus resolution and script execution remain outside
+the tx-pool model behind the exact typed evidence described in section 5.
+Model evolution is reviewed at every phase boundary: a counterexample accepted
+by both model and production is a model gap; one rejected by the model but
+accepted by production is a refinement bug; a failed trusted premise is a
+boundary-contract bug. A model change made only to accommodate current code is
+not admissible without a CKB semantic, compatibility or attack justification.
+
 ## 5. Identity and evidence
 
 | Type | Role |
@@ -527,10 +775,14 @@ explicit operational boundary, not hidden transaction state.
 
 ## 11. Reads, RPC, persistence and cache
 
-All public/query projections borrow one `AuthorityReadView` from one store read
-cut. Allocation-heavy sorting, parent expansion and serialization occur after
-the guard opens. Cursors carry exact source cuts and restart if relevant state
-changes.
+All public/query projections borrow one `AuthorityReadView` from one coherent
+store read cut. The target contract is that allocation-heavy sorting, parent
+expansion and serialization occur after the guard opens; cursors carry exact
+source cuts and restart if relevant state changes. The M0 audit found that the
+current full-pool ID/info, detail-rank and fee-estimate paths do not yet satisfy
+that cost boundary: they perform population scans, sorting or allocation while
+holding the shared authority guard. This is an explicit model/refinement
+blocker, not a property the current implementation may claim.
 
 - RPC may show PreAccepted work as Pending and maps Accepted Gap to Pending for
   compatibility; internal detail and template code consume exact phases/status.
@@ -669,16 +921,17 @@ The completed static complexity inventory is:
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
 | Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Over-bound recovery replaces the ephemeral generation instead of retaining partial state. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Block traversal and payload compaction occur before the write guard. |
 | `ClearPipeline` / `ClearPool` | All live owners in an explicit administrative command. | Deliberate whole-generation operation, never ordinary ingress. Retired payload destruction happens after the guard opens. |
-| RPC, persistence, relay rebuild and template capture | Bounded read capture/page under a shared guard; sorting, serialization, parent expansion and template packing occur after it opens. | Coherent projection requires one read cut but not exclusive ownership. |
+| RPC, persistence, relay rebuild and template capture | Persistence, relay rebuild and template paths use owned receipts or bounded pages. Current full-pool ID/info, detail-rank and fee-estimate queries still perform O(pool) scan/sort/allocation under a shared guard and are open under `D1-QUERY-LOCK-COST`. | Coherent projection requires one read cut but not exclusive ownership. M2 must bound query concurrency, response residency and writer delay; M3 selects a compatible receipt/projection or boundary design before this row can close. |
 | Template graph algorithms | Outside the authority lock; selected dependency occurrences and descendant-cache memberships are each capped at 200,000 and conditional-cycle shedding at 64 rounds. | Derived consensus packaging with deterministic underfill fallback. |
 | Candidate uncles and committed-hash cache | Hard limits of 128 and 100,000 respectively, outside lifecycle authority decisions. | Bounded compatibility/template projections; exhaustion degrades or evicts derived data only. |
 | Peer-ban fence | At most `PEER_BAN_FENCE_CAPACITY = 1024` session rows; expiry and oldest-live retirement are incremental. | Bounds session-churn memory without a second relayer/controller lease authority. Saturation may send one old delayed submission back through full bounded validation, never through a trust fast path. |
 
-No other population scan is admitted. The chain-transition population cases
-above are bounded by charged Accepted ownership and driven only by an ordered,
-consensus-validated chain command, not peer transaction ingress. Adding a scan
-requires an explicit row, attack bound and complexity regression before
-implementation.
+No other population scan is admitted as a closed design. The open query row is
+recorded counterevidence, not an exception. The chain-transition population
+cases above are bounded by charged Accepted ownership and driven only by an
+ordered, consensus-validated chain command, not peer transaction ingress.
+Adding or retaining a scan requires an explicit row, attack bound and
+complexity regression before implementation.
 
 ## 15. Rust-native failure model
 
@@ -810,9 +1063,11 @@ discard the main scalable property: chain-backed independent transactions can
 resolve and verify concurrently. The correct simplification is one owning
 kernel with typed borrowed work, not serialized computation.
 
-This is the smallest constructively safe model selected by the completed
-pre-benchmark minimality audit: every state, lock, task, clock, receipt and
-effect class retains a business, compatibility, concurrency or attack owner.
+The current UAK is a constructively safe candidate, not yet a proved minimum.
+The mathematical/refinement audit has reopened execution-topology selection:
+semantic obligations for ownership, validation, effects and chain control are
+lower bounds, but the current resident states, tasks, queues and per-owner
+Apply boundaries still require independent necessity and composition proofs.
 
 "Smallest" here means semantic state and proof surface, not minimum source
 lines. The explicit transition algebra is substantially larger than
@@ -912,17 +1167,16 @@ The following stable boundaries are owned by
 | R7 | Legacy v1 persistence remains an accepted compatibility input. |
 | R8 | Peer-ban fence saturation evicts the oldest fence; a delayed submission from that session must re-enter full bounded validation. |
 
-The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
-17 now:
+Before release, the architecture-adjudication matrix recorded in sections 3,
+3.1, 14, 15 and 17 must:
 
 1. prove the exact `develop` race/non-atomic call graphs that require each UAK
    mechanism;
 2. account for every new state, lock, log, task, bound and failure domain and
    distinguish risk elimination from bounding or transfer;
-3. establish the smallest constructively safe semantic model among the
-   evaluated alternatives, distinguish that result from the still-measured
-   execution topology, and close a backward proof that valid or hostile input
-   cannot satisfy an invariant-fault constructor premise;
+3. establish the smallest constructively safe semantic and execution model
+   among the evaluated alternatives, and close a backward proof that valid or
+   hostile input cannot satisfy an invariant-fault constructor premise;
 4. close every statically derivable correctness, security, liveness,
    publication, identity and complexity issue;
 5. re-adjudicate every historical report against current code as
@@ -934,5 +1188,6 @@ The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
 Current release disposition has one authority:
 `security-regression-manifest.json`. P9.8 complete related test acceptance
 passed at `8d5c27559`; a later semantic change reopens its affected evidence.
-P10 profiling/fixed-binary A/B remains the current manifest blocker and may
-not be inferred from correctness review.
+The M0-M4 mathematical/refinement/minimality program and the later controlled
+profiling/fixed-binary A/B are separate manifest blockers. Neither may be
+inferred from the other or from legacy green tests.

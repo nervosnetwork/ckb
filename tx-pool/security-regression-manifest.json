@@ -8,8 +8,16 @@
   "test_inventory": {"path": "tx-pool/test-inventory.txt"},
   "release_blockers": [
     {
+      "id": "RUST-API-COMPATIBILITY-DECISION",
+      "reason": "cargo-semver-checks against develop reports 9 major-change lint classes, including removal of public TxPool/module/method/macro surfaces, builder signature changes, exhaustive enum changes and PlugTarget gaining Copy; release requires either non-authoritative compatibility designs for each retained API or an explicit major-version migration"
+    },
+    {
+      "id": "MODEL-REFINEMENT-ACCEPTANCE",
+      "reason": "M0-M4 executable mathematical model, production/develop refinement, topology minimality and anti-drift evidence have not yet passed"
+    },
+    {
       "id": "PERFORMANCE-ACCEPTANCE",
-      "reason": "P10 controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B has not yet passed"
+      "reason": "Post-model controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B has not yet passed"
     }
   ]
 }

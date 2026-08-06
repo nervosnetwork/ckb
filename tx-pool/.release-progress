@@ -4,6 +4,11 @@ This is a temporary restart authority for the remaining production gates. It
 is not public architecture or implementation history. Delete it when P10 and
 the final completion review close.
 
+The active architecture replan is `tx-pool/.independent-execution-plan`.
+Benchmarking, profiling and local performance patches are frozen until that
+plan reaches D3 and the selected end-to-end independent execution model is
+implemented and correctness-gated.
+
 ## Fixed route
 
 1. COMPLETE - recoverable checkpoints and one restart authority.
@@ -18,11 +23,16 @@ the final completion review close.
    specs; every failure was classified before changing code.
 6. COMPLETE - benchmark-preceding global static, model, liveness,
    manual-process and convergence audit against current code and `develop`.
-7. ACTIVE - P10 reproducible profiling and fixed-binary A/B against both
-   `develop` and the frozen pre-performance UAK checkpoint.
-8. PENDING - final production completion review and release handoff.
+7. ACTIVE - close the P10 architecture prerequisites exposed by profiling:
+   exhaustive legal-input fault reachability and the missing end-to-end
+   independent-transaction execution model.
+8. PENDING - reproducible fixed-binary A/B against both `develop` and the
+   frozen pre-performance UAK checkpoint.
+9. PENDING - final production completion review and release handoff.
 
-The order is fixed. Phase 6 is closed; P10 is the only active phase.
+The order is fixed. Phase 6 is closed. Benchmark tooling is frozen, but the
+performance verdict may not run ahead of the two active architecture proof
+obligations in phase 7.
 
 ## Phase-4 checkpoint evidence
 
@@ -1721,6 +1731,70 @@ static legal-input fault reachability and final architecture audit; do not
 build develop until a controlled host can reuse this exact protocol and fixed
 final/pre-performance binaries.
 
+## Independent-execution goal correction
+
+The benchmark-only checkpoint is `2dee898d29`. A subsequent whole-lifecycle
+review found that the original transaction-semantic performance goal is not
+closed by the current UAK execution topology:
+
+- `IndependentCandidate`, `SettlementBatch` and `IndependentDelta` prove and
+  atomically apply a bounded commuting Ready membership run of at most eight
+  owners;
+- retained admission, compute checkout and compute settlement still perform
+  per-owner authority transitions, so the common independent Remote lifecycle
+  retains about five Applies per transaction despite lock-free validation;
+- the architecture text used permissive wording (`may compile`) and the gates
+  proved the safety of the implemented batch without requiring end-to-end
+  independent execution. Global reviews consequently established internal
+  UAK consistency but did not falsify the implementation against the original
+  CKB-cell semantic objective;
+- the measured direct-finalization experiment rejected only a path that kept
+  a scarce compute permit live through membership. It is not evidence against
+  bounded checkout, completion aggregation or commuting Plan/Apply after
+  compute resources are released;
+- single authority and per-owner Apply are not equivalent requirements. A
+  bounded set of version-current, chain-backed and pairwise-commuting entries
+  may share one atomic Apply while ownership, resource charge, RBF, dependency
+  and effect rules remain under the same authority.
+
+This is an architecture completion blocker, not an optional local
+optimization. Before implementation, derive the exact independent/coupled
+partition from transaction read/write semantics across the complete lifecycle;
+compare bounded checkout, completion aggregation and final membership models;
+and reject any candidate that adds a lifecycle owner, mutable decision cache,
+unbounded queue, rollback protocol or weaker final validation. The winning
+model must add a mandatory, machine-checkable performance contract: for a
+bounded set of independent chain-backed transactions, authority transition
+work scales with the number of committed batches rather than silently
+remaining one complete transition sequence per transaction. Coupled/RBF,
+dependency, resource-contention and stale-view cases must fall back to the
+existing exact cohort algebra without changing outcomes.
+
+Exact active sequence:
+
+1. finish exhaustive hostile/legal-input backward reachability to every
+   `AuthorityFault` constructor and every other generation-stop or
+   persistence-forbidden path. A disposition is closed only by the generated
+   production constructor, complete external caller path, type/precondition or
+   closed ordinary-outcome proof, negative falsifier, applicable production
+   route anchor and a drift gate; aggregate counts and reviewer judgment are
+   not closure evidence;
+2. reconstruct the end-to-end transaction semantic algebra and its mandatory
+   concurrency/operation-count acceptance contract;
+3. adjudicate candidate execution topologies before changing production code;
+4. implement the selected bounded model with phase-boundary global reviews and
+   the complete correctness gates;
+5. only then run final fixed-binary profiling and A/B.
+
+The current D1 model refinements are also restart requirements: compute and
+Ready batches are bounded by `min(active_work_slots, 100)`, ingress by 100;
+Ready commutativity uses an incremental bounded scratch index rather than a
+pairwise matrix; scheduler/resource modules own virtual batch compilation;
+effect-bearing completion classes are selected by earliest retained arrival;
+failed post-Apply worker delivery returns the exact capability for ordinary
+cancellation; and relay enqueue failure must release pre-authority known-filter
+marks. None may be implemented before D1-D3 close.
+
 ## Restart rule
 
 After compaction or restart:
@@ -1731,3 +1805,720 @@ After compaction or restart:
 4. continue the ACTIVE fixed-route item without redoing closed phases or
    answering stale questions;
 5. update this file at every checkpoint before stopping.
+
+## D1 authoritative-evidence checkpoint
+
+- D1 adjudications are not accepted from aggregate counts, comments, passing
+  tests, or reviewer judgment alone. Each row needs generated production
+  producer discovery, the complete external caller path, a sealed type or
+  closed ordinary-outcome proof, the exact owner/resource consequence, a
+  negative falsifier, an applicable production-route anchor, and a drift gate.
+  Any missing field keeps the row `SUPPORTED` or `OPEN`;
+- the first resource-family backward trace found a confirmed legal-input
+  fail-stop. Runtime construction only requires one compute grant to exceed
+  entry metadata; it does not require it to cover the consensus block-byte
+  bound. A detached valid transaction can therefore exceed the configured
+  per-work envelope. `ValidatedAdmission::recovery` accepts it,
+  `plan_chain_transition -> charge_admission` returns `ComputeEnvelope`, the
+  generic error algebra converts that to `ComputeResources`, and the chain
+  boundary promotes it through `SchedulerProjection` to ordered-driver
+  generation invalidity and persistence-forbidden shutdown;
+- the existing fresh-generation compiler already treats the same
+  `ComputeResources` outcome as a bounded recovery-prefix stop. The root fix
+  is therefore a closed chain-planner outcome that routes the incremental case
+  to deterministic generation replacement/recovery exclusion, not a service
+  catch, retry flag, or weakened invariant;
+- this row remains `OPEN` until an exact small-envelope detached-recovery
+  falsifier, production-route anchor, and generated no-open-conversion gate
+  exist. Continue the same producer-by-producer proof for the remaining
+  resource, index, scheduler, dependency, effect, membership, counter and task
+  topology families before D1 can close.
+
+## External independent-execution addendum checkpoint
+
+- The addendum based on `ad3edbd9e` remains code-relevant because
+  `ad3edbd9e..2dee898d29` changes no `tx-pool/src` file, but its prose is not
+  accepted as proof.
+- Its pre-implementation measurement concern is retained in corrected form:
+  D2 must measure completion clustering and split authority transition cost
+  into fixed cost, batch-reducible Plan/delta scaffolding, and irreducible
+  per-owner semantic work. Existing current-UAK evidence that
+  `PreparedApply::apply` is only about 0.4-1.3% and that write-count reductions
+  often produce modest timing gains prevents a fixed-lock-overhead assumption.
+- The claimed `batch_size x reorg_rework` relation is not supported by the
+  selected no-timer, worker-bounded topology. Reorg stale work is bounded by
+  active/pending worker capabilities independent of the drain ceiling. Keep
+  separate `active_work_slots x chain-revision stale work` and `batch ceiling
+  x Apply/p99 latency` measurements.
+- Ordered batch equivalence is from the same initial state with no intervening
+  authoritative Apply; effect-blocked completions intentionally reduce usable
+  workers at the bounded publisher drain rate; and develop parity is optimal
+  on a VM-bound shape only after saturation is measured rather than assumed.
+- The addendum's completeness statement is rejected while D1 evidence rows
+  remain open. Continue the fixed D1 order; do not start performance work yet.
+
+## D1 semantic-falsifier execution checkpoint
+
+- An initial ad hoc nextest selector used unqualified test names with exact
+  matching and correctly failed with zero tests; its result is discarded.
+  `cargo nextest list -p ckb-tx-pool --lib --message-format oneline` is the
+  discovery authority for complete names.
+- The corrected selector used ten fully qualified discovered names and ran
+  exactly 10 tests (409 skipped), all passing: raw footprint/cache identity,
+  same-tip positive and negative location evidence, pool-origin refresh,
+  permissive RBF resolution, independent relation classification, aggregate
+  capacity, positive RBF chain evidence, and dependency-cut batch safety.
+- This execution supports only D1-SEM-RAW, D1-SEM-EVIDENCE and
+  D1-SEM-COUPLING. It does not close the open fault/task/handoff/history rows.
+  D3 must generate these selectors from the evidence registry so a human
+  cannot repeat the unqualified-name error.
+
+## D1 dependency-closure execution checkpoint
+
+- Test discovery supplied seven fully qualified dependency-closure anchors.
+  One exact nextest expression ran exactly 7 tests (412 skipped), all passing:
+  Accepted dependency-reader removal before publication, atomic dependency-loss
+  publication, parent terminalization, attached-block conflict closure,
+  detached provider recovery with its reader, committed-parent removal, and
+  detached-header consumer requeue.
+- Static producer tracing currently shows every production `plan_events` call
+  originates in membership dependency deltas, dependency loss, owner-removal
+  batches, chain transitions, or settlement. Final membership requires each
+  input and cell dep to be chain-backed or produced by a surviving Accepted
+  owner; a PreAccepted producer therefore cannot silently support an Accepted
+  consumer. Accepted removal paths include spender and dependency-reader
+  closure in the same Apply.
+- This is still `SUPPORTED`, not `PROVEN`: D1 must generate the producer/caller
+  inventory and a drift gate that rejects any new dependency-loss publication
+  site or Accepted admission path outside the closed evidence algebra.
+
+## D1 retained-ingress payload-variant checkpoint
+
+- A second legal-input fail-stop is confirmed. Proposal admission of the same
+  raw transaction as a resident Recovery owner, but with different witnesses,
+  falls through the retained-ingress prechecks and returns
+  `PlanError::PayloadVariant` from `plan_existing_admission`. The open boundary
+  converts that policy collision to `MembershipProjection`, and the dispatcher
+  converts it to generation invalidity.
+- This is externally reachable through `BlockProposalProcess -> notify_txs ->
+  submit_proposal`; raw transaction identity excludes witnesses, and the
+  relayer's raw-hash known filter is finite and TTL-bound, so it cannot prove
+  the witness variant unreachable.
+- The root correction belongs in the closed retained-admission result algebra:
+  same-raw witness policy must have a deterministic no-change/replacement/reject
+  disposition that cannot construct `AuthorityFault`. Do not add a catch at
+  `map_ingress_error`. An exact Recovery/witness-variant route test and a
+  generated closed-conversion gate are required before this row can close.
+
+## D1 fresh-generation recovery-selection checkpoint
+
+- The existing generation fallback is closure-safe but not liveness-maximal:
+  recovery roots are parent-first and lowest-raw-hash deterministic, while the
+  first `TotalResources`, `ComputeResources`, or proposal-collision outcome
+  breaks the whole scratch-admission scan.
+- With a valid constrained configuration, an excluded low-hash independent
+  detached transaction can therefore suppress every later unrelated recovery.
+  This is risk transfer from bounded resources into avoidable reorg liveness
+  loss, and it becomes especially important when the compute-envelope
+  fail-stop is corrected to use the existing generation fallback.
+- D3 must adjudicate one bounded deterministic closure-preserving selector;
+  the falsifier shape is an excluded low-hash root, its dependent child, and a
+  later independent admissible root. The root and child may be excluded, but
+  the unrelated root must survive. Do not solve this with retries or a repair
+  scan.
+
+## D1 derived-query failure-domain checkpoint
+
+- A read-only transaction query currently computes the optional minimum RBF
+  fee with checked addition and maps overflow to `AuthorityReadError::Arithmetic`.
+  `map_query_error` promotes that to an authority resource-projection fault;
+  both `GetTxStatus` and `GetTransactionWithStatus` then settle it as generation
+  invalidity. `GetTxStatus` does not return the computed field at all.
+- This conflicts with both semantic peers: membership RBF validation maps the
+  same sum overflow to the ordinary policy result
+  `MembershipReject::ReplacementFeeOverflow`, and `develop` represented an
+  uncomputable query fee as `None` without invalidating the pool.
+- The arithmetic is not type-unreachable. Configuration accepts the complete
+  `u64` fee-rate domain, and a valid custom genesis can allocate almost the
+  full capacity domain after reserving finite initial issuance. A legal
+  high-fee transaction plus `min_rbf_rate = u64::MAX` can therefore overflow
+  the derived sum. This row remains `OPEN` until an exact service-route
+  falsifier and generated failure-domain gate exist.
+- The root correction is a closed read algebra: status and detailed lookup
+  have separate plans, optional derived fee overflow returns an explicit
+  unavailable value, and no derived numeric representation failure can create
+  a generation-invalid capability. Do not catch this at the dispatcher.
+
+## D1 compute-grant unit checkpoint
+
+- A source trace and temporary exact nextest falsifier confirmed that compute
+  evidence and retained settlement interpret `ComputeGrant::max_resident_bytes`
+  in different units. Work accepts a resolved payload at that payload-only
+  ceiling; settlement adds the non-zero production entry/edge residency
+  metadata and compares the total against the unchanged ceiling, promoting the
+  legal result to `Structural(Fault(ResourceProjection))`;
+- the falsifier used a 4096-byte grant plus 128 entry and 64 per-edge metadata
+  bytes. Its exact 4096-byte resolved payload passed the sealed resolution
+  receipt and failed only in `apply_settlement`. The temporary diagnostic test
+  was removed after reproduction so the design checkpoint does not leave a
+  deliberately red suite;
+- existing foundation resource tests set both metadata weights to zero, so
+  their success cannot falsify this production-only mismatch. The release
+  regression must use non-zero production-style metadata;
+- the root correction is one typed total-retained grant compiler used by both
+  worker evidence and settlement accounting. Do not catch the resulting fault,
+  weaken metadata charging or add a settlement retry. The D1 row remains OPEN
+  until the production-route regression and generated unit-drift gate exist.
+
+## D1 dependency, topology and retained-handoff checkpoint
+
+- Static producer tracing found no owner-removal bypass around dependency
+  publication. Preaccepted terminalization, membership replacement/capacity
+  eviction, administrative/ban/expiry removal, chain transition and
+  independent admission compile owner, resource, membership, scheduler,
+  dependency and effect changes into the same Apply. The seven focused
+  dependency regressions remain green. This is `SUPPORTED` until generated
+  producer/caller discovery makes a new removal or admission bypass fail CI.
+- Resolver, verifier and Ready tasks do not own a second lifecycle. A failed
+  settlement retains its exact move-only settlement and execution permit; the
+  publisher is uniquely claimed before worker startup; shutdown joins workers,
+  closes and drains effects, then joins the publisher. Effect saturation can
+  occupy one worker and an undrainable publisher can make shutdown ineligible
+  for persistence: that is a recorded bounded operational risk transfer, not
+  lost transaction authority. T15 still owes the complete channel-close and
+  post-Apply delivery schedule falsifiers.
+- The relay handoff gap is broader than the previously recorded Remote
+  controller failure. Proposal ingress removes its exact in-flight row and
+  marks the raw hash known before `notify_txs_async`; the current boolean
+  removal result cannot reconstruct the original evidence after enqueue
+  failure. A successful enqueue can still produce no authority owner under
+  resource pressure, and later Proposal validation, membership, chain-conflict,
+  local-removal or proposal-window terminalization carries no relay settlement.
+  The known mark can therefore survive until the four-hour TTL and suppress a
+  same-raw valid witness from another peer.
+- This handoff defect already exists in `develop`; inheriting it is not an
+  acceptable parity argument. I3 must use one exact acknowledged upstream
+  capability before authority ownership and then let
+  `PreAcceptedSource::Proposal` own relay-projection settlement until the same
+  Accepted or terminal Apply. It must not add a cleanup task, retry protocol or
+  second transaction authority.
+- A suspected hostile-input `InvalidEvidence -> integrity` path was falsified.
+  Retained ingress first passes non-contextual verification with a 512,000-byte
+  transaction bound; non-zero serialized size and the same bounded encoded-edge
+  count make the subsequent empty/`usize` arithmetic variants unreachable.
+  The type surface is still too broad and must be sealed at D3, but no current
+  network-triggered generation stop is claimed from this path.
+
+Exact restart state: HEAD remains `2dee898d29`; D1 is active, no production
+implementation or performance experiment has started. Continue by closing the
+remaining operation-specific fault producers and liveness graph, publish the
+whole D1 disposition table, then perform D2/D3. The final objective remains
+end-to-end bounded commutative checkout/parallel compute/settlement/Ready Apply
+under the sole authority, with coupled RBF, dependency, budget and effects
+atomically falling back to the exact planner.
+
+### D1 compute-permit fairness correction
+
+- The first semantic-exchange blueprint incorrectly allowed a completed
+  retained execution to reuse its `AuthorityComputeExecutionPermit` directly.
+  That token transfer never visits Tokio's fair semaphore wait list. A
+  continuous retained wave could therefore keep every token inside the
+  coordinator while an already queued synchronous Local submission waits
+  forever. The current per-worker runtime does not have this bug because each
+  successful or obsolete settlement drops the permit before the worker loops
+  through `ComputeGate::acquire`.
+- The selected architecture now forbids a permit from crossing directly from
+  one execution to another. Only an effect-free completion admitted to the
+  common exchange may split into a finished-work capability, release its count
+  token to the shared fair gate and use a token the coordinator actually
+  reacquires. Tokio assigns released permits to existing waiters before
+  exposing any remainder to `try_acquire`, so an older Local waiter wins. If
+  the coordinator does not reacquire, it settles this wave without a
+  replacement checkout; no fill target may delay settlement.
+- Effect-capacity-blocked completions keep the exact current fallback and its
+  original permit. This preserves the one-per-worker bound and prevents
+  publisher backpressure from accumulating unbounded finished results. The
+  rule adds no fairness queue, lifecycle owner, retry task or timing policy.
+- D3 must encode the split with move-only types rather than a boolean and T15/
+  T16 must prove that a queued Local caller acquires within the next completed
+  retained execution while normal uncontended retained waves still combine
+  settlement and replacement checkout in one Apply.
+
+Exact restart state remains D1 with no production edit. Continue the closed
+fault/liveness producer table, then run the D1 whole-model phase gate before
+D2. The frozen end-to-end commutative Plan/Apply objective is unchanged.
+
+### D1 fallible-scratch convergence finding
+
+- The typed allocation policy is not yet closed by construction. Production
+  authority code contains eleven iterator `collect` sites and ten single-item
+  `vec!` carriers. Several collections are sized by a transaction, dependency
+  frontier, compact-block request or bounded mutation cohort even though the
+  enclosing API already claims allocation failure is a recoverable result.
+  `collect` can abort before that result is constructed.
+- The most important sites are `ExpandedFootprint` input/header collection,
+  `CellLocationReceipt` chain-origin duplication, missing-frontier key
+  collection, compact-block proposal conversion, and the index/membership
+  batch compilers that collect scratch while holding the authority guard.
+  This is one root issue, not a list of local OOM patches: fallible resource
+  algebra and actual collection construction have drifted apart.
+- The same sites are performance candidates because chain-origin outpoints are
+  duplicated per verified transaction and one-element effect vectors allocate
+  on ordinary transitions. D2 must classify each site as fixed-inline,
+  bounded fallible scratch, externally owned conversion or removable duplicate
+  evidence. D3 then selects domain-owned scratch/inline carriers and a
+  generated production-source gate. No production edit is authorized in D1.
+
+Restart remains at the D1 producer/reachability audit. The new row is
+`D1-FALLIBLE-SCRATCH`; it must be reconciled with the resource and performance
+models before the commutative exchange implementation begins.
+
+### D1 dep-to-PreAccepted closure adjudication
+
+- The previously reported missing dep-path backstop is closed in the current
+  model. The independent classifier routes a non-chain-backed dependency into
+  coupled handling, and the final membership proof independently requires
+  either same-view positive chain evidence or an exact surviving `Accepted`
+  producer output.
+- `PreAccepted` is deliberately excluded by `surviving_pool_parent`; a coupled
+  candidate that names it therefore returns `MissingDependencyEvidence` and
+  cannot enter Accepted membership without a causal edge. This is a final
+  proof boundary, not a resolver convention or comment-only premise.
+- The broader dependency-closure row remains `SUPPORTED`, not `PROVEN`, until
+  generated producer/caller discovery makes future admission and owner-removal
+  bypasses fail CI. No production change is required for this report item.
+
+Exact next action remains the closed operation-error and generation-stop
+reachability table, followed by the D1 whole-model gate. No production edit or
+benchmark has started.
+
+### D1 Ready OCC liveness finding
+
+- Ready validation currently rechecks the strongest bounded slice as one
+  all-or-nothing unit. A stale or removed weaker tail makes
+  `complete_ready_batch` discard an otherwise exact strongest head and return
+  the whole round as stale.
+- The Ready driver maps that stale result to `Progress` and immediately loops
+  without an await or cooperative yield. Continuous top-N tail churn can thus
+  strand the unchanged head and consume one executor thread. This is a
+  batching/liveness defect, not an RBF or membership-policy reason to couple
+  the owners.
+- A temporary deterministic nextest test admitted two Ready owners, prepared
+  their OCC batch, removed only the weaker tail through the ordinary owner
+  removal Apply, and proved the batch returned `PlanError::Stale` while the
+  head remained Ready. The test passed and was then removed; no diagnostic
+  code remains in the tree.
+- D3 must make the second read per-member and commit only the longest
+  still-current strict-priority prefix before the first stale item. It may not
+  skip a stale stronger item. A stale head must prove a changed cut and yield
+  after one bounded attempt. Do not add an outer retry count, timer, watchdog
+  or repair queue.
+
+The new ledger row is `D1-READY-OCC-LIVENESS`. D1 remains active; production
+code and benchmark work remain paused until the complete error/liveness table
+and whole-model gate close.
+
+### D1 direct negative-evidence OCC finding
+
+- Direct Local/TestAccept computation reads only the candidate's bounded
+  Accepted producer/spender footprint, but a resolution or final-validation
+  rejection is sealed by the global Accepted source version. The existing
+  `uak_direct_validation_rejection_stales_with_its_accepted_source_cut` test
+  confirms that even an unrelated Accepted insertion invalidates it.
+- `execute_direct` treats that false conflict as an unbounded full retry. A
+  continuous legal stream of disjoint Accepted commits can therefore starve
+  an unchanged Local/TestAccept request and repeatedly consume resolve/verify
+  work. Successful candidates are not affected because final membership Plan
+  rechecks current exact dependency and conflict state.
+- D3 must replace the global rejection cut with one preallocated bounded read
+  receipt for the exact producer/spender cells observed by resolution and
+  validation. Relevant parent/spender changes must invalidate the receipt;
+  unrelated Accepted changes must commute. Do not add persistent per-key
+  clocks, retry counters, timers, watchdogs or repair tasks.
+- Permanent falsifier 16 now requires both sides of that proof: relevant
+  change stales, disjoint Accepted churn cannot force recomputation.
+
+The new ledger row is `D1-DIRECT-NEGATIVE-OCC`. Resume the operation-specific
+ordinary-versus-structural error producer audit and complete the liveness/wait
+graph before the D1 whole-model gate. Production and benchmark work remain
+paused.
+
+### Whole-system concurrency constraint
+
+- The independent-execution target applies across the complete tx-pool
+  lifecycle, not only the Ready membership lane. Ingress, checkout, compute
+  settlement, membership, dependency wake, effects, queries, templates and
+  reorg handling must all derive serialization from the same CKB footprint and
+  compatibility rules.
+- A global version, actor, queue round trip or implementation phase is not a
+  semantic conflict. Disjoint work must share bounded ordered/commuting Plans;
+  RBF, pool-produced dependencies, shared inputs, conditional read/write
+  edges, eviction and indivisible effects are the named coupled cases.
+- One authority remains mandatory; no second DAG/shard/fast-path owner is
+  authorized. Independence proofs are ephemeral typed Plan inputs.
+- Full/reset template publication retains its required serialization, while
+  uncle/proposal/transaction partial lanes remain optimistic and concurrent.
+  Local/TestAccept stays owner-free during compute and cannot be starved by
+  retained waves.
+- D1-D3 now block on a complete serial-cut inventory. Every retained cut needs
+  a business/attack/compatibility owner and a falsifier; otherwise it is
+  accidental serialization to remove in the selected architecture.
+
+Resume D1 with this whole-system rule applied to the error/liveness producer
+table. Do not reduce the objective to a Ready batching patch.
+
+### Layer-necessity gate
+
+- The current ingress/resolve/verify/Ready/effect/template stage names are not
+  assumed to be the final architecture. Concurrency design begins only after
+  each layer, state, task, queue, lock, journal and version proves a distinct
+  semantic, capability, compatibility, failure or progress boundary.
+- D1 starts from irreducible CKB obligations: bounded handoff, exact
+  resolution evidence, script verification, atomic membership/RBF/dependency/
+  budget decision, post-commit effect delivery, ordered chain reconciliation
+  and derived reads/templates. Those obligations do not prescribe the number
+  of implementation layers.
+- Adjacent stages without distinct authoritative decisions must fuse; carrier
+  states that can remain in one typed capability must disappear; tasks/queues
+  without a unique progress owner must be removed; read-only projections may
+  not become authority.
+- D2 now requires a layer-deletion/retention table before the serial-cut table.
+  D3 cannot freeze until every surviving layer is necessary and compatibility
+  evidence covers every deletion. Current-topology test success is not proof.
+
+Resume the D1 lifecycle/error/liveness trace with layer necessity as the first
+question and concurrency as the second.
+
+### Prior minimality evidence adjudication
+
+- The completed audit did establish semantic lower bounds: hostile ingress
+  needs bounded ownership and charge; exact resolve and script-verification
+  evidence cannot disappear; compute release must overlap later membership
+  work; and external I/O may consume only committed effects.
+- It did not prove that `ingress`, `resolve`, `verify`, `Ready` and `effect`
+  each require a distinct resident state, queue, task or Apply boundary. Its
+  deletion experiments were constrained by the inherited topology.
+- The direct-finalization regression proves that retaining a scarce compute
+  permit through membership is harmful. It does not falsify a typed
+  finished-work capability that releases the permit before bounded batch
+  settlement.
+- D2 must treat the old evidence as lower-bound constraints, build a complete
+  layer fusion/deletion matrix and separately prove every surviving runtime
+  boundary. "Useful in the current implementation" may never again be used as
+  a synonym for "architecturally necessary".
+
+### Five root proof laws
+
+All D1-D3 observations now map to five laws rather than accumulating separate
+constraints:
+
+1. exact, monotonically completed and precisely invalidated evidence;
+2. one atomic authority for owner, charge, projections and committed effects,
+   with ordinary outcomes unable to become generation faults;
+3. bounded composition classified as policy-commuting, canonically
+   ordered-batchable or coupled, including exact aggregate resource algebra
+   and canonical public-effect ordering;
+4. one necessary progress owner and named releaser for every retained state,
+   task, queue, lock, wait and Apply boundary;
+5. mechanical evidence through a sequential reference model,
+   property/concurrency tests, generated trace gates, compatibility regressions
+   and static cost equations.
+
+Standing rule: constraints expressible as state, sets, functions,
+conservation, equivalence, partial order or well-founded descent must be owned
+first by an executable mathematical model and mechanical check. Prose records
+assumptions, boundaries and rationale only; it cannot be the sole evidence.
+
+Semantic, topology and commit minimality are three evaluation axes, not three
+more systems. The target remains a bounded
+commuting-or-canonically-ordered Plan/Apply kernel; every new finding must map
+to one root law, while an implementation artifact with no mapping is deletion
+evidence.
+
+### Anti-bypass gate
+
+- D1 obligation/layer, wait/releaser, ordinary/fault and capability-handoff
+  tables block D2 until closed.
+- D2 layer deletion, `develop` compatibility and cost decomposition block D3.
+- D3 proof types, sequential reference model, resource/effect algebra and
+  closed operation errors block production edits.
+- Each implementation checkpoint must generate from its Git diff the added
+  states, tasks, queues, locks, versions, effects and panic-like operations;
+  every item needs one five-law owner or the phase fails.
+- Operation-count gates must detect any return to per-owner ingress, exchange
+  or membership round trips. Compilation and green legacy tests alone cannot
+  advance progress.
+
+### Mathematical proof kernel
+
+- Model authority as `A = (owners, charge, membership, dependency, scheduler,
+  effects, view, clocks)` and total protocol state as `Sigma = (A,
+  linear_capabilities, bounded_handoffs)`.
+- The batch theorem is
+  `observe(BatchApply(A, X)) = observe(fold(Step, A, canonical(X)))`.
+  Observation includes ordered committed effects; internal token identities
+  may differ only by consistent alpha-renaming.
+- Conservation requires one charge row exactly when an owner exists and one
+  live capability exactly when `(hash, version)` is Computing.
+- Every nonterminal operation must decrease a finite rank in one bounded step
+  or wait on a monotonic level with one named releaser. Unchanged-cut retry is
+  forbidden.
+- Implement this first as a pure Rust sequential reference model plus
+  property/differential tests; use deterministic concurrency/Loom only for
+  capability, wake and shutdown protocols. Full consensus/VM execution stays
+  outside the model behind typed evidence.
+
+### D1 batch sequence-identity finding
+
+- `ApplySequence` is the identity of one committed authority transition, but
+  `plan/settlement.rs` currently increments it once per independent Ready
+  member although the whole `IndependentDelta` is applied atomically once.
+  Only the final sequence is observable; intermediate values have no owner.
+- Per-owner uniqueness is already the job of `EntryVersion`. Mixing the two
+  meanings accelerates finite counter use and makes batch equivalence and
+  source-cut reasoning unnecessarily harder.
+- D3 must separate one move-only `ApplyStamp` per prepared delta from a bounded
+  owner-version allocator. Permanent falsifier 17 varies batch size and proves
+  one sequence step, distinct owner versions and unchanged deterministic effect
+  order. Add a generated gate against sequence allocation inside member loops.
+
+The new ledger row is `D1-BATCH-SEQUENCE`. Continue the complete layer,
+ordinary-error and liveness inventories before the D1 gate.
+
+### D1 allocation-progress finding
+
+- Compute, Ready and maintenance workers map allocation pressure to a fixed
+  1 ms retry; administration and both chain-command preparation and Apply use
+  the same fixed delay. Allocator capacity has no monotonic source level or
+  unique releaser, so these waits do not satisfy the progress law.
+- Under persistent pressure the same construction repeats against an unchanged
+  cut. Ready may strand its head, workers consume continuous bounded CPU, and
+  the capacity-one ordered chain lane can block later reconciliation or clear.
+- D3 must define one allocation algebra: hostile/optional work terminates or
+  drops ordinarily, checked-out capability cancellation is exact, and
+  indispensable chain/administrative work uses bounded reserved scratch or one
+  deterministic safe replacement outcome. Per-loop sleep tuning, exponential
+  retry, watchdogs and special cases are not accepted as the root correction.
+
+The new ledger row is `D1-ALLOCATION-LIVENESS`; it is jointly owned by Atomic
+Authority and Owned Progress, not treated as a set of local retry bugs.
+
+### D1 preliminary layer inventory
+
+- Irreducible semantic boundaries are now separated from their current runtime
+  realization. Retained owner/charge, exact resolve and verification evidence,
+  fair capability checkout, verified-work overlap, atomic membership,
+  committed effects, ordered chain control and coherent derived reads remain
+  lower bounds.
+- Per-item ingress, a dedicated resolver, separate Verify fallback queue,
+  per-worker checkout Apply, exact `Ready` representation/driver, maintenance
+  task separation, cache-writer task and task-per-stage supervision are not
+  thereby proven necessary.
+- The best-effort verification-cache channel/task has no correctness or
+  liveness owner because a full/closed channel deliberately drops the update;
+  it enters D2 as a measured isolation optimization or deletion candidate.
+- The complete table is in `.independent-execution-plan` section 5.1. D2 must
+  attempt safe fusion for every `OPEN` realization before selecting M8 or any
+  alternative topology.
+
+## 2026-08-06 mathematical-backbone route correction
+
+### Durable route and checkpoint
+
+- Git checkpoint remains `2dee898d29`; no production Rust was changed in this
+  slice. The user-owned `.gitignore` modification remains untouched.
+- Active authority is `tx-pool/.independent-execution-plan`, status M0:
+  trusted boundary, legal inputs, stable observations and equivalence.
+- The fixed roadmap is now M0 boundary/observations, M1 executable sequential
+  kernel, M2 composition/progress/cost, M3 production/develop refinement and
+  minimality, M4 blueprint/anti-drift freeze, model-derived implementation,
+  correctness acceptance, then profiling/fixed-binary A/B.
+- M8, compute exchange, retained-ingress batching and Ready-prefix sketches
+  are non-normative candidate evidence. No topology is selected before M3.
+
+### Formula corrections already persisted
+
+The earlier simplified equations were unsound and have been replaced in the
+plan, `docs/ARCHITECTURE.md`, `docs/REVIEW_GUIDE.md`, the root `AGENTS.md` and
+`architecture-contract.json`:
+
+1. Model one transition system
+   `M = (E, Sigma, Legal, Step, Inv, Obs, Equivalent, Live, Cost)` and keep the
+   trusted environment distinct from mutable authority state.
+2. Pair the actual snapshot and `ChainViewId` in authority state; include
+   owners, projections, source versions, resources, scheduler, dependency,
+   effects, bans and clocks. Static membership configuration belongs to `E`;
+   the committed short-ID cache belongs to rebuildable derived state.
+3. State the batch theorem over kernel state only:
+   `ObsKernel(CommitBatch_E(Omega,X)) =
+   ObsKernel(FoldNoInterleave(KernelStep_E,Omega,Canon_Omega(X)))`, where
+   `Omega=(A,K)` binds authority and linear capabilities, from one initial
+   state with no intervening kernel Apply. Fold intermediates are hidden;
+   this is one legal linearization, not every interleaving.
+4. Replace owner/charge count shorthand with exact domain, row-value,
+   hierarchical aggregate and effect-log fold equations.
+5. Remove the false live-capability/Computing biconditional. At stable cuts a
+   Computing owner implies one exact capability and each `(hash,version)` has
+   at most one; stale capabilities may exist but have no mutation right and
+   retire boundedly.
+6. Replace a global service rank with per-request/command/capability progress
+   under named fairness and environment premises. A view change creates a new
+   obligation but the old one must retire boundedly; unchanged-cut retry is
+   forbidden.
+7. Add fixed, per-item, per-edge, coupled-component and adversarial cost terms,
+   plus model-delta review at every phase boundary.
+
+### Newly recognized M0 coverage obligations
+
+- pre-authority Remote/Proposal known/in-flight handoff and controller
+  saturation are protocol state, not merely external observations;
+- startup/configuration validity, callback reentrancy exclusion, reliable
+  ordered chain control, monotonic time, cancellation and allocator failure
+  are explicit model inputs or trusted premises;
+- RPC/status/detail/pool info, live-cell/compact-block reads, fee estimation,
+  recent-reject overlay, persistence/replay, relay-parent rebuild and template
+  convergence each need exact observation semantics;
+- effect commitment and endpoint delivery are separate traces; crash durability
+  and the endpoint action/acknowledgement window remain explicit residuals;
+- dynamic independence must include raw/witness identity, short-id collision,
+  graph edges, source/fairness/deadline policy, all resource partitions,
+  eviction and effect placement, not only Cell `W/P/R/H` sets;
+- security also needs disjoint-traffic noninterference and hostile-work
+  amplification bounds, not only single-trace state invariants;
+- the reference model must be independently implemented and mechanically
+  bound to production constructors/consumers, with deliberate-premise-removal
+  tests so model and code cannot drift together unnoticed.
+
+### Exact next action after recovery
+
+1. Complete M0 legal-input/trusted-boundary and observation/equivalence tables
+   from all service/controller/relay/chain/effect/template/persistence paths.
+2. Run the M0 model-delta review and static document/contract checks.
+3. Design the isolated pure Rust M1 model types and total command algebra; do
+   not edit production or run performance experiments.
+
+## 2026-08-06 math-skeleton report adjudication
+
+- The attached math-skeleton report was checked against HEAD `2dee898d29`,
+  the current authority code and `develop`. Its four D1 code observations are
+  retained, with two corrections: the Ready stale-tail defect is a proven
+  legal-schedule liveness failure but plain high-fee insertion alone does not
+  establish its external attack trace; and these authority paths do not exist
+  on `develop`, so they are active-branch release blockers rather than a claim
+  about released develop production.
+- The suggested blanket refinement treatment for relay/template/persistence
+  was rejected. M0 now separates the sequential kernel, boundary protocol
+  automata and trusted external functions. Existing tests may prove a
+  refinement edge but cannot remove a boundary; `D1-KNOWN-HANDOFF` is direct
+  counterevidence to blanket relay closure.
+- The existing CI/registry stack will own generated model bindings. M2 now
+  requires independent hostile-trace/premise-removal review. No parallel
+  hand-maintained manifest is permitted.
+- The two active liveness defects will not be patched into the inherited
+  topology before M4. This branch is blocked from release until the
+  model-derived corrections land. If the affected new authority code is ever
+  deployed separately, that would require an independent hotfix decision.
+- Existing Ready attempt/work counts do not measure completion clustering or
+  verification-duration distribution. M2 owns the measurement schema; M4 may
+  add feature-gated counters, and empirical data may select only among models
+  that already satisfy static safety/liveness/cost bounds.
+- A new correction was found while verifying the report: per-member Ready
+  freshness is insufficient under strict priority. The valid batch is the
+  longest common exact prefix of the captured keys and the current ordered
+  Ready frontier. A stronger insertion makes the prefix empty; stale weaker
+  tail work cannot discard an unchanged prefix. This is now an M1/M2 theorem,
+  not a local runtime patch.
+- M0 now contains an explicit extraction equation and registry for transaction
+  identity, proposal keys, cell footprint, chain/source context, validation
+  evidence, policy/resources/effects, linear claims and pre-authority handoff.
+
+Exact restart state remains M0. Next: complete the model-delta audit of all
+legal commands and observations, freeze M0 with static gates, then begin the
+independently implemented pure Rust M1 model. No production Rust or timing
+experiment is authorized before that boundary.
+
+### M0 model-delta correction after boundary enumeration
+
+- The prior `Sigma = (A, capabilities, handoffs, lifecycle)` shorthand omitted
+  explicit rebuildable projections, the no-authority startup state and how
+  boundary protocols relate to the authority kernel. It has been replaced by
+  `Omega = (A, K)`, `U = NoAuthority | LiveAuthority(Omega)` and
+  `Sigma = (U, P, D, L)`: a tagged authority slot, bounded protocols, derived
+  projections and lifecycle.
+- `Step_E` is now the total full-system transition; `KernelStep_E` is its
+  atomic authority/capability sub-transition and `ProtocolStep_E` advances
+  handoff/effect/template/persistence/shutdown state without deciding a commit
+  retroactively. Checkout and settlement therefore cannot split owner mutation
+  from creation/consumption of the unique linear capability.
+  Authority, protocol and crash cuts are distinct observations.
+- The same correction is persisted in `AGENTS.md`, `docs/ARCHITECTURE.md`,
+  `docs/REVIEW_GUIDE.md` and the machine-checked proof policy.
+- `architecture-contract.json` now maps every currently discovered service
+  message, ordered chain control, committed effect and nested acceptance/
+  rejection, chain-removal, read-state/RPC-status and preaccepted-source
+  variant to one model boundary family. `check_security_manifest.py` discovers
+  the Rust enum variants and rejects missing, extra or unknown mappings.
+- M0 now records exact API-specific projection collapse: Accepted Gap and
+  Pending both map to RPC Pending; PreAccepted phases remain live lookup state
+  but are not accepted pending IDs; ReplacementHistory falls through to
+  recent-reject and legacy conflicted surfaces and is not persisted.
+
+This was a real model omission found by the required high-view review, not a
+production patch. M0 remains active until all system-event outcomes and
+cross-boundary linearization points are closed.
+
+### M0 compatibility and boundary-cost checkpoint
+
+- `cargo semver-checks check-release -p ckb-tx-pool --baseline-rev develop
+  --default-features` completed against `2dee898d29`: 214 checks passed and 9
+  major-change lint classes failed. The exact classes are Copy added to
+  `PlugTarget`; one macro removed; exhaustive enum variants added/removed;
+  public methods removed; builder arity and generic signature changed; and the
+  public `pool` module/root `TxPool` removed. The previous hand-written claim
+  that `TxPoolService` was public was wrong: it was `pub(crate)` on develop and
+  did not appear in the generated report. The compatibility blocker and M0
+  table now carry the generated facts.
+- Controller channel capacity is only a request-count bound. Proposal batches
+  are correctly count/byte validated before enqueue, but single transaction
+  requests, public proposal-ID carriers, the relayer's 100 ms aggregate prune
+  and the complete-fork ordered command need separate payload-residency terms.
+  Their upstream protocol/RPC limits are recorded as boundary premises, not
+  silently imported into the controller type.
+- A new static query-cost finding is open. Full-pool ID/info, detail-rank and
+  fee-estimate paths scan, sort or allocate O(pool) data while holding the one
+  authority read guard; current handler concurrency is
+  `2 * max_tx_verify_workers`. Public RPC exposes these paths and has no batch
+  limit by default. Develop already had broad pool-lock queries and unbounded
+  handler spawning, so this is not claimed as a branch-only regression; the
+  unified authority makes its writer-delay proof explicit. M2 owns the
+  amplification equation and M3 compares compatible boundary, prepared
+  receipt and immutable-projection designs. Benchmarking cannot waive it.
+- Public architecture/review text no longer falsely claims that every query's
+  allocation and sorting is already outside the guard. The current gap is
+  named `D1-QUERY-LOCK-COST`; request payload accounting is
+  `D1-REQUEST-PAYLOAD-BOUND`.
+
+Exact next action remains M0: run the complete model-delta questions and
+static contract gates, freeze the boundary model, then start the isolated pure
+Rust M1 reference model. Production code and timing experiments remain frozen.
+
+### M0 closure and M1 handoff
+
+- M0 is complete. The full boundary census now has both one-family semantic
+  ownership and generated-domain cross-cutting bindings for ordinary controller
+  messages and ordered chain controls.
+- The final model-delta audit corrected request payload/acknowledgement
+  conflation, split process-monotonic and wall-clock semantics, restored the
+  exact Recovery persistence subset and removed the remaining false short-query
+  claim. It added no production state or compatibility exception.
+- `TP-HANDOFF-001` owns controller payload conservation and exact queue/handler
+  bounds. `D1-KNOWN-HANDOFF`, request-byte amplification, query lock cost,
+  wall-clock expiry liveness and Rust API compatibility remain open downstream
+  obligations rather than hidden M0 assumptions.
+- The complete discovered tx-pool contracts, documentation/ASCII checks,
+  formatting and diff checks pass at the M0 boundary.
+
+Exact restart state is M1. Next: implement the independent pure Rust total
+system/sequential-kernel model and small boundary automata in isolated test
+files, then turn the section 16 ledger into minimal counterexamples. Production
+Rust and timing experiments remain frozen through M3.
