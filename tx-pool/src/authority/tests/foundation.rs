@@ -1,4 +1,4 @@
-use super::super::chain::{AcceptedProof, FinalAdmissionWork, ProposalContextReceipt};
+use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{
     CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
 };
@@ -507,7 +507,7 @@ pub(super) fn direct_verified_facts_for_view(
     let serialized_bytes = payload.serialized_bytes();
     let resident_bytes =
         accepted_transaction_charge_bytes(serialized_bytes, payload.resolved_transaction());
-    VerifiedFacts::for_foundation_with_resolved_locations(
+    VerifiedFacts::for_foundation_view(
         chain_view,
         DependencyCut(ApplySequence(0)),
         payload,
@@ -3100,129 +3100,6 @@ fn uak_expanded_footprint_is_canonical_bounded_and_role_aware() {
     assert_eq!(
         ExpandedFootprint::from_transaction(&duplicate_input, Vec::new(), 3),
         Err(FootprintError::DuplicateInput)
-    );
-}
-
-#[test]
-fn uak_tx_pool_chain_backed_finalization_rejects_pool_origin_cells_by_construction() {
-    let input = OutPoint::new(Byte32::new([0x44; 32]), 0);
-    let transaction = TransactionBuilder::default()
-        .input(CellInput::new(input.clone(), 0))
-        .build();
-    let chain_payload = Arc::new(
-        resolved_payload_with_facts(&transaction, Vec::new(), vec![input], Capacity::shannons(1))
-            .into_payload(),
-    );
-    let chain_bytes = chain_payload.serialized_bytes();
-    let chain_backed = VerifiedFacts::for_foundation_with_resolved_locations(
-        ChainViewId::initial(),
-        DependencyCut(ApplySequence(0)),
-        Arc::clone(&chain_payload),
-        CandidateMetrics {
-            fee: Capacity::shannons(1),
-            cost: AcceptedCost::new(chain_bytes, chain_bytes, 0),
-        },
-    );
-    let chain_view = chain_backed.chain_view().clone();
-    assert!(
-        FinalAdmissionWork::new(
-            RawTxHash(transaction.hash()),
-            EntryVersion(1),
-            chain_view,
-            chain_backed,
-        )
-        .into_tx_pool_chain_backed()
-        .is_some(),
-        "positive chain location under the exact view constructs the capability"
-    );
-
-    let different_revision = ChainViewId::new(ChainRevision(1), Byte32::zero());
-    let stale_context = VerifiedFacts::for_foundation_with_resolved_locations(
-        ChainViewId::initial(),
-        DependencyCut(ApplySequence(0)),
-        Arc::clone(&chain_payload),
-        CandidateMetrics {
-            fee: Capacity::shannons(1),
-            cost: AcceptedCost::new(chain_bytes, chain_bytes, 0),
-        },
-    );
-    assert!(
-        FinalAdmissionWork::new(
-            RawTxHash(transaction.hash()),
-            EntryVersion(2),
-            different_revision,
-            stale_context,
-        )
-        .into_tx_pool_chain_backed()
-        .is_none(),
-        "same-tip evidence from another authority revision cannot construct the exact-view capability"
-    );
-
-    let pool_payload = Arc::new(
-        resolved_payload_with_facts(&transaction, Vec::new(), Vec::new(), Capacity::shannons(1))
-            .into_payload(),
-    );
-    let pool_bytes = pool_payload.serialized_bytes();
-    let pool_origin = VerifiedFacts::for_foundation_with_resolved_locations(
-        ChainViewId::initial(),
-        DependencyCut(ApplySequence(0)),
-        pool_payload,
-        CandidateMetrics {
-            fee: Capacity::shannons(1),
-            cost: AcceptedCost::new(pool_bytes, pool_bytes, 0),
-        },
-    );
-    let pool_view = pool_origin.chain_view().clone();
-    assert!(
-        FinalAdmissionWork::new(
-            RawTxHash(transaction.hash()),
-            EntryVersion(3),
-            pool_view,
-            pool_origin,
-        )
-        .into_tx_pool_chain_backed()
-        .is_none(),
-        "a pool-produced input cannot reach direct final admission"
-    );
-
-    let dependency = OutPoint::new(Byte32::new([0x45; 32]), 0);
-    let dependency_transaction = TransactionBuilder::default()
-        .cell_dep(CellDep::new_builder().out_point(dependency.clone()).build())
-        .build();
-    let dependency_bytes = dependency_transaction.data().total_size();
-    let dependency_payload = Arc::new(
-        ResolvedPayload::for_foundation(
-            &dependency_transaction,
-            vec![dependency],
-            64,
-            Capacity::shannons(1),
-            dependency_bytes,
-            Vec::new(),
-            Vec::new(),
-        )
-        .expect("fixture dependency is resolved but pool-origin")
-        .into_payload(),
-    );
-    let pool_dependency = VerifiedFacts::for_foundation_with_resolved_locations(
-        ChainViewId::initial(),
-        DependencyCut(ApplySequence(0)),
-        dependency_payload,
-        CandidateMetrics {
-            fee: Capacity::shannons(1),
-            cost: AcceptedCost::new(dependency_bytes, dependency_bytes, 0),
-        },
-    );
-    let dependency_view = pool_dependency.chain_view().clone();
-    assert!(
-        FinalAdmissionWork::new(
-            RawTxHash(dependency_transaction.hash()),
-            EntryVersion(4),
-            dependency_view,
-            pool_dependency,
-        )
-        .into_tx_pool_chain_backed()
-        .is_none(),
-        "a pool-produced cell dependency cannot reach direct final admission"
     );
 }
 

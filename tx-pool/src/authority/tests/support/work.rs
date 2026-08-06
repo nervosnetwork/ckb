@@ -11,17 +11,6 @@ fn resolved_within_grant(grant: ComputeGrant, payload: &ResolvedPayload) -> bool
         && payload.footprint.edge_count() <= grant.max_edges
 }
 
-impl VerificationSettlement {
-    /// Test fixtures deliberately exercise the canonical Ready path unless a
-    /// runtime-level test is proving direct finalization itself.
-    pub(in crate::authority) fn into_compute_settlement(self) -> ComputeSettlement {
-        match self {
-            Self::Verified(verified) => verified.into_ready_settlement(),
-            Self::Ordinary(settlement) => settlement,
-        }
-    }
-}
-
 impl ResolutionEvidence {
     pub(in crate::authority) fn for_foundation(
         resolved: Arc<ResolvedTransaction>,
@@ -155,13 +144,11 @@ impl VerifyWork {
     ) -> ComputeSettlement {
         let tip = self.token.chain_view().tip().0.clone();
         match self.bind_current(&tip) {
-            Ok(work) => work
-                .verified_with_time_context(
-                    cycles,
-                    TimeContextReceipt::from_validation(rules),
-                    AsyncProcessStart::now(),
-                )
-                .into_compute_settlement(),
+            Ok(work) => work.verified_with_time_context(
+                cycles,
+                TimeContextReceipt::from_validation(rules),
+                AsyncProcessStart::now(),
+            ),
             Err(stale) => stale,
         }
     }
@@ -191,13 +178,11 @@ impl ContinuousVerifyWork {
         cycles: u64,
         rules: ScriptVerificationRules,
     ) -> ComputeSettlement {
-        self.into_current()
-            .verified_with_time_context(
-                cycles,
-                TimeContextReceipt::from_validation(rules),
-                AsyncProcessStart::now(),
-            )
-            .into_compute_settlement()
+        self.into_current().verified_with_time_context(
+            cycles,
+            TimeContextReceipt::from_validation(rules),
+            AsyncProcessStart::now(),
+        )
     }
 }
 

@@ -6,23 +6,6 @@ impl ResolutionJob {
     }
 }
 
-impl VerificationExecution {
-    pub(in crate::authority) fn into_parts_for_foundation(
-        self,
-    ) -> (ComputeSettlement, Option<VerificationCacheUpdate>) {
-        match self {
-            Self::Settlement {
-                settlement,
-                cache_update,
-            } => (settlement, cache_update),
-            Self::Structural {
-                settlement: _,
-                fault,
-            } => panic!("fixture reached a structural verification fault: {fault:?}"),
-        }
-    }
-}
-
 impl DirectVerifiedCandidate {
     pub(in crate::authority) fn with_cache_update_for_foundation(
         mut self,

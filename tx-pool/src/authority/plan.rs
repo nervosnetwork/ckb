@@ -10,9 +10,9 @@ use self::test_support::DependencyLossWork;
 
 use super::ban::{PeerBanDelta, PeerBanError, PeerBanRegistry};
 use super::chain::{
-    AcceptedProof, DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionReceipt,
+    DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionReceipt,
     FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
-    ReadyPayloadRelation, TxPoolComputeAdmissionReceipt,
+    ReadyPayloadRelation,
 };
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
@@ -340,15 +340,6 @@ impl ComputeSettlementFailure {
             token: self.token,
             next: self.next,
         }
-    }
-
-    /// Preserve a linear settlement when a sibling Plan/validation boundary
-    /// discovers a structural error before ordinary settlement planning can
-    /// consume it. This never changes the candidate's semantic outcome; it
-    /// only keeps the active capability attached to the original defect.
-    pub(super) fn preserving(error: PlanError, settlement: ComputeSettlement) -> Self {
-        let ComputeSettlement { token, next } = settlement;
-        Self::new(error, token, next)
     }
 
     /// Discard an expensive result before reacquiring the authority guard and
@@ -1659,30 +1650,12 @@ impl TxPoolAuthority {
         preaccepted: &PreAcceptedEntry,
         receipt: &FinalAdmissionReceipt,
     ) -> Result<(), PlanError> {
-        if receipt.key() != &preaccepted.record.identity.raw {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
-        self.validate_acceptance_proof(preaccepted, receipt.view(), receipt.proof())
-    }
-
-    fn validate_compute_acceptance_evidence(
-        &self,
-        preaccepted: &PreAcceptedEntry,
-        receipt: &TxPoolComputeAdmissionReceipt,
-    ) -> Result<(), PlanError> {
-        self.validate_acceptance_proof(preaccepted, receipt.view(), receipt.proof())
-    }
-
-    fn validate_acceptance_proof(
-        &self,
-        preaccepted: &PreAcceptedEntry,
-        view: &ChainViewId,
-        proof: &AcceptedProof,
-    ) -> Result<(), PlanError> {
-        if view != &self.chain_view {
+        if receipt.view() != &self.chain_view {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
-        if proof.payload().identity() != &preaccepted.record.identity
+        let proof = receipt.proof();
+        if receipt.key() != &preaccepted.record.identity.raw
+            || proof.payload().identity() != &preaccepted.record.identity
             || !proof.is_for(&self.chain_view)
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -4230,13 +4203,7 @@ impl TxPoolAuthority {
         settlement: ComputeSettlement,
     ) -> Result<CommittedDelta, ComputeSettlementFailure> {
         let ComputeSettlement { token, next } = settlement;
-        let prepared = match next {
-            SettlementNext::FinalAdmission(receipt) => {
-                self.prepare_verified_compute_settlement(&token, receipt)
-            }
-            next => self.prepare_settlement(&token, next),
-        };
-        match prepared {
+        match self.prepare_settlement(&token, next) {
             Ok(plan) => Ok(plan.apply()),
             Err(PrepareSettlementError::Recompute(error)) => Err(ComputeSettlementFailure::new(
                 error,
@@ -4579,12 +4546,6 @@ impl TxPoolAuthority {
                             charge: raw_charge,
                         }
                     }
-                }
-                SettlementNext::FinalAdmission(receipt) => {
-                    return Err(PrepareSettlementError::Preserve {
-                        error: PlanError::Fault(AuthorityFault::MembershipProjection),
-                        next: SettlementNext::FinalAdmission(receipt),
-                    });
                 }
                 SettlementNext::Rejected(rejection) => {
                     if chain_state_is_current || rejection.remains_valid_after_chain_change() {

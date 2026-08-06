@@ -1,7 +1,4 @@
-use super::chain::{
-    CellContentReceipt, FinalAdmissionReceipt, FinalAdmissionWork, ReadyPayloadRelation,
-    TimeContextReceipt, TxPoolComputeAdmissionReceipt,
-};
+use super::chain::{CellContentReceipt, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
 use super::resources::AcceptedCost;
 use super::state::{
@@ -52,10 +49,6 @@ pub(super) struct ResolutionSeal(());
 /// Constructor capability binding post-script metrics to the exact resolved
 /// payload consumed by this module's move-only verify work.
 pub(super) struct VerificationSeal(());
-
-/// Constructor capability binding a compact direct-admission receipt to the
-/// exact compute settlement token that supplied its validated facts.
-pub(super) struct ComputeAdmissionSeal(());
 
 #[derive(Debug)]
 pub(super) struct ResolutionEvidence {
@@ -178,11 +171,6 @@ pub(super) enum SettlementNext {
     QueuedVerify(ResolvedFacts),
     Waiting(MissingResolution),
     Ready(VerifiedFacts),
-    /// Lock-external final validation for a successful tx-pool verification.
-    /// This is transient evidence, not a lifecycle location: the sole
-    /// settlement Apply either commits it through the canonical independent
-    /// membership compiler or atomically falls back to charged `Ready`.
-    FinalAdmission(TxPoolComputeAdmissionReceipt),
     Rejected(SettlementRejection),
     /// A negative script-verification result is valid only under both the
     /// checked-out chain view and its sealed payload policy. Retaining the
@@ -258,76 +246,6 @@ impl MissingResolution {
 pub(super) struct ComputeSettlement {
     pub(super) token: SettlementToken,
     pub(super) next: SettlementNext,
-}
-
-/// Successful tx-pool verification that still owns the exact Computing
-/// settlement capability. The runtime may attempt the sealed same-view
-/// independent finalization path; every miss converts this value into the
-/// ordinary charged `Ready` settlement without reconstructing a token.
-#[derive(Debug)]
-#[must_use = "verified compute must commit directly or settle into Ready"]
-pub(super) struct VerifiedComputeSettlement {
-    token: SettlementToken,
-    verified: VerifiedFacts,
-}
-
-#[derive(Debug)]
-#[must_use = "verification must preserve either verified or ordinary settlement"]
-pub(super) enum VerificationSettlement {
-    Verified(VerifiedComputeSettlement),
-    Ordinary(ComputeSettlement),
-}
-
-#[derive(Debug)]
-#[must_use = "a final-admission receipt must settle or report its structural subject mismatch"]
-pub(super) enum FinalAdmissionBinding {
-    Settlement(ComputeSettlement),
-    SubjectMismatch(ComputeSettlement),
-}
-
-impl VerifiedComputeSettlement {
-    pub(super) fn final_admission_work(&self) -> FinalAdmissionWork {
-        FinalAdmissionWork::new(
-            self.token.hash.clone(),
-            self.token.version,
-            self.verified.chain_view().clone(),
-            self.verified.clone(),
-        )
-    }
-
-    pub(super) fn into_ready_settlement(self) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: SettlementNext::Ready(self.verified),
-        }
-    }
-
-    pub(super) fn bind_final_admission(
-        self,
-        receipt: FinalAdmissionReceipt,
-    ) -> FinalAdmissionBinding {
-        if receipt.key() != &self.token.hash || receipt.expected() != self.token.version {
-            drop(receipt);
-            return FinalAdmissionBinding::SubjectMismatch(self.into_ready_settlement());
-        }
-        if receipt.payload_relation() != ReadyPayloadRelation::Shared {
-            drop(receipt);
-            return FinalAdmissionBinding::Settlement(self.into_ready_settlement());
-        }
-        let receipt = TxPoolComputeAdmissionReceipt::from_bound_final_admission(
-            ComputeAdmissionSeal(()),
-            receipt,
-        );
-        // The receipt already owns the validated clone of these exact facts.
-        // Discarding this worker shell outside the authority guard avoids
-        // duplicating a large proof in the linear settlement command.
-        let Self { token, verified } = self;
-        drop(verified);
-        FinalAdmissionBinding::Settlement(ComputeSettlement {
-            token,
-            next: SettlementNext::FinalAdmission(receipt),
-        })
-    }
 }
 
 fn internal_failure(token: LeaseToken) -> ComputeSettlement {
@@ -459,10 +377,10 @@ fn verified(
     cycles: u64,
     time: TimeContextReceipt,
     async_process_start: AsyncProcessStart,
-) -> VerificationSettlement {
+) -> ComputeSettlement {
     let serialized_bytes = resolved.payload().serialized_bytes();
     if resolved.payload().footprint.edge_count() > token.grant.max_edges {
-        return VerificationSettlement::Ordinary(budget_denied(token));
+        return budget_denied(token);
     }
     let payload_policy = token.payload_policy;
     // Cycle-claim validation is part of the only constructor for Ready
@@ -472,14 +390,10 @@ fn verified(
     if let PayloadPolicy::RemoteDeclaredCycles(declared) = payload_policy
         && declared != cycles
     {
-        return VerificationSettlement::Ordinary(token.settle(
-            SettlementNext::VerificationRejected {
-                rejection: CommittedPublicReject::new(Reject::DeclaredWrongCycles(
-                    declared, cycles,
-                )),
-                resolved,
-            },
-        ));
+        return token.settle(SettlementNext::VerificationRejected {
+            rejection: CommittedPublicReject::new(Reject::DeclaredWrongCycles(declared, cycles)),
+            resolved,
+        });
     }
     let fee = resolved.payload().fee();
     let (dependency_cut, content, context, verify_class) =
@@ -487,24 +401,21 @@ fn verified(
     let (payload, accepted_resident_bytes) =
         ResolvedPayload::compact_after_verification(content.into_payload(), VerificationSeal(()));
     if accepted_resident_bytes > token.grant.max_resident_bytes {
-        return VerificationSettlement::Ordinary(budget_denied(token));
+        return budget_denied(token);
     }
     let metrics = CandidateMetrics {
         fee,
         cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
     };
-    VerificationSettlement::Verified(VerifiedComputeSettlement {
-        token: token.settlement,
-        verified: VerifiedFacts::from_verification(
-            VerificationSeal(()),
-            dependency_cut,
-            CellContentReceipt::from_resolution(payload),
-            context,
-            verify_class,
-            metrics,
-            async_process_start,
-        ),
-    })
+    token.settle(SettlementNext::Ready(VerifiedFacts::from_verification(
+        VerificationSeal(()),
+        dependency_cut,
+        CellContentReceipt::from_resolution(payload),
+        context,
+        verify_class,
+        metrics,
+        async_process_start,
+    )))
 }
 
 impl ResolveWork {
@@ -711,7 +622,7 @@ impl SnapshotBoundVerifyWork {
         cycles: u64,
         time: TimeContextReceipt,
         async_process_start: AsyncProcessStart,
-    ) -> VerificationSettlement {
+    ) -> ComputeSettlement {
         verified(self.token, self.resolved, cycles, time, async_process_start)
     }
 

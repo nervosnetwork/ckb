@@ -288,9 +288,9 @@ stateDiagram-v2
     C --> QV: resolved
     C --> W: missing dependency
     W --> QR: dependency level advances
-    C --> R: verified but not admitted now
+    C --> R: retained verification complete
     R --> A: final Plan + Apply
-    C --> A: proven independent/direct final Apply
+    C --> A: Local direct final Apply
     A --> H: successful RBF retains victim
     H --> QR: typed recovery trigger
     A --> QR: detached-chain Recovery
@@ -313,6 +313,16 @@ Sources are policy, not locations:
 - Local owns no retained phase. It performs computation directly and uses the
   same final membership compiler and effect rules.
 - TestAccept evaluates validation policy but performs no authoritative Apply.
+
+For Remote, Proposal and Recovery, `Computing -> Ready -> Accepted` is the
+intentional successful path. Ready is not merely transition ceremony: settling
+into it releases the compute permit and active-work charge, after which the
+Ready driver can overlap final membership work with later resolve and verify
+work and can amortize final membership across a bounded batch. A measured
+single-Apply Remote experiment removed authority operations but regressed
+throughput because it kept the compute stage live through final membership.
+Local submission does not use the retained pipeline and therefore keeps its
+direct `Computing -> Accepted` path.
 
 A peer ban removes only not-yet-Accepted owners attributed to that peer. Its
 committed cohort effect resets the relay projection. Because relay marks input

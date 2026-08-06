@@ -749,13 +749,6 @@ impl FairFrontier {
             .collect()
     }
 
-    /// Preserve the canonical Ready order without allocating a candidate
-    /// slice when a just-verified independent owner considers direct final
-    /// admission. Any existing Ready owner wins the boundary.
-    pub(super) fn has_ready(&self) -> bool {
-        !self.ready.is_empty()
-    }
-
     pub(super) fn apply(&mut self, delta: SchedulerDelta) {
         if let Some(before) = delta.before {
             self.remove(before);

@@ -549,15 +549,11 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
         },
     );
 
-    let (settlement, cache_update) = request
-        .bind_cache(&cache)
-        .execute(None)
-        .await
-        .into_parts_for_foundation();
-    assert!(cache_update.is_none());
+    let execution = request.bind_cache(&cache).execute(None).await;
+    assert!(execution.cache_update.is_none());
     apply_plan(
         authority
-            .apply_settlement(settlement)
+            .apply_settlement(execution.settlement)
             .expect("the exact verification capability settles"),
     );
 }
@@ -584,15 +580,11 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
         checkout_verification_job(&mut authority, Arc::clone(&snapshot), requested_tx, 93)
             .prepare();
 
-    let (settlement, cache_update) = request
-        .bind_cache(&cache)
-        .execute(None)
-        .await
-        .into_parts_for_foundation();
-    assert!(cache_update.is_some());
+    let execution = request.bind_cache(&cache).execute(None).await;
+    assert!(execution.cache_update.is_some());
     apply_plan(
         authority
-            .apply_settlement(settlement)
+            .apply_settlement(execution.settlement)
             .expect("the cache-miss verification capability settles"),
     );
 }

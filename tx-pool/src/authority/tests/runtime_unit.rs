@@ -374,7 +374,7 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn runtime_chain_backed_verification_finalizes_without_ready_round_trip() {
+async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() {
     let runtime = runtime();
     let admission = admission(905, 95);
     let key = admission.identity.raw.clone();
@@ -397,128 +397,20 @@ async fn runtime_chain_backed_verification_finalizes_without_ready_round_trip() 
         runtime
             .execute_verification(request.bind_cache(&cache), None)
             .await
-            .expect("verification settles authoritative membership"),
+            .expect("verification settles Ready ownership"),
     );
     assert!(verification.cache_update.is_some());
     assert_eq!(
         runtime
             .try_drive_ready()
-            .expect("the Ready frontier remains healthy"),
-        AuthorityReadyOutcome::Idle,
-        "direct finalization must not publish an intermediate Ready owner"
+            .expect("the sealed Ready batch commits"),
+        AuthorityReadyOutcome::Applied
     );
     let store = runtime.store.read();
     assert!(matches!(
         store.authority.entry(&key),
         Some(OwnedTx::Accepted(_))
     ));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn runtime_direct_finalization_falls_back_for_effect_pressure_and_existing_ready() {
-    const EFFECT_BYTES: usize = 1024 * 1024;
-    let config = runtime_config();
-    let snapshot = genesis_snapshot();
-    let effects = EffectLimits::partitioned(
-        EffectCapacity::new(2, EFFECT_BYTES),
-        EffectCapacity::new(2, EFFECT_BYTES),
-        EffectCapacity::new(2, EFFECT_BYTES),
-        EffectBatchBounds::new(
-            EffectBatchBound::new(2, EFFECT_BYTES),
-            EffectBatchBound::new(2, EFFECT_BYTES),
-            EffectBatchBound::new(2, EFFECT_BYTES),
-        ),
-    )
-    .expect("the narrow fixture admits one effect in each region");
-    let runtime = runtime_with_effect_limits(&config, snapshot, effects);
-    queue_remote_rejection(&runtime, 1_066);
-    queue_remote_rejection(&runtime, 1_069);
-    let cache = ckb_verification::cache::init_cache();
-
-    let first = admission(1_067, 107);
-    let first_key = first.identity.raw.clone();
-    runtime.admit(first).expect("first admission commits");
-    let first_job = continued(
-        runtime
-            .try_checkout_for_foundation(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
-            .expect("first checkout remains healthy"),
-    )
-    .expect("first resolve work is ready");
-    let AuthorityComputeOutcome::Verification(first_request) = continued(
-        runtime
-            .execute_compute(first_job)
-            .expect("first resolution continues to verification"),
-    ) else {
-        panic!("the empty-script fixture fits continuous verification")
-    };
-    let _ = continued(
-        runtime
-            .execute_verification(first_request.bind_cache(&cache), None)
-            .await
-            .expect("effect pressure falls back to Ready"),
-    );
-    assert!(matches!(
-        runtime.store.read().authority.entry(&first_key),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Ready(_))
-    ));
-
-    for _ in 0..2 {
-        let occupied = runtime
-            .wait_effect_checkout()
-            .await
-            .expect("effect checkout remains healthy")
-            .expect("the occupied effect is queued");
-        runtime
-            .settle_effect(occupied.complete_for_foundation().published())
-            .expect("effect capacity is released");
-    }
-
-    let second = admission(1_068, 108);
-    let second_key = second.identity.raw.clone();
-    runtime.admit(second).expect("second admission commits");
-    let second_job = continued(
-        runtime
-            .try_checkout_for_foundation(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
-            .expect("second checkout remains healthy"),
-    )
-    .expect("second resolve work is ready");
-    let AuthorityComputeOutcome::Verification(second_request) = continued(
-        runtime
-            .execute_compute(second_job)
-            .expect("second resolution continues to verification"),
-    ) else {
-        panic!("the empty-script fixture fits continuous verification")
-    };
-    let _ = continued(
-        runtime
-            .execute_verification(second_request.bind_cache(&cache), None)
-            .await
-            .expect("an existing Ready owner forces canonical fallback"),
-    );
-    {
-        let store = runtime.store.read();
-        for key in [&first_key, &second_key] {
-            assert!(matches!(
-                store.authority.entry(key),
-                Some(OwnedTx::PreAccepted(entry))
-                    if matches!(entry.phase, PreAcceptedPhase::Ready(_))
-            ));
-        }
-    }
-    assert_eq!(
-        runtime
-            .try_drive_ready()
-            .expect("the canonical Ready batch remains authoritative"),
-        AuthorityReadyOutcome::Applied
-    );
-    let store = runtime.store.read();
-    for key in [&first_key, &second_key] {
-        assert!(matches!(
-            store.authority.entry(key),
-            Some(OwnedTx::Accepted(_))
-        ));
-    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

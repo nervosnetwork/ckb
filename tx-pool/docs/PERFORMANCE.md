@@ -165,14 +165,18 @@ publication:
 | Retained admission | one owner/charge/dedup Apply | one Apply | Required. Computing before ownership would recreate uncharged hostile work. |
 | Compute checkout | one successful `Queued -> Computing` Apply plus capability-mismatched probes | one successful Apply | The lease and active-work charge are required; failed probes are not. Route one typed baton to one compatible worker. |
 | Resolve/Verify handoff | zero extra Apply when a verifier continues Resolve into Verify, otherwise a queued-Verify settlement and checkout | zero extra Apply on the continuous path | Preserve the fallback, but make the compatible continuous path easier to select without creating a worker-owned queue. |
-| Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | one final membership Apply | `Ready` remains the charged fallback for effect pressure, coupling and deferred work. A chain-backed independent completion may reuse the same validator and membership compiler directly; it must not create a second fast-path policy. |
+| Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | two Applies in the retained pipeline topology | `Ready` is both the charged authority handoff and the concurrency boundary that releases compute before final membership. A one-Apply experiment deleted work but measurably reduced throughput by lengthening the compute stage. |
 | Ordinary effect publication | checkout Apply, external I/O, settlement Apply | one settlement Apply | The sole publisher can borrow a stable FIFO head because later appends and higher sequences cannot displace it. Generation-reset selection still requires active checkout state. |
 | External endpoints | no authority guard during I/O | no authority guard during I/O | Fixed contract. |
 
-For an ordinary independent transaction this gives a four-Apply steady-state
-floor: admission, compute checkout, atomic final membership, and ordinary
-effect settlement. It is not valid for a generation reset, RBF component,
-missing dependency, resource rejection or effect-capacity fallback.
+For an ordinary independent transaction the retained constructive floor is
+five Applies: admission, compute checkout, `Computing -> Ready`,
+`Ready -> Accepted`, and ordinary effect settlement. Ready batches up to eight
+owners, so the final membership Apply cost is amortized without keeping scarce
+compute capacity live. A four-Apply path is a mechanical work minimum, not a
+throughput-safe constructive minimum in this topology. These bounds are not
+valid for a generation reset, RBF component, missing dependency, resource
+rejection or effect-capacity fallback.
 
 The next candidates were reviewed together rather than accumulated as local
 patches:
@@ -186,14 +190,14 @@ patches:
    ineligible under a global, Remote or per-peer limit. This removes duplicate
    notifications and write-lock probes while adding no owner, queue, lock,
    task, timer or retry state.
-2. **Direct verified commit - design-accepted after the baton result.** A
-   successful chain-backed independent verification may produce a sealed final
-   validation receipt while its exact Computing lease remains live, then use
-   the existing membership compiler in one total Apply. Stale view, changed
-   dependency cut, conflict/RBF, capacity pressure, allocation pressure and
-   effect pressure must use closed outcomes and the existing charged Ready or
-   re-resolve path. No validation rule may be copied into a second compiler.
-3. **Stable queued-effect lease - design-accepted after finalization.** The
+2. **Direct verified commit - measured and rejected.** The experiment reused
+   the exact final validator and membership compiler and removed every Ready
+   probe on eligible chain-backed work. It nevertheless held the compute
+   permit and active-work charge through final membership, eliminating overlap
+   between later verification and the Ready driver. Stable paired A/B regressed
+   beyond the quick boundary, so the experiment was removed rather than
+   compensated with another queue or actor.
+3. **Stable queued-effect lease - next design candidate.** The
    existing sole-publisher claim can borrow the oldest ordinary queued envelope
    without a checkout mutation; settlement validates sequence, batch identity
    and progress before removing or retaining that same head. Generation reset
@@ -264,6 +268,44 @@ The candidate is retained because it closes a legal-input liveness failure and
 removes measured failed probes without transferring authority or adding a
 failure domain. It does not yet establish a general throughput improvement;
 the final medium matrix remains the production gate.
+
+### 3.4 Direct verified-commit result
+
+Checkpoint `51b93a830` tested whether a fully chain-backed independent verifier
+could reuse the canonical final validator and membership compiler while its
+exact Computing capability remained live. The experiment introduced no second
+policy or owner and passed 423/423 isolated library tests, strict all-target
+Clippy, generated evidence validation and the complete 150/150 managed
+integration universe.
+
+The balanced six-pair fixed-binary quick comparison against retained
+`17088e240` rejected the design:
+
+| Scenario | Candidate delta | Paired relative MAD |
+|---|---:|---:|
+| cold always-success, 1 peer / 8 workers | `-3.4340%` | `0.5786%` |
+| warm always-success, 1 peer / 8 workers | `-1.3487%` | `0.7949%` |
+
+The throughput geometric mean was `-2.40%`, outside the 2% diagnostic
+boundary. Baseline/candidate binary SHA-256 values were
+`2777ac7f69bc...` / `fdf4c8f662ea...`; result JSON hashes were
+`2deb921df45c...` / `debec9882d74...`.
+
+Matched 2,000-transaction profiles showed that the candidate did remove
+mechanical work: authority reads fell from 8,000 to 2,000, writes from 20,097
+to 18,008, and Ready attempts/work from 4,000/2,000 to zero. Resolve, Verify
+and effect work remained exactly 2,000 each. The result is therefore not a
+hidden retry or measurement-noise explanation. Direct finalization lengthened
+the bottleneck compute lifetime: it retained the compute permit and active-work
+charge during final validation and membership compilation. The Ready handoff
+instead releases compute first and overlaps final membership with subsequent
+verification. Replacing it with a worker-owned handoff queue would recreate
+the same boundary with a second owner and failure domain.
+
+The direct path is removed and Ready is retained as a necessary pipeline
+concurrency boundary as well as an authority state. This is an example where
+fewer transitions and lower CPU work did not imply higher throughput; both
+operation evidence and paired timing were required for disposition.
 
 ## 4. Reproducible profiling
 

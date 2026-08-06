@@ -221,29 +221,6 @@ impl VerifiedFacts {
             async_process_start: None,
         }
     }
-
-    pub(in crate::authority) fn for_foundation_with_resolved_locations(
-        chain_view: ChainViewId,
-        dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
-        metrics: CandidateMetrics,
-    ) -> Self {
-        let rules = ScriptVerificationRules::V0;
-        let location = CellLocationReceipt::from_resolution(chain_view, &payload);
-        let context = VerificationContextReceipt::from_validation(
-            location,
-            TimeContextReceipt::from_validation(rules),
-        );
-        Self {
-            dependency_cut,
-            content: CellContentReceipt::from_resolution(payload),
-            context,
-            script: ScriptReceipt::from_verification(rules),
-            verify_class: VerifyCycleClass::Small,
-            metrics,
-            async_process_start: None,
-        }
-    }
 }
 
 impl ObservedDependencies {

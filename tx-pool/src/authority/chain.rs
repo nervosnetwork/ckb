@@ -20,11 +20,6 @@ use ckb_verification::cache::ScriptVerificationRules;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Constructor capability for restoring Ready-only timing after a validated
-/// membership receipt loses the direct-commit OCC race. The field is private
-/// to this module, so no other path can attach timing to Accepted proof state.
-pub(super) struct ReadyFallbackSeal(());
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CellContentReceipt {
     payload: Arc<ResolvedPayload>,
@@ -308,18 +303,6 @@ pub(super) struct FinalAdmissionWork {
     validation: MembershipValidationWork,
 }
 
-/// Tx-pool-only same-view finalization evidence whose complete cell footprint
-/// was chain-backed when script verification sealed its location context.
-///
-/// Block validation never consumes this capability. It exists only so the
-/// tx-pool can reuse positive chain-location evidence while the exact
-/// `ChainViewId` remains current, without allocating an Accepted overlay for a
-/// candidate that has no pool-produced cell.
-#[derive(Debug)]
-pub(super) struct TxPoolChainBackedFinalAdmissionWork {
-    work: FinalAdmissionWork,
-}
-
 /// Read-only validation work for a synchronous trusted admission. Unlike
 /// [`FinalAdmissionWork`], it has no resident PreAccepted owner or version:
 /// the exact transaction and its verification facts are sealed together and
@@ -421,31 +404,6 @@ impl FinalAdmissionWork {
     ) -> (RawTxHash, EntryVersion, MembershipValidationWork) {
         (self.key, self.expected, self.validation)
     }
-
-    pub(super) fn into_tx_pool_chain_backed(self) -> Option<TxPoolChainBackedFinalAdmissionWork> {
-        let verified = &self.validation.verified;
-        let footprint = &verified.payload().footprint;
-        let chain_backed = verified.context_is_for(&self.validation.view)
-            && footprint
-                .inputs()
-                .iter()
-                .all(|input| verified.is_chain_input(input))
-            && footprint
-                .dependencies()
-                .iter()
-                .all(|dependency| verified.is_chain_dependency(dependency));
-        if chain_backed {
-            Some(TxPoolChainBackedFinalAdmissionWork { work: self })
-        } else {
-            None
-        }
-    }
-}
-
-impl TxPoolChainBackedFinalAdmissionWork {
-    pub(super) fn into_work(self) -> FinalAdmissionWork {
-        self.work
-    }
 }
 
 impl DirectAdmissionWork {
@@ -527,25 +485,6 @@ impl MembershipReceipt {
             self.async_process_start,
         )
     }
-
-    fn ready_facts(&self) -> VerifiedFacts {
-        self.proof
-            .verified
-            .clone()
-            .restore_ready_timing(ReadyFallbackSeal(()), self.async_process_start)
-    }
-
-    fn into_ready_facts(self) -> VerifiedFacts {
-        let Self {
-            proof,
-            proposal: _,
-            accepted_at: _,
-            async_process_start,
-        } = self;
-        proof
-            .verified
-            .restore_ready_timing(ReadyFallbackSeal(()), async_process_start)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -555,15 +494,6 @@ pub(super) struct FinalAdmissionReceipt {
     expected: EntryVersion,
     membership: MembershipReceipt,
     payload_relation: ReadyPayloadRelation,
-}
-
-/// Compact tx-pool-only receipt bound to the `SettlementToken` that produced
-/// it. The token already owns raw hash and entry version, while the sealed
-/// constructor admits only a shared-payload receipt. Omitting those redundant
-/// fields keeps the hot linear settlement no larger than ordinary Ready work.
-#[derive(Debug)]
-pub(super) struct TxPoolComputeAdmissionReceipt {
-    membership: MembershipReceipt,
 }
 
 /// The immutable authority cut against which a lock-external final outcome
@@ -682,44 +612,6 @@ impl FinalAdmissionReceipt {
 
     pub(super) fn payload_relation(&self) -> ReadyPayloadRelation {
         self.payload_relation
-    }
-
-    pub(super) fn into_membership_parts(
-        self,
-    ) -> (
-        AcceptedProof,
-        ProposalContextReceipt,
-        AcceptedAtMillis,
-        Option<AsyncProcessStart>,
-    ) {
-        self.membership.into_parts()
-    }
-}
-
-impl TxPoolComputeAdmissionReceipt {
-    pub(super) fn from_bound_final_admission(
-        _seal: super::work::ComputeAdmissionSeal,
-        receipt: FinalAdmissionReceipt,
-    ) -> Self {
-        Self {
-            membership: receipt.membership,
-        }
-    }
-
-    pub(super) fn view(&self) -> &ChainViewId {
-        self.membership.view()
-    }
-
-    pub(super) fn proof(&self) -> &AcceptedProof {
-        self.membership.proof()
-    }
-
-    pub(super) fn ready_facts(&self) -> VerifiedFacts {
-        self.membership.ready_facts()
-    }
-
-    pub(super) fn into_ready_facts(self) -> VerifiedFacts {
-        self.membership.into_ready_facts()
     }
 
     pub(super) fn into_membership_parts(
