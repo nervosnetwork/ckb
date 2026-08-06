@@ -191,7 +191,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         .enable_experiment(shared.clone())
         .enable_integration_test(
             shared.clone(),
-            network_controller.clone(),
+            network_controller,
             chain_controller.clone(),
             vec![],
             vec![],
