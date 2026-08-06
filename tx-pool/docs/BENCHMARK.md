@@ -144,10 +144,10 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
   --candidate-target-dir /private/tmp/txp-target-cand0 \
   --baseline-build-features cross-version-legacy-bench-adapter \
   --output /private/tmp/txp-medium-result.json \
-  --scenario always_success,8000,100,8,1 \
-  --scenario always_success,8000,100,8,4 \
-  --scenario secp256k1,2000,50,8,4 \
-  --scenario dependent_forest_10,8000,100,8,4
+  --scenario always_success,32000,100,8,1 \
+  --scenario always_success,32000,100,8,4 \
+  --scenario secp256k1,8000,50,8,4 \
+  --scenario dependent_forest_10,32000,100,8,4
 ```
 
 The default path builds each side exactly once with `--locked`, incremental
@@ -169,12 +169,24 @@ Cross-version release batches must sustain the measured window for roughly one
 second or longer on the comparison host. A calibration with 400 cheap/dependent
 transactions and 200 secp transactions produced only 47-132 ms ordinary
 windows; isolated scheduler delays then stretched samples to 212-369 ms and
-all four paired MAD values correctly failed at 4.1-13.8%. The matrix above
-uses 8,000 cheap/dependent transactions and 2,000 secp transactions to measure
-steady work instead of one scheduling quantum. The runner retains a hard
-16,384-transaction total bound. Do not shrink these counts for a release
-verdict unless a rejected calibration artifact demonstrates a tighter stable
-window on the target host.
+all four paired MAD values correctly failed at 4.1-13.8%. An 8,000
+cheap/dependent and 2,000 secp follow-up still produced only one- to two-second
+windows; three of four paired records exceeded the 1.5% MAD gate. The matrix
+above therefore uses 32,000 cheap/dependent transactions and 8,000 secp
+transactions. Direct fixed-binary calibration sustained a 4.68-second
+four-peer cheap window with 32,768 target transactions, while a 49,152-target
+probe did not complete within 60 seconds and crossed into a capacity or
+nonlinear regime. The runner retains a hard 32,768-transaction total bound
+instead of hiding noise by crossing into a full-pool or timeout regime. Do not
+shrink these counts for a release verdict unless a rejected calibration
+artifact demonstrates a tighter stable window on the target host.
+
+Each successful attempt also records the child process's user/system CPU time,
+average CPU parallelism and voluntary/involuntary context-switch rates from
+`RUSAGE_CHILDREN`; the scenario summary derives paired CPU ratios and medians.
+These are attribution evidence for scheduler interference. They do not relax
+the wall-throughput MAD gate or become an independent acceptance rule without
+a separately reviewed calibration.
 
 Both source roots, and both build target paths when the runner builds both
 sides, must have equal UTF-8 byte length. This bounds path-derived code-layout

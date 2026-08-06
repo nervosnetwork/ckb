@@ -11,6 +11,7 @@ import math
 import os
 import platform
 import re
+import resource
 import shlex
 import statistics
 import subprocess
@@ -30,7 +31,7 @@ WINDOW = re.compile(
 )
 MIN_CLOCK_TOLERANCE_NS = 1_000_000
 CLOCK_TOLERANCE_DIVISOR = 10_000
-MAX_SCENARIO_TRANSACTIONS = 16_384
+MAX_SCENARIO_TRANSACTIONS = 32_768
 
 
 def sha256(path: Path) -> str:
@@ -336,7 +337,9 @@ def run_attempt(
         str(scenario["workers"]),
         str(scenario["peers"]),
     ]
+    usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
     started = time.time_ns()
+    monotonic_started = time.monotonic_ns()
     try:
         completed = subprocess.run(
             command,
@@ -371,7 +374,9 @@ def run_attempt(
             detail=str(error),
             output="",
         )
+    monotonic_ended = time.monotonic_ns()
     ended = time.time_ns()
+    usage_after = resource.getrusage(resource.RUSAGE_CHILDREN)
     if completed.returncode != 0:
         return failure_attempt(
             side=side,
@@ -436,6 +441,12 @@ def run_attempt(
             detail=evidence_error,
             output=completed.stdout,
         )
+    child_user_cpu_ns = round((usage_after.ru_utime - usage_before.ru_utime) * 1e9)
+    child_system_cpu_ns = round((usage_after.ru_stime - usage_before.ru_stime) * 1e9)
+    child_cpu_ns = child_user_cpu_ns + child_system_cpu_ns
+    process_wall_ns = monotonic_ended - monotonic_started
+    voluntary_context_switches = usage_after.ru_nvcsw - usage_before.ru_nvcsw
+    involuntary_context_switches = usage_after.ru_nivcsw - usage_before.ru_nivcsw
     return {
         "outcome": "success",
         "side": side,
@@ -443,6 +454,19 @@ def run_attempt(
         "command": command,
         "process_started_unix_ns": started,
         "process_ended_unix_ns": ended,
+        "process_wall_ns": process_wall_ns,
+        "child_user_cpu_ns": child_user_cpu_ns,
+        "child_system_cpu_ns": child_system_cpu_ns,
+        "child_cpu_ns": child_cpu_ns,
+        "child_cpu_parallelism": child_cpu_ns / process_wall_ns,
+        "child_voluntary_context_switches": voluntary_context_switches,
+        "child_involuntary_context_switches": involuntary_context_switches,
+        "child_voluntary_context_switches_per_second": (
+            voluntary_context_switches * 1e9 / process_wall_ns
+        ),
+        "child_involuntary_context_switches_per_second": (
+            involuntary_context_switches * 1e9 / process_wall_ns
+        ),
         "target_started_unix_ns": int(window["start"]),
         "target_ended_unix_ns": int(window["end"]),
         "elapsed_ns": elapsed_ns,
@@ -582,8 +606,13 @@ def main() -> None:
             continue
 
         paired_ratios: list[float] = []
+        paired_cpu_ratios: list[float] = []
         baseline_rates: list[float] = []
         candidate_rates: list[float] = []
+        baseline_cpu_parallelism: list[float] = []
+        candidate_cpu_parallelism: list[float] = []
+        baseline_involuntary_switch_rates: list[float] = []
+        candidate_involuntary_switch_rates: list[float] = []
         measurement_failed = False
         for run_index in range(args.runs):
             order = [
@@ -619,6 +648,30 @@ def main() -> None:
             baseline_rates.append(baseline_rate)
             candidate_rates.append(candidate_rate)
             paired_ratios.append(candidate_rate / baseline_rate)
+            paired_cpu_ratios.append(
+                float(pair["candidate"]["child_cpu_ns"])
+                / float(pair["baseline"]["child_cpu_ns"])
+            )
+            baseline_cpu_parallelism.append(
+                float(pair["baseline"]["child_cpu_parallelism"])
+            )
+            candidate_cpu_parallelism.append(
+                float(pair["candidate"]["child_cpu_parallelism"])
+            )
+            baseline_involuntary_switch_rates.append(
+                float(
+                    pair["baseline"][
+                        "child_involuntary_context_switches_per_second"
+                    ]
+                )
+            )
+            candidate_involuntary_switch_rates.append(
+                float(
+                    pair["candidate"][
+                        "child_involuntary_context_switches_per_second"
+                    ]
+                )
+            )
         if measurement_failed:
             continue
         median_ratio = statistics.median(paired_ratios)
@@ -633,6 +686,24 @@ def main() -> None:
             "median_candidate_over_baseline": median_ratio,
             "median_delta_percent": (median_ratio - 1.0) * 100.0,
             "paired_ratio_relative_mad_percent": paired_mad,
+            "median_candidate_over_baseline_child_cpu": statistics.median(
+                paired_cpu_ratios
+            ),
+            "paired_child_cpu_relative_mad_percent": relative_mad(
+                paired_cpu_ratios
+            ),
+            "baseline_median_child_cpu_parallelism": statistics.median(
+                baseline_cpu_parallelism
+            ),
+            "candidate_median_child_cpu_parallelism": statistics.median(
+                candidate_cpu_parallelism
+            ),
+            "baseline_median_involuntary_context_switches_per_second": (
+                statistics.median(baseline_involuntary_switch_rates)
+            ),
+            "candidate_median_involuntary_context_switches_per_second": (
+                statistics.median(candidate_involuntary_switch_rates)
+            ),
             "baseline_throughput_spread_percent": spread(baseline_rates),
             "candidate_throughput_spread_percent": spread(candidate_rates),
             "baseline_median_tps": statistics.median(baseline_rates),
