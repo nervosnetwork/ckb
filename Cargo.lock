@@ -1830,7 +1830,6 @@ dependencies = [
  "ckb-resource",
  "ckb-shared",
  "ckb-store",
- "ckb-systemtime",
  "ckb-test-chain-utils",
  "ckb-types",
  "ckb-util",

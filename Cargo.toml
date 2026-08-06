@@ -178,7 +178,6 @@ ckb-metrics-service = { path = "util/metrics-service", version = "1" }
 ckb-migrate = { path = "util/migrate", version = "1" }
 ckb-migration-template = { path = "util/migrate/migration-template", version = "1" }
 ckb-miner = { path = "miner", version = "1" }
-ckb-multisig = { path = "util/multisig", version = "1" }
 ckb-network = { path = "network", version = "1" }
 ckb-notify = { path = "notify", version = "1" }
 ckb-occupied-capacity = { path = "util/occupied-capacity", version = "1" }
@@ -287,7 +286,6 @@ rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = fal
 rustc-hash = "1.1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
-semver = "1.0"
 sentry = "0.34.0"
 sha2 = "0.10"
 serde = "1.0"

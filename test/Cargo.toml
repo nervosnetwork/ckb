@@ -41,7 +41,6 @@ ckb-shared.workspace = true
 tempfile.workspace = true
 reqwest.workspace = true
 rand.workspace = true
-ckb-systemtime.workspace = true
 serde_json.workspace = true
 byteorder.workspace = true
 jsonrpc-core.workspace = true
