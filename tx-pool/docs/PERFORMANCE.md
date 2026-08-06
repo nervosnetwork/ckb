@@ -166,7 +166,7 @@ publication:
 | Compute checkout | one successful `Queued -> Computing` Apply plus capability-mismatched probes | one successful Apply | The lease and active-work charge are required; failed probes are not. Route one typed baton to one compatible worker. |
 | Resolve/Verify handoff | zero extra Apply when a verifier continues Resolve into Verify, otherwise a queued-Verify settlement and checkout | zero extra Apply on the continuous path | Preserve the fallback, but make the compatible continuous path easier to select without creating a worker-owned queue. |
 | Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | two Applies in the retained pipeline topology | `Ready` is both the charged authority handoff and the concurrency boundary that releases compute before final membership. A one-Apply experiment deleted work but measurably reduced throughput by lengthening the compute stage. |
-| Ordinary effect publication | checkout Apply, external I/O, settlement Apply | one settlement Apply | The sole claimed publisher can borrow the minimum committed record because later appends cannot displace the FIFO head and a newer coalesced reset subsumes an older reset receipt. The candidate must bind exclusivity to the claim's type and preserve exact partial progress. |
+| Ordinary effect publication | one coherent receipt read, external I/O, settlement Apply | one settlement Apply | The sole claimed publisher borrows the minimum committed record because later appends cannot displace the FIFO head and a newer coalesced reset subsumes an older reset receipt. Exclusivity is bound to the claim's type and settlement preserves exact partial progress. |
 | External endpoints | no authority guard during I/O | no authority guard during I/O | Fixed contract. |
 
 For an ordinary independent transaction the retained constructive floor is
@@ -197,14 +197,14 @@ patches:
    between later verification and the Ready driver. Stable paired A/B regressed
    beyond the quick boundary, so the experiment was removed rather than
    compensated with another queue or actor.
-3. **Unified effect read lease - correctness-gated candidate.** The existing sole
-   publisher claim can borrow the minimum committed FIFO/reset record without
-   moving it to an active authority location. Settlement validates source,
-   sequence, batch identity and progress before retaining or removing the
-   record. A newer generation reset is a typed mutation-free supersession of
-   an older borrowed reset; it can never be overwritten or resurrected. The
-   claim must be lifetime-bound to the lease so two read receipts are
-   unrepresentable in safe production code.
+3. **Claim-bound effect receipt - retained.** The existing sole publisher claim
+   borrows the minimum committed FIFO/reset record without moving it to an
+   active authority location. Settlement validates source, sequence, batch
+   identity and progress before retaining or removing the record. A newer
+   generation reset is a typed mutation-free supersession of an older receipt;
+   it can never be overwritten or resurrected. The claim is lifetime-bound to
+   the publication lease, so two live receipts are unrepresentable in safe
+   production code.
 4. **Ready delay/coalescing - not selected.** Opportunistic batches already use
    the complete available prefix. Delaying a non-empty Ready level either adds
    a timer/local scheduling authority or can strand trusted work behind a
@@ -308,6 +308,56 @@ The direct path is removed and Ready is retained as a necessary pipeline
 concurrency boundary as well as an authority state. This is an example where
 fewer transitions and lower CPU work did not imply higher throughput; both
 operation evidence and paired timing were required for disposition.
+
+### 3.5 Claim-bound effect-receipt result
+
+Checkpoint `e2f310f16` removes the effect log's resident `active` location and
+checkout Apply. A committed queued record or coalesced reset remains the sole
+owner while the claimed publisher holds an immutable `EffectReceipt`; one
+exact settlement Apply advances or removes that resident. The implementation
+adds no lock, task, queue, cache, timer, retry or fallback protocol, and the
+four affected production files are net +1 line.
+
+Before timing, the checkpoint passed 423/423 isolated library tests, strict
+all-target Clippy, every generated/static contract and the complete 150/150
+managed integration universe. The fixed-binary baseline is `d462c5154`
+(`d90de5f52` is product-equivalent) and the candidate is `e2f310f16`; binary
+SHA-256 values are `fd3b0e6eec18...` and `08c827cfced5...`.
+
+Matched 500-transaction profiles show that the change converts exclusive
+authority acquisitions into shared reads while retaining the semantic stages:
+
+| Scenario | Baseline reads / writes | Candidate reads / writes | Semantic counts |
+|---|---:|---:|---|
+| cold independent | 2,000 / 5,056 | 3,000 / 4,003 | 500 Resolve, Verify, Ready work and effect publish |
+| warm independent | 2,000 / 5,047 | 2,993 / 3,996 | 500 Resolve and Verify; one run coalesced 500 owners into 499 Ready/effect batches |
+| cold parent-first dependency | 3,994 / 13,219 | 5,603 / 11,471 | 999 Resolve, 500 Verify/Ready work and 999 effect publishes |
+
+The acquisition total changes little; the benefit is a smaller exclusive
+critical-section surface, not skipped validation or publication. Single
+profile wall/CPU values varied within about 2% and remain attribution evidence,
+not timing acceptance.
+
+The controlled quick A/B used independent records for every required shape:
+
+| Scenario | Pairs | Candidate throughput | Paired relative MAD |
+|---|---:|---:|---:|
+| cold always-success, 1 peer / 8 workers | 8 | `+0.0341%` | `1.1774%` |
+| warm always-success, 1 peer / 8 workers | 6 | `-0.0570%` | `1.4892%` |
+| cold parent-first dependency, 1 peer / 8 workers | 6 | `+0.2570%` | `0.7615%` |
+
+An earlier combined independent record was rejected because the cold ratio MAD
+was 2.40%, above the 2% quick limit; it was not used as a regression claim.
+The exact eight-pair cold rerun above closed that noise question. Baseline and
+candidate JSON hashes are respectively `b5397e246199...` /
+`1b928af0429c...` (cold), `e006a8f0e23f...` / `7967ca0a3dc7...`
+(warm), and `e16af64a72a6...` / `ca68b0bd8b86...` (dependency).
+
+The effect receipt is retained because it deletes an authority location and a
+mutation protocol, makes publisher exclusivity type-visible, substantially
+reduces exclusive acquisitions, and shows no measurable regression in any
+accepted paired shape. The data does not establish a general throughput gain;
+the final medium comparisons remain the production gate.
 
 ## 4. Reproducible profiling
 

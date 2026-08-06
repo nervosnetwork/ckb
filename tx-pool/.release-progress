@@ -1474,6 +1474,43 @@ dependency/effect-heavy shapes against `d462c5154` (with `d90de5f52` retained
 as its product-equivalent design baseline). Profile and explain the result
 before deciding whether the effect-receipt implementation is retained.
 
+Effect-receipt performance disposition:
+
+- clean equal-length worktrees fixed baseline `d462c5154` and candidate
+  `e2f310f16`; their unchanged quick binaries hash to
+  `fd3b0e6eec18efcfd6f76e54d4235ea4284835acf314cfd8d5906ce692f3a112`
+  and
+  `08c827cfced5ab030f2a00fe4b40d3f340bbd7f29f2e7f812fbe2be870aab271`;
+- an initial combined independent record was rejected, not interpreted,
+  because cold paired MAD was 2.40% above the 2% quick gate. The exact cold
+  shape was repeated with eight balanced pairs and passed at `+0.0341%`
+  throughput / `1.1774%` MAD;
+- the independent warm record passed six balanced pairs at `-0.0570%` /
+  `1.4892%` MAD. The cold parent-first dependency/effect-heavy record passed at
+  `+0.2570%` / `0.7615%` MAD;
+- matched 500-transaction profiles preserve Resolve, Verify, Ready and effect
+  semantics. Cold independent authority reads/writes move 2,000/5,056 ->
+  3,000/4,003; warm moves 2,000/5,047 -> 2,993/3,996; parent-first dependency
+  moves 3,994/13,219 -> 5,603/11,471. The implementation converts exclusive
+  acquisition to shared evidence; it does not skip work;
+- all six profile manifests are clean, hash-bound and deterministically
+  analyzable. Their baseline/candidate manifest hashes are
+  `331b2fc304fc...` / `6e7cc0ea1b47...` (cold), `8b4beb1a52be...` /
+  `18a0cd57c9e...` (warm), and `f7d02f710fcd...` / `d446914bca6b...`
+  (dependency);
+- retain `e2f310f16`. It removes the active resident and checkout mutation,
+  adds no failure domain and is neutral within every accepted paired shape.
+  The phase-wide review found no duplicated owner, semantic bypass,
+  concurrency loss or snowball state. This is a model simplification with a
+  measured exclusive-lock reduction, not a claimed general throughput gain.
+
+Exact next action: freeze the reviewer-facing retention evidence, then execute
+the final medium fixed-binary comparisons of the final source against the
+pre-performance checkpoint `4135df3c7` and the develop anchor
+`91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`. Reuse the existing cross-version
+harness and fixed binaries where identities remain valid; do not treat quick
+diagnostics as the production verdict.
+
 ## Restart rule
 
 After compaction or restart:
