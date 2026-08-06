@@ -82,8 +82,6 @@ pub enum RPCError {
     TransactionFailedToResolve = -301,
     /// (-302): Failed to verify the transaction.
     TransactionFailedToVerify = -302,
-    /// (-1000): Some signatures in the submit alert are invalid.
-    AlertFailedToVerifySignatures = -1000,
     /// (-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
     PoolRejectedTransactionByOutputsValidator = -1102,
     /// (-1103): Pool rejects some transactions which seem contain invalid VM instructions. See the issue

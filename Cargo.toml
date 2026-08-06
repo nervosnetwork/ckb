@@ -88,7 +88,6 @@ members = [
   "notify",
   "util/memory-tracker",
   "db-migration",
-  "util/network-alert",
   "store",
   "util/indexer-sync",
   "util/indexer",
@@ -181,7 +180,6 @@ ckb-migration-template = { path = "util/migrate/migration-template", version = "
 ckb-miner = { path = "miner", version = "1" }
 ckb-multisig = { path = "util/multisig", version = "1" }
 ckb-network = { path = "network", version = "1" }
-ckb-network-alert = { path = "util/network-alert", version = "1" }
 ckb-notify = { path = "notify", version = "1" }
 ckb-occupied-capacity = { path = "util/occupied-capacity", version = "1" }
 ckb-occupied-capacity-core = { path = "util/occupied-capacity/core", version = "1" }

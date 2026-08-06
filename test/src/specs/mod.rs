@@ -1,4 +1,3 @@
-mod alert;
 mod consensus;
 mod dao;
 mod fault_injection;
@@ -11,7 +10,6 @@ mod sync;
 mod tor;
 mod tx_pool;
 
-pub use alert::*;
 pub use consensus::*;
 pub use dao::*;
 pub use fault_injection::*;
