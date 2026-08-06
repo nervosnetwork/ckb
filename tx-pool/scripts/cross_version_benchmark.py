@@ -30,6 +30,7 @@ WINDOW = re.compile(
 )
 MIN_CLOCK_TOLERANCE_NS = 1_000_000
 CLOCK_TOLERANCE_DIVISOR = 10_000
+MAX_SCENARIO_TRANSACTIONS = 16_384
 
 
 def sha256(path: Path) -> str:
@@ -184,7 +185,7 @@ def parse_scenario(value: str) -> dict[str, object]:
         or warm < 0
         or workers <= 0
         or peers <= 0
-        or target + warm > 4_096
+        or target + warm > MAX_SCENARIO_TRANSACTIONS
     ):
         raise ValueError(f"invalid scenario: {value}")
     return dict(zip(("name", "target", "warm", "workers", "peers"), [name, *values]))

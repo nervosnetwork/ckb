@@ -144,10 +144,10 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
   --candidate-target-dir /private/tmp/txp-target-cand0 \
   --baseline-build-features cross-version-legacy-bench-adapter \
   --output /private/tmp/txp-medium-result.json \
-  --scenario always_success,400,100,8,1 \
-  --scenario always_success,400,100,8,4 \
-  --scenario secp256k1,200,50,8,4 \
-  --scenario dependent_forest_10,400,100,8,4
+  --scenario always_success,8000,100,8,1 \
+  --scenario always_success,8000,100,8,4 \
+  --scenario secp256k1,2000,50,8,4 \
+  --scenario dependent_forest_10,8000,100,8,4
 ```
 
 The default path builds each side exactly once with `--locked`, incremental
@@ -164,6 +164,17 @@ domains and cannot be equal at nanosecond precision. Every attempt records the
 observed delta and accepts only a monotonic wall window within
 `max(1 ms, elapsed * 100 ppm)`; a larger drift or clock jump invalidates the
 sample instead of silently widening the profile window.
+
+Cross-version release batches must sustain the measured window for roughly one
+second or longer on the comparison host. A calibration with 400 cheap/dependent
+transactions and 200 secp transactions produced only 47-132 ms ordinary
+windows; isolated scheduler delays then stretched samples to 212-369 ms and
+all four paired MAD values correctly failed at 4.1-13.8%. The matrix above
+uses 8,000 cheap/dependent transactions and 2,000 secp transactions to measure
+steady work instead of one scheduling quantum. The runner retains a hard
+16,384-transaction total bound. Do not shrink these counts for a release
+verdict unless a rejected calibration artifact demonstrates a tighter stable
+window on the target host.
 
 Both source roots, and both build target paths when the runner builds both
 sides, must have equal UTF-8 byte length. This bounds path-derived code-layout
