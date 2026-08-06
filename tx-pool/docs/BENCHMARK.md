@@ -158,6 +158,13 @@ attempts. A scenario is comparable only when its paired-ratio relative MAD is
 at most 1.5%. The JSON checkpoint is rewritten atomically after every attempt,
 so an interrupted run retains all completed evidence.
 
+The harness reports the measured duration from Rust's monotonic `Instant` and
+the profiling crop in Unix wall-clock nanoseconds. These are different clock
+domains and cannot be equal at nanosecond precision. Every attempt records the
+observed delta and accepts only a monotonic wall window within
+`max(1 ms, elapsed * 100 ppm)`; a larger drift or clock jump invalidates the
+sample instead of silently widening the profile window.
+
 Both source roots, and both build target paths when the runner builds both
 sides, must have equal UTF-8 byte length. This bounds path-derived code-layout
 noise that source remapping cannot remove. The worktrees must be completely

@@ -28,6 +28,8 @@ WINDOW = re.compile(
     r"^PROFILE_WINDOW start_unix_ns=(?P<start>\d+) end_unix_ns=(?P<end>\d+)$",
     re.MULTILINE,
 )
+MIN_CLOCK_TOLERANCE_NS = 1_000_000
+CLOCK_TOLERANCE_DIVISOR = 10_000
 
 
 def sha256(path: Path) -> str:
@@ -405,13 +407,23 @@ def run_attempt(
     accepted = int(parsed["accepted"])
     window = windows[0].groupdict()
     elapsed_ns = int(parsed["elapsed_ns"])
+    wall_window_ns = int(window["end"]) - int(window["start"])
+    clock_delta_ns = wall_window_ns - elapsed_ns
+    clock_tolerance_ns = max(
+        MIN_CLOCK_TOLERANCE_NS, elapsed_ns // CLOCK_TOLERANCE_DIVISOR
+    )
     evidence_error = None
     if observed != scenario:
         evidence_error = f"scenario drift: {observed} != {scenario}"
     elif accepted != expected_accepted:
         evidence_error = f"accepted {accepted}, expected {expected_accepted}"
-    elif int(window["end"]) - int(window["start"]) < elapsed_ns:
-        evidence_error = "target window is shorter than elapsed result"
+    elif wall_window_ns <= 0:
+        evidence_error = "target wall-clock window is not monotonic"
+    elif abs(clock_delta_ns) > clock_tolerance_ns:
+        evidence_error = (
+            f"target clock-domain delta {clock_delta_ns}ns exceeds "
+            f"{clock_tolerance_ns}ns tolerance"
+        )
     if evidence_error is not None:
         return failure_attempt(
             side=side,
@@ -433,6 +445,9 @@ def run_attempt(
         "target_started_unix_ns": int(window["start"]),
         "target_ended_unix_ns": int(window["end"]),
         "elapsed_ns": elapsed_ns,
+        "wall_window_ns": wall_window_ns,
+        "clock_domain_delta_ns": clock_delta_ns,
+        "clock_domain_tolerance_ns": clock_tolerance_ns,
         "throughput_tps": float(parsed["throughput"]),
         "accepted": accepted,
         "output": completed.stdout,
