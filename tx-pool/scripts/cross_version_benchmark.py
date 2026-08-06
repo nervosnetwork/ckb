@@ -246,6 +246,15 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--candidate-build-features", default="")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument(
+        "--replicates-per-sample",
+        type=int,
+        default=1,
+        help=(
+            "repeat each side inside one recorded sample; values above one "
+            "must be even so every sample contains balanced AB/BA order"
+        ),
+    )
     parser.add_argument("--initial-cooldown-seconds", type=float, default=15.0)
     parser.add_argument("--cooldown-seconds", type=float, default=10.0)
     parser.add_argument("--max-paired-mad-percent", type=float, default=1.5)
@@ -264,6 +273,17 @@ def arguments() -> argparse.Namespace:
     args = parser.parse_args()
     if args.runs < 6 or args.runs % 2:
         parser.error("--runs must be an even value of at least 6")
+    if (
+        args.replicates_per_sample <= 0
+        or args.replicates_per_sample > 8
+        or (
+            args.replicates_per_sample != 1
+            and args.replicates_per_sample % 2
+        )
+    ):
+        parser.error(
+            "--replicates-per-sample must be 1 or an even value from 2 to 8"
+        )
     if (
         args.initial_cooldown_seconds < 0
         or args.cooldown_seconds < 0
@@ -418,6 +438,11 @@ def run_attempt(
     clock_tolerance_ns = max(
         MIN_CLOCK_TOLERANCE_NS, elapsed_ns // CLOCK_TOLERANCE_DIVISOR
     )
+    profile_window_status = (
+        "aligned"
+        if abs(clock_delta_ns) <= clock_tolerance_ns
+        else "scheduler_widened"
+    )
     evidence_error = None
     if observed != scenario:
         evidence_error = f"scenario drift: {observed} != {scenario}"
@@ -425,9 +450,9 @@ def run_attempt(
         evidence_error = f"accepted {accepted}, expected {expected_accepted}"
     elif wall_window_ns <= 0:
         evidence_error = "target wall-clock window is not monotonic"
-    elif abs(clock_delta_ns) > clock_tolerance_ns:
+    elif clock_delta_ns < -clock_tolerance_ns:
         evidence_error = (
-            f"target clock-domain delta {clock_delta_ns}ns exceeds "
+            f"target wall-clock window is shorter by {-clock_delta_ns}ns, exceeding "
             f"{clock_tolerance_ns}ns tolerance"
         )
     if evidence_error is not None:
@@ -473,9 +498,50 @@ def run_attempt(
         "wall_window_ns": wall_window_ns,
         "clock_domain_delta_ns": clock_delta_ns,
         "clock_domain_tolerance_ns": clock_tolerance_ns,
+        "profile_window_status": profile_window_status,
         "throughput_tps": float(parsed["throughput"]),
         "accepted": accepted,
         "output": completed.stdout,
+    }
+
+
+def aggregate_side(
+    attempts: list[dict[str, object]], target_per_attempt: int
+) -> dict[str, object]:
+    elapsed_ns = sum(int(attempt["elapsed_ns"]) for attempt in attempts)
+    process_wall_ns = sum(int(attempt["process_wall_ns"]) for attempt in attempts)
+    child_user_cpu_ns = sum(
+        int(attempt["child_user_cpu_ns"]) for attempt in attempts
+    )
+    child_system_cpu_ns = sum(
+        int(attempt["child_system_cpu_ns"]) for attempt in attempts
+    )
+    child_cpu_ns = child_user_cpu_ns + child_system_cpu_ns
+    voluntary_context_switches = sum(
+        int(attempt["child_voluntary_context_switches"]) for attempt in attempts
+    )
+    involuntary_context_switches = sum(
+        int(attempt["child_involuntary_context_switches"]) for attempt in attempts
+    )
+    target = target_per_attempt * len(attempts)
+    return {
+        "attempts": len(attempts),
+        "target": target,
+        "elapsed_ns": elapsed_ns,
+        "throughput_tps": target * 1e9 / elapsed_ns,
+        "process_wall_ns": process_wall_ns,
+        "child_user_cpu_ns": child_user_cpu_ns,
+        "child_system_cpu_ns": child_system_cpu_ns,
+        "child_cpu_ns": child_cpu_ns,
+        "child_cpu_parallelism": child_cpu_ns / process_wall_ns,
+        "child_voluntary_context_switches": voluntary_context_switches,
+        "child_involuntary_context_switches": involuntary_context_switches,
+        "child_voluntary_context_switches_per_second": (
+            voluntary_context_switches * 1e9 / process_wall_ns
+        ),
+        "child_involuntary_context_switches_per_second": (
+            involuntary_context_switches * 1e9 / process_wall_ns
+        ),
     }
 
 
@@ -520,7 +586,7 @@ def main() -> None:
         args.candidate_build_features,
     )
     record: dict[str, object] = {
-        "schema": 2,
+        "schema": 3,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "runner_sha256": sha256(Path(__file__)),
         "harness_sha256": harness_hash,
@@ -545,6 +611,7 @@ def main() -> None:
             "thermal": command_output(["pmset", "-g", "therm"]),
         },
         "runs": args.runs,
+        "replicates_per_sample": args.replicates_per_sample,
         "initial_cooldown_seconds": args.initial_cooldown_seconds,
         "cooldown_seconds": args.cooldown_seconds,
         "max_paired_mad_percent": args.max_paired_mad_percent,
@@ -613,64 +680,98 @@ def main() -> None:
         candidate_cpu_parallelism: list[float] = []
         baseline_involuntary_switch_rates: list[float] = []
         candidate_involuntary_switch_rates: list[float] = []
+        paired_samples: list[dict[str, object]] = []
         measurement_failed = False
         for run_index in range(args.runs):
-            order = [
-                ("baseline", baseline, baseline_root),
-                ("candidate", candidate, candidate_root),
-            ]
-            if run_index % 2:
-                order.reverse()
-            pair: dict[str, dict[str, object]] = {}
-            for side, binary, root in order:
-                phase = f"{key}-pair-{run_index + 1}"
-                print(f">>> {phase}: {side}", flush=True)
-                attempt = run_attempt(binary, root, scenario, side, phase, args.timeout_seconds)
-                checkpoint(attempt)
-                cool(args.cooldown_seconds)
-                if attempt["outcome"] == "failure":
-                    summaries[key] = {
-                        "status": "non_comparable",
-                        "reason": "measurement_failure",
-                        "failed_side": side,
-                        "failed_pair": run_index + 1,
-                        "failure_category": attempt["category"],
-                    }
-                    record["summary"] = summaries
-                    write_checkpoint(args.output, record)
-                    measurement_failed = True
+            pair: dict[str, list[dict[str, object]]] = {
+                "baseline": [],
+                "candidate": [],
+            }
+            for replicate_index in range(args.replicates_per_sample):
+                order = [
+                    ("baseline", baseline, baseline_root),
+                    ("candidate", candidate, candidate_root),
+                ]
+                if (run_index + replicate_index) % 2:
+                    order.reverse()
+                for side, binary, root in order:
+                    phase = f"{key}-pair-{run_index + 1}"
+                    if args.replicates_per_sample > 1:
+                        phase += f"-replicate-{replicate_index + 1}"
+                    print(f">>> {phase}: {side}", flush=True)
+                    attempt = run_attempt(
+                        binary,
+                        root,
+                        scenario,
+                        side,
+                        phase,
+                        args.timeout_seconds,
+                    )
+                    checkpoint(attempt)
+                    cool(args.cooldown_seconds)
+                    if attempt["outcome"] == "failure":
+                        summaries[key] = {
+                            "status": "non_comparable",
+                            "reason": "measurement_failure",
+                            "failed_side": side,
+                            "failed_pair": run_index + 1,
+                            "failed_replicate": replicate_index + 1,
+                            "failure_category": attempt["category"],
+                        }
+                        record["summary"] = summaries
+                        write_checkpoint(args.output, record)
+                        measurement_failed = True
+                        break
+                    pair[side].append(attempt)
+                if measurement_failed:
                     break
-                pair[side] = attempt
             if measurement_failed:
                 break
-            baseline_rate = float(pair["baseline"]["throughput_tps"])
-            candidate_rate = float(pair["candidate"]["throughput_tps"])
+            baseline_sample = aggregate_side(
+                pair["baseline"], int(scenario["target"])
+            )
+            candidate_sample = aggregate_side(
+                pair["candidate"], int(scenario["target"])
+            )
+            baseline_rate = float(baseline_sample["throughput_tps"])
+            candidate_rate = float(candidate_sample["throughput_tps"])
             baseline_rates.append(baseline_rate)
             candidate_rates.append(candidate_rate)
-            paired_ratios.append(candidate_rate / baseline_rate)
-            paired_cpu_ratios.append(
-                float(pair["candidate"]["child_cpu_ns"])
-                / float(pair["baseline"]["child_cpu_ns"])
+            throughput_ratio = candidate_rate / baseline_rate
+            child_cpu_ratio = float(candidate_sample["child_cpu_ns"]) / float(
+                baseline_sample["child_cpu_ns"]
             )
+            paired_ratios.append(throughput_ratio)
+            paired_cpu_ratios.append(child_cpu_ratio)
             baseline_cpu_parallelism.append(
-                float(pair["baseline"]["child_cpu_parallelism"])
+                float(baseline_sample["child_cpu_parallelism"])
             )
             candidate_cpu_parallelism.append(
-                float(pair["candidate"]["child_cpu_parallelism"])
+                float(candidate_sample["child_cpu_parallelism"])
             )
             baseline_involuntary_switch_rates.append(
                 float(
-                    pair["baseline"][
+                    baseline_sample[
                         "child_involuntary_context_switches_per_second"
                     ]
                 )
             )
             candidate_involuntary_switch_rates.append(
                 float(
-                    pair["candidate"][
+                    candidate_sample[
                         "child_involuntary_context_switches_per_second"
                     ]
                 )
+            )
+            paired_samples.append(
+                {
+                    "pair": run_index + 1,
+                    "replicates_per_side": args.replicates_per_sample,
+                    "baseline": baseline_sample,
+                    "candidate": candidate_sample,
+                    "candidate_over_baseline": throughput_ratio,
+                    "candidate_over_baseline_child_cpu": child_cpu_ratio,
+                }
             )
         if measurement_failed:
             continue
@@ -682,7 +783,9 @@ def main() -> None:
                 if paired_mad <= args.max_paired_mad_percent
                 else "noisy"
             ),
+            "replicates_per_sample": args.replicates_per_sample,
             "candidate_over_baseline_ratios": paired_ratios,
+            "paired_samples": paired_samples,
             "median_candidate_over_baseline": median_ratio,
             "median_delta_percent": (median_ratio - 1.0) * 100.0,
             "paired_ratio_relative_mad_percent": paired_mad,

@@ -1511,6 +1511,216 @@ pre-performance checkpoint `4135df3c7` and the develop anchor
 harness and fixed binaries where identities remain valid; do not treat quick
 diagnostics as the production verdict.
 
+Cross-version tooling checkpoint:
+
+- `8861a9809` commits the benchmark-only `profile_one_shot` harness, the
+  checkpointed build-once paired runner, Cargo bench declaration and reviewer
+  documentation. No production module changed; the user-owned root
+  `.gitignore` remains outside the commit;
+- the runner requires distinct equal-byte-length clean source roots and, when
+  it builds both sides, isolated equal-byte-length target paths. It records and
+  revalidates commits, manifests, Cargo locks, byte-identical harness, runner,
+  normalized build flags and immutable binary hashes;
+- each scenario uses one pilot per side followed by ten balanced adjacent
+  pairs, 15 seconds of initial cooldown, ten seconds between attempts and a
+  1.5% paired-ratio MAD ceiling. Capability failures require the explicit
+  non-comparable mode and never enter the throughput aggregate;
+- formatting, the complete six-contract gate (423 discovered nextest tests,
+  291 invariant references, 19 integration anchors and 150 managed specs),
+  one-shot bench compilation, strict all-target Clippy and runner pure-contract
+  checks pass. The remaining release blocker is the final controlled medium
+  A/B itself;
+- the first real build-once smoke exposed a tooling-only clock-domain error:
+  the runner compared `SystemTime` and monotonic `Instant` durations as exact
+  nanoseconds and rejected a valid sample whose wall window differed by 459
+  ns. `b113f3834` fixes the root contract by recording the delta and allowing
+  only `max(1 ms, elapsed * 100 ppm)`; a second 2-pilot/6-pair smoke completed
+  with every attempt valid. The smoke's deliberately tiny/no-cooldown numbers
+  are not performance evidence;
+- clean equal-length measurement revisions are now final `b113f3834`,
+  pre-performance measurement head `a65e6cc02` over product ancestor
+  `4135df3c7`, and develop measurement head `c2e726ffc` over product ancestor
+  `91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`. Their one-shot harnesses are
+  byte-identical. Final/pre-performance binaries are already fixed at
+  `f8446d646cb8...` and `38094bceb052...` and must be reused;
+- exact next action: run final versus pre-performance medium records from the
+  fixed binaries, build develop once and run final versus develop medium
+  records, then keep deep/reverse dependency capability evidence separate.
+
+Medium calibration and architecture-report adjudication:
+
+- `9e6d6cc76` raises only the benchmark one-shot ceiling to 16,384 and records
+  the calibrated medium matrix: 8,000 cheap/dependency transactions and 2,000
+  secp transactions. This is benchmark-only and does not change production;
+- the first final/pre-performance record
+  `/private/tmp/txp-medium-prepf-final-v1.json` is inadmissible: 400/200-item
+  target windows lasted only 47-132 ms and all four paired MAD values were
+  4.1-13.8%. It is retained as benchmark-noise evidence, not product evidence;
+- the calibrated record `/private/tmp/txp-medium-prepf-final-v2.json` admits
+  only the dependency-forest result: final is `+1.9896%` with `1.2884%` paired
+  MAD. The 1-peer cheap, 4-peer cheap and secp records remain inadmissible at
+  2.632%, 5.678% and 2.499% MAD respectively; their apparent directions may
+  not be used. Do not blindly repeat or build develop until the remaining
+  noise shape has been attributed and the same discipline can produce an
+  admissible comparison;
+- the external UAK architecture report based on `ad3edbd9e` is accepted only
+  as corrected evidence. Its develop RBF delete/publish-before-outcome trace,
+  distributed effect publication, in-flight RPC `Unknown` gap, current one
+  owner/total Apply/effect-log closure, derived wake consolidation, lossless
+  uncle count, template source pre-probe, effect receipt and open chain
+  upgradable-read cost all reproduce against exact code;
+- its startup account is not valid at `develop@91b97ab5f`: the readiness gate
+  does drop pre-start chain notifications, but the cited reorg module and
+  one-shot `remove_onchain_entries` zombie compensation do not exist at that
+  anchor. Because ingress is not open and persisted entries replay against the
+  current snapshot, the report does not prove an authoritative owner loss from
+  this gate. Do not use that claim as UAK necessity evidence; F7 remains
+  justified by the separately reproduced reorg/status/template split;
+- its identity cost is misstated. Each owner has `EntryVersion` and ordering
+  metadata `Arrival`; move-only work reuses that same version plus the shared
+  `ChainViewId` and `DependencyCut`. There is no second per-owner lease clock;
+  `ApplySequence` is an authority process clock;
+- `GenerationReset` does not erase or rewrite live owner/RPC state. For an
+  over-bound rebuildable chain transition it replaces detailed external chain
+  effects; a transaction removed by that transition can therefore fall
+  through to RPC `Unknown` when no older pending/durable recent-reject record
+  exists. Relay projections rebuild from the reset. This is a bounded detail
+  trade, not general authority data loss;
+- `no undeclared risk transfer` and `legal input can never fault` are too
+  strong as stated. R2-R8 already record effect crash durability, best-effort
+  persistence, OOM/FFI, template underfill, optional history loss, v1 replay
+  and peer-fence saturation boundaries, while conservative resource charging
+  is an availability trade. Typed fault classification and a panic-free scan
+  do not prove reachability: an `AuthorityFault` still invalidates the service
+  generation and forbids persistence. Existing backward-constructor tables,
+  model tests and one-conversion static gates provide strong evidence, but the
+  hundreds of production fault construction sites remain a final exhaustive
+  proof obligation rather than a theorem established by spot checks;
+- the semantic minimum is supported: one owner algebra, one total Apply and
+  committed effects are the smallest known closure of the reproduced failure
+  families. The report must not conflate that result with a globally minimal
+  execution topology. Retaining Ready is proven better than the measured
+  direct-finalization candidate in the current topology, while true bounded
+  batch Plan/Apply remains explicitly open. P10 decides execution cost and the
+  chain upgradable-read disposition; no architecture movement follows from
+  the report alone.
+
+Exact next action: attribute the three noisy calibrated medium shapes without
+weakening the 1.5% evidence gate, then obtain admissible final/pre-performance
+and final/develop records. The final whole-architecture review must explicitly
+close exhaustive legal-input fault reachability and distinguish semantic
+minimality from measured execution-topology minimality.
+
+Cross-version noise-attribution checkpoint:
+
+- `7720bb2a3` is a benchmark-only checkpoint. It raises the runner's hard
+  total bound to 32,768, updates the release matrix to 32,000
+  cheap/dependency and 8,000 secp targets, and records per-attempt child
+  user/system CPU, average parallelism and context-switch rates plus derived
+  per-scenario CPU ratios. No production source, harness or fixed binary
+  changed;
+- direct fixed-binary calibration completed 32,768 four-peer cheap target
+  transactions in a 4.677-second target window. A 49,152-target probe was
+  stopped after more than 60 seconds with no result, so the matrix does not
+  cross that capacity/nonlinear boundary. The six-pair tiny runner smoke
+  proves the new resource evidence is populated and summarized; it is not
+  timing evidence. All six repository contracts pass after the change;
+- the first formal 32,000 four-peer record is
+  `/private/tmp/txp-medium-prepf-final-p4-v3.json`, SHA-256
+  `7234ffb493d4f58f20a05e61ebe01f005fd8a63aefe29a7ee1c1527e1dfa51c2`.
+  It is inadmissible: wall-ratio MAD is 3.1367% and paired child-CPU-ratio MAD
+  is 3.4907%. Ratios swing from candidate +19.5% to -7.2% over adjacent
+  balanced pairs; both sides' CPU parallelism and CPU cost move with the same
+  host-time wave. Median involuntary switch rates are about 123k-138k/s and
+  side throughput spreads remain 16.7%-24.3%. The apparent +1.89% throughput
+  and -2.30% child-CPU medians are directions only, not release claims;
+- read-only host inspection before that run found substantial unrelated CPU
+  use from Chrome renderers, Weather widget and WindowServer, about 6.2 GB of
+  compressed memory and only 57% aggregate idle. The sandbox did not authorize
+  process termination, so no user process was altered. Longer windows cannot
+  turn this non-stationary host into valid evidence, and the 1.5% gate remains
+  unchanged.
+
+Chrome-meeting attribution retry:
+
+- after the user ended the Chrome meeting, a narrow read-only check found no
+  active Chrome process and about 87% aggregate CPU idle. The fixed binaries,
+  sources, scenario, ten balanced pairs, cooldowns and 1.5% gate were kept
+  unchanged for `/private/tmp/txp-medium-prepf-final-p4-v4.json`, SHA-256
+  `c2057ff1b85fbcc457bc25eaa11889df5faba4bd70c3af312867e95a9c2fb7d4`;
+- removing the meeting materially reduced contamination: baseline/candidate
+  side spreads fell from 24.3%/16.7% to 7.5%/8.9%, and the apparent median
+  wall delta converged from +1.89% to +0.53%. This confirms the meeting was a
+  major contributor to v3 and that v3 must remain rejected;
+- v4 still fails the preregistered wall gate: paired wall-ratio MAD is 2.1835%,
+  so +0.5261% is not admissible performance evidence. Paired child-CPU-ratio
+  MAD is 1.1876%, with a median candidate/baseline CPU ratio of 0.9821. Wall
+  ratios track relative CPU parallelism (sample correlation about +0.76),
+  while the candidate consistently performs fewer involuntary context
+  switches. This separates stable CPU-work evidence from unstable conversion
+  of that work into elapsed time; it does not license a wall-throughput claim;
+- the remaining problem is now measurement-window/scheduling sensitivity, not
+  a reason to loosen the gate. The one-shot 32k target window is only about
+  4-5 seconds on this host, while the fixed harness cannot cross the observed
+  nonlinear/capacity boundary by simply increasing the resident target.
+
+Sustained-sample implementation checkpoint:
+
+- the runner now supports a preregistered `--replicates-per-sample` value. One
+  macro sample aggregates equal fixed-binary target windows as total target
+  transactions divided by total monotonic elapsed time. Even replicate counts
+  balance AB/BA first slots inside every sample; all raw attempts remain in the
+  checkpoint and any one failure rejects the scenario. CPU and switch metrics
+  aggregate raw counts. The 1.5% macro-ratio MAD gate is unchanged;
+- a 2-replicate/6-sample structural smoke produced exactly 2 pilots plus 24
+  raw measurements, six auditable macro samples, correct aggregate arithmetic
+  and no failures. It is deliberately tiny/no-cooldown and is not performance
+  evidence. The complete six-contract repository gate passes;
+- `/private/tmp/txp-medium-prepf-final-p4-v5.json` stopped at the first formal
+  baseline replicate before producing a sample. Its product result was valid
+  (32,100 accepted, 4.233056833-second monotonic target window), but the runner
+  rejected a 1.838167 ms positive wall/monotonic delta. That delta came from
+  non-atomic cross-clock reads and does not contradict monotonic throughput;
+- root correction separates the authorities instead of widening an arbitrary
+  constant. Scenario identity, accepted count and Rust `Instant` own
+  throughput. The wall crop is derived profiling metadata: positive scheduler
+  widening is recorded as unusable for crop attribution but cannot veto
+  throughput; a non-monotonic or materially shorter wall interval still fails.
+  A synthetic test accepts +1.8 ms as `scheduler_widened` and rejects -2 ms as
+  contradictory evidence. This does not alter the performance noise gate.
+
+Formal sustained-window result:
+
+- `/private/tmp/txp-medium-prepf-final-p4-v6.json`, SHA-256
+  `96217b6e180f959fc5743fd80ebb95bbde324a34490fb6057bb3fa1f62d6a3`,
+  completed all 2 pilots and 80 formal attempts without a product, identity,
+  accepted-count, timeout or temporal-evidence failure. All 82 wall crops were
+  aligned. Each side of each macro sample represents 128,000 target
+  transactions across four fixed-binary windows;
+- it remains inadmissible for wall throughput: macro-ratio MAD is 1.6952%
+  against the unchanged 1.5% gate. The apparent +0.9920% wall median is not a
+  release claim. CPU work is much more stable: paired CPU-ratio MAD is 0.5387%
+  and the median candidate/baseline CPU ratio is 0.98285;
+- the deterministic workload and byte-identical harness were rechecked. The
+  remaining wall error is a non-stationary host allocation wave, not workload
+  drift. Pair 8 contains a baseline attempt falling to 5,047 tx/s and 3.23 CPU
+  parallelism, immediately followed by a candidate attempt at 7,134 tx/s and
+  3.76 parallelism. Post-run Chrome remains absent and the host is 87.7% idle,
+  but WindowServer plus Codex consume roughly 0.7 core and the long run still
+  crosses multi-minute performance regimes;
+- increasing aggregation again would average non-stationary regimes rather
+  than control them. Do not raise the replicate count, delete pair 8, lower the
+  gate or repeat until a pass. The runner design is now adequate; this host
+  window is not controlled enough for the release wall verdict. V6 is valid
+  CPU/noise-attribution evidence only.
+
+Exact next action: freeze the reviewed benchmark-only runner/docs checkpoint
+when Git approval is available. Retain `PERFORMANCE-ACCEPTANCE` as a controlled-
+host blocker rather than spending more local runs. Resume the exhaustive
+static legal-input fault reachability and final architecture audit; do not
+build develop until a controlled host can reuse this exact protocol and fixed
+final/pre-performance binaries.
+
 ## Restart rule
 
 After compaction or restart:

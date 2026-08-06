@@ -129,7 +129,7 @@ bounded or merely transferred.
 | F4 hostile resources | Accepted capacity, orphan count, verification cycles, conflict retention and auxiliary graph/index memory use different limits or omit metadata/active-work cost. | Independent ceilings do not prove the sum and allow transitions between structures to escape or double charge. | One `ResourceLedger` charges entries, bytes, edges, active work, compute envelopes, accepted cost, remote/per-peer state and replacement history; effect memory is separately bounded by the same construction inputs. | Uncharged residency is eliminated; conservative overcharging is an accepted bounded availability trade-off. |
 | F5 dependency progress | Missing work, orphan work, accepted causal edges and conflict recovery use separate wake mechanisms. Definitive parent loss and source promotion can miss the mechanism that parked a child. | Adding a wake at one removal site leaves reorg, RBF, expiry, clear and peer revocation as independent publication tables. | One canonical dependency set, `DependencyFrontier`, observation cut, reverse keys and bounded level-triggered maintenance. | Lost-wake timing dependence is eliminated; bounded maintenance latency remains. |
 | F6 conflict recovery | RBF victims are removed, conflict history is recorded separately and recovery is spawned later into another queue. Ordering decides whether a loser is restored, replaced again or stranded. | Restore/abort ordering patches move the race and fee/accounting proof between structures. | Only an actually Accepted victim can become charged inert `ReplacementHistory` in the same successful replacement Apply. Recovery always re-enters validation. | Speculative victim ownership and nested undo are eliminated. Optional history may be dropped as a complete set under its hard sub-budget. |
-| F7 chain and template convergence | Reorg processing updates blank template/candidate uncles, then pool status/recovery, then full template. `Gap` and RPC `Pending` are conflated externally, and detached-uncle proposals can suppress re-proposal. | Fixing one `Gap` demotion or uncle filter leaves three independently published generations and startup/readiness loss. | One reliable capacity-one tip transition pairs snapshot and authority Apply; exact source versions drive versioned template receipts. Full/reset and optimistic component lanes retain their distinct concurrency. | Chain/owner generation splits are eliminated. A derived template can retain its last valid value and temporarily underfill after a rebuild failure. |
+| F7 chain and template convergence | Reorg processing updates blank template/candidate uncles, then pool status/recovery, then full template. `Gap` and RPC `Pending` are conflated externally, and detached-uncle proposals can suppress re-proposal. | Fixing one `Gap` demotion or uncle filter leaves the separately published snapshot, owner/status and template cuts able to disagree. The `develop` startup readiness gate alone is not evidence of owner loss because ingress is not yet open and persistence replay uses the current snapshot. | One reliable capacity-one tip transition pairs snapshot and authority Apply; exact source versions drive versioned template receipts. Full/reset and optimistic component lanes retain their distinct concurrency. | Chain/owner generation splits are eliminated. A derived template can retain its last valid value and temporarily underfill after a rebuild failure. |
 | F8 identity and evidence | Raw hash, witness hash and proposal short ID are passed through APIs with overlapping primitive types; detached recovery historically queried a witness-keyed cache with the raw hash. | Call-site review cannot prove every future caller selects the same identity and rule context. | Newtypes for owner/proposal/version/view identities and a concrete cache key containing witness hash plus script rules. Short IDs are collision-aware indexes only. | Identity substitution is made unrepresentable at typed boundaries. |
 
 The concrete comparison anchor is `develop` at `91b97ab5f`. Reviewers can
@@ -707,11 +707,14 @@ outside the integrity domain; a dedicated ingress-rejection commit proof keeps
 unrelated successful dispositions unrepresentable at the Remote-pressure call
 site.
 
-The backward constructor audit is closed as follows:
+The backward constructor audit classifies every constructor family as follows.
+This is a code-level proof under the sealed-producer, configuration and
+single-guard premises named in the table, not a machine-checked formal theorem
+or a conclusion derived from counting fault sites:
 
 | Integrity class | Only legal constructor premise | Why valid/hostile input cannot reach it |
 |---|---|---|
-| Counter exhaustion | Checked `EntryVersion`, arrival, Apply/source, pool-generation or chain-revision advancement fails. | Counters start fresh per process/generation and every input-driven step is bounded. Reaching `u128` or `u64` exhaustion requires an unsupported number of committed transitions, not a transaction shape. |
+| Counter exhaustion | Checked `EntryVersion`, arrival, Apply/source, pool-generation or chain-revision advancement fails, or arithmetic over an already allocated bounded owner/edge/effect collection overflows. | Clocks start fresh per process/generation and require an unsupported number of committed transitions to exhaust. Collection arithmetic is bounded by values already resident under configured limits; a transaction cannot materialize enough elements to overflow the host index width before allocation or resource admission fails ordinarily. |
 | Invalid chain evidence | Canonical fork facts contain duplicate transaction/header identity, or proposal positions disagree with the exact installed snapshot. | The sole chain producer supplies a consensus-validated fork and its paired snapshot through one reliable ordered boundary. Peer transactions cannot construct this command. |
 | Resource projection | An existing owner/charge row disagrees, checked subtraction underflows, or a sealed membership compiler returns a resource outcome it had already proved impossible. | Ordinary allocation and all configured total/Remote/peer/accepted/compute/history limits are typed backpressure or rejection before Apply. |
 | Membership/index/scheduler/dependency projection | Same-cut owner-derived structures disagree, or a supposedly exact move-only capability names no matching owner/phase. | Lock-external stale evidence is an ordinary stale result. Under one guard, these structures are changed only by the same total Apply and validated by model/projection regressions. |
@@ -916,8 +919,10 @@ The architecture-adjudication matrix recorded in sections 3, 3.1, 14, 15 and
    mechanism;
 2. account for every new state, lock, log, task, bound and failure domain and
    distinguish risk elimination from bounding or transfer;
-3. prove this is the smallest constructively safe model and that valid or
-   hostile inputs cannot reach an invariant fault;
+3. establish the smallest constructively safe semantic model among the
+   evaluated alternatives, distinguish that result from the still-measured
+   execution topology, and close a backward proof that valid or hostile input
+   cannot satisfy an invariant-fault constructor premise;
 4. close every statically derivable correctness, security, liveness,
    publication, identity and complexity issue;
 5. re-adjudicate every historical report against current code as

@@ -359,6 +359,28 @@ reduces exclusive acquisitions, and shows no measurable regression in any
 accepted paired shape. The data does not establish a general throughput gain;
 the final medium comparisons remain the production gate.
 
+### 3.6 Current final A/B status
+
+The final/pre-performance 4-peer cheap shape has not produced admissible wall-
+throughput evidence on the current host. The strongest completed record uses
+ten balanced samples, each aggregating four immutable-binary target windows per
+side (128,000 target transactions per side and sample). All 82 processes passed
+identity, completion and temporal-evidence checks. The paired wall-ratio MAD is
+1.6952%, above the unchanged 1.5% limit, so its apparent `+0.9920%` median is
+not a performance claim. The artifact is
+`/private/tmp/txp-medium-prepf-final-p4-v6.json`, SHA-256
+`96217b6e180f959fc5743fd80ebb95bbde324a34490fb6057bb3fa1f62d6a3d6`.
+
+CPU work is stable enough for attribution, not acceptance: paired CPU-ratio
+MAD is 0.5387% and the final/pre-performance median CPU ratio is 0.98285. Raw
+attempts expose multi-minute host scheduling regimes, including one baseline
+window at 3.23 average CPU parallelism immediately followed by a candidate
+window at 3.76. Removing the outlier, increasing aggregation, weakening the
+gate or repeating until a pass would bias the verdict. P10 therefore remains
+open for a controlled-host run of this exact protocol before final/develop is
+measured. This is an evidence-environment blocker, not a demonstrated product
+regression or improvement.
+
 ## 4. Reproducible profiling
 
 The canonical runner is `tx-pool/scripts/profile.py`. It reuses benchmark

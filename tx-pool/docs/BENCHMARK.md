@@ -144,6 +144,7 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
   --candidate-target-dir /private/tmp/txp-target-cand0 \
   --baseline-build-features cross-version-legacy-bench-adapter \
   --output /private/tmp/txp-medium-result.json \
+  --replicates-per-sample 4 \
   --scenario always_success,32000,100,8,1 \
   --scenario always_success,32000,100,8,4 \
   --scenario secp256k1,8000,50,8,4 \
@@ -152,18 +153,39 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
 
 The default path builds each side exactly once with `--locked`, incremental
 compilation disabled, an isolated Cargo target and a common remapped logical
-source prefix. It then runs ten balanced adjacent pairs from the immutable
-binary hashes, with a 15-second initial cooldown and ten seconds between
-attempts. A scenario is comparable only when its paired-ratio relative MAD is
-at most 1.5%. The JSON checkpoint is rewritten atomically after every attempt,
-so an interrupted run retains all completed evidence.
+source prefix. It then records ten balanced samples from the immutable binary
+hashes, with a 15-second initial cooldown and ten seconds between attempts. A
+scenario is comparable only when its paired-ratio relative MAD is at most
+1.5%. The JSON checkpoint is rewritten atomically after every attempt, so an
+interrupted run retains all completed evidence.
+
+One ordinary sample contains one adjacent baseline/candidate pair, with the
+first side reversed on alternating samples. On a host where the bounded 32k
+one-shot window is still too short for the 1.5% gate,
+`--replicates-per-sample 4` defines each sample as four attempts per side. The
+order alternates inside each sample (`AB`, `BA`, `AB`, `BA`) and reverses for
+the next sample, so neither revision receives more first slots. A side's
+sample throughput is computed as total target transactions divided by the sum
+of its target elapsed times; it is not an average of reported rates. CPU and
+context-switch diagnostics likewise aggregate raw counts before deriving
+ratios. Every constituent attempt must independently pass the binary,
+scenario, accepted-count and clock-window checks, and all remain in the JSON.
+Values above one must be even and are bounded to eight. The replicate count
+must be chosen before measurement; regrouping an already observed artifact is
+diagnostic only and cannot create release evidence.
 
 The harness reports the measured duration from Rust's monotonic `Instant` and
 the profiling crop in Unix wall-clock nanoseconds. These are different clock
-domains and cannot be equal at nanosecond precision. Every attempt records the
-observed delta and accepts only a monotonic wall window within
-`max(1 ms, elapsed * 100 ppm)`; a larger drift or clock jump invalidates the
-sample instead of silently widening the profile window.
+domains and cannot be read atomically. The monotonic duration is authoritative
+for throughput. Every attempt records the wall-window delta and labels the crop
+`aligned` when it is within `max(1 ms, elapsed * 100 ppm)`. Preemption between
+the end `Instant` and wall-clock reads may legitimately make the crop wider;
+that is recorded as `scheduler_widened` and the crop must not be used for
+profile attribution, but it does not invalidate the monotonic throughput
+sample. A non-monotonic wall window or one materially shorter than the measured
+target interval is contradictory temporal evidence and still fails the
+attempt. This keeps optional profiling coordinates from becoming a second
+timing authority.
 
 Cross-version release batches must sustain the measured window for roughly one
 second or longer on the comparison host. A calibration with 400 cheap/dependent
