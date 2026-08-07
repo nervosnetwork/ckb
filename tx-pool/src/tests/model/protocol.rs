@@ -381,7 +381,7 @@ impl SystemState {
         }
         if matches!(
             self.lifecycle,
-            Lifecycle::Stopped | Lifecycle::StartupFailed
+            Lifecycle::Draining | Lifecycle::Stopped | Lifecycle::StartupFailed
         ) {
             return SystemDisposition::ChannelClosed(request);
         }

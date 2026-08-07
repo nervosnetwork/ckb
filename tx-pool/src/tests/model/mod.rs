@@ -7,6 +7,7 @@
 mod adversarial;
 mod adversarial_properties;
 mod boundaries;
+mod boundary_trace;
 mod composition;
 mod composition_properties;
 mod handoff;
@@ -19,6 +20,13 @@ mod resource;
 mod state;
 mod trace;
 
+pub(crate) use boundary_trace::{
+    BoundaryCheckpoint, BoundaryControllerState, BoundaryEffectState, BoundaryEnqueueFailure,
+    BoundaryKey, BoundaryLifecycleState, BoundaryPeerId, BoundaryRelaySettlement,
+    BoundaryRequestId, BoundarySource, BoundaryTxId, BoundaryWitnessId,
+    reference_controller_success_boundary_trace, reference_failed_enqueue_boundary_trace,
+    reference_remote_rejection_boundary_trace_with_relay,
+};
 pub(crate) use refinement::{
     CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
     REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole, accepted_capacity_observation,

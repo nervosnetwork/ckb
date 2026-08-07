@@ -25,6 +25,7 @@ BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 RUST_PACKAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 REQUIRED_PROOF_OBLIGATIONS = {f"T{number}" for number in range(1, 14)}
+WORKSPACE_EVIDENCE_KINDS = {"conformance", "counterexample"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,8 +89,21 @@ def _nonempty_strings(value: object) -> bool:
 
 def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     errors: list[str] = []
-    if registry.get("schema_version") != 5:
-        errors.append("behavior registry schema_version must be 5")
+    if registry.get("schema_version") != 6:
+        errors.append("behavior registry schema_version must be 6")
+
+    finding_ledger_value = registry.get("finding_ledger")
+    finding_ledger = ""
+    if not isinstance(finding_ledger_value, str):
+        errors.append("behavior registry must declare finding_ledger")
+    else:
+        try:
+            finding_ledger = repo_path(finding_ledger_value).read_text()
+        except (ValueError, OSError) as error:
+            errors.append(
+                f"cannot read behavior-registry finding ledger "
+                f"{finding_ledger_value}: {error}"
+            )
 
     if impact is None:
         try:
@@ -288,6 +302,37 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         workspace_behavior_ids = entry.get("behavior_ids")
         invariants = entry.get("invariants")
         boundary = entry.get("boundary")
+        evidence_kind = entry.get("evidence_kind", "conformance")
+        finding_id = entry.get("finding_id")
+        function = test.rsplit("::", 1)[-1] if isinstance(test, str) else ""
+        named_counterexample = function.startswith("counterexample_")
+        if evidence_kind not in WORKSPACE_EVIDENCE_KINDS:
+            errors.append(
+                f"workspace evidence {test!r} has invalid evidence_kind "
+                f"{evidence_kind!r}"
+            )
+        if named_counterexample != (evidence_kind == "counterexample"):
+            errors.append(
+                f"workspace evidence {test!r} must use matching counterexample "
+                "name and evidence_kind"
+            )
+        if evidence_kind == "counterexample":
+            if not isinstance(finding_id, str) or not finding_id.strip():
+                errors.append(
+                    f"workspace counterexample {test!r} has no finding_id"
+                )
+            elif re.search(
+                rf"(?m)^\|\s*{re.escape(finding_id)}\s*\|\s*OPEN\s*\|",
+                finding_ledger,
+            ) is None:
+                errors.append(
+                    f"workspace counterexample {test!r} is not bound to an OPEN "
+                    f"finding row {finding_id!r}"
+                )
+        elif finding_id is not None:
+            errors.append(
+                f"workspace conformance evidence {test!r} must not carry finding_id"
+            )
         if not isinstance(package, str) or RUST_PACKAGE.fullmatch(package) is None:
             errors.append(f"workspace evidence has invalid package: {entry!r}")
         if not isinstance(test, str) or not test.strip():
@@ -307,7 +352,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
                 errors.append(
                     f"workspace evidence {test!r} uses unknown behavior {behavior_id!r}"
                 )
-            else:
+            elif evidence_kind == "conformance":
                 referenced_behaviors.add(behavior_id)
         if not _nonempty_strings(invariants):
             errors.append(f"workspace evidence {test!r} has no invariants")
@@ -317,7 +362,8 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
                 errors.append(
                     f"workspace evidence {test!r} has unknown invariants {sorted(unknown)}"
                 )
-            covered_invariants.update(invariants)
+            if evidence_kind == "conformance":
+                covered_invariants.update(invariants)
         if not isinstance(boundary, str) or not boundary.strip():
             errors.append(f"workspace evidence {test!r} has no boundary assertion")
         if not isinstance(path_value, str):
@@ -329,7 +375,6 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
             errors.append(f"workspace evidence {test!r} cannot read {path_value}: {error}")
             continue
         if isinstance(test, str):
-            function = test.rsplit("::", 1)[-1]
             if re.search(rf"\bfn\s+{re.escape(function)}\s*\(", source) is None:
                 errors.append(
                     f"workspace evidence {test!r} is absent from {path_value}"
@@ -498,12 +543,18 @@ def workspace_command(package: str, tests: list[str]) -> str:
 def render_generated(registry: dict, impact: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
     workspace: dict[str, list[dict]] = defaultdict(list)
+    workspace_counterexamples: dict[str, list[dict]] = defaultdict(list)
     specs: dict[str, list[dict]] = defaultdict(list)
     for entry in registry["unit_evidence"]:
         units[entry["behavior_id"]].append(entry)
     for entry in registry["workspace_evidence"]:
         for behavior_id in entry["behavior_ids"]:
-            workspace[behavior_id].append(entry)
+            target = (
+                workspace_counterexamples
+                if entry.get("evidence_kind") == "counterexample"
+                else workspace
+            )
+            target[behavior_id].append(entry)
     for entry in registry["integration_evidence"]:
         for behavior_id in entry["behavior_ids"]:
             specs[behavior_id].append(entry)
@@ -606,6 +657,29 @@ def render_generated(registry: dict, impact: dict) -> str:
                     f"- `{evidence['path']}::{evidence['test']}` ({invariants}) - "
                     f"{_markdown(evidence['boundary'])}"
                 )
+        if workspace_counterexamples[behavior_id]:
+            lines.extend(("", "Open cross-crate counterexamples:", ""))
+            packages: dict[str, list[str]] = defaultdict(list)
+            for evidence in workspace_counterexamples[behavior_id]:
+                packages[evidence["package"]].append(evidence["test"])
+            for package, tests in sorted(packages.items()):
+                lines.append(
+                    f"Generated counterexample command: "
+                    f"`{workspace_command(package, tests)}`"
+                )
+            lines.append("")
+            for evidence in sorted(
+                workspace_counterexamples[behavior_id],
+                key=lambda value: (value["package"], value["test"]),
+            ):
+                invariants = ", ".join(
+                    sorted(evidence["invariants"], key=_invariant_key)
+                )
+                lines.append(
+                    f"- `{evidence['finding_id']}`: "
+                    f"`{evidence['path']}::{evidence['test']}` ({invariants}) - "
+                    f"{_markdown(evidence['boundary'])}"
+                )
         if specs[behavior_id]:
             lines.extend(("", "Process-level evidence:", ""))
             for evidence in sorted(specs[behavior_id], key=lambda value: value["id"]):
@@ -666,15 +740,26 @@ def main() -> int:
         return 1
 
     references = sum(len(entry["invariants"]) for entry in registry["unit_evidence"])
+    workspace_conformance = [
+        entry
+        for entry in registry["workspace_evidence"]
+        if entry.get("evidence_kind") != "counterexample"
+    ]
+    workspace_counterexamples = [
+        entry
+        for entry in registry["workspace_evidence"]
+        if entry.get("evidence_kind") == "counterexample"
+    ]
     workspace_references = sum(
-        len(entry["invariants"]) for entry in registry["workspace_evidence"]
+        len(entry["invariants"]) for entry in workspace_conformance
     )
     print(
         f"validated {len(registry['behaviors'])} tx-pool behaviors, "
         f"{len(registry['unit_evidence'])} tx-pool Rust tests / {references} invariant "
-        f"references, {len(registry['workspace_evidence'])} cross-crate Rust tests / "
+        f"references, {len(workspace_conformance)} cross-crate conformance tests / "
         f"{workspace_references} invariant "
-        f"references, {len(registry['integration_evidence'])} security integration anchors, "
+        f"references, {len(workspace_counterexamples)} open cross-crate counterexamples, "
+        f"{len(registry['integration_evidence'])} security integration anchors, "
         f"and {len(impact_specs(impact))} managed integration specs"
     )
     return 0

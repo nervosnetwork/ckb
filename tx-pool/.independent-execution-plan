@@ -2505,6 +2505,107 @@ producer after macro expansion. M3.3 step 2 is next and must compose real
 relay/controller/publisher/lifecycle handoffs rather than extending this
 single-owner adapter into a second runtime.
 
+##### M3.3 step 2 boundary composition design freeze
+
+Step 2 does not extend the authority-core trace with endpoint state. It composes
+the already independent `SystemState`, `RelayHandoff`, effect-claim and endpoint
+circuit automata through a neutral handoff observation. This keeps four distinct
+linearization domains visible:
+
+```text
+caller/relay projection -> controller enqueue -> authority Apply
+                         -> committed effect claim -> endpoint publication
+                         -> effect settlement -> generation drain
+```
+
+The neutral observation contains only facts which cross one of those boundaries:
+the symbolic raw/witness/source identity; controller enqueue and payload owner;
+optional responder state; pre-authority relay location; authority owner or exact
+ordinary terminal disposition; committed effect class and claim state; relay
+mailbox result or conservative reset; endpoint circuit state; and service
+lifecycle. It contains no private controller task, authority delta, Tokio permit
+or expected-result flag. Stable cuts occur after one accepted/rejected enqueue,
+one handler-to-authority handoff, one complete authority Apply, one effect claim,
+one endpoint attempt, one effect settlement or one lifecycle transition.
+
+The reference adapter invokes the existing protocol/handoff/kernel automata; it
+must not reproduce their transitions. Production replay is deliberately split
+across the real harnesses which own each boundary:
+
+- real `TxPoolController` channels establish accepted/full/closed enqueue,
+  payload and responder observations;
+- real `AuthorityService`/`AuthorityRuntime` establish owner, effect and claim
+  observations;
+- the real effect publisher and bounded relay mailbox establish publication,
+  reset, disconnect and drain observations;
+- the real task topology or complete service builder establishes startup,
+  cancellation, close/drain and persistence eligibility.
+
+The adapters share only symbolic inputs and the neutral observation. A later
+harness receives the predecessor observation, not an internal object from an
+earlier fake runtime. This is intentional assume-guarantee composition: each
+real producer must establish the exact handoff premise consumed by the next
+real boundary, while the independent model proves that the premises compose.
+
+The passing domain is restricted to behavior already implemented correctly:
+controller full/closed does not transfer a tx-pool payload; responder loss does
+not veto a committed Apply; committed effects remain authority-owned until one
+claim settles; relay saturation/disconnect is local derived degradation; and
+shutdown drains or retains every claim before persistence eligibility. Effect
+batch endpoint-prefix progress remains step 4 because the sequential kernel
+currently models one logical claim rather than the production endpoint cursor.
+
+`D1-KNOWN-HANDOFF` is a required negative refinement witness, not part of that
+passing domain. Current sync Remote and Proposal paths mutate known/in-flight
+state before controller acknowledgement and have no exact inverse on a full or
+closed channel. Step 2 must reproduce the smallest real counterexample and
+compare it with `RelayHandoff`'s required release outcome. The test is named and
+documented as a production divergence, not a regression preserving the bad
+behavior; M4 must invert it to equality. No normalization may erase known state,
+substitute TTL expiry for release, or infer authority ownership from successful
+enqueue. Remote and Proposal counterexamples remain distinct because Proposal
+also consumes an in-flight capability and uses batch notification semantics.
+
+Every divergence reports the shortest observed prefix. Exhaustive trace growth
+is bounded by the finite action corpus and uses prefix order; no timing retry or
+sleep is a model transition. Real asynchronous harnesses use only bounded
+timeouts to identify a failed environmental premise, never as liveness evidence.
+Step 2 changes tests, models and evidence only; production semantics remain
+frozen.
+
+Step 2 is now implemented. The independent adapter delegates to the existing
+controller protocol, relay handoff, kernel effect claim and endpoint circuit;
+the production adapter replays the real bounded controller, move-only effect
+receipt, publisher/relay mailbox and task-topology boundaries. Three reference
+tests and five production refinement tests cover accepted, full, closed,
+handler-owned, response/notification, effect claimed/settled, local endpoint
+degradation and the externally observable Running/Stopped cuts. Ordered drain
+is proved by the real closed-and-drained effect state plus persistence
+eligibility; the adapter does not manufacture an unexposed Draining
+checkpoint. The replay found one omitted
+legal transition in the model: `Draining` rejects new controller enqueue just
+like `Stopped`, because the real dispatcher closes its receiver before drain.
+The model was corrected; production behavior was not changed.
+
+The two real `D1-KNOWN-HANDOFF` shortest prefixes are now executable
+cross-crate counterexamples. Remote leaves a raw hash known after a closed
+controller; Proposal consumes its in-flight row and marks the raw hash known
+before the same failure. Both suppress another peer's announcement. The
+behavior registry now types these as `counterexample`, mechanically requires
+their finding row to remain `OPEN`, excludes them from positive invariant
+coverage, and renders their exact commands separately. M4 must invert both
+tests to conformance when the acknowledged handoff is implemented. This is a
+proof-status distinction, not a new runtime state or protocol.
+
+The exact next M3.3 action is step 3: derive and replay the multi-owner
+scheduler/permit quotient. It must prove fair permit return, role-compatible
+assignment and deterministic scheduler observations without adding persistent
+owner metadata or treating the single-owner trace as multi-owner evidence.
+Step 2's post-clean gates are 611/611 internal tx-pool, 607/607 default tx-pool
+and 86/86 complete `ckb-sync` nextest (`-j 1`), all zero skipped; strict tx-pool
+Clippy, formatting, all eight generated contracts and both TLC runs pass. The
+three existing release blockers remain explicit.
+
 #### M3.4 develop refinement
 
 Map `develop` into the same command, observation, trace and cost vocabulary.
@@ -2881,10 +2982,11 @@ experiments:
 2. **M3.2 complete:** differentially enumerate the bounded footprint universe and require exact
    pointwise model/production classification, including every coupled fallback
    edge rather than only representative examples;
-3. **M3.3 active:** replay all 28 section 16 rows through closed producer-specific result
-   algebras and generated fault/task/capability reachability checks; the four
-   legal-input fail-stop paths must close in M3 or force a narrow pre-topology
-   correction;
+3. **M3.3 active:** stable authority and real boundary traces are complete;
+   next derive the multi-owner scheduler/permit quotient, then replay all 28
+   section 16 rows through closed producer-specific result algebras and
+   generated fault/task/capability reachability checks. The four legal-input
+   fail-stop paths must close in M3 or force a narrow pre-topology correction;
 4. map `develop` into the same observations and prove which races require one
    authority, which behavior is compatibility, and which current states,
    queues, tasks, locks or retries are merely inherited encoding;

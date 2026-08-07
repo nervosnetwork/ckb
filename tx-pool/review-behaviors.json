@@ -1,6 +1,7 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "guide": "tx-pool/docs/REVIEW_GUIDE.md",
+  "finding_ledger": "tx-pool/.independent-execution-plan",
   "integration_impact": "tx-pool/integration-impact.json",
   "integration_runner": {
     "make_target": "integration",
@@ -305,22 +306,25 @@
     },
     {
       "id": "TP-HANDOFF-001",
-      "title": "Bounded controller request conservation",
+      "title": "Bounded controller and relay handoff conservation",
       "implementation_owners": [
         {"path": "tx-pool/src/service.rs", "symbols": ["DEFAULT_CHANNEL_SIZE", "CHAIN_CONTROL_CHANNEL_SIZE", "struct Request", "fn respond"]},
         {"path": "tx-pool/src/service/builder.rs", "symbols": ["fn run_dispatcher", "handler_limit", "JoinSet"]},
         {"path": "tx-pool/src/service/controller.rs", "symbols": ["struct TxPoolController", "send_message", "send_chain_control"]},
-        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn respond_outer"]}
+        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn respond_outer"]},
+        {"path": "sync/src/relayer/transactions_process.rs", "symbols": ["struct TransactionsProcess"]},
+        {"path": "sync/src/relayer/block_proposal_process.rs", "symbols": ["struct BlockProposalProcess"]},
+        {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals"]}
       ],
-      "required_behavior": "Every controller command payload occupies exactly one caller, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
-      "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress or suppress an already committed authority result.",
+      "required_behavior": "Every controller command payload occupies exactly one caller, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
+      "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress, suppress an already committed authority result, or leave stale relay state that prevents the same raw transaction from being fetched from another peer.",
       "reviewer_questions": [
         "Does every payload move between ownership locations exactly once while acknowledgement remains a separate fact?",
         "Are request count, payload bytes, handler concurrency and response residency bounded separately?",
         "Can responder loss influence authority mutation or only result delivery?",
         "Are ordinary concurrent requests kept separate from ordered chain controls?"
       ],
-      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit; the ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls. M2 separately closes payload-byte and O(pool) query amplification bounds."
+      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit; the ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls. Relay settlement follows only the acknowledged request or exact terminal effect and adds no pool scan. M2 separately closes payload-byte and O(pool) query amplification bounds."
     }
   ],
   "unit_evidence": [
@@ -576,9 +580,14 @@
     {"test": "mathematical_model::properties::model_controller_bounds_payload_bytes_as_well_as_request_count", "behavior_id": "TP-HANDOFF-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "mathematical_model::properties::model_drain_cannot_drop_an_outstanding_direct_capability", "behavior_id": "TP-HANDOFF-001", "invariants": ["T2", "T10"]},
     {"test": "mathematical_model::properties::model_notification_acknowledgement_is_orthogonal_to_payload_ownership", "behavior_id": "TP-HANDOFF-001", "invariants": ["T6", "T10"]},
+    {"test": "mathematical_model::boundary_trace::tests::boundary_trace_composes_controller_authority_effect_and_lifecycle_cuts", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T2", "T6", "T7", "T10"]},
+    {"test": "mathematical_model::boundary_trace::tests::boundary_enqueue_failure_releases_remote_and_proposal_handoffs_exactly_once", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T7", "T10"]},
     {"test": "mathematical_model::properties::model_relay_batch_abort_releases_only_the_uncommitted_suffix", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T7", "T10"]},
     {"test": "mathematical_model::properties::model_relay_handoff_releases_known_state_on_pre_authority_failure", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T7", "T10"]},
     {"test": "mathematical_model::properties::model_relay_terminal_rejection_releases_the_exact_authority_handoff", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T7", "T10"]},
+    {"test": "authority::tests::boundary_refinement::uak_controller_remote_handoff_refines_queued_handler_and_response_cuts", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
+    {"test": "authority::tests::boundary_refinement::uak_controller_proposal_handoff_refines_notification_cuts", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
+    {"test": "authority::tests::boundary_refinement::uak_controller_full_and_closed_outcomes_refine_both_relay_sources", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
 
     {"test": "mathematical_model::adversarial_properties::model_generated_cell_shapes_route_only_the_exact_independent_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},
     {"test": "mathematical_model::adversarial_properties::model_independent_hostile_trace_search_preserves_every_commit_contract", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"]},
@@ -656,6 +665,9 @@
     {"test": "authority::tests::refinement::uak_accepted_entry_capacity_refines_every_ready_prefix", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T6", "T8"]},
 
     {"test": "authority::tests::refinement::uak_partitioned_effect_pressure_refines_source_control", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::boundary_trace::tests::boundary_effect_settlement_is_independent_of_external_relay_availability", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},
+    {"test": "authority::tests::boundary_refinement::uak_effect_relay_boundaries_refine_publication_and_local_circuit_disposal", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},
+    {"test": "authority::tests::boundary_refinement::uak_topology_lifecycle_refines_running_and_stopped_cuts", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T7", "T10"]},
     {"test": "mathematical_model::composition_properties::model_ready_prefix_stops_at_the_first_effect_control_class_boundary", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
     {"test": "mathematical_model::properties::model_effect_regions_preserve_trusted_and_critical_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
     {"test": "mathematical_model::properties::model_partially_settled_effect_batch_retains_its_full_capacity_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
@@ -717,6 +729,26 @@
       "behavior_ids": ["TP-BUDGET-001"],
       "invariants": ["T7", "T8", "T10"],
       "boundary": "Expired proposal requests are cleared without retaining stale relay state."
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/transactions_process.rs",
+      "test": "relayer::tests::transactions_process::counterexample_remote_closed_controller_retains_known_projection",
+      "behavior_ids": ["TP-HANDOFF-001"],
+      "invariants": ["T1", "T7", "T10", "T11"],
+      "boundary": "OPEN counterexample: Remote marks the raw hash known before controller acknowledgement, so a closed controller leaves stale known state and suppresses refetch from another peer.",
+      "evidence_kind": "counterexample",
+      "finding_id": "D1-KNOWN-HANDOFF"
+    },
+    {
+      "package": "ckb-sync",
+      "path": "sync/src/relayer/tests/block_proposal_process.rs",
+      "test": "relayer::tests::block_proposal_process::counterexample_proposal_closed_controller_consumes_inflight_and_marks_known",
+      "behavior_ids": ["TP-HANDOFF-001"],
+      "invariants": ["T1", "T7", "T10", "T11"],
+      "boundary": "OPEN counterexample: Proposal consumes in-flight state and marks the raw hash known before controller acknowledgement, so closure loses both inverse transitions and suppresses refetch.",
+      "evidence_kind": "counterexample",
+      "finding_id": "D1-KNOWN-HANDOFF"
     },
     {
       "package": "ckb-sync",

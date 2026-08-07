@@ -3197,3 +3197,69 @@ not semantic roots. This closes only M3.3 step 1. The exact next action is step
 2: define boundary handoff observations, then compose real relay, controller,
 publisher and lifecycle harnesses without building a parallel runtime or
 claiming the unresolved scheduler quotient.
+
+### M3.3 step 2 boundary-composition design freeze
+
+The boundary replay is split by the real ownership domains instead of extending
+the authority adapter into a service simulator. A neutral observation joins the
+actual controller queue, authority/effect claim, publisher/relay mailbox and
+startup/drain harnesses at named stable cuts. The independent model reuses its
+existing `SystemState`, `RelayHandoff`, kernel effect-claim and endpoint-circuit
+transitions; neither adapter may implement the other's state machine.
+
+Passing refinement is limited to currently correct post-commit and lifecycle
+behavior. The pre-authority Remote/Proposal known-filter ordering is retained as
+an explicit negative production witness: the smallest real full/closed-channel
+trace must differ from the model's exact release outcome until M4 changes the
+handoff protocol. A passing publisher trace cannot close or normalize that
+divergence. Endpoint-prefix retention remains M3.3 step 4. The exact next action
+is to implement these test-only reference/production observations, shrink the
+two known-handoff counterexamples and run the focused then complete model gates.
+
+### M3.3 step 2 implementation and evidence state
+
+The boundary composition is implemented without a fake service runtime or any
+production semantic edit. The independent adapter delegates to the existing
+controller, handoff, kernel and endpoint automata; five production refinement
+tests use the real controller channel, effect receipt, relay mailbox/publisher
+endpoint and task topology. Lifecycle refinement records only observable
+Running/Stopped cuts; ordered drain is established by the real
+closed-and-drained effect state and persistence eligibility, not a synthetic
+Draining label. The first replay rejected enqueue while Draining
+in production but accepted it in `SystemState`; the model now closes enqueue in
+Draining because the real dispatcher receiver is already closed at that cut.
+
+Both pre-authority relay divergences now have exact passing negative witnesses
+in `ckb-sync`: Remote retains known state after closed enqueue, while Proposal
+also consumes its in-flight row before the same failure. Another peer is then
+suppressed in both traces. They remain `D1-KNOWN-HANDOFF OPEN`; a publisher
+success cannot normalize them. Behavior-registry schema 6 distinguishes open
+cross-crate counterexamples from conformance, requires an exact OPEN finding
+binding, excludes them from proof coverage and generates their commands in a
+separate review-guide section.
+
+Focused reference, production refinement and both cross-crate counterexample
+tests have passed. Generated evidence now contains 297 tx-pool Rust anchors,
+1,134 invariant references, nine cross-crate conformance tests, two open
+cross-crate counterexamples, 19 integration anchors and 150 managed specs.
+The post-clean complete gates are now closed:
+
+- internal-feature nextest: 611/611, zero skipped;
+- default-feature nextest: 607/607, zero skipped, with only the pre-existing
+  test-build `start_with_handle` dead-code warning;
+- complete `ckb-sync` nextest with the repository's isolation discipline
+  (`-j 1`): 86/86, zero skipped;
+- strict all-target internal tx-pool Clippy and formatting;
+- complete eight-contract gate, including TLC 561 generated / 184 distinct
+  positive states and the required four-state negative witness;
+- mechanically derived refinement frontier: model 192 rooted / 64 outside
+  roots / 16 files and production 611 / 11 / 37;
+- generated inventory: 611 internal-feature tests and 150 managed integration
+  specs, with three explicit release blockers unchanged.
+
+Strict `ckb-sync --tests` Clippy also passes for this slice after allowing the
+single pre-existing `chain/src/verify.rs` `collapsible_if` warning; production
+remains frozen, so that unrelated source was not edited. A default-concurrency
+sync run exposed the already-recorded fixture teardown race, while the standing
+nextest `-j 1` gate passed the complete crate. The exact next action after the
+checkpoint commit is M3.3 step 3, the multi-owner scheduler/permit quotient.

@@ -549,7 +549,11 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
         if isinstance(entry, dict) and isinstance(entry.get("behavior_id"), str)
     }
     for entry in registry.get("workspace_evidence", []):
-        if isinstance(entry, dict) and isinstance(entry.get("behavior_ids"), list):
+        if (
+            isinstance(entry, dict)
+            and entry.get("evidence_kind") != "counterexample"
+            and isinstance(entry.get("behavior_ids"), list)
+        ):
             evidenced_behaviors.update(
                 behavior_id
                 for behavior_id in entry["behavior_ids"]
