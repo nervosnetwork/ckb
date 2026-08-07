@@ -10,6 +10,7 @@ mod boundaries;
 mod boundary_trace;
 mod composition;
 mod composition_properties;
+mod develop_refinement;
 mod eviction_properties;
 mod eviction_quotient;
 mod handoff;

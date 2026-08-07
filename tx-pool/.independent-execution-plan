@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: M3.3 producer-result closure complete; M3.4 develop mapping active
-Checkpoint: M3.3 step 6 commit containing this record
-Active slice: M3.4 develop observation, necessity and risk-cost mapping
+Status: M3.4 develop refinement complete; M3.5 minimality and serial-cut audit active
+Checkpoint: M3.4 commit containing this record
+Active slice: M3.5 layer necessity, serial cuts and calibrated static cost
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -2688,6 +2688,44 @@ compatibility. A current-UAK behavior is not evidence of superiority merely
 because the model can express it; its safety/liveness theorem and cost must be
 strictly stronger than the `develop` alternative.
 
+This phase is closed against the immutable
+`develop@91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987` commit and
+`626da246f4d29f92ba22f53a284d51eb9d18dbc3` tree. Eight executable negative
+witnesses cover F1-F8 and are bound to source-derived call-order facts plus
+current positive theorems. The gate rejects a changed baseline, a missing
+historical function, comment-only evidence, zero predicates, registry drift,
+missing observation coverage or a duplicate test authority.
+
+The result is deliberately narrower than "every old bug proves UAK." The
+Gap/uncle proposal-censorship defect and raw-versus-witness cache lookup are
+locally correctable. Structural necessity comes from the combined closure of
+checked-out ownership and administration, RBF/capacity, state plus logical
+effect, continuous charge, dependency progress and ordered chain/clear
+reconciliation. Adding complete owner/version/charge/effect protocols to the
+legacy queues would reproduce the kernel while retaining duplicate lifecycle
+encoding.
+
+The phase review also carries four costs forward rather than declaring them
+eliminated:
+
+- develop's per-message task spawn can be bounded locally and is not rewrite
+  evidence; current handler bounds must be reviewed in the task-cost table;
+- develop holds a pool write guard across detached recovery validation, while
+  the current chain path still needs a precise read/upgradable-read serial-cut
+  derivation before any concurrency-superiority claim;
+- full-pool query scan/sort/allocation under a coherent read guard remains
+  `D1-QUERY-LOCK-COST OPEN`;
+- persistence capture, worker drain and file I/O ordering must be compared as
+  one shutdown protocol; a new topology is not automatically safer merely
+  because it owns more joins.
+
+Complete gates at closure: internal-feature nextest 637/637, default-feature
+nextest 633/633, strict all-target internal Clippy, formatting and diff checks,
+all nine discovered contracts, TLC 1,098 generated / 318 distinct positive
+states plus the required negative witness, and expanded-production route
+validation with zero constructorless expanded variants or root structs. All
+Rust tests used `cargo nextest run`; direct `cargo test` remains forbidden.
+
 #### M3.5 minimality, serial cuts and calibrated static cost
 
 Complete the layer-deletion, duplicate-authority, manual-publication and
@@ -3062,16 +3100,19 @@ experiments:
    eviction refinement and the four known legal-input producer-result closures
    are implemented. Complete static/nextest review, the generated
    path-qualified route frontier and standing exposure adjudication pass;
-4. **M3.4 active:** map `develop` into the same observations and prove which races require one
-   authority, which behavior is compatibility, and which current states,
-   queues, tasks, locks or retries are merely inherited encoding;
-5. complete the layer-deletion, serial-cut and static cost tables, attempting
+4. **M3.4 complete:** eight immutable negative witnesses plus source-derived
+   facts classify every F1-F8 root as single-authority necessity or a sufficient
+   local correction and bind each case to current positive evidence and the
+   explicit mechanism-cost ledger;
+5. **M3.5 active:** complete the layer-deletion, serial-cut and static cost
+   tables, including dispatcher bounds, chain validation guards, full-pool
+   query guards and shutdown/persistence ordering. Attempt
    fusion or deletion for every `OPEN` realization before comparing complete
    candidate topologies;
 6. falsify the status quo and at least two materially distinct model-derived
    realizations, then repeat the six-question and standing-exposure audits.
 
-The M3.3 step 6 checkpoint is the commit containing this record. Topology selection and
+The M3.4 checkpoint is the commit containing this record. Topology selection and
 normative freeze are M4; production edits and performance claims before that
 gate remain forbidden. A newly confirmed defect returns to the single section
 16 ledger and its root theorem rather than creating a local exception or a

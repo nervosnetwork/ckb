@@ -1,5 +1,5 @@
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
@@ -772,6 +772,233 @@
     ],
     "verification_control": [
       "TP-WORKER-001"
+    ]
+  },
+  "develop_refinement": {
+    "schema_version": 1,
+    "baseline": {
+      "revision": "91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987",
+      "tree": "626da246f4d29f92ba22f53a284d51eb9d18dbc3"
+    },
+    "cases": [
+      {
+        "id": "F1-ACTIVE-BAN",
+        "families": ["F1"],
+        "classification": "single_authority_required",
+        "observations": ["OwnerPartition", "CapabilityAndABA", "LevelTriggeredProgress"],
+        "current_behaviors": ["TP-OWN-001", "TP-ADMIN-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_peer_ban_can_miss_checked_out_remote_work",
+        "current_theorem_tests": [
+          "authority::tests::foundation::uak_peer_revocation_removes_active_owner_and_stales_checked_out_work"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/verify_mgr.rs",
+            "symbol": "process_inner",
+            "ordered": ["tasks.pop_front", "._process_tx(", ".after_process("]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "ban_malformed",
+            "ordered": ["network.ban_peer", "verify_queue.write().await.remove_txs_by_peer"]
+          }
+        ]
+      },
+      {
+        "id": "F2-F6-RBF-PARTIAL",
+        "families": ["F2", "F6"],
+        "classification": "single_authority_required",
+        "observations": ["OwnerPartition", "ContinuousResources", "TotalApply", "CommittedEffects"],
+        "current_behaviors": ["TP-RBF-001", "TP-CACHE-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_failed_rbf_can_remove_the_victim_before_candidate_retention",
+        "current_theorem_tests": [
+          "authority::tests::foundation::uak_failed_rbf_fee_disposition_preserves_victims_and_terminalizes_candidate"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "submit_entry",
+            "ordered": ["self.process_rbf(", "_submit_entry(", ".limit_size(", "tokio::spawn("]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "process_rbf",
+            "ordered": ["remove_entry_and_descendants", "record_conflict", "callbacks.call_reject"]
+          }
+        ]
+      },
+      {
+        "id": "F3-STATE-EFFECT-GAP",
+        "families": ["F3"],
+        "classification": "single_authority_required",
+        "observations": ["TotalApply", "CommittedEffects"],
+        "current_behaviors": ["TP-COMMIT-001", "TP-EFFECT-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_membership_commit_can_be_observed_without_a_required_effect",
+        "current_theorem_tests": [
+          "authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "_submit_entry",
+            "ordered": ["tx_pool.add_pending", "callbacks.call_pending"]
+          },
+          {
+            "path": "tx-pool/src/callback.rs",
+            "symbol": "call_pending",
+            "required": ["call(entry)"]
+          },
+          {
+            "path": "tx-pool/src/verify_mgr.rs",
+            "symbol": "start",
+            "required": ["catch_unwind", "WorkerExit::Panicked"]
+          }
+        ]
+      },
+      {
+        "id": "F4-FRAGMENTED-BUDGETS",
+        "families": ["F4"],
+        "classification": "single_authority_required",
+        "observations": ["ContinuousResources", "BoundedHostility"],
+        "current_behaviors": ["TP-BUDGET-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_fragmented_limits_can_pass_without_one_total_retained_budget",
+        "current_theorem_tests": [
+          "authority::tests::foundation::uak_resource_limit_failure_preserves_every_observable_fact"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/component/verify_queue.rs",
+            "required": ["DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE", "total_tx_size", "is_full"]
+          },
+          {
+            "path": "tx-pool/src/component/orphan.rs",
+            "required": ["DEFAULT_MAX_ORPHAN_TRANSACTIONS", "while self.len() > DEFAULT_MAX_ORPHAN_TRANSACTIONS"]
+          },
+          {
+            "path": "tx-pool/src/pool.rs",
+            "required": ["CONFLICTES_CACHE_SIZE", "CONFLICTES_INPUTS_CACHE_SIZE", "self.config.max_tx_pool_size"]
+          }
+        ]
+      },
+      {
+        "id": "F5-ORPHAN-LOST-WAKE",
+        "families": ["F5"],
+        "classification": "single_authority_required",
+        "observations": ["DependencyExactness", "LevelTriggeredProgress"],
+        "current_behaviors": ["TP-DEP-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_edge_triggered_orphan_wake_can_lose_parent_progress",
+        "current_theorem_tests": [
+          "authority::tests::dependency::uak_direct_parent_acceptance_publishes_output_availability_atomically"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "after_process",
+            "ordered": ["TxVerificationResult::UnknownParents", "self.add_orphan("]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "process_orphan_tx",
+            "required": ["find_orphan_by_previous", "remove_orphan_tx"]
+          },
+          {
+            "path": "tx-pool/src/verify_mgr.rs",
+            "symbol": "start_loop",
+            "required": ["self.workers.iter_mut().enumerate()", ".start(worker_id"]
+          }
+        ]
+      },
+      {
+        "id": "F7-GAP-UNCLE",
+        "families": ["F7"],
+        "classification": "local_correction_sufficient",
+        "observations": ["SchedulerExactness", "ChainSnapshotPairing", "CoherentPublicProjection", "TemplateConvergence"],
+        "current_behaviors": ["TP-REORG-001", "TP-TEMPLATE-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_gap_and_detached_uncle_can_jointly_censor_reproposal",
+        "current_theorem_tests": [
+          "authority::tests::chain::uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot",
+          "block_assembler::tests::optional_content_uses_one_budget_and_filters_only_published_conflicts"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "_update_tx_pool_for_reorg",
+            "required": ["get_by_status(&Status::Gap)", "contains_proposed", "get_by_status(&Status::Pending)", "contains_gap"]
+          },
+          {
+            "path": "tx-pool/src/component/pool_map.rs",
+            "symbol": "pending_size",
+            "required": ["pending_count + self.gap_count"]
+          },
+          {
+            "path": "tx-pool/src/component/pool_map.rs",
+            "symbol": "get_proposals",
+            "required": ["Status::Pending"]
+          },
+          {
+            "path": "tx-pool/src/block_assembler/candidate_uncles.rs",
+            "symbol": "prepare_uncles",
+            "required": ["snapshot.is_main_chain(&parent_hash)", "uncles.push(uncle.clone())"]
+          },
+          {
+            "path": "tx-pool/src/pool.rs",
+            "symbol": "package_proposals",
+            "ordered": ["uncle_proposals", "self.get_proposals"]
+          }
+        ]
+      },
+      {
+        "id": "F7-REORG-CLEAR-ORDER",
+        "families": ["F7"],
+        "classification": "single_authority_required",
+        "observations": ["OwnerPartition", "TotalApply", "ChainSnapshotPairing", "LevelTriggeredProgress"],
+        "current_behaviors": ["TP-REORG-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_concurrent_clear_can_be_overtaken_by_detached_recovery",
+        "current_theorem_tests": [
+          "service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition",
+          "authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/service.rs",
+            "symbol": "start",
+            "ordered": ["handle_clone.spawn(process", "Some(message) = reorg_receiver.recv()"]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "update_tx_pool_for_reorg",
+            "ordered": ["let retain", "fetch_txs_verify_cache", "self.tx_pool.write().await"]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "clear_pool",
+            "ordered": ["self.tx_pool.write().await", "tx_pool.clear"]
+          }
+        ]
+      },
+      {
+        "id": "F8-DETACHED-CACHE-IDENTITY",
+        "families": ["F8"],
+        "classification": "local_correction_sufficient",
+        "observations": ["IdentityAndEvidence"],
+        "current_behaviors": ["TP-IDENTITY-001"],
+        "counterexample_test": "mathematical_model::develop_refinement::develop_detached_cache_lookup_can_substitute_raw_for_witness_identity",
+        "current_theorem_tests": [
+          "authority::tests::resolver::uak_verification_cache_lookup_cannot_substitute_a_nearby_request"
+        ],
+        "source_facts": [
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "fetch_txs_verify_cache",
+            "ordered": ["let wtx_hash = tx.witness_hash()", ".map(|value| (wtx_hash, value))"]
+          },
+          {
+            "path": "tx-pool/src/process.rs",
+            "symbol": "readd_detached_tx",
+            "ordered": ["let tx_hash = tx.hash()", "fetched_cache.get(&tx_hash)"]
+          }
+        ]
+      }
     ]
   },
   "root_families": {

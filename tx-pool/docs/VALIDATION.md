@@ -16,7 +16,7 @@ and Markdown tables are discovered, generated or checked.
 
 | File | Authority and purpose | Consumer | Update rule |
 |---|---|---|---|
-| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T13 obligations, executable mathematical proof policy, semantic roots for the generated model/production refinement frontier and durable residual risks. Validators derive public builder/controller/relay-receiver methods, owner/phase/status/boundary variants, identity anchors and the transitive Rust type frontier; current release status is deliberately absent. | `check_security_manifest.py`, `check_model_refinement.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums, public methods or a generated refinement observation into a validator. |
+| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T13 obligations, executable mathematical proof policy, semantic roots for the generated model/production refinement frontier, the immutable develop comparison cases and durable residual risks. Validators derive public builder/controller/relay-receiver methods, owner/phase/status/boundary variants, identity anchors and the transitive Rust type frontier; current release status is deliberately absent. | `check_security_manifest.py`, `check_model_refinement.py`, `check_develop_refinement.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums, public methods or a generated current-code refinement observation into a validator. Historical source facts must remain bound to the exact immutable commit and tree. |
 | [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1-T13 mappings and curated unit/integration evidence. Cross-crate counterexamples are typed separately, bind mechanically to an `OPEN` finding, and do not count as conformance. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
 | [`integration-impact.json`](../integration-impact.json) | Curated complete set of registered process specs whose production paths cross tx-pool ingress, verification, pool mutation, relay, mining/template or transaction-bearing reorg boundaries. | `check_review_guide.py`, `check_security_manifest.py` | Hand-edit when a relevant spec is added, removed, renamed or its boundary changes. Integration CI checks it against `ckb-test --list-specs`. |
 | [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory and explicit release blockers. It stores no derived count or individual evidence. | `check_security_manifest.py` | Edit only when an assembly input or release decision changes. Test counts are always derived. |
@@ -31,6 +31,7 @@ nextest + ckb-test -- discovers -------> complete executable test universe
          |
          v exact reconciliation
 architecture-contract.json -----------> T1-T13 vocabulary
+         +----------------------------> immutable develop source/counterexample cases
 review-behaviors.json -----------------> semantic rules + exact owners/evidence
 integration-impact.json --------------> curated process boundary
          |
@@ -74,6 +75,7 @@ temporary directory.
 |---|---|---|
 | `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery and the external TLC runtime for the lightweight CI workflow. | No |
 | `python3 tx-pool/scripts/check_ascii.py` | Reject non-ASCII styling in technical source, contracts and generated documentation while allowing the profiler's exact external microsecond unit token. | No |
+| `python3 tx-pool/scripts/check_develop_refinement.py` | Require the full immutable develop baseline commit/tree, extract every registered historical function directly from Git, verify the semantic call-order facts, cover F1-F8 and bind each negative witness to current behavior evidence. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
 | `python3 tx-pool/scripts/check_formal_models.py` | Discover every registered TLA module/config pair, reject registry drift, run each expected verdict, and require the named negative reachability witness. | Only temporary TLC metadata outside the source tree |
 | `python3 tx-pool/scripts/check_model_refinement.py` | Starting only from semantic roots in `architecture-contract.json`, derive the reachable model and production Rust types, enum members, implementation methods, reference counts and synchronization primitives. Every run executes permanent parser, deliberately-unbound semantic-root and deliberately-unconstructed-capability canaries in `scripts/fixtures/model_refinement_canary.rs`. `--json` emits the complete read-only M3 frontier; no generated observation is an allowlist. | No |
@@ -101,7 +103,9 @@ it does not provide the required per-test process isolation.
 
 The dedicated lightweight workflow
 `.github/workflows/ci_tx_pool_review.yaml` compiles the scripts and runs the
-deterministic documentation, behavior and layout checks. Security-manifest
+deterministic documentation, behavior, develop-refinement and layout checks.
+Its checkout uses complete Git history because the develop gate refuses an
+unverifiable shallow baseline. Security-manifest
 validation stays with Rust CI because it performs nextest discovery.
 
 ## Intentional updates

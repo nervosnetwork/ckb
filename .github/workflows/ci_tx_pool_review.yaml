@@ -30,5 +30,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Validate tx-pool documentation and scripts
         run: python3 tx-pool/scripts/check_all.py --light

@@ -3495,3 +3495,57 @@ is M3.4: map `develop` and the current authority into the same observation
 algebra, prove which non-atomic races require a single authority, and account
 for every added state, lock, log and failure domain before M3.5 attempts layer
 deletion and serial-cut minimization.
+
+## M3.4 immutable develop refinement closure
+
+The comparison now uses the exact current develop cut rather than historical
+recollection: commit `91b97ab5f67fea203fdc5e5d6fbc19a5e0f8b987`, tree
+`626da246f4d29f92ba22f53a284d51eb9d18dbc3`. The machine gate extracts named
+historical functions directly from Git, masks comments and strings, checks
+required and ordered source facts, and binds each case to one registered
+negative witness plus current positive theorem coverage.
+
+Eight cases cover F1-F8. Checked-out peer work, partial RBF, state/effect
+separation, fragmented resource authority, dependency lost wake and
+reorg/clear ordering require the same owner/Apply closure when considered as a
+complete system. Gap/uncle proposal censorship and raw-versus-witness cache
+identity are explicitly adjudicated as locally correctable and cannot be used
+to exaggerate rewrite necessity. The durable architecture cost ledger records
+the owner map, authority guard, identity tokens, projections, compute permits,
+effect log, replacement history and chain/template lanes with their bounds and
+removal rules.
+
+The whole-phase review corrected two proof-quality defects before closure. The
+first state/effect witness had treated intentionally asynchronous template
+publication as a bug; it was replaced with the actual mutation/direct-callback
+failure cut. The fragmented-budget witness was renamed and documented as the
+absence of one conservation budget, not unbounded legacy memory. The checker
+also rejects malformed registry fields as typed diagnostics instead of
+crashing.
+
+Exact gates at this cut:
+
+- complete internal-feature nextest: 637/637, zero skipped;
+- complete default-feature nextest: 633/633, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- strict all-target internal-feature Clippy, formatting and diff checks;
+- all nine discovered repository contracts, including the immutable develop
+  source gate and generated review evidence with 324 unique Rust tests / 1,245
+  invariant references;
+- TLC 1,098 generated / 318 distinct positive states and the required negative
+  witness;
+- mechanically derived refinement frontier: model 210 reachable / 88 outside
+  roots / 21 files, production 614 / 11 / 37; expanded production has zero
+  constructorless variants and zero constructorless root structs.
+
+All Rust tests ran through `cargo nextest run`; direct `cargo test` was not
+used. The first complete contract attempt failed only because the sandbox
+forbade TLC's local RMI socket; the approved unsandboxed rerun completed with
+the expected positive and negative verdicts.
+
+M3.5 is now active. Its exact first action is the static layer and serial-cut
+inventory: derive every retained layer, mutable authority, lock/guard span,
+task/channel and manual publication point; classify dispatcher bounds,
+detached recovery validation, full-pool query work and shutdown/persistence
+ordering before proposing any fusion or deletion. No production semantic edit
+or timing experiment is permitted in this phase.
