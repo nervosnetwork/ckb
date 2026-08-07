@@ -1,5 +1,5 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
@@ -20,6 +20,391 @@
     "progress": "per_obligation_rank_or_monotonic_level_under_named_fairness_premises",
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
+  },
+  "refinement_inventory": {
+    "schema_version": 1,
+    "model_source_roots": [
+      "tx-pool/src/tests/model"
+    ],
+    "production_source_roots": [
+      "tx-pool/src/authority",
+      "tx-pool/src/service/message.rs"
+    ],
+    "production_reference_roots": [
+      "tx-pool/src/authority",
+      "tx-pool/src/block_assembler",
+      "tx-pool/src/callback.rs",
+      "tx-pool/src/component/recent_reject.rs",
+      "tx-pool/src/lib.rs",
+      "tx-pool/src/persisted.rs",
+      "tx-pool/src/service",
+      "tx-pool/src/service.rs"
+    ],
+    "model_roots": {
+      "tx-pool/src/tests/model/adversarial.rs::M2RootPremise": "trusted_premise_falsifier",
+      "tx-pool/src/tests/model/adversarial.rs::QuantitativeBound": "adversarial_cost_bound",
+      "tx-pool/src/tests/model/adversarial.rs::QuantitativeInput": "adversarial_cost_input",
+      "tx-pool/src/tests/model/adversarial.rs::WorkAmplificationAudit": "hostile_work_bound",
+      "tx-pool/src/tests/model/boundaries.rs::CallbackAccess": "callback_capability",
+      "tx-pool/src/tests/model/boundaries.rs::CallbackDisposition": "callback_boundary",
+      "tx-pool/src/tests/model/boundaries.rs::CandidateUncle": "candidate_uncle_boundary",
+      "tx-pool/src/tests/model/boundaries.rs::QueryProjection": "query_boundary",
+      "tx-pool/src/tests/model/boundaries.rs::QuerySubject": "query_subject",
+      "tx-pool/src/tests/model/boundaries.rs::TemplateProtocol": "template_boundary",
+      "tx-pool/src/tests/model/boundaries.rs::VerificationControl": "verification_control_boundary",
+      "tx-pool/src/tests/model/boundaries.rs::VerificationKey": "verification_identity",
+      "tx-pool/src/tests/model/composition.rs::BatchPlanError": "batch_plan_outcome",
+      "tx-pool/src/tests/model/composition.rs::CanonicalBatchPlan": "canonical_ordered_batch",
+      "tx-pool/src/tests/model/composition.rs::CompletionDrainPlan": "completion_exchange",
+      "tx-pool/src/tests/model/composition.rs::CompletionDrainPlanFailure": "completion_exchange_failure",
+      "tx-pool/src/tests/model/composition.rs::ComputeExchangePlan": "permit_work_exchange",
+      "tx-pool/src/tests/model/composition.rs::ComputeExchangePlanFailure": "permit_work_exchange_failure",
+      "tx-pool/src/tests/model/composition.rs::OrderedBatchFamily": "ordered_batch_family",
+      "tx-pool/src/tests/model/composition.rs::ReadyComposition": "commutative_membership",
+      "tx-pool/src/tests/model/composition.rs::RetainedAcquireDisposition": "retained_permit_outcome",
+      "tx-pool/src/tests/model/composition.rs::RetainedPermitAcquirer": "retained_permit_protocol",
+      "tx-pool/src/tests/model/handoff.rs::CapabilityTransport": "capability_handoff",
+      "tx-pool/src/tests/model/handoff.rs::EndpointCircuit": "effect_endpoint_circuit",
+      "tx-pool/src/tests/model/handoff.rs::EndpointEvent": "effect_endpoint_boundary",
+      "tx-pool/src/tests/model/handoff.rs::RelayHandoff": "relay_boundary",
+      "tx-pool/src/tests/model/kernel.rs::KernelCommand": "kernel_command",
+      "tx-pool/src/tests/model/kernel.rs::KernelDisposition": "kernel_outcome",
+      "tx-pool/src/tests/model/kernel.rs::KernelStep": "total_apply",
+      "tx-pool/src/tests/model/permit.rs::FairPermitScheduler": "fair_permit_protocol",
+      "tx-pool/src/tests/model/kernel.rs::ChainRemovalCause": "chain_removal_cause",
+      "tx-pool/src/tests/model/protocol.rs::ControllerProtocol": "boundary_request_protocol",
+      "tx-pool/src/tests/model/protocol.rs::Lifecycle": "generation_lifecycle",
+      "tx-pool/src/tests/model/protocol.rs::SystemDisposition": "complete_system_disposition",
+      "tx-pool/src/tests/model/protocol.rs::SystemEvent": "complete_system_event",
+      "tx-pool/src/tests/model/protocol.rs::SystemState": "complete_system_state",
+      "tx-pool/src/tests/model/resource.rs::ComputeAdmission": "compute_resource_admission",
+      "tx-pool/src/tests/model/resource.rs::ComputeGrant": "compute_resource_grant",
+      "tx-pool/src/tests/model/resource.rs::QueryCostInputs": "query_cost_input",
+      "tx-pool/src/tests/model/resource.rs::QueryCostUpperBound": "query_cost_bound",
+      "tx-pool/src/tests/model/resource.rs::RetainedChargeInputs": "retained_resource_equation",
+      "tx-pool/src/tests/model/resource.rs::ScratchDisposition": "fallible_scratch_outcome",
+      "tx-pool/src/tests/model/state.rs::DirectCapability": "direct_compute_capability",
+      "tx-pool/src/tests/model/state.rs::EffectClaim": "effect_claim",
+      "tx-pool/src/tests/model/state.rs::FinishedWorkCapability": "compute_completion",
+      "tx-pool/src/tests/model/state.rs::LogicalEffect": "committed_effect_value",
+      "tx-pool/src/tests/model/state.rs::MissingDependencies": "dependency_level_authority",
+      "tx-pool/src/tests/model/state.rs::ModelInvariantError": "integrity_fault",
+      "tx-pool/src/tests/model/state.rs::Omega": "transaction_authority",
+      "tx-pool/src/tests/model/state.rs::OwnerLocation": "owner_lifecycle",
+      "tx-pool/src/tests/model/state.rs::PeerBanRecord": "peer_ban_fence",
+      "tx-pool/src/tests/model/state.rs::ResourceVector": "resource_authority",
+      "tx-pool/src/tests/model/state.rs::Source": "ingress_source",
+      "tx-pool/src/tests/model/state.rs::WorkCapability": "compute_capability"
+    },
+    "production_roots": {
+      "tx-pool/src/authority/ban.rs::PeerBanRegistry": "peer_ban_fence",
+      "tx-pool/src/authority/chain_boundary.rs::ChainUpdateRequest": "ordered_chain_preparation",
+      "tx-pool/src/authority/dependency.rs::DependencyFrontier": "dependency_level_authority",
+      "tx-pool/src/authority/effect.rs::CommittedEffect": "committed_effect_value",
+      "tx-pool/src/authority/effect.rs::EffectLog": "committed_effect_authority",
+      "tx-pool/src/authority/effect.rs::EffectReceipt": "effect_delivery_capability",
+      "tx-pool/src/authority/effect.rs::EffectSettlement": "effect_settlement_capability",
+      "tx-pool/src/authority/effect.rs::EffectWork": "effect_claim_view",
+      "tx-pool/src/authority/ingress.rs::DirectCommand": "direct_ingress_handoff",
+      "tx-pool/src/authority/ingress.rs::RetainedIngress": "retained_ingress_handoff",
+      "tx-pool/src/authority/ingress.rs::RetainedIngressError": "retained_ingress_outcome",
+      "tx-pool/src/authority/indexes.rs::AuthorityIndexes": "identity_index_projection",
+      "tx-pool/src/authority/packing.rs::PackageAggregate": "template_packing_algorithm",
+      "tx-pool/src/authority/plan.rs::AuthorityPostCommit": "post_commit_handoff",
+      "tx-pool/src/authority/plan.rs::AuthorityFault": "authority_integrity_fault",
+      "tx-pool/src/authority/plan.rs::Backpressure": "kernel_backpressure_outcome",
+      "tx-pool/src/authority/plan.rs::PlanError": "kernel_plan_outcome",
+      "tx-pool/src/authority/plan.rs::PreparedApply": "atomic_apply_capability",
+      "tx-pool/src/authority/plan.rs::SettlementDisposition": "compute_settlement_outcome",
+      "tx-pool/src/authority/plan.rs::StalePlan": "stale_plan_outcome",
+      "tx-pool/src/authority/plan.rs::TxPoolAuthority": "transaction_authority",
+      "tx-pool/src/authority/plan/chain_transition.rs::PreacceptedCapability": "chain_reconciliation_capability",
+      "tx-pool/src/authority/plan/membership/eviction.rs::VirtualProjection": "coupled_membership_plan",
+      "tx-pool/src/authority/plan/membership/independent.rs::IndependentMembershipOutcome": "commutative_membership",
+      "tx-pool/src/authority/plan/membership/independent.rs::IndependentMembershipChange": "commutative_membership_change",
+      "tx-pool/src/authority/plan/membership.rs::MembershipProjection": "membership_projection",
+      "tx-pool/src/authority/publisher.rs::BlockingEffectFailure": "effect_endpoint_boundary",
+      "tx-pool/src/authority/read.rs::AuthorityReadView": "coherent_public_projection",
+      "tx-pool/src/authority/read.rs::PersistencePartition": "persistence_projection",
+      "tx-pool/src/authority/relay.rs::RelayMailboxConfigError": "relay_boundary_configuration",
+      "tx-pool/src/authority/relay.rs::AuthorityRelaySink": "relay_mailbox_handoff",
+      "tx-pool/src/authority/resources.rs::ResourceLedger": "resource_authority",
+      "tx-pool/src/authority/resolver.rs::DirectResolutionPreparation": "direct_resolution_outcome",
+      "tx-pool/src/authority/resolver.rs::ResolutionAttempt": "retained_resolution_outcome",
+      "tx-pool/src/authority/resolver.rs::ResolveAgainstCutError": "resolution_cut_outcome",
+      "tx-pool/src/authority/runtime.rs::AuthorityRuntime": "runtime_transition_boundary",
+      "tx-pool/src/authority/runtime.rs::AuthorityStore": "coherent_store_cut",
+      "tx-pool/src/authority/runtime.rs::RuntimeConfigError": "runtime_configuration_outcome",
+      "tx-pool/src/authority/service.rs::AuthorityGeneration": "generation_lifecycle",
+      "tx-pool/src/authority/service.rs::AuthorityGenerationInvalidity": "generation_invalidity_capability",
+      "tx-pool/src/authority/service.rs::AuthorityIntegrityFault": "service_integrity_fault",
+      "tx-pool/src/authority/service.rs::AuthorityService": "system_protocol",
+      "tx-pool/src/authority/service.rs::AuthorityServiceAssembly": "system_assembly",
+      "tx-pool/src/authority/service.rs::AuthorityServiceError": "service_outcome",
+      "tx-pool/src/authority/service.rs::DirectErrorDisposition": "direct_boundary_outcome",
+      "tx-pool/src/authority/service.rs::GenerationBoundaryEvent": "generation_boundary_event",
+      "tx-pool/src/authority/scheduler.rs::FairFrontier": "scheduler_authority",
+      "tx-pool/src/authority/source.rs::AuthoritySourceVersions": "projection_source_versions",
+      "tx-pool/src/authority/template.rs::TemplateConvergence": "template_publication_authority",
+      "tx-pool/src/authority/template_driver.rs::AuthorityBlockAssembler": "template_convergence",
+      "tx-pool/src/authority/template_driver.rs::TemplateRetryWake": "template_retry_level",
+      "tx-pool/src/authority/topology.rs::AuthorityTaskTopology": "task_lifecycle",
+      "tx-pool/src/authority/topology.rs::AuthorityGenerationFault": "generation_task_fault",
+      "tx-pool/src/authority/topology.rs::AuthorityTopologyEvent": "generation_task_event",
+      "tx-pool/src/authority/validation.rs::MembershipValidationOutcome": "membership_validation_outcome",
+      "tx-pool/src/authority/validation.rs::CandidateValidationError": "candidate_validation_outcome",
+      "tx-pool/src/authority/validation.rs::DirectAdmissionValidation": "direct_validation_evidence",
+      "tx-pool/src/authority/validation.rs::ResolvedCellRole": "resolved_cell_role",
+      "tx-pool/src/authority/work.rs::CheckedOutWork": "compute_capability",
+      "tx-pool/src/authority/work.rs::ComputeSettlement": "compute_completion",
+      "tx-pool/src/authority/work.rs::ResolvedPayloadBuild": "resolved_payload_outcome",
+      "tx-pool/src/authority/worker.rs::ComputeWorker": "compute_worker_protocol",
+      "tx-pool/src/authority/worker.rs::WorkerStep": "compute_worker_outcome",
+      "tx-pool/src/service/message.rs::ChainControl": "ordered_chain_handoff",
+      "tx-pool/src/service/message.rs::Message": "ordinary_boundary_handoff"
+    },
+    "semantic_bindings": {
+      "authority_and_atomic_apply": {
+        "model_roles": [
+          "kernel_command",
+          "kernel_outcome",
+          "owner_lifecycle",
+          "total_apply",
+          "transaction_authority"
+        ],
+        "production_roles": [
+          "atomic_apply_capability",
+          "coherent_store_cut",
+          "kernel_plan_outcome",
+          "post_commit_handoff",
+          "stale_plan_outcome",
+          "transaction_authority"
+        ],
+        "behavior_ids": [
+          "TP-COMMIT-001",
+          "TP-OWN-001"
+        ]
+      },
+      "bounded_hostility_and_resources": {
+        "model_roles": [
+          "adversarial_cost_bound",
+          "adversarial_cost_input",
+          "compute_resource_admission",
+          "compute_resource_grant",
+          "hostile_work_bound",
+          "resource_authority",
+          "retained_resource_equation"
+        ],
+        "production_roles": [
+          "resource_authority"
+        ],
+        "behavior_ids": [
+          "TP-BUDGET-001",
+          "TP-PERF-001"
+        ]
+      },
+      "chain_and_dependency": {
+        "model_roles": [
+          "chain_removal_cause",
+          "dependency_level_authority"
+        ],
+        "production_roles": [
+          "chain_reconciliation_capability",
+          "dependency_level_authority",
+          "ordered_chain_handoff",
+          "ordered_chain_preparation"
+        ],
+        "behavior_ids": [
+          "TP-DEP-001",
+          "TP-REORG-001"
+        ]
+      },
+      "compute_and_fair_permits": {
+        "model_roles": [
+          "capability_handoff",
+          "completion_exchange",
+          "completion_exchange_failure",
+          "compute_capability",
+          "compute_completion",
+          "direct_compute_capability",
+          "fair_permit_protocol",
+          "permit_work_exchange",
+          "permit_work_exchange_failure",
+          "retained_permit_outcome",
+          "retained_permit_protocol"
+        ],
+        "production_roles": [
+          "compute_capability",
+          "compute_completion",
+          "compute_settlement_outcome",
+          "compute_worker_outcome",
+          "compute_worker_protocol",
+          "scheduler_authority"
+        ],
+        "behavior_ids": [
+          "TP-COMMIT-001",
+          "TP-OWN-001",
+          "TP-WORKER-001"
+        ]
+      },
+      "effects_and_callbacks": {
+        "model_roles": [
+          "callback_boundary",
+          "callback_capability",
+          "committed_effect_value",
+          "effect_claim",
+          "effect_endpoint_boundary",
+          "effect_endpoint_circuit"
+        ],
+        "production_roles": [
+          "committed_effect_authority",
+          "committed_effect_value",
+          "effect_claim_view",
+          "effect_delivery_capability",
+          "effect_endpoint_boundary",
+          "effect_settlement_capability"
+        ],
+        "behavior_ids": [
+          "TP-EFFECT-001"
+        ]
+      },
+      "ingress_identity_and_validation": {
+        "model_roles": [
+          "ingress_source",
+          "verification_control_boundary",
+          "verification_identity"
+        ],
+        "production_roles": [
+          "candidate_validation_outcome",
+          "direct_boundary_outcome",
+          "direct_ingress_handoff",
+          "direct_resolution_outcome",
+          "direct_validation_evidence",
+          "resolution_cut_outcome",
+          "resolved_cell_role",
+          "resolved_payload_outcome",
+          "retained_ingress_handoff",
+          "retained_ingress_outcome",
+          "retained_resolution_outcome"
+        ],
+        "behavior_ids": [
+          "TP-IDENTITY-001",
+          "TP-OWN-001",
+          "TP-WORKER-001"
+        ]
+      },
+      "integrity_and_ordinary_failures": {
+        "model_roles": [
+          "batch_plan_outcome",
+          "fallible_scratch_outcome",
+          "integrity_fault",
+          "trusted_premise_falsifier"
+        ],
+        "production_roles": [
+          "authority_integrity_fault",
+          "generation_invalidity_capability",
+          "generation_task_fault",
+          "kernel_backpressure_outcome",
+          "runtime_configuration_outcome",
+          "service_integrity_fault",
+          "service_outcome"
+        ],
+        "behavior_ids": [
+          "TP-DEFECT-001"
+        ]
+      },
+      "membership_and_rbf": {
+        "model_roles": [
+          "canonical_ordered_batch",
+          "commutative_membership",
+          "ordered_batch_family"
+        ],
+        "production_roles": [
+          "commutative_membership",
+          "commutative_membership_change",
+          "coupled_membership_plan",
+          "identity_index_projection",
+          "membership_projection",
+          "membership_validation_outcome",
+          "projection_source_versions"
+        ],
+        "behavior_ids": [
+          "TP-COMMIT-001",
+          "TP-RBF-001"
+        ]
+      },
+      "query_and_persistence": {
+        "model_roles": [
+          "query_boundary",
+          "query_cost_bound",
+          "query_cost_input",
+          "query_subject"
+        ],
+        "production_roles": [
+          "coherent_public_projection",
+          "persistence_projection"
+        ],
+        "behavior_ids": [
+          "TP-PERSIST-001",
+          "TP-QUERY-001"
+        ]
+      },
+      "relay_and_peer_administration": {
+        "model_roles": [
+          "peer_ban_fence",
+          "relay_boundary"
+        ],
+        "production_roles": [
+          "peer_ban_fence",
+          "relay_boundary_configuration",
+          "relay_mailbox_handoff"
+        ],
+        "behavior_ids": [
+          "TP-ADMIN-001",
+          "TP-EFFECT-001",
+          "TP-HANDOFF-001"
+        ]
+      },
+      "system_lifecycle_and_handoff": {
+        "model_roles": [
+          "boundary_request_protocol",
+          "complete_system_disposition",
+          "complete_system_event",
+          "complete_system_state",
+          "generation_lifecycle"
+        ],
+        "production_roles": [
+          "generation_boundary_event",
+          "generation_lifecycle",
+          "generation_task_event",
+          "ordinary_boundary_handoff",
+          "runtime_transition_boundary",
+          "system_assembly",
+          "system_protocol",
+          "task_lifecycle"
+        ],
+        "behavior_ids": [
+          "TP-DEFECT-001",
+          "TP-HANDOFF-001",
+          "TP-WORKER-001"
+        ]
+      },
+      "template_convergence_and_packing": {
+        "model_roles": [
+          "candidate_uncle_boundary",
+          "template_boundary"
+        ],
+        "production_roles": [
+          "template_convergence",
+          "template_packing_algorithm",
+          "template_publication_authority",
+          "template_retry_level"
+        ],
+        "behavior_ids": [
+          "TP-TEMPLATE-001"
+        ]
+      }
+    }
   },
   "owner_algebra": {
     "variants": [

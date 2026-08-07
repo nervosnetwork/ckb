@@ -2035,10 +2035,13 @@ atomically falling back to the exact planner.
   exposing any remainder to `try_acquire`, so an older Local waiter wins. If
   the coordinator does not reacquire, it settles this wave without a
   replacement checkout; no fill target may delay settlement.
-- Effect-capacity-blocked completions keep the exact current fallback and its
-  original permit. This preserves the one-per-worker bound and prevents
-  publisher backpressure from accumulating unbounded finished results. The
-  rule adds no fairness queue, lifecycle owner, retry task or timing policy.
+- Superseded intermediate rule: the first draft kept the original semaphore
+  permit while effect capacity was blocked. M2 disproved that rule because it
+  can starve an older Direct waiter. The final rule retains the exact finished
+  capability and its bounded worker slot, releases the count token through the
+  fair semaphore, and performs no replacement checkout until settlement fits.
+  This preserves the one-per-worker bound without transferring publisher
+  pressure into permit starvation.
 - D3 must encode the split with move-only types rather than a boolean and T15/
   T16 must prove that a queued Local caller acquires within the next completed
   retained execution while normal uncontended retained waves still combine
@@ -2795,3 +2798,58 @@ now active. Its first exact action is to generate the bidirectional model to
 production/develop extraction inventory, then run the full bounded footprint
 universe against both classifiers before any topology or production edit is
 admitted.
+
+### M3.1 closed; M3.2 exact restart state
+
+Recovery from `21f776df9` was exact. HEAD, the fixed roadmap and this restart
+authority agree; the only unrelated working-tree edit remains the user-owned
+root `.gitignore`. No M2 source or gate result was lost.
+
+`architecture-contract.json` schema 8 now names semantic roots rather than
+copying derived Rust observations. `scripts/check_model_refinement.py`
+mechanically expands declaration/signature type closure, enum members, impl
+methods, reference counts and synchronization primitives, then proves every
+root role has exactly one bidirectional semantic binding backed by registered
+`TP-*` behavior. The light contract gate passes with 54 model roles, 65
+production roles and 12 bindings. The current generated frontier is 181 model
+types / 414 rooted variants / 241 rooted impl methods and 611 production types
+/ 787 rooted variants / 1,216 rooted impl methods.
+
+Fifteen model and eleven production declarations remain deliberately visible
+outside semantic roots. Direct inspection classified them as hostile explorer
+or transient algorithm/Plan/resolve scratch; none is an owner, resource row,
+queue, task, lock, capability, effect, version or ordinary result. They stay
+generated M3.5 deletion/fusion candidates and are not copied into an exclusion
+list.
+
+M3.1 now also owns a permanent parser/negative-binding canary. The normal
+checker proves the canary's deliberately omitted semantic role is rejected;
+the slower `--variant-flow --cargo-expand-production` gate classifies source
+producer/consumer sites with `ast-grep` and regenerates the current expanded
+crate rather than trusting a stale file. It proves all 414 rooted model enum
+variants and all 787 rooted production enum variants have a producer. Exactly
+23 production variants are macro-produced and remain distinguished from
+explicit source evidence. The light contract gate and diff check pass after
+the canary and full flow gate.
+
+The M3-startup report was adjudicated at this boundary. Its self-fused worker
+idea is retained as the corrected M9 hedge: it can fuse one worker's finished
+settlement and subsequent checkout but remains Theta(transactions), so it is a
+comparison topology rather than a substitute for the wave-level objective.
+The claimed coordinator blast-radius regression was false because current
+production already invalidates the complete generation when any authority
+worker exits unexpectedly; the real obligation is to refine the same
+generation-level capability closure for a coordinator exit. The stale draft
+that kept an effect-blocked completion's semaphore permit is explicitly
+superseded by the M2-proven rule that retains only the bounded worker slot and
+finished capability. The raw 611/181 type ratio remains module-derived M3.5
+evidence, never bulk-deletion authority.
+
+M3.2 is active. Its exact next action is an independent test-only differential
+adapter over the complete bounded `CellFootprint` relation universe. It must
+compare `analyze_ready_prefix` with production independent-membership
+classification pointwise, distinguish valid shared states from model-only
+invalid initial states such as duplicate outputs/proposal collisions, and
+cover every coupled/resource/effect/stale fallback. Representative anchors do
+not close this theorem. Production semantics and timing experiments remain
+frozen.

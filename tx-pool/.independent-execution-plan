@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: M2 mathematical composition gate complete; production refinement active
+Status: M3.1 generated frontier complete; pointwise classifier refinement active
 Checkpoint: M2 commit containing this record
-Active slice: M3 production/develop refinement and minimality audit
+Active slice: M3.2 bounded-footprint classifier equivalence
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -1307,6 +1307,7 @@ implementation proof cost.
 | M6 per-entry atomics/MVCC | local phase CAS is cheap | common owner changes parallelize | multi-owner RBF/capacity/chain commit needs a transaction log, rollback or global commit lock; recreates inferred ownership | reject |
 | M7 elected-worker flat combiner | no dedicated coordinator task | can batch checkout/completion | leader election, cancellation and ownership transfer are harder to prove than the saved idle task | reject |
 | M8 bounded semantic exchange inside UAK | `TxPoolAuthority` remains sole owner; channels carry only move-only compute capabilities | drains completed work, composes handoff and fills all idle workers in one bounded Apply; Ready remains a separate overlap boundary | one narrow supervised coordinator and O(worker-count) transient slots | leading historical candidate; not selected before D3 |
+| M9 self-fused worker exchange | each worker returns its completed permit through the fair gate, reacquires normally, then atomically settles its finished capability and optionally checks out its own next job | replaces one completion Apply plus one later checkout Apply with one worker-local fused Apply, but remains Theta(transactions) rather than Theta(waves) | no coordinator/channel/task; retains per-worker mutation contention and cannot amortize across simultaneous completions | retain as the low-complexity hedge and M3.6 falsifier, not as a target-equivalent contender |
 
 M8 is not a new transaction authority and not a second DAG. It is one possible
 execution protocol for the existing UAK. The accepted dependency graph remains
@@ -1522,6 +1523,7 @@ The wait-for graph is closed:
 | compute coordinator with work but no execution permit | semaphore capacity | Local completion or committed retained completion/cancellation |
 | effect-blocked completion | exact effect region capacity | sole effect publisher settlement |
 | worker | assignment or cancellation | coordinator or topology cancellation |
+| generation supervisor | coordinator task exit or join failure | cancel the generation, recover or retire every returned linear capability, and forbid persistence if closure cannot be proved |
 | Ready driver | Ready level/effect capacity | compute exchange or publisher settlement |
 
 Every wait subscribes before its authoritative level check. The coordinator
@@ -1536,6 +1538,15 @@ The coordinator channel cannot close while a live Computing capability lacks
 a receiver. If it closes unexpectedly, `SendError` returns the capability to
 the supervised owner and the same cancellation settlement runs. A legal
 transaction or supported cancellation cannot terminate the service.
+
+The coordinator is a single compute-feed task, but it does not newly widen the
+current operational failure domain: production already maps an unexpected
+exit or join failure of any authority worker to generation invalidation rather
+than continuing at `W - 1` capacity. The candidate must refine that same
+generation-level shutdown and capability-closure rule. It concentrates the
+immediate assignment pause in one task, so M3.6 must still compare recovery
+latency and closure work; it may not claim partial worker degradation as the
+current baseline.
 
 ### 9.7 Cost and deletion ledger
 
@@ -1590,6 +1601,29 @@ The original reorg Gap/uncle censorship, raw-versus-witness cache lookup,
 failed-RBF recovery, ban/refetch, dependency loss and effect-publication
 regressions therefore remain direct acceptance tests. None is replaced by a
 throughput-only test.
+
+### 9.9 Comparator topology: self-fused workers
+
+The coordinator-free hedge keeps the current worker set. After finishing one
+execution, a worker converts the execution capability to a finished-work
+capability, returns the count token to the shared fair semaphore, and may only
+use a token acquired again through that semaphore. Holding both the finished
+capability and the newly acquired token authorizes one atomic Apply that
+settles the old owner and, when compatible work exists, checks out the next
+owner for that worker. If the worker does not reacquire, or if effect capacity
+blocks settlement, it settles without replacement checkout and holds no
+semaphore token. This is observationally one legal adjacent
+`settle; checkout` serialization and preserves the scheduler cursor and older
+Local waiter order.
+
+The hedge removes one authority round trip per steady worker completion but
+does not combine different workers' completions. Its dominant authority work
+therefore remains Theta(transactions), whereas the semantic exchange targets
+Theta(ceiling(transactions / bounded_wave)) for already available independent
+work. M3.6 retains it because it has no new task, channel or failure domain and
+can falsify whether cross-worker exchange complexity earns its cost. It is not
+allowed to satisfy T16's wave-level operation-count gate by relabeling the
+per-worker Apply.
 
 ## 10. Final machine-checkable contracts
 
@@ -2050,6 +2084,87 @@ work.
 
 Exit: one smallest complete architecture wins every model theorem, historical
 attack, compatibility rule and static cost bound, or design remains open.
+
+#### M3.1 extraction discipline
+
+The refinement inventory is a mechanically derived reachability graph, not a
+second hand-maintained specification. `architecture-contract.json` names only
+the semantic roots and their roles. The checker expands each root through Rust
+field and enum-payload types, enumerates every reachable variant, and discovers
+the core inherent methods that construct, transform or consume those values.
+The model roots cover complete system state/event/disposition, kernel state and
+commands, composition/permit protocols, boundary handoffs and quantitative
+cost. Production roots cover the authority/store/runtime, Plan/Apply receipt,
+work and effect capabilities, task topology, service handoffs and template
+convergence.
+
+Every reachable term must end M3 in exactly one bidirectional semantic binding
+or one section 16 counterexample. A binding may be many-to-one where the model
+deliberately erases encoding, but it must name the observation and behavior
+owner. A production artifact with no reachable model binding is a deletion or
+fusion candidate; a model term with no production owner is an implementation
+gap. Source-derived declarations, variants, methods and reference counts are
+never copied into an allowlist. Adding or removing a reachable state, task,
+queue, lock, capability, version, effect or handoff therefore changes the
+generated frontier automatically.
+
+This extraction is static and read-only. It authorizes no production semantic
+edit and makes no timing claim. Pointwise classifier equivalence, producer and
+consumer reachability, the complete fault ledger and topology selection remain
+the later M3 gates below.
+
+The first generated closure is now reproducible through
+`scripts/check_model_refinement.py`. Fifty-four model root roles and sixty-five
+production root roles are bound bidirectionally through twelve semantic groups
+and existing `TP-*` behavior owners. The source graph currently contains 181
+root-reachable model types with 414 enum variants and 241 implementation
+methods, versus 611 root-reachable production types with 787 variants and
+1,216 methods. These counts are source observations, not line-count or
+complexity verdicts. The large production/model encoding ratio is an M3.5
+deletion/fusion obligation, not proof by itself that a production artifact is
+redundant.
+
+The checker also emits the module path for every declaration. M3.5 must
+adjudicate the ratio by semantic owner rather than bulk line/type deletion:
+most current production declarations are in the authority core, while the
+service/query/read/worker/ingress/publisher adapter slice is materially
+smaller. Fine-grained evidence receipts, affine capabilities and closed
+producer-specific error algebras may legitimately use more Rust types while
+reducing semantic construction authority. A type is removable only when its
+observation, conservation, liveness or cost owner is absent; the raw ratio is
+never deletion evidence.
+
+The generated root frontier leaves exactly fifteen model declarations and
+eleven production declarations unbound. The model set consists only of the
+hostile-trace explorer carriers (`AdversarialShape`, `HostileAction`,
+`HostileState`, `HostileTraceError`, `HostileTraceGenerator`,
+`HostileTraceLimits`, `HostileTraceReport`, `HostileTransition`, `HostileTxKey`,
+`PremiseCounterexample`, `PremiseViolation`, `ScenarioError`) and transient
+classifier scratch (`AcceptedIndex`, `CandidateIndex`, `EvictionScore`). The
+production set consists only of Plan-local change/fact carriers
+(`IndexChange`, `PreparedOwnerChange`, `RecoveryCandidate`, `CandidateFact`,
+`LocationChange`), derived ordering/cache scratch (`CandidatePackingState`,
+`DescendantsCache`, `PackageOrderKey`, `PersistenceReadyKey`) and resolver-local
+scratch/adaptation (`ResolvedComputation`, `SparsePoolCellProvider`). None owns
+lifecycle, charge, a task/queue/lock, a capability, an effect or an ordinary
+boundary result. They remain explicit M3.5 fusion/deletion candidates; the
+checker keeps discovering them and no exclusion allowlist exists.
+
+The checker carries a permanent syntax and negative-binding canary under
+`scripts/fixtures/`. Every invocation must discover its generic enum/struct
+and methods, observe the deliberately unbound semantic root as an exact
+failure, then prove the complete binding succeeds. The slower M3 gate adds
+AST-classified producer/consumer sites and current `cargo expand` output so a
+macro-produced command is not mislabeled constructorless. All 414 rooted
+model variants have a source producer; all 787 rooted production variants have
+a producer after current macro expansion. Twenty-three production variants
+are produced only through macros, which is recorded separately rather than
+mistaken for source-level evidence.
+
+This closes M3.1's declaration, semantic-root and variant producer/consumer
+inventory. Producer existence is not behavioral refinement: the pointwise
+classifier theorem remains M3.2, so a parent-type binding is not treated as
+production equivalence.
 
 ### M4 - Normative blueprint and anti-drift freeze
 
