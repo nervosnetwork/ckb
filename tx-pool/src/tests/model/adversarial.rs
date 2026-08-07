@@ -1075,22 +1075,25 @@ impl QuantitativeInput {
     }
 }
 
-/// Static authority-Apply cost for the current ordinary retained path.
+/// Static authority-Apply cost for the current I2 ordinary retained path.
 ///
 /// Scope is deliberately narrow: homogeneous chain-backed independent owners,
-/// continuous Resolve-to-Verify execution, no stale work, no pressure and one
-/// non-empty acceptance-effect batch per Ready Apply. The equation describes
-/// current topology; it is neither a semantic lower bound nor a timing model.
+/// count/byte-fitting homogeneous ingress cuts, continuous Resolve-to-Verify
+/// execution, no stale work, no pressure and one non-empty acceptance-effect
+/// batch per Ready Apply. The equation describes current topology; it is
+/// neither a semantic lower bound nor a timing model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CurrentRetainedPathInput {
     pub(super) items: u32,
+    pub(super) ingress_applies: u32,
+    pub(super) ingress_batch_limit: u32,
     pub(super) ready_applies: u32,
     pub(super) ready_batch_limit: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct CurrentRetainedPathCost {
-    pub(super) admission_applies: u32,
+    pub(super) ingress_applies: u32,
     pub(super) checkout_applies: u32,
     pub(super) completion_applies: u32,
     pub(super) membership_applies: u32,
@@ -1100,32 +1103,40 @@ pub(super) struct CurrentRetainedPathCost {
 
 impl CurrentRetainedPathInput {
     pub(super) fn compile(self) -> Option<CurrentRetainedPathCost> {
-        if self.ready_batch_limit == 0 {
+        if self.ingress_batch_limit == 0 || self.ready_batch_limit == 0 {
             return None;
         }
         if self.items == 0 {
-            return (self.ready_applies == 0).then_some(CurrentRetainedPathCost {
-                admission_applies: 0,
-                checkout_applies: 0,
-                completion_applies: 0,
-                membership_applies: 0,
-                effect_settlement_applies: 0,
-                total_applies: 0,
-            });
+            return (self.ingress_applies == 0 && self.ready_applies == 0).then_some(
+                CurrentRetainedPathCost {
+                    ingress_applies: 0,
+                    checkout_applies: 0,
+                    completion_applies: 0,
+                    membership_applies: 0,
+                    effect_settlement_applies: 0,
+                    total_applies: 0,
+                },
+            );
         }
+        let minimum_ingress_applies = self.items.div_ceil(self.ingress_batch_limit);
         let minimum_ready_applies = self.items.div_ceil(self.ready_batch_limit);
-        if !(minimum_ready_applies..=self.items).contains(&self.ready_applies) {
+        if !(minimum_ingress_applies..=self.items).contains(&self.ingress_applies)
+            || !(minimum_ready_applies..=self.items).contains(&self.ready_applies)
+        {
             return None;
         }
-        let per_item_applies = self.items.checked_mul(3)?;
+        let per_item_applies = self.items.checked_mul(2)?;
         let batched_applies = self.ready_applies.checked_mul(2)?;
         Some(CurrentRetainedPathCost {
-            admission_applies: self.items,
+            ingress_applies: self.ingress_applies,
             checkout_applies: self.items,
             completion_applies: self.items,
             membership_applies: self.ready_applies,
             effect_settlement_applies: self.ready_applies,
-            total_applies: per_item_applies.checked_add(batched_applies)?,
+            total_applies: self
+                .ingress_applies
+                .checked_add(per_item_applies)?
+                .checked_add(batched_applies)?,
         })
     }
 }

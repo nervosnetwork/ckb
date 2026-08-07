@@ -1,5 +1,6 @@
 //! Construction and structured ownership for the unified tx-pool service.
 
+use super::dispatch::process_retained_ingress_batch;
 use crate::{
     authority::service::{
         AuthorityGeneration, AuthorityGenerationEvent, AuthorityPersistenceError, AuthorityService,
@@ -14,8 +15,8 @@ use crate::{
     },
     network::{TxPoolNetwork, TxPoolNetworkHandle},
     service::{
-        CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE, Message, TxPoolController,
-        TxVerificationResultReceiver, process,
+        CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE, Message, Notify,
+        RemoteTxSubmission, Request, TxPoolController, TxVerificationResultReceiver, process,
     },
 };
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -42,6 +43,199 @@ use tokio_util::sync::CancellationToken;
 
 fn service_cancellation_token(process_exit: &CancellationToken) -> CancellationToken {
     process_exit.child_token()
+}
+
+const RETAINED_INGRESS_APPLY_ITEMS: usize = crate::constants::MAX_POOL_MUTATION_CANDIDATES;
+const RETAINED_INGRESS_BYTES: usize = ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH;
+
+/// Stack-owned, immediately available retained-ingress prefix.
+///
+/// It is not a queue or semantic owner. The controller channel remains the
+/// only waiting owner; the dispatcher merely moves an already available
+/// homogeneous prefix into one existing handler task. Remote batches are also
+/// peer-homogeneous so a malformed item has one unambiguous revocation cohort.
+pub(super) enum RetainedIngressBatch {
+    Remote {
+        peer: ckb_network::PeerIndex,
+        submissions: Vec<(ckb_types::core::TransactionView, ckb_types::core::Cycle)>,
+        responders: Vec<tokio::sync::oneshot::Sender<()>>,
+        bytes: usize,
+    },
+    Proposal {
+        transactions: Vec<ckb_types::core::TransactionView>,
+        bytes: usize,
+    },
+}
+
+enum RetainedIngressAppend {
+    Consumed,
+    Lookahead(Message),
+}
+
+impl RetainedIngressBatch {
+    fn try_new(message: Message) -> Result<Self, Message> {
+        match message {
+            Message::SubmitRemoteTx(request) => {
+                let tx_bytes = request.arguments.transaction.data().total_size();
+                if tx_bytes > RETAINED_INGRESS_BYTES {
+                    return Err(Message::SubmitRemoteTx(request));
+                }
+                let mut submissions = Vec::new();
+                let mut responders = Vec::new();
+                if submissions.try_reserve(1).is_err() || responders.try_reserve(1).is_err() {
+                    return Err(Message::SubmitRemoteTx(request));
+                }
+                let Request {
+                    responder,
+                    arguments:
+                        RemoteTxSubmission {
+                            transaction,
+                            declared_cycles,
+                            peer,
+                        },
+                } = request;
+                submissions.push((transaction, declared_cycles));
+                responders.push(responder);
+                Ok(Self::Remote {
+                    peer,
+                    submissions,
+                    responders,
+                    bytes: tx_bytes,
+                })
+            }
+            Message::NotifyTxs(Notify { arguments }) if !arguments.is_empty() => {
+                let bytes = arguments.total_bytes();
+                Ok(Self::Proposal {
+                    transactions: arguments.into_transactions(),
+                    bytes,
+                })
+            }
+            message => Err(message),
+        }
+    }
+
+    fn can_drain(&self) -> bool {
+        match self {
+            Self::Remote {
+                submissions, bytes, ..
+            } => {
+                submissions.len() < RETAINED_INGRESS_APPLY_ITEMS && *bytes < RETAINED_INGRESS_BYTES
+            }
+            Self::Proposal {
+                transactions,
+                bytes,
+            } => {
+                transactions.len() < RETAINED_INGRESS_APPLY_ITEMS && *bytes < RETAINED_INGRESS_BYTES
+            }
+        }
+    }
+
+    fn append(&mut self, message: Message) -> RetainedIngressAppend {
+        match (self, message) {
+            (
+                Self::Remote {
+                    peer,
+                    submissions,
+                    responders,
+                    bytes,
+                },
+                Message::SubmitRemoteTx(request),
+            ) if request.arguments.peer == *peer
+                && submissions.len() < RETAINED_INGRESS_APPLY_ITEMS =>
+            {
+                let tx_bytes = request.arguments.transaction.data().total_size();
+                let Some(next_bytes) = bytes.checked_add(tx_bytes) else {
+                    return RetainedIngressAppend::Lookahead(Message::SubmitRemoteTx(request));
+                };
+                if next_bytes > RETAINED_INGRESS_BYTES
+                    || submissions.try_reserve(1).is_err()
+                    || responders.try_reserve(1).is_err()
+                {
+                    return RetainedIngressAppend::Lookahead(Message::SubmitRemoteTx(request));
+                }
+                let Request {
+                    responder,
+                    arguments:
+                        RemoteTxSubmission {
+                            transaction,
+                            declared_cycles,
+                            ..
+                        },
+                } = request;
+                submissions.push((transaction, declared_cycles));
+                responders.push(responder);
+                *bytes = next_bytes;
+                RetainedIngressAppend::Consumed
+            }
+            (
+                Self::Proposal {
+                    transactions,
+                    bytes,
+                },
+                Message::NotifyTxs(Notify { arguments }),
+            ) => {
+                if arguments.is_empty() {
+                    return RetainedIngressAppend::Consumed;
+                }
+                let Some(next_count) = transactions.len().checked_add(arguments.transactions.len())
+                else {
+                    return RetainedIngressAppend::Lookahead(Message::NotifyTxs(Notify::new(
+                        arguments,
+                    )));
+                };
+                let Some(next_bytes) = bytes.checked_add(arguments.total_bytes()) else {
+                    return RetainedIngressAppend::Lookahead(Message::NotifyTxs(Notify::new(
+                        arguments,
+                    )));
+                };
+                if next_count > RETAINED_INGRESS_APPLY_ITEMS
+                    || next_bytes > RETAINED_INGRESS_BYTES
+                    || transactions
+                        .try_reserve(arguments.transactions.len())
+                        .is_err()
+                {
+                    return RetainedIngressAppend::Lookahead(Message::NotifyTxs(Notify::new(
+                        arguments,
+                    )));
+                }
+                transactions.extend(arguments.into_transactions());
+                *bytes = next_bytes;
+                RetainedIngressAppend::Consumed
+            }
+            (_, message) => RetainedIngressAppend::Lookahead(message),
+        }
+    }
+}
+
+fn spawn_message_handler(
+    service: &AuthorityService,
+    receiver: &mut mpsc::Receiver<Message>,
+    handlers: &mut JoinSet<Result<(), crate::authority::service::AuthorityGenerationInvalidity>>,
+    lookahead: &mut Option<Message>,
+    message: Message,
+) {
+    let task_service = service.clone();
+    match RetainedIngressBatch::try_new(message) {
+        Ok(mut batch) => {
+            while batch.can_drain() {
+                let Ok(message) = receiver.try_recv() else {
+                    break;
+                };
+                match batch.append(message) {
+                    RetainedIngressAppend::Consumed => {}
+                    RetainedIngressAppend::Lookahead(message) => {
+                        *lookahead = Some(message);
+                        break;
+                    }
+                }
+            }
+            handlers
+                .spawn(async move { process_retained_ingress_batch(task_service, batch).await });
+        }
+        Err(message) => {
+            handlers.spawn(async move { process(task_service, message).await });
+        }
+    }
 }
 
 /// Builder for one unified-authority tx-pool generation.
@@ -317,7 +511,20 @@ impl TxPoolServiceBuilder {
     ) {
         let mut handlers = JoinSet::new();
         let mut handler_clean = true;
+        let mut lookahead = None;
         loop {
+            if handlers.len() < handler_limit
+                && let Some(message) = lookahead.take()
+            {
+                spawn_message_handler(
+                    &service,
+                    &mut receiver,
+                    &mut handlers,
+                    &mut lookahead,
+                    message,
+                );
+                continue;
+            }
             tokio::select! {
                 _ = signal.cancelled() => break,
                 event = generation.next_event() => match event {
@@ -352,8 +559,13 @@ impl TxPoolServiceBuilder {
                 }
                 message = receiver.recv(), if handlers.len() < handler_limit => match message {
                     Some(message) => {
-                        let service = service.clone();
-                        handlers.spawn(async move { process(service, message).await });
+                        spawn_message_handler(
+                            &service,
+                            &mut receiver,
+                            &mut handlers,
+                            &mut lookahead,
+                            message,
+                        );
                     }
                     None => break,
                 }
@@ -419,3 +631,7 @@ fn log_start_error(error: AuthorityServiceStartError) {
 fn log_replay_error(error: &AuthorityPersistenceError) {
     error!("failed to replay tx-pool persistence: {error:?}");
 }
+
+#[cfg(test)]
+#[path = "tests/builder.rs"]
+mod tests;

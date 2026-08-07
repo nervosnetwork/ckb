@@ -2,12 +2,13 @@ use crate::Status;
 use crate::StatusCode;
 use crate::relayer::MAX_RELAY_TXS_BYTES_PER_BATCH;
 use crate::relayer::block_proposal_process::BlockProposalProcess;
-use crate::relayer::tests::helper::{build_chain, new_transaction};
+use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::transaction_hashes_process::TransactionHashesProcess;
-use ckb_network::PeerIndex;
+use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_types::bytes::Bytes;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[test]
@@ -66,7 +67,7 @@ fn test_no_asked() {
 }
 
 #[test]
-fn test_ok() {
+fn accepted_proposal_consumes_inflight_and_marks_known() {
     let (_chain, relayer, always_success_out_point) = build_chain(5);
     let transaction = new_transaction(&relayer, 1, &always_success_out_point);
     let transactions = vec![transaction.clone()];
@@ -74,6 +75,7 @@ fn test_ok() {
         .iter()
         .map(|tx| tx.proposal_short_id())
         .collect();
+    let proposal = proposals[0].clone();
 
     // Before asked proposals
     {
@@ -98,9 +100,36 @@ fn test_ok() {
         .unwrap();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     assert_eq!(rt.block_on(process.execute()), Status::ok());
+    assert!(
+        !relayer.shared.state().contains_inflight_proposal(&proposal),
+        "the received response consumes its network request immediately"
+    );
+    assert!(
+        !relayer.shared.state().already_known_tx(&transaction.hash()),
+        "authority acceptance is the only producer of the known projection"
+    );
 
-    let known = relayer.shared.state().already_known_tx(&transaction.hash());
-    assert!(known);
+    // Accepted is a committed authority effect. Drive the real effect
+    // consumer instead of relying on the old pre-authority known mark.
+    let mock: Arc<dyn CKBProtocolContext + Sync> =
+        Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    rt.block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !relayer.shared.state().already_known_tx(&transaction.hash())
+                || relayer.shared.state().contains_inflight_proposal(&proposal)
+            {
+                relayer.send_bulk_of_tx_hashes(&mock).await;
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the committed Accepted effect reaches the relay projection");
+    });
+    assert!(relayer.shared.state().already_known_tx(&transaction.hash()));
+    assert!(
+        !relayer.shared.state().contains_inflight_proposal(&proposal),
+        "the committed Accepted effect consumes the retained proposal handoff"
+    );
 }
 
 #[test]
@@ -170,12 +199,8 @@ fn test_clear_expired_inflight_proposals() {
     assert_eq!(rt.block_on(process.execute()), Status::ignored());
 }
 
-/// Negative production refinement witness for the Proposal pre-authority
-/// handoff. The required closed-channel observation is one exact restoration
-/// of both in-flight and known state. Current code consumes both projections
-/// before controller acknowledgement. M4 must invert this witness to equality.
 #[test]
-fn counterexample_proposal_closed_controller_consumes_inflight_and_marks_known() {
+fn proposal_closed_controller_consumes_request_without_pinning_known() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 702, &always_success_out_point);
     let hash = transaction.hash();
@@ -217,8 +242,17 @@ fn counterexample_proposal_closed_controller_consumes_inflight_and_marks_known()
         .build();
     let process = BlockProposalProcess::new(content.as_reader(), &relayer);
     assert_eq!(rt.block_on(process.execute()), Status::ok());
-    assert!(!state.contains_inflight_proposal(&proposal));
-    assert!(state.already_known_tx(&hash));
+    assert!(
+        !state.contains_inflight_proposal(&proposal),
+        "the received response consumes its request even when its later controller handoff fails"
+    );
+    assert!(!state.already_known_tx(&hash));
+    let replay = BlockProposalProcess::new(content.as_reader(), &relayer);
+    assert_eq!(
+        rt.block_on(replay.execute()),
+        Status::ignored(),
+        "the same Proposal response cannot replay validation after consuming its request"
+    );
 
     let replacement_peer = PeerIndex::from(8usize);
     let announcement = packed::RelayTransactionHashes::new_builder()
@@ -227,7 +261,7 @@ fn counterexample_proposal_closed_controller_consumes_inflight_and_marks_known()
     let _ = TransactionHashesProcess::new(announcement.as_reader(), &relayer, replacement_peer)
         .execute();
     assert!(
-        !state.pop_ask_for_txs().contains_key(&replacement_peer),
-        "the stale known projection suppresses the same raw transaction"
+        state.pop_ask_for_txs().contains_key(&replacement_peer),
+        "a failed Proposal handoff leaves the same raw transaction refetchable"
     );
 }

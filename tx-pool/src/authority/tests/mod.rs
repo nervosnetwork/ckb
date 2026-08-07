@@ -5,6 +5,7 @@ mod dependency;
 mod effect;
 mod foundation;
 mod ingress;
+mod ingress_batch;
 mod packing;
 mod publisher;
 mod query;

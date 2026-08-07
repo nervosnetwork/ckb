@@ -168,7 +168,7 @@ batch commutative transitions without weakening any obligation:
 
 | Boundary | Current common-path authority work | Required semantic fact | Optimization freedom |
 |---|---|---|---|
-| Retained admission | one owner/charge/dedup Apply per item | hostile work is owned and charged before compute | several independent admissions may share one total Apply |
+| Retained admission | one owner/charge/dedup Apply per immediately available homogeneous prefix | hostile work is owned and charged before compute | I2 implements one ordered count/byte-bounded Apply without delaying a prompt item |
 | Compute checkout | one `Queued -> Computing` Apply per item | the owner and unique compute capability move atomically | one wave may issue several disjoint capabilities in one Apply |
 | Resolve/Verify handoff | no extra Apply on continuous Resolve-to-Verify; otherwise a settlement and later checkout | evidence and capability remain exact | continuous execution and bounded multi-completion settlement may remove topology-only cuts |
 | Verified completion | one `Computing -> Ready` Apply per item | compute capacity is released before unrelated final membership work | disjoint completions may settle together while retaining Ready overlap |
@@ -177,19 +177,21 @@ batch commutative transitions without weakening any obligation:
 | External endpoints | no authority guard during I/O | fixed boundary | none |
 
 For `N` homogeneous, chain-backed independent owners with continuous
-Resolve-to-Verify execution, no stale/pressure path and `R` non-empty Ready
-slices, the current implementation performs
+Resolve-to-Verify execution, no stale/pressure path, `A` immediately available
+homogeneous ingress cuts and `R` non-empty Ready slices, the I2 implementation
+performs
 
 ```text
-authority_applies(N, R) = 3N + 2R
+authority_applies(A, N, R) = A + 2N + 2R
 ceil(N / 8) <= R <= N
 ```
 
-The three per-item terms are admission, checkout and completion. The two
-per-slice terms are membership and settlement of the resulting immutable
-effect batch. A prompt single item therefore uses five Applies, while one full
-eight-owner Ready slice uses 26 total Applies, or 3.25 per owner. Logical
-effect-record count is not effect-settlement Apply count.
+The ingress term is one Apply per cut; the two per-item terms are checkout and
+completion. The two per-slice terms are membership and settlement of the
+resulting immutable effect batch. A prompt single item therefore uses five
+Applies, while one full eight-owner Ready slice in one ingress cut uses 19
+total Applies. Logical effect-record count is not effect-settlement Apply
+count.
 
 This equation is an executable description of the current topology, not a
 semantic minimum and not a timing model. Generation reset, RBF, missing
@@ -248,10 +250,12 @@ Direct permit priority and template concurrency while removing per-owner
 write-side round trips from one available wave. This is now a normative design
 decision, not another optional P10 prototype.
 
-For homogeneous independent work:
+For homogeneous independent work, the frozen pre-I2 baseline, the implemented
+I2 intermediate state and the selected I3 target are:
 
 ```text
-current_applies(N, R) = 3N + 2R
+pre_i2_applies(N, R) = 3N + 2R
+i2_applies(A, N, R) = A + 2N + 2R
 selected_applies(A, W, R) = A + (W + 1) + 2R
 ```
 
@@ -260,11 +264,11 @@ number of retained compute waves and `R` is the number of strict Ready/effect
 slices. With one ingress cut, eight worker slots and full Ready slices, the
 executable model gives:
 
-| Owners | Current UAK | Self-fused workers | Bounded semantic exchange |
-|---:|---:|---:|---:|
-| 1 | 5 Applies | 5 Applies | 5 Applies |
-| 8 | 26 Applies | 26 Applies | 5 Applies |
-| 64 | 208 Applies | 152 Applies | 26 Applies |
+| Owners | Frozen pre-I2 UAK | I2 current | Self-fused workers | I3 target |
+|---:|---:|---:|---:|---:|
+| 1 | 5 Applies | 5 Applies | 5 Applies | 5 Applies |
+| 8 | 26 Applies | 19 Applies | 26 Applies | 5 Applies |
+| 64 | 208 Applies | 145 Applies | 152 Applies | 26 Applies |
 
 The one available wave counterexample rejects both inherited alternatives.
 The selected design pays for one compute coordinator task, `P` one-slot worker

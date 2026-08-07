@@ -596,6 +596,26 @@ throughput because it kept the compute stage live through final membership.
 Local submission does not use the retained pipeline and therefore keeps its
 direct `Computing -> Accepted` path.
 
+Remote and Proposal ingress share one production batch compiler but keep their
+different relay protocols explicit. The existing dispatcher drains only an
+immediately available homogeneous prefix; Remote is same-peer, and
+cross-message Proposal coalescing stops at the 100-owner authority Apply bound.
+The carrier is also byte-bounded, has at most one stack-owned lookahead and
+adds no queue, timer or actor. Non-contextual validation remains outside the
+authority guard. One ordered Plan then compiles the longest complete
+owner/resource/effect prefix and one total Apply commits it. A public single
+submission is the same path with `B = 1`.
+
+Remote relay marks requested hashes known before controller submission. Its
+bounded requests are polled concurrently; each failed request immediately
+releases its own mark, and dispatch acknowledges only the exact committed
+authority prefix. Proposal uses no pre-authority known mark. Receiving a
+requested Proposal response consumes its in-flight request exactly once;
+replay is ignored, and only a committed Accepted effect marks the raw
+transaction known. Controller failure and terminal no-owner Proposal outcomes
+therefore require no rollback and leave the same raw transaction fetchable
+from another peer.
+
 A peer ban removes only not-yet-Accepted owners attributed to that peer. Its
 committed cohort effect resets the relay projection. Because relay marks input
 known before asynchronous controller delivery, every already-queued message
@@ -889,9 +909,10 @@ corruption and not false durable success.
 ### 12.3 Normative bounded semantic exchange
 
 The M3.6 model comparison selects the **bounded semantic exchange** as the
-normative execution topology. The current per-owner worker protocol remains a
-safe cutover checkpoint while implementation slices I1-I6 are in progress; it
-is not the final performance topology. The machine-readable component, cost,
+normative execution topology. I1 one-stamp atomic batches and I2 retained
+ingress batching are implemented. The compute worker protocol remains the safe
+per-owner cutover checkpoint until I3 replaces its mutation loops; it is not
+the final performance topology. The machine-readable component, cost,
 falsifier and slice ownership is in `architecture-contract.json`.
 
 ```mermaid
@@ -1130,29 +1151,31 @@ These costs must be measured, but no optimization may create another owner,
 weaken final validation, move expensive work under the guard or serialize the
 template lanes.
 
-For `N` homogeneous chain-backed independent retained owners and `R` non-empty
-Ready slices, the current implementation performs `3N + 2R` authority Applies,
-where `ceil(N / 8) <= R <= N`. Admission, checkout and compute completion are
-per owner; membership and effect settlement are per immutable Ready/effect
-batch. This is a source-checked description of current topology, not a
-semantic lower bound.
+For `N` homogeneous chain-backed independent retained owners, `A` immediately
+available homogeneous ingress cuts and `R` non-empty Ready slices, the I2
+implementation performs `A + 2N + 2R` authority Applies, where
+`ceil(N / 8) <= R <= N`. Admission is now per bounded ingress cut; checkout
+and compute completion remain per owner; membership and effect settlement are
+per immutable Ready/effect batch. This is a source-checked description of the
+I2 intermediate topology, not a semantic lower bound.
 
 For the same fixed semantic trace, let `A` be the number of bounded ingress
 cuts and `W` the number of retained compute waves. The selected bounded
 semantic exchange target is:
 
 ```text
-current_applies(N, R) = 3N + 2R
+i2_applies(A, N, R) = A + 2N + 2R
 selected_applies(A, W, R) = A + (W + 1) + 2R
 ```
 
 The `W + 1` term is one initial checkout plus one completion exchange per wave;
 an exchange may refill the next wave in the same Apply. Under the executable
-eight-slot examples, one eight-owner wave moves from 26 to 5 Applies and 64
-owners move from 208 to 26. One prompt owner remains 5, so batching never buys
-throughput by delaying latency-sensitive work. These are operation-count
-theorems, not throughput claims; profiling and fixed-binary A/B remain later
-acceptance gates.
+eight-slot examples, I2 has already reduced one eight-owner wave from the
+frozen pre-I2 count of 26 to 19 Applies and 64 owners from 208 to 145; I3's
+selected target is 5 and 26 respectively. One prompt owner remains 5, so
+batching never buys throughput by delaying latency-sensitive work. These are
+operation-count theorems, not throughput claims; profiling and fixed-binary
+A/B remain later acceptance gates.
 
 Static review precedes profiling. Profiling attributes cost and selects
 optimization candidates; fixed-binary A/B decides measured value. Neither is a
@@ -1199,8 +1222,8 @@ before adding state.
 
 Rejected. A worker that computes and then settles its own result retains the
 per-owner authority round trip. The executable one-available-wave witness gives
-the current topology and self-fused topology 26 Applies for eight owners, while
-the selected exchange gives 5. It also makes fair permit ordering harder
+the frozen pre-I2 topology and self-fused topology 26 Applies for eight owners,
+while I2 currently costs 19 and the selected I3 exchange gives 5. It also makes fair permit ordering harder
 because a finished worker is both a completion holder and a permit acquirer.
 
 ### Dedicated ingress actor
@@ -1284,6 +1307,7 @@ cannot silently reopen or forget them.
 | source-version compiler | `authority/source.rs` |
 | committed effects | `authority/effect.rs`, `authority/publisher.rs` |
 | runtime lock and capabilities | `authority/runtime.rs` |
+| retained ingress batch and relay handoff | `authority/plan/ingress.rs`, `authority/service.rs`, `service/builder.rs`, `service/dispatch.rs`, `sync/src/relayer/` |
 | workers and task ownership | `authority/worker.rs`, `authority/topology.rs` |
 | service compatibility boundary | `authority/service.rs` |
 | chain packaging and ordered boundary | `authority/chain_boundary.rs`, `chain/src/verify.rs` |

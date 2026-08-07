@@ -76,20 +76,31 @@ impl<'a> TransactionsProcess<'a> {
         shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
 
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
+        let shared = Arc::clone(self.relayer.shared());
         let peer = self.peer;
         self.relayer
             .shared
             .shared()
             .async_handle()
             .spawn(async move {
-                for (tx, declared_cycles) in txs {
-                    if let Err(e) = tx_pool
-                        .submit_remote_tx(tx.clone(), declared_cycles, peer)
-                        .await
-                    {
-                        error!("submit_tx error {}", e);
+                futures::future::join_all(txs.into_iter().map(|(tx, declared_cycles)| {
+                    let tx_pool = &tx_pool;
+                    let shared = &shared;
+                    async move {
+                        let hash = tx.hash();
+                        if let Err(error) =
+                            tx_pool.submit_remote_tx(tx, declared_cycles, peer).await
+                        {
+                            // Settle each failed handoff as soon as its own
+                            // request completes. Waiting for unrelated members
+                            // of the bounded batch could otherwise extend a
+                            // stale known mark behind their authority wait.
+                            shared.state().remove_from_known_txs(&hash);
+                            error!("submit_tx error {}", error);
+                        }
                     }
-                }
+                }))
+                .await;
             });
 
         Status::ok()

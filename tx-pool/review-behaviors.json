@@ -229,8 +229,8 @@
       "title": "Rust-native ordinary failure boundary",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/service.rs", "symbols": ["enum AuthorityServiceError", "enum AuthorityIntegrityFault", "fn settle_operation_error", "enum AuthorityProjectionFault"]},
-        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum RetainedAdmissionDisposition"]},
-        {"path": "tx-pool/src/authority/ingress.rs", "symbols": ["enum RetainedIngressCommit"]},
+        {"path": "tx-pool/src/authority/plan/ingress.rs", "symbols": ["fn plan_retained_admission_batch", "enum CommittedRetainedAdmissionBatch"]},
+        {"path": "tx-pool/src/authority/ingress.rs", "symbols": ["enum RetainedIngressAttempt", "enum RetainedIngressBoundaryError"]},
         {"path": "tx-pool/src/authority/topology.rs", "symbols": ["enum AuthorityGenerationFault", "enum AuthorityDerivedTaskFailure", "enum AuthorityShutdownStatus"]}
       ],
       "required_behavior": "Legal, hostile, stale, duplicate, resource, cancellation and external or rebuildable-derived failures are typed local outcomes. Only a proven authority contradiction or loss of a sole linear capability can forbid persistence; panic-and-catch and broad fail-stop are not control flow.",
@@ -320,14 +320,16 @@
       "title": "Bounded controller and relay handoff conservation",
       "implementation_owners": [
         {"path": "tx-pool/src/service.rs", "symbols": ["DEFAULT_CHANNEL_SIZE", "CHAIN_CONTROL_CHANNEL_SIZE", "struct Request", "fn respond"]},
-        {"path": "tx-pool/src/service/builder.rs", "symbols": ["fn run_dispatcher", "handler_limit", "JoinSet"]},
+        {"path": "tx-pool/src/service/builder.rs", "symbols": ["enum RetainedIngressBatch", "fn run_dispatcher", "handler_limit", "JoinSet"]},
         {"path": "tx-pool/src/service/controller.rs", "symbols": ["struct TxPoolController", "send_message", "send_chain_control"]},
-        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn respond_outer"]},
+        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn process_retained_ingress_batch", "fn settle_remote_responder_prefix", "fn respond_outer"]},
+        {"path": "tx-pool/src/authority/plan/ingress.rs", "symbols": ["struct PreparedRetainedAdmissionBatch", "enum CommittedRetainedAdmissionBatch", "fn plan_retained_admission_batch"]},
+        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn submit_remote_batch", "fn submit_proposal_batch"]},
         {"path": "sync/src/relayer/transactions_process.rs", "symbols": ["struct TransactionsProcess"]},
         {"path": "sync/src/relayer/block_proposal_process.rs", "symbols": ["struct BlockProposalProcess"]},
-        {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals"]}
+        {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals", "fn record_accepted_tx"]}
       ],
-      "required_behavior": "Every controller command payload occupies exactly one caller, waiting sender, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded. Lossless reorg publication has one trusted producer; public clear operations share one non-cloneable administrative admission capability, so one accepted clear preserves order and excess calls fail fast instead of multiplying waiting payloads. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
+      "required_behavior": "Every controller command payload occupies exactly one caller, waiting sender, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote pre-admission known state is released by the exact failed request or a committed terminal effect. A Proposal response consumes its requested in-flight row exactly once but remains unknown until a committed Accepted effect; replay and controller failure therefore create neither duplicate work nor a stale known mark. Ordinary request count and handler concurrency are bounded. Lossless reorg publication has one trusted producer; public clear operations share one non-cloneable administrative admission capability, so one accepted clear preserves order and excess calls fail fast instead of multiplying waiting payloads. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
       "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress, let an RPC clear flood multiply unbounded waiting sends or suppress chain reconciliation, suppress an already committed authority result, or leave stale relay state that prevents the same raw transaction from being fetched from another peer.",
       "reviewer_questions": [
         "Does every payload move between ownership locations exactly once while acknowledgement remains a separate fact?",
@@ -430,7 +432,7 @@
     {"test": "authority::tests::query::uak_compact_receipt_releases_authority_before_storage_lookup", "behavior_id": "TP-QUERY-001", "invariants": ["T10", "T12"]},
 
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
-    {"test": "authority::tests::ingress::uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T3", "T6", "T11"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_keeps_recovery_payload_variant_unchanged", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T3", "T6", "T11"]},
     {"test": "authority::tests::service::uak_operational_failure_classes_follow_ownership_boundaries", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::service::uak_only_integrity_faults_invalidate_a_generation", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T7", "T10"]},
     {"test": "authority::tests::service::uak_ordered_chain_update_has_no_droppable_operational_error", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T9", "T10"]},
@@ -475,6 +477,17 @@
 
     {"test": "service::controller::tests::asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full", "behavior_id": "TP-HANDOFF-001", "invariants": ["T8", "T10"]},
     {"test": "service::controller::tests::remote_submit_waits_without_blocking_a_current_thread_runtime", "behavior_id": "TP-HANDOFF-001", "invariants": ["T7", "T10"]},
+    {"test": "service::builder::tests::retained_ingress_batch_groups_only_the_same_remote_peer", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T3", "T8"]},
+    {"test": "service::builder::tests::retained_ingress_batch_keeps_a_nonfitting_proposal_message_whole", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T8", "T10"]},
+    {"test": "service::builder::tests::retained_ingress_batch_preserves_handler_concurrency_at_the_apply_bound", "behavior_id": "TP-PERF-001", "invariants": ["T8", "T16"]},
+    {"test": "service::dispatch::tests::remote_partial_commit_acknowledges_only_the_committed_prefix", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T7", "T10"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_refines_the_canonical_proposal_fold", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T6", "T14"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_observes_prior_items_in_canonical_order", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T6", "T14"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_noop_has_no_apply_or_clock_advance", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_applies_resource_pressure_sequentially", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "authority::tests::ingress_batch::uak_malformed_remote_batch_revokes_the_peer_before_any_batch_owner_survives", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T6", "T7"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_commits_only_the_longest_effect_prefix", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_effect_cut_keeps_only_prior_owner_mutations", "behavior_id": "TP-EFFECT-001", "invariants": ["T1", "T3", "T6", "T7", "T8"]},
 
     {"test": "mathematical_model::properties::model_sequential_lifecycle_preserves_owner_charge_capability_and_effect_laws", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T7"]},
     {"test": "mathematical_model::properties::model_stale_completion_retires_only_its_linear_capability", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6"]},
@@ -685,7 +698,7 @@
     {"test": "mathematical_model::adversarial_properties::model_every_m2_root_premise_has_a_typed_minimum_counterexample", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T8", "T9", "T10", "T11"]},
     {"test": "mathematical_model::adversarial_properties::model_quantitative_equation_rejects_every_configured_bound_overrun", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8"]},
     {"test": "mathematical_model::adversarial_properties::model_quantitative_equation_separates_linear_work_from_core_wave_applies", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T10"]},
-    {"test": "mathematical_model::adversarial_properties::model_current_retained_path_separates_per_item_from_ready_batch_applies", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::adversarial_properties::model_i2_retained_path_separates_ingress_and_ready_batches_from_per_item_compute", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T10", "T16"]},
     {"test": "mathematical_model::adversarial_properties::model_ready_batch_bound_is_independent_of_the_current_worker_wave_width", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "mathematical_model::adversarial_properties::model_ready_composition_cost_is_consumed_without_a_hand_copied_projection", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T4", "T5", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys", "behavior_id": "TP-PERF-001", "invariants": ["T4", "T8"]},
@@ -766,10 +779,10 @@
     {
       "package": "ckb-sync",
       "path": "sync/src/relayer/tests/block_proposal_process.rs",
-      "test": "relayer::tests::block_proposal_process::test_ok",
-      "behavior_ids": ["TP-BUDGET-001"],
-      "invariants": ["T7", "T8"],
-      "boundary": "A requested valid proposal transaction preserves the accepted relay path."
+      "test": "relayer::tests::block_proposal_process::accepted_proposal_consumes_inflight_and_marks_known",
+      "behavior_ids": ["TP-BUDGET-001", "TP-HANDOFF-001"],
+      "invariants": ["T1", "T6", "T7", "T8", "T10"],
+      "boundary": "A requested valid Proposal consumes its network request when the response arrives, remains unknown during authority validation, and becomes known only through the committed Accepted effect."
     },
     {
       "package": "ckb-sync",
@@ -790,22 +803,18 @@
     {
       "package": "ckb-sync",
       "path": "sync/src/relayer/tests/transactions_process.rs",
-      "test": "relayer::tests::transactions_process::counterexample_remote_closed_controller_retains_known_projection",
+      "test": "relayer::tests::transactions_process::remote_closed_controller_releases_known_projection",
       "behavior_ids": ["TP-HANDOFF-001"],
       "invariants": ["T1", "T7", "T10", "T11"],
-      "boundary": "OPEN counterexample: Remote marks the raw hash known before controller acknowledgement, so a closed controller leaves stale known state and suppresses refetch from another peer.",
-      "evidence_kind": "counterexample",
-      "finding_id": "D1-KNOWN-HANDOFF"
+      "boundary": "A failed Remote controller handoff releases its exact known-filter mark, allowing another peer to reannounce the same raw transaction."
     },
     {
       "package": "ckb-sync",
       "path": "sync/src/relayer/tests/block_proposal_process.rs",
-      "test": "relayer::tests::block_proposal_process::counterexample_proposal_closed_controller_consumes_inflight_and_marks_known",
+      "test": "relayer::tests::block_proposal_process::proposal_closed_controller_consumes_request_without_pinning_known",
       "behavior_ids": ["TP-HANDOFF-001"],
       "invariants": ["T1", "T7", "T10", "T11"],
-      "boundary": "OPEN counterexample: Proposal consumes in-flight state and marks the raw hash known before controller acknowledgement, so closure loses both inverse transitions and suppresses refetch.",
-      "evidence_kind": "counterexample",
-      "finding_id": "D1-KNOWN-HANDOFF"
+      "boundary": "A received Proposal response consumes its bounded request evidence exactly once but remains unknown until committed acceptance, so controller failure cannot suppress supply by another peer or enable response replay."
     },
     {
       "package": "ckb-sync",

@@ -1,5 +1,15 @@
 use super::super::state::{ValidatedAdmission, VerifyCapability};
+use super::super::{
+    ingress::{
+        RemoteIngressPressure, RetainedIngress, RetainedIngressBoundaryError, RetainedIngressError,
+        RetainedIngressRejection, proposal, remote, remote_pressure_rejection,
+        test_support::{IngressRejectionCommit, RetainedIngressCommit},
+    },
+    plan::test_support::RetainedAdmissionDisposition,
+};
 use super::*;
+use ckb_network::PeerIndex;
+use ckb_types::core::Cycle;
 
 impl ComputeGate {
     fn try_acquire(&self) -> Option<OwnedSemaphorePermit> {
@@ -80,6 +90,100 @@ impl AuthorityRuntime {
         let mut runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
         runtime.effects = effects;
         Self::from_config(runtime, snapshot)
+    }
+
+    pub(in crate::authority) fn commit_retained_ingress(
+        &self,
+        ingress: RetainedIngress,
+    ) -> Result<RetainedIngressCommit, PlanError> {
+        let (outcome, committed) = {
+            let mut store = self.store.write();
+            match store.authority.plan_retained_admission(ingress)? {
+                RetainedAdmissionDisposition::ProposalUnchanged => {
+                    return Ok(RetainedIngressCommit::ProposalUnchanged);
+                }
+                RetainedAdmissionDisposition::ProposalPayloadVariant => {
+                    return Ok(RetainedIngressCommit::ProposalPayloadVariant);
+                }
+                RetainedAdmissionDisposition::Retained(plan) => {
+                    (RetainedIngressCommit::Retained, plan.apply())
+                }
+                RetainedAdmissionDisposition::AcceptedDuplicate(plan) => {
+                    (RetainedIngressCommit::AcceptedDuplicate, plan.apply())
+                }
+                RetainedAdmissionDisposition::RemoteReleased(plan) => {
+                    (RetainedIngressCommit::RemoteReleased, plan.apply())
+                }
+            }
+        };
+        self.publish_committed(committed);
+        Ok(outcome)
+    }
+
+    pub(in crate::authority) fn commit_retained_ingress_rejection(
+        &self,
+        rejection: RetainedIngressRejection,
+    ) -> Result<IngressRejectionCommit, PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_retained_ingress_rejection(rejection)?
+                .apply()
+        };
+        self.publish_committed(committed);
+        Ok(IngressRejectionCommit)
+    }
+
+    pub(in crate::authority) fn submit_remote_ingress(
+        &self,
+        tx: TransactionView,
+        declared_cycles: Cycle,
+        peer: PeerIndex,
+    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
+        let consensus = self.paired_consensus();
+        match remote(tx, declared_cycles, peer, &consensus) {
+            Ok(ingress) => self
+                .commit_retained_ingress(ingress)
+                .map_err(RetainedIngressBoundaryError::from_plan),
+            Err(RetainedIngressError::Rejected(rejection)) => self
+                .commit_retained_ingress_rejection(rejection)
+                .map(|_| RetainedIngressCommit::Rejected)
+                .map_err(RetainedIngressBoundaryError::from_plan),
+            Err(RetainedIngressError::Admission(error)) => Err(
+                RetainedIngressBoundaryError::from_admission_for_foundation(error),
+            ),
+        }
+    }
+
+    pub(in crate::authority) fn submit_proposal_ingress(
+        &self,
+        tx: TransactionView,
+    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
+        let consensus = self.paired_consensus();
+        match proposal(tx, &consensus) {
+            Ok(ingress) => self
+                .commit_retained_ingress(ingress)
+                .map_err(RetainedIngressBoundaryError::from_plan),
+            Err(RetainedIngressError::Rejected(rejection)) => self
+                .commit_retained_ingress_rejection(rejection)
+                .map(|_| RetainedIngressCommit::Rejected)
+                .map_err(RetainedIngressBoundaryError::from_plan),
+            Err(RetainedIngressError::Admission(error)) => Err(
+                RetainedIngressBoundaryError::from_admission_for_foundation(error),
+            ),
+        }
+    }
+
+    pub(in crate::authority) fn reject_remote_ingress_pressure(
+        &self,
+        tx: TransactionView,
+        peer: PeerIndex,
+        pressure: RemoteIngressPressure,
+    ) -> Result<IngressRejectionCommit, RetainedIngressBoundaryError> {
+        let rejection = remote_pressure_rejection(tx, peer, pressure);
+        self.commit_retained_ingress_rejection(rejection)
+            .map_err(RetainedIngressBoundaryError::from_plan)
     }
 
     pub(in crate::authority) fn template_capture_count_for_foundation(&self) -> usize {

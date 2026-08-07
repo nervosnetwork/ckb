@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: I1 atomic batch core complete; I2 retained-ingress batch active
-Checkpoint: I1 commit containing this record
-Active slice: I2 retained-ingress domain batch
+Status: I2 retained-ingress batch complete; I3 compute exchange active
+Checkpoint: I2 commit containing this record
+Active slice: I3 bounded compute exchange
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -582,18 +582,21 @@ for each optional responder s attached to p:
 Payload bytes and collection cardinality remain separate cost terms; a fixed
 request count is not by itself a peer-memory proof. A dropped response endpoint
 changes only the protocol delivery trace. It cannot undo, suppress or repeat a
-kernel commit. Remote/Proposal known and in-flight ownership has the stronger
-cross-crate partition already stated above and must be released on a pre-
-authority full/closed/cancel outcome.
+kernel commit. Remote and Proposal use distinct cross-crate partitions. Remote
+temporarily marks a requested transaction known and releases that mark on an
+exact failed request or committed terminal effect. Proposal consumes its
+in-flight request when the response arrives but does not become known until a
+committed Accepted effect.
 
 A bounded carrier is not an atomic authority command by implication. The
 current Proposal notification batch becomes an ordered sequence of per-item
-admission attempts only after the handler owns it. Every item keeps its own
-relay known/in-flight obligation; handler cancellation or a terminal fault
-after a committed prefix must release or settle the untouched suffix rather
-than treating the enqueue acknowledgement as an all-items commit. M1 models
-this small handoff automaton explicitly; `D1-KNOWN-HANDOFF` is its current
-counterexample.
+admission attempts only after the handler owns it. Every Remote item keeps its
+own responder/known obligation; handler cancellation or a terminal fault after
+a committed prefix must release the untouched suffix rather than treating the
+enqueue acknowledgement as an all-items commit. Proposal has no pre-authority
+known obligation: one received response consumes its in-flight request, replay
+is ignored, and only Accepted publishes known state. M1 models these two small
+handoff automata explicitly; I2 closes their former production divergence.
 
 M0 also records the current request-cost boundary rather than treating a
 bounded channel as a proof of bounded payload work:
@@ -1180,8 +1183,8 @@ the minimum realization.
 
 | Boundary | Irreducible obligation | Current realization | Current audit result |
 | --- | --- | --- | --- |
-| Relay/controller handoff | Bound peer-controlled count/bytes and settle known/in-flight state exactly once | Bounded controller messages; Remote is decomposed to one request per tx, Proposal keeps a batch but dispatches it sequentially; relay state changes before acknowledged authority retention | `RETAIN` the bounded external handoff; current per-item and pre-authority projection protocol is `OPEN` and already has `D1-KNOWN-HANDOFF` counterevidence. |
-| Retained admission | Own and charge hostile Remote/Proposal/Recovery payload before asynchronous work | One `Nowhere -> PreAccepted(Queued)` Plan/Apply per owner | `RETAIN` the owner/charge transition; one Apply per item and a distinct ingress runtime layer are `OPEN`. |
+| Relay/controller handoff | Bound peer-controlled count/bytes and settle known/in-flight state exactly once | Bounded controller messages; Remote sends concurrent one-item requests whose exact committed prefix is acknowledged, while Proposal consumes its request on response and becomes known only after Accepted | `RETAIN` the bounded external handoff; I2 closes `D1-KNOWN-HANDOFF` without a rollback protocol or second lifecycle owner. |
+| Retained admission | Own and charge hostile Remote/Proposal/Recovery payload before asynchronous work | An immediately available homogeneous prefix performs one ordered domain Plan/Apply; the public single item is `B=1` | `RETAIN` the owner/charge transition; I2 removes per-item Remote/Proposal Apply while Recovery remains on its chain transition. |
 | Local/TestAccept | Preserve synchronous direct result and avoid retained residency while sharing bounded compute capacity | Owner-free resolve/verify followed by one final membership Apply | `RETAIN` the compatibility boundary; global negative OCC and any duplicate validation stages are `OPEN`. |
 | Resolution | Produce exact CKB chain/Accepted-overlay and dep-group evidence under one view | `Queued(Resolve)`, one dedicated resolver, verifier fallback and optional completion/recheckout | `RETAIN` the evidence transformation and lock-external computation; a dedicated resolver task, resident handoff and separate Apply are performance/topology claims still `OPEN`. Continuous Resolve-to-Verify already proves the common path can fuse. |
 | Script verification | Produce exact witness/rules/cycles proof outside the authority guard | Role-specific verifier tasks, `Queued(Verify)` fallback, verification-cache read/update path | `RETAIN` bounded parallel VM work and typed capability classes; the separate Verify queue and best-effort cache-writer task are not semantic requirements and remain `OPEN`. |
@@ -1249,7 +1252,7 @@ The common retained path currently performs these authoritative operations:
 
 | Boundary | Current operation | Semantic necessity | Batch opportunity |
 | --- | --- | --- | --- |
-| Remote/Proposal admission | one write Plan/Apply per owner | ownership and continuous charge must precede hostile work | upstream already supplies bounded batches; simulate canonical outcomes and Apply once |
+| Remote/Proposal admission | one write Plan/Apply per immediately available homogeneous count/byte-bounded prefix | ownership and continuous charge must precede hostile work | I2 implements the canonical ordered fold without delaying a prompt item |
 | Queued checkout | one write Plan/Apply per worker job | exact lease and active-work charge are required | assign all currently idle compatible slots from one scheduler/resource cut |
 | Resolve-to-Verify | zero Apply only when a verifier owns `ResolveThenVerify`; otherwise settlement plus later checkout | verification needs resolved facts; no membership decision occurs | compose settlement and compatible re-checkout in the same exchange |
 | Computing completion | one write Plan/Apply per owner | capability must settle exactly once | drain available completions and commit the batchable set together |
@@ -1257,20 +1260,22 @@ The common retained path currently performs these authoritative operations:
 | Ready membership | one write; at most eight owners, but one coupled tail collapses the whole run to the head | RBF/capacity/dependency coupling must be atomic | commit the longest contiguous proven-commuting prefix up to the common authority batch bound |
 | Effect publication | claim-bound read, external I/O, one settlement write per committed effect batch | I/O cannot be in Apply and progress must be exact | already amortized by the membership batch; retain |
 
-For `N` homogeneous chain-backed independent owners and `R` non-empty Ready
-slices, the current common path is exactly `3N + 2R` Applies, with
-`ceil(N / 8) <= R <= N`: admission, checkout and completion remain per owner;
-membership and effect settlement are per Ready/effect batch. A one-owner run
-therefore uses five Applies, but five is not a semantic lower bound. One full
-eight-owner Ready slice uses 26 total Applies. Logical effect records are not
-settlement Applies because one immutable batch settles once. The executable
-M3.5 equation is scoped to continuous Resolve-to-Verify with no stale,
-pressure, dependency, RBF or generation path; it describes the inherited
-topology rather than proving it necessary.
+For `N` homogeneous chain-backed independent owners, `A` immediately available
+homogeneous ingress cuts and `R` non-empty Ready slices, the I2 common path is
+exactly `A + 2N + 2R` Applies, with `ceil(N / 8) <= R <= N`: ingress is per cut,
+checkout and completion remain per owner, and membership/effect settlement are
+per Ready/effect batch. A one-owner run therefore uses five Applies, but five
+is not a semantic lower bound. One full eight-owner Ready slice in one ingress
+cut uses 19 total Applies. Logical effect records are not settlement Applies
+because one immutable batch settles once. The executable equation is scoped
+to count/byte-fitting continuous Resolve-to-Verify work with no stale,
+pressure, dependency, RBF or generation path; it describes the intermediate
+I2 topology rather than proving it necessary.
 
 The current delta families are not one accidental hierarchy:
 
 - `EntryDelta` is a one-owner phase transition;
+- `RetainedIngressDelta` is one canonical ordered Remote/Proposal owner prefix;
 - `IndependentDelta` is a commuting Ready-to-Accepted set;
 - `MembershipDelta` is an exact RBF/capacity cohort;
 - `OwnerRemovalBatch`/`AdminDelta` is a cause-complete removal cohort;
@@ -1460,7 +1465,10 @@ cancelled; an idle worker owns no transaction capability and exits directly.
 
 The existing service dispatcher drains only immediately available homogeneous
 retained-ingress requests into non-empty count-and-byte-bounded microbatches;
-it adds no timer, task or channel. `NotifyTxBatch` uses the same compiler.
+it adds no timer, task or channel. Cross-message coalescing stops at the
+100-owner authority Apply bound so independent handler concurrency is retained.
+A larger already-validated `NotifyTxBatch` stays whole at the controller edge
+and is partitioned into the same bounded authority compiler.
 Non-contextual checks run outside the guard. Inside one Plan, items are
 simulated in canonical dequeue order, including duplicates, Proposal
 promotion, proposal-ID collision, resource pressure and effects. One total
@@ -1481,16 +1489,19 @@ effect class cannot hold the whole canonical outcome, the Plan commits only
 the longest complete prefix or returns a typed no-mutation capacity outcome;
 it never partially publishes an item.
 
-Both retained network paths currently mutate relay state before controller
-enqueue. Remote ingress marks transaction hashes known; Proposal ingress also
-removes the matching in-flight proposal rows. The batch handoff must therefore
-own an exact inverse or delay those mutations until acknowledged authority
-retention. Enqueue failure returns the exact batch capability to the caller;
-Proposal recovery must also retain the original in-flight evidence rather than
-reconstructing it from a boolean. A legal no-owner authority disposition must
-explicitly settle the upstream projection as well. Neither controller pressure
-nor authority resource pressure may leave a pre-authority hash pinned until
-TTL or consume the only proposal-window request without a durable owner.
+Remote ingress marks requested hashes known before concurrently polling its
+bounded request set. Each failed request releases its own mark immediately;
+the dispatcher acknowledges only the exact committed authority prefix and
+drops the suffix, while committed reject/release/reset effects settle terminal
+owners. No unrelated slow request can postpone a known-state release.
+
+Proposal has a smaller protocol. The in-flight row proves only that the network
+response was requested, so response arrival consumes it exactly once. The raw
+transaction is not marked known during controller or authority processing;
+only a committed Accepted effect produces that projection. Controller failure
+or a no-owner terminal outcome therefore has nothing to roll back, the same raw
+transaction remains fetchable from another peer, and replaying the same
+Proposal response cannot enqueue duplicate validation work.
 
 The public one-transaction controller method remains a one-element batch, so
 Local callers and single-item latency do not wait for aggregation.
@@ -1676,11 +1687,12 @@ Required falsifiers include:
    and leaves no Computing owner without a live capability;
 10. post-Apply assignment delivery failure and completion-channel closure
     return and settle the exact capability without rollback or fail-stop;
-11. Remote and Proposal enqueue failure restore every exact known/in-flight
-    projection changed before the authority handoff;
-12. every retained Proposal reaches exactly one relay-projection settlement at
-    Accepted or terminal Apply, including resource exclusion, rejection and
-    window expiry, and another peer can resubmit a same-raw valid witness;
+11. every failed Remote request releases its exact known projection without
+    waiting for unrelated batch members, and a committed prefix acknowledges
+    only its matching responder prefix;
+12. Proposal response arrival consumes its in-flight request once, replay is
+    ignored, and only a committed Accepted effect produces known state; every
+    terminal no-owner path remains refetchable without an inverse protocol;
 13. the complete managed integration universe covers Remote, Proposal,
     Recovery, Local, RBF, reorg, dependency, template and ban/refetch paths.
 14. a Local caller already queued on the shared compute semaphore acquires a
@@ -2570,16 +2582,12 @@ shutdown drains or retains every claim before persistence eligibility. Effect
 batch endpoint-prefix progress remains step 4 because the sequential kernel
 currently models one logical claim rather than the production endpoint cursor.
 
-`D1-KNOWN-HANDOFF` is a required negative refinement witness, not part of that
-passing domain. Current sync Remote and Proposal paths mutate known/in-flight
-state before controller acknowledgement and have no exact inverse on a full or
-closed channel. Step 2 must reproduce the smallest real counterexample and
-compare it with `RelayHandoff`'s required release outcome. The test is named and
-documented as a production divergence, not a regression preserving the bad
-behavior; M4 must invert it to equality. No normalization may erase known state,
-substitute TTL expiry for release, or infer authority ownership from successful
-enqueue. Remote and Proposal counterexamples remain distinct because Proposal
-also consumes an in-flight capability and uses batch notification semantics.
+`D1-KNOWN-HANDOFF` began as a required negative refinement witness outside the
+passing domain. I2 inverted both production traces. Remote releases each failed
+known handoff and acknowledges only the committed authority prefix. Proposal
+consumes its requested response exactly once without pre-authority known state;
+Accepted is the sole known-state producer. The cross-crate conformance tests now
+bind both traces, same-raw refetch and Proposal replay suppression.
 
 Every divergence reports the shortest observed prefix. Exhaustive trace growth
 is bounded by the finite action corpus and uses prefix order; no timing retry or
@@ -2750,7 +2758,7 @@ Its executable corrections are:
   immutable `EffectBatch` may contain several logical records and settles with
   one Apply;
 - for `N` homogeneous chain-backed independent owners and `R` non-empty Ready
-  slices, the scoped current path is `3N + 2R`, where
+  slices, the scoped frozen pre-I2 path is `3N + 2R`, where
   `ceil(N / MAX_READY_BATCH) <= R <= N`. Five Applies is the prompt one-owner
   case, not a semantic lower bound;
 - the bounded ordinary dispatcher owns at most
@@ -2781,7 +2789,7 @@ per-item Apply.
 
 | Semantic obligation | Current encoding | M3.5 disposition |
 | --- | --- | --- |
-| External ownership handoff | bounded ordinary/ordered controller channels plus relay known/in-flight state | `RETAIN` a bounded acknowledged handoff. Per-item Remote transfer and pre-authority relay mutation are accidental; M4 must implement canonical bounded ingress and exact acknowledgement rather than another retry queue. |
+| External ownership handoff | bounded ordinary/ordered controller channels plus relay known/in-flight state | `RETAIN` the bounded handoff. I2 batches Remote requests with exact prefix acknowledgement and separates Proposal request consumption from Accepted known publication; no retry queue or inverse protocol is added. |
 | Hostile retained ownership and charge | `PreAccepted` owner inserted by one admission Apply per item | `RETAIN` ownership-before-compute. Per-item Apply is not necessary; a homogeneous bounded ingress Plan must refine canonical item order and Apply once. |
 | Exact resolve and verify evidence | `Queued(Resolve/Verify)`, one ordered resolver role, verifier roles and continuous Resolve-to-Verify | `RETAIN` evidence and lock-external compute. Continuous execution proves the common evidence path can fuse; queued Verify remains the typed fallback, not a mandatory common-path round trip. |
 | Fair compute capacity and linear work | fair semaphore, scheduler frontiers, `Computing` owner and move-only capability | `RETAIN` the fair gate, exact active charge and capability conservation. One checkout/settlement Apply per job and three role-specific compute hints are topology ceremony; the bounded exchange and self-fused comparator must attempt their removal. |
@@ -2861,7 +2869,7 @@ owned at shutdown, with `0 <= L <= 5` in the current topology.
 The authoritative static costs carried to M3.6 are:
 
 ```text
-current_retained_applies(N, R) = 3N + 2R
+pre_i2_retained_applies(N, R)  = 3N + 2R
 dispatcher_owned_requests      = DEFAULT_CHANNEL_SIZE + H
 ordered_owned_requests         = C + CHAIN_CONTROL_CHANNEL_SIZE + 1
 query_guard_row_visits         = Q * (owner_rows + accepted_order_rows)
@@ -2920,7 +2928,7 @@ and separately names tasks, channels, capability residency and join edges.
 
 | Realization | 8 owners / 8 slots / one available wave | 64 owners / 8 slots | Decisive falsifier |
 | --- | ---: | ---: | --- |
-| current UAK | 26 Applies | 208 Applies | admission, checkout and completion remain per owner |
+| frozen pre-I2 UAK | 26 Applies | 208 Applies | admission, checkout and completion remain per owner |
 | M9 self-fused workers | 26 Applies | 152 Applies | a first or final simultaneous wave still pays one checkout and one settlement cut per worker |
 | corrected M8 semantic exchange | 5 Applies | 26 Applies | no target failure; one ingress, initial checkout, completion, Ready and effect Apply for the one-wave case |
 
@@ -3267,12 +3275,12 @@ to the named statement; it does not close a broader row by implication.
 | D1-SEM-RAW | PROVEN | `W`, direct deps, `H`, raw/witness/proposal identity and output-producer identity are immutable transaction facts; expanded dep-group members become known only after resolution. | `state.rs::{TxIdentity::from_transaction, ExpandedFootprint::from_transaction, ResolvedPayload::from_resolution}` and `util/types/src/core/cell.rs::ResolvedTransaction::related_dep_out_points`; falsifiers `uak_expanded_footprint_is_canonical_bounded_and_role_aware`, `uak_verification_cache_lookup_cannot_substitute_a_nearby_request` and the transaction-hash-collision integration anchor. |
 | D1-SEM-EVIDENCE | PROVEN | Chain/pool origin, exact view, dependency cut, script rules and final membership context are sealed evidence, not inferred flags. Same-tip reuse is positive chain-location evidence only; pool-produced cells remain overlay-coupled. | `chain.rs::{CellLocationReceipt, VerificationContextReceipt, MembershipReceipt}`, `validation.rs::{AcceptedOriginOverlay, refresh_locations, current_location}`; falsifiers `uak_final_validation_reuses_same_tip_positive_location_evidence`, `uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin`, `uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply`, `uak_permissive_rbf_resolution_never_fabricates_a_chain_cell`. |
 | D1-SEM-COUPLING | PROVEN | Shared inputs, candidate producer relations, conditional read/write edges, Accepted parents/children/spenders/readers, capacity eviction and effect pressure require exact fallback; shared read-only deps/header reads do not by themselves couple membership. | `plan/membership/independent.rs::{classify, prepare_resources, prepare_projection}` plus `membership.rs` and `rbf.rs`; falsifiers `uak_independent_classifier_routes_every_accepted_relation_without_mutation`, `uak_independent_capacity_is_aggregate_and_never_partially_applied`, `uak_rbf_requires_positive_chain_evidence_for_every_new_input`, `uak_batch_acceptance_cannot_bypass_dependency_cut`. |
-| D1-LIFECYCLE | SUPPORTED | A cold successful retained transaction selected by a verifier's `ResolveThenVerify` path performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. If the dedicated ordered resolver wins, the split Resolve settlement and later Verify checkout raise that path to seven. Today only final independent membership is amortized. Static call tracing confirms these paths, but no operation-count gate yet fails if they regress or change. | `ingress.rs -> worker.rs::{checkout, try_process_one} -> runtime.rs::{commit_retained_ingress, try_checkout, settle_compute, try_drive_ready, settle_effect}` and `plan.rs` establish the current cuts. The M3.6 executable comparator proves 26 current Applies versus five selected Applies for one already-available eight-owner wave, while preserving five for a prompt single owner. T16 must bind these equations to production Apply stamps, including continuous and split Resolve paths, before this row can become PROVEN. |
+| D1-LIFECYCLE | SUPPORTED | A prompt cold retained transaction selected by a verifier's `ResolveThenVerify` path still performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. I2 now amortizes the first cut over each immediately available homogeneous ingress prefix, so the current independent-path count is `A + 2N + 2R` rather than the frozen pre-I2 `3N + 2R`; `A` is ingress cuts, `N` owners and `R` Ready/effect slices. If the dedicated ordered resolver wins, split Resolve settlement and later Verify checkout still add two per-owner cuts. Static call tracing and the I2 batch-stamp regression establish these paths, but no complete operation-count gate yet fails if compute cuts regress or change. | `service/{builder,dispatch}.rs -> authority/{service.rs,plan/ingress.rs} -> worker.rs::{checkout,try_process_one} -> runtime.rs::{commit_retained_ingress_batch,try_checkout,settle_compute,try_drive_ready,settle_effect}` establish the current cuts. The M3.6 executable comparator proves the frozen pre-I2 26 Applies versus five selected Applies for one already-available eight-owner wave; I2 reduces that intermediate state to 19 without changing the prompt-single five. T16 must bind the I3 equations to production Apply stamps, including continuous and split Resolve paths, before this row can become PROVEN. |
 | D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M3.6 seals separate idle and finished acquisition products: only idle fill may queue one waiter; a finished capability may take immediately available fair grants or settle with zero replacement checkout, but cannot wait. The independently checked `executing + finished <= active_work_slots` law bounds effect-pressure residency. M4 must refine the typed acquisition API and bounded Local/effect-full falsifiers into production before this row can close. |
 | D1-EFFECT-SETTLEMENT-FAIRNESS | OPEN | Effect-capacity publication is level-triggered, but the current per-worker retry protocol has no stable arbitration among same-class effectful settlements. `notify_waiters` wakes every retained capability and each independently races the authority write lock. Under a continuous completion stream, a newer waiter may repeatedly consume each freed effect slot while an older waiter remains resident. This is bounded memory but unbounded legal-schedule latency in the frozen authority, not an integrity failure. | The configured two-worker/two-permit TLC model produced this counterexample under weak fairness before settlement rank was added. `worker.rs::recover_settlement`, `runtime.rs::{publish_wake,settle}` and the parking-lot `RwLock` expose no age owner that invalidates the trace. The selected model reuses the already monotonic checkout identity: model `CapabilityId`, refined to production `SettlementToken::version`, is the well-founded rank among settlements contending for the same effect capacity. Newer effectful work cannot overtake it; no-effect work may bypass it. `PermitEffect.tla`, `model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work` and `model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees` are the exact falsifiers. M4 must realize this in the bounded compute exchange without a resident aging field, retry timer or second authority queue. |
 | D1-READY-OCC-LIVENESS | OPEN | The current second Ready OCC read is all-or-nothing across the strongest eight owners. If any weaker tail owner changes or disappears after scratch preparation, `complete_ready_batch` returns the tail's `Stale` error and discards the still-current head capture. `run_ready_driver` classifies that as `Progress` and immediately repeats with no await or yield. A legal schedule with continuous top-N tail mutation can therefore strand an unchanged strongest owner and synchronously consume one runtime thread. Plain high-fee insertion alone does not prove the stale-tail attack, so external exploitability remains a separate reachability question; the legal-schedule liveness failure is already sufficient to block release. | A temporary deterministic nextest falsifier admitted two Ready owners, prepared the complete read batch, removed only the weaker tail through the ordinary administrative Apply, and proved `complete_ready_batch` returned `FinalAdmissionCaptureError::Plan(PlanError::Stale(_))` while the head remained `PreAcceptedPhase::Ready`; it passed and was removed after diagnosis. The M1/M2 model must compare the captured ordered keys with the current `scheduler.ready()` frontier and return their longest exact strict-priority prefix, not merely independent per-member current bits. A newly inserted stronger owner makes that prefix empty; a removed or changed weaker tail preserves only the earlier prefix. Head mismatch uses a changed-cut cooperative yield. Skipping a stale or newly displaced stronger member is forbidden because it changes membership order. |
 | D1-DIRECT-NEGATIVE-OCC | OPEN | Direct Local/TestAccept resolution and final validation read only the transaction-bounded Accepted producers and spenders, but every negative result is sealed with the global Accepted source version. Any unrelated Accepted insertion, removal, or metadata change therefore makes the rejection stale. `execute_direct` maps that stale outcome to an unbounded full retry, including resolve and possibly VM verification. A legal continuous stream of disjoint Accepted commits can starve one unchanged direct request and consume compute capacity even though its evidence footprint never changed. Successful direct candidates do not have this defect: final Plan rechecks exact dependency evidence and current membership. | `resolver.rs::{AcceptedOverlay, DirectResolutionJob, DirectTransactionRejection}`, `validation.rs::{AcceptedOriginOverlay, DirectAdmissionValidation}`, `plan.rs::{validate_direct_rejection_validity,validate_direct_admission_subject}`, and `service.rs::execute_direct`. Existing test `uak_direct_validation_rejection_stales_with_its_accepted_source_cut` deliberately demonstrates the false conflict by accepting an unrelated transaction before settlement; `uak_direct_missing_rejection_stales_when_the_parent_becomes_available` demonstrates the necessary relevant conflict. M1 must model a preallocated bounded negative-evidence receipt over the exact queried producer/spender cells, revalidated in the same final authority read/Apply; M2 proves unrelated commutativity and relevant invalidation. It may add no persistent per-key version table, retry counter, timer or repair task. |
-| D1-BATCH-SEQUENCE | PROVEN | `ApplySequence` is the identity of one committed authority transition. The former independent Ready planner advanced it per member even though `PreparedApply::apply_independent` performs one indivisible Apply. I1 replaces that accidental sequence consumption with one sealed `BatchClockReservation`: a non-empty batch preflights one sequence step and the complete half-open range of distinct `EntryVersion`s before compiling any member delta. | `uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions` proves the production Apply advances one sequence, assigns exact distinct versions and publishes the batch sequence; `uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free` proves the final available sequence succeeds while true sequence exhaustion and version-range overflow fail without mutation. `check_production_contracts.py` rejects any return of `next_sequence` or `next_version` to the member compiler. I2 and I3 must retain domain-specific deltas and may reuse only this sealed primitive plus existing projection batch compilers. |
+| D1-BATCH-SEQUENCE | PROVEN | `ApplySequence` is the identity of one committed authority transition. The former independent Ready planner advanced it per member even though `PreparedApply::apply_independent` performs one indivisible Apply. I1 replaces that accidental sequence consumption with one sealed `BatchClockReservation`: a non-empty batch preflights one sequence step and the complete half-open range of distinct `EntryVersion`s before compiling any member delta. | `uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions` proves the production Apply advances one sequence, assigns exact distinct versions and publishes the batch sequence; `uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free` proves the final available sequence succeeds while true sequence exhaustion and version-range overflow fail without mutation. `check_production_contracts.py` rejects any return of `next_sequence` or `next_version` to the member compiler. I2 retains a domain-specific ingress delta and the same one-Apply clock law; I3 must do the same for compute and may reuse only this sealed primitive plus existing projection batch compilers. |
 | D1-FAULT-DISCOVERY | PROVEN | Fault, task and linear-capability discovery is generated from path-qualified semantic roots rather than a copied reference count. The frontier derives transitive types, rooted enum producer/consumer flow and explicit model/source/expanded construction witnesses for registered root structs. A deliberately unbound root and deliberately unconstructed capability prove both negative gates can fail. | `architecture-contract.json#refinement_inventory`, `scripts/check_model_refinement.py --variant-flow --cargo-expand-production` and `scripts/fixtures/model_refinement_canary.rs`. The result is discovery and drift evidence; it deliberately does not claim that constructor presence proves external caller reachability. |
 | D1-FAULT-REACHABILITY | OPEN | The four known legal-input promotions through compute units, chain recovery, retained Proposal payload variants and optional query arithmetic now close at their semantic producers. The remaining broad `PlanError` adapters still require producer/caller classification: construction-flow evidence proves that a route exists, not that every valid or hostile caller is excluded from its structural arms. | Primary open boundaries remain `ComputeSettlementRecovery::from_plan`, `AuthorityAdministrationError::from_plan`, `AuthorityDriverError::{from_ready_plan, from_maintenance_plan}`, `AuthorityComputeError::from_checkout_plan`, `AuthorityDirectAdmissionError::from_plan`, `RetainedIngressBoundaryError::from_plan` and `ChainBoundaryError::from`. M3.4 must map each producer result into the develop/selected observations; M4 replaces any remaining open conversion with producer-owned closed operation errors. |
 | D1-FAULT-RESOURCE | PROVEN | A detached transaction outside the configured compute envelope is now an ordinary deterministic recovery exclusion. Parent-first selection omits that new trusted owner and its new trusted recovery descendants while continuing unrelated fitting roots; normal reconciliation and fresh-generation replacement use the same closure rule. An already-owned PreAccepted descendant remains an independently charged owner and is revalidated under its source policy rather than being silently discarded. Only aggregate PreAccepted growth may select the existing generation-replacement outcome; Remote/peer/Accepted/history limits and charge-envelope mismatches remain structural because this transition cannot legitimately increase them. | `plan/chain_transition.rs::{select_chain_recoveries,charge_chain_recovery,chain_resource_error,plan_chain_generation_replacement}` and exact nextest regression `authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work`, which exercises both normal and fresh paths with non-zero residency metadata. |
@@ -3283,13 +3291,13 @@ to the named statement; it does not close a broader row by implication.
 | D1-CLOCK-DOMAIN | OPEN | The previous proof text incorrectly treated every expiry deadline as a monotonic level. Ban/circuit timing uses process-monotonic `Instant`, but Remote admission records `unix_time().as_secs()`, Accepted membership records `unix_time_as_millis()`, maintenance compares those wall-clock values, and `accepted_at` also affects public timestamps and deterministic packing order. A legal wall-clock rollback can therefore postpone expiry and alter later timestamp order without advancing a monotonic level. Retained owner/resource counts remain hard-bounded, so this is not an unbounded-residency safety bypass, but an unconditional expiry-progress proof would be false. | `authority/{ingress,validation,runtime,state,indexes,packing}.rs` and `util/systemtime/src/lib.rs` establish the two clock domains. M1 models wall-clock observation/jump separately from `Instant`; expiry liveness is conditional on eventually observing the recorded deadline. M3 must compare the compatible current rule with a design that separates exact public wall timestamps from internal monotonic residency deadlines. It may not add a compensating timer or claim monotonicity from the integer representation. |
 | D1-ALLOCATION-LIVENESS | OPEN | Allocation pressure is not a level-triggered resource in the current runtime: there is no allocator-capacity source or unique releaser. Nevertheless compute/Ready/maintenance, administration and both chain preparation and chain Apply retry after a fixed 1 ms delay. Persistent pressure therefore repeats the same fallible construction under an unchanged authority cut; workers can burn bounded-but-continuous CPU, Ready can strand its head, and the capacity-one ordered chain lane can retain one large command while blocking later reconciliation or clear forever. | `worker.rs::{TRANSIENT_RETRY_DELAY,handle_runtime_error,classify_compute_cancellation,run_ready_driver,run_maintenance_driver_loop}` and `service.rs::{allocation_backoff_or_cancel,retry_administration,apply_chain_update}`. This violates the progress law because neither a finite rank decreases nor a monotonic level changes. D3 must define one operation-owned allocation algebra: hostile/optional work terminates or drops ordinarily; a checked-out capability is cancelled exactly once; indispensable chain/administrative transitions use construction-time bounded/reserved scratch or one deterministic safe replacement outcome. Timer tuning, exponential retry, watchdogs and per-loop exceptions are forbidden as the root fix. |
 | D1-RECOVERY-SELECTION | PROVEN | Recovery selection is deterministic, parent-first and closure-safe. A resource-excluded or proposal-colliding new trusted root excludes its new trusted descendants but does not stop the scan, so a later unrelated fitting root remains eligible. Normal reconciliation performs individual envelope selection and falls back only for aggregate PreAccepted growth; fresh-generation replacement applies the same exclusion relation while building the bounded scratch authority. | `canonical_recovery_transactions`, `select_chain_recoveries`, `charge_chain_recovery`, `plan_chain_generation_replacement`, model witness `model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work`, and exact nextest regression `authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work`. |
-| D1-FAULT-INGRESS-VARIANT | PROVEN | A Proposal carrying the same raw transaction as a resident Recovery owner but a different witness is a closed mutation-free ingress disposition. Recovery ownership, payload and charge remain unchanged; the case cannot enter the generic `PayloadVariant -> integrity` adapter. This does not waive the separately open acknowledged relay-handoff obligation. | `plan.rs::RetainedAdmissionDisposition::ProposalPayloadVariant`, `ingress.rs::RetainedIngressCommit::ProposalPayloadVariant`, `runtime.rs::commit_retained_ingress` and exact production-runtime nextest regression `authority::tests::ingress::uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome`. |
+| D1-FAULT-INGRESS-VARIANT | PROVEN | A Proposal carrying the same raw transaction as a resident Recovery owner but a different witness is a closed mutation-free ingress disposition. Recovery ownership, payload and charge remain unchanged; the case cannot enter the generic `PayloadVariant -> integrity` adapter. Proposal request evidence was already consumed on response and no known mark exists, so this no-owner result needs no inverse handoff effect. | `plan/ingress.rs::{plan_validated_retained_batch_item,PreparedRetainedAdmissionBatch,CommittedRetainedAdmissionBatch}` and exact production-batch nextest regression `authority::tests::ingress_batch::uak_retained_ingress_batch_keeps_recovery_payload_variant_unchanged`. The removed single-item outcome enum remains only as a test-support oracle and is not a production owner. |
 | D1-FAULT-QUERY-DERIVED | PROVEN | Status and detailed transaction lookup are distinct products. The status RPC cannot evaluate optional replacement-fee arithmetic, and an unrepresentable detailed minimum replacement fee is `None`, matching develop, without invalidating the coherent authority generation. | `query.rs::{AuthorityTransactionStatusLookup,transaction_status_lookup,minimum_replacement_fee}`, `service/dispatch.rs::{handle_get_tx_status,handle_get_transaction_with_status}`, exact nextest regression `authority::tests::query::uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow`, and `check_production_contracts.py::validate_transaction_query_failure_domains`, which locks the public handler wiring. |
 | D1-STOP-DISCOVERY | PROVEN | Generation stop is wider than `AuthorityFault`: invalid chain evidence, effect lifecycle closure, worker/publisher/chain task error or join, unexpected publisher closure, effect close/drain failure and shutdown timeout can stop a generation or forbid persistence. | `service.rs::{AuthorityIntegrityFault, AuthorityGenerationInvalidity, AuthorityServiceGenerationFault}` and `topology.rs::{AuthorityGenerationFault, worker_event, poll_publisher_slot, shutdown_authority}`. |
 | D1-STOP-REACHABILITY | OPEN | Type-safe join classification alone does not prove hostile/legal input cannot cause task exit. Sender/receiver ownership, cancellation order and every linear capability return must be traced for each topology constructor. | Existing topology tests cover selected shutdown and invalidation schedules. Exact negative tests for channel closure with a checked-out capability and post-Apply assignment failure belong to T15; every topology row still needs a producer/caller proof. |
 | D1-TASK-CAPABILITY | SUPPORTED | Resolver, verifier and Ready tasks do not create a second transaction owner. A failed settlement retains the exact move-only settlement and execution permit; publisher consumption is uniquely claimed before workers spawn; normal shutdown cancels workers, joins them, closes and drains effects, then joins the publisher. Endpoint timeout cannot veto Apply because the publisher owns a one-way circuit per derived endpoint. The remaining operational cost is risk transfer: an effect-capacity-blocked settlement occupies one worker, and a publisher that cannot drain can make shutdown time out and correctly forbid persistence. | `topology.rs::{AuthorityTaskTopology::start, shutdown_authority}`, `worker.rs::recover_settlement`, `publisher.rs::run_effect_publisher` and the capacity-one worker channels. This row remains below PROVEN until T15 supplies channel-close, checked-out-capability and post-Apply assignment-delivery falsifiers plus a generated sender/receiver ownership inventory. |
 | D1-DEPENDENCY-CLOSURE | SUPPORTED | Every currently discovered owner-death and Accepted-admission producer composes dependency loss/availability into the same Apply: preaccepted terminalization, membership replacement/capacity eviction, administrative/ban/expiry removal, chain transition and independent settlement. No post-commit repair publisher or direct production `entries.remove` bypass was found. A dependency on a `PreAccepted` producer cannot silently enter membership: the independent classifier routes non-chain-backed dependencies to coupled planning, and the final membership proof accepts only same-view chain evidence or an exact surviving `Accepted` output; otherwise it returns `MissingDependencyEvidence`. | `plan.rs::{plan_membership_dependency_delta, plan_preaccepted_terminalization, plan_owner_removal_batch}`, `plan/chain_transition.rs`, `plan/settlement.rs`, `plan/membership.rs::{validate_candidate_dependency_evidence,surviving_pool_parent}` and `PreparedApply::{apply_membership, apply_independent, apply_owner_removal, apply_chain}`. Seven exact dependency regressions pass, but a generated producer/caller inventory and drift gate are still required before PROVEN. |
-| D1-KNOWN-HANDOFF | OPEN | The gap is proven on both retained network paths. Remote marks a batch known before sequential `try_send`; failure only logs and can pin hashes until the four-hour filter TTL. Proposal removes in-flight proposal rows and marks hashes known before `notify_txs_async`; controller failure loses both projections. After successful enqueue, Proposal resource exclusion is mapped to `Ok(())` without an inverse effect, and every later Proposal rejection/window-expiry path carries no relay audience, so the known mark can survive owner death. This can suppress a valid same-raw witness variant from another peer. | `sync/src/relayer/{transactions_process.rs,block_proposal_process.rs}`, `sync/src/types/mod.rs::{mark_as_known_txs,remove_inflight_proposals}`, `tx-pool/src/service/controller.rs::{submit_remote_tx,notify_txs_async}`, `authority/service.rs::{submit_proposal,map_ingress_error}`, `authority/effect.rs::RejectionAudience`, `publisher.rs::compile_preaccepted_rejection` and the no-effect `ChainRemoval::ProposalWindowExpired` branch. I3 must introduce one exact acknowledged pre-authority handoff and make `PreAcceptedSource::Proposal` own relay-projection settlement until Accepted or terminal Apply. Cross-crate regressions must cover controller-full Remote, controller-full Proposal, Proposal resource exclusion, validation/RBF rejection, proposal-window expiry and resubmission of a same-raw valid witness by another peer. |
+| D1-KNOWN-HANDOFF | PROVEN | Remote retains its existing pre-admission known mark but polls the bounded request set concurrently, releases each failed request in that request's future and acknowledges only the exact committed authority prefix. Proposal request evidence is consumed when its response arrives, without marking the raw transaction known; replay is ignored and committed Accepted is the sole known-state producer. Controller failure and every terminal no-owner Proposal outcome therefore need no inverse effect and leave the same raw transaction refetchable. | `sync/src/relayer/{transactions_process.rs,block_proposal_process.rs}`, `sync/src/types/mod.rs::{remove_from_known_txs,remove_inflight_proposals,record_accepted_tx}`, `tx-pool/src/service/{builder,dispatch}.rs`, `authority/{service.rs,plan/ingress.rs}` and cross-crate nextest regressions `remote_closed_controller_releases_known_projection`, `proposal_closed_controller_consumes_request_without_pinning_known`, `accepted_proposal_consumes_inflight_and_marks_known`, plus `remote_partial_commit_acknowledges_only_the_committed_prefix`. |
 | D1-FAULT-INGRESS-EVIDENCE | SUPPORTED | `RetainedIngressBoundaryError::InvalidEvidence` is mapped to integrity, but no current hostile transaction can construct it after non-contextual verification: serialized size is non-zero and capped at 512,000 bytes, the three encoded edge counts therefore cannot overflow `usize`, and dependency canonicalization uses that same edge count as its maximum. This is an over-broad type boundary, not a demonstrated service-stop input. | `util.rs::non_contextual_verify`, `state.rs::ValidatedAdmission::new` and `ingress.rs::RetainedIngressBoundaryError::from_admission`. D3 should seal admission construction so only allocation remains an ordinary post-verification construction error and should add a compile/generated producer gate; absent that gate this row cannot become PROVEN. |
 | D1-DOC-FAULT | PROVEN | Public architecture now states the constructor premises and residual producer/caller obligation without claiming that a table or constructor count is a complete reachability proof. Generated path-qualified enum/struct flow and negative canaries own drift detection; the still-open broader reachability row remains visible. | `docs/ARCHITECTURE.md` sections 12.2 and 15, `scripts/check_model_refinement.py --variant-flow --cargo-expand-production`, `scripts/fixtures/model_refinement_canary.rs` and `D1-FAULT-REACHABILITY`. |
 | D1-HISTORY | SUPPORTED | F1-F8 and the historical adjudication table cover the known incidents and suppressed candidates, including Gap/uncle censorship, RaceLost/ghost budget, dependency death, RBF effects/history, ban/refetch, cache identity and constructorless state. Bidirectional rule-to-code/test ownership has not yet been regenerated for T14-T16 and the pre-authority handoff. | `docs/ARCHITECTURE.md` historical table, `review-behaviors.json`, generated `REVIEW_GUIDE.md`, and section 9.8 above. D1 closes only after every retained rule has one semantic owner and every new rule has attack/business provenance. |
@@ -3386,7 +3394,7 @@ be mechanically closed in production.
 | `D1-STOP-REACHABILITY` | initialization failure, drain conservation, capability transport and endpoint circuit tests | M3/M4 prove each production task sender, receiver, cancellation and join edge refines one modeled outcome |
 | `D1-TASK-CAPABILITY` | direct/effect drain conservation, exact assignment/completion return and stale/cancel capability tests | generated topology ownership inventory and fault injection close the production refinement |
 | `D1-DEPENDENCY-CLOSURE` | wake, parent death, worker death, pool-origin loss, partial cell/header availability, detached cell/header recovery and chain-promotion model tests | generated producer inventory must prove no production removal or evidence-loss path bypasses the same-Apply dependency delta |
-| `D1-KNOWN-HANDOFF` | three relay handoff tests cover pre-authority failure, partial batch abort and terminal release | I2 cross-crate refinement must cover all Remote/Proposal terminal paths and same-raw refetch |
+| `D1-KNOWN-HANDOFF` | Remote failure/prefix and Proposal request/Accepted tests cover pre-authority failure, partial batch abort, replay suppression and same-raw refetch | closed in production by I2's distinct Remote responder and Proposal request/known protocols |
 | `D1-FAULT-INGRESS-EVIDENCE` | validation soundness is an exact-input trusted external premise; malformed evidence is outside `Legal` | M3 seals the production constructor and mechanically proves allocation is its only ordinary construction failure |
 | `D1-DOC-FAULT` | no model exemption; this is an evidence-graph integrity defect | closed by removing the unsupported reachability claim and binding the residual obligation to generated route evidence plus `D1-FAULT-REACHABILITY` |
 | `D1-HISTORY` | historical model witnesses cover Gap/uncle, budget, dependency, RBF/history, ban/refetch, cache identity and constructorless-state outcomes | stable model tests are bound to the canonical behavior registry before M1 freezes; full integration anchors remain I2 gates |
@@ -3434,13 +3442,19 @@ experiments:
    undo or generic batch framework; source, dependency and effect publication
    all consume the same committed batch sequence. Focused production nextest,
    the canonical model fold and the generated no-member-clock gate pass.
-9. **I2 active:** compile an immediately available homogeneous retained-ingress
-   prefix through the existing dispatcher and one domain-specific authority
-   Plan/Apply. Preserve exact per-request response and Remote relay-handoff
-   settlement, bounded count/bytes, canonical source order and prompt-single
-   behavior; add no actor, timer or second authority.
+9. **I2 complete:** the existing dispatcher compiles an immediately available
+   homogeneous retained-ingress prefix through one domain-specific authority
+   Plan/Apply. The public single item is `B=1`; cross-message coalescing stops at
+   100 items; byte bounds, canonical order, exact Remote responder/known
+   settlement and Proposal request/Accepted separation are mechanically tested.
+   No actor, timer, channel, authority, rollback or generic transaction layer
+   was added.
+10. **I3 active:** replace per-worker authority mutation loops with the bounded
+    compute exchange. Preserve compute outside the guard, Direct fairness,
+    exact move-only capability conservation and the one-authority fallback for
+    non-composable work.
 
-The I1 checkpoint is the commit containing this record. Performance claims
+The I2 checkpoint is the commit containing this record. Performance claims
 remain forbidden until I1-I6 and the complete correctness gate close. A newly
 confirmed defect returns to the single section 16 ledger and its root theorem
 rather than creating a local exception or a second risk list.

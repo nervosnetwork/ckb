@@ -1457,6 +1457,8 @@ impl SyncState {
         // A remote Ok after GenerationReset must restore the filter entry even
         // though ingress originally marked it before reset was consumed.
         self.mark_as_known_tx(hash.clone());
+        self.inflight_proposals
+            .remove(&packed::ProposalShortId::from_tx_hash(&hash));
         self.pending_relay_txs.lock().put(hash, original_peer);
     }
 

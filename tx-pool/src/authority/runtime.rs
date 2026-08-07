@@ -23,8 +23,7 @@ use super::{
         EffectWork,
     },
     ingress::{
-        DirectCommand, DirectTransaction, IngressRejectionCommit, RetainedIngress,
-        RetainedIngressCommit, RetainedIngressRejection, direct,
+        DirectCommand, DirectTransaction, RetainedAdmissionBatch, RetainedIngressAttempt, direct,
     },
     plan::{
         AuthorityConfigError, AuthorityFault, AuthorityPostCommit, AuthorityWakeTransition,
@@ -32,8 +31,8 @@ use super::{
         ComputeCancellationError, ComputeSettlementFailure, DirectAdmissionDisposition,
         DirectAdmissionEvaluation, EffectCloseError, EffectSettlementCommit,
         EffectSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
-        MembershipConfig, MembershipReject, PlanError, RetainedAdmissionDisposition,
-        SettlementBatch, SettlementPlan, TxPoolAuthority,
+        MembershipConfig, MembershipReject, PlanError, SettlementBatch, SettlementPlan,
+        TxPoolAuthority,
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
@@ -95,6 +94,17 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+pub(super) struct RetainedIngressBatchFailure {
+    error: PlanError,
+    batch: RetainedAdmissionBatch,
+}
+
+impl RetainedIngressBatchFailure {
+    pub(super) fn into_parts(self) -> (PlanError, RetainedAdmissionBatch) {
+        (self.error, self.batch)
+    }
+}
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, watch};
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
@@ -2552,49 +2562,50 @@ impl AuthorityRuntime {
         self.verify_workers.get()
     }
 
-    pub(super) fn commit_retained_ingress(
+    #[expect(
+        clippy::result_large_err,
+        reason = "a failed Plan returns the exact move-only ingress batch without allocating, including when allocation pressure caused the failure"
+    )]
+    pub(super) fn commit_retained_ingress_batch(
         &self,
-        ingress: RetainedIngress,
-    ) -> Result<RetainedIngressCommit, PlanError> {
-        let (outcome, committed) = {
+        batch: RetainedAdmissionBatch,
+    ) -> Result<
+        (usize, std::collections::VecDeque<RetainedIngressAttempt>),
+        RetainedIngressBatchFailure,
+    > {
+        let (retirement, consumed) = {
             let mut store = self.store.write();
-            match store.authority.plan_retained_admission(ingress)? {
-                RetainedAdmissionDisposition::ProposalUnchanged => {
-                    return Ok(RetainedIngressCommit::ProposalUnchanged);
-                }
-                RetainedAdmissionDisposition::ProposalPayloadVariant => {
-                    return Ok(RetainedIngressCommit::ProposalPayloadVariant);
-                }
-                RetainedAdmissionDisposition::Retained(plan) => {
-                    (RetainedIngressCommit::Retained, plan.apply())
-                }
-                RetainedAdmissionDisposition::AcceptedDuplicate(plan) => {
-                    (RetainedIngressCommit::AcceptedDuplicate, plan.apply())
-                }
-                RetainedAdmissionDisposition::RemoteReleased(plan) => {
-                    (RetainedIngressCommit::RemoteReleased, plan.apply())
+            let prepared = match store.authority.plan_retained_admission_batch(&batch) {
+                Ok(prepared) => prepared,
+                Err(error) => return Err(RetainedIngressBatchFailure { error, batch }),
+            };
+            if prepared.consumed() == 0 || prepared.consumed() > batch.len() {
+                return Err(RetainedIngressBatchFailure {
+                    error: PlanError::Fault(AuthorityFault::MembershipProjection),
+                    batch,
+                });
+            }
+            match prepared.apply() {
+                super::plan::CommittedRetainedAdmissionBatch::Applied {
+                    retirement,
+                    consumed,
+                    ..
+                } => (retirement, consumed),
+                super::plan::CommittedRetainedAdmissionBatch::Unchanged { consumed, .. } => {
+                    let mut remaining = batch.into_attempts();
+                    for _ in 0..consumed {
+                        drop(remaining.pop_front());
+                    }
+                    return Ok((consumed, remaining));
                 }
             }
         };
-        // Effect and transaction retirement carriers are destroyed only after
-        // the single authority guard is open.
-        self.publish_committed(committed);
-        Ok(outcome)
-    }
-
-    pub(super) fn commit_retained_ingress_rejection(
-        &self,
-        rejection: RetainedIngressRejection,
-    ) -> Result<IngressRejectionCommit, PlanError> {
-        let committed = {
-            let mut store = self.store.write();
-            store
-                .authority
-                .plan_retained_ingress_rejection(rejection)?
-                .apply()
-        };
-        self.publish_committed(committed);
-        Ok(IngressRejectionCommit)
+        self.publish_committed(retirement);
+        let mut remaining = batch.into_attempts();
+        for _ in 0..consumed {
+            drop(remaining.pop_front());
+        }
+        Ok((consumed, remaining))
     }
 
     pub(in crate::authority) fn try_checkout(

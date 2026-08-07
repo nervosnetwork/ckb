@@ -83,7 +83,9 @@
         "falsifier_tests": [
           "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
           "mathematical_model::topology_properties::model_existing_dispatcher_is_the_zero_topology_cost_ingress_combiner",
-          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders"
+          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders",
+          "mathematical_model::adversarial_properties::model_i2_retained_path_separates_ingress_and_ready_batches_from_per_item_compute",
+          "authority::tests::ingress_batch::uak_retained_ingress_batch_refines_the_canonical_proposal_fold"
         ],
         "target_owner": {
           "path": "tx-pool/src/service/builder.rs",
@@ -96,7 +98,11 @@
           },
           {
             "path": "tx-pool/src/authority/runtime.rs",
-            "symbols": ["commit_retained_ingress"]
+            "symbols": ["commit_retained_ingress_batch"]
+          },
+          {
+            "path": "tx-pool/src/authority/plan/ingress.rs",
+            "symbols": ["plan_retained_admission_batch"]
           }
         ],
         "cost": {
@@ -104,9 +110,9 @@
           "authority_locks_added": 0,
           "tasks_added": 0,
           "channel_instances_bound": "0",
-          "protocol_state_bound": "one dispatcher lookahead message already charged by the controller handoff",
-          "transient_bound": "existing controller count and byte bounds plus one dispatcher lookahead message",
-          "apply_bound": "one Apply for the longest immediately available homogeneous independent prefix"
+          "protocol_state_bound": "one dispatcher lookahead message already charged by the controller handoff; no new resident lifecycle state",
+          "transient_bound": "Remote coalescing is same-peer and at most 100 items/one relay byte batch; Proposal cross-message coalescing is at most 100 items/one relay byte batch; one already-bounded large Proposal message is partitioned by the service",
+          "apply_bound": "one Apply for each longest complete canonical prefix of at most 100 retained-ingress attempts"
         }
       },
       {
@@ -396,12 +402,17 @@
       {
         "id": "I2-RETAINED-INGRESS-BATCH",
         "sequence": 2,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": ["retained_ingress_combiner"],
         "production_paths": [
           "tx-pool/src/service/builder.rs",
+          "tx-pool/src/service/dispatch.rs",
+          "tx-pool/src/authority/service.rs",
           "tx-pool/src/authority/runtime.rs",
-          "tx-pool/src/authority/plan.rs"
+          "tx-pool/src/authority/plan/ingress.rs",
+          "sync/src/relayer/transactions_process.rs",
+          "sync/src/relayer/block_proposal_process.rs",
+          "sync/src/types/mod.rs"
         ],
         "exit_gate": "canonical immediately available homogeneous prefix commits once and every response or relay handoff settles exactly once"
       },

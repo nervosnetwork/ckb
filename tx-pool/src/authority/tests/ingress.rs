@@ -1,12 +1,13 @@
 use super::super::{
     effect::CommittedEffect,
     ingress::{
-        DirectCommand, IngressRejectionCommit, RemoteIngressPressure, RetainedIngressBackpressure,
-        RetainedIngressBoundaryError, RetainedIngressCommit, RetainedIngressError, direct,
-        proposal, test_support::remote_at_for_foundation,
+        DirectCommand, RemoteIngressPressure, RetainedIngressBackpressure,
+        RetainedIngressBoundaryError, RetainedIngressError, direct, proposal,
+        test_support::{IngressRejectionCommit, RetainedIngressCommit, remote_at_for_foundation},
     },
     plan::{
-        AuthorityFault, Backpressure, PlanError, RetainedAdmissionDisposition, TxPoolAuthority,
+        AuthorityFault, Backpressure, PlanError, TxPoolAuthority,
+        test_support::RetainedAdmissionDisposition,
     },
     runtime::AuthorityRuntime,
     state::{
@@ -513,11 +514,15 @@ fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
 #[test]
 fn uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop() {
     assert_eq!(
-        RetainedIngressBoundaryError::from_admission(AdmissionValidationError::ResourceAllocation,),
+        RetainedIngressBoundaryError::from_admission_for_foundation(
+            AdmissionValidationError::ResourceAllocation,
+        ),
         RetainedIngressBoundaryError::ResourceUnavailable
     );
     assert_eq!(
-        RetainedIngressBoundaryError::from_admission(AdmissionValidationError::ResourceArithmetic,),
+        RetainedIngressBoundaryError::from_admission_for_foundation(
+            AdmissionValidationError::ResourceArithmetic,
+        ),
         RetainedIngressBoundaryError::InvalidEvidence
     );
     assert_eq!(

@@ -32,13 +32,8 @@ fn stop_tx_pool(relayer: &crate::relayer::Relayer) {
     );
 }
 
-/// This test intentionally records the current production divergence from the
-/// required handoff model. The required observation after a closed controller
-/// is `Released`; current Remote relay instead leaves the raw hash known. M4
-/// must invert this witness to equality when enqueue acknowledgement owns the
-/// projection transition.
 #[test]
-fn counterexample_remote_closed_controller_retains_known_projection() {
+fn remote_closed_controller_releases_known_projection() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 701, &always_success_out_point);
     let hash = transaction.hash();
@@ -80,9 +75,13 @@ fn counterexample_remote_closed_controller_retains_known_projection() {
         Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
     TransactionsProcess::new(content.as_reader(), &relayer, context, source_peer).execute();
 
+    let release_deadline = Instant::now() + Duration::from_secs(5);
+    while state.already_known_tx(&hash) && Instant::now() < release_deadline {
+        std::thread::yield_now();
+    }
     assert!(
-        state.already_known_tx(&hash),
-        "current Remote code marks known before the closed enqueue and has no inverse"
+        !state.already_known_tx(&hash),
+        "a failed Remote handoff releases its exact known-filter mark"
     );
     let announcement = packed::RelayTransactionHashes::new_builder()
         .tx_hashes(vec![hash.clone()])
@@ -90,7 +89,7 @@ fn counterexample_remote_closed_controller_retains_known_projection() {
     let _ = TransactionHashesProcess::new(announcement.as_reader(), &relayer, replacement_peer)
         .execute();
     assert!(
-        !state.pop_ask_for_txs().contains_key(&replacement_peer),
-        "the stale known projection suppresses a refetch from another peer"
+        state.pop_ask_for_txs().contains_key(&replacement_peer),
+        "another peer can reannounce a transaction whose handoff failed"
     );
 }

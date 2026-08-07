@@ -67,14 +67,18 @@ impl<'a> BlockProposalProcess<'a> {
             .iter()
             .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash()))
             .collect();
+        // The in-flight row proves only that this network response was
+        // requested. Consume that request exactly once when its response
+        // arrives, but do not mark the raw transaction known before authority
+        // publishes Accepted. Controller failure therefore cannot suppress a
+        // later Remote supply, and replaying the same Proposal response cannot
+        // repeatedly enqueue validation work.
         let removes = sync_state.remove_inflight_proposals(&proposals);
-        let mut asked_txs = Vec::new();
-        for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
-            if previously_in {
-                sync_state.mark_as_known_tx(tx.hash());
-                asked_txs.push(tx);
-            }
-        }
+        let asked_txs: Vec<_> = removes
+            .into_iter()
+            .zip(unknown_txs)
+            .filter_map(|(requested, tx)| requested.then_some(tx))
+            .collect();
 
         if asked_txs.is_empty() {
             return Status::ignored();

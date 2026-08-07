@@ -9,7 +9,11 @@ pub(crate) use super::relay::AuthorityRelaySink;
 use super::{
     chain_boundary::{ChainBoundaryError, ChainPackaging, ChainUpdateRequest},
     effect::ParentTransactionRequest,
-    ingress::{RemoteIngressPressure, RetainedIngressBackpressure, RetainedIngressBoundaryError},
+    ingress::{
+        RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngressAttempt,
+        RetainedIngressBackpressure, RetainedIngressBoundaryError, RetainedIngressError, proposal,
+        remote, remote_pressure_rejection,
+    },
     plan::AuthorityFault,
     publisher::AuthorityEffectEndpoints,
     query::{
@@ -73,7 +77,7 @@ use ckb_types::{
 use ckb_util::Mutex;
 use ckb_verification::cache::TxVerificationCache;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     num::NonZeroUsize,
     path::PathBuf,
     sync::Arc,
@@ -105,6 +109,35 @@ pub(crate) enum AuthorityServiceError {
     EffectCapacity,
     LifecycleClosed,
     Integrity(AuthorityIntegrityFault),
+}
+
+/// Exact Remote responder prefix completed by authority. A later operational
+/// failure cannot erase this observation: dispatch acknowledges only this
+/// prefix and drops the uncommitted suffix so the relayer can release its
+/// matching known-filter handoffs.
+pub(crate) struct RemoteIngressBatchProgress {
+    completed: usize,
+    error: Option<AuthorityServiceError>,
+}
+
+impl RemoteIngressBatchProgress {
+    fn complete(completed: usize) -> Self {
+        Self {
+            completed,
+            error: None,
+        }
+    }
+
+    fn failed(completed: usize, error: AuthorityServiceError) -> Self {
+        Self {
+            completed,
+            error: Some(error),
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (usize, Option<AuthorityServiceError>) {
+        (self.completed, self.error)
+    }
 }
 
 /// Closed programmer-defect domain that alone can invalidate one authority
@@ -785,75 +818,16 @@ impl AuthorityService {
         declared_cycles: u64,
         peer: PeerIndex,
     ) -> Result<(), AuthorityServiceError> {
-        loop {
-            let signal = self.runtime.effect_capacity_signal();
-            let notified = signal.notified();
-            match self
-                .runtime
-                .submit_remote_ingress(tx.clone(), declared_cycles, peer)
-            {
-                Ok(_commit) => return Ok(()),
-                Err(RetainedIngressBoundaryError::Backpressure(
-                    RetainedIngressBackpressure::EffectCapacity,
-                )) => {
-                    if !wait_or_cancel(&self.cancel, notified).await {
-                        return Err(AuthorityServiceError::Cancelled);
-                    }
-                }
-                Err(RetainedIngressBoundaryError::ResourceUnavailable) => {
-                    return self
-                        .publish_remote_pressure(tx, peer, RemoteIngressPressure::Allocation)
-                        .await;
-                }
-                Err(RetainedIngressBoundaryError::Backpressure(pressure)) => {
-                    let pressure = match pressure {
-                        RetainedIngressBackpressure::TotalResources => {
-                            RemoteIngressPressure::TotalResources
-                        }
-                        RetainedIngressBackpressure::RemoteResources => {
-                            RemoteIngressPressure::RemoteResources
-                        }
-                        RetainedIngressBackpressure::PeerResources => {
-                            RemoteIngressPressure::PeerResources
-                        }
-                        RetainedIngressBackpressure::ComputeResources => {
-                            RemoteIngressPressure::ComputeResources
-                        }
-                        RetainedIngressBackpressure::ProposalCollision => {
-                            RemoteIngressPressure::ProposalCollision
-                        }
-                        RetainedIngressBackpressure::EffectCapacity => continue,
-                    };
-                    return self.publish_remote_pressure(tx, peer, pressure).await;
-                }
-                Err(error) => return map_ingress_error(error),
-            }
-        }
-    }
-
-    async fn publish_remote_pressure(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        pressure: RemoteIngressPressure,
-    ) -> Result<(), AuthorityServiceError> {
-        loop {
-            let signal = self.runtime.effect_capacity_signal();
-            let notified = signal.notified();
-            match self
-                .runtime
-                .reject_remote_ingress_pressure(tx.clone(), peer, pressure)
-            {
-                Ok(_commit) => return Ok(()),
-                Err(RetainedIngressBoundaryError::Backpressure(
-                    RetainedIngressBackpressure::EffectCapacity,
-                )) => {
-                    if !wait_or_cancel(&self.cancel, notified).await {
-                        return Err(AuthorityServiceError::Cancelled);
-                    }
-                }
-                Err(error) => return map_ingress_error(error),
-            }
+        let (completed, error) = self
+            .submit_remote_batch(peer, vec![(tx, declared_cycles)])
+            .await
+            .into_parts();
+        match (completed, error) {
+            (1, None) => Ok(()),
+            (_, Some(error)) => Err(error),
+            _ => Err(AuthorityServiceError::integrity_projection(
+                AuthorityProjectionFault::Membership,
+            )),
         }
     }
 
@@ -861,21 +835,167 @@ impl AuthorityService {
         &self,
         tx: TransactionView,
     ) -> Result<(), AuthorityServiceError> {
-        loop {
-            let signal = self.runtime.effect_capacity_signal();
-            let notified = signal.notified();
-            match self.runtime.submit_proposal_ingress(tx.clone()) {
-                Ok(_commit) => return Ok(()),
-                Err(RetainedIngressBoundaryError::Backpressure(
-                    RetainedIngressBackpressure::EffectCapacity,
-                )) => {
-                    if !wait_or_cancel(&self.cancel, notified).await {
-                        return Err(AuthorityServiceError::Cancelled);
-                    }
+        self.submit_proposal_batch(vec![tx]).await
+    }
+
+    pub(crate) async fn submit_remote_batch(
+        &self,
+        peer: PeerIndex,
+        submissions: Vec<(TransactionView, u64)>,
+    ) -> RemoteIngressBatchProgress {
+        let bytes = retained_batch_bytes(submissions.iter().map(|(transaction, _)| transaction));
+        if submissions.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES
+            || !matches!(bytes, Ok(bytes) if submissions.len() == 1
+                || bytes <= ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH)
+        {
+            return RemoteIngressBatchProgress::failed(
+                0,
+                AuthorityServiceError::ResourceUnavailable,
+            );
+        }
+        let consensus = self.runtime.paired_consensus();
+        let mut attempts = VecDeque::new();
+        if attempts.try_reserve(submissions.len()).is_err() {
+            return RemoteIngressBatchProgress::failed(
+                0,
+                AuthorityServiceError::ResourceUnavailable,
+            );
+        }
+        for (tx, declared_cycles) in submissions {
+            match remote(tx.clone(), declared_cycles, peer, &consensus) {
+                Ok(ingress) => attempts.push_back(RetainedIngressAttempt::Validated(ingress)),
+                Err(RetainedIngressError::Rejected(rejection)) => {
+                    attempts.push_back(RetainedIngressAttempt::Rejected(rejection));
                 }
-                Err(error) => return map_ingress_error(error),
+                Err(RetainedIngressError::Admission(
+                    super::state::AdmissionValidationError::ResourceAllocation,
+                )) => attempts.push_back(RetainedIngressAttempt::Rejected(
+                    remote_pressure_rejection(tx, peer, RemoteIngressPressure::Allocation),
+                )),
+                Err(RetainedIngressError::Admission(_)) => {
+                    return RemoteIngressBatchProgress::failed(
+                        0,
+                        AuthorityServiceError::integrity_projection(
+                            AuthorityProjectionFault::Membership,
+                        ),
+                    );
+                }
             }
         }
+        self.submit_retained_attempts(attempts).await
+    }
+
+    pub(crate) async fn submit_proposal_batch(
+        &self,
+        transactions: Vec<TransactionView>,
+    ) -> Result<(), AuthorityServiceError> {
+        if transactions.len() > ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH
+            || (transactions.len() != 1
+                && retained_batch_bytes(transactions.iter())?
+                    > ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH)
+        {
+            return Err(AuthorityServiceError::ResourceUnavailable);
+        }
+        let consensus = self.runtime.paired_consensus();
+        let mut transactions = transactions.into_iter();
+        loop {
+            let mut attempts = VecDeque::new();
+            attempts
+                .try_reserve(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
+                .map_err(|_| AuthorityServiceError::ResourceUnavailable)?;
+            for _ in 0..crate::constants::MAX_POOL_MUTATION_CANDIDATES {
+                let Some(tx) = transactions.next() else {
+                    break;
+                };
+                match proposal(tx, &consensus) {
+                    Ok(ingress) => {
+                        attempts.push_back(RetainedIngressAttempt::Validated(ingress));
+                    }
+                    Err(RetainedIngressError::Rejected(rejection)) => {
+                        attempts.push_back(RetainedIngressAttempt::Rejected(rejection));
+                    }
+                    Err(RetainedIngressError::Admission(
+                        super::state::AdmissionValidationError::ResourceAllocation,
+                    )) => attempts.push_back(RetainedIngressAttempt::ProposalUnavailable),
+                    Err(RetainedIngressError::Admission(_)) => {
+                        return Err(AuthorityServiceError::integrity_projection(
+                            AuthorityProjectionFault::Membership,
+                        ));
+                    }
+                }
+            }
+            if attempts.is_empty() {
+                return Ok(());
+            }
+            let expected = attempts.len();
+            let (completed, error) = self.submit_retained_attempts(attempts).await.into_parts();
+            if let Some(error) = error {
+                return Err(error);
+            }
+            if completed != expected {
+                return Err(AuthorityServiceError::integrity_projection(
+                    AuthorityProjectionFault::Membership,
+                ));
+            }
+        }
+    }
+
+    async fn submit_retained_attempts(
+        &self,
+        mut attempts: VecDeque<RetainedIngressAttempt>,
+    ) -> RemoteIngressBatchProgress {
+        let mut completed = 0usize;
+        while let Some(head) = attempts.pop_front() {
+            let signal = self.runtime.effect_capacity_signal();
+            let notified = signal.notified();
+            let batch = match RetainedAdmissionBatch::new(head, attempts) {
+                Ok(batch) => batch,
+                Err(error) => {
+                    return RemoteIngressBatchProgress::failed(
+                        completed,
+                        map_retained_batch_error(error),
+                    );
+                }
+            };
+            match self.runtime.commit_retained_ingress_batch(batch) {
+                Ok((consumed, remaining)) => {
+                    let Some(next_completed) = completed.checked_add(consumed) else {
+                        return RemoteIngressBatchProgress::failed(
+                            completed,
+                            AuthorityServiceError::Integrity(
+                                AuthorityIntegrityFault::CounterExhausted,
+                            ),
+                        );
+                    };
+                    completed = next_completed;
+                    attempts = remaining;
+                }
+                Err(failure) => {
+                    let (error, batch) = failure.into_parts();
+                    let error = RetainedIngressBoundaryError::from_plan(error);
+                    if matches!(
+                        error,
+                        RetainedIngressBoundaryError::Backpressure(
+                            RetainedIngressBackpressure::EffectCapacity
+                        )
+                    ) {
+                        attempts = batch.into_attempts();
+                        if !wait_or_cancel(&self.cancel, notified).await {
+                            return RemoteIngressBatchProgress::failed(
+                                completed,
+                                AuthorityServiceError::Cancelled,
+                            );
+                        }
+                    } else {
+                        return RemoteIngressBatchProgress::failed(
+                            completed,
+                            map_retained_batch_error(error),
+                        );
+                    }
+                }
+            }
+        }
+        RemoteIngressBatchProgress::complete(completed)
     }
 
     pub(crate) async fn submit_local(
@@ -1539,6 +1659,18 @@ fn map_relay_start_error(_error: RelayMailboxConfigError) -> AuthorityServiceSta
     AuthorityServiceStartError::RelayConfiguration
 }
 
+fn retained_batch_bytes<'a>(
+    transactions: impl IntoIterator<Item = &'a TransactionView>,
+) -> Result<usize, AuthorityServiceError> {
+    transactions
+        .into_iter()
+        .try_fold(0usize, |total, transaction| {
+            total
+                .checked_add(transaction.data().total_size())
+                .ok_or(AuthorityServiceError::ResourceUnavailable)
+        })
+}
+
 fn map_topology_start_error(error: AuthorityTopologyStartError) -> AuthorityServiceStartError {
     match error {
         AuthorityTopologyStartError::Cancelled => AuthorityServiceStartError::Cancelled,
@@ -1549,18 +1681,25 @@ fn map_topology_start_error(error: AuthorityTopologyStartError) -> AuthorityServ
     }
 }
 
-fn map_ingress_error(error: RetainedIngressBoundaryError) -> Result<(), AuthorityServiceError> {
+fn map_retained_batch_error(error: RetainedIngressBoundaryError) -> AuthorityServiceError {
     match error {
-        RetainedIngressBoundaryError::InvalidEvidence => Err(
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership),
-        ),
-        RetainedIngressBoundaryError::ResourceUnavailable
-        | RetainedIngressBoundaryError::Backpressure(_) => Ok(()),
-        RetainedIngressBoundaryError::LifecycleClosed => {
-            Err(AuthorityServiceError::LifecycleClosed)
+        RetainedIngressBoundaryError::InvalidEvidence => {
+            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
         }
+        RetainedIngressBoundaryError::ResourceUnavailable
+        | RetainedIngressBoundaryError::Backpressure(
+            RetainedIngressBackpressure::TotalResources
+            | RetainedIngressBackpressure::RemoteResources
+            | RetainedIngressBackpressure::PeerResources
+            | RetainedIngressBackpressure::ComputeResources
+            | RetainedIngressBackpressure::ProposalCollision,
+        ) => AuthorityServiceError::ResourceUnavailable,
+        RetainedIngressBoundaryError::Backpressure(RetainedIngressBackpressure::EffectCapacity) => {
+            AuthorityServiceError::EffectCapacity
+        }
+        RetainedIngressBoundaryError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
         RetainedIngressBoundaryError::Fault(fault) => {
-            Err(AuthorityServiceError::integrity_projection(fault.into()))
+            AuthorityServiceError::integrity_projection(fault.into())
         }
     }
 }

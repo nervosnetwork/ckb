@@ -26,7 +26,8 @@ implemented and correctness-gated.
 7. ACTIVE - implement the M4-frozen bounded semantic exchange in six ordered
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
-   core is complete and I2 retained-ingress batching is active.
+   core and I2 retained-ingress batching are complete, and I3 bounded compute
+   exchange is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
@@ -3777,3 +3778,67 @@ sequence cursors. Both complete nextest universes pass after that correction.
 I2 retained-ingress batching is now active. It must use the existing dispatcher,
 preserve prompt-single behavior and exact response/relay handoff ownership, and
 add no actor, timer or generic transaction framework.
+
+## I2 retained-ingress batch closure
+
+The existing dispatcher now moves one immediately available, homogeneous
+Remote or Proposal prefix into one existing handler. The prefix is bounded by
+both `MAX_POOL_MUTATION_CANDIDATES` and the relay byte limit; Remote prefixes
+are additionally peer-homogeneous. A prompt item remains the exact `B=1` case,
+and no timer, actor, channel, authority, lock, retry queue, rollback layer or
+generic transaction framework was introduced.
+
+One domain-specific authority Plan compiles the longest canonical prefix that
+fits owner, resource and indivisible effect capacity. One Apply changes owners,
+indexes, resources, scheduler, dependency state, effects and clocks together.
+Plan failure and dropped plans are mutation-free; Apply advances one sequence
+for the whole non-empty prefix while owner versions remain distinct. The
+runtime returns the exact unconsumed suffix rather than reconstructing input.
+
+The external protocols remain intentionally distinct. Remote requests keep
+their existing pre-admission known mark, acknowledge only the exact committed
+prefix and release each failed suffix request through its own move-only future.
+Proposal response consumes the in-flight request but does not mark the raw
+transaction known; only a committed Accepted effect does so. Malformed Remote
+input revokes the peer's not-yet-Applied cohort while preserving already
+Accepted ownership and allowing the same raw transaction to be fetched from a
+different peer.
+
+The frozen pre-I2 independent path cost was `3N + 2R` authority Applies. The
+current implemented path is `A + 2N + 2R`, where `A` is the number of non-empty
+homogeneous ingress prefixes, `N` owners and `R` Ready/effect slices. For one
+available eight-owner wave this changes 26 cuts to 19; for 64 owners over eight
+slots it changes 208 to 145. These are static serial-cut counts, not wall-time
+or benchmark claims. I3 must reach `A + (W + 1) + 2R` without moving compute
+under the authority guard or weakening Direct/RBF/dependency fairness.
+
+The former single-item adapter and outcome enums are retained only as a
+test-support sequential oracle. Production contains one batch kernel and no
+test-only observation fields. The production-contract checker requires the
+batch Plan/Apply/publication order and rejects a second single-item production
+kernel.
+
+Exact evidence at this cut:
+
+- focused retained-ingress nextest: 4/4 after the test-support relocation;
+- complete internal-feature nextest: 671/671, zero skipped;
+- complete default-feature nextest: 667/667, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- complete sync nextest: 86/86, zero failures;
+- affected standalone integration process suite: 12/12, covering declared
+  cycles, relay rejection/retry/order, proposal response sizing, reorg proposal
+  handling and invalid-input RBF;
+- strict all-target internal-feature Clippy, formatting and diff checks;
+- all nine discovered repository contracts, including TLC 1,098 generated /
+  318 distinct positive states and the required four-state negative witness;
+- mechanically derived refinement frontier: model 238 reachable / 90 outside
+  roots / 23 files, production 629 / 13 / 39;
+- generated evidence: 352 exact tx-pool Rust tests / 1,385 invariant
+  references, 11 cross-crate tests / 32 references, 19 integration anchors,
+  150 managed specs and 671 internal nextest tests; three explicit release
+  blockers remain.
+
+All Rust tests ran through `cargo nextest run`; direct `cargo test` was not
+used. The standalone integration runner already provides one node/spec process
+boundary and remains `make integration`. I3 bounded compute exchange is the
+next exact action; profiling and A/B remain frozen.

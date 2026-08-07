@@ -9,7 +9,6 @@
 use super::{
     plan::{AuthorityFault, Backpressure, PlanError},
     rejection::{CommittedPublicReject, DirectTransactionRejection},
-    runtime::AuthorityRuntime,
     state::{
         AdmissionValidationError, PreAcceptedSource, ProposalBase, RemoteBase, RemoteDeadline,
         RemoteResidencyLease, ValidatedAdmission,
@@ -19,6 +18,7 @@ use crate::util::non_contextual_verify;
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL};
 use ckb_network::PeerIndex;
 use ckb_types::core::{Cycle, TransactionView};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 const REMOTE_RESIDENCY_BLOCKS: u64 = 100;
@@ -67,25 +67,13 @@ pub(super) enum RetainedIngressKind {
     Proposal,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RetainedIngressCommit {
-    Retained,
-    AcceptedDuplicate,
-    RemoteReleased,
-    ProposalUnchanged,
-    ProposalPayloadVariant,
-    Rejected,
-}
-
-/// Exact proof returned only after a retained/no-owner rejection and its
-/// public effect commit in one Apply. Narrow callers cannot observe unrelated
-/// ingress dispositions or manufacture an impossible service mismatch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct IngressRejectionCommit;
-
 impl RetainedIngress {
-    pub(super) fn into_parts(self) -> (RetainedIngressKind, ValidatedAdmission) {
-        (self.kind, self.admission)
+    pub(super) const fn kind(&self) -> RetainedIngressKind {
+        self.kind
+    }
+
+    pub(super) fn admission(&self) -> &ValidatedAdmission {
+        &self.admission
     }
 }
 
@@ -95,7 +83,7 @@ pub(super) enum RetainedIngressError {
     Admission(AdmissionValidationError),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct RetainedIngressRejection {
     kind: RetainedIngressKind,
     tx: Arc<TransactionView>,
@@ -103,6 +91,22 @@ pub(super) struct RetainedIngressRejection {
 }
 
 impl RetainedIngressRejection {
+    pub(super) const fn kind(&self) -> RetainedIngressKind {
+        self.kind
+    }
+
+    pub(super) fn is_malformed(&self) -> bool {
+        self.reason.is_malformed()
+    }
+
+    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
+        &self.tx
+    }
+
+    pub(super) fn reason(&self) -> &CommittedPublicReject {
+        &self.reason
+    }
+
     pub(super) fn into_parts(
         self,
     ) -> (
@@ -111,6 +115,92 @@ impl RetainedIngressRejection {
         CommittedPublicReject,
     ) {
         (self.kind, self.tx, self.reason)
+    }
+}
+
+/// One non-contextually classified item in a retained-ingress microbatch.
+/// Every variant is a terminal result of lock-external validation; authority
+/// Plan may retain it, publish its rejection, or record the existing no-owner
+/// pressure outcome without re-reading caller-controlled bytes.
+#[derive(Debug)]
+pub(super) enum RetainedIngressAttempt {
+    Validated(RetainedIngress),
+    Rejected(RetainedIngressRejection),
+    ProposalUnavailable,
+}
+
+impl RetainedIngressAttempt {
+    pub(super) const fn kind(&self) -> RetainedIngressKind {
+        match self {
+            Self::Validated(ingress) => ingress.kind(),
+            Self::Rejected(rejection) => rejection.kind(),
+            Self::ProposalUnavailable => RetainedIngressKind::Proposal,
+        }
+    }
+
+    pub(super) fn is_malformed_remote(&self) -> bool {
+        matches!(
+            self,
+            Self::Rejected(rejection)
+                if matches!(rejection.kind(), RetainedIngressKind::Remote(_))
+                    && rejection.is_malformed()
+        )
+    }
+}
+
+/// Non-empty homogeneous retained-ingress capability consumed in canonical
+/// controller order. Keeping `head` separate makes an empty authority batch
+/// unrepresentable; the private constructor prevents Remote peers or Proposal
+/// trust classes from being mixed under one resource/effect policy.
+#[derive(Debug)]
+pub(super) struct RetainedAdmissionBatch {
+    kind: RetainedIngressKind,
+    head: RetainedIngressAttempt,
+    tail: VecDeque<RetainedIngressAttempt>,
+}
+
+impl RetainedAdmissionBatch {
+    pub(super) fn new(
+        head: RetainedIngressAttempt,
+        tail: VecDeque<RetainedIngressAttempt>,
+    ) -> Result<Self, RetainedIngressBoundaryError> {
+        let Some(item_count) = tail.len().checked_add(1) else {
+            return Err(RetainedIngressBoundaryError::ResourceUnavailable);
+        };
+        if item_count > crate::constants::MAX_POOL_MUTATION_CANDIDATES {
+            return Err(RetainedIngressBoundaryError::ResourceUnavailable);
+        }
+        let kind = head.kind();
+        let homogeneous = tail.iter().all(|attempt| match (kind, attempt.kind()) {
+            (RetainedIngressKind::Remote(expected), RetainedIngressKind::Remote(actual)) => {
+                expected == actual
+            }
+            (RetainedIngressKind::Proposal, RetainedIngressKind::Proposal) => true,
+            (RetainedIngressKind::Remote(_), RetainedIngressKind::Proposal)
+            | (RetainedIngressKind::Proposal, RetainedIngressKind::Remote(_)) => false,
+        });
+        if !homogeneous {
+            return Err(RetainedIngressBoundaryError::InvalidEvidence);
+        }
+        Ok(Self { kind, head, tail })
+    }
+
+    pub(super) const fn kind(&self) -> RetainedIngressKind {
+        self.kind
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.tail.len().saturating_add(1)
+    }
+
+    pub(super) fn attempts(&self) -> impl Iterator<Item = &RetainedIngressAttempt> {
+        std::iter::once(&self.head).chain(&self.tail)
+    }
+
+    pub(super) fn into_attempts(self) -> VecDeque<RetainedIngressAttempt> {
+        let mut attempts = self.tail;
+        attempts.push_front(self.head);
+        attempts
     }
 }
 
@@ -139,6 +229,33 @@ pub(super) enum RemoteIngressPressure {
     Allocation,
 }
 
+impl RemoteIngressPressure {
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::TotalResources => "tx-pool total residency limit reached",
+            Self::RemoteResources => "tx-pool remote residency limit reached",
+            Self::PeerResources => "tx-pool per-peer residency limit reached",
+            Self::ComputeResources => "tx-pool transient compute limit reached",
+            Self::ProposalCollision => "tx-pool proposal short-id collision",
+            Self::Allocation => "tx-pool resource allocation unavailable",
+        }
+    }
+}
+
+pub(super) fn remote_pressure_rejection(
+    tx: TransactionView,
+    peer: PeerIndex,
+    pressure: RemoteIngressPressure,
+) -> RetainedIngressRejection {
+    RetainedIngressRejection {
+        kind: RetainedIngressKind::Remote(peer),
+        tx: Arc::new(tx.into_compact()),
+        reason: CommittedPublicReject::new(crate::error::Reject::Full(
+            pressure.reason().to_owned(),
+        )),
+    }
+}
+
 /// Closed service-boundary result for retained Remote and Proposal ingress.
 ///
 /// The open planner error family is intentionally consumed here. Legal peer
@@ -156,14 +273,6 @@ pub(super) enum RetainedIngressBoundaryError {
 }
 
 impl RetainedIngressBoundaryError {
-    pub(super) fn from_admission(error: AdmissionValidationError) -> Self {
-        match error {
-            AdmissionValidationError::ResourceAllocation => Self::ResourceUnavailable,
-            AdmissionValidationError::EmptyTransaction
-            | AdmissionValidationError::ResourceArithmetic => Self::InvalidEvidence,
-        }
-    }
-
     pub(super) fn from_plan(error: PlanError) -> Self {
         match error {
             PlanError::Backpressure(Backpressure::TotalResources) => {
@@ -295,75 +404,6 @@ fn validate_non_contextual(
                 reason,
             })
         })
-}
-
-impl AuthorityRuntime {
-    pub(super) fn submit_remote_ingress(
-        &self,
-        tx: TransactionView,
-        declared_cycles: Cycle,
-        peer: PeerIndex,
-    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
-        let consensus = self.paired_consensus();
-        match remote(tx, declared_cycles, peer, &consensus) {
-            Ok(ingress) => self
-                .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Rejected(rejection)) => self
-                .commit_retained_ingress_rejection(rejection)
-                .map(|_| RetainedIngressCommit::Rejected)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Admission(error)) => {
-                Err(RetainedIngressBoundaryError::from_admission(error))
-            }
-        }
-    }
-
-    pub(super) fn submit_proposal_ingress(
-        &self,
-        tx: TransactionView,
-    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
-        let consensus = self.paired_consensus();
-        match proposal(tx, &consensus) {
-            Ok(ingress) => self
-                .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Rejected(rejection)) => self
-                .commit_retained_ingress_rejection(rejection)
-                .map(|_| RetainedIngressCommit::Rejected)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Admission(error)) => {
-                Err(RetainedIngressBoundaryError::from_admission(error))
-            }
-        }
-    }
-
-    /// Publish a terminal Remote no-owner disposition through the same
-    /// committed effect authority as every other ingress result. The caller
-    /// may retry only effect capacity; it cannot choose a nearby public reason
-    /// or bypass the relay/recent-reject policy compiler.
-    pub(super) fn reject_remote_ingress_pressure(
-        &self,
-        tx: TransactionView,
-        peer: PeerIndex,
-        pressure: RemoteIngressPressure,
-    ) -> Result<IngressRejectionCommit, RetainedIngressBoundaryError> {
-        let reason = match pressure {
-            RemoteIngressPressure::TotalResources => "tx-pool total residency limit reached",
-            RemoteIngressPressure::RemoteResources => "tx-pool remote residency limit reached",
-            RemoteIngressPressure::PeerResources => "tx-pool per-peer residency limit reached",
-            RemoteIngressPressure::ComputeResources => "tx-pool transient compute limit reached",
-            RemoteIngressPressure::ProposalCollision => "tx-pool proposal short-id collision",
-            RemoteIngressPressure::Allocation => "tx-pool resource allocation unavailable",
-        };
-        let rejection = RetainedIngressRejection {
-            kind: RetainedIngressKind::Remote(peer),
-            tx: Arc::new(tx.into_compact()),
-            reason: CommittedPublicReject::new(crate::error::Reject::Full(reason.to_owned())),
-        };
-        self.commit_retained_ingress_rejection(rejection)
-            .map_err(RetainedIngressBoundaryError::from_plan)
-    }
 }
 
 #[cfg(test)]

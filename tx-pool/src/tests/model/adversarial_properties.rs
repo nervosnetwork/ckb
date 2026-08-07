@@ -551,20 +551,24 @@ fn model_ready_batch_bound_is_independent_of_the_current_worker_wave_width() {
 }
 
 #[test]
-fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
+fn model_i2_retained_path_separates_ingress_and_ready_batches_from_per_item_compute() {
     use super::adversarial::{CurrentRetainedPathCost, CurrentRetainedPathInput};
 
+    let ingress_batch_limit = u32::try_from(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
+        .expect("production ingress batch limit fits the model domain");
     let ready_batch_limit = u32::try_from(crate::constants::MAX_READY_BATCH)
         .expect("production Ready batch limit fits the model domain");
     assert_eq!(
         CurrentRetainedPathInput {
             items: 1,
+            ingress_applies: 1,
+            ingress_batch_limit,
             ready_applies: 1,
             ready_batch_limit,
         }
         .compile(),
         Some(CurrentRetainedPathCost {
-            admission_applies: 1,
+            ingress_applies: 1,
             checkout_applies: 1,
             completion_applies: 1,
             membership_applies: 1,
@@ -575,6 +579,8 @@ fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
 
     let fully_coalesced = CurrentRetainedPathInput {
         items: ready_batch_limit,
+        ingress_applies: 1,
+        ingress_batch_limit,
         ready_applies: 1,
         ready_batch_limit,
     }
@@ -583,13 +589,15 @@ fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
     assert_eq!(
         fully_coalesced.total_applies,
         ready_batch_limit
-            .checked_mul(3)
-            .and_then(|value| value.checked_add(2))
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(3))
             .expect("production Ready batch limit has a representable cost")
     );
 
     let prompt = CurrentRetainedPathInput {
         items: ready_batch_limit,
+        ingress_applies: ready_batch_limit,
+        ingress_batch_limit,
         ready_applies: ready_batch_limit,
         ready_batch_limit,
     }
@@ -605,6 +613,8 @@ fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
     assert_eq!(
         CurrentRetainedPathInput {
             items: ready_batch_limit + 1,
+            ingress_applies: 1,
+            ingress_batch_limit,
             ready_applies: 1,
             ready_batch_limit,
         }
@@ -615,12 +625,26 @@ fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
     assert_eq!(
         CurrentRetainedPathInput {
             items: 2,
+            ingress_applies: 1,
+            ingress_batch_limit,
             ready_applies: 3,
             ready_batch_limit,
         }
         .compile(),
         None,
         "a non-empty Ready Apply cannot outnumber its owners"
+    );
+    assert_eq!(
+        CurrentRetainedPathInput {
+            items: ingress_batch_limit + 1,
+            ingress_applies: 1,
+            ingress_batch_limit,
+            ready_applies: ingress_batch_limit + 1,
+            ready_batch_limit,
+        }
+        .compile(),
+        None,
+        "one ingress Apply cannot exceed the production mutation bound"
     );
 }
 

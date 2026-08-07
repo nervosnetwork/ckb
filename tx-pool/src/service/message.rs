@@ -43,7 +43,10 @@ pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
 /// Its limits are the same protocol constants used by the relayer, so the
 /// upstream network proof cannot be lost at the tx-pool boundary.
 #[derive(Debug)]
-pub(crate) struct NotifyTxBatch(Vec<TransactionView>);
+pub(crate) struct NotifyTxBatch {
+    pub(super) transactions: Vec<TransactionView>,
+    pub(super) total_bytes: usize,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 enum NotifyTxBatchError {
@@ -106,7 +109,22 @@ impl NotifyTxBatch {
                 maximum: max_bytes,
             });
         }
-        Ok(Self(txs))
+        Ok(Self {
+            transactions: txs,
+            total_bytes: bytes,
+        })
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.transactions.is_empty()
+    }
+
+    pub(super) const fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    pub(super) fn into_transactions(self) -> Vec<TransactionView> {
+        self.transactions
     }
 }
 
@@ -115,7 +133,7 @@ impl IntoIterator for NotifyTxBatch {
     type IntoIter = std::vec::IntoIter<TransactionView>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.transactions.into_iter()
     }
 }
 

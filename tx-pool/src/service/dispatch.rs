@@ -1,5 +1,6 @@
 //! Exhaustive conversion from controller messages to unified-authority APIs.
 
+use super::builder::RetainedIngressBatch;
 use crate::{
     authority::{
         query::{
@@ -7,8 +8,9 @@ use crate::{
             PublicPoolStatus,
         },
         service::{
-            AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityPersistenceError,
-            AuthorityService, AuthorityServiceError,
+            AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityIntegrityFault,
+            AuthorityPersistenceError, AuthorityProjectionFault, AuthorityService,
+            AuthorityServiceError,
         },
     },
     service::{
@@ -253,6 +255,58 @@ pub(crate) async fn process(
     }
 }
 
+/// Process one dispatcher-owned homogeneous prefix. The batch contains only
+/// payloads already removed from the bounded controller channel; authority
+/// admission and every responder still settle exactly once in canonical
+/// channel order.
+pub(super) async fn process_retained_ingress_batch(
+    service: AuthorityService,
+    batch: RetainedIngressBatch,
+) -> Result<(), AuthorityGenerationInvalidity> {
+    match batch {
+        RetainedIngressBatch::Remote {
+            peer,
+            submissions,
+            responders,
+            ..
+        } => {
+            let (completed, error) = service
+                .submit_remote_batch(peer, submissions)
+                .await
+                .into_parts();
+            settle_remote_responder_prefix(responders, completed, error)
+        }
+        RetainedIngressBatch::Proposal { transactions, .. } => {
+            match service.submit_proposal_batch(transactions).await {
+                Ok(()) => Ok(()),
+                Err(error) => settle_service_error(error),
+            }
+        }
+    }
+}
+
+fn settle_remote_responder_prefix(
+    responders: Vec<tokio::sync::oneshot::Sender<()>>,
+    completed: usize,
+    mut error: Option<AuthorityServiceError>,
+) -> Result<(), AuthorityGenerationInvalidity> {
+    let expected = responders.len();
+    if completed > expected || (error.is_none() && completed != expected) {
+        error = Some(AuthorityServiceError::Integrity(
+            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Membership),
+        ));
+    }
+    let mut responders = responders.into_iter();
+    for responder in responders.by_ref().take(completed.min(expected)) {
+        respond(responder, (), "submit_remote_tx");
+    }
+    // Dropping the suffix is the negative acknowledgement consumed by the
+    // relayer's move-only request futures. It releases only known marks whose
+    // authority items did not belong to the committed canonical prefix.
+    drop(responders);
+    error.map_or(Ok(()), settle_service_error)
+}
+
 fn pool_info(
     service: &AuthorityService,
     summary: AuthorityPoolSummary,
@@ -425,3 +479,7 @@ fn settle_service_error(error: AuthorityServiceError) -> Result<(), AuthorityGen
 fn authority_error_as_any(error: AuthorityServiceError) -> AnyError {
     OtherError::new(format!("tx-pool authority service failed: {error:?}")).into()
 }
+
+#[cfg(test)]
+#[path = "tests/dispatch.rs"]
+mod tests;

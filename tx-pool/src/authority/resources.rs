@@ -640,6 +640,23 @@ pub(super) struct ResourceBatchPlan {
     accepted: AcceptedResources,
 }
 
+/// Stack-owned aggregate projection for a canonical ordered batch.
+///
+/// [`ResourceBatchPlan`] deliberately validates a set transition: every old
+/// charge is removed before any new charge is installed. Retained ingress has
+/// a stronger rule because each item must observe the resource result of every
+/// earlier item in controller order. This projection evaluates that ordered
+/// fold without cloning the charge map or mutating the authoritative ledger;
+/// the final base-to-final changes are still compiled by [`ResourceLedger::plan_batch`].
+pub(super) struct OrderedResourceProjection {
+    preaccepted: ResourceVector,
+    remote: ResourceVector,
+    peers: HashMap<PeerIndex, ResourceVector>,
+    replacement_history: ResourceVector,
+    accepted: AcceptedResources,
+    limits: ResourceLimits,
+}
+
 impl ResourceLedger {
     pub(super) fn new(limits: ResourceLimits) -> Self {
         Self {
@@ -679,6 +696,24 @@ impl ResourceLedger {
 
     pub(super) fn accepted_fits(&self, projected: AcceptedResources) -> bool {
         projected.fits(self.limits.accepted)
+    }
+
+    pub(super) fn ordered_projection(
+        &self,
+        maximum_peers: usize,
+    ) -> Result<OrderedResourceProjection, ResourceError> {
+        let mut peers = HashMap::new();
+        peers
+            .try_reserve(maximum_peers)
+            .map_err(|_| ResourceError::Allocation)?;
+        Ok(OrderedResourceProjection {
+            preaccepted: self.preaccepted,
+            remote: self.remote,
+            peers,
+            replacement_history: self.replacement_history,
+            accepted: self.accepted,
+            limits: self.limits,
+        })
     }
 
     pub(super) fn compute_grant(
@@ -1225,5 +1260,140 @@ impl ResourceLedger {
             }
         }
         self.accepted = plan.accepted;
+    }
+}
+
+impl OrderedResourceProjection {
+    /// Evaluate one canonical owner replacement against the virtual result of
+    /// all prior replacements. The caller owns raw-hash identity; this method
+    /// owns only aggregate accounting and therefore cannot become a second
+    /// lifecycle authority.
+    pub(super) fn replace(
+        &mut self,
+        ledger: &ResourceLedger,
+        expected: Option<ChargeRecord>,
+        after: Option<ChargeRecord>,
+    ) -> Result<(), ResourceError> {
+        expected.map(ChargeRecord::validate).transpose()?;
+        after.map(ChargeRecord::validate).transpose()?;
+
+        let old_preaccepted = expected.and_then(ChargeRecord::preaccepted);
+        let new_preaccepted = after.and_then(ChargeRecord::preaccepted);
+        let old_history = expected.and_then(ChargeRecord::replacement_history);
+        let new_history = after.and_then(ChargeRecord::replacement_history);
+        let old_accepted = expected.and_then(ChargeRecord::accepted);
+        let new_accepted = after.and_then(ChargeRecord::accepted);
+        let old_peer = expected
+            .map(ChargeRecord::peer_preaccepted)
+            .transpose()?
+            .flatten();
+        let new_peer = after
+            .map(ChargeRecord::peer_preaccepted)
+            .transpose()?
+            .flatten();
+
+        let mut preaccepted = self.preaccepted;
+        let mut remote = self.remote;
+        let mut replacement_history = self.replacement_history;
+        let mut accepted = self.accepted;
+        if let Some(resources) = old_preaccepted {
+            preaccepted = preaccepted
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = new_preaccepted {
+            preaccepted = preaccepted
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = old_history {
+            replacement_history = replacement_history
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = new_history {
+            replacement_history = replacement_history
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = old_accepted {
+            accepted = accepted
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = new_accepted {
+            accepted = accepted
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+
+        let current_peer = |peer: PeerIndex| {
+            self.peers
+                .get(&peer)
+                .copied()
+                .unwrap_or_else(|| ledger.peer(peer))
+        };
+        let old_peer_after = old_peer
+            .map(|(peer, resources)| {
+                current_peer(peer)
+                    .checked_sub(resources)
+                    .map(|usage| (peer, usage))
+                    .ok_or(ResourceError::Arithmetic)
+            })
+            .transpose()?;
+        if let Some((_, resources)) = old_peer {
+            remote = remote
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        let new_peer_after = new_peer
+            .map(|(peer, resources)| {
+                let usage = old_peer_after
+                    .filter(|(old_peer, _)| *old_peer == peer)
+                    .map_or_else(|| current_peer(peer), |(_, usage)| usage);
+                usage
+                    .checked_add(resources)
+                    .map(|usage| (peer, usage))
+                    .ok_or(ResourceError::Arithmetic)
+            })
+            .transpose()?;
+        if let Some((_, resources)) = new_peer {
+            remote = remote
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+
+        if !preaccepted.fits(self.limits.preaccepted) {
+            return Err(ResourceError::PreAcceptedLimit);
+        }
+        if !remote.fits(self.limits.remote) {
+            return Err(ResourceError::RemoteLimit);
+        }
+        if let Some(peer) = old_peer_after
+            .into_iter()
+            .chain(new_peer_after)
+            .filter_map(|(peer, usage)| (!usage.fits(self.limits.per_peer)).then_some(peer))
+            .min()
+        {
+            return Err(ResourceError::PeerLimit(peer));
+        }
+        if !replacement_history.fits(self.limits.replacement_history) {
+            return Err(ResourceError::ReplacementHistoryLimit);
+        }
+        if !accepted.fits(self.limits.accepted) {
+            return Err(ResourceError::AcceptedLimit);
+        }
+
+        self.preaccepted = preaccepted;
+        self.remote = remote;
+        self.replacement_history = replacement_history;
+        self.accepted = accepted;
+        if let Some((peer, usage)) = old_peer_after {
+            self.peers.insert(peer, usage);
+        }
+        if let Some((peer, usage)) = new_peer_after {
+            self.peers.insert(peer, usage);
+        }
+        Ok(())
     }
 }

@@ -11,6 +11,7 @@ use super::super::{
     state::{AcceptedStatus, TxIdentity},
 };
 use super::*;
+use crate::authority::ingress::RetainedIngress;
 use ckb_types::core::TransactionView;
 use ckb_verification::cache::ScriptVerificationRules;
 
@@ -18,6 +19,109 @@ pub(in crate::authority) use super::super::rejection::ComponentLimitKind;
 pub(in crate::authority) use super::membership::StatusCounts;
 pub(in crate::authority) use super::membership::test_support::MembershipSnapshot;
 pub(in crate::authority) use super::settlement::test_support::CandidateBatchError;
+
+/// Sequential retained-ingress oracle used only to refine the production
+/// ordered batch against the canonical no-interleave fold.
+pub(in crate::authority) enum RetainedAdmissionDisposition<'authority> {
+    Retained(PreparedApply<'authority>),
+    AcceptedDuplicate(PreparedApply<'authority>),
+    RemoteReleased(PreparedApply<'authority>),
+    ProposalUnchanged,
+    ProposalPayloadVariant,
+}
+
+impl CommittedRetainedAdmissionBatch {
+    pub(in crate::authority) const fn consumed(&self) -> usize {
+        match self {
+            Self::Unchanged { consumed, .. } | Self::Applied { consumed, .. } => *consumed,
+        }
+    }
+}
+
+impl TxPoolAuthority {
+    pub(in crate::authority) fn plan_retained_admission(
+        &mut self,
+        ingress: RetainedIngress,
+    ) -> Result<RetainedAdmissionDisposition<'_>, PlanError> {
+        let (kind, admission) = ingress.into_parts();
+        let key = admission.identity.raw.clone();
+        if let RetainedIngressKind::Remote(peer) = kind
+            && self.peer_bans.contains_at(peer, Instant::now())
+        {
+            return self
+                .plan_single_effect(
+                    EffectPolicy::Remote,
+                    CommittedEffect::RemoteIngressReleased(
+                        CommittedRemoteIngressRelease::unretained_remote_submission(key, peer),
+                    ),
+                )
+                .map(RetainedAdmissionDisposition::RemoteReleased);
+        }
+
+        match kind {
+            RetainedIngressKind::Remote(peer) => match self.entries.get(&key) {
+                Some(OwnedTx::Accepted(_)) => {
+                    return self
+                        .plan_single_effect(
+                            EffectPolicy::Remote,
+                            CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+                                tx_hash: key,
+                                requesting_peer: Some(peer),
+                            }),
+                        )
+                        .map(RetainedAdmissionDisposition::AcceptedDuplicate);
+                }
+                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) => {
+                    return self
+                        .plan_single_effect(
+                            EffectPolicy::Remote,
+                            CommittedEffect::RemoteIngressReleased(
+                                CommittedRemoteIngressRelease::unretained_remote_submission(
+                                    key, peer,
+                                ),
+                            ),
+                        )
+                        .map(RetainedAdmissionDisposition::RemoteReleased);
+                }
+                None => {}
+            },
+            RetainedIngressKind::Proposal => match self.entries.get(&key) {
+                Some(OwnedTx::Accepted(_)) => {
+                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
+                }
+                Some(OwnedTx::PreAccepted(entry))
+                    if entry.record.identity.witness == admission.identity.witness
+                        && !matches!(entry.source, PreAcceptedSource::Remote(_)) =>
+                {
+                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
+                }
+                Some(OwnedTx::PreAccepted(entry))
+                    if matches!(entry.source, PreAcceptedSource::Recovery(_)) =>
+                {
+                    return Ok(RetainedAdmissionDisposition::ProposalPayloadVariant);
+                }
+                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) | None => {}
+            },
+        }
+
+        self.plan_validated_admission_for_foundation(admission)
+            .map(RetainedAdmissionDisposition::Retained)
+    }
+
+    fn plan_validated_admission_for_foundation(
+        &mut self,
+        admission: ValidatedAdmission,
+    ) -> Result<PreparedApply<'_>, PlanError> {
+        if matches!(
+            admission.source,
+            PreAcceptedSource::Recovery(lease) if lease.generation != self.generation
+        ) {
+            return Err(PlanError::Stale(StalePlan::Generation));
+        }
+        let admission = self.resources.charge_admission(admission)?;
+        self.plan_charged_admission(admission)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum OwnerPhaseSnapshot {
@@ -524,7 +628,7 @@ impl TxPoolAuthority {
         &mut self,
         admission: ValidatedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        self.plan_validated_admission(admission)
+        self.plan_validated_admission_for_foundation(admission)
     }
 
     pub(in crate::authority) fn plan_accept_for_foundation(

@@ -2098,7 +2098,7 @@ fn uak_chain_apply_failure_returns_the_same_prepared_command() {
     .expect("the first runtime fixture is valid");
     assert!(matches!(
         closed.submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(53)),
-        Ok(super::super::ingress::RetainedIngressCommit::Retained)
+        Ok(super::super::ingress::test_support::RetainedIngressCommit::Retained)
     ));
     closed
         .close_effects()
@@ -2118,7 +2118,7 @@ fn uak_chain_apply_failure_returns_the_same_prepared_command() {
     .expect("the second runtime fixture is valid");
     assert!(matches!(
         open.submit_remote_ingress(transaction, 0, PeerIndex::from(53)),
-        Ok(super::super::ingress::RetainedIngressCommit::Retained)
+        Ok(super::super::ingress::test_support::RetainedIngressCommit::Retained)
     ));
     drop(
         open.apply_chain_update(command)

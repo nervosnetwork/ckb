@@ -65,6 +65,20 @@ impl EffectLimits {
     ) -> usize {
         self.batch_bound(policy.class()).max_bytes
     }
+
+    pub(in crate::authority) fn with_remote_effects_per_batch_for_foundation(
+        self,
+        max_effects: usize,
+    ) -> Self {
+        Self {
+            bounds: EffectBatchBounds::new(
+                EffectBatchBound::new(max_effects, self.bounds.remote.max_bytes),
+                self.bounds.trusted,
+                self.bounds.critical,
+            ),
+            ..self
+        }
+    }
 }
 
 impl CommittedRejection {

@@ -1,6 +1,9 @@
 mod chain_transition;
+mod ingress;
 mod membership;
 mod settlement;
+
+pub(in crate::authority) use self::ingress::CommittedRetainedAdmissionBatch;
 
 #[cfg(test)]
 #[path = "tests/support/plan.rs"]
@@ -27,9 +30,7 @@ use super::effect::{
     ParentTransactionRequest, PendingRecentReject, RejectionAudience,
 };
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
-use super::ingress::{
-    DirectCommand, RetainedIngress, RetainedIngressKind, RetainedIngressRejection,
-};
+use super::ingress::{DirectCommand, RetainedIngressKind, RetainedIngressRejection};
 use super::read::AuthorityReadView;
 pub(in crate::authority) use super::rejection::MembershipReject;
 use super::rejection::{
@@ -1032,6 +1033,7 @@ struct ChainDelta {
 
 enum AuthorityDelta {
     Entry(EntryDelta),
+    RetainedIngress(ingress::RetainedIngressDelta),
     Membership(MembershipDelta),
     Independent(IndependentDelta),
     Dependency(DependencyOnlyDelta),
@@ -1079,18 +1081,6 @@ impl From<PlanError> for PrepareSettlementError {
 pub(super) struct PreparedApply<'authority> {
     authority: &'authority mut TxPoolAuthority,
     delta: AuthorityDelta,
-}
-
-/// Closed result of retained external admission planning. A no-change
-/// Proposal is structurally distinct from a Remote filter release and from an
-/// Accepted duplicate observation, so adapters cannot manufacture a success
-/// acknowledgement from an ambiguous `Duplicate` error.
-pub(super) enum RetainedAdmissionDisposition<'authority> {
-    Retained(PreparedApply<'authority>),
-    AcceptedDuplicate(PreparedApply<'authority>),
-    RemoteReleased(PreparedApply<'authority>),
-    ProposalUnchanged,
-    ProposalPayloadVariant,
 }
 
 /// A prepared compute checkout pairs the generic state plan with its exact
@@ -1247,6 +1237,9 @@ impl PreparedApply<'_> {
         let before = authority.wake_projection();
         let retirement = match delta {
             AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, delta),
+            AuthorityDelta::RetainedIngress(delta) => {
+                ingress::apply_retained_ingress(&mut *authority, delta)
+            }
             AuthorityDelta::Membership(delta) => Self::apply_membership(&mut *authority, delta),
             AuthorityDelta::Independent(delta) => Self::apply_independent(&mut *authority, delta),
             AuthorityDelta::Dependency(delta) => Self::apply_dependency(&mut *authority, delta),
@@ -2167,85 +2160,6 @@ impl TxPoolAuthority {
         })
     }
 
-    pub(super) fn plan_retained_admission(
-        &mut self,
-        ingress: RetainedIngress,
-    ) -> Result<RetainedAdmissionDisposition<'_>, PlanError> {
-        let (kind, admission) = ingress.into_parts();
-        let key = admission.identity.raw.clone();
-        if let RetainedIngressKind::Remote(peer) = kind
-            && self.peer_bans.contains_at(peer, Instant::now())
-        {
-            // Relay marks a received transaction known before its asynchronous
-            // controller submission. A peer-revocation reset may therefore be
-            // consumed before this already-queued message reaches authority.
-            // Commit an exact later release; returning a silent policy outcome
-            // would repin the relay filter after the one-shot reset.
-            return self
-                .plan_single_effect(
-                    EffectPolicy::Remote,
-                    CommittedEffect::RemoteIngressReleased(
-                        CommittedRemoteIngressRelease::unretained_remote_submission(key, peer),
-                    ),
-                )
-                .map(RetainedAdmissionDisposition::RemoteReleased);
-        }
-
-        match kind {
-            RetainedIngressKind::Remote(peer) => match self.entries.get(&key) {
-                Some(OwnedTx::Accepted(_)) => {
-                    return self
-                        .plan_single_effect(
-                            EffectPolicy::Remote,
-                            CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
-                                tx_hash: key,
-                                requesting_peer: Some(peer),
-                            }),
-                        )
-                        .map(RetainedAdmissionDisposition::AcceptedDuplicate);
-                }
-                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) => {
-                    return self
-                        .plan_single_effect(
-                            EffectPolicy::Remote,
-                            CommittedEffect::RemoteIngressReleased(
-                                CommittedRemoteIngressRelease::unretained_remote_submission(
-                                    key, peer,
-                                ),
-                            ),
-                        )
-                        .map(RetainedAdmissionDisposition::RemoteReleased);
-                }
-                None => {}
-            },
-            RetainedIngressKind::Proposal => match self.entries.get(&key) {
-                Some(OwnedTx::Accepted(_)) => {
-                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
-                }
-                Some(OwnedTx::PreAccepted(entry))
-                    if entry.record.identity.witness == admission.identity.witness
-                        && !matches!(entry.source, PreAcceptedSource::Remote(_)) =>
-                {
-                    return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
-                }
-                Some(OwnedTx::PreAccepted(entry))
-                    if matches!(entry.source, PreAcceptedSource::Recovery(_)) =>
-                {
-                    // Recovery owns the chain-derived witness variant. A
-                    // lower-priority Proposal for the same raw transaction is
-                    // an ordinary no-change observation, not an authority
-                    // projection failure and not permission to replace the
-                    // recovery payload.
-                    return Ok(RetainedAdmissionDisposition::ProposalPayloadVariant);
-                }
-                Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) | None => {}
-            },
-        }
-
-        self.plan_validated_admission(admission)
-            .map(RetainedAdmissionDisposition::Retained)
-    }
-
     pub(super) fn plan_retained_ingress_rejection(
         &mut self,
         rejection: RetainedIngressRejection,
@@ -2272,24 +2186,6 @@ impl TxPoolAuthority {
                 }),
             ),
         }
-    }
-
-    fn plan_validated_admission(
-        &mut self,
-        admission: ValidatedAdmission,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        if matches!(
-            admission.source,
-            PreAcceptedSource::Recovery(lease) if lease.generation != self.generation
-        ) {
-            // Recovery is a generation-scoped chain capability, not a trusted
-            // ingress flag. The chain receipt normally proves this cut; the
-            // authority repeats the OCC fence so no alternate caller can
-            // publish an old-generation owner.
-            return Err(PlanError::Stale(StalePlan::Generation));
-        }
-        let admission = self.resources.charge_admission(admission)?;
-        self.plan_charged_admission(admission)
     }
 
     fn plan_charged_admission(

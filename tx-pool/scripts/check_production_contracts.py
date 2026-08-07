@@ -875,9 +875,10 @@ def validate_execution_topology_contract() -> list[str]:
         errors.append("dispatcher must bound live handlers before receiving more work")
 
     ordered_methods = (
-        (runtime, "AuthorityRuntime", "commit_retained_ingress", (
-            "plan_retained_admission(ingress)",
-            "self.publish_committed(committed)",
+        (runtime, "AuthorityRuntime", "commit_retained_ingress_batch", (
+            "plan_retained_admission_batch(&batch)",
+            "prepared.apply()",
+            "self.publish_committed(retirement)",
         )),
         (runtime, "AuthorityRuntime", "try_checkout", (
             "plan_checkout_next(permit)",
@@ -964,6 +965,10 @@ def validate_execution_topology_contract() -> list[str]:
             errors.append(str(error))
             continue
         errors.extend(require_ordered_fragments(body, owner, fragments))
+    if re.search(r"\bfn\s+commit_retained_ingress\s*\(", runtime):
+        errors.append(
+            "retained ingress must not regain a second single-item production kernel"
+        )
     if ".take(MAX_READY_BATCH)" not in scheduler:
         errors.append("Ready capture must consume the named bounded batch limit")
     if signals.count("Notify::new()") != 8:

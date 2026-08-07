@@ -829,6 +829,27 @@ pub(super) struct EffectPublication {
     batch: Arc<EffectBatch>,
 }
 
+/// Scratch compiler for one canonical ordered transition family.
+///
+/// It incrementally proves that every complete item effect still fits the
+/// same immutable journal batch. A full result is a prefix boundary, not a
+/// partial publication. The compiler owns no journal state and its finished
+/// publication must still pass [`EffectLog::plan_publication`] against the
+/// same authority cut.
+pub(super) struct OrderedEffectPublication {
+    policy: EffectPolicy,
+    effects: Vec<CommittedEffect>,
+    charge_bytes: usize,
+    limits: EffectLimits,
+    usage: EffectRegionUsage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OrderedEffectAppendError {
+    Full,
+    Projection,
+}
+
 impl EffectPublication {
     fn new(
         policy: EffectPolicy,
@@ -1384,6 +1405,25 @@ impl EffectLog {
         EffectPublication::new(policy, effects, self.limits)
     }
 
+    pub(super) fn ordered_publication(
+        &self,
+        policy: EffectPolicy,
+        maximum_effects: usize,
+    ) -> Result<OrderedEffectPublication, EffectError> {
+        self.ensure_open()?;
+        let mut effects = Vec::new();
+        effects
+            .try_reserve(maximum_effects.min(self.limits.batch_bound(policy.class()).max_effects))
+            .map_err(|_| EffectError::Allocation)?;
+        Ok(OrderedEffectPublication {
+            policy,
+            effects,
+            charge_bytes: 0,
+            limits: self.limits,
+            usage: self.usage,
+        })
+    }
+
     /// Select the largest leading remote cleanup cohort that fits one effect
     /// batch. The caller supplies deadline order; this method preserves that
     /// order and never turns attacker-originated expiry into trusted or
@@ -1769,6 +1809,53 @@ impl EffectLog {
         } else {
             Ok(())
         }
+    }
+}
+
+impl OrderedEffectPublication {
+    /// Add one complete canonical item outcome. `Full` means the caller may
+    /// commit the already compiled item prefix and retry this item later;
+    /// `Projection` means one indivisible effect violates startup-proved
+    /// shape or arithmetic and therefore cannot be repaired by truncation.
+    pub(super) fn push(&mut self, effect: CommittedEffect) -> Result<(), OrderedEffectAppendError> {
+        let effect_bytes = effect
+            .charge_bytes()
+            .ok_or(OrderedEffectAppendError::Projection)?;
+        let next_count = self
+            .effects
+            .len()
+            .checked_add(1)
+            .ok_or(OrderedEffectAppendError::Projection)?;
+        let next_bytes = self
+            .charge_bytes
+            .checked_add(effect_bytes)
+            .ok_or(OrderedEffectAppendError::Projection)?;
+        let bound = self.limits.batch_bound(self.policy.class());
+        if next_count > bound.max_effects || next_bytes > bound.max_bytes {
+            return if self.effects.is_empty() {
+                Err(OrderedEffectAppendError::Projection)
+            } else {
+                Err(OrderedEffectAppendError::Full)
+            };
+        }
+        if !self
+            .usage
+            .fits(self.limits.regions, self.policy.class(), next_bytes)
+        {
+            return Err(OrderedEffectAppendError::Full);
+        }
+        self.effects.push(effect);
+        self.charge_bytes = next_bytes;
+        Ok(())
+    }
+
+    pub(super) fn finish(self) -> Result<Option<EffectPublication>, EffectError> {
+        if self.effects.is_empty() {
+            return Ok(None);
+        }
+        EffectPublication::new(self.policy, self.effects, self.limits)
+            .map(Some)
+            .map_err(|_| EffectError::Projection)
     }
 }
 
