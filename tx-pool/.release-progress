@@ -2518,7 +2518,51 @@ Rust M1 reference model. Production code and timing experiments remain frozen.
 - The complete discovered tx-pool contracts, documentation/ASCII checks,
   formatting and diff checks pass at the M0 boundary.
 
-Exact restart state is M1. Next: implement the independent pure Rust total
-system/sequential-kernel model and small boundary automata in isolated test
-files, then turn the section 16 ledger into minimal counterexamples. Production
-Rust and timing experiments remain frozen through M3.
+### M1 closed; exact M2 restart state
+
+The M1 checkpoint is the commit containing this record. The executable model
+lives only under `tx-pool/src/tests/model`; `src/lib.rs` has one `cfg(test)`
+module wire, and no production transition, runtime behavior or benchmark was
+changed. The model has one owner authority, move-only work/direct/effect
+capabilities, exact chain/rules/witness evidence, continuous resource charge,
+atomic membership/RBF/dependency/effect transitions and bounded protocol
+automata for all theorem-novel external cuts.
+
+Final mechanically passing evidence:
+
+- exact model nextest: 107/107, with 423 unrelated internal tests skipped;
+- complete internal nextest: 530/530, zero skipped;
+- strict all-target internal Clippy with `-D warnings`;
+- default test compilation (only the pre-existing `start_with_handle`
+  dead-code warning);
+- generated review/security/document/layout/ASCII/production-contract checks;
+- formatting and `git diff --check`.
+
+The full model-delta audit corrected the model rather than fitting production:
+origin became view-bound evidence; chain revision closes tip-hash ABA; direct
+policy and error domains are shared without mutating TestAccept; one Apply uses
+one stamp and distinct owner versions; definitive loss owns its dependency
+closure; peer ban removes only retained work and releases refetch state; effect
+capacity is derived from the largest indivisible closure; header dependencies
+are now exact chain-only evidence and charged edges; attached spend conflicts
+are distinct from detached evidence loss and recovery. Redundant enqueue and
+ban-order facts were removed. The detailed six-question result is in the M1
+roadmap closure audit.
+
+The unchanged production ledger closes M1 at 5 `PROVEN`, 5 `SUPPORTED` and 18
+`OPEN` rows. Four confirmed topology-independent legal-input fail-stop paths
+triggered a fresh disposition: retain the production freeze and explicit
+release block because this branch is neither deployed nor releasable and M1
+already defines their one closed ordinary error algebra. A narrow inherited-
+topology patch would duplicate the M3/M4 producer boundary. Deployment or a
+schedule change reopens that disposition immediately; no OPEN row is waived.
+
+Exact next action is M2: add an independent `composition` model for dynamic
+footprints, cohort classification, canonical serialization, fair progress and
+checked adversarial cost; add a separately structured hostile trace generator;
+then repeat the section 3.8 and exposure audits. Production refinement is M3,
+topology/design freeze is M4, and production edits plus profiling/benchmarking
+remain forbidden before those gates.
+
+Recovery discipline: do not touch or stage the user-owned root `.gitignore`.
+The only intended M1 commit paths are under `tx-pool/`.

@@ -64,6 +64,7 @@ REQUIRED_MODEL_CROSS_CUTTING_PROTOCOLS = {
     "ordinary_controller_request_conservation",
     "ordered_chain_request_conservation",
 }
+MODEL_TEST_PREFIX = "mathematical_model::"
 
 
 def parse_args() -> argparse.Namespace:
@@ -808,6 +809,27 @@ def validate_test_anchors(registry: dict, tests: set[str]) -> list[str]:
     return errors
 
 
+def validate_model_test_coverage(registry: dict, tests: set[str]) -> list[str]:
+    """Require every discovered mathematical-model test in the evidence graph."""
+
+    discovered = {test for test in tests if test.startswith(MODEL_TEST_PREFIX)}
+    registered = {
+        entry["test"]
+        for entry in registry.get("unit_evidence", [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("test"), str)
+        and entry["test"].startswith(MODEL_TEST_PREFIX)
+    }
+    missing = sorted(discovered.difference(registered))
+    stale = sorted(registered.difference(discovered))
+    errors = []
+    if missing:
+        errors.append(f"mathematical-model tests absent from behavior evidence: {missing}")
+    if stale:
+        errors.append(f"behavior evidence names stale mathematical-model tests: {stale}")
+    return errors
+
+
 def registry_path(manifest: dict) -> Path:
     value = manifest.get("behavior_registry")
     if not isinstance(value, str):
@@ -1076,6 +1098,7 @@ def main() -> int:
                 inventory_path(manifest), tests, managed_integration_specs
             )
         errors.extend(validate_test_anchors(registry, tests))
+        errors.extend(validate_model_test_coverage(registry, tests))
     errors.extend(
         validate_test_inventory(
             manifest,

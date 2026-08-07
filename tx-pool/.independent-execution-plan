@@ -2,7 +2,7 @@
 
 Status: proof-driven design audit active; topology selection is reopened
 Checkpoint: `2dee898d29`
-Active slice: M1 executable full-system and sequential-kernel model
+Active slice: M2 composition, progress and quantitative proof
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -1733,6 +1733,24 @@ produce a compensating flag or exception inside section 9.
 
 ## 13. Fixed roadmap
 
+### Standing M-phase exposure review
+
+Every M-phase exit regenerates the existing section 16 inventory and records
+its residual exposure in the same ledger and `.release-progress`; it must not
+create a second hand-maintained risk list. OPEN production rows are classified
+as legal-input-reachable fail-stop, liveness/availability, or structural debt,
+and each row records whether its root correction is independent of the
+candidate exchange topology. A fresh evidence-based disposition is mandatory
+when a topology-independent legal-input fail-stop remains OPEN across two
+consecutive M gates, or when any class gains a new externally reachable path or
+higher consequence. The disposition may authorize a separately reviewable
+narrow correction, retain the freeze with an explicit current proof, or reopen
+the owning model phase; it never authorizes an automatic hotfix or a patch to
+topology that M4 has not selected. This gate owns exposure by model checkpoint
+rather than by an arbitrary calendar threshold, while preserving the original
+decision that topology-entangled defects remain model counterexamples until
+the normative blueprint is frozen.
+
 ### M0 - Trusted boundary and observational semantics
 
 - Freeze `2dee898d29`; prior profiling remains diagnostic evidence only.
@@ -1799,6 +1817,69 @@ Exit: for every bounded generated `Sigma in Inv` and legal system event,
 command, the model returns `NoAuthorityCommit` or `AuthorityCommit`, both with
 an invariant-preserving returned `Omega`. No legal event constructs an
 integrity stop. All model states/transitions have semantic provenance.
+
+#### M1 closure audit
+
+M1 closes at the checkpoint containing this record. The independent model is
+isolated under `src/tests/model`, imports no production transition code and has
+107 exact model tests. Its bounded kernel and full-system explorers preserve
+the owner, charge, capability, evidence, effect, protocol and counter laws for
+every generated legal trace in scope. The complete internal crate gate passes
+530/530 tests; strict all-target Clippy, default test compilation, generated
+evidence checks, formatting and diff checks also pass.
+
+The section 3.8 six-question review produced these adjudications:
+
+1. **Omitted semantics:** the first M1 footprint omitted header dependencies
+   and therefore could not express header evidence loss. M0 was reopened by
+   rule. Headers are now immutable transaction reads, exact chain-only
+   evidence and charged edges; detach loss, partial availability and trusted
+   missing-header rejection are executable transitions. The same review split
+   attached spends from detached chain-evidence loss and made the latter an
+   ordinary recovery/revalidation cause rather than a public conflict.
+2. **Smaller basis:** redundant enqueue acknowledgement and peer-ban order
+   clocks were removed. The remaining owner locations, chain revision,
+   versions, capabilities, missing cell/header sets and boundary automata each
+   own a distinct observation, conservation law or shortest counterexample.
+   No smaller basis found in M1 can represent RBF history, stale work, partial
+   dependency availability, T -> T' -> T ABA and pre-authority handoff without
+   losing a named theorem.
+3. **No implementation-shaped weakening:** the model is stricter than current
+   production where production has open generic error conversion, global
+   negative OCC and retry liveness defects. Invalid header-backed history and
+   stale positive evidence are rejected by the invariant basis instead of
+   being admitted to match existing code.
+4. **Refinement remains explicit:** M1 proves the independent reference
+   transition system, not production conformance. Every model transition and
+   every section 16 residual has a named M3 refinement obligation; production
+   remains unreleasable and unchanged until that directional proof and the M4
+   blueprint freeze succeed.
+5. **Cost ownership:** the added header footprint contributes exactly one
+   bounded edge term per header dependency. Chain availability/loss sets are
+   move-only ordered-command evidence, not persistent authority or a second
+   chain view. M1 added no production lock, task, queue, cache or effect kind.
+6. **Whole-system progress and hostility:** same-cut retries cannot manufacture
+   progress, capabilities and permits are conserved through drain/cancel, and
+   the bounded explorers now include header availability/loss and dependency
+   recovery traces. Cohort commutativity, fairness ranks and configured-scale
+   adversarial bounds intentionally remain the hard M2 exit gate.
+
+The standing exposure gate was also rerun against the unchanged section 16
+production ledger: 5 rows are `PROVEN`, 5 are `SUPPORTED` and 18 are `OPEN`.
+The OPEN rows classify as four confirmed legal-input fail-stop paths
+(`FAULT-RESOURCE`, `FAULT-COMPUTE-UNIT`, `FAULT-INGRESS-VARIANT`,
+`FAULT-QUERY-DERIVED`), eight availability/liveness paths
+(`READY-OCC-LIVENESS`, `DIRECT-NEGATIVE-OCC`, `REQUEST-PAYLOAD-BOUND`,
+`QUERY-LOCK-COST`, `CLOCK-DOMAIN`, `ALLOCATION-LIVENESS`,
+`RECOVERY-SELECTION`, `KNOWN-HANDOFF`) and six structural/proof debts
+(`PERMIT-FAIRNESS`, `BATCH-SEQUENCE`, `FAULT-REACHABILITY`,
+`FALLIBLE-SCRATCH`, `STOP-REACHABILITY`, `DOC-FAULT`). The four fail-stop
+corrections are topology-independent enough to trigger fresh disposition.
+They remain explicit release blockers rather than old-topology hotfixes: this
+branch is not deployed or releasable, M1 already supplies their closed ordinary
+outcomes, and duplicating those producers before M3/M4 would create a second
+error algebra that the normative implementation must remove. Any deployment
+or schedule change reopens this disposition immediately.
 
 ### M2 - Composition, progress and quantitative proof
 
@@ -2081,22 +2162,70 @@ captured version. The exact evidence is the longest common strict-priority
 prefix between the captured ordered keys and the current scheduler frontier.
 This prefix law belongs in the M1 transition and M2 progress proof.
 
+### 16.3 M1 ledger-to-model closure map
+
+This table prevents an OPEN production finding from disappearing merely
+because the desired model is green. The middle column names the smallest
+executable law, independently reproducible production counterexample, or exact
+trusted boundary premise. `Remaining refinement` names the later proof still
+required against production. A semantic row without one of those three forms
+of evidence is an M1 omission; a row without remaining refinement must already
+be mechanically closed in production.
+
+| D1 row | Executable witness, production counterexample or trusted premise | Remaining refinement |
+| --- | --- | --- |
+| `D1-SEM-RAW` | `model_verification_cache_identity_is_witness_plus_rules_not_raw_identity`, `model_payload_variant_is_an_ordinary_outcome_and_same_witness_promotion_is_atomic`, `model_header_dependencies_are_chain_only_evidence_and_charged_edges`; cryptographic collision resistance is the named external premise | bind symbolic raw/witness/proposal/header extraction to production receipts |
+| `D1-SEM-EVIDENCE` | `model_chain_revision_prevents_view_hash_aba_from_reviving_old_work`, `model_pool_origin_is_evidence_and_parent_loss_removes_the_accepted_causal_closure`, `model_detached_header_recovers_accepted_consumer_without_public_rejection` | prove the production extraction uses the same snapshot/revision/rules cut and distinguishes detach loss from attached spend |
+| `D1-SEM-COUPLING` | successful/failed RBF, dependency closure, header-only read and per-peer independence model tests | M2 derives the exact coupling footprint and exchange relation |
+| `D1-LIFECYCLE` | `model_cold_retained_lifecycle_exposes_the_exact_sequential_apply_cost` records seven sequential-oracle Applies | M2 proves which adjacent independent steps commute and which transition count the implementation must attain |
+| `D1-PERMIT-FAIRNESS` | `model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reuse_it` | M4 maps every production permit return/acquire edge and forbids direct cross-execution reuse |
+| `D1-READY-OCC-LIVENESS` | `model_ready_capture_commits_the_unchanged_strict_priority_prefix_with_one_stamp` and `model_ready_capture_never_skips_a_new_stronger_head` | replace the production all-or-nothing capture through the model-derived implementation |
+| `D1-DIRECT-NEGATIVE-OCC` | `model_direct_negative_receipt_ignores_unrelated_commits_but_detects_relevant_change` | production receipts must carry the exact bounded observation set instead of a global source cut |
+| `D1-BATCH-SEQUENCE` | `model_multi_owner_apply_uses_one_stamp_distinct_versions_and_canonical_effect_order` | generated implementation gate forbids per-member Apply-sequence allocation |
+| `D1-FAULT-DISCOVERY` | source/AST inventory is external static evidence, not a trusted semantic premise | M3 replaces open generic producer mappings with closed operation errors and regenerates the inventory |
+| `D1-FAULT-REACHABILITY` | bounded legal-step explorers have no integrity disposition; `model_invariant_basis_rejects_removed_resource_version_and_effect_premises` shows the residual invalid pre-states | production producer/caller reachability remains a generated M3/M4 obligation |
+| `D1-FAULT-RESOURCE` | resource exclusion and `model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work` | the chain production path needs a closed ordinary exclusion result and exact small-envelope falsifier |
+| `D1-FAULT-COMPUTE-UNIT` | `model_compute_grant_uses_total_retained_bytes_not_payload_only_evidence` | one typed production total-retained grant must feed work and settlement |
+| `D1-FALLIBLE-SCRATCH` | `model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry`; process-wide allocator abort is the explicit process-integrity residual | M3 classifies every attacker-sized/lock-held allocation and adds the generated source gate |
+| `D1-REQUEST-PAYLOAD-BOUND` | `model_controller_bounds_payload_bytes_as_well_as_request_count` | M2 supplies aggregate relay/fork equations and validates every hostile carrier before ownership transfer |
+| `D1-QUERY-LOCK-COST` | `model_query_cost_keeps_concurrency_scan_sort_and_output_terms_explicit` compiles the checked `query_concurrency * (owner scan + accepted-order scan)`, sort-comparison and output-residency terms; there is no trusted exemption | M2 calibrates the safe static bounds and M3 chooses among bounded boundary, prepared receipt or immutable projection designs |
+| `D1-CLOCK-DOMAIN` | `model_wall_clock_rollback_never_fabricates_expiry_progress`; only process `Instant` monotonicity is trusted | M3 separates internal monotonic residency from compatibility wall timestamps or records conditional expiry liveness |
+| `D1-ALLOCATION-LIVENESS` | `model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry` | production fixed-delay retries are replaced by operation-owned terminal/reserved-scratch outcomes |
+| `D1-RECOVERY-SELECTION` | `model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work` | map the closure-preserving continuation rule into chain Plan/Apply |
+| `D1-FAULT-INGRESS-VARIANT` | `model_payload_variant_is_an_ordinary_outcome_and_same_witness_promotion_is_atomic` | the production Proposal/Recovery route must expose the same closed ordinary disposition |
+| `D1-FAULT-QUERY-DERIVED` | `model_optional_query_arithmetic_failure_never_invalidates_the_authority_result` | split production status/detail read plans and forbid derived arithmetic-to-generation-invalidity conversion |
+| `D1-STOP-DISCOVERY` | startup/drain/effect/circuit automata explicitly enumerate every modeled stop boundary | generated production task/error inventory remains required |
+| `D1-STOP-REACHABILITY` | initialization failure, drain conservation, capability transport and endpoint circuit tests | M3/M4 prove each production task sender, receiver, cancellation and join edge refines one modeled outcome |
+| `D1-TASK-CAPABILITY` | direct/effect drain conservation, exact assignment/completion return and stale/cancel capability tests | generated topology ownership inventory and fault injection close the production refinement |
+| `D1-DEPENDENCY-CLOSURE` | wake, parent death, worker death, pool-origin loss, partial cell/header availability, detached cell/header recovery and chain-promotion model tests | generated producer inventory must prove no production removal or evidence-loss path bypasses the same-Apply dependency delta |
+| `D1-KNOWN-HANDOFF` | three relay handoff tests cover pre-authority failure, partial batch abort and terminal release | I2 cross-crate refinement must cover all Remote/Proposal terminal paths and same-raw refetch |
+| `D1-FAULT-INGRESS-EVIDENCE` | validation soundness is an exact-input trusted external premise; malformed evidence is outside `Legal` | M3 seals the production constructor and mechanically proves allocation is its only ordinary construction failure |
+| `D1-DOC-FAULT` | no model exemption; this is an evidence-graph integrity defect | M4-generated architecture/behavior bindings replace the unsupported prose closure claim |
+| `D1-HISTORY` | historical model witnesses cover Gap/uncle, budget, dependency, RBF/history, ban/refetch, cache identity and constructorless-state outcomes | stable model tests are bound to the canonical behavior registry before M1 freezes; full integration anchors remain I2 gates |
+
+The map is deliberately not a second manifest. Test discovery and final
+bindings remain owned by `review-behaviors.json` and the existing validators;
+this section records semantic adjudication and later refinement debt only.
+
 ## 17. Exact next action
 
-Execute M1 without production edits:
+Execute M2 without production edits or timing experiments:
 
-1. create the isolated pure Rust reference-model module and define `E`, `U`,
-   `Omega`, `P`, `D`, `L` and stable observations without importing production
-   planners or transition code;
-2. define total `Step_E`/`KernelStep_E` command and disposition algebras plus
-   the controller, relay-known, effect and startup/shutdown boundary automata;
-3. encode owner/resource/effect/evidence/projection invariants and convert the
-   complete section 16 ledger into minimal model counterexamples;
-4. add bounded generated-state invariant, deterministic replay and
-   premise-removal properties;
-5. run the M1 model-delta review before composition or topology selection.
+1. add a separate composition model that computes exact dynamic read/write,
+   graph, resource, policy-order and effect footprints from M1 evidence;
+2. classify bounded cohorts as independent, canonical-ordered or coupled and
+   prove the batch result equals one permitted canonical serialization from the
+   same initial authority cut;
+3. prove longest-current-prefix Ready capture, fair permit reacquisition,
+   source-specific progress ranks and no unchanged-cut retry cycle;
+4. derive checked per-item, per-edge, per-component, request-residency and
+   lock-hold bounds, including hostile fanout, full-pool query and effect
+   pressure shapes;
+5. run a separately structured hostile trace generator and premise-removal
+   review, then repeat the complete model-delta and standing-exposure gates.
 
-Do not edit production code or run performance experiments during M0-M3. A
-newly confirmed production defect is recorded with its counterexample and
-root model obligation, then fixed only through the M4-derived implementation
-slices unless it independently blocks safe continued analysis.
+The M1 checkpoint is the commit containing this record. Production refinement
+is M3, topology selection and normative freeze are M4, and production edits or
+performance claims before those gates are forbidden. A newly confirmed defect
+is added to the single section 16 ledger and its root model obligation; it does
+not create a local exception or a second risk list.

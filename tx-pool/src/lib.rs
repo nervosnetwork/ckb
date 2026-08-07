@@ -80,6 +80,10 @@ pub mod internal_test_support;
 #[path = "tests/support.rs"]
 pub(crate) mod test_support;
 
+#[cfg(test)]
+#[path = "tests/model/mod.rs"]
+mod mathematical_model;
+
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;
