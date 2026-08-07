@@ -509,6 +509,83 @@ def variant_flow(
     return flow, []
 
 
+def construction_flow(
+    paths: list[Path], declarations_by_name: dict[str, TypeDeclaration]
+) -> tuple[dict[str, list[dict[str, object]]], list[str]]:
+    """Derive explicit struct/newtype construction sites from Rust syntax."""
+    executable = shutil.which("ast-grep")
+    if executable is None:
+        return {}, ["--variant-flow requires ast-grep on PATH"]
+    struct_keys_by_name: dict[str, list[str]] = {}
+    for key, declaration in declarations_by_name.items():
+        if declaration.kind == "struct":
+            struct_keys_by_name.setdefault(declaration.name, []).append(key)
+    flow: dict[str, list[dict[str, object]]] = {
+        key: []
+        for keys in struct_keys_by_name.values()
+        for key in keys
+    }
+    pattern_ranges, errors = ast_grep_ranges(paths)
+    if errors:
+        return {}, errors
+    construction = re.compile(
+        r"\b(?P<owner>Self|[A-Z][A-Za-z0-9_]*)\s*"
+        r"(?P<syntax>\{|\(|::\s*default\s*\()"
+    )
+    for path in paths:
+        source = path.read_text()
+        masked = mask_rust_non_code(source)
+        owners = impl_ranges(path)
+        owner_starts = [start for start, _, _ in owners]
+        ranges = pattern_ranges.get(path.resolve(), [])
+        range_starts = [start for start, _ in ranges]
+        for match in construction.finditer(masked):
+            range_index = bisect_right(range_starts, match.start()) - 1
+            if range_index >= 0 and match.start() < ranges[range_index][1]:
+                continue
+            line_start = masked.rfind("\n", 0, match.start()) + 1
+            prefix = masked[line_start : match.start()]
+            if re.search(
+                r"\b(?:struct|enum|type|for)\s*$|\bimpl(?:\s*<[^>\n]*>)?\s*$",
+                prefix,
+            ):
+                continue
+            owner = match.group("owner")
+            offset = match.start()
+            if owner == "Self":
+                index = bisect_right(owner_starts, offset) - 1
+                if index < 0 or offset >= owners[index][1]:
+                    continue
+                owner = owners[index][2]
+            candidates = struct_keys_by_name.get(owner, [])
+            if not candidates:
+                continue
+            relative = (
+                path.relative_to(REPO_ROOT).as_posix()
+                if path.is_relative_to(REPO_ROOT)
+                else None
+            )
+            if len(candidates) == 1:
+                key = candidates[0]
+            else:
+                local = [
+                    candidate
+                    for candidate in candidates
+                    if relative is not None
+                    and declarations_by_name[candidate].path == relative
+                ]
+                if len(local) != 1:
+                    continue
+                key = local[0]
+            site = {
+                "path": relative if relative is not None else str(path),
+                "line": source.count("\n", 0, offset) + 1,
+            }
+            if site not in flow[key]:
+                flow[key].append(site)
+    return flow, errors
+
+
 def validate_canary(*, include_variant_flow: bool) -> list[str]:
     """Prove that both syntax discovery and the negative binding gate can fail."""
     discovered, errors = declarations([CANARY])
@@ -518,7 +595,12 @@ def validate_canary(*, include_variant_flow: bool) -> list[str]:
         declaration_key(
             "tx-pool/scripts/fixtures/model_refinement_canary.rs", name
         )
-        for name in ("CanaryPayload", "CanaryEvent", "CanaryBoundary")
+        for name in (
+            "CanaryPayload",
+            "CanaryEvent",
+            "CanaryBoundary",
+            "CanaryUnconstructedCapability",
+        )
     }
     if set(discovered) != expected:
         errors.append(
@@ -604,6 +686,14 @@ def validate_canary(*, include_variant_flow: bool) -> list[str]:
                     "refinement variant-flow canary lacks both directions for "
                     f"CanaryEvent::{variant}: {evidence}"
                 )
+        constructors, constructor_errors = construction_flow([CANARY], discovered)
+        errors.extend(constructor_errors)
+        boundary_key = declaration_key(path, "CanaryBoundary")
+        unconstructed_key = declaration_key(path, "CanaryUnconstructedCapability")
+        if not constructors.get(boundary_key):
+            errors.append("refinement construction-flow canary lost its positive witness")
+        if constructors.get(unconstructed_key):
+            errors.append("refinement construction-flow negative canary did not fail")
     return errors
 
 
@@ -777,6 +867,8 @@ def reachable_inventory(
     role_bindings: dict[str, str],
     source_variant_flow: dict[tuple[str, str], dict[str, object]] | None = None,
     expanded_variant_flow: dict[tuple[str, str], dict[str, object]] | None = None,
+    source_construction_flow: dict[str, list[dict[str, object]]] | None = None,
+    expanded_construction_flow: dict[str, list[dict[str, object]]] | None = None,
 ) -> dict[str, object]:
     names: dict[str, set[str]] = {}
     for key, declaration in declarations_by_name.items():
@@ -862,8 +954,7 @@ def reachable_inventory(
             if expanded_variant_flow is not None:
                 variant_entry["expanded_flow"] = expanded_variant_flow[(name, variant)]
             variants.append(variant_entry)
-        types.append(
-            {
+        type_entry: dict[str, object] = {
                 "name": name,
                 "kind": declaration.kind,
                 "path": declaration.path,
@@ -880,7 +971,11 @@ def reachable_inventory(
                 "references": identifier_counts[name] - len(names[name]),
                 "variants": variants,
             }
-        )
+        if declaration.kind == "struct" and source_construction_flow is not None:
+            type_entry["source_constructors"] = source_construction_flow[key]
+        if declaration.kind == "struct" and expanded_construction_flow is not None:
+            type_entry["expanded_constructors"] = expanded_construction_flow[key]
+        types.append(type_entry)
     unreachable_types = []
     for key, declaration in sorted(declarations_by_name.items()):
         if key in reachable:
@@ -892,8 +987,7 @@ def reachable_inventory(
         self_variant_counts = Counter(
             re.findall(r"\bSelf\s*::\s*([A-Za-z_][A-Za-z0-9_]*)\b", impl_source)
         )
-        unreachable_types.append(
-            {
+        type_entry = {
                 "name": name,
                 "kind": declaration.kind,
                 "path": declaration.path,
@@ -932,7 +1026,11 @@ def reachable_inventory(
                     for variant in declaration.variants
                 ],
             }
-        )
+        if declaration.kind == "struct" and source_construction_flow is not None:
+            type_entry["source_constructors"] = source_construction_flow[key]
+        if declaration.kind == "struct" and expanded_construction_flow is not None:
+            type_entry["expanded_constructors"] = expanded_construction_flow[key]
+        unreachable_types.append(type_entry)
     return {
         "roots": roots,
         "source_files": [
@@ -1012,6 +1110,9 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
     model_variant_flow = None
     production_variant_flow = None
     expanded_variant_flow = None
+    model_construction_flow = None
+    production_construction_flow = None
+    expanded_construction_flow = None
     generated_expansion: Path | None = None
     if args.variant_flow:
         model_variant_flow, model_flow_errors = variant_flow(
@@ -1020,8 +1121,16 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
         production_variant_flow, production_flow_errors = variant_flow(
             production_reference_paths, production_declarations
         )
+        model_construction_flow, model_construction_errors = construction_flow(
+            model_paths, model_declarations
+        )
+        production_construction_flow, production_construction_errors = construction_flow(
+            production_reference_paths, production_declarations
+        )
         errors.extend(model_flow_errors)
         errors.extend(production_flow_errors)
+        errors.extend(model_construction_errors)
+        errors.extend(production_construction_errors)
         expanded_argument = args.expanded_production
         if args.cargo_expand_production:
             executable = shutil.which("cargo")
@@ -1066,7 +1175,11 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
                 expanded_variant_flow, expanded_flow_errors = variant_flow(
                     [expanded], production_declarations
                 )
+                expanded_construction_flow, expanded_construction_errors = construction_flow(
+                    [expanded], production_declarations
+                )
                 errors.extend(expanded_flow_errors)
+                errors.extend(expanded_construction_errors)
     if generated_expansion is not None:
         generated_expansion.unlink(missing_ok=True)
     if errors:
@@ -1083,6 +1196,7 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
             model_paths,
             model_role_bindings,
             model_variant_flow,
+            source_construction_flow=model_construction_flow,
         ),
         "production": reachable_inventory(
             production_roots,
@@ -1093,6 +1207,8 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
             production_role_bindings,
             production_variant_flow,
             expanded_variant_flow,
+            production_construction_flow,
+            expanded_construction_flow,
         ),
     }
     return inventory, []
@@ -1140,18 +1256,56 @@ def main() -> int:
         model_constructorless = sum(
             not variant["source_flow"]["producers"] for variant in model_variants
         )
+        model_types = {
+            (entry["path"], entry["name"]): entry for entry in model["types"]
+        }
+        production_types = {
+            (entry["path"], entry["name"]): entry
+            for entry in production["types"]
+        }
+        model_root_structs = [
+            model_types[(root["path"], root["type"])]
+            for root in model["roots"]
+            if model_types[(root["path"], root["type"])]["kind"] == "struct"
+        ]
+        production_root_structs = [
+            production_types[(root["path"], root["type"])]
+            for root in production["roots"]
+            if production_types[(root["path"], root["type"])]["kind"] == "struct"
+        ]
+        model_root_constructorless = sum(
+            not entry["source_constructors"] for entry in model_root_structs
+        )
+        production_source_root_constructorless = sum(
+            not entry["source_constructors"] for entry in production_root_structs
+        )
+        production_expanded_root_constructorless = (
+            sum(
+                not entry["expanded_constructors"]
+                for entry in production_root_structs
+            )
+            if args.expanded_production is not None or args.cargo_expand_production
+            else production_source_root_constructorless
+        )
         flow_suffix = (
             "; variant-flow constructorless: "
             f"model={model_constructorless}, "
             f"production-source={source_constructorless}, "
-            f"production-expanded={expanded_constructorless}"
+            f"production-expanded={expanded_constructorless}; "
+            "root-struct constructorless: "
+            f"model={model_root_constructorless}, "
+            f"production-source={production_source_root_constructorless}, "
+            f"production-expanded={production_expanded_root_constructorless}"
         )
-        if model_constructorless or (
+        if model_constructorless or model_root_constructorless or (
             (args.expanded_production is not None or args.cargo_expand_production)
-            and expanded_constructorless
+            and (
+                expanded_constructorless
+                or production_expanded_root_constructorless
+            )
         ):
             print(
-                "error: rooted enum variant has no mechanically reachable producer",
+                "error: rooted route has no mechanically reachable constructor",
                 file=sys.stderr,
             )
             return 1

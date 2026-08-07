@@ -1,6 +1,8 @@
 use super::super::{
     plan::{DirectAdmissionDisposition, PlanError, SettlementBatch, StalePlan, TxPoolAuthority},
-    resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+    resources::{
+        AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceLimits, ResourceVector,
+    },
     runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime},
     state::{
         AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
@@ -19,6 +21,7 @@ use ckb_types::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
@@ -131,7 +134,7 @@ fn verified_settlement_with_fee(
     let payload = ResolvedPayload::for_foundation(
         &transaction,
         expanded_dependencies,
-        resolve.resolution_grant().max_edges,
+        resolve.resolution_grant().max_edges(),
         fee,
         resident_bytes,
         chain_inputs,
@@ -1029,14 +1032,22 @@ fn uak_membership_loss_removes_accepted_dependency_readers_before_publish() {
 
 #[test]
 fn uak_missing_growth_is_charged_or_becomes_budget_denied() {
-    let constrained = ResourceLimits::new(
-        ResourceVector::new(2, 16 * 1024, 2, 1),
-        ResourceVector::new(2, 16 * 1024, 2, 1),
-        ResourceVector::new(2, 16 * 1024, 2, 1),
+    const COMPUTE_BYTES: usize = 4 * 1024;
+    let retained = ResourceVector::new(2, 16 * 1024, 2, 1)
+        .with_compute_capacity(COMPUTE_BYTES, 2)
+        .expect("fixture compute partition fits");
+    let constrained = ResourceLimits::with_residency_policy(
+        retained,
+        retained,
+        retained,
         AcceptedResources::new(2, 16 * 1024, 16 * 1024, 16),
-        ComputeLimits::new(4 * 1024, 4 * 1024, 1),
+        ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 2),
+        ResidencyPolicy::production(
+            NonZeroUsize::new(64).expect("entry metadata is non-zero"),
+            NonZeroUsize::new(2 * 1024).expect("edge metadata is non-zero"),
+        ),
     )
-    .expect("one-edge dependency fixture admits its indivisible grant");
+    .expect("two-edge dependency fixture admits its indivisible grant");
     let mut authority = TxPoolAuthority::for_foundation(constrained);
     let declared = OutPoint::new(Byte32::new([0xf6; 32]), 0);
     let discovered = DependencyKey::Cell(OutPoint::new(Byte32::new([0xf7; 32]), 0));
@@ -1051,9 +1062,9 @@ fn uak_missing_growth_is_charged_or_becomes_budget_denied() {
         authority
             .apply_settlement(
                 work.missing(vec![discovered])
-                    .expect("one missing key fits the worker grant"),
+                    .expect("byte-over-bound missing evidence yields an ordinary settlement"),
             )
-            .expect("expanded wait over the exact grant settles deterministically"),
+            .expect("byte budget denial consumes the exact work capability"),
     );
     assert!(authority.entry(&hash).is_none());
     assert_eq!(authority.resources().preaccepted().edges, 0);

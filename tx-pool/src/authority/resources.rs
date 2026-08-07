@@ -1,5 +1,5 @@
 use super::state::{
-    ComputeAttribution, ComputeGrant, PreAcceptedEntry, RawTxHash, ValidatedAdmission,
+    ComputeAttribution, PreAcceptedEntry, RawTxHash, ValidatedAdmission, WorkPermit,
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
@@ -35,6 +35,68 @@ pub(super) struct ResourceVector {
 pub(super) struct ResidencyPolicy {
     entry_metadata_bytes: usize,
     edge_metadata_bytes: usize,
+}
+
+/// One authority-issued compute envelope in the same physical unit used by
+/// retained resource accounting. The base payload and metadata policy are
+/// sealed into the grant, so worker and settlement code cannot compare a
+/// payload-only measurement with a total-residency ceiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ComputeGrant {
+    max_total_retained_bytes: usize,
+    max_edges: usize,
+    payload_bytes: usize,
+    encoded_edges: usize,
+    residency: ResidencyPolicy,
+}
+
+impl ComputeGrant {
+    fn new(
+        max_total_retained_bytes: usize,
+        max_edges: usize,
+        entry: &PreAcceptedEntry,
+        residency: ResidencyPolicy,
+    ) -> Self {
+        Self {
+            max_total_retained_bytes,
+            max_edges,
+            payload_bytes: entry.basis.payload_bytes(),
+            encoded_edges: entry.basis.encoded_edges(),
+            residency,
+        }
+    }
+
+    /// Compile the exact retained charge and enforce the grant in one step.
+    /// Checked arithmetic failure is an ordinary exclusion: attacker-shaped
+    /// evidence must never turn a representational limit into service failure.
+    pub(super) fn retained_charge(
+        self,
+        retained_payload_bytes: usize,
+        retained_edges: usize,
+    ) -> Option<ResourceVector> {
+        let charge = self.residency.charge(
+            self.payload_bytes,
+            self.encoded_edges,
+            retained_payload_bytes,
+            retained_edges,
+        )?;
+        (charge.bytes <= self.max_total_retained_bytes && charge.edges <= self.max_edges)
+            .then_some(charge)
+    }
+
+    /// Compile a retained phase that keeps only the original transaction
+    /// payload while its canonical dependency set may have grown.
+    pub(super) fn retained_base_charge(self, retained_edges: usize) -> Option<ResourceVector> {
+        self.retained_charge(self.payload_bytes, retained_edges)
+    }
+
+    pub(super) const fn max_total_retained_bytes(self) -> usize {
+        self.max_total_retained_bytes
+    }
+
+    pub(super) const fn max_edges(self) -> usize {
+        self.max_edges
+    }
 }
 
 /// Admission evidence after the authority-owned residency policy has compiled
@@ -141,8 +203,8 @@ impl ResourceVector {
             return None;
         }
         self.active_work = 1;
-        self.compute_bytes = grant.max_resident_bytes;
-        self.compute_edges = grant.max_edges;
+        self.compute_bytes = grant.max_total_retained_bytes();
+        self.compute_edges = grant.max_edges();
         Some(self)
     }
 
@@ -303,15 +365,15 @@ impl ResourceLimits {
         if !remote.fits(preaccepted) || !per_peer.fits(remote) {
             return Err(ResourceConfigError::LimitHierarchy);
         }
-        if compute.resolved_resident_bytes == 0
-            || compute.accepted_resident_bytes == 0
+        if compute.resolved_total_retained_bytes == 0
+            || compute.accepted_total_retained_bytes == 0
             || (preaccepted.entries != 0 && preaccepted.active_work == 0)
             || (remote.entries != 0 && remote.active_work == 0)
             || (per_peer.entries != 0 && per_peer.active_work == 0)
         {
             return Err(ResourceConfigError::MissingComputeCapacity);
         }
-        if compute.accepted_resident_bytes < compute.resolved_resident_bytes {
+        if compute.accepted_total_retained_bytes < compute.resolved_total_retained_bytes {
             return Err(ResourceConfigError::NonMonotonicComputeEnvelope);
         }
         for limit in [preaccepted, remote, per_peer] {
@@ -320,7 +382,7 @@ impl ResourceLimits {
                 .and_then(|_| limit.total_edges())
                 .ok_or(ResourceConfigError::TransientComputeOverflow)?;
             if limit.active_work != 0
-                && (limit.compute_bytes < compute.max_resident_bytes()
+                && (limit.compute_bytes < compute.max_total_retained_bytes()
                     || limit.compute_edges < compute.expanded_edges())
             {
                 return Err(ResourceConfigError::MissingComputeCapacity);
@@ -357,38 +419,48 @@ impl ResourceLimits {
 /// facts can become retained authority state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ComputeLimits {
-    resolved_resident_bytes: usize,
-    accepted_resident_bytes: usize,
+    resolved_total_retained_bytes: usize,
+    accepted_total_retained_bytes: usize,
     expanded_edges: usize,
 }
 
 impl ComputeLimits {
     pub(super) const fn new(
-        resolved_resident_bytes: usize,
-        accepted_resident_bytes: usize,
+        resolved_total_retained_bytes: usize,
+        accepted_total_retained_bytes: usize,
         expanded_edges: usize,
     ) -> Self {
         Self {
-            resolved_resident_bytes,
-            accepted_resident_bytes,
+            resolved_total_retained_bytes,
+            accepted_total_retained_bytes,
             expanded_edges,
         }
     }
 
-    pub(super) fn reservation_for(self, permit: super::state::WorkPermit) -> (usize, usize) {
-        let resident_bytes = match permit {
-            super::state::WorkPermit::ResolveOnly => self.resolved_resident_bytes,
-            super::state::WorkPermit::VerifyOnly(_) => self.accepted_resident_bytes,
-            super::state::WorkPermit::ResolveThenVerify(_) => self
-                .resolved_resident_bytes
-                .max(self.accepted_resident_bytes),
+    fn grant_for(
+        self,
+        permit: WorkPermit,
+        entry: &PreAcceptedEntry,
+        residency: ResidencyPolicy,
+    ) -> ComputeGrant {
+        let max_total_retained_bytes = match permit {
+            WorkPermit::ResolveOnly => self.resolved_total_retained_bytes,
+            WorkPermit::VerifyOnly(_) => self.accepted_total_retained_bytes,
+            WorkPermit::ResolveThenVerify(_) => self
+                .resolved_total_retained_bytes
+                .max(self.accepted_total_retained_bytes),
         };
-        (resident_bytes, self.expanded_edges)
+        ComputeGrant::new(
+            max_total_retained_bytes,
+            self.expanded_edges,
+            entry,
+            residency,
+        )
     }
 
-    fn max_resident_bytes(self) -> usize {
-        self.resolved_resident_bytes
-            .max(self.accepted_resident_bytes)
+    fn max_total_retained_bytes(self) -> usize {
+        self.resolved_total_retained_bytes
+            .max(self.accepted_total_retained_bytes)
     }
 
     fn expanded_edges(self) -> usize {
@@ -398,8 +470,8 @@ impl ComputeLimits {
     fn admits(self, resources: ResourceVector) -> bool {
         resources.entries == 1
             && !resources.has_compute_reservation()
-            && resources.bytes <= self.resolved_resident_bytes
-            && resources.bytes <= self.accepted_resident_bytes
+            && resources.bytes <= self.resolved_total_retained_bytes
+            && resources.bytes <= self.accepted_total_retained_bytes
             && resources.edges <= self.expanded_edges
     }
 }
@@ -609,8 +681,14 @@ impl ResourceLedger {
         projected.fits(self.limits.accepted)
     }
 
-    pub(super) fn compute_limits(&self) -> ComputeLimits {
-        self.limits.compute
+    pub(super) fn compute_grant(
+        &self,
+        entry: &PreAcceptedEntry,
+        permit: WorkPermit,
+    ) -> ComputeGrant {
+        self.limits
+            .compute
+            .grant_for(permit, entry, self.limits.residency)
     }
 
     pub(super) fn admission_charge(

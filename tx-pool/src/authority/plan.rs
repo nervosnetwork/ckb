@@ -36,8 +36,8 @@ use super::rejection::{
     CommittedPublicReject, DirectRejectionValidity, DirectTransactionRejection,
 };
 use super::resources::{
-    ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ComputeReleaseError, ResourceBatchPlan,
-    ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
+    ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ComputeGrant, ComputeReleaseError,
+    ResourceBatchPlan, ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
 };
 use super::scheduler::{
     CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
@@ -47,7 +47,7 @@ use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersion
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
     AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
-    ComputeGrant, DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
+    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
     MissingDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedEntry,
     PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
     ReplacementHistoryEntry, ReplacementHistoryError, TxRecord, ValidatedAdmission,
@@ -1090,6 +1090,7 @@ pub(super) enum RetainedAdmissionDisposition<'authority> {
     AcceptedDuplicate(PreparedApply<'authority>),
     RemoteReleased(PreparedApply<'authority>),
     ProposalUnchanged,
+    ProposalPayloadVariant,
 }
 
 /// A prepared compute checkout pairs the generic state plan with its exact
@@ -2180,6 +2181,16 @@ impl TxPoolAuthority {
                 {
                     return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
                 }
+                Some(OwnedTx::PreAccepted(entry))
+                    if matches!(entry.source, PreAcceptedSource::Recovery(_)) =>
+                {
+                    // Recovery owns the chain-derived witness variant. A
+                    // lower-priority Proposal for the same raw transaction is
+                    // an ordinary no-change observation, not an authority
+                    // projection failure and not permission to replace the
+                    // recovery payload.
+                    return Ok(RetainedAdmissionDisposition::ProposalPayloadVariant);
+                }
                 Some(OwnedTx::PreAccepted(_)) | Some(OwnedTx::ReplacementHistory(_)) | None => {}
             },
         }
@@ -2231,6 +2242,13 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Generation));
         }
         let admission = self.resources.charge_admission(admission)?;
+        self.plan_charged_admission(admission)
+    }
+
+    fn plan_charged_admission(
+        &mut self,
+        admission: ChargedAdmission,
+    ) -> Result<PreparedApply<'_>, PlanError> {
         let key = admission.admission().identity.raw.clone();
         if let Some(existing) = self.entries.get(&key).cloned() {
             return self.plan_existing_admission(key, existing, admission);
@@ -4029,15 +4047,14 @@ impl TxPoolAuthority {
             return Ok(CheckoutEligibility::StaleDependency);
         }
 
-        let (max_resident_bytes, max_edges) =
-            self.resources.compute_limits().reservation_for(permit);
-        let grant = ComputeGrant {
-            max_resident_bytes,
-            max_edges,
-        };
+        let grant = self.resources.compute_grant(preaccepted, permit);
         if let QueuedWork::Verify(resolved) = queued
-            && (resolved.payload().resolved_resident_bytes() > grant.max_resident_bytes
-                || resolved.payload().footprint.edge_count() > grant.max_edges)
+            && grant
+                .retained_charge(
+                    resolved.payload().resolved_resident_bytes(),
+                    resolved.payload().footprint.edge_count(),
+                )
+                .is_none()
         {
             return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
         }
@@ -4372,14 +4389,13 @@ impl TxPoolAuthority {
                         }
                     } else {
                         let dependencies = resolved.payload().dependencies().clone();
-                        let retained_charge = self
-                            .resources
-                            .retained_entry_charge(
-                                preaccepted,
+                        let retained_charge = active
+                            .grant
+                            .retained_charge(
                                 resolved.payload().resolved_resident_bytes(),
                                 dependencies.len(),
                             )
-                            .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                            .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
                         if self.dependencies.resolution_is_current(
                             preaccepted.dependencies(),
                             &dependencies,
@@ -4414,16 +4430,10 @@ impl TxPoolAuthority {
                                 SettlementDisposition::Terminal(rejection)
                             }
                             MissingResolutionDisposition::Wait => {
-                                let retained_charge = self
-                                    .resources
-                                    .retained_entry_charge(
-                                        preaccepted,
-                                        preaccepted.basis.payload_bytes(),
-                                        dependencies.len(),
-                                    )
-                                    .map_err(|_| {
-                                        PlanError::Fault(AuthorityFault::ResourceProjection)
-                                    })?;
+                                let retained_charge = active
+                                    .grant
+                                    .retained_base_charge(dependencies.len())
+                                    .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
                                 let observed = self.dependencies.observe_missing(
                                     missing.missing(),
                                     dependencies,
@@ -4484,14 +4494,10 @@ impl TxPoolAuthority {
                         return Err(PlanError::Fault(AuthorityFault::DependencyProjection).into());
                     }
                     let dependencies = verified.payload().dependencies().clone();
-                    let retained_charge = self
-                        .resources
-                        .retained_entry_charge(
-                            preaccepted,
-                            verified.metrics().cost.resident_bytes,
-                            dependencies.len(),
-                        )
-                        .map_err(|_| PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                    let retained_charge = active
+                        .grant
+                        .retained_charge(verified.metrics().cost.resident_bytes, dependencies.len())
+                        .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
                     if self.dependencies.resolution_is_current(
                         preaccepted.dependencies(),
                         &dependencies,
@@ -4552,16 +4558,13 @@ impl TxPoolAuthority {
                             }
                         } else {
                             let dependencies = resolved.payload().dependencies().clone();
-                            let retained_charge = self
-                                .resources
-                                .retained_entry_charge(
-                                    preaccepted,
+                            let retained_charge = active
+                                .grant
+                                .retained_charge(
                                     resolved.payload().resolved_resident_bytes(),
                                     dependencies.len(),
                                 )
-                                .map_err(|_| {
-                                    PlanError::Fault(AuthorityFault::ResourceProjection)
-                                })?;
+                                .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
                             if self.dependencies.resolution_is_current(
                                 preaccepted.dependencies(),
                                 &dependencies,
@@ -4605,15 +4608,6 @@ impl TxPoolAuthority {
                     });
             }
         };
-        let grant_ceiling = ResourceVector::new(
-            1,
-            active.grant.max_resident_bytes,
-            active.grant.max_edges,
-            0,
-        );
-        if !retained_charge.fits(grant_ceiling) {
-            return Err(PlanError::Fault(AuthorityFault::ResourceProjection).into());
-        }
         let expected_charge = existing.charge_record();
         let desired_charge = ChargeRecord::PreAccepted {
             resources: retained_charge,

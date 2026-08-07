@@ -3,7 +3,8 @@ use super::chain::{
     TimeContextReceipt, VerificationContextReceipt,
 };
 use super::resources::{
-    AcceptedCost, AcceptedResources, ChargeRecord, ReplacementHistoryCharge, ResourceVector,
+    AcceptedCost, AcceptedResources, ChargeRecord, ComputeGrant, ReplacementHistoryCharge,
+    ResourceVector,
 };
 use crate::{
     component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
@@ -1015,12 +1016,6 @@ pub(super) enum WorkPermit {
     ResolveOnly,
     VerifyOnly(VerifyCapability),
     ResolveThenVerify(VerifyCapability),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ComputeGrant {
-    pub(super) max_resident_bytes: usize,
-    pub(super) max_edges: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

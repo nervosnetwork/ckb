@@ -96,10 +96,10 @@
       "id": "TP-BUDGET-001",
       "title": "Continuous hostile-resource accounting",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/resources.rs", "symbols": ["struct ResourceLedger", "struct ResourceLimits", "enum ResourceError", "struct ComputeLimits"]},
+        {"path": "tx-pool/src/authority/resources.rs", "symbols": ["struct ResourceLedger", "struct ResourceLimits", "enum ResourceError", "struct ComputeLimits", "struct ComputeGrant", "fn compute_grant", "fn retained_charge"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct ComputeGate", "AuthorityComputeExecutionPermit"]}
       ],
-      "required_behavior": "Every owner continuously carries exact entry, byte, edge, active-work and compute-reservation charges, with accepted, remote, per-peer and replacement-history sublimits validated by checked construction.",
+      "required_behavior": "Every owner continuously carries exact entry, byte, edge, active-work and compute-reservation charges, with accepted, remote, per-peer and replacement-history sublimits validated by checked construction. The resource ledger is the sole compiler of a sealed compute grant, and worker admission plus settlement use its exact total-retained byte and edge units rather than comparing payload bytes with retained residency.",
       "hostile_case": "Payload growth, expanded dependency fanout, promotion, active work, ghost charge, arithmetic overflow or peer churn must fail before mutation and cannot escape or double charge across phases.",
       "reviewer_questions": [
         "Does owner existence imply exactly one ledger row and vice versa?",
@@ -171,12 +171,12 @@
       "title": "Reliable atomic chain reconciliation",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/chain_boundary.rs", "symbols": ["struct ChainUpdateRequest", "enum ChainPackaging", "enum ChainBoundaryError"]},
-        {"path": "tx-pool/src/authority/plan/chain_transition.rs", "symbols": ["fn plan_chain_transition", "fn plan_chain_generation_replacement"]},
+        {"path": "tx-pool/src/authority/plan/chain_transition.rs", "symbols": ["fn plan_chain_transition", "fn plan_chain_generation_replacement", "fn select_chain_recoveries"]},
         {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn run_ordered_chain_control_driver"]},
         {"path": "tx-pool/src/service/message.rs", "symbols": ["enum ChainControl"]},
         {"path": "chain/src/verify.rs", "symbols": ["install_chain_tip_transition"]}
       ],
-      "required_behavior": "One readiness-independent capacity-one control boundary pairs each installed snapshot with its exact fork delta and orders later generation clears after that reconciliation. One UAK Apply reconciles status, membership, recovery, dependencies, resources, effects and chain view.",
+      "required_behavior": "One readiness-independent capacity-one control boundary pairs each installed snapshot with its exact fork delta and orders later generation clears after that reconciliation. One UAK Apply reconciles status, membership, recovery, dependencies, resources, effects and chain view. Resource-excluded new trusted recoveries are selected parent-first as a closed subtree exclusion while unrelated fitting roots remain eligible in both normal reconciliation and fresh-generation fallback; an already-owned PreAccepted descendant stays charged and re-enters validation under its source policy.",
       "hostile_case": "Blank-fork reorg, Gap outside the new window, detached dependency tree, short-ID collision, over-bound recovery, startup readiness false or truncate followed by clear must not lose a tip delta, let delayed recovery overtake clear, expose a partial owner generation or strand re-proposal.",
       "reviewer_questions": [
         "Does every best-tip installation call the sole reliable boundary?",
@@ -208,10 +208,11 @@
       "title": "Coherent public projections",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/read.rs", "symbols": ["struct AuthorityReadView", "enum AuthorityReadState", "fn rpc_status_for_accepted"]},
-        {"path": "tx-pool/src/authority/query.rs", "symbols": ["enum AuthorityTransactionLookup", "struct PersistenceReceipt"]}
+        {"path": "tx-pool/src/authority/query.rs", "symbols": ["enum AuthorityTransactionLookup", "enum AuthorityTransactionStatusLookup", "fn transaction_status_lookup", "struct PersistenceReceipt"]},
+        {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["fn handle_get_tx_status", "fn handle_get_transaction_with_status"]}
       ],
-      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries observe one coherent authority cut. Compatibility mapping never drives internal state. The target receipt contract moves fallible population work outside the guard; current full-pool ID/info, detail-rank and fee-estimate paths remain open under D1-QUERY-LOCK-COST.",
-      "hostile_case": "Concurrent clear/reorg/admission, short-ID collision, ReplacementHistory lookup, storage delay, allocation failure or repeated small RPC queries must not splice generations, fabricate proof/status, amplify without a bound or delay every Apply through O(pool) shared-lock work.",
+      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries observe one coherent authority cut. Status and detailed transaction lookup are distinct read products: status performs no optional detail arithmetic, and an unrepresentable minimum replacement fee is `None` rather than authority invalidity, matching the compatibility boundary. Compatibility mapping never drives internal state. The target receipt contract moves fallible population work outside the guard; current full-pool ID/info, detail-rank and fee-estimate paths remain open under D1-QUERY-LOCK-COST.",
+      "hostile_case": "Concurrent clear/reorg/admission, short-ID collision, ReplacementHistory lookup, optional replacement-fee overflow, storage delay, allocation failure or repeated small RPC queries must not splice generations, fabricate proof/status, invalidate a coherent authority generation, amplify without a bound or delay every Apply through O(pool) shared-lock work.",
       "reviewer_questions": [
         "Does each receipt own every value needed after the guard opens?",
         "Is ReplacementHistory hidden from the live RPC state?",
@@ -225,6 +226,8 @@
       "title": "Rust-native ordinary failure boundary",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/service.rs", "symbols": ["enum AuthorityServiceError", "enum AuthorityIntegrityFault", "fn settle_operation_error", "enum AuthorityProjectionFault"]},
+        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["enum RetainedAdmissionDisposition"]},
+        {"path": "tx-pool/src/authority/ingress.rs", "symbols": ["enum RetainedIngressCommit"]},
         {"path": "tx-pool/src/authority/topology.rs", "symbols": ["enum AuthorityGenerationFault", "enum AuthorityDerivedTaskFailure", "enum AuthorityShutdownStatus"]}
       ],
       "required_behavior": "Legal, hostile, stale, duplicate, resource, cancellation and external or rebuildable-derived failures are typed local outcomes. Only a proven authority contradiction or loss of a sole linear capability can forbid persistence; panic-and-catch and broad fail-stop are not control flow.",
@@ -365,6 +368,7 @@
     {"test": "authority::tests::foundation::uak_admission_must_fit_the_static_compute_envelope", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8"]},
     {"test": "authority::tests::foundation::uak_resource_reference_rejects_ghost_overcharge", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3"]},
     {"test": "authority::tests::foundation::uak_full_retained_budget_cannot_hide_the_trusted_owner", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8"]},
+    {"test": "authority::tests::foundation::uak_compute_grant_and_settlement_share_total_retained_byte_units", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T6", "T8", "T11"]},
     {"test": "authority::tests::dependency::uak_missing_growth_is_charged_or_becomes_budget_denied", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T4", "T8"]},
 
     {"test": "authority::runtime::tests::runtime_checkout_observes_preexisting_level_without_a_wake_hint", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
@@ -403,6 +407,7 @@
     {"test": "service::controller::tests::closed_reorg_consumer_fails_without_waiting", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
     {"test": "service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T9", "T10"]},
     {"test": "authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9", "T10"]},
+    {"test": "authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T9", "T10"]},
 
     {"test": "authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T12"]},
     {"test": "authority::tests::service::uak_service_persists_one_coherent_authority_receipt_outside_the_guard", "behavior_id": "TP-PERSIST-001", "invariants": ["T9", "T10", "T12"]},
@@ -414,9 +419,11 @@
     {"test": "authority::tests::read::uak_query_never_splices_two_authority_cuts", "behavior_id": "TP-QUERY-001", "invariants": ["T9", "T12"]},
     {"test": "authority::tests::query::uak_owned_pool_queries_share_one_status_and_aggregate_cut", "behavior_id": "TP-QUERY-001", "invariants": ["T12"]},
     {"test": "authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee", "behavior_id": "TP-QUERY-001", "invariants": ["T12"]},
+    {"test": "authority::tests::query::uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
     {"test": "authority::tests::query::uak_compact_receipt_releases_authority_before_storage_lookup", "behavior_id": "TP-QUERY-001", "invariants": ["T10", "T12"]},
 
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
+    {"test": "authority::tests::ingress::uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T3", "T6", "T11"]},
     {"test": "authority::tests::service::uak_operational_failure_classes_follow_ownership_boundaries", "behavior_id": "TP-DEFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::service::uak_only_integrity_faults_invalidate_a_generation", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T7", "T10"]},
     {"test": "authority::tests::service::uak_ordered_chain_update_has_no_droppable_operational_error", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T9", "T10"]},

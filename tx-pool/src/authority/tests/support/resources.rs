@@ -20,6 +20,21 @@ impl ResidencyPolicy {
     }
 }
 
+impl ComputeGrant {
+    pub(in crate::authority) const fn for_foundation(
+        max_total_retained_bytes: usize,
+        max_edges: usize,
+    ) -> Self {
+        Self {
+            max_total_retained_bytes,
+            max_edges,
+            payload_bytes: 0,
+            encoded_edges: 0,
+            residency: ResidencyPolicy::foundation(),
+        }
+    }
+}
+
 impl ResourceVector {
     pub(in crate::authority) const fn compute_bytes(self) -> usize {
         self.compute_bytes
@@ -33,7 +48,7 @@ impl ResourceVector {
 impl ComputeLimits {
     fn checked_compute_capacity(self, active_work: usize) -> Option<(usize, usize)> {
         Some((
-            active_work.checked_mul(self.max_resident_bytes())?,
+            active_work.checked_mul(self.max_total_retained_bytes())?,
             active_work.checked_mul(self.expanded_edges)?,
         ))
     }
@@ -132,15 +147,10 @@ impl ResourceLedger {
                             charge
                         }
                         PreAcceptedPhase::Computing(active) => {
-                            let (max_resident_bytes, max_edges) =
-                                self.limits.compute.reservation_for(active.permit);
-                            if active.grant.max_resident_bytes != max_resident_bytes
-                                || active.grant.max_edges != max_edges
-                            {
+                            if active.grant != self.compute_grant(entry, active.permit) {
                                 return false;
                             }
-                            let Ok(exact) = self.retained_entry_charge(
-                                entry,
+                            let Some(exact) = active.grant.retained_charge(
                                 entry.basis.payload_bytes(),
                                 active.dependencies.len(),
                             ) else {

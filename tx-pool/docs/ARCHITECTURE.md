@@ -786,6 +786,10 @@ blocker, not a property the current implementation may claim.
 
 - RPC may show PreAccepted work as Pending and maps Accepted Gap to Pending for
   compatibility; internal detail and template code consume exact phases/status.
+- Status and detailed transaction lookup are separate read products. Status
+  never evaluates optional replacement-fee arithmetic. A detailed minimum
+  replacement fee that cannot be represented is `None`, matching the legacy
+  compatibility surface; it cannot invalidate a coherent authority generation.
 - ReplacementHistory returns no live RPC status and falls through to the
   existing recent-reject/RBF-compatible surface.
 - The legacy `get_raw_tx_pool.conflicted` projection contains only charged
@@ -849,9 +853,10 @@ The service generation separately owns the ordered chain-control driver. Cancell
 closes producers first, joins authority workers, closes and drains effects,
 then joins derived tasks. Every task exit is classified by what it owns;
 template/cache degradation retains authoritative state, while loss of the sole
-authority capability forbids persistence. Section 15 records the completed
-backward reachability proof that valid or hostile input cannot construct that
-boundary.
+authority capability forbids persistence. Section 15 defines the backward
+constructor and producer/caller reachability obligation for that boundary;
+any unresolved route remains a release blocker rather than an assumed
+impossibility.
 
 ### 12.3 Wait-for proof
 
@@ -907,7 +912,11 @@ ReplacementHistory usage. Effect batches/bytes have a separate bounded ledger
 inside the same authority.
 
 Checked construction proves limit hierarchy and a complete per-lease compute
-envelope. Transitions use checked arithmetic. Peer-controlled parent count,
+envelope. `ResourceLedger` is the sole compiler of the sealed `ComputeGrant`;
+both worker checkout and settlement consume its total retained-residency and
+edge units, including payload, entry metadata and edge metadata. Direct
+owner-free computation keeps a separate transient payload bound because it
+retains no authority entry. Transitions use checked arithmetic. Peer-controlled parent count,
 dependency expansion, RBF candidates, causal closure, eviction cohort,
 maintenance slice, relay mailbox and effect batch all have explicit bounds.
 
@@ -919,7 +928,7 @@ The completed static complexity inventory is:
 | Remote/trusted ingress, checkout and compute settlement | Transition-local index/projection deltas. Queue checkout visits at most the charged owner rows; Ready selects at most `MAX_READY_BATCH = 8`. | Hot path; no full owner scan or attacker-sized destruction. |
 | RBF, eviction and accepted causal removal | Complete indexed conflict/descendant cohort capped by `MAX_POOL_MUTATION_CANDIDATES = 100`, with configured ancestor/descendant bounds. | Atomic membership requires the complete closure; over-bound input is rejected or the chain generation is rebuilt. |
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
-| Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Over-bound recovery replaces the ephemeral generation instead of retaining partial state. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Block traversal and payload compaction occur before the write guard. |
+| Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Recovery is selected parent-first: an individually resource-excluded new trusted root and its new trusted recovery descendants are omitted while unrelated fitting roots continue. An already-owned PreAccepted descendant remains charged and re-enters validation under its source policy. The same closed selection drives normal reconciliation and fresh-generation fallback. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Block traversal and payload compaction occur before the write guard. |
 | `ClearPipeline` / `ClearPool` | All live owners in an explicit administrative command. | Deliberate whole-generation operation, never ordinary ingress. Retired payload destruction happens after the guard opens. |
 | RPC, persistence, relay rebuild and template capture | Persistence, relay rebuild and template paths use owned receipts or bounded pages. Current full-pool ID/info, detail-rank and fee-estimate queries still perform O(pool) scan/sort/allocation under a shared guard and are open under `D1-QUERY-LOCK-COST`. | Coherent projection requires one read cut but not exclusive ownership. M2 must bound query concurrency, response residency and writer delay; M3 selects a compatible receipt/projection or boundary design before this row can close. |
 | Template graph algorithms | Outside the authority lock; selected dependency occurrences and descendant-cache memberships are each capped at 200,000 and conditional-cycle shedding at 64 rounds. | Derived consensus packaging with deterministic underfill fallback. |
@@ -960,10 +969,12 @@ outside the integrity domain; a dedicated ingress-rejection commit proof keeps
 unrelated successful dispositions unrepresentable at the Remote-pressure call
 site.
 
-The backward constructor audit classifies every constructor family as follows.
-This is a code-level proof under the sealed-producer, configuration and
-single-guard premises named in the table, not a machine-checked formal theorem
-or a conclusion derived from counting fault sites:
+The backward constructor contract classifies each integrity family as follows.
+The table states the premise every production constructor must establish; it is
+not by itself a claim that every producer/caller path has been proved. Release
+requires the generated route frontier, closed operation results and exact
+falsifiers to discharge these premises under the named sealed-producer,
+configuration and single-guard boundaries:
 
 | Integrity class | Only legal constructor premise | Why valid/hostile input cannot reach it |
 |---|---|---|
@@ -976,8 +987,17 @@ or a conclusion derived from counting fault sites:
 
 This is not a panic-free or restart-based architecture. Structural faults
 remain typed defense in depth for programmer defects; they are not validation,
-policy control flow or a recovery mechanism. Any new constructor must repeat
-this backward proof or be redesigned as a local typed outcome.
+policy control flow or a recovery mechanism. Any new constructor must extend
+the generated frontier and prove its producer/caller premise, or be redesigned
+as a local typed outcome.
+
+The generated refinement gate starts from the semantic roots in
+`architecture-contract.json`, derives every rooted enum constructor from source
+and expanded production code, and derives an explicit construction witness for
+every registered root struct, including task owners and move-only capabilities.
+Its negative canary contains both an unbound semantic root and a deliberately
+unconstructed capability. This prevents a hand-maintained fault or capability
+inventory from silently promising a route that production cannot construct.
 
 ## 16. Performance model
 

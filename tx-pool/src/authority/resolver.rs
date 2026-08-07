@@ -265,8 +265,8 @@ impl ResolveLeaseWork {
 
     fn grant_edges(&self) -> usize {
         match self {
-            Self::Resolve(work) => work.resolution_grant().max_edges,
-            Self::Continuous(work) => work.resolution_grant().max_edges,
+            Self::Resolve(work) => work.resolution_grant().max_edges(),
+            Self::Continuous(work) => work.resolution_grant().max_edges(),
         }
     }
 

@@ -51,6 +51,7 @@ authority::tests::chain::uak_chain_proposal_demotion_preserves_active_remote_com
 authority::tests::chain::uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline
 authority::tests::chain::uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners
 authority::tests::chain::uak_chain_reconcile_demotes_gap_outside_the_new_window
+authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work
 authority::tests::chain::uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut
 authority::tests::chain::uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget
 authority::tests::chain::uak_chain_recovery_receipt_proves_targeted_vacancy
@@ -146,6 +147,7 @@ authority::tests::foundation::uak_checkout_is_move_only_and_exactly_charged
 authority::tests::foundation::uak_clear_pipeline_preserves_accepted_and_invalidates_active_work
 authority::tests::foundation::uak_clear_pipeline_preserves_live_peer_revocation
 authority::tests::foundation::uak_clear_pool_derives_the_next_revision_without_draining_active_work
+authority::tests::foundation::uak_compute_grant_and_settlement_share_total_retained_byte_units
 authority::tests::foundation::uak_compute_growth_requires_an_authority_issued_grant
 authority::tests::foundation::uak_compute_release_requires_the_exact_non_compute_charge
 authority::tests::foundation::uak_continuation_yield_returns_one_queued_owner
@@ -254,6 +256,7 @@ authority::tests::ingress::uak_malformed_remote_precheck_commits_the_peer_fence_
 authority::tests::ingress::uak_nonmalformed_remote_precheck_rejects_without_banning_the_peer
 authority::tests::ingress::uak_peer_fence_saturation_revalidates_the_oldest_delayed_session
 authority::tests::ingress::uak_proposal_ingress_is_trusted_without_a_synthetic_context_token
+authority::tests::ingress::uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome
 authority::tests::ingress::uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact
 authority::tests::ingress::uak_remote_ingress_derives_source_and_historical_residency
 authority::tests::ingress::uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect
@@ -288,6 +291,7 @@ authority::tests::query::uak_owned_pool_queries_share_one_status_and_aggregate_c
 authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee
 authority::tests::query::uak_persistence_receipt_is_owned_and_mutation_independent
 authority::tests::query::uak_resolved_preaccepted_query_uses_current_proposal_window
+authority::tests::query::uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow
 authority::tests::read::uak_dropped_persistence_receipt_has_no_authority_effect
 authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first
 authority::tests::read::uak_query_never_splices_two_authority_cuts

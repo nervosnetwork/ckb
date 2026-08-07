@@ -3378,3 +3378,120 @@ ledger replay: close the producer-specific result algebras for
 fault/task/capability reachability, then run the whole-model and standing
 exposure review. Production semantic edits remain frozen unless that review
 triggers the standing narrow-correction rule.
+
+### M3.3 step 6 producer-result design freeze
+
+The standing exposure review triggers its narrow correction rule. Four legal
+input paths survive for more than one model gate and are independent of the
+later execution topology. They share one cause: a producer returns the open
+`PlanError` algebra and a downstream adapter guesses whether the result is an
+ordinary disposition or an authority fault. The correction closes results at
+their semantic producer; it does not add retries, repair scans, owner state,
+locks, tasks or fallback authorities.
+
+The correction has four coupled parts:
+
+1. The resource ledger is the sole compiler of a compute grant. Its byte unit
+   is total retained residency, including payload, entry metadata and edge
+   metadata. Worker prechecks and settlement call the same sealed compiler.
+   Evidence outside the envelope becomes a resource exclusion; it cannot
+   reach `ResourceProjection` merely because payload bytes and retained bytes
+   were compared in different units. Direct owner-free work keeps its separate
+   transient payload bound because it retains no authority entry.
+2. Ordered chain reconciliation compiles a deterministic parent-first
+   recovery selection. An individually resource-excluded recovery and every
+   recovery descendant are omitted, while unrelated later roots remain
+   eligible. Normal reconciliation and fresh-generation fallback share this
+   closure rule. Aggregate projection contradictions remain faults; ordinary
+   retained-capacity pressure may still select the existing generation
+   replacement protocol.
+3. A same-raw, different-witness Proposal that meets a Recovery owner is an
+   explicit mutation-free retained-ingress disposition. It is not reconstructed
+   from `PlanError::PayloadVariant` at the service boundary. The existing owner
+   and its charge remain unchanged, and relay behavior is not broadened by this
+   Proposal-only result.
+4. Authority status lookup and detailed transaction lookup are distinct read
+   products. Status never computes replacement-fee detail. Detailed minimum
+   replacement fee remains optional; representational overflow yields `None`,
+   matching the develop compatibility boundary, while a contradictory owner
+   projection remains structural.
+
+The static evidence graph is extended from rooted state variants to the
+producer-owned fault, task and linear-capability algebras. It derives symbols
+and constructors from source plus expanded production code, rejects an
+unowned or constructorless registered route, and includes a negative canary.
+No current observation may be copied into a hand-maintained allowlist.
+
+Falsifiers required before the step can close are: production residency with
+nonzero metadata and an expanded resolve result at the exact byte boundary;
+an oversized recovered parent with a dependent child and an unrelated fitting
+root; Recovery plus a same-raw different-witness Proposal through the real
+ingress boundary; status and detail reads at replacement-fee overflow; and the
+generated reachability canary. Every Rust test, focused or complete, runs only
+through `cargo nextest run`; direct `cargo test` invocation is forbidden so
+the evidence retains process isolation.
+
+### M3.3 step 6 closure, whole-diff correction and exposure gate
+
+The four legal-input producer-result classes now close at their semantic
+producers rather than through downstream `PlanError` interpretation:
+
+- `ResourceLedger` issues one sealed total-retained `ComputeGrant`; resolved,
+  missing and verified outcomes use the same byte/edge compiler before
+  settlement.
+- Normal and fresh-generation chain recovery use one deterministic
+  parent-first exclusion relation for new trusted recoveries. An excluded root
+  excludes its new trusted descendants without suppressing a later unrelated
+  fitting root. An already-owned PreAccepted descendant remains charged and
+  re-enters validation under its source policy.
+- Recovery plus a same-raw different-witness Proposal is a closed mutation-free
+  retained-ingress outcome.
+- Status and detailed transaction lookup are separate products; optional
+  replacement-fee overflow yields `None` and cannot invalidate the authority
+  generation.
+
+The whole-diff audit caught five proof/implementation drifts before the
+checkpoint. Missing-dependency growth originally checked only edge count, so it
+now consumes the same total-retained grant. Chain resource mapping is narrowed
+so only aggregate PreAccepted growth can select generation replacement; limits
+that this transition cannot grow remain structural. Construction evidence is
+keyed by path plus type so duplicate names cannot be conflated. The query
+contract checks both the public status lookup and its shared status helper.
+Finally, `D1-RECOVERY-SELECTION` and the ledger-to-model closure table were
+updated from their stale pre-implementation state; public documentation now
+distinguishes new trusted recovery closure from existing PreAccepted ownership.
+
+Exact gates at this cut:
+
+- focused producer-result nextest: 6/6, with 623 unrelated tests skipped;
+- complete internal-feature nextest: 629/629, zero skipped;
+- complete default-feature nextest: 625/625, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- strict all-target internal-feature Clippy, formatting, Python compilation and
+  diff checks;
+- complete eight-contract gate, including TLC 1,098 generated / 318 distinct
+  positive states and the required four-state negative witness;
+- slow source plus expanded-production route gate: model 209 reachable / 82
+  outside roots / 20 files, production 614 / 11 / 37; zero model or expanded
+  production constructorless variants and zero constructorless registered root
+  structs;
+- generated review evidence: 315 exact tx-pool Rust tests, 1,218 invariant
+  references, nine cross-crate conformance tests, two open cross-crate
+  counterexamples, 19 integration anchors, 150 managed specs and 629 discovered
+  internal tests. Three explicit release blockers remain, including the later
+  complete managed integration and fixed-binary performance gates.
+
+The standing exposure ledger is now mechanically 11 `PROVEN`, 5 `SUPPORTED`
+and 13 `OPEN`. No specifically demonstrated topology-independent legal-input
+generation-invalidity path remains in the four corrected classes. General
+producer/caller fail-stop reachability, task-stop reachability and fallible
+scratch remain explicit proof debt; liveness/availability rows remain visible
+for effect settlement, Ready OCC, direct negative OCC, request/query bounds,
+clock semantics, allocation and relay handoff. The narrow-correction trigger
+does not justify another inherited-topology patch before M4.
+
+This closes M3.3 without a benchmark or profiling claim. The exact next action
+is M3.4: map `develop` and the current authority into the same observation
+algebra, prove which non-atomic races require a single authority, and account
+for every added state, lock, log and failure domain before M3.5 attempts layer
+deletion and serial-cut minimization.

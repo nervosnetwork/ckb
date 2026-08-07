@@ -73,6 +73,7 @@ pub(super) enum RetainedIngressCommit {
     AcceptedDuplicate,
     RemoteReleased,
     ProposalUnchanged,
+    ProposalPayloadVariant,
     Rejected,
 }
 

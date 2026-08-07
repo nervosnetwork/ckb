@@ -13,6 +13,14 @@ pub(crate) struct CanaryBoundary {
     pub(crate) event: CanaryEvent,
 }
 
+pub(crate) struct CanaryUnconstructedCapability;
+
+impl CanaryBoundary {
+    pub(crate) fn new(event: CanaryEvent) -> Self {
+        Self { event }
+    }
+}
+
 impl CanaryEvent {
     pub(crate) fn tuple(value: u8) -> Self {
         Self::Tuple(CanaryPayload(value))

@@ -14,7 +14,8 @@ use super::{
     publisher::AuthorityEffectEndpoints,
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
-        CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
+        AuthorityTransactionStatusLookup, CompactBlockReadReceipt, FeeEstimateReadReceipt,
+        LiveCellReadReceipt, PersistenceReceipt,
     },
     read::{RelayParentRebuildCursor, RelayParentRebuildError},
     relay::{
@@ -1221,6 +1222,13 @@ impl AuthorityService {
         self.runtime
             .transaction_lookup(hash)
             .map_err(map_query_error)
+    }
+
+    pub(crate) fn transaction_status_lookup(
+        &self,
+        hash: &Byte32,
+    ) -> AuthorityTransactionStatusLookup {
+        self.runtime.transaction_status_lookup(hash)
     }
 
     pub(crate) fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityServiceError> {

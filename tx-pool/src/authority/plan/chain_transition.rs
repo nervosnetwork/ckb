@@ -148,6 +148,20 @@ struct RecoveryCandidate {
     dependencies: KnownDependencies,
 }
 
+enum SelectedChainRecovery {
+    Trusted { admission: ChargedAdmission },
+    RequeueExisting { hash: RawTxHash },
+}
+
+impl SelectedChainRecovery {
+    fn key(&self) -> &RawTxHash {
+        match self {
+            Self::Trusted { admission } => &admission.admission().identity.raw,
+            Self::RequeueExisting { hash } => hash,
+        }
+    }
+}
+
 /// One bounded compiler owns the complete derived causal budget. Direct
 /// attached/detached transactions are the canonical chain-transition input:
 /// processing them is input-linear and cannot be truncated without changing
@@ -939,13 +953,15 @@ impl TxPoolAuthority {
         }
         removals.sort_unstable_by(|left, right| left.hash().cmp(right.hash()));
 
+        let recoveries = self.select_chain_recoveries(receipt.recoveries)?;
+
         let sequence = self.clocks.next_sequence;
         let mut version = self.clocks.next_version;
         let mut arrival = self.clocks.next_arrival;
         let mut changes = Vec::new();
         let change_capacity = removals
             .len()
-            .checked_add(receipt.recoveries.len())
+            .checked_add(recoveries.len())
             .and_then(|count| count.checked_add(receipt.proposal_demotions.len()))
             .and_then(|count| count.checked_add(receipt.statuses.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
@@ -955,9 +971,9 @@ impl TxPoolAuthority {
 
         let mut recovery_hashes = HashSet::new();
         recovery_hashes
-            .try_reserve(receipt.recoveries.len())
+            .try_reserve(recoveries.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        for recovery in &receipt.recoveries {
+        for recovery in &recoveries {
             if !recovery_hashes.insert(recovery.key().clone()) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
@@ -977,15 +993,14 @@ impl TxPoolAuthority {
                 after: None,
             });
         }
-        for recovery in receipt.recoveries {
+        for recovery in recoveries {
             let key = recovery.key().clone();
             let before = self.entries.get(&key).cloned();
             let after = match recovery {
-                ChainRecoveryReceipt::Trusted { admission, .. } => {
-                    let admission = self.resources.charge_admission(admission)?;
+                SelectedChainRecovery::Trusted { admission } => {
                     queued_recovery_owner(admission, version, arrival)
                 }
-                ChainRecoveryReceipt::RequeueExisting { .. } => {
+                SelectedChainRecovery::RequeueExisting { .. } => {
                     let Some(OwnedTx::PreAccepted(entry)) = before.clone() else {
                         return Err(PlanError::Stale(StalePlan::Phase));
                     };
@@ -1287,6 +1302,76 @@ impl TxPoolAuthority {
         })
     }
 
+    fn select_chain_recoveries(
+        &self,
+        recoveries: Vec<ChainRecoveryReceipt>,
+    ) -> Result<Vec<SelectedChainRecovery>, PlanError> {
+        let mut all = HashSet::new();
+        all.try_reserve(recoveries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        for recovery in &recoveries {
+            if !all.insert(recovery.key().clone()) {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            }
+        }
+        let mut seen = HashSet::new();
+        seen.try_reserve(recoveries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut excluded = HashSet::new();
+        excluded
+            .try_reserve(recoveries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut selected = Vec::new();
+        selected
+            .try_reserve(recoveries.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+
+        for recovery in recoveries {
+            let key = recovery.key().clone();
+            let dependencies = match &recovery {
+                ChainRecoveryReceipt::Trusted { admission, .. } => &admission.dependencies,
+                ChainRecoveryReceipt::RequeueExisting { hash, .. } => self
+                    .entries
+                    .get(hash)
+                    .map(OwnedTx::dependencies)
+                    .ok_or(PlanError::Stale(StalePlan::Missing))?,
+            };
+            for dependency in dependencies.keys() {
+                let DependencyOrigin::Transaction(parent) = dependency.origin() else {
+                    continue;
+                };
+                if all.contains(&parent) && !seen.contains(&parent) {
+                    return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                }
+            }
+            let parent_excluded = recovery_parent_is_excluded(dependencies, &excluded);
+
+            match recovery {
+                ChainRecoveryReceipt::Trusted { admission, .. } => {
+                    if parent_excluded {
+                        excluded.insert(key.clone());
+                    } else if let Some(admission) =
+                        charge_chain_recovery(&self.resources, admission)?
+                    {
+                        selected.push(SelectedChainRecovery::Trusted { admission });
+                    } else {
+                        excluded.insert(key.clone());
+                    }
+                }
+                ChainRecoveryReceipt::RequeueExisting { hash, .. } => {
+                    // Existing preaccepted owners must still discard stale
+                    // chain evidence. Their next Resolve decides whether the
+                    // unavailable parent is waitable under current source
+                    // policy; recovery exclusion applies only to new trusted
+                    // ownership reconstructed from detached chain facts.
+                    selected.push(SelectedChainRecovery::RequeueExisting { hash });
+                }
+            }
+            seen.insert(key);
+        }
+        Ok(selected)
+    }
+
     /// Capture the parent-first recovery payload before consuming a detailed
     /// receipt. The runtime retains this bounded value only across the final
     /// detailed Plan attempt, so an unrepresentable transition can converge
@@ -1314,8 +1399,8 @@ impl TxPoolAuthority {
         Ok(transactions)
     }
 
-    /// Replace an over-bound chain transition with the largest closure-safe
-    /// parent-first recovery prefix in a fresh generation. The scratch
+    /// Replace an over-bound chain transition with a deterministic
+    /// closure-safe parent-first recovery subset in a fresh generation. The scratch
     /// authority reuses the ordinary admission and every derived projection
     /// compiler; the live authority changes only through the final O(1)
     /// generation swap and emits one rebuildable GenerationReset effect.
@@ -1351,6 +1436,10 @@ impl TxPoolAuthority {
         scratch.generation = generation;
         scratch.clocks = self.clocks;
 
+        let mut excluded = HashSet::new();
+        excluded
+            .try_reserve(ordered.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for transaction in ordered {
             let admission = ValidatedAdmission::recovery(transaction, generation).map_err(
                 |error| match error {
@@ -1363,13 +1452,24 @@ impl TxPoolAuthority {
                     }
                 },
             )?;
-            match scratch.plan_validated_admission(admission) {
+            let key = admission.identity.raw.clone();
+            if recovery_parent_is_excluded(&admission.dependencies, &excluded) {
+                excluded.insert(key);
+                continue;
+            }
+            let Some(admission) = charge_chain_recovery(&scratch.resources, admission)? else {
+                excluded.insert(key);
+                continue;
+            };
+            match scratch.plan_charged_admission(admission) {
                 Ok(plan) => drop(plan.apply()),
                 Err(PlanError::Backpressure(
                     Backpressure::TotalResources
                     | Backpressure::ComputeResources
                     | Backpressure::ProposalCollision,
-                )) => break,
+                )) => {
+                    excluded.insert(key);
+                }
                 Err(PlanError::Duplicate | PlanError::PayloadVariant) => {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                 }
@@ -1452,6 +1552,39 @@ fn chain_resource_error(error: ResourceError) -> PlanError {
         | ResourceError::AcceptedLimit
         | ResourceError::ComputeEnvelope => PlanError::Fault(AuthorityFault::ResourceProjection),
     }
+}
+
+fn charge_chain_recovery(
+    resources: &ResourceLedger,
+    admission: ValidatedAdmission,
+) -> Result<Option<ChargedAdmission>, PlanError> {
+    match resources.charge_admission(admission) {
+        Ok(admission) => Ok(Some(admission)),
+        Err(ResourceError::Arithmetic | ResourceError::ComputeEnvelope) => Ok(None),
+        Err(ResourceError::Allocation) => Err(PlanError::Backpressure(Backpressure::Allocation)),
+        Err(
+            ResourceError::PreAcceptedLimit
+            | ResourceError::RemoteLimit
+            | ResourceError::PeerLimit(_)
+            | ResourceError::ReplacementHistoryLimit
+            | ResourceError::AcceptedLimit
+            | ResourceError::ExistingChargeMismatch
+            | ResourceError::AttributionMismatch
+            | ResourceError::DuplicateChange,
+        ) => Err(PlanError::Fault(AuthorityFault::ResourceProjection)),
+    }
+}
+
+fn recovery_parent_is_excluded(
+    dependencies: &KnownDependencies,
+    excluded: &HashSet<RawTxHash>,
+) -> bool {
+    dependencies.keys().iter().any(|dependency| {
+        matches!(
+            dependency.origin(),
+            DependencyOrigin::Transaction(parent) if excluded.contains(&parent)
+        )
+    })
 }
 
 fn chain_index_error(error: IndexError) -> PlanError {

@@ -1,8 +1,8 @@
 use super::chain::{CellContentReceipt, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
-use super::resources::AcceptedCost;
+use super::resources::{AcceptedCost, ComputeGrant};
 use super::state::{
-    AsyncProcessStart, CandidateMetrics, ChainViewId, ComputeGrant, DependencyCut, DependencyKey,
+    AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
     DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
     KnownDependencies, MissingDependencies, PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts,
     ResolvedPayload, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
@@ -265,7 +265,7 @@ fn missing_settlement(
     declared_dependencies: KnownDependencies,
     keys: Vec<DependencyKey>,
 ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
-    let missing = match MissingDependencies::new(keys, token.grant.max_edges) {
+    let missing = match MissingDependencies::new(keys, token.grant.max_edges()) {
         Ok(missing) => missing,
         Err(DependencySetError::TooMany) => {
             return Ok(budget_denied(token));
@@ -291,7 +291,7 @@ fn missing_settlement(
             ));
         }
     };
-    let dependencies = match declared_dependencies.with_missing(&missing, token.grant.max_edges) {
+    let dependencies = match declared_dependencies.with_missing(&missing, token.grant.max_edges()) {
         Ok(dependencies) => dependencies,
         Err(DependencySetError::TooMany) => {
             return Ok(budget_denied(token));
@@ -309,6 +309,13 @@ fn missing_settlement(
             ));
         }
     };
+    if token
+        .grant
+        .retained_base_charge(dependencies.len())
+        .is_none()
+    {
+        return Ok(budget_denied(token));
+    }
     let parent_transactions = match missing.parent_transactions() {
         Ok(parents) => parents,
         Err(_) => {
@@ -336,9 +343,6 @@ fn build_resolved_payload(
     tx: &TransactionView,
     evidence: ResolutionEvidence,
 ) -> Result<ResolvedPayloadBuild, ResolutionReceiptError> {
-    if evidence.resident_bytes > token.grant.max_resident_bytes {
-        return Ok(ResolvedPayloadBuild::ResourceDenied);
-    }
     let ResolutionEvidence {
         resolved,
         fee,
@@ -351,11 +355,22 @@ fn build_resolved_payload(
     match ResolvedPayload::from_resolution(
         ResolutionSeal(()),
         resolved,
-        token.grant.max_edges,
+        token.grant.max_edges(),
         fee,
         resident_bytes,
     ) {
-        Ok(payload) => Ok(ResolvedPayloadBuild::Ready(payload, verify_class)),
+        Ok(payload)
+            if token
+                .grant
+                .retained_charge(
+                    payload.resolved_resident_bytes(),
+                    payload.footprint.edge_count(),
+                )
+                .is_some() =>
+        {
+            Ok(ResolvedPayloadBuild::Ready(payload, verify_class))
+        }
+        Ok(_) => Ok(ResolvedPayloadBuild::ResourceDenied),
         Err(error) => match error.disposition() {
             InputEvidenceDisposition::MalformedTransaction => Ok(ResolvedPayloadBuild::Rejected(
                 CommittedPublicReject::new(duplicate_inputs_reject()),
@@ -379,7 +394,7 @@ fn verified(
     async_process_start: AsyncProcessStart,
 ) -> ComputeSettlement {
     let serialized_bytes = resolved.payload().serialized_bytes();
-    if resolved.payload().footprint.edge_count() > token.grant.max_edges {
+    if resolved.payload().footprint.edge_count() > token.grant.max_edges() {
         return budget_denied(token);
     }
     let payload_policy = token.payload_policy;
@@ -400,7 +415,11 @@ fn verified(
         resolved.into_verification_parts(VerificationSeal(()), time);
     let (payload, accepted_resident_bytes) =
         ResolvedPayload::compact_after_verification(content.into_payload(), VerificationSeal(()));
-    if accepted_resident_bytes > token.grant.max_resident_bytes {
+    if token
+        .grant
+        .retained_charge(accepted_resident_bytes, payload.footprint.edge_count())
+        .is_none()
+    {
         return budget_denied(token);
     }
     let metrics = CandidateMetrics {

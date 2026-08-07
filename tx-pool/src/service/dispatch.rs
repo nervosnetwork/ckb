@@ -2,7 +2,10 @@
 
 use crate::{
     authority::{
-        query::{AuthorityPoolSummary, AuthorityTransactionLookup, PublicPoolStatus},
+        query::{
+            AuthorityPoolSummary, AuthorityTransactionLookup, AuthorityTransactionStatusLookup,
+            PublicPoolStatus,
+        },
         service::{
             AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityPersistenceError,
             AuthorityService, AuthorityServiceError,
@@ -281,8 +284,8 @@ fn handle_get_tx_status(
         responder,
         arguments: hash,
     } = request;
-    match service.transaction_lookup(&hash) {
-        Ok(AuthorityTransactionLookup::Live(transaction)) => {
+    match service.transaction_status_lookup(&hash) {
+        AuthorityTransactionStatusLookup::Live(transaction) => {
             respond(
                 responder,
                 Ok((public_status(transaction.status), transaction.cycles)),
@@ -290,17 +293,13 @@ fn handle_get_tx_status(
             );
             Ok(())
         }
-        Ok(AuthorityTransactionLookup::RecentRejectFallback) => {
+        AuthorityTransactionStatusLookup::RecentRejectFallback => {
             let result = service.recent_reject_record(&hash).map(|record| {
                 record.map_or((TxStatus::Unknown, None), |record| {
                     (TxStatus::Rejected(record), None)
                 })
             });
             respond_derived(responder, result, "get_tx_status")
-        }
-        Err(error) => {
-            drop(responder);
-            settle_service_error(error)
         }
     }
 }

@@ -14,6 +14,7 @@ CHAIN_VERIFY = REPO_ROOT / "chain" / "src" / "verify.rs"
 TX_POOL_SERVICE = REPO_ROOT / "tx-pool" / "src" / "service.rs"
 TX_POOL_CONTROLLER = REPO_ROOT / "tx-pool" / "src" / "service" / "controller.rs"
 TX_POOL_BUILDER = REPO_ROOT / "tx-pool" / "src" / "service" / "builder.rs"
+TX_POOL_DISPATCH = REPO_ROOT / "tx-pool" / "src" / "service" / "dispatch.rs"
 TX_POOL_MESSAGE = REPO_ROOT / "tx-pool" / "src" / "service" / "message.rs"
 TX_POOL_AUTHORITY_SERVICE = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "service.rs"
@@ -26,6 +27,7 @@ TX_POOL_AUTHORITY_PUBLISHER = (
 )
 TX_POOL_BENCHMARK = REPO_ROOT / "tx-pool" / "src" / "benchmark.rs"
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
+TX_POOL_AUTHORITY_QUERY = REPO_ROOT / "tx-pool" / "src" / "authority" / "query.rs"
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
 RUST_CHAR_LITERAL = re.compile(
@@ -532,6 +534,49 @@ def validate_authority_failure_algebra() -> list[str]:
     return errors
 
 
+def validate_transaction_query_failure_domains() -> list[str]:
+    """Keep status lookup independent of fallible optional detail derivation."""
+
+    try:
+        query = TX_POOL_AUTHORITY_QUERY.read_text()
+        dispatch = TX_POOL_DISPATCH.read_text()
+    except OSError as error:
+        return [f"cannot inspect transaction query failure domains: {error}"]
+
+    errors: list[str] = []
+    for function in ("transaction_status_lookup", "transaction_status"):
+        status_function = function_body(query, function)
+        if status_function is None:
+            errors.append(f"authority {function} disappeared")
+            continue
+        masked = mask_rust_non_code(status_function)
+        if "transaction_lookup(" in masked or "minimum_replacement_fee(" in masked:
+            errors.append(
+                f"authority {function} must not evaluate optional detail arithmetic"
+            )
+
+    status_handler = function_body(dispatch, "handle_get_tx_status")
+    if status_handler is None:
+        errors.append("get_tx_status dispatch handler disappeared")
+    else:
+        masked = mask_rust_non_code(status_handler)
+        if "transaction_status_lookup(&hash)" not in masked:
+            errors.append("get_tx_status must consume the status-only authority product")
+        if "transaction_lookup(&hash)" in masked:
+            errors.append("get_tx_status must not consume the detailed authority product")
+
+    detail_handler = function_body(dispatch, "handle_get_transaction_with_status")
+    if detail_handler is None:
+        errors.append("get_transaction_with_status dispatch handler disappeared")
+    else:
+        masked = mask_rust_non_code(detail_handler)
+        if "transaction_lookup(&hash)" not in masked:
+            errors.append(
+                "get_transaction_with_status must consume the detailed authority product"
+            )
+    return errors
+
+
 def validate_compute_capability_identity() -> list[str]:
     """Keep EntryVersion as the sole numeric identity for active computation."""
 
@@ -842,6 +887,7 @@ def main() -> int:
         *validate_authority_mutation_publication(),
         *validate_authority_profiling_seams(),
         *validate_authority_failure_algebra(),
+        *validate_transaction_query_failure_domains(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -855,7 +901,8 @@ def main() -> int:
         "validated cross-crate chain-tip publication, startup ordering and "
         "bounded chain-control backpressure plus authority post-commit wake coverage, "
         "claim-bound effect publication, centralized profiling seams, the typed "
-        "authority failure algebra and current production vocabulary"
+        "authority failure algebra, split transaction-query failure domains and "
+        "current production vocabulary"
     )
     return 0
 

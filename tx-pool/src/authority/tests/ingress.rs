@@ -10,7 +10,8 @@ use super::super::{
     },
     runtime::AuthorityRuntime,
     state::{
-        AdmissionValidationError, PayloadPolicy, PreAcceptedSource, ProposalBase, RemoteDeadline,
+        AdmissionValidationError, PayloadPolicy, PoolGeneration, PreAcceptedSource, ProposalBase,
+        RemoteDeadline, ValidatedAdmission,
     },
 };
 use super::foundation::{
@@ -435,6 +436,37 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
             .expect("malformed Remote ingress commits its peer disposition"),
         RetainedIngressCommit::Rejected
     );
+}
+
+#[test]
+fn uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
+        .expect("production authority runtime fixture is valid");
+    let raw = ingress_tx(9);
+    let recovery = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"recovery").pack()])
+        .build();
+    let proposal_variant = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"proposal").pack()])
+        .build();
+    runtime
+        .admit(
+            ValidatedAdmission::recovery(recovery, PoolGeneration(0))
+                .expect("recovery witness variant is valid"),
+        )
+        .expect("recovery witness enters retained ownership");
+    let before = runtime.normalized_snapshot_for_foundation();
+
+    assert_eq!(
+        runtime
+            .submit_proposal_ingress(proposal_variant)
+            .expect("payload variant is an ordinary retained-ingress outcome"),
+        RetainedIngressCommit::ProposalPayloadVariant
+    );
+    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
 }
 
 #[test]

@@ -6,8 +6,8 @@
 
 use super::{
     read::{
-        AuthorityReadError, AuthorityReadSummary, AuthorityReadView, AuthorityRpcStatus,
-        ParentFirstPersistence, PersistenceReadReceipt,
+        AuthorityReadEntry, AuthorityReadError, AuthorityReadSummary, AuthorityReadView,
+        AuthorityRpcStatus, ParentFirstPersistence, PersistenceReadReceipt,
     },
     state::{AcceptedStatus, RawTxHash},
 };
@@ -76,6 +76,18 @@ pub(crate) enum AuthorityTransactionLookup {
     RecentRejectFallback,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AuthorityTransactionStatus {
+    pub(crate) status: PublicPoolStatus,
+    pub(crate) cycles: Option<Cycle>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AuthorityTransactionStatusLookup {
+    Live(AuthorityTransactionStatus),
+    RecentRejectFallback,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AuthorityPoolSummary {
     pub(crate) tip_hash: Byte32,
@@ -121,7 +133,7 @@ pub(super) fn transaction_lookup(
     let Some(entry) = view.entry_by_raw(hash) else {
         return Ok(AuthorityTransactionLookup::RecentRejectFallback);
     };
-    let Some(status) = entry.rpc_status(snapshot) else {
+    let Some(status) = transaction_status(&entry, snapshot) else {
         return Ok(AuthorityTransactionLookup::RecentRejectFallback);
     };
     let min_replace_fee = match entry.state() {
@@ -134,12 +146,41 @@ pub(super) fn transaction_lookup(
     };
     Ok(AuthorityTransactionLookup::Live(AuthorityTransaction {
         transaction: Arc::clone(entry.transaction()),
-        status: status.into(),
-        cycles: entry.transaction_status_cycles(),
+        status: status.status,
+        cycles: status.cycles,
         fee: entry.fee(),
         accepted_at: entry.accepted_at().map(|accepted_at| accepted_at.0),
         min_replace_fee,
     }))
+}
+
+/// Compile only the public status projection needed by the lightweight RPC.
+///
+/// Keeping this distinct from [`transaction_lookup`] is a correctness
+/// boundary: optional detail arithmetic such as the minimum replacement fee
+/// cannot turn a coherent status query into an authority-generation fault.
+pub(super) fn transaction_status_lookup(
+    view: &AuthorityReadView<'_>,
+    snapshot: &Snapshot,
+    hash: &RawTxHash,
+) -> AuthorityTransactionStatusLookup {
+    let Some(entry) = view.entry_by_raw(hash) else {
+        return AuthorityTransactionStatusLookup::RecentRejectFallback;
+    };
+    let Some(status) = transaction_status(&entry, snapshot) else {
+        return AuthorityTransactionStatusLookup::RecentRejectFallback;
+    };
+    AuthorityTransactionStatusLookup::Live(status)
+}
+
+fn transaction_status(
+    entry: &AuthorityReadEntry<'_>,
+    snapshot: &Snapshot,
+) -> Option<AuthorityTransactionStatus> {
+    Some(AuthorityTransactionStatus {
+        status: entry.rpc_status(snapshot)?.into(),
+        cycles: entry.transaction_status_cycles(),
+    })
 }
 
 fn minimum_replacement_fee(
@@ -152,14 +193,10 @@ fn minimum_replacement_fee(
     let Some(accepted) = view.accepted_entry_by_raw(hash)? else {
         return Ok(None);
     };
-    let size = u64::try_from(accepted.entry().proof.metrics().cost.serialized_bytes)
-        .map_err(|_| AuthorityReadError::Arithmetic)?;
-    accepted
-        .descendant()
-        .fee
-        .safe_add(rate.fee(size))
-        .map(Some)
-        .map_err(|_| AuthorityReadError::Arithmetic)
+    let Ok(size) = u64::try_from(accepted.entry().proof.metrics().cost.serialized_bytes) else {
+        return Ok(None);
+    };
+    Ok(accepted.descendant().fee.safe_add(rate.fee(size)).ok())
 }
 
 pub(super) fn pool_ids(view: &AuthorityReadView<'_>) -> Result<TxPoolIds, AuthorityReadError> {

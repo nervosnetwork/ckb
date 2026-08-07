@@ -1,6 +1,9 @@
 use super::super::{
     plan::{CandidateDispositionPlan, TxPoolAuthority},
-    query::{AuthorityTransactionLookup, FeeEstimateReadError, PublicPoolStatus},
+    query::{
+        AuthorityTransactionLookup, AuthorityTransactionStatusLookup, FeeEstimateReadError,
+        PublicPoolStatus,
+    },
     runtime::AuthorityRuntime,
     state::{AcceptedStatus, RawTxHash},
 };
@@ -164,6 +167,41 @@ fn uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee
     };
     assert_eq!(replacement.transaction.hash(), replacement_tx.hash());
     assert_eq!(replacement.status, PublicPoolStatus::Pending);
+}
+
+#[test]
+fn uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let transaction = tx(803);
+    let hash = accept_remote_transaction_with_payload(
+        &mut authority,
+        transaction.clone(),
+        803,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &transaction,
+            Vec::new(),
+            Vec::new(),
+            Capacity::shannons(u64::MAX),
+        ),
+    );
+    let runtime = runtime_with(authority);
+
+    let AuthorityTransactionStatusLookup::Live(status) = runtime.transaction_status_lookup(&hash.0)
+    else {
+        panic!("accepted membership must remain visible to the status query");
+    };
+    assert_eq!(status.status, PublicPoolStatus::Pending);
+
+    let AuthorityTransactionLookup::Live(detail) = runtime
+        .transaction_lookup(&hash.0)
+        .expect("optional replacement-fee overflow is not an authority fault")
+    else {
+        panic!("accepted membership must remain visible to the detail query");
+    };
+    assert_eq!(detail.transaction.hash(), transaction.hash());
+    assert_eq!(detail.fee, Some(Capacity::shannons(u64::MAX)));
+    assert_eq!(detail.min_replace_fee, None);
 }
 
 #[test]

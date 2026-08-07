@@ -10,20 +10,19 @@ use super::super::plan::{
     test_support::{CandidateBatchError, ComponentLimitKind, MembershipSnapshot, StatusCounts},
 };
 use super::super::resources::{
-    AcceptedCost, AcceptedResources, ChargeRecord, ComputeLimits, ComputeReleaseError,
-    ResourceConfigError, ResourceLedger, ResourceLimits, ResourceVector,
-    test_support::ResourceSnapshot,
+    AcceptedCost, AcceptedResources, ChargeRecord, ComputeGrant, ComputeLimits,
+    ComputeReleaseError, ResidencyPolicy, ResourceConfigError, ResourceLedger, ResourceLimits,
+    ResourceVector, test_support::ResourceSnapshot,
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
-    CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, ComputeGrant, DependencyCut,
-    DependencyKey, EntryVersion, ExpandedFootprint, FootprintError, KnownDependencies,
-    ObservedDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedPhase,
-    PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, RemoteResidencyLease,
-    ResolvedPayload, TxIdentity, ValidatedAdmission, VerifiedFacts, VerifyCapability,
-    VerifyCycleClass, WorkPermit,
+    CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, DependencyCut, DependencyKey,
+    EntryVersion, ExpandedFootprint, FootprintError, KnownDependencies, ObservedDependencies,
+    OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
+    QueuedWork, RawTxHash, RemoteDeadline, RemoteResidencyLease, ResolvedPayload, TxIdentity,
+    ValidatedAdmission, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
     test_support::{FoundationResolution, RejectionKind},
 };
 use super::super::work::{
@@ -2854,10 +2853,7 @@ fn uak_all_four_preaccepted_phases_are_closed_variants() {
         PreAcceptedPhase::Computing(ActiveWork {
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveThenVerify(VerifyCapability::Any),
-            grant: ComputeGrant {
-                max_resident_bytes: bytes,
-                max_edges: 0,
-            },
+            grant: ComputeGrant::for_foundation(bytes, 0),
             attribution: ComputeAttribution::Trusted,
             payload_policy: PayloadPolicy::Trusted,
             dependency_cut: DependencyCut(ApplySequence(1)),
@@ -2920,10 +2916,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         PreAcceptedPhase::Computing(ActiveWork {
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::ResolveOnly,
-            grant: ComputeGrant {
-                max_resident_bytes: 1,
-                max_edges: 1,
-            },
+            grant: ComputeGrant::for_foundation(1, 1),
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
             payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
@@ -2932,10 +2925,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
         PreAcceptedPhase::Computing(ActiveWork {
             chain_view: ChainViewId::initial(),
             permit: WorkPermit::VerifyOnly(VerifyCapability::Any),
-            grant: ComputeGrant {
-                max_resident_bytes: 1,
-                max_edges: 1,
-            },
+            grant: ComputeGrant::for_foundation(1, 1),
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
             payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
@@ -6358,10 +6348,7 @@ fn uak_compute_release_requires_the_exact_non_compute_charge() {
     let peer = PeerIndex::from(127);
     let retained = ResourceVector::new(1, 128, 2, 0);
     let computing = retained
-        .reserve_compute(ComputeGrant {
-            max_resident_bytes: 256,
-            max_edges: 4,
-        })
+        .reserve_compute(ComputeGrant::for_foundation(256, 4))
         .expect("the fixture reserves one compute envelope");
     let before = ChargeRecord::PreAccepted {
         resources: computing,
@@ -6598,15 +6585,21 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
         .apply();
     assert_eq!(checkout_sequence, ApplySequence(2));
     assert_eq!(authority.clocks().next_sequence, ApplySequence(3));
-    let (compute_bytes, compute_edges) = authority
-        .resources()
-        .compute_limits()
-        .reservation_for(WorkPermit::ResolveThenVerify(VerifyCapability::Any));
+    let grant = match authority.entry(&hash) {
+        Some(OwnedTx::PreAccepted(entry)) => match &entry.phase {
+            PreAcceptedPhase::Computing(active) => active.grant,
+            PreAcceptedPhase::Queued(_)
+            | PreAcceptedPhase::Waiting(_)
+            | PreAcceptedPhase::Ready(_) => {
+                panic!("checkout fixture owner must be computing")
+            }
+        },
+        Some(OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+            panic!("checkout fixture must retain its preaccepted owner")
+        }
+    };
     let expected_charge = queued_charge
-        .reserve_compute(ComputeGrant {
-            max_resident_bytes: compute_bytes,
-            max_edges: compute_edges,
-        })
+        .reserve_compute(grant)
         .expect("fixture charge accepts exactly one compute reservation");
     assert_eq!(authority.resources().preaccepted(), expected_charge);
     assert!(authority.primary_projection_consistent());
@@ -6719,12 +6712,10 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
         panic!("continuous permit returns continuous resolve work");
     };
     assert_eq!(
-        resolve.resolution_grant(),
-        ComputeGrant {
-            max_resident_bytes: 4 * 1024,
-            max_edges: 16,
-        }
+        resolve.resolution_grant().max_total_retained_bytes(),
+        4 * 1024
     );
+    assert_eq!(resolve.resolution_grant().max_edges(), 16);
     let oversized = resolution_evidence(
         resolve.transaction(),
         Capacity::shannons(1),
@@ -6787,6 +6778,96 @@ fn uak_compute_growth_requires_an_authority_issued_grant() {
     );
     assert!(verify_authority.entry(&verify_hash).is_none());
     assert_resource_reference(&verify_authority);
+}
+
+#[test]
+fn uak_compute_grant_and_settlement_share_total_retained_byte_units() {
+    const GRANT_BYTES: usize = 4 * 1024;
+    const ENTRY_METADATA_BYTES: usize = 128;
+    const EDGE_METADATA_BYTES: usize = 64;
+
+    let limits = || {
+        let compute = ComputeLimits::new(GRANT_BYTES, GRANT_BYTES, 16);
+        let retained = ResourceVector::new(8, 64 * 1024, 128, 2)
+            .with_compute_capacity(2 * GRANT_BYTES, 32)
+            .expect("fixture compute partition fits");
+        let per_peer = ResourceVector::new(4, 32 * 1024, 64, 1)
+            .with_compute_capacity(GRANT_BYTES, 16)
+            .expect("fixture peer compute partition fits");
+        ResourceLimits::with_residency_policy(
+            retained,
+            retained,
+            per_peer,
+            AcceptedResources::new(8, 64 * 1024, 64 * 1024, u64::MAX),
+            compute,
+            ResidencyPolicy::production(
+                NonZeroUsize::new(ENTRY_METADATA_BYTES).expect("entry metadata is non-zero"),
+                NonZeroUsize::new(EDGE_METADATA_BYTES).expect("edge metadata is non-zero"),
+            ),
+        )
+        .expect("production-shaped limits are monotonic")
+    };
+
+    let mut exact = TxPoolAuthority::for_foundation(limits());
+    let exact_hash = admit_remote(&mut exact, 541, 55);
+    let exact_version = owner_version(&exact, &exact_hash);
+    let exact_checkout = exact
+        .plan_checkout_for_foundation(&exact_hash, exact_version, WorkPermit::ResolveOnly)
+        .expect("exact-boundary resolve checkout plans")
+        .apply();
+    let CheckedOutWork::Resolve(exact_work) = exact_checkout.into_work() else {
+        panic!("resolve-only permit returns resolve work");
+    };
+    let exact_evidence = resolution_evidence(
+        exact_work.transaction(),
+        Capacity::shannons(1),
+        GRANT_BYTES - ENTRY_METADATA_BYTES,
+        VerifyCycleClass::Small,
+    );
+    apply_plan(
+        exact
+            .apply_settlement(
+                exact_work
+                    .resolved(exact_evidence)
+                    .expect("exact-boundary evidence is structurally valid"),
+            )
+            .expect("the exact total-retained boundary settles"),
+    );
+    assert!(matches!(
+        exact.entry(&exact_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert_resource_reference(&exact);
+
+    let mut oversized = TxPoolAuthority::for_foundation(limits());
+    let oversized_hash = admit_remote(&mut oversized, 542, 56);
+    let oversized_version = owner_version(&oversized, &oversized_hash);
+    let oversized_checkout = oversized
+        .plan_checkout_for_foundation(&oversized_hash, oversized_version, WorkPermit::ResolveOnly)
+        .expect("oversized resolve checkout still owns a bounded grant")
+        .apply();
+    let CheckedOutWork::Resolve(oversized_work) = oversized_checkout.into_work() else {
+        panic!("resolve-only permit returns resolve work");
+    };
+    let oversized_evidence = resolution_evidence(
+        oversized_work.transaction(),
+        Capacity::shannons(1),
+        GRANT_BYTES - ENTRY_METADATA_BYTES + 1,
+        VerifyCycleClass::Small,
+    );
+    apply_plan(
+        oversized
+            .apply_settlement(
+                oversized_work
+                    .resolved(oversized_evidence)
+                    .expect("over-bound evidence compiles to an ordinary resource result"),
+            )
+            .expect("resource exclusion consumes the compute capability"),
+    );
+    assert!(oversized.entry(&oversized_hash).is_none());
+    assert_eq!(oversized.resources().preaccepted().active_work, 0);
+    assert_resource_reference(&oversized);
 }
 
 #[test]
@@ -7184,7 +7265,7 @@ fn uak_continuation_yield_returns_one_queued_owner() {
         panic!("resolve-only permit returns resolve work");
     };
     let resident_bytes = resolve.transaction().data().total_size();
-    assert_eq!(resolve.resolution_grant().max_edges, 16);
+    assert_eq!(resolve.resolution_grant().max_edges(), 16);
     let evidence = resolution_evidence(
         resolve.transaction(),
         Capacity::shannons(1),

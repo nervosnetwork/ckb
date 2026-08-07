@@ -37,7 +37,8 @@ use super::{
     },
     query::{
         AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
-        CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
+        AuthorityTransactionStatusLookup, CompactBlockReadReceipt, FeeEstimateReadReceipt,
+        LiveCellReadReceipt, PersistenceReceipt,
     },
     read::{
         RelayParentRebuildCursor, RelayParentRebuildCut, RelayParentRebuildError,
@@ -1559,6 +1560,18 @@ impl AuthorityRuntime {
         .map_err(Into::into)
     }
 
+    pub(crate) fn transaction_status_lookup(
+        &self,
+        hash: &Byte32,
+    ) -> AuthorityTransactionStatusLookup {
+        let store = self.store.read();
+        super::query::transaction_status_lookup(
+            &store.authority.read_view(),
+            &store.snapshot,
+            &RawTxHash(hash.clone()),
+        )
+    }
+
     pub(crate) fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityQueryError> {
         let store = self.store.read();
         let summary = store.authority.read_view().summary()?;
@@ -2548,6 +2561,9 @@ impl AuthorityRuntime {
             match store.authority.plan_retained_admission(ingress)? {
                 RetainedAdmissionDisposition::ProposalUnchanged => {
                     return Ok(RetainedIngressCommit::ProposalUnchanged);
+                }
+                RetainedAdmissionDisposition::ProposalPayloadVariant => {
+                    return Ok(RetainedIngressCommit::ProposalPayloadVariant);
                 }
                 RetainedAdmissionDisposition::Retained(plan) => {
                     (RetainedIngressCommit::Retained, plan.apply())

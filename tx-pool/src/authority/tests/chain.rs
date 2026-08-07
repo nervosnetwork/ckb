@@ -11,7 +11,9 @@ use super::super::{
         AuthorityFault, Backpressure, ComputeSettlementRecovery, PlanError, StalePlan,
         TxPoolAuthority,
     },
-    resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+    resources::{
+        AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceLimits, ResourceVector,
+    },
     runtime::AuthorityRuntime,
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
@@ -3034,6 +3036,88 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
     }));
     drop(committed);
     assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work() {
+    const GRANT_BYTES: usize = 512;
+    let retained = ResourceVector::new(8, 64 * 1024, 128, 1)
+        .with_compute_capacity(GRANT_BYTES, 16)
+        .expect("fixture compute partition fits");
+    let constrained = ResourceLimits::with_residency_policy(
+        retained,
+        retained,
+        retained,
+        AcceptedResources::new(8, 64 * 1024, 64 * 1024, u64::MAX),
+        ComputeLimits::new(GRANT_BYTES, GRANT_BYTES, 16),
+        ResidencyPolicy::production(
+            NonZeroUsize::new(64).expect("entry metadata is non-zero"),
+            NonZeroUsize::new(32).expect("edge metadata is non-zero"),
+        ),
+    )
+    .expect("production-shaped recovery limits are monotonic");
+    let oversized_parent = TransactionBuilder::default()
+        .version(1_311u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::from(vec![0u8; 1_024]).pack())
+        .build();
+    let child = child_transaction(1_312, &oversized_parent);
+    let unrelated = output_transaction(1_313);
+    let parent_hash = RawTxHash(oversized_parent.hash());
+    let child_hash = RawTxHash(child.hash());
+    let unrelated_hash = RawTxHash(unrelated.hash());
+    let mut authority = TxPoolAuthority::for_foundation(constrained);
+    let receipt = authority
+        .chain_validation_work(
+            ChainTransitionFacts::for_foundation(
+                next_view(70),
+                block_changes(
+                    Vec::new(),
+                    vec![child.clone(), unrelated.clone(), oversized_parent.clone()],
+                ),
+                Vec::new(),
+                Vec::new(),
+                ChainPackagingMode::ObserveOnly,
+            )
+            .expect("detached recovery facts are canonical"),
+        )
+        .expect("the recovery graph fits the causal bound")
+        .validate_for_foundation(Vec::new())
+        .expect("recoveries require no proposal facts");
+
+    apply_plan(
+        authority
+            .plan_chain_transition(receipt)
+            .expect("resource exclusion is a closed recovery disposition"),
+    );
+
+    assert!(authority.entry(&parent_hash).is_none());
+    assert!(authority.entry(&child_hash).is_none());
+    assert!(matches!(
+        authority.entry(&unrelated_hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.source, PreAcceptedSource::Recovery(_))
+                && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert_eq!(authority.owner_count(), 1);
+    assert_resource_reference(&authority);
+    assert!(authority.primary_projection_consistent());
+
+    let mut fresh = TxPoolAuthority::for_foundation(constrained);
+    apply_plan(
+        fresh
+            .plan_chain_generation_replacement(
+                next_view(71),
+                vec![child, unrelated, oversized_parent],
+            )
+            .expect("fresh-generation recovery uses the same exclusion closure"),
+    );
+    assert!(fresh.entry(&parent_hash).is_none());
+    assert!(fresh.entry(&child_hash).is_none());
+    assert!(fresh.entry(&unrelated_hash).is_some());
+    assert_eq!(fresh.owner_count(), 1);
+    assert_resource_reference(&fresh);
+    assert!(fresh.primary_projection_consistent());
 }
 
 #[test]

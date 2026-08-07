@@ -7,8 +7,12 @@ fn payload_matches(tx: &TransactionView, payload: &ResolvedPayload) -> bool {
 }
 
 fn resolved_within_grant(grant: ComputeGrant, payload: &ResolvedPayload) -> bool {
-    payload.resolved_resident_bytes() <= grant.max_resident_bytes
-        && payload.footprint.edge_count() <= grant.max_edges
+    grant
+        .retained_charge(
+            payload.resolved_resident_bytes(),
+            payload.footprint.edge_count(),
+        )
+        .is_some()
 }
 
 impl ResolutionEvidence {
