@@ -400,6 +400,7 @@ fn transaction_for_role(index: usize, role: CellRole, shared: CellId) -> Transac
         header_deps: BTreeSet::<HeaderId>::new(),
         outputs: BTreeSet::new(),
         bytes: 4,
+        cycles: 0,
         fee: 1_000_000u64.saturating_sub(u64::from(id) * 10_000),
         verify_class: super::state::VerifyCycleClass::Small,
     };

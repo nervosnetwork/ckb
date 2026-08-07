@@ -471,6 +471,7 @@ pub(super) struct Transaction {
     pub(super) header_deps: BTreeSet<HeaderId>,
     pub(super) outputs: BTreeSet<CellId>,
     pub(super) bytes: u32,
+    pub(super) cycles: u64,
     pub(super) fee: u64,
     pub(super) verify_class: VerifyCycleClass,
 }
@@ -486,6 +487,7 @@ impl Transaction {
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::from([CellId(output)]),
             bytes: 4,
+            cycles: 0,
             fee: 10,
             verify_class: VerifyCycleClass::Small,
         }
@@ -501,6 +503,7 @@ impl Transaction {
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::from([CellId(output)]),
             bytes: 4,
+            cycles: 0,
             fee: 10,
             verify_class: VerifyCycleClass::Small,
         }
@@ -508,6 +511,11 @@ impl Transaction {
 
     pub(super) fn with_verify_class(mut self, verify_class: VerifyCycleClass) -> Self {
         self.verify_class = verify_class;
+        self
+    }
+
+    pub(super) fn with_cycles(mut self, cycles: u64) -> Self {
+        self.cycles = cycles;
         self
     }
 
@@ -661,7 +669,7 @@ pub(super) enum DirectKind {
     TestAccept,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum AcceptedStatus {
     Pending,
     Gap,
@@ -679,6 +687,10 @@ pub(super) struct EvidenceContext {
 pub(super) struct ResolvedEvidence {
     pub(super) context: EvidenceContext,
     pub(super) verify_class: VerifyCycleClass,
+    /// Final proposal-window receipt consumed by membership Plan. Accepted
+    /// ownership derives its status from this one field, matching production's
+    /// `AcceptedEntry::status()` instead of storing a second mutable copy.
+    pub(super) proposal_status: AcceptedStatus,
     pub(super) input_origins: BTreeMap<CellId, InputOrigin>,
     pub(super) dep_origins: BTreeMap<CellId, InputOrigin>,
     // Header dependencies are immutable chain-view reads. Keeping them in a
@@ -700,6 +712,7 @@ impl ResolvedEvidence {
                 witness: transaction.witness,
             },
             verify_class: transaction.verify_class,
+            proposal_status: AcceptedStatus::Pending,
             input_origins: transaction
                 .inputs
                 .iter()
@@ -730,6 +743,11 @@ impl ResolvedEvidence {
                 .insert(cell, InputOrigin::Pool(parent));
         }
         evidence
+    }
+
+    pub(super) fn with_proposal_status(mut self, status: AcceptedStatus) -> Self {
+        self.proposal_status = status;
+        self
     }
 
     pub(super) fn is_for(
@@ -892,7 +910,6 @@ pub(super) enum OwnerLocation {
     Retained(RetainedOwner),
     Accepted {
         provenance: AcceptedProvenance,
-        status: AcceptedStatus,
         accepted_at_wall: u64,
         evidence: ResolvedEvidence,
     },

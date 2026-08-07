@@ -5,8 +5,9 @@
 //! authority state, then calls the production settlement planner.
 
 use super::foundation::{
-    accept_remote_transaction_with_payload, apply_plan, independent_batch,
-    resolved_payload_with_facts, verify_remote_transaction_with_payload,
+    accept_remote_transaction_with_payload, accept_remote_transaction_with_payload_and_cycles,
+    apply_plan, independent_batch, resolved_payload_with_facts,
+    verify_remote_transaction_with_payload,
 };
 use crate::{
     authority::{
@@ -15,17 +16,18 @@ use crate::{
         resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
         scheduler::MAX_READY_BATCH,
         state::{
-            AcceptedStatus, ChainRevision, ChainViewId, RawTxHash, ResolvedPayload,
+            AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, RawTxHash, ResolvedPayload,
             ValidatedAdmission,
         },
     },
     mathematical_model::{
-        CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
-        REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole, accepted_capacity_observation,
-        accepted_role_observation, candidate_graph_observation, candidate_role_observation,
-        evidence_origin_observation, positioned_role_observation, ready_order_observation,
-        shared_header_observation, source_observation, source_pressure_observation,
-        stale_observation,
+        CellRole, EffectPressure, EvictionRefinementInput, EvictionRefinementMetrics,
+        EvictionRefinementObservation, EvictionRefinementStatus, EvidenceOriginRole,
+        FrontierObservation, FrontierTerminal, REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole,
+        accepted_capacity_observation, accepted_role_observation, candidate_graph_observation,
+        candidate_role_observation, eviction_observation, evidence_origin_observation,
+        positioned_role_observation, ready_order_observation, shared_header_observation,
+        source_observation, source_pressure_observation, stale_observation,
     },
 };
 use ckb_types::{
@@ -229,6 +231,70 @@ fn uak_chain_and_pool_evidence_origins_refine_pointwise() {
             "evidence origin {origin:?}"
         );
     }
+}
+
+#[test]
+fn uak_eviction_order_refines_the_exact_ckb_weight_and_tuple() {
+    let authority = production_eviction_fixture();
+    let snapshot = authority.membership_snapshot_for_reference();
+    let mut expected = authority
+        .entries_for_reference()
+        .iter()
+        .filter_map(|(hash, owner)| {
+            let OwnedTx::Accepted(entry) = owner else {
+                return None;
+            };
+            let aggregate = snapshot.descendant_aggregates.get(hash)?;
+            let own = entry.proof.metrics();
+            Some(eviction_observation(EvictionRefinementInput {
+                status: refinement_status(entry.status()),
+                own: EvictionRefinementMetrics::new(
+                    own.fee.as_u64(),
+                    u64::try_from(own.cost.serialized_bytes).ok()?,
+                    own.cost.cycles,
+                ),
+                descendants: EvictionRefinementMetrics::new(
+                    aggregate.fee.as_u64(),
+                    u64::try_from(aggregate.serialized_bytes).ok()?,
+                    aggregate.cycles,
+                ),
+                descendants_count: aggregate.entries,
+                arrival: entry.record.arrival.0,
+                identity: refinement_identity(hash),
+            }))
+        })
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+
+    let actual = snapshot
+        .eviction_order
+        .iter()
+        .map(|key| EvictionRefinementObservation {
+            status: refinement_status(key.status),
+            fee_rate: key.fee_rate.as_u64(),
+            descendants_count: key.descendants_count,
+            arrival: key.arrival.0,
+            identity: refinement_identity(&key.hash),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
+    assert!(
+        actual
+            .iter()
+            .any(|key| key.status == EvictionRefinementStatus::Pending)
+            && actual
+                .iter()
+                .any(|key| key.status == EvictionRefinementStatus::Gap)
+            && actual
+                .iter()
+                .any(|key| key.status == EvictionRefinementStatus::Proposed),
+        "the production fixture covers every eviction-status rank"
+    );
+    assert!(
+        actual.iter().any(|key| key.descendants_count > 1),
+        "the production fixture covers descendant aggregates"
+    );
 }
 
 fn production_candidate_roles(roles: &[CellRole]) -> FrontierObservation {
@@ -744,6 +810,101 @@ fn ranked_fee(index: usize) -> u64 {
         .get(index)
         .copied()
         .expect("the finite refinement rank fits the production batch")
+}
+
+fn production_eviction_fixture() -> TxPoolAuthority {
+    let mut authority = TxPoolAuthority::for_foundation(eviction_refinement_limits());
+    let parent_input = OutPoint::new(Byte32::new([210; 32]), 0);
+    let parent = TransactionBuilder::default()
+        .version(20_000u32)
+        .input(CellInput::new(parent_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::from(vec![0; 32]).pack())
+        .build();
+    let parent_payload = resolved_payload_with_facts(
+        &parent,
+        Vec::new(),
+        vec![parent_input],
+        Capacity::shannons(100),
+    );
+    accept_remote_transaction_with_payload_and_cycles(
+        &mut authority,
+        parent.clone(),
+        2_000,
+        AcceptedStatus::Pending,
+        parent_payload,
+        2_000_000,
+    );
+
+    let child = TransactionBuilder::default()
+        .version(20_001u32)
+        .input(CellInput::new(OutPoint::new(parent.hash(), 0), 0))
+        .build();
+    let child_payload =
+        resolved_payload_with_facts(&child, Vec::new(), Vec::new(), Capacity::shannons(10_000));
+    accept_remote_transaction_with_payload(
+        &mut authority,
+        child,
+        2_001,
+        AcceptedStatus::Pending,
+        child_payload,
+    );
+
+    for (offset, status, fee, cycles) in [
+        (0u8, AcceptedStatus::Gap, 1u64, 0u64),
+        (1, AcceptedStatus::Proposed, 596, 3_500_000),
+        (2, AcceptedStatus::Pending, 7, 0),
+        (3, AcceptedStatus::Pending, 7, 0),
+    ] {
+        let chain_input = OutPoint::new(Byte32::new([220 + offset; 32]), 0);
+        let transaction = TransactionBuilder::default()
+            .version(20_010 + u32::from(offset))
+            .input(CellInput::new(chain_input.clone(), 0))
+            .build();
+        let payload = resolved_payload_with_facts(
+            &transaction,
+            Vec::new(),
+            vec![chain_input],
+            Capacity::shannons(fee),
+        );
+        accept_remote_transaction_with_payload_and_cycles(
+            &mut authority,
+            transaction,
+            2_010 + usize::from(offset),
+            status,
+            payload,
+            cycles,
+        );
+    }
+    authority
+}
+
+fn refinement_status(status: AcceptedStatus) -> EvictionRefinementStatus {
+    match status {
+        AcceptedStatus::Pending => EvictionRefinementStatus::Pending,
+        AcceptedStatus::Gap => EvictionRefinementStatus::Gap,
+        AcceptedStatus::Proposed => EvictionRefinementStatus::Proposed,
+    }
+}
+
+fn refinement_identity(hash: &RawTxHash) -> [u8; 32] {
+    let mut identity = [0; 32];
+    identity.copy_from_slice(hash.0.as_slice());
+    identity
+}
+
+fn eviction_refinement_limits() -> ResourceLimits {
+    ResourceLimits::new(
+        ResourceVector::new(16, 256 * 1024, 256, 16),
+        ResourceVector::new(16, 256 * 1024, 256, 16),
+        ResourceVector::new(16, 256 * 1024, 256, 16),
+        AcceptedResources::new(16, 256 * 1024, 256 * 1024, 20_000_000),
+        ComputeLimits::new(16 * 1024, 16 * 1024, 256),
+    )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(8, 128 * 1024, 128, 0))
+    })
+    .expect("the finite eviction-refinement fixture has valid resource partitions")
 }
 
 fn refinement_limits() -> ResourceLimits {

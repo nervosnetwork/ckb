@@ -240,15 +240,16 @@
       "id": "TP-POOL-001",
       "title": "Atomic accepted membership graph",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/plan/membership.rs", "symbols": ["struct MembershipProjection", "struct PreparedMembership", "struct ProjectionDelta"]},
-        {"path": "tx-pool/src/authority/plan/membership/eviction.rs", "symbols": ["fn apply_removals", "fn apply_candidate"]}
+        {"path": "tx-pool/src/authority/plan/membership.rs", "symbols": ["struct MembershipProjection", "struct PreparedMembership", "struct ProjectionDelta", "struct EvictionOrderKey"]},
+        {"path": "tx-pool/src/authority/plan/membership/eviction.rs", "symbols": ["fn complete_removals", "fn apply_removals", "fn apply_candidate"]}
       ],
-      "required_behavior": "Accepted ownership, spender relation, causal parents, aggregates, status counts and eviction order are one derived MembershipProjection changed atomically with owners and resources.",
+      "required_behavior": "Accepted ownership, spender relation, causal parents, aggregates, status counts and eviction order are one derived MembershipProjection changed atomically with owners and resources. Capacity chooses the smallest exact tuple of status, max(self, descendant) integer fee rate over CKB size/cycle weight, descendant count, arrival and raw identity, then removes one complete valid descendant closure.",
       "hostile_case": "Diamond/fan-in graph, late parent, conditional reader/spender, capacity eviction, status change or RBF descendant removal must not leave a surviving invalid consumer, stale aggregate or partial component.",
       "reviewer_questions": [
         "Does one canonical graph delta update every affected aggregate once?",
         "Are inputs and cell-dep reader relations intentionally distinct?",
-        "Does capacity remove a complete valid component and never a candidate ancestor?"
+        "Does capacity remove a complete valid component and never a candidate ancestor?",
+        "Does every capacity comparison preserve CKB weight, integer rounding and every deterministic tie field?"
       ],
       "performance_bound": "Sparse bounded graph deltas replace full-pool rebuilds; deterministic order uses checked integer comparison."
     },
@@ -430,6 +431,10 @@
     {"test": "authority::tests::foundation::uak_causal_diamond_is_projection_equivalent_for_every_arrival_order", "behavior_id": "TP-POOL-001", "invariants": ["T4", "T6"]},
     {"test": "authority::tests::foundation::uak_capacity_eviction_removes_one_complete_causal_component", "behavior_id": "TP-POOL-001", "invariants": ["T3", "T4", "T6", "T8"]},
     {"test": "authority::tests::foundation::uak_status_reconcile_updates_count_and_eviction_projection_once", "behavior_id": "TP-POOL-001", "invariants": ["T5", "T6", "T12"]},
+    {"test": "authority::tests::refinement::uak_eviction_order_refines_the_exact_ckb_weight_and_tuple", "behavior_id": "TP-POOL-001", "invariants": ["T3", "T5", "T6", "T8", "T12"]},
+    {"test": "mathematical_model::eviction_properties::model_eviction_key_is_the_exact_status_rate_count_arrival_identity_order", "behavior_id": "TP-POOL-001", "invariants": ["T5", "T6", "T8", "T11"]},
+    {"test": "mathematical_model::eviction_properties::model_eviction_uses_the_stronger_of_self_and_descendant_fee_rate", "behavior_id": "TP-POOL-001", "invariants": ["T3", "T5", "T6", "T8"]},
+    {"test": "mathematical_model::eviction_properties::model_eviction_weight_and_fee_rate_preserve_ckb_rounding_and_saturation", "behavior_id": "TP-POOL-001", "invariants": ["T5", "T6", "T8", "T11"]},
 
     {"test": "authority::tests::template::uak_recovered_tree_has_normal_template_proposal_path", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T4", "T9", "T10", "T13"]},
     {"test": "authority::tests::template_driver::uak_template_driver_full_priority_and_partial_occ_use_one_output_revision", "behavior_id": "TP-TEMPLATE-001", "invariants": ["T9", "T10", "T13"]},
@@ -514,6 +519,7 @@
     {"test": "mathematical_model::properties::model_compute_grant_uses_total_retained_bytes_not_payload_only_evidence", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8", "T11"]},
     {"test": "mathematical_model::properties::model_capacity_eviction_never_removes_a_candidate_ancestor", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T4", "T6", "T8"]},
     {"test": "mathematical_model::properties::model_capacity_eviction_removes_one_complete_accepted_component", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T4", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::properties::model_capacity_eviction_uses_status_weight_count_and_arrival_in_order", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T5", "T6", "T8", "T11"]},
     {"test": "mathematical_model::properties::model_capacity_self_eviction_preserves_existing_membership_and_terminalizes_the_candidate", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T7", "T8"]},
     {"test": "mathematical_model::properties::model_per_peer_resource_exclusion_is_pre_apply_and_other_peers_remain_independent", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T6", "T8"]},
     {"test": "mathematical_model::properties::model_startup_rejects_recovery_history_larger_than_retained_capacity", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T8"]},

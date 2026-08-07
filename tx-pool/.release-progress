@@ -3338,3 +3338,43 @@ production exposure cannot disappear behind a green desired model. Production
 semantics remain frozen. The exact next action is M3.3 step 5: refine the full
 production eviction key and its arithmetic/order semantics, then execute the
 registered-ledger closure and whole-phase gates.
+
+### M3.3 step 5 exact eviction refinement state
+
+The executable kernel now refines the complete production capacity-eviction
+order instead of the former fee/byte approximation. The independent quotient
+reproduces CKB size/cycle weight, saturating integer fee-rate calculation,
+`max(self, descendant)` aggregation and the exact lexicographic tuple of
+proposal status, fee rate, descendant count, arrival and raw identity. A real
+authority replay constructs all three proposal statuses, cycle-dominated and
+rounded rates, a parent/child aggregate and equal-metric distinct arrivals,
+then compares the quotient with the production `MembershipProjection` order.
+
+The phase review found and removed one model-only duplicate authority before
+the checkpoint: Accepted status was stored both beside and inside resolved
+evidence. The owner location now derives status solely from the same evidence
+field consumed by membership Plan, matching production `AcceptedEntry::status()`.
+Candidate arrival remains a read-only Plan input and advances only on a
+successful Apply. No production state, lock, task, effect or hot path changed.
+
+Gates at this cut:
+
+- complete internal-feature nextest: 625/625, zero skipped;
+- complete default-feature nextest: 621/621, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- strict all-target internal-feature Clippy and formatting;
+- complete eight-contract gate, including TLC 1,098 generated / 318 distinct
+  positive states and the required four-state negative witness;
+- mechanically derived refinement frontier: model 209 reachable / 82 outside
+  roots / 20 files and production 611 / 11 / 37;
+- generated evidence: 311 exact tx-pool Rust tests, 1,200 invariant references,
+  nine cross-crate conformance tests, two open counterexamples, 19 integration
+  anchors, 150 managed specs and 625 discovered internal tests.
+
+This closes M3.3 step 5. The exact next action is the registered section 16
+ledger replay: close the producer-specific result algebras for
+`D1-FAULT-COMPUTE-UNIT`, `D1-FAULT-RESOURCE`,
+`D1-FAULT-INGRESS-VARIANT` and `D1-FAULT-QUERY-DERIVED`, generate complete
+fault/task/capability reachability, then run the whole-model and standing
+exposure review. Production semantic edits remain frozen unless that review
+triggers the standing narrow-correction rule.

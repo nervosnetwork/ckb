@@ -246,7 +246,9 @@ pub(super) fn query_subject(
         .get(&transaction)
         .map(|owner| &owner.location)
     {
-        Some(OwnerLocation::Accepted { status, .. }) => QuerySubject::Accepted(*status),
+        Some(OwnerLocation::Accepted { evidence, .. }) => {
+            QuerySubject::Accepted(evidence.proposal_status)
+        }
         Some(OwnerLocation::Retained(RetainedOwner {
             phase:
                 RetainedPhase::Queued(WorkStage::Verify(_))

@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: M3.2 bounded-footprint refinement complete; trace refinement active
-Checkpoint: M3.2 commit containing this record
-Active slice: M3.3 trace conformance and complete ledger replay
+Status: M3.3 exact eviction refinement complete; registered-ledger replay active
+Checkpoint: M3.3 step 5 commit containing this record
+Active slice: M3.3 producer-specific fault/task/capability closure
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -3014,7 +3014,7 @@ be mechanically closed in production.
 | --- | --- | --- |
 | `D1-SEM-RAW` | `model_verification_cache_identity_is_witness_plus_rules_not_raw_identity`, `model_payload_variant_is_an_ordinary_outcome_and_same_witness_promotion_is_atomic`, `model_header_dependencies_are_chain_only_evidence_and_charged_edges`; cryptographic collision resistance is the named external premise | bind symbolic raw/witness/proposal/header extraction to production receipts |
 | `D1-SEM-EVIDENCE` | `model_chain_revision_prevents_view_hash_aba_from_reviving_old_work`, `model_pool_origin_is_evidence_and_parent_loss_removes_the_accepted_causal_closure`, `model_detached_header_recovers_accepted_consumer_without_public_rejection` | prove the production extraction uses the same snapshot/revision/rules cut and distinguishes detach loss from attached spend |
-| `D1-SEM-COUPLING` | successful/failed RBF, dependency closure, header-only read and per-peer independence model tests | M2 derives the exact coupling footprint and exchange relation |
+| `D1-SEM-COUPLING` | successful/failed RBF, dependency closure, header-only read and per-peer independence model tests; `model_eviction_weight_and_fee_rate_preserve_ckb_rounding_and_saturation`, `model_eviction_key_is_the_exact_status_rate_count_arrival_identity_order`, `model_capacity_eviction_uses_status_weight_count_and_arrival_in_order` and `uak_eviction_order_refines_the_exact_ckb_weight_and_tuple` bind capacity eviction to the production CKB weight and full deterministic tuple | M3.5 derives the final exchange relation and proves whether capacity coupling can share a canonical Plan without duplicating the eviction authority |
 | `D1-LIFECYCLE` | `model_cold_retained_lifecycle_exposes_the_exact_sequential_apply_cost` records seven sequential-oracle Applies | M2 proves which adjacent independent steps commute and which transition count the implementation must attain |
 | `D1-PERMIT-FAIRNESS` | `model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reuse_it` | M4 maps every production permit return/acquire edge and forbids direct cross-execution reuse |
 | `D1-EFFECT-SETTLEMENT-FAIRNESS` | the successful multi-capacity `PermitEffect.tla` liveness run plus `model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work` and `model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees` | M4 orders same-capacity effectful settlement by the existing checkout `EntryVersion`, preserves no-effect bypass and adds an exact production replay |
@@ -3057,10 +3057,10 @@ experiments:
 2. **M3.2 complete:** differentially enumerate the bounded footprint universe and require exact
    pointwise model/production classification, including every coupled fallback
    edge rather than only representative examples;
-3. **M3.3 active:** stable authority and real boundary traces are complete;
-   the multi-owner scheduler/permit quotient and multi-capacity effect model
-   are complete; next replay every registered section 16 row through closed
-   producer-specific result algebras and
+3. **M3.3 active:** stable authority and real boundary traces, the multi-owner
+   scheduler/permit quotient, the multi-capacity effect model and exact
+   production eviction refinement are complete; next replay every registered
+   section 16 row through closed producer-specific result algebras and
    generated fault/task/capability reachability checks. The four legal-input
    fail-stop paths must close in M3 or force a narrow pre-topology correction;
 4. map `develop` into the same observations and prove which races require one

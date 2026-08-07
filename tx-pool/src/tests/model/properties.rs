@@ -804,9 +804,9 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
     assert!(matches!(
         omega.authority.owners[&retained.id].location,
         OwnerLocation::Accepted {
-            status: AcceptedStatus::Pending,
+            ref evidence,
             ..
-        }
+        } if evidence.proposal_status == AcceptedStatus::Pending
     ));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
@@ -2135,13 +2135,10 @@ fn model_chain_reconciliation_promotes_committed_parent_evidence_without_losing_
     let Some(owner) = omega.authority.owners.get(&child.id) else {
         panic!("surviving child must remain owned");
     };
-    let OwnerLocation::Accepted {
-        status, evidence, ..
-    } = &owner.location
-    else {
+    let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
         panic!("surviving child must remain accepted");
     };
-    assert_eq!(*status, AcceptedStatus::Gap);
+    assert_eq!(evidence.proposal_status, AcceptedStatus::Gap);
     assert_eq!(evidence.context.chain.tip, ViewId(2));
     assert_eq!(
         evidence.input_origins.get(&CellId(20)),
@@ -2292,9 +2289,9 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
             .get(&transaction.id)
             .map(|owner| &owner.location),
         Some(OwnerLocation::Accepted {
-            status: AcceptedStatus::Gap,
+            evidence,
             ..
-        })
+        }) if evidence.proposal_status == AcceptedStatus::Gap
     ));
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
         from: omega.authority.chain,
@@ -2316,9 +2313,9 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
             .get(&transaction.id)
             .map(|owner| &owner.location),
         Some(OwnerLocation::Accepted {
-            status: AcceptedStatus::Pending,
+            evidence,
             ..
-        })
+        }) if evidence.proposal_status == AcceptedStatus::Pending
     ));
     assert_eq!(
         omega
@@ -3352,7 +3349,11 @@ fn model_capacity_eviction_removes_one_complete_accepted_component() {
     let mut parent = Transaction::independent(1, 1, 10, 20);
     parent.fee = 1;
     let mut child = Transaction::dependent(2, 2, 20, 30);
-    child.fee = 1;
+    // The parent package rate is lower than the child's self rate, so the
+    // production eviction tuple selects the parent and therefore its complete
+    // descendant closure. Equal rates would deliberately select the leaf by
+    // the smaller-descendant-count tie-break.
+    child.fee = 100;
     let mut candidate = Transaction::independent(3, 3, 11, 21);
     candidate.fee = 100;
     let mut omega = model_with_accepted_limit(2, 8);
@@ -3421,6 +3422,125 @@ fn model_capacity_eviction_removes_one_complete_accepted_component() {
         ]
     );
     assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
+    // Status is the first production key field: a Pending candidate cannot
+    // evict a Proposed member merely by paying a higher fee.
+    let mut proposed = Transaction::independent(1, 1, 10, 20);
+    proposed.fee = 1;
+    let mut pending = Transaction::independent(2, 2, 11, 21);
+    pending.fee = 1_000;
+    let mut status_omega = model_with_accepted_limit(1, 8);
+    let proposed_evidence = ResolvedEvidence::for_transaction(
+        &proposed,
+        status_omega.authority.chain,
+        status_omega.authority.rules,
+    )
+    .with_proposal_status(AcceptedStatus::Proposed);
+    drive_ready_with_evidence(
+        &mut status_omega,
+        &proposed,
+        remote_source(7, u64::MAX),
+        proposed_evidence,
+    );
+    assert!(matches!(
+        status_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 10 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::Accepted(_),
+            ..
+        }
+    ));
+    drive_ready(&mut status_omega, &pending, 8);
+    assert!(matches!(
+        status_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 11 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::ResourceRejected(id),
+            ..
+        } if id == pending.id
+    ));
+
+    // CKB weight, not absolute fee, controls the second field. The expensive
+    // candidate has a lower integer fee rate once its cycles dominate size.
+    let mut resident = Transaction::independent(3, 3, 12, 22);
+    resident.fee = 10;
+    let mut cycle_heavy = Transaction::independent(4, 4, 13, 23).with_cycles(1_000_000);
+    cycle_heavy.fee = 100;
+    let mut weight_omega = model_with_accepted_limit(1, 8);
+    accept(&mut weight_omega, &resident, 9, 20);
+    drive_ready(&mut weight_omega, &cycle_heavy, 10);
+    assert!(matches!(
+        weight_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 21 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::ResourceRejected(id),
+            ..
+        } if id == cycle_heavy.id
+    ));
+
+    // Equal-rate roots prefer the smaller descendant closure. Removing the
+    // leaf is enough to fit and preserves its still-valid parent.
+    let mut parent = Transaction::independent(5, 5, 14, 24);
+    parent.fee = 1;
+    let mut child = Transaction::dependent(6, 6, 24, 25);
+    child.fee = 1;
+    let mut stronger = Transaction::independent(7, 7, 15, 26);
+    stronger.fee = 100;
+    let mut count_omega = model_with_accepted_limit(2, 8);
+    accept(&mut count_omega, &parent, 11, 30);
+    let child_evidence = ResolvedEvidence::with_pool_input(
+        &child,
+        count_omega.authority.chain,
+        count_omega.authority.rules,
+        CellId(24),
+        parent.id,
+    );
+    drive_ready_with_evidence(
+        &mut count_omega,
+        &child,
+        remote_source(12, u64::MAX),
+        child_evidence,
+    );
+    assert!(matches!(
+        count_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 31 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::Accepted(_),
+            ..
+        }
+    ));
+    drive_ready(&mut count_omega, &stronger, 13);
+    assert!(matches!(
+        count_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 32 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::CapacityAccepted { ref victims, .. },
+            ..
+        } if victims == &vec![child.id]
+    ));
+    assert!(count_omega.authority.owners.contains_key(&parent.id));
+
+    // Arrival is globally monotonic, so it resolves equal status/rate/count
+    // keys before the identity fallback. The earlier resident is weaker.
+    let mut earlier = Transaction::independent(8, 8, 16, 27);
+    earlier.fee = 1;
+    let mut later = Transaction::independent(9, 9, 17, 28);
+    later.fee = 1;
+    let mut winner = Transaction::independent(10, 10, 18, 29);
+    winner.fee = 100;
+    let mut arrival_omega = model_with_accepted_limit(2, 8);
+    accept(&mut arrival_omega, &earlier, 14, 40);
+    accept(&mut arrival_omega, &later, 15, 41);
+    drive_ready(&mut arrival_omega, &winner, 16);
+    assert!(matches!(
+        arrival_omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 42 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::CapacityAccepted { ref victims, .. },
+            ..
+        } if victims == &vec![earlier.id]
+    ));
+    assert_eq!(status_omega.check_invariants(), Ok(()));
+    assert_eq!(weight_omega.check_invariants(), Ok(()));
+    assert_eq!(count_omega.check_invariants(), Ok(()));
+    assert_eq!(arrival_omega.check_invariants(), Ok(()));
 }
 
 #[test]

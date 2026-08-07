@@ -337,6 +337,7 @@ impl ReferenceTrace {
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::new(),
             bytes: 4,
+            cycles: 0,
             fee: 10,
             verify_class: model_verify_class(scenario.transaction.verify_class),
         };
@@ -517,10 +518,12 @@ impl ReferenceTrace {
                         }
                     }
                     OwnerLocation::Accepted {
-                        provenance, status, ..
+                        provenance,
+                        evidence,
+                        ..
                     } => TraceOwnerLocation::Accepted {
                         provenance: trace_provenance(*provenance),
-                        status: trace_status(*status),
+                        status: trace_status(evidence.proposal_status),
                     },
                     OwnerLocation::ReplacementHistory { .. } => {
                         TraceOwnerLocation::ReplacementHistory

@@ -10,6 +10,8 @@ mod boundaries;
 mod boundary_trace;
 mod composition;
 mod composition_properties;
+mod eviction_properties;
+mod eviction_quotient;
 mod handoff;
 mod kernel;
 mod permit;
@@ -28,6 +30,10 @@ pub(crate) use boundary_trace::{
     BoundaryRequestId, BoundarySource, BoundaryTxId, BoundaryWitnessId,
     reference_controller_success_boundary_trace, reference_failed_enqueue_boundary_trace,
     reference_remote_rejection_boundary_trace_with_relay,
+};
+pub(crate) use eviction_quotient::{
+    EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementObservation,
+    EvictionRefinementStatus, eviction_observation,
 };
 pub(crate) use refinement::{
     CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,

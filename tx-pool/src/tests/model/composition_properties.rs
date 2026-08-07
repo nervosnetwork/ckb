@@ -16,9 +16,9 @@ use super::permit::{
 };
 use super::scheduler_quotient::SchedulerQuotient;
 use super::state::{
-    AcceptedStatus, ApplyStamp, CellId, EffectClass, HeaderId, InputOrigin, LogicalEffect,
-    ModelLimits, Omega, OwnerLocation, PeerId, ProposalBase, RemoteDeadline, RemoteResidency,
-    ResolvedEvidence, RetainedSource, RulesId, Source, Transaction, TxId, ViewId, WorkCapability,
+    ApplyStamp, CellId, EffectClass, HeaderId, InputOrigin, LogicalEffect, ModelLimits, Omega,
+    OwnerLocation, PeerId, ProposalBase, RemoteDeadline, RemoteResidency, ResolvedEvidence,
+    RetainedSource, RulesId, Source, Transaction, TxId, ViewId, WorkCapability,
 };
 
 fn model() -> Omega {
@@ -423,13 +423,7 @@ fn model_remote_source_is_a_footprint_policy_term_not_a_second_authority() {
         .expect("the retained owner exists");
     assert!(matches!(owner.location, OwnerLocation::Retained(_)));
     assert_eq!(owner.ingress_peer(), Some(PeerId(7)));
-    assert!(!matches!(
-        owner.location,
-        OwnerLocation::Accepted {
-            status: AcceptedStatus::Pending,
-            ..
-        }
-    ));
+    assert!(!matches!(owner.location, OwnerLocation::Accepted { .. }));
 }
 
 #[test]

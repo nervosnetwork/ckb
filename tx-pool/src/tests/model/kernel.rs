@@ -1,4 +1,8 @@
 use super::{
+    eviction_quotient::{
+        EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementObservation,
+        EvictionRefinementStatus, eviction_observation,
+    },
     scheduler_quotient::SchedulerAssignment,
     state::{
         AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
@@ -183,35 +187,85 @@ enum CapacitySelection {
     CandidateEvicted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct EvictionScore {
-    fee: u64,
-    bytes: u32,
-    transaction: TxId,
+#[derive(Clone, Copy, Debug)]
+struct CapacitySelectionInput<'a> {
+    candidate: &'a Transaction,
+    arrival: Arrival,
+    status: AcceptedStatus,
+    charge: super::state::ResourceVector,
+    mandatory: &'a BTreeSet<TxId>,
+    protected_ancestors: &'a BTreeSet<TxId>,
+    late_children: &'a BTreeSet<TxId>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EvictionScore(EvictionRefinementObservation);
 
 impl EvictionScore {
     fn for_component(authority: &Omega, root: TxId, component: &BTreeSet<TxId>) -> Option<Self> {
-        let (fee, bytes) = component
-            .iter()
-            .try_fold((0u64, 0u32), |(fee, bytes), id| {
-                let transaction = &authority.authority.owners.get(id)?.transaction;
-                Some((
-                    fee.checked_add(transaction.fee)?,
-                    bytes.checked_add(transaction.bytes)?,
-                ))
-            })?;
-        Some(Self {
-            fee,
-            bytes,
-            transaction: root,
-        })
+        let owner = authority.authority.owners.get(&root)?;
+        let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
+            return None;
+        };
+        let (fee, bytes, cycles) =
+            component
+                .iter()
+                .try_fold((0u64, 0u32, 0u64), |(fee, bytes, cycles), id| {
+                    let transaction = &authority.authority.owners.get(id)?.transaction;
+                    Some((
+                        fee.checked_add(transaction.fee)?,
+                        bytes.checked_add(transaction.bytes)?,
+                        cycles.checked_add(transaction.cycles)?,
+                    ))
+                })?;
+        Some(Self::new(
+            evidence.proposal_status,
+            owner.arrival,
+            &owner.transaction,
+            EvictionRefinementMetrics::new(fee, u64::from(bytes), cycles),
+            component.len(),
+        ))
+    }
+
+    fn for_candidate(
+        status: AcceptedStatus,
+        arrival: Arrival,
+        candidate: &Transaction,
+        descendants: EvictionRefinementMetrics,
+        descendants_count: usize,
+    ) -> Self {
+        Self::new(status, arrival, candidate, descendants, descendants_count)
+    }
+
+    fn new(
+        status: AcceptedStatus,
+        arrival: Arrival,
+        transaction: &Transaction,
+        descendants: EvictionRefinementMetrics,
+        descendants_count: usize,
+    ) -> Self {
+        let mut identity = [0; 32];
+        identity[31] = transaction.id.0;
+        Self(eviction_observation(EvictionRefinementInput {
+            status: match status {
+                AcceptedStatus::Pending => EvictionRefinementStatus::Pending,
+                AcceptedStatus::Gap => EvictionRefinementStatus::Gap,
+                AcceptedStatus::Proposed => EvictionRefinementStatus::Proposed,
+            },
+            own: EvictionRefinementMetrics::new(
+                transaction.fee,
+                u64::from(transaction.bytes),
+                transaction.cycles,
+            ),
+            descendants,
+            descendants_count,
+            arrival: u128::from(arrival.0),
+            identity,
+        }))
     }
 
     fn is_weaker_than(self, other: Self) -> bool {
-        let left = u128::from(self.fee) * u128::from(other.bytes);
-        let right = u128::from(other.fee) * u128::from(self.bytes);
-        left < right || (left == right && self.transaction < other.transaction)
+        self.0 < other.0
     }
 }
 
@@ -1480,7 +1534,11 @@ impl Omega {
                 break;
             };
             if !matches!(
-                simulated.evaluate_membership_candidate(&owner.transaction, evidence),
+                simulated.evaluate_membership_candidate(
+                    &owner.transaction,
+                    owner.arrival,
+                    evidence,
+                ),
                 MembershipEvaluation::Accepted(acceptance)
                     if acceptance.is_independent_insert()
             ) {
@@ -1505,12 +1563,19 @@ impl Omega {
         let effect_plan = accepted
             .iter()
             .filter_map(|transaction| {
-                self.authority.owners.get(transaction).map(|owner| {
-                    LogicalEffect::admitted(
+                self.authority.owners.get(transaction).and_then(|owner| {
+                    let OwnerLocation::Retained(RetainedOwner {
+                        phase: RetainedPhase::Ready(evidence),
+                        ..
+                    }) = &owner.location
+                    else {
+                        return None;
+                    };
+                    Some(LogicalEffect::admitted(
                         &owner.transaction,
-                        AcceptedStatus::Pending,
+                        evidence.proposal_status,
                         owner.ingress_peer(),
-                    )
+                    ))
                 })
             })
             .collect::<Vec<_>>();
@@ -1543,7 +1608,6 @@ impl Omega {
             owner.version = version;
             owner.location = OwnerLocation::Accepted {
                 provenance,
-                status: AcceptedStatus::Pending,
                 accepted_at_wall: wall_time,
                 evidence,
             };
@@ -1586,12 +1650,16 @@ impl Omega {
         }
         let provenance = source.accepted_provenance();
         let effect_class = source.effect_class();
+        let accepted_status = evidence.proposal_status;
         let evidence = evidence.clone();
-        let evaluation = self.evaluate_membership_candidate(&owner.transaction, &evidence);
+        let evaluation =
+            self.evaluate_membership_candidate(&owner.transaction, owner.arrival, &evidence);
         let rejection_roots = BTreeSet::from([transaction]);
         let rejection_loss = matches!(evaluation, MembershipEvaluation::Rejected(_))
             .then(|| self.owner_loss_plan(&rejection_roots, &BTreeSet::new()));
-        let Some(mut effect_plan) = self.membership_effects(&owner.transaction, &evaluation) else {
+        let Some(mut effect_plan) =
+            self.membership_effects(&owner.transaction, accepted_status, &evaluation)
+        else {
             return counter_exhausted();
         };
         if let Some(owner_loss) = &rejection_loss {
@@ -1627,7 +1695,6 @@ impl Omega {
                 winner.version = version;
                 winner.location = OwnerLocation::Accepted {
                     provenance,
-                    status: AcceptedStatus::Pending,
                     accepted_at_wall: wall_time,
                     evidence,
                 };
@@ -1678,6 +1745,7 @@ impl Omega {
     fn evaluate_membership_candidate(
         &self,
         candidate: &Transaction,
+        candidate_arrival: Arrival,
         evidence: &ResolvedEvidence,
     ) -> MembershipEvaluation {
         let Some(candidate_charge) = candidate.charge() else {
@@ -1756,13 +1824,15 @@ impl Omega {
         if late_children.iter().any(|child| ancestors.contains(child)) {
             return MembershipEvaluation::Rejected(MembershipRejection::Policy);
         }
-        let capacity_victims = match self.select_capacity_victims(
+        let capacity_victims = match self.select_capacity_victims(CapacitySelectionInput {
             candidate,
-            candidate_charge,
-            &replacement_victims,
-            &ancestors,
-            &late_children,
-        ) {
+            arrival: candidate_arrival,
+            status: evidence.proposal_status,
+            charge: candidate_charge,
+            mandatory: &replacement_victims,
+            protected_ancestors: &ancestors,
+            late_children: &late_children,
+        }) {
             Some(CapacitySelection::Fits { victims }) => victims,
             Some(CapacitySelection::CandidateEvicted) => {
                 return MembershipEvaluation::Rejected(MembershipRejection::CandidateEvicted);
@@ -2163,11 +2233,11 @@ impl Omega {
                 if removed_set.contains(id) {
                     return None;
                 }
-                let OwnerLocation::Accepted { status, .. } = owner.location else {
+                let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
                     return None;
                 };
                 let after = chain_status(*id, &transition.proposed, &transition.gap);
-                (status != after).then_some((*id, after))
+                (evidence.proposal_status != after).then_some((*id, after))
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -2308,10 +2378,7 @@ impl Omega {
             let Some(owner) = next.authority.owners.get_mut(&id) else {
                 continue;
             };
-            let OwnerLocation::Accepted {
-                status, evidence, ..
-            } = &mut owner.location
-            else {
+            let OwnerLocation::Accepted { evidence, .. } = &mut owner.location else {
                 continue;
             };
             let origin_changed = evidence
@@ -2340,7 +2407,7 @@ impl Omega {
                 evidence.context.chain = current_chain;
             }
             if let Some(after) = status_changes.get(&id) {
-                *status = *after;
+                evidence.proposal_status = *after;
             }
             owner.version = version;
         }
@@ -2517,9 +2584,13 @@ impl Omega {
         }) {
             return DirectAdmissionEvaluation::ProposalCollision;
         }
-        DirectAdmissionEvaluation::Membership(
-            self.evaluate_membership_candidate(&capability.transaction, evidence),
-        )
+        let candidate_arrival =
+            existing.map_or(Arrival(self.authority.next_arrival), |owner| owner.arrival);
+        DirectAdmissionEvaluation::Membership(self.evaluate_membership_candidate(
+            &capability.transaction,
+            candidate_arrival,
+            evidence,
+        ))
     }
 
     fn finalize_direct_local(
@@ -2561,9 +2632,11 @@ impl Omega {
                 None,
             )]),
             DirectAdmissionEvaluation::ProposalCollision => None,
-            DirectAdmissionEvaluation::Membership(evaluation) => {
-                self.membership_effects(&capability.transaction, evaluation)
-            }
+            DirectAdmissionEvaluation::Membership(evaluation) => self.membership_effects(
+                &capability.transaction,
+                evidence.proposal_status,
+                evaluation,
+            ),
         }) else {
             return counter_exhausted();
         };
@@ -2627,7 +2700,6 @@ impl Omega {
                         transaction: capability.transaction,
                         location: OwnerLocation::Accepted {
                             provenance,
-                            status: AcceptedStatus::Pending,
                             accepted_at_wall: wall_time,
                             evidence,
                         },
@@ -3115,12 +3187,17 @@ impl Omega {
 
     fn select_capacity_victims(
         &self,
-        candidate: &Transaction,
-        candidate_charge: super::state::ResourceVector,
-        mandatory: &BTreeSet<TxId>,
-        protected_ancestors: &BTreeSet<TxId>,
-        late_children: &BTreeSet<TxId>,
+        input: CapacitySelectionInput<'_>,
     ) -> Option<CapacitySelection> {
+        let CapacitySelectionInput {
+            candidate,
+            arrival: candidate_arrival,
+            status: candidate_status,
+            charge: candidate_charge,
+            mandatory,
+            protected_ancestors,
+            late_children,
+        } = input;
         let mut removed = mandatory.clone();
         let mut capacity_victims = BTreeSet::new();
         loop {
@@ -3142,23 +3219,31 @@ impl Omega {
                 .into_iter()
                 .filter(|id| !removed.contains(id))
                 .collect::<BTreeSet<_>>();
-            let (candidate_fee, candidate_bytes) = candidate_descendants.iter().try_fold(
-                (candidate.fee, candidate.bytes),
-                |(fee, bytes), id| {
-                    let transaction = &self.authority.owners.get(id)?.transaction;
-                    Some((
-                        fee.checked_add(transaction.fee)?,
-                        bytes.checked_add(transaction.bytes)?,
-                    ))
-                },
-            )?;
+            let (candidate_fee, candidate_bytes, candidate_cycles) =
+                candidate_descendants.iter().try_fold(
+                    (candidate.fee, candidate.bytes, candidate.cycles),
+                    |(fee, bytes, cycles), id| {
+                        let transaction = &self.authority.owners.get(id)?.transaction;
+                        Some((
+                            fee.checked_add(transaction.fee)?,
+                            bytes.checked_add(transaction.bytes)?,
+                            cycles.checked_add(transaction.cycles)?,
+                        ))
+                    },
+                )?;
             let mut weakest = (
                 true,
-                EvictionScore {
-                    fee: candidate_fee,
-                    bytes: candidate_bytes,
-                    transaction: candidate.id,
-                },
+                EvictionScore::for_candidate(
+                    candidate_status,
+                    candidate_arrival,
+                    candidate,
+                    EvictionRefinementMetrics::new(
+                        candidate_fee,
+                        u64::from(candidate_bytes),
+                        candidate_cycles,
+                    ),
+                    candidate_descendants.len().checked_add(1)?,
+                ),
                 BTreeSet::new(),
             );
 
@@ -3735,6 +3820,7 @@ impl Omega {
     fn membership_effects(
         &self,
         candidate: &Transaction,
+        accepted_status: AcceptedStatus,
         evaluation: &MembershipEvaluation,
     ) -> Option<Vec<LogicalEffect>> {
         let ingress_peer = self
@@ -3768,7 +3854,7 @@ impl Omega {
         );
         effects.push(LogicalEffect::admitted(
             candidate,
-            AcceptedStatus::Pending,
+            accepted_status,
             ingress_peer,
         ));
         for victim in &acceptance.replacement_victims {
