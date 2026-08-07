@@ -11,8 +11,10 @@ use super::kernel::{
 use super::permit::{
     FairPermitScheduler, PermitClass, PermitDomain, PermitGrant, PermitReleaseDisposition,
     PermitReleaseError, PermitRequest, PermitRequestDisposition, PermitRequestId,
-    RetainedPermitToken,
+    RetainedPermitToken, RetainedWorkerGrantBatch, RetainedWorkerRole, RetainedWorkerSlot,
+    WorkerSlotId,
 };
+use super::scheduler_quotient::SchedulerQuotient;
 use super::state::{
     AcceptedStatus, ApplyStamp, CellId, EffectClass, HeaderId, InputOrigin, LogicalEffect,
     ModelLimits, Omega, OwnerLocation, PeerId, ProposalBase, RemoteDeadline, RemoteResidency,
@@ -67,8 +69,16 @@ fn computing_verify(
     transaction: Transaction,
     evidence: ResolvedEvidence,
 ) -> WorkCapability {
+    computing_verify_from_admission(omega, proposal(transaction), evidence)
+}
+
+fn computing_verify_from_admission(
+    omega: &mut Omega,
+    admission: Admission,
+    evidence: ResolvedEvidence,
+) -> WorkCapability {
     assert!(matches!(
-        omega.kernel_step(KernelCommand::Admit(proposal(transaction.clone()))),
+        omega.kernel_step(KernelCommand::Admit(admission)),
         KernelStep::AuthorityCommit {
             disposition: KernelDisposition::Retained(_),
             ..
@@ -125,9 +135,24 @@ fn granted_retained(
     }
 }
 
-fn retained_grant(tokens: impl IntoIterator<Item = RetainedPermitToken>) -> RetainedPermitGrant {
-    RetainedPermitGrant::try_from_tokens(tokens)
-        .unwrap_or_else(|error| panic!("the fixture must contain one scheduler domain: {error:?}"))
+fn retained_grant(
+    tokens: impl IntoIterator<Item = RetainedPermitToken>,
+) -> RetainedWorkerGrantBatch {
+    let permits = RetainedPermitGrant::try_from_tokens(tokens)
+        .unwrap_or_else(|error| panic!("the fixture must contain one scheduler domain: {error:?}"));
+    let slots = (0..permits.request_ids().len())
+        .map(|index| {
+            let id = WorkerSlotId(u8::try_from(index).expect("the bounded fixture slot fits u8"));
+            let role = if index == 0 {
+                RetainedWorkerRole::OrderedResolve
+            } else {
+                RetainedWorkerRole::Verifier(super::state::VerifyCapability::Any)
+            };
+            RetainedWorkerSlot::new(id, role)
+        })
+        .collect();
+    RetainedWorkerGrantBatch::bind(permits, slots)
+        .unwrap_or_else(|error| panic!("the fixture worker roles are unique: {error:?}"))
 }
 
 fn accept(omega: &mut Omega, transaction: Transaction) {
@@ -692,8 +717,10 @@ fn model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply()
     let (_, next_second) = granted_retained(&mut permits, 4);
     let grants = retained_grant([next_second, next_first]);
     let before_stamp = omega.authority.last_apply;
+    let mut scheduler = SchedulerQuotient::default();
     let plan = plan_compute_exchange(
         &omega,
+        &scheduler,
         vec![second_capability.id, first_capability.id],
         grants,
     )
@@ -712,7 +739,7 @@ fn model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply()
         Some(ApplyStamp(before_stamp.0 + 1))
     );
     assert!(matches!(
-        plan.apply(&mut omega),
+        plan.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied {
             ref assignments,
             ref unused_grants,
@@ -751,8 +778,10 @@ fn model_initial_compute_wave_checks_out_every_available_worker_in_one_apply() {
     let (_, first_lease) = granted_retained(&mut permits, 1);
     let (_, second_lease) = granted_retained(&mut permits, 2);
     let before = omega.authority.last_apply;
+    let mut scheduler = SchedulerQuotient::default();
     let exchange = plan_compute_exchange(
         &omega,
+        &scheduler,
         Vec::new(),
         retained_grant([second_lease, first_lease]),
     )
@@ -767,7 +796,7 @@ fn model_initial_compute_wave_checks_out_every_available_worker_in_one_apply() {
         Some(ApplyStamp(before.0 + 1))
     );
     assert!(matches!(
-        exchange.apply(&mut omega),
+        exchange.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied {
             ref assignments,
             ref unused_grants,
@@ -796,12 +825,18 @@ fn model_compute_exchange_is_invariant_to_worker_completion_order() {
         );
     }
     let completions = [first_capability.id, second_capability.id];
-    let left = plan_compute_exchange(&omega, completions.to_vec(), RetainedPermitGrant::empty())
-        .expect("forward completion order is representable");
+    let left = plan_compute_exchange(
+        &omega,
+        &SchedulerQuotient::default(),
+        completions.to_vec(),
+        RetainedWorkerGrantBatch::empty(),
+    )
+    .expect("forward completion order is representable");
     let right = plan_compute_exchange(
         &omega,
+        &SchedulerQuotient::default(),
         completions.into_iter().rev().collect(),
-        RetainedPermitGrant::empty(),
+        RetainedWorkerGrantBatch::empty(),
     )
     .expect("reverse completion order is representable");
     assert_eq!(left.settled, right.settled);
@@ -837,8 +872,14 @@ fn model_stale_compute_exchange_returns_every_fair_grant_without_mutation() {
         FairPermitScheduler::new(PermitDomain(1), 1, 1).expect("valid fair permit fixture");
     let (_, token) = granted_retained(&mut permits, 1);
     let request_id = token.request().id;
-    let plan = plan_compute_exchange(&omega, vec![capability.id], retained_grant([token]))
-        .expect("the original cut admits one settlement and checkout");
+    let mut scheduler = SchedulerQuotient::default();
+    let plan = plan_compute_exchange(
+        &omega,
+        &scheduler,
+        vec![capability.id],
+        retained_grant([token]),
+    )
+    .expect("the original cut admits one settlement and checkout");
 
     assert!(matches!(
         omega.kernel_step(KernelCommand::Admit(proposal(Transaction::independent(
@@ -847,7 +888,8 @@ fn model_stale_compute_exchange_returns_every_fair_grant_without_mutation() {
         KernelStep::AuthorityCommit { .. }
     ));
     let changed = omega.clone();
-    let ComputeExchangeApplyDisposition::Stale { grants } = plan.apply(&mut omega) else {
+    let ComputeExchangeApplyDisposition::Stale { grants } = plan.apply(&mut omega, &mut scheduler)
+    else {
         panic!("the changed authority cut must return the move-only grant");
     };
     assert_eq!(grants.request_ids(), [request_id].into_iter().collect());
@@ -916,14 +958,20 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
         )),
         KernelStep::AuthorityCommit { .. }
     ));
-    let exchange = plan_compute_exchange(&omega, vec![capability.id], retained_grant([next_token]))
-        .expect("stale settlement and current checkout compose");
+    let mut scheduler = SchedulerQuotient::default();
+    let exchange = plan_compute_exchange(
+        &omega,
+        &scheduler,
+        vec![capability.id],
+        retained_grant([next_token]),
+    )
+    .expect("stale settlement and current checkout compose");
     assert_eq!(
         exchange.batch.sequential_apply_count, 1,
         "exchange dispositions: {:?}",
         exchange.batch.dispositions
     );
-    let assignments = match exchange.apply(&mut omega) {
+    let assignments = match exchange.apply(&mut omega, &mut scheduler) {
         ComputeExchangeApplyDisposition::Applied {
             settled,
             assignments,
@@ -1016,10 +1064,12 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
         vec![LogicalEffect::IngressReleased(TxId(200))],
     ) {}
     assert_eq!(omega.check_invariants(), Ok(()));
+    let mut scheduler = SchedulerQuotient::default();
     let plan = plan_compute_exchange(
         &omega,
+        &scheduler,
         vec![second_capability.id, first_capability.id],
-        RetainedPermitGrant::empty(),
+        RetainedWorkerGrantBatch::empty(),
     )
     .expect("effect pressure cannot block the unrelated no-effect member");
     assert_eq!(
@@ -1047,7 +1097,7 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
         planned.authority.limits.compute_permits
     );
     assert!(matches!(
-        plan.apply(&mut omega),
+        plan.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied {
             ref settled,
             ref blocked,
@@ -1087,14 +1137,15 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
 
     let retry = plan_compute_exchange(
         &omega,
+        &scheduler,
         vec![first_capability.id],
-        RetainedPermitGrant::empty(),
+        RetainedWorkerGrantBatch::empty(),
     )
     .expect("freed effect capacity level-triggers the same finished slot");
     assert_eq!(retry.settled, vec![first_capability.id]);
     assert!(retry.blocked.is_empty());
     assert!(matches!(
-        retry.apply(&mut omega),
+        retry.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied {
             ref settled,
             ref blocked,
@@ -1111,6 +1162,101 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
     assert!(omega.authority.owners.contains_key(&second.id));
     assert_eq!(permits.check_invariants(), Ok(()));
     assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work() {
+    let mut omega = model();
+    let older = Transaction::independent(1, 1, 10, 20);
+    let newer = Transaction::independent(2, 2, 11, 21);
+    let older_evidence =
+        ResolvedEvidence::for_transaction(&older, omega.authority.chain, omega.authority.rules);
+    let older_capability =
+        computing_verify_from_admission(&mut omega, proposal(older.clone()), older_evidence);
+    let newer_evidence =
+        ResolvedEvidence::for_transaction(&newer, omega.authority.chain, omega.authority.rules);
+    let generation = omega.authority.generation;
+    let newer_capability = computing_verify_from_admission(
+        &mut omega,
+        Admission {
+            transaction: newer.clone(),
+            source: RetainedSource::Recovery(generation),
+            observed_at: super::state::MonotonicTick(2),
+        },
+        newer_evidence,
+    );
+    assert!(older_capability.id < newer_capability.id);
+    for capability in [&older_capability, &newer_capability] {
+        assert!(matches!(
+            omega.kernel_step(KernelCommand::FinishExecution(Completion {
+                capability: capability.id,
+                result: WorkResult::Rejected,
+            })),
+            KernelStep::NoAuthorityCommit(KernelDisposition::Finished(observed))
+                if observed == capability.id
+        ));
+    }
+
+    let filler = Transaction::independent(200, 200, 200, 201);
+    while omega.append_effect_fixture(
+        EffectClass::Trusted,
+        vec![LogicalEffect::validation_rejected(&filler, None)],
+    ) {}
+    let scheduler = SchedulerQuotient::default();
+    let blocked = plan_compute_exchange(
+        &omega,
+        &scheduler,
+        vec![newer_capability.id, older_capability.id],
+        RetainedWorkerGrantBatch::empty(),
+    )
+    .expect("a full journal retains both exact finished capabilities");
+    assert_eq!(
+        blocked.attempted,
+        vec![older_capability.id, newer_capability.id]
+    );
+    assert_eq!(
+        blocked.blocked,
+        vec![older_capability.id, newer_capability.id]
+    );
+    assert!(blocked.settled.is_empty());
+
+    let claim = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("the publisher must claim one complete filler batch, got {other:?}"),
+    };
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::SettleEffect(claim)),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::EffectSettled(observed),
+            ..
+        } if observed == claim
+    ));
+
+    let one_slot = plan_compute_exchange(
+        &omega,
+        &scheduler,
+        vec![newer_capability.id, older_capability.id],
+        RetainedWorkerGrantBatch::empty(),
+    )
+    .expect("one freed slot is assigned by the capability-id settlement rank");
+    assert_eq!(one_slot.settled, vec![older_capability.id]);
+    assert_eq!(one_slot.blocked, vec![newer_capability.id]);
+    assert!(
+        one_slot
+            .batch
+            .planned_state()
+            .linear
+            .finished_work
+            .contains_key(&newer_capability.id)
+    );
+    assert!(
+        !one_slot
+            .batch
+            .planned_state()
+            .linear
+            .finished_work
+            .contains_key(&older_capability.id)
+    );
 }
 
 #[test]
@@ -1170,8 +1316,13 @@ fn model_local_waiter_receives_the_released_permit_before_retained_reuse() {
         }
         other => panic!("expected FIFO Local handoff, got {other:?}"),
     };
-    let plan = plan_compute_exchange(&omega, vec![capability.id], RetainedPermitGrant::empty())
-        .expect("completion settlement never waits for a replacement checkout");
+    let plan = plan_compute_exchange(
+        &omega,
+        &SchedulerQuotient::default(),
+        vec![capability.id],
+        RetainedWorkerGrantBatch::empty(),
+    )
+    .expect("completion settlement never waits for a replacement checkout");
     assert!(plan.assigned.is_empty());
     assert_eq!(plan.batch.sequential_apply_count, 1);
     assert!(matches!(
@@ -1213,13 +1364,19 @@ fn model_finished_result_holds_its_worker_slot_until_the_exchange_settles_it() {
     let mut permits =
         FairPermitScheduler::new(PermitDomain(1), 1, 1).expect("valid fair permit fixture");
     let (_, lease) = granted_retained(&mut permits, 1);
-    let plan = plan_compute_exchange(&omega, vec![capability.id], retained_grant([lease]))
-        .expect("settlement frees the same slot before canonical checkout");
+    let mut scheduler = SchedulerQuotient::default();
+    let plan = plan_compute_exchange(
+        &omega,
+        &scheduler,
+        vec![capability.id],
+        retained_grant([lease]),
+    )
+    .expect("settlement frees the same slot before canonical checkout");
     assert_eq!(plan.assigned.len(), 1);
     assert_eq!(plan.assigned[0].1.transaction, second.id);
     assert_eq!(plan.batch.sequential_apply_count, 2);
     assert!(matches!(
-        plan.apply(&mut omega),
+        plan.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied {
             ref assignments,
             ref unused_grants,
@@ -1276,14 +1433,16 @@ fn model_completion_drain_never_waits_for_a_slow_batch_peer() {
     assert!(omega.linear.finished_work.contains_key(&fast_capability.id));
     assert!(omega.linear.work.contains_key(&slow_capability.id));
 
+    let mut scheduler = SchedulerQuotient::default();
     let exchange = plan_compute_exchange(
         &omega,
+        &scheduler,
         vec![fast_capability.id],
-        RetainedPermitGrant::empty(),
+        RetainedWorkerGrantBatch::empty(),
     )
     .expect("the fast completion settles while the slow worker is still active");
     assert!(matches!(
-        exchange.apply(&mut omega),
+        exchange.apply(&mut omega, &mut scheduler),
         ComputeExchangeApplyDisposition::Applied { .. }
     ));
     assert!(matches!(
@@ -1492,6 +1651,7 @@ fn model_foreign_scheduler_and_plan_rejections_return_exact_linear_tokens() {
     let request = token.request().id;
     let failure = plan_compute_exchange(
         &omega,
+        &SchedulerQuotient::default(),
         vec![super::state::CapabilityId(u16::MAX)],
         retained_grant([token]),
     )
@@ -1503,7 +1663,10 @@ fn model_foreign_scheduler_and_plan_rejections_return_exact_linear_tokens() {
     assert_eq!(failure.finished, vec![super::state::CapabilityId(u16::MAX)]);
     let [token] = failure
         .grants
-        .into_tokens()
+        .into_grants()
+        .into_iter()
+        .map(|grant| grant.into_permit())
+        .collect::<Vec<_>>()
         .try_into()
         .unwrap_or_else(|_| panic!("one rejected exchange returns one exact grant"));
     assert_eq!(token.request().id, request);

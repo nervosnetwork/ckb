@@ -22,6 +22,12 @@ impl FairLane {
 }
 
 impl FairFrontier {
+    pub(in crate::authority) fn cursors_for_refinement(
+        &self,
+    ) -> (Option<WorkOwner>, Option<WorkOwner>) {
+        (self.resolve.owner_cursor, self.verify.owner_cursor)
+    }
+
     pub(in crate::authority) fn snapshot(&self) -> SchedulerSnapshot {
         SchedulerSnapshot {
             verify_order: self.verify_order,

@@ -1,3 +1,4 @@
+use super::state::{VerifyCapability, WorkPermit};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -5,6 +6,65 @@ pub(super) struct PermitRequestId(pub(super) u8);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct PermitDomain(pub(super) u8);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct WorkerSlotId(pub(super) u8);
+
+/// Stable execution role of one retained worker slot. This is ephemeral
+/// topology evidence, never transaction-owner state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RetainedWorkerRole {
+    OrderedResolve,
+    Verifier(VerifyCapability),
+}
+
+impl RetainedWorkerRole {
+    pub(super) const fn resolve_permit(self) -> WorkPermit {
+        match self {
+            Self::OrderedResolve => WorkPermit::ResolveOnly,
+            Self::Verifier(capability) => WorkPermit::ResolveThenVerify(capability),
+        }
+    }
+
+    pub(super) const fn verify_permit(self) -> Option<WorkPermit> {
+        match self {
+            Self::OrderedResolve => None,
+            Self::Verifier(capability) => Some(WorkPermit::VerifyOnly(capability)),
+        }
+    }
+
+    const fn canonical_rank(self) -> u8 {
+        match self {
+            Self::OrderedResolve => 0,
+            Self::Verifier(VerifyCapability::SmallCycleOnly) => 1,
+            Self::Verifier(VerifyCapability::Any) => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RetainedWorkerSlot {
+    id: WorkerSlotId,
+    role: RetainedWorkerRole,
+}
+
+impl RetainedWorkerSlot {
+    pub(super) const fn new(id: WorkerSlotId, role: RetainedWorkerRole) -> Self {
+        Self { id, role }
+    }
+
+    pub(super) const fn id(self) -> WorkerSlotId {
+        self.id
+    }
+
+    pub(super) const fn role(self) -> RetainedWorkerRole {
+        self.role
+    }
+
+    pub(super) const fn canonical_key(self) -> (u8, WorkerSlotId) {
+        (self.role.canonical_rank(), self.id)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PermitClass {
@@ -24,6 +84,136 @@ pub(super) struct PermitRequest {
 pub(super) struct RetainedPermitToken {
     domain: PermitDomain,
     request: PermitRequestId,
+}
+
+/// One fair count permit paired with one unique idle retained-worker slot.
+/// The pair still carries no transaction identity; only the scheduler
+/// quotient may turn it into an exact checkout assignment.
+#[must_use = "a worker grant must be assigned or returned with its permit"]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RetainedWorkerGrant {
+    permit: RetainedPermitToken,
+    slot: RetainedWorkerSlot,
+}
+
+impl RetainedWorkerGrant {
+    pub(super) fn request(&self) -> PermitRequest {
+        self.permit.request()
+    }
+
+    pub(super) const fn slot(&self) -> RetainedWorkerSlot {
+        self.slot
+    }
+
+    pub(super) fn into_permit(self) -> RetainedPermitToken {
+        self.permit
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WorkerGrantBatchErrorKind {
+    CountMismatch { permits: usize, slots: usize },
+    DuplicateWorkerSlot(WorkerSlotId),
+    MultipleOrderedResolvers,
+}
+
+/// Binding failure returns both independently owned resource sets.
+#[must_use = "a rejected worker binding still owns every permit and worker slot"]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct WorkerGrantBatchError {
+    pub(super) kind: WorkerGrantBatchErrorKind,
+    permits: super::composition::RetainedPermitGrant,
+    slots: Vec<RetainedWorkerSlot>,
+}
+
+impl WorkerGrantBatchError {
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        super::composition::RetainedPermitGrant,
+        Vec<RetainedWorkerSlot>,
+    ) {
+        (self.permits, self.slots)
+    }
+}
+
+/// Role-bearing grant batch accepted by the compute exchange. Construction
+/// consumes a previously validated same-domain count batch and a unique idle
+/// worker-slot set, so count-only evidence cannot authorize assignment.
+#[must_use = "a worker grant batch owns every fair permit and idle worker slot"]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RetainedWorkerGrantBatch {
+    grants: Vec<RetainedWorkerGrant>,
+}
+
+impl RetainedWorkerGrantBatch {
+    pub(super) fn bind(
+        permits: super::composition::RetainedPermitGrant,
+        mut slots: Vec<RetainedWorkerSlot>,
+    ) -> Result<Self, WorkerGrantBatchError> {
+        let permit_count = permits.request_ids().len();
+        if permit_count != slots.len() {
+            return Err(WorkerGrantBatchError {
+                kind: WorkerGrantBatchErrorKind::CountMismatch {
+                    permits: permit_count,
+                    slots: slots.len(),
+                },
+                permits,
+                slots,
+            });
+        }
+        slots.sort_unstable_by_key(|slot| slot.canonical_key());
+        let mut slot_ids = BTreeSet::new();
+        if let Some(duplicate) = slots
+            .iter()
+            .map(|slot| slot.id())
+            .find(|slot| !slot_ids.insert(*slot))
+        {
+            return Err(WorkerGrantBatchError {
+                kind: WorkerGrantBatchErrorKind::DuplicateWorkerSlot(duplicate),
+                permits,
+                slots,
+            });
+        }
+        if slots
+            .iter()
+            .filter(|slot| slot.role() == RetainedWorkerRole::OrderedResolve)
+            .count()
+            > 1
+        {
+            return Err(WorkerGrantBatchError {
+                kind: WorkerGrantBatchErrorKind::MultipleOrderedResolvers,
+                permits,
+                slots,
+            });
+        }
+        let grants = permits
+            .into_tokens()
+            .into_iter()
+            .zip(slots)
+            .map(|(permit, slot)| RetainedWorkerGrant { permit, slot })
+            .collect();
+        Ok(Self { grants })
+    }
+
+    pub(super) fn empty() -> Self {
+        Self { grants: Vec::new() }
+    }
+
+    pub(super) fn request_ids(&self) -> BTreeSet<PermitRequestId> {
+        self.grants.iter().map(|grant| grant.request().id).collect()
+    }
+
+    pub(super) fn into_grants(self) -> Vec<RetainedWorkerGrant> {
+        self.grants
+    }
+
+    /// Reunite grants obtained by destructuring one previously validated
+    /// batch. `RetainedWorkerGrant` has no public constructor, so this cannot
+    /// admit a new domain, permit identity or worker slot.
+    pub(super) fn reunite(grants: Vec<RetainedWorkerGrant>) -> Self {
+        Self { grants }
+    }
 }
 
 impl RetainedPermitToken {

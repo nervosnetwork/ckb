@@ -13,6 +13,7 @@ mod refinement;
 mod relay;
 mod residency;
 mod resolver;
+mod scheduler_refinement;
 mod service;
 mod template;
 mod template_driver;

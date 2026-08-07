@@ -49,10 +49,13 @@ test-code leakage or generated Markdown drift.
 ## Formal falsifier
 
 The bounded permit/effect protocol has an independent TLA+ falsifier under
-[`formal/`](../formal/). [`PermitEffect.tla`](../formal/PermitEffect.tla)
-models fair permit handoff, bounded worker occupancy, effect pressure and
-publisher progress. [`PermitEffect.cfg`](../formal/PermitEffect.cfg) must close
-the complete finite state space with its safety and liveness properties.
+[`formal/`](../formal/). [`models.json`](../formal/models.json) is the single
+machine-readable run registry; the checker discovers every `.tla` and `.cfg`
+file and rejects missing, duplicate or stale registrations.
+[`PermitEffect.tla`](../formal/PermitEffect.tla) models multi-capacity fair
+permit handoff, bounded worker occupancy, effect pressure and publisher
+progress. [`PermitEffect.cfg`](../formal/PermitEffect.cfg) must close the
+complete finite state space with its safety and liveness properties.
 [`PermitEffectReachability.cfg`](../formal/PermitEffectReachability.cfg)
 deliberately checks a false invariant and must produce the exact trace in which
 an effect-blocked finished worker releases its permit to a queued Direct
@@ -72,7 +75,7 @@ temporary directory.
 | `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery and the external TLC runtime for the lightweight CI workflow. | No |
 | `python3 tx-pool/scripts/check_ascii.py` | Reject non-ASCII styling in technical source, contracts and generated documentation while allowing the profiler's exact external microsecond unit token. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
-| `python3 tx-pool/scripts/check_formal_models.py` | Run the positive permit/effect TLC closure and the required negative reachability witness; reject setup errors, timeouts and missing exact sentinels. | Only temporary TLC metadata outside the source tree |
+| `python3 tx-pool/scripts/check_formal_models.py` | Discover every registered TLA module/config pair, reject registry drift, run each expected verdict, and require the named negative reachability witness. | Only temporary TLC metadata outside the source tree |
 | `python3 tx-pool/scripts/check_model_refinement.py` | Starting only from semantic roots in `architecture-contract.json`, derive the reachable model and production Rust types, enum members, implementation methods, reference counts and synchronization primitives. Every run executes the permanent parser and deliberately-unbound binding canary in `scripts/fixtures/model_refinement_canary.rs`. `--json` emits the complete read-only M3 frontier; no generated observation is an allowlist. | No |
 | `python3 tx-pool/scripts/check_model_refinement.py --variant-flow --cargo-expand-production` | Run the slower M3 enum-flow gate with `ast-grep` and current `cargo expand` output. It distinguishes source producers/consumers from macro-expanded evidence and rejects a rooted model or expanded-production variant with no producer. Expanded derive matches never replace source-level consumer evidence. | Only Cargo build cache and temporary expansion outside the source tree |
 | `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, keep reorg and generation clears on one capacity-one ordered control lane, structurally prove that each direct `AuthorityRuntime` mutation consumes one post-commit wake receipt (with only the closed mutation-free superseded-reset disposition), keep effect publication read-only and claim-bound until private settlement, keep profiling acquisition/stage/effect seams centralized and feature-gated, and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |

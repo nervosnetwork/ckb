@@ -2360,8 +2360,8 @@ transition or expected-result implementation.
 
 The hostile corpus includes scheduler owner rotation, relay/controller
 failure, chain/view change, ban/expiry, effect pressure and cancellation. It
-must shrink a divergence to the shortest trace. The same phase replays all 28
-section 16 rows through closed producer-specific result algebras, closes the
+must shrink a divergence to the shortest trace. The same phase replays every
+registered section 16 row through closed producer-specific result algebras, closes the
 four legal-input fail-stop classes or triggers the standing exposure rule, and
 completes the exact eviction-order mapping above.
 
@@ -2606,6 +2606,79 @@ and 86/86 complete `ckb-sync` nextest (`-j 1`), all zero skipped; strict tx-pool
 Clippy, formatting, all eight generated contracts and both TLC runs pass. The
 three existing release blockers remain explicit.
 
+##### M3.3 step 3 scheduler/permit quotient design freeze
+
+The scheduler proof keeps three linear resources distinct. A fair compute
+permit owns one slot in the Direct/retained execution envelope; an idle worker
+slot owns one stable execution role; an authority work capability owns one
+`Computing` transaction and its settlement right. Pairing them authorizes an
+assignment but never merges their identities or conservation laws:
+
+```text
+free_permits + active_permits = configured_compute_capacity
+idle_worker_slots + assigned_worker_slots + finished_worker_slots
+    = configured_retained_worker_slots
+queued_owners + computing_owners + waiting_owners + ready_owners
+    = retained_owners
+one assignment = one fair permit + one idle compatible worker slot
+               + one selected queued owner -> one work capability
+```
+
+The existing `RetainedPermitGrant` remains only the result of fair count
+acquisition. It cannot enter `ComputeExchangePlan` directly. A sealed
+test-model binding consumes that count batch plus a unique ephemeral worker
+slot set and produces role-bearing grants. Rejection returns every count token
+and slot unchanged. Worker role is never stored in an owner, resource row,
+RPC view or persistent scheduler projection.
+
+The independent scheduler quotient derives its runnable entries from one
+`Omega` cut and stores only the two temporal owner cursors already present in
+production: Resolve and Verify. Its role order is fixed: the single ordered
+resolver selects `ResolveOnly`; a small-only verifier selects compatible
+Verify before fallback `ResolveThenVerify(SmallCycleOnly)`; an Any verifier
+selects compatible Verify before fallback `ResolveThenVerify(Any)`. Small
+verification is offered to a small-only slot before an Any slot. Every
+selected owner is removed from the ephemeral wave view before the next slot is
+considered. The model reproduces the production Trusted-first initial cut,
+per-lane owner ring, configured Verify order and deterministic identity ties.
+
+The quotient emits a sealed exact-owner checkout intent. The reference kernel
+validates and consumes that intent; it does not rescan a flat queue or copy the
+scheduler transition. `ComputeExchangePlan` first folds completions, derives
+the role-compatible wave from the virtual post-completion cut, then proves the
+combined canonical `settle; assigned checkout` sequence. Apply validates both
+the `Omega` cut and scheduler-cursor cut before mutating either. Staleness
+returns every role-bearing grant and changes neither authority.
+
+Production replay uses the real `FairFrontier` through deterministic legal
+sequential checkout calls. It compares symbolic transaction, worker slot,
+permit, lane and resulting cursor after every selection. Fixtures cover
+Trusted plus multiple Remote owners, small plus large Verify work, verifier
+fallback to continuous Resolve, cursor wrap and an input permutation of idle
+slots. This proves equality with one named no-interleaving production
+serialization; it does not claim current worker lock acquisition order is
+deterministic.
+
+The external fair-permit model is generalized from one owner to a configured
+multi-owner capacity. It must preserve FIFO Direct precedence when retained
+work finishes, allow unrelated retained workers to remain active, bound
+finished slots independently of released permits and retain the required
+effect-full/Direct-handoff negative witness. Rust tests cover mixed domains,
+duplicate permit identity, duplicate worker slots, role/count mismatch,
+small-worker/large-work rejection, stale Apply and exact token return.
+
+The step also closes a process-model drift found by the call-graph audit. The
+roadmap requires every TLA module/configuration and expected verdict to be
+discovered, but `check_formal_models.py` still names `PermitEffect.tla` and two
+configs directly. A machine-readable manifest becomes the sole verdict owner;
+the checker discovers every `.tla` and `.cfg`, rejects unregistered or missing
+files and validates one exact success or named negative witness per config.
+
+This step is model, test and evidence work only. It adds no production state,
+lock, task, queue, branch or hot-path cost. Failure to obtain exact scheduler
+equality reopens the M8 exchange candidate rather than adding normalization or
+persistent worker metadata.
+
 #### M3.4 develop refinement
 
 Map `develop` into the same command, observation, trace and cost vocabulary.
@@ -2847,6 +2920,7 @@ to the named statement; it does not close a broader row by implication.
 | D1-SEM-COUPLING | PROVEN | Shared inputs, candidate producer relations, conditional read/write edges, Accepted parents/children/spenders/readers, capacity eviction and effect pressure require exact fallback; shared read-only deps/header reads do not by themselves couple membership. | `plan/membership/independent.rs::{classify, prepare_resources, prepare_projection}` plus `membership.rs` and `rbf.rs`; falsifiers `uak_independent_classifier_routes_every_accepted_relation_without_mutation`, `uak_independent_capacity_is_aggregate_and_never_partially_applied`, `uak_rbf_requires_positive_chain_evidence_for_every_new_input`, `uak_batch_acceptance_cannot_bypass_dependency_cut`. |
 | D1-LIFECYCLE | SUPPORTED | A cold successful retained transaction selected by a verifier's `ResolveThenVerify` path performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. If the dedicated ordered resolver wins, the split Resolve settlement and later Verify checkout raise that path to seven. Today only final independent membership is amortized. Static call tracing confirms these paths, but no operation-count gate yet fails if they regress or change. | `ingress.rs -> worker.rs::{checkout, try_process_one} -> runtime.rs::{commit_retained_ingress, try_checkout, settle_compute, try_drive_ready, settle_effect}` and `plan.rs`; profiling lock spans observe acquisitions but do not prove semantic transition count. T16 must count both continuous and split paths and prove steady-state exchange settlement plus next checkout share one Apply before this row can become PROVEN. |
 | D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M2 forbids cross-execution direct permit transfer: every classified completion returns the token to the fair gate and uses only a subsequently reacquired token; no reacquisition means settlement without replacement checkout. The independently checked `executing + finished <= active_work_slots` law bounds effect-pressure residency, so effect-capacity fallback retains its slot but not the semaphore permit. The M2/M4 evidence requires the bounded Local-waiter and effect-full falsifiers preserved in the candidate notebook. |
+| D1-EFFECT-SETTLEMENT-FAIRNESS | OPEN | Effect-capacity publication is level-triggered, but the current per-worker retry protocol has no stable arbitration among same-class effectful settlements. `notify_waiters` wakes every retained capability and each independently races the authority write lock. Under a continuous completion stream, a newer waiter may repeatedly consume each freed effect slot while an older waiter remains resident. This is bounded memory but unbounded legal-schedule latency in the frozen authority, not an integrity failure. | The configured two-worker/two-permit TLC model produced this counterexample under weak fairness before settlement rank was added. `worker.rs::recover_settlement`, `runtime.rs::{publish_wake,settle}` and the parking-lot `RwLock` expose no age owner that invalidates the trace. The selected model reuses the already monotonic checkout identity: model `CapabilityId`, refined to production `SettlementToken::version`, is the well-founded rank among settlements contending for the same effect capacity. Newer effectful work cannot overtake it; no-effect work may bypass it. `PermitEffect.tla`, `model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work` and `model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees` are the exact falsifiers. M4 must realize this in the bounded compute exchange without a resident aging field, retry timer or second authority queue. |
 | D1-READY-OCC-LIVENESS | OPEN | The current second Ready OCC read is all-or-nothing across the strongest eight owners. If any weaker tail owner changes or disappears after scratch preparation, `complete_ready_batch` returns the tail's `Stale` error and discards the still-current head capture. `run_ready_driver` classifies that as `Progress` and immediately repeats with no await or yield. A legal schedule with continuous top-N tail mutation can therefore strand an unchanged strongest owner and synchronously consume one runtime thread. Plain high-fee insertion alone does not prove the stale-tail attack, so external exploitability remains a separate reachability question; the legal-schedule liveness failure is already sufficient to block release. | A temporary deterministic nextest falsifier admitted two Ready owners, prepared the complete read batch, removed only the weaker tail through the ordinary administrative Apply, and proved `complete_ready_batch` returned `FinalAdmissionCaptureError::Plan(PlanError::Stale(_))` while the head remained `PreAcceptedPhase::Ready`; it passed and was removed after diagnosis. The M1/M2 model must compare the captured ordered keys with the current `scheduler.ready()` frontier and return their longest exact strict-priority prefix, not merely independent per-member current bits. A newly inserted stronger owner makes that prefix empty; a removed or changed weaker tail preserves only the earlier prefix. Head mismatch uses a changed-cut cooperative yield. Skipping a stale or newly displaced stronger member is forbidden because it changes membership order. |
 | D1-DIRECT-NEGATIVE-OCC | OPEN | Direct Local/TestAccept resolution and final validation read only the transaction-bounded Accepted producers and spenders, but every negative result is sealed with the global Accepted source version. Any unrelated Accepted insertion, removal, or metadata change therefore makes the rejection stale. `execute_direct` maps that stale outcome to an unbounded full retry, including resolve and possibly VM verification. A legal continuous stream of disjoint Accepted commits can starve one unchanged direct request and consume compute capacity even though its evidence footprint never changed. Successful direct candidates do not have this defect: final Plan rechecks exact dependency evidence and current membership. | `resolver.rs::{AcceptedOverlay, DirectResolutionJob, DirectTransactionRejection}`, `validation.rs::{AcceptedOriginOverlay, DirectAdmissionValidation}`, `plan.rs::{validate_direct_rejection_validity,validate_direct_admission_subject}`, and `service.rs::execute_direct`. Existing test `uak_direct_validation_rejection_stales_with_its_accepted_source_cut` deliberately demonstrates the false conflict by accepting an unrelated transaction before settlement; `uak_direct_missing_rejection_stales_when_the_parent_becomes_available` demonstrates the necessary relevant conflict. M1 must model a preallocated bounded negative-evidence receipt over the exact queried producer/spender cells, revalidated in the same final authority read/Apply; M2 proves unrelated commutativity and relevant invalidation. It may add no persistent per-key version table, retry counter, timer or repair task. |
 | D1-BATCH-SEQUENCE | OPEN | `ApplySequence` is documented as the identity of one committed authority transition, but the current independent Ready planner increments it once per batch member even though `PreparedApply::apply_independent` performs one indivisible Apply. Only the final value is published to sources, dependency control, effects and clocks; intermediate values have no owner or observer. `EntryVersion` already supplies the required per-owner uniqueness. This is accidental counter/proof complexity and consumes the finite sequence space up to the batch bound faster than the real Apply history. | `plan/settlement.rs:145-163` is the only production loop around `next_sequence`; every other delta compiler acquires one sequence per `PreparedApply`. M1 must expose separate typed capabilities: one `ApplyStamp` for the whole delta and one bounded owner-version allocator for changed incarnations. M4 evidence varies batch size and proves one sequence step plus distinct versions and exact effect order; a generated check rejects member-loop sequence allocation in batch compilers. |
@@ -2943,6 +3017,7 @@ be mechanically closed in production.
 | `D1-SEM-COUPLING` | successful/failed RBF, dependency closure, header-only read and per-peer independence model tests | M2 derives the exact coupling footprint and exchange relation |
 | `D1-LIFECYCLE` | `model_cold_retained_lifecycle_exposes_the_exact_sequential_apply_cost` records seven sequential-oracle Applies | M2 proves which adjacent independent steps commute and which transition count the implementation must attain |
 | `D1-PERMIT-FAIRNESS` | `model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reuse_it` | M4 maps every production permit return/acquire edge and forbids direct cross-execution reuse |
+| `D1-EFFECT-SETTLEMENT-FAIRNESS` | the successful multi-capacity `PermitEffect.tla` liveness run plus `model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work` and `model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees` | M4 orders same-capacity effectful settlement by the existing checkout `EntryVersion`, preserves no-effect bypass and adds an exact production replay |
 | `D1-READY-OCC-LIVENESS` | `model_ready_capture_commits_the_unchanged_strict_priority_prefix_with_one_stamp` and `model_ready_capture_never_skips_a_new_stronger_head` | replace the production all-or-nothing capture through the model-derived implementation |
 | `D1-DIRECT-NEGATIVE-OCC` | `model_direct_negative_receipt_ignores_unrelated_commits_but_detects_relevant_change` | production receipts must carry the exact bounded observation set instead of a global source cut |
 | `D1-BATCH-SEQUENCE` | `model_multi_owner_apply_uses_one_stamp_distinct_versions_and_canonical_effect_order` | generated implementation gate forbids per-member Apply-sequence allocation |
@@ -2983,8 +3058,9 @@ experiments:
    pointwise model/production classification, including every coupled fallback
    edge rather than only representative examples;
 3. **M3.3 active:** stable authority and real boundary traces are complete;
-   next derive the multi-owner scheduler/permit quotient, then replay all 28
-   section 16 rows through closed producer-specific result algebras and
+   the multi-owner scheduler/permit quotient and multi-capacity effect model
+   are complete; next replay every registered section 16 row through closed
+   producer-specific result algebras and
    generated fault/task/capability reachability checks. The four legal-input
    fail-stop paths must close in M3 or force a narrow pre-topology correction;
 4. map `develop` into the same observations and prove which races require one

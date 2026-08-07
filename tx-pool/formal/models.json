@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "runs": [
+    {
+      "module": "PermitEffect.tla",
+      "config": "PermitEffect.cfg",
+      "expected": "success"
+    },
+    {
+      "module": "PermitEffect.tla",
+      "config": "PermitEffectReachability.cfg",
+      "expected": "invariant_violation",
+      "invariant": "NoEffectBlockedDirectHandoff"
+    }
+  ]
+}

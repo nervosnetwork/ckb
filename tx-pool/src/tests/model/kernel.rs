@@ -1,11 +1,15 @@
-use super::state::{
-    AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
-    DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectClaimSource, EffectClass,
-    EffectRecord, EntryVersion, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
-    MembershipRejection, MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner,
-    OwnerLocation, PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase, ReadyKey,
-    RemoteDeadline, ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId,
-    Source, Transaction, TxId, VerifyCapability, ViewId, WorkCapability, WorkPermit, WorkStage,
+use super::{
+    scheduler_quotient::SchedulerAssignment,
+    state::{
+        AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
+        DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectClaimSource, EffectClass,
+        EffectRecord, EntryVersion, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
+        MembershipRejection, MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner,
+        OwnerLocation, PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase,
+        ReadyKey, RemoteDeadline, ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource,
+        RulesId, Source, Transaction, TxId, VerifyCapability, ViewId, WorkCapability, WorkPermit,
+        WorkStage,
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
@@ -258,6 +262,7 @@ pub(super) enum KernelCommand {
     Admit(Admission),
     Checkout,
     CheckoutContinuous(VerifyCapability),
+    CheckoutAssigned(SchedulerAssignment),
     ContinueResolveThenVerify(ResolveContinuation),
     Complete(Completion),
     FinishExecution(Completion),
@@ -311,6 +316,7 @@ impl KernelCommand {
             })
             | Self::Checkout
             | Self::CheckoutContinuous(_)
+            | Self::CheckoutAssigned(_)
             | Self::ContinueResolveThenVerify(_)
             | Self::Complete(_)
             | Self::FinishExecution(_)
@@ -450,6 +456,7 @@ impl Omega {
             KernelCommand::CheckoutContinuous(capability) => {
                 self.checkout(CheckoutRoute::Continuous(capability))
             }
+            KernelCommand::CheckoutAssigned(assignment) => self.checkout_assigned(assignment),
             KernelCommand::ContinueResolveThenVerify(continuation) => {
                 self.continue_resolve_then_verify(continuation)
             }
@@ -647,17 +654,6 @@ impl Omega {
     }
 
     fn checkout(&mut self, route: CheckoutRoute) -> KernelStep {
-        let retained_worker_slots = self
-            .linear
-            .work
-            .len()
-            .checked_add(self.linear.finished_work.len());
-        if self.linear.free_compute_permits == 0
-            || retained_worker_slots
-                .is_none_or(|slots| slots >= usize::from(self.authority.limits.compute_permits))
-        {
-            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
-        }
         let Some(transaction) = self.queued_order().into_iter().find(|transaction| {
             route == CheckoutRoute::Split
                 || self.authority.owners.get(transaction).is_some_and(|owner| {
@@ -700,6 +696,53 @@ impl Omega {
                 return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
             }
         };
+        self.checkout_selected(transaction, permit)
+    }
+
+    fn checkout_assigned(&mut self, assignment: SchedulerAssignment) -> KernelStep {
+        self.checkout_selected(assignment.transaction(), assignment.permit())
+    }
+
+    fn checkout_selected(&mut self, transaction: TxId, permit: WorkPermit) -> KernelStep {
+        let retained_worker_slots = self
+            .linear
+            .work
+            .len()
+            .checked_add(self.linear.finished_work.len());
+        if self.linear.free_compute_permits == 0
+            || retained_worker_slots
+                .is_none_or(|slots| slots >= usize::from(self.authority.limits.compute_permits))
+        {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
+        }
+        let Some(owner) = self.authority.owners.get(&transaction) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
+        };
+        let OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(stage),
+            ..
+        }) = &owner.location
+        else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
+        };
+        if let WorkStage::Verify(evidence) = stage
+            && self.classify_evidence(transaction, evidence) != EvidenceValidity::Current
+        {
+            return self.requeue_stale_work(transaction);
+        }
+        let compatible = match (permit, stage) {
+            (WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_), WorkStage::Resolve) => {
+                true
+            }
+            (WorkPermit::VerifyOnly(capability), WorkStage::Verify(evidence)) => {
+                capability.permits(evidence.verify_class)
+            }
+            _ => false,
+        };
+        if !compatible {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
+        }
+        let stage = stage.clone();
         let mut next = self.clone();
         let Some(capability_id) = next.reserve_capability() else {
             return counter_exhausted();

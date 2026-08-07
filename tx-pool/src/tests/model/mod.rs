@@ -17,6 +17,8 @@ mod properties;
 mod protocol;
 mod refinement;
 mod resource;
+mod scheduler_properties;
+mod scheduler_quotient;
 mod state;
 mod trace;
 
@@ -33,6 +35,13 @@ pub(crate) use refinement::{
     accepted_role_observation, candidate_graph_observation, candidate_role_observation,
     evidence_origin_observation, positioned_role_observation, ready_order_observation,
     shared_header_observation, source_observation, source_pressure_observation, stale_observation,
+};
+pub(crate) use scheduler_quotient::{
+    SchedulerRefinementAssignment, SchedulerRefinementCapability, SchedulerRefinementCursors,
+    SchedulerRefinementEntry, SchedulerRefinementObservation, SchedulerRefinementOwner,
+    SchedulerRefinementPermit, SchedulerRefinementSource, SchedulerRefinementStage,
+    SchedulerRefinementVerifyClass, SchedulerRefinementVerifyOrder, SchedulerRefinementWorker,
+    SchedulerRefinementWorkerRole, scheduler_wave_observation,
 };
 pub(crate) use trace::{
     TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,

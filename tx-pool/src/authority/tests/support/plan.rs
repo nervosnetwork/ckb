@@ -257,6 +257,15 @@ impl TxPoolAuthority {
         &self.entries
     }
 
+    pub(in crate::authority) fn scheduler_cursors_for_refinement(
+        &self,
+    ) -> (
+        Option<super::super::scheduler::WorkOwner>,
+        Option<super::super::scheduler::WorkOwner>,
+    ) {
+        self.scheduler.cursors_for_refinement()
+    }
+
     pub(in crate::authority) fn owner_count(&self) -> usize {
         self.entries.len()
     }

@@ -3018,9 +3018,10 @@ it remains visible as an M4 topology obligation rather than being normalized
 away or patched into the frozen implementation. Production endpoint partial
 delivery is still a trace-level refinement edge, not a pointwise M3.2 claim.
 
-The standing exposure inventory remains 5 `PROVEN`, 5 `SUPPORTED`, 18 `OPEN`:
-four legal-input fail-stop, eight liveness/availability and six
-structural/proof rows. No path or consequence increased in M3.2. The freeze is
+The standing exposure inventory is now 5 `PROVEN`, 5 `SUPPORTED`, 19 `OPEN`:
+four legal-input fail-stop, nine liveness/availability and six
+structural/proof rows. The additional liveness row was discovered by the
+configured multi-capacity TLC run in M3.3 rather than carried silently. The freeze is
 retained for the undeployed branch only through M3.3, which must close the four
 fail-stop rows with producer-owned ordinary result algebras before M3.4 may
 start. Failure blocks topology work and triggers the already-defined narrow
@@ -3039,7 +3040,7 @@ Exact M3.3 execution order:
 5. refine the complete production eviction key, including CKB size/cycle
    weight, integer rounding, status, descendant aggregate/count, arrival and
    identity;
-6. replay all 28 section 16 rows, close the four legal-input fail-stop classes,
+6. replay every registered section 16 row, close the four legal-input fail-stop classes,
    regenerate fault/task/capability reachability and rerun the whole-model plus
    standing-exposure reviews.
 
@@ -3263,3 +3264,77 @@ remains frozen, so that unrelated source was not edited. A default-concurrency
 sync run exposed the already-recorded fixture teardown race, while the standing
 nextest `-j 1` gate passed the complete crate. The exact next action after the
 checkpoint commit is M3.3 step 3, the multi-owner scheduler/permit quotient.
+
+### M3.3 step 3 scheduler/permit quotient design freeze
+
+Checkpoint `c88e864f3` closes boundary composition. Step 3 separates the fair
+count permit, stable worker slot and authority work capability as three linear
+resources. A count-only retained grant is not assignment evidence: the model
+will require a sealed pairing with unique ephemeral worker roles before the
+compute exchange can plan checkout. Apply validates both authority and
+per-lane scheduler-cursor cuts; worker roles never become resident owner state.
+
+The independent quotient derives Resolve/Verify candidates from one model cut,
+reproduces the production Trusted-first owner rings and Verify ordering, and
+emits exact role-compatible checkout intents. Real replay will call the
+production `FairFrontier` in the same named sequential slot order and compare
+symbolic owner, permit, lane and cursor after each cut. The multi-capacity fair
+permit model retains Direct FIFO handoff and the effect-blocked negative
+witness.
+
+The startup audit also found that `check_formal_models.py` contradicts the M3.3
+gate by hard-coding `PermitEffect.tla` and its two configs. This slice will add
+one discovered manifest with exact expected verdicts and reject every missing,
+unregistered or mismatched module/configuration. Production semantics remain
+frozen throughout the step.
+
+### M3.3 steps 3-4 scheduler and effect refinement state
+
+The scheduler quotient now carries three distinct linear facts instead of
+inferring one from another: fair count grants, unique stable worker roles and
+exact authority checkout capabilities. It reproduces the production
+Trusted-first per-owner Resolve/Verify rings, independent cursors,
+Small/Any verifier compatibility and Arrival/FeeRate order. One sealed
+read-only wave is atomically applied with settlement, and stale authority or
+scheduler cuts return every grant. Three independently written production
+replays compare exact owner, permit, lane and final cursor observations.
+
+The formal runner now discovers every `.tla` and `.cfg` file and validates it
+against `formal/models.json`; missing, duplicate, stale or wrong-verdict runs
+fail. Raising the permit/effect model from one to two workers and permits found
+a real omitted liveness case: broadcast effect-capacity wakes plus independent
+worker retries permit a continuous newer completion stream to overtake one
+older same-class settlement forever. The first FIFO abstraction was rejected
+because it also blocked unrelated no-effect completions.
+
+The root model instead reuses the existing monotonic checkout identity as a
+well-founded rank only among effectful settlements contending for the same
+capacity. Model `CapabilityId` refines to the production settlement
+`EntryVersion`; no-effect completions may bypass a blocked effectful item. This
+adds no owner state, queue, timer, retry counter or publication point. TLC now
+closes all positive safety/liveness properties over 1,098 generated / 318
+distinct states, while the registered negative configuration still finds the
+required four-step effect-blocked/direct-handoff witness. Focused nextest is
+10/10, including exact no-overtake, no-effect bypass, scheduler and production
+replay tests.
+
+The checkpoint gates are complete:
+
+- internal-feature nextest: 620/620;
+- default-feature nextest: 616/616, with only the pre-existing test-build
+  `start_with_handle` dead-code warning;
+- strict all-target internal Clippy and formatting;
+- complete eight-contract gate, including discovered formal runs, generated
+  refinement frontier (208 model roots / 78 outside roots / 18 files; 611
+  production roots / 11 outside roots / 37 files), production static safety
+  and zero registry drift;
+- generated review evidence: 306 exact tx-pool Rust tests / 1,177 invariant
+  references, nine cross-crate conformance tests, two named open
+  counterexamples, 19 integration anchors, 150 managed specs and 620
+  discovered internal tests.
+
+This is recorded as `D1-EFFECT-SETTLEMENT-FAIRNESS OPEN`, so the discovered
+production exposure cannot disappear behind a green desired model. Production
+semantics remain frozen. The exact next action is M3.3 step 5: refine the full
+production eviction key and its arithmetic/order semantics, then execute the
+registered-ledger closure and whole-phase gates.

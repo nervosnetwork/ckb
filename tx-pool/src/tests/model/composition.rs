@@ -7,8 +7,10 @@
 use super::kernel::{Completion, KernelCommand, KernelDisposition, KernelStep, ReadyCapture};
 use super::permit::{
     FairPermitScheduler, ImmediatePermitDisposition, PermitClass, PermitGrant, PermitRequest,
-    PermitRequestDisposition, PermitRequestId, RetainedPermitToken,
+    PermitRequestDisposition, PermitRequestId, RetainedPermitToken, RetainedWorkerGrant,
+    RetainedWorkerGrantBatch,
 };
+use super::scheduler_quotient::{SchedulerCursorPlan, SchedulerQuotient};
 use super::state::{
     ApplyStamp, Arrival, CapabilityId, CellId, EffectClass, EffectRecord, EntryVersion,
     EvidenceContext, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
@@ -166,10 +168,6 @@ impl RetainedPermitGrant {
         Ok(Self { tokens })
     }
 
-    pub(super) fn empty() -> Self {
-        Self { tokens: Vec::new() }
-    }
-
     pub(super) fn request_ids(&self) -> BTreeSet<PermitRequestId> {
         self.tokens.iter().map(|token| token.request().id).collect()
     }
@@ -324,11 +322,12 @@ impl RetainedPermitAcquirer {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct ComputeExchangePlan {
     pub(super) batch: CanonicalBatchPlan,
+    scheduler: SchedulerCursorPlan,
     pub(super) attempted: Vec<CapabilityId>,
     pub(super) settled: Vec<CapabilityId>,
     pub(super) blocked: Vec<CapabilityId>,
-    pub(super) assigned: Vec<(RetainedPermitToken, WorkCapability)>,
-    pub(super) unused_grants: Vec<RetainedPermitToken>,
+    pub(super) assigned: Vec<(RetainedWorkerGrant, WorkCapability)>,
+    pub(super) unused_grants: Vec<RetainedWorkerGrant>,
 }
 
 #[must_use = "an execution completion owns its permit until settlement"]
@@ -377,7 +376,7 @@ pub(super) struct CompletionDrainPlanFailure {
 pub(super) struct ComputeExchangePlanFailure {
     pub(super) error: BatchPlanError,
     pub(super) finished: Vec<CapabilityId>,
-    pub(super) grants: RetainedPermitGrant,
+    pub(super) grants: RetainedWorkerGrantBatch,
 }
 
 #[must_use = "a stale completion apply returns every submitted completion"]
@@ -398,7 +397,7 @@ pub(super) enum CompletionDrainApplyDisposition {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ComputeExchangeApplyDisposition {
     Stale {
-        grants: RetainedPermitGrant,
+        grants: RetainedWorkerGrantBatch,
     },
     Applied {
         stamp: Option<ApplyStamp>,
@@ -406,22 +405,37 @@ pub(super) enum ComputeExchangeApplyDisposition {
         attempted: Vec<CapabilityId>,
         settled: Vec<CapabilityId>,
         blocked: Vec<CapabilityId>,
-        assignments: Vec<(RetainedPermitToken, WorkCapability)>,
-        unused_grants: Vec<RetainedPermitToken>,
+        assignments: Vec<(RetainedWorkerGrant, WorkCapability)>,
+        unused_grants: Vec<RetainedWorkerGrant>,
     },
-    InvalidGrantBatch(RetainedPermitGrantError),
 }
 
 impl ComputeExchangePlan {
-    pub(super) fn apply(self, current: &mut Omega) -> ComputeExchangeApplyDisposition {
+    pub(super) fn apply(
+        self,
+        current: &mut Omega,
+        current_scheduler: &mut SchedulerQuotient,
+    ) -> ComputeExchangeApplyDisposition {
         let Self {
             batch,
+            scheduler,
             attempted,
             settled,
             blocked,
             assigned,
             unused_grants,
         } = self;
+        if !scheduler.is_current(current_scheduler) {
+            return ComputeExchangeApplyDisposition::Stale {
+                grants: RetainedWorkerGrantBatch::reunite(
+                    assigned
+                        .into_iter()
+                        .map(|(grant, _)| grant)
+                        .chain(unused_grants)
+                        .collect(),
+                ),
+            };
+        }
         match batch.apply(current) {
             BatchApplyDisposition::Stale => {
                 let grants = assigned
@@ -429,23 +443,25 @@ impl ComputeExchangePlan {
                     .map(|(grant, _)| grant)
                     .chain(unused_grants)
                     .collect::<Vec<_>>();
-                match RetainedPermitGrant::try_from_tokens(grants) {
-                    Ok(grants) => ComputeExchangeApplyDisposition::Stale { grants },
-                    Err(error) => ComputeExchangeApplyDisposition::InvalidGrantBatch(error),
+                ComputeExchangeApplyDisposition::Stale {
+                    grants: RetainedWorkerGrantBatch::reunite(grants),
                 }
             }
             BatchApplyDisposition::Applied {
                 stamp,
                 dispositions,
-            } => ComputeExchangeApplyDisposition::Applied {
-                stamp,
-                dispositions,
-                attempted,
-                settled,
-                blocked,
-                assignments: assigned,
-                unused_grants,
-            },
+            } => {
+                debug_assert!(scheduler.apply(current_scheduler));
+                ComputeExchangeApplyDisposition::Applied {
+                    stamp,
+                    dispositions,
+                    attempted,
+                    settled,
+                    blocked,
+                    assignments: assigned,
+                    unused_grants,
+                }
+            }
         }
     }
 }
@@ -1034,7 +1050,7 @@ fn command_is_supported(family: OrderedBatchFamily, command: &KernelCommand) -> 
         OrderedBatchFamily::ComputeExchange => {
             matches!(
                 command,
-                KernelCommand::SettleFinished(_) | KernelCommand::Checkout
+                KernelCommand::SettleFinished(_) | KernelCommand::CheckoutAssigned(_)
             )
         }
     }
@@ -1416,14 +1432,14 @@ pub(super) fn plan_ready_batch(
 fn finished_completion_key(
     omega: &Omega,
     finished: &FinishedWorkCapability,
-) -> (u8, Arrival, TxId, CapabilityId) {
+) -> (CapabilityId, u8, Arrival, TxId) {
     let capability = &finished.capability;
     let Some(owner) = omega.authority.owners.get(&capability.transaction) else {
         return (
+            capability.id,
             u8::MAX,
             Arrival(u16::MAX),
             capability.transaction,
-            capability.id,
         );
     };
     let OwnerLocation::Retained(RetainedOwner {
@@ -1432,10 +1448,10 @@ fn finished_completion_key(
     }) = &owner.location
     else {
         return (
+            capability.id,
             u8::MAX,
             owner.arrival,
             capability.transaction,
-            capability.id,
         );
     };
     if owner.version != capability.version
@@ -1443,24 +1459,30 @@ fn finished_completion_key(
         || capability.rules != omega.authority.rules
     {
         return (
+            capability.id,
             u8::MAX,
             owner.arrival,
             capability.transaction,
-            capability.id,
         );
     }
+    // Capability ids are monotonic checkout ranks. Keeping that existing
+    // identity first prevents a continuous stream of newly finished
+    // higher-source work from overtaking an older effect-blocked completion.
+    // Source/arrival/identity remain deterministic ties and diagnostics; no
+    // resident aging field or second settlement queue is required.
     (
+        capability.id,
         source.priority(),
         owner.arrival,
         capability.transaction,
-        capability.id,
     )
 }
 
 pub(super) fn plan_compute_exchange(
     omega: &Omega,
+    scheduler: &SchedulerQuotient,
     finished: Vec<CapabilityId>,
-    grants: RetainedPermitGrant,
+    grants: RetainedWorkerGrantBatch,
 ) -> Result<ComputeExchangePlan, ComputeExchangePlanFailure> {
     if let Err(error) = omega.check_invariants() {
         return Err(ComputeExchangePlanFailure {
@@ -1495,42 +1517,87 @@ pub(super) fn plan_compute_exchange(
         .iter()
         .map(|(_, capability)| *capability)
         .collect::<Vec<_>>();
-    let mut commands = eligible
+    let settlement_commands = eligible
         .into_iter()
         .map(|(_, capability)| KernelCommand::SettleFinished(capability))
         .collect::<Vec<_>>();
-    let grant_count = grants.tokens.len();
-    commands.extend((0..grant_count).map(|_| KernelCommand::Checkout));
-    if commands.is_empty() {
+    let virtual_after_settlement = if settlement_commands.is_empty() {
+        omega.clone()
+    } else {
+        match fold_canonical_commands(omega, &settlement_commands) {
+            Ok((after, _, _, _)) => after,
+            Err(error) => {
+                return Err(ComputeExchangePlanFailure {
+                    error,
+                    finished,
+                    grants,
+                });
+            }
+        }
+    };
+    let grant_count = grants.request_ids().len();
+    let scheduler_plan = scheduler.plan_wave(&virtual_after_settlement, grants);
+    let mut commands = settlement_commands;
+    commands.extend(
+        scheduler_plan
+            .assignments()
+            .iter()
+            .map(|(_, assignment)| assignment.clone())
+            .map(KernelCommand::CheckoutAssigned),
+    );
+    if commands.is_empty() && grant_count == 0 {
+        let (_, assigned, idle) = scheduler_plan.into_parts();
         return Err(ComputeExchangePlanFailure {
             error: BatchPlanError::Empty,
             finished,
-            grants,
+            grants: RetainedWorkerGrantBatch::reunite(
+                assigned
+                    .into_iter()
+                    .map(|(grant, _)| grant)
+                    .chain(idle)
+                    .collect(),
+            ),
         });
     }
-    let batch = match plan_ordered_batch(omega, OrderedBatchFamily::ComputeExchange, commands) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return Err(ComputeExchangePlanFailure {
-                error,
-                finished,
-                grants,
-            });
+    let batch = if commands.is_empty() {
+        CanonicalBatchPlan {
+            expected: omega.clone(),
+            after: omega.clone(),
+            class: CohortClass::CanonicalOrdered,
+            dispositions: Vec::new(),
+            sequential_apply_count: 0,
+            committed_stamp: None,
+        }
+    } else {
+        match plan_ordered_batch(omega, OrderedBatchFamily::ComputeExchange, commands) {
+            Ok(batch) => batch,
+            Err(error) => {
+                let (_, assigned, idle) = scheduler_plan.into_parts();
+                return Err(ComputeExchangePlanFailure {
+                    error,
+                    finished,
+                    grants: RetainedWorkerGrantBatch::reunite(
+                        assigned
+                            .into_iter()
+                            .map(|(grant, _)| grant)
+                            .chain(idle)
+                            .collect(),
+                    ),
+                });
+            }
         }
     };
+    let (scheduler, scheduled_grants, unused_grants) = scheduler_plan.into_parts();
     let checkout_dispositions = batch
         .dispositions
         .iter()
         .skip(attempted.len())
         .cloned()
         .collect::<Vec<_>>();
-    if checkout_dispositions.len() != grant_count
-        || checkout_dispositions.iter().any(|disposition| {
-            !matches!(
-                disposition,
-                KernelDisposition::CheckedOut(_) | KernelDisposition::Idle
-            )
-        })
+    if checkout_dispositions.len() != scheduled_grants.len()
+        || checkout_dispositions
+            .iter()
+            .any(|disposition| !matches!(disposition, KernelDisposition::CheckedOut(_)))
         || attempted
             .iter()
             .zip(batch.dispositions.iter())
@@ -1550,18 +1617,50 @@ pub(super) fn plan_compute_exchange(
         return Err(ComputeExchangePlanFailure {
             error: BatchPlanError::UnexpectedDisposition,
             finished,
-            grants,
+            grants: RetainedWorkerGrantBatch::reunite(
+                scheduled_grants
+                    .into_iter()
+                    .map(|(grant, _)| grant)
+                    .chain(unused_grants)
+                    .collect(),
+            ),
         });
     }
-    let grant_tokens = grants.tokens;
-    let mut assigned = Vec::new();
-    let mut unused_grants = Vec::new();
-    for (grant, disposition) in grant_tokens.into_iter().zip(checkout_dispositions) {
-        match disposition {
-            KernelDisposition::CheckedOut(capability) => assigned.push((grant, capability)),
-            KernelDisposition::Idle => unused_grants.push(grant),
-            _ => continue,
+    let mut assigned = Vec::with_capacity(scheduled_grants.len());
+    for ((grant, assignment), disposition) in
+        scheduled_grants.into_iter().zip(checkout_dispositions)
+    {
+        let KernelDisposition::CheckedOut(capability) = disposition else {
+            return Err(ComputeExchangePlanFailure {
+                error: BatchPlanError::UnexpectedDisposition,
+                finished,
+                grants: RetainedWorkerGrantBatch::reunite(
+                    assigned
+                        .into_iter()
+                        .map(|(grant, _)| grant)
+                        .chain(std::iter::once(grant))
+                        .chain(unused_grants)
+                        .collect(),
+                ),
+            });
+        };
+        if capability.transaction != assignment.transaction()
+            || capability.permit() != assignment.permit()
+        {
+            return Err(ComputeExchangePlanFailure {
+                error: BatchPlanError::UnexpectedDisposition,
+                finished,
+                grants: RetainedWorkerGrantBatch::reunite(
+                    assigned
+                        .into_iter()
+                        .map(|(grant, _)| grant)
+                        .chain(std::iter::once(grant))
+                        .chain(unused_grants)
+                        .collect(),
+                ),
+            });
         }
+        assigned.push((grant, capability));
     }
     let mut settled = Vec::new();
     let mut blocked = Vec::new();
@@ -1579,6 +1678,7 @@ pub(super) fn plan_compute_exchange(
     }
     Ok(ComputeExchangePlan {
         batch,
+        scheduler,
         attempted,
         settled,
         blocked,
