@@ -6,11 +6,15 @@
 
 use super::{
     composition::CompositionCost,
-    kernel::{Admission, ChainTransition, Completion, KernelCommand, KernelStep, WorkResult},
+    kernel::{
+        Admission, ChainTransition, Completion, KernelCommand, KernelStep, ResolveContinuation,
+        WorkResult,
+    },
     state::{
         ApplyStamp, CapabilityId, CellId, ChainView, EvidenceContext, HeaderId, MonotonicTick,
         Omega, OwnerLocation, PeerBanDeadline, PeerId, ProposalId, RemoteDeadline, RemoteResidency,
-        ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, ViewId, WitnessId, WorkKind,
+        ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, VerifyCapability,
+        VerifyCycleClass, ViewId, WitnessId, WorkKind,
     },
 };
 use std::{
@@ -387,6 +391,8 @@ pub(super) enum HostileAction {
         transaction: HostileTxKey,
     },
     Checkout,
+    CheckoutContinuous(VerifyCapability),
+    ContinueCurrent(CapabilityId),
     CompleteCurrent(CapabilityId),
     CompleteRejected(CapabilityId),
     FinishCurrent(CapabilityId),
@@ -679,7 +685,45 @@ impl HostileTraceGenerator {
                 );
             }
             push_kernel(HostileAction::Checkout, KernelCommand::Checkout);
+            // Any and SmallCycleOnly induce the same transition relation when
+            // every transaction is Small. Enumerate both only when Large work
+            // makes the verifier capability observable, avoiding a duplicate
+            // finite-state branch without weakening capability coverage.
+            let continuous_capabilities: &[_] = if self
+                .transactions
+                .values()
+                .any(|transaction| transaction.verify_class == VerifyCycleClass::Large)
+            {
+                &[VerifyCapability::Any, VerifyCapability::SmallCycleOnly]
+            } else {
+                &[VerifyCapability::Any]
+            };
+            for capability in continuous_capabilities.iter().copied() {
+                push_kernel(
+                    HostileAction::CheckoutContinuous(capability),
+                    KernelCommand::CheckoutContinuous(capability),
+                );
+            }
             for capability in omega.linear.work.values() {
+                if matches!(capability.stage(), super::state::WorkStage::Resolve)
+                    && matches!(
+                        capability.permit(),
+                        super::state::WorkPermit::ResolveThenVerify(_)
+                    )
+                    && let Some(owner) = omega.authority.owners.get(&capability.transaction)
+                {
+                    push_kernel(
+                        HostileAction::ContinueCurrent(capability.id),
+                        KernelCommand::ContinueResolveThenVerify(ResolveContinuation {
+                            capability: capability.id,
+                            evidence: ResolvedEvidence::for_transaction(
+                                &owner.transaction,
+                                omega.authority.chain,
+                                omega.authority.rules,
+                            ),
+                        }),
+                    );
+                }
                 push_kernel(
                     HostileAction::CompleteRejected(capability.id),
                     KernelCommand::Complete(Completion {
@@ -839,7 +883,7 @@ impl HostileTraceGenerator {
     fn current_result(&self, state: &Omega, capability: CapabilityId) -> Option<WorkResult> {
         let capability = state.linear.work.get(&capability)?;
         let owner = state.authority.owners.get(&capability.transaction)?;
-        Some(match capability.kind {
+        Some(match capability.kind() {
             WorkKind::Resolve => WorkResult::Resolved(ResolvedEvidence::for_transaction(
                 &owner.transaction,
                 state.authority.chain,

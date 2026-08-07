@@ -5,7 +5,7 @@ use super::state::{
     MembershipRejection, MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner,
     OwnerLocation, PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase, ReadyKey,
     RemoteDeadline, ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId,
-    Source, Transaction, TxId, ViewId, WorkCapability, WorkStage,
+    Source, Transaction, TxId, VerifyCapability, ViewId, WorkCapability, WorkPermit, WorkStage,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
@@ -27,12 +27,19 @@ enum WorkCompletionPlan {
     Wait(MissingDependencies),
     Reject,
     Invalid,
+    PrivateContinuationRequired,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CompletionLocation {
     Executing,
     Finished,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckoutRoute {
+    Split,
+    Continuous(VerifyCapability),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,6 +53,12 @@ enum EvidenceValidity {
 pub(super) struct Completion {
     pub(super) capability: CapabilityId,
     pub(super) result: WorkResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ResolveContinuation {
+    pub(super) capability: CapabilityId,
+    pub(super) evidence: ResolvedEvidence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,6 +257,8 @@ enum ChainRemovalCause {
 pub(super) enum KernelCommand {
     Admit(Admission),
     Checkout,
+    CheckoutContinuous(VerifyCapability),
+    ContinueResolveThenVerify(ResolveContinuation),
     Complete(Completion),
     FinishExecution(Completion),
     SettleFinished(CapabilityId),
@@ -295,6 +310,8 @@ impl KernelCommand {
                 ..
             })
             | Self::Checkout
+            | Self::CheckoutContinuous(_)
+            | Self::ContinueResolveThenVerify(_)
             | Self::Complete(_)
             | Self::FinishExecution(_)
             | Self::SettleFinished(_)
@@ -319,7 +336,8 @@ impl KernelCommand {
     pub(super) fn allowed_during_drain(&self) -> bool {
         matches!(
             self,
-            Self::Complete(_)
+            Self::ContinueResolveThenVerify(_)
+                | Self::Complete(_)
                 | Self::FinishExecution(_)
                 | Self::SettleFinished(_)
                 | Self::CompleteDirect(_)
@@ -342,6 +360,8 @@ pub(super) enum KernelDisposition {
     CounterExhausted,
     Idle,
     CheckedOut(WorkCapability),
+    ResolveContinued(WorkCapability),
+    WorkTransitionRejected(CapabilityId),
     DirectCheckedOut(DirectCapability),
     Continued(TxId),
     Ready(TxId),
@@ -426,7 +446,13 @@ impl Omega {
     pub(super) fn kernel_step(&mut self, command: KernelCommand) -> KernelStep {
         match command {
             KernelCommand::Admit(admission) => self.admit(admission),
-            KernelCommand::Checkout => self.checkout(),
+            KernelCommand::Checkout => self.checkout(CheckoutRoute::Split),
+            KernelCommand::CheckoutContinuous(capability) => {
+                self.checkout(CheckoutRoute::Continuous(capability))
+            }
+            KernelCommand::ContinueResolveThenVerify(continuation) => {
+                self.continue_resolve_then_verify(continuation)
+            }
             KernelCommand::Complete(completion) => self.complete(completion),
             KernelCommand::FinishExecution(completion) => self.finish_execution(completion),
             KernelCommand::SettleFinished(capability) => self.settle_finished(capability),
@@ -620,7 +646,7 @@ impl Omega {
         }
     }
 
-    fn checkout(&mut self) -> KernelStep {
+    fn checkout(&mut self, route: CheckoutRoute) -> KernelStep {
         let retained_worker_slots = self
             .linear
             .work
@@ -632,7 +658,18 @@ impl Omega {
         {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         }
-        let Some(transaction) = self.queued_order().first().copied() else {
+        let Some(transaction) = self.queued_order().into_iter().find(|transaction| {
+            route == CheckoutRoute::Split
+                || self.authority.owners.get(transaction).is_some_and(|owner| {
+                    matches!(
+                        &owner.location,
+                        OwnerLocation::Retained(RetainedOwner {
+                            phase: RetainedPhase::Queued(WorkStage::Resolve),
+                            ..
+                        })
+                    )
+                })
+        }) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         let Some(owner) = self.authority.owners.get(&transaction) else {
@@ -651,7 +688,18 @@ impl Omega {
             return self.requeue_stale_work(transaction);
         }
         let stage = stage.clone();
-        let kind = stage.kind();
+        let permit = match (&stage, route) {
+            (WorkStage::Resolve, CheckoutRoute::Continuous(capability)) => {
+                WorkPermit::ResolveThenVerify(capability)
+            }
+            (WorkStage::Resolve, CheckoutRoute::Split) => WorkPermit::ResolveOnly,
+            (WorkStage::Verify(_), CheckoutRoute::Split) => {
+                WorkPermit::VerifyOnly(VerifyCapability::Any)
+            }
+            (WorkStage::Verify(_), CheckoutRoute::Continuous(_)) => {
+                return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
+            }
+        };
         let version = owner.version;
 
         let mut next = self.clone();
@@ -665,27 +713,63 @@ impl Omega {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         next.linear.free_compute_permits = free;
-        let capability = WorkCapability {
-            id: capability_id,
+        let Some(capability) = WorkCapability::for_checkout(
+            capability_id,
             transaction,
             version,
-            kind,
-            chain: next.authority.chain,
-            rules: next.authority.rules,
+            permit,
+            stage,
+            next.authority.chain,
+            next.authority.rules,
+        ) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
-        next.linear.work.insert(capability_id, capability);
+        next.linear.work.insert(capability_id, capability.clone());
         let Some(owner) = next.authority.owners.get_mut(&transaction) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         let OwnerLocation::Retained(retained) = &mut owner.location else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
-        retained.phase = RetainedPhase::Computing(stage);
+        retained.phase = RetainedPhase::Computing(permit);
         *self = next;
         KernelStep::AuthorityCommit {
             stamp,
             disposition: KernelDisposition::CheckedOut(capability),
         }
+    }
+
+    fn continue_resolve_then_verify(&mut self, continuation: ResolveContinuation) -> KernelStep {
+        let Some(capability) = self.linear.work.get(&continuation.capability) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                continuation.capability,
+            ));
+        };
+        if !self.capability_is_current(capability)
+            || !matches!(capability.permit(), WorkPermit::ResolveThenVerify(_))
+            || !matches!(capability.stage(), WorkStage::Resolve)
+            || self.classify_evidence(capability.transaction, &continuation.evidence)
+                != EvidenceValidity::Current
+        {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+                continuation.capability,
+            ));
+        }
+
+        let mut next = self.clone();
+        let Some(capability) = next.linear.work.get_mut(&continuation.capability) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                continuation.capability,
+            ));
+        };
+        if !capability.continue_resolve_then_verify(continuation.evidence) {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+                continuation.capability,
+            ));
+        }
+        let capability = capability.clone();
+        *self = next;
+        KernelStep::NoAuthorityCommit(KernelDisposition::ResolveContinued(capability))
     }
 
     fn begin_direct(
@@ -835,9 +919,10 @@ impl Omega {
             );
         }
         if let Some(finished) = self.linear.finished_work.get(&capability) {
-            return self.cancel_work_capability(finished.capability, CompletionLocation::Finished);
+            return self
+                .cancel_work_capability(finished.capability.clone(), CompletionLocation::Finished);
         }
-        let Some(work) = self.linear.work.get(&capability).copied() else {
+        let Some(work) = self.linear.work.get(&capability).cloned() else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
                 capability,
             ));
@@ -851,7 +936,7 @@ impl Omega {
         location: CompletionLocation,
     ) -> KernelStep {
         let capability = work.id;
-        let current = self.capability_is_current(work);
+        let current = self.capability_is_current(&work);
         let effect_class = self
             .authority
             .owners
@@ -912,24 +997,24 @@ impl Omega {
 
     fn work_completion_plan(
         &self,
-        capability: WorkCapability,
+        capability: &WorkCapability,
         result: &WorkResult,
     ) -> Option<WorkCompletionPlan> {
-        let stage = self
+        let permit = self
             .authority
             .owners
             .get(&capability.transaction)
             .and_then(|owner| match &owner.location {
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(stage),
+                    phase: RetainedPhase::Computing(permit),
                     ..
-                }) => Some(stage),
+                }) if *permit == capability.permit() => Some(*permit),
                 OwnerLocation::Retained(_)
                 | OwnerLocation::Accepted { .. }
                 | OwnerLocation::ReplacementHistory { .. } => None,
             })?;
-        Some(match (stage, result) {
-            (WorkStage::Resolve, WorkResult::Resolved(evidence)) => {
+        Some(match (permit, capability.stage(), result) {
+            (WorkPermit::ResolveOnly, WorkStage::Resolve, WorkResult::Resolved(evidence)) => {
                 match self.classify_evidence(capability.transaction, evidence) {
                     EvidenceValidity::Current => {
                         WorkCompletionPlan::ContinueVerify(evidence.clone())
@@ -938,34 +1023,51 @@ impl Omega {
                     EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
                 }
             }
-            (WorkStage::Verify(evidence), WorkResult::Verified) => {
-                match self.classify_evidence(capability.transaction, evidence) {
-                    EvidenceValidity::Current => WorkCompletionPlan::Ready(evidence.clone()),
-                    EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
-                    EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
+            (
+                WorkPermit::ResolveThenVerify(verify_capability),
+                WorkStage::Resolve,
+                WorkResult::Resolved(evidence),
+            ) => match self.classify_evidence(capability.transaction, evidence) {
+                EvidenceValidity::Current if verify_capability.permits(evidence.verify_class) => {
+                    WorkCompletionPlan::PrivateContinuationRequired
                 }
-            }
-            (WorkStage::Resolve, WorkResult::Missing(missing))
-                if self
-                    .authority
-                    .owners
-                    .get(&capability.transaction)
-                    .is_some_and(|owner| missing.is_for(&owner.transaction)) =>
+                EvidenceValidity::Current => WorkCompletionPlan::ContinueVerify(evidence.clone()),
+                EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
+                EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
+            },
+            (
+                WorkPermit::VerifyOnly(_) | WorkPermit::ResolveThenVerify(_),
+                WorkStage::Verify(evidence),
+                WorkResult::Verified,
+            ) => match self.classify_evidence(capability.transaction, evidence) {
+                EvidenceValidity::Current => WorkCompletionPlan::Ready(evidence.clone()),
+                EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
+                EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
+            },
+            (
+                WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_),
+                WorkStage::Resolve,
+                WorkResult::Missing(missing),
+            ) if self
+                .authority
+                .owners
+                .get(&capability.transaction)
+                .is_some_and(|owner| missing.is_for(&owner.transaction)) =>
             {
                 self.missing_completion_plan(capability.transaction, missing)
             }
-            (_, WorkResult::Rejected) => WorkCompletionPlan::Reject,
+            (_, _, WorkResult::Rejected) => WorkCompletionPlan::Reject,
             _ => WorkCompletionPlan::Invalid,
         })
     }
 
     fn finish_execution(&mut self, completion: Completion) -> KernelStep {
-        let Some(capability) = self.linear.work.get(&completion.capability).copied() else {
+        let Some(capability) = self.linear.work.get(&completion.capability).cloned() else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
                 completion.capability,
             ));
         };
-        if !self.capability_is_current(capability) {
+        if !self.capability_is_current(&capability) {
             let mut next = self.clone();
             next.linear.work.remove(&completion.capability);
             let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
@@ -974,6 +1076,14 @@ impl Omega {
             next.linear.free_compute_permits = free;
             *self = next;
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                completion.capability,
+            ));
+        }
+        if matches!(
+            self.work_completion_plan(&capability, &completion.result),
+            Some(WorkCompletionPlan::PrivateContinuationRequired)
+        ) {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
                 completion.capability,
             ));
         }
@@ -1008,7 +1118,7 @@ impl Omega {
     }
 
     fn complete(&mut self, completion: Completion) -> KernelStep {
-        let Some(capability) = self.linear.work.get(&completion.capability).copied() else {
+        let Some(capability) = self.linear.work.get(&completion.capability).cloned() else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
                 completion.capability,
             ));
@@ -1022,7 +1132,7 @@ impl Omega {
         result: WorkResult,
         location: CompletionLocation,
     ) -> KernelStep {
-        if !self.capability_is_current(capability) {
+        if !self.capability_is_current(&capability) {
             let mut next = self.clone();
             if !next.retire_work_capability(capability.id, location) {
                 return counter_exhausted();
@@ -1044,11 +1154,16 @@ impl Omega {
             ));
         };
 
-        let Some(plan) = self.work_completion_plan(capability, &result) else {
+        let Some(plan) = self.work_completion_plan(&capability, &result) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
                 capability.id,
             ));
         };
+        if plan == WorkCompletionPlan::PrivateContinuationRequired {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+                capability.id,
+            ));
+        }
         let terminal = matches!(
             plan,
             WorkCompletionPlan::Reject | WorkCompletionPlan::Invalid
@@ -1180,6 +1295,11 @@ impl Omega {
                     return counter_exhausted();
                 }
                 KernelDisposition::InvalidEvidenceRejected(id)
+            }
+            WorkCompletionPlan::PrivateContinuationRequired => {
+                return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+                    capability.id,
+                ));
             }
         };
         if !waiting_effects.is_empty() && !next.append_effects(effect_class, stamp, waiting_effects)
@@ -3490,7 +3610,7 @@ impl Omega {
         true
     }
 
-    fn capability_is_current(&self, capability: WorkCapability) -> bool {
+    fn capability_is_current(&self, capability: &WorkCapability) -> bool {
         self.authority
             .owners
             .get(&capability.transaction)
@@ -3499,9 +3619,9 @@ impl Omega {
                     && matches!(
                         &owner.location,
                         OwnerLocation::Retained(RetainedOwner {
-                            phase: RetainedPhase::Computing(stage),
+                            phase: RetainedPhase::Computing(permit),
                             ..
-                        }) if stage.kind() == capability.kind
+                        }) if *permit == capability.permit() && capability.is_compatible()
                     )
                     && capability.chain == self.authority.chain
                     && capability.rules == self.authority.rules

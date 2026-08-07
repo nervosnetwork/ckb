@@ -401,6 +401,7 @@ fn transaction_for_role(index: usize, role: CellRole, shared: CellId) -> Transac
         outputs: BTreeSet::new(),
         bytes: 4,
         fee: 1_000_000u64.saturating_sub(u64::from(id) * 10_000),
+        verify_class: super::state::VerifyCycleClass::Small,
     };
     match role {
         CellRole::None => {}

@@ -3048,3 +3048,94 @@ M3.3. The release-surface RPC/config/changelog/forward-persistence obligations
 remain deferred to M4; the fixed-binary smoke and external-review decision
 remain V1/V2 gates. The user-owned root `.gitignore` is unrelated and must not
 be staged or changed.
+
+### M3.3 startup trace-cut finding
+
+The first production/model call-graph comparison found that the reference
+kernel can express only the split Resolve settlement plus Verify checkout
+route. Production also has a `ResolveThenVerify` route in which one move-only
+token continues from resolution into VM verification with no authority Apply.
+The difference cannot be hidden by a stable-cut projection because it changes
+the Apply stamp and the linear capability is part of complete kernel state.
+
+M3.3a therefore starts with a model-only typed correction: computing owners
+carry the checked-out work permit; linear work capabilities carry their exact
+current stage and evidence; split permits accept one stage, while
+`ResolveThenVerify(capability)` admits the one `Resolve -> Verify(evidence)`
+no-Apply transition only when that capability permits the resolved
+`VerifyCycleClass`. An incompatible `SmallCycleOnly x Large` result settles
+back to queued Verify with one Apply. Only after the five-Apply compatible
+route, seven-Apply split route and capability-mismatch fallback are executable
+and capability-conserving may the production replay adapter claim trace
+refinement. This is a missing legal model transition, not a production patch
+or permission to weaken observations.
+
+### M3.3a typed route correction implementation state
+
+The working tree now represents the production route distinction directly.
+`RetainedPhase::Computing` owns one `WorkPermit`; a sealed
+`WorkCapability::for_checkout` constructor creates only a compatible
+permit/stage/class tuple; and only a `ResolveThenVerify` capability that
+permits the resolved class can consume a current Resolve stage and produce a
+Verify stage without an authority Apply. The evidence and `VerifyCycleClass`
+are carried by that same move-only capability. An incompatible class follows
+the ordinary queued-Verify Apply; an attempted private bypass and stale
+continuation are typed no-commit outcomes. Chain revisions make the token stale
+through the monotonic `ChainView` revision and it remains linearly retirable
+exactly once.
+
+The generators exercise both split and continuous checkout and explicitly
+generate valid continuous handoffs. Equivalent worker capabilities are
+quotiented only in an all-Small finite universe; a universe containing Large
+work enumerates both capabilities. Three exact regressions prove the five-Apply
+compatible route against the seven-Apply split route, the incompatible-class
+fallback, exact capability conservation, unchanged authority during the
+private handoff, conservative RPC projection, and no mutation for an invalid
+or stale bypass. The internal test target compiles from a clean tree, the three
+focused regressions pass, and all 166 mathematical-model tests pass under
+nextest. Generated evidence inventory and the remaining M3.3a gates are the
+next actions before the slice closes; M3.3 trace adapter work has not started,
+and no production source was changed.
+
+The same audit exposed one deliberately unresolved refinement edge rather than
+another local edit: the provisional compute exchange still owns count-only
+retained grants and emits split `Checkout` commands. It therefore does not yet
+prove role-compatible continuous assignment. This is assigned to the M3.3
+fair-scheduler/permit refinement: enrich only ephemeral proof input or narrow
+the theorem and carry the candidate to M3.6. It must not be hidden by the new
+single-owner lifecycle test or encoded as persistent owner metadata.
+
+### M3.3a checkpoint gate and whole-model review
+
+The typed route correction is now closed at its phase boundary. Verification
+from the cleaned target completed with:
+
+- internal-feature nextest: 600/600;
+- default-feature nextest: 596/596, with the pre-existing single leaky-test
+  annotation and no failure;
+- strict all-target internal Clippy and `cargo fmt --all -- --check`;
+- complete `scripts/check_all.py`, including 561 generated / 184 distinct TLC
+  positive states and the required four-state negative witness;
+- mechanically derived refinement frontier: model 192 reachable / 22 outside
+  roots / 14 files, production 611 / 11 / 37;
+- full source and expanded variant-flow: zero constructorless rooted variants;
+- evidence inventory: 600 internal tests, 286 registered tx-pool Rust tests,
+  1,086 invariant references, 9 cross-crate tests, 19 integration anchors and
+  150 managed integration specs.
+
+The whole-model review found no production edit, new lock, persistent state,
+effect path, failure domain, duplicate authority or serialized production
+work. The model growth is confined to the previously missing legal compute
+route and its falsifiers. Authority owns only the stable work permit; the
+move-only linear capability alone owns the private stage and evidence, so the
+correction does not duplicate stage authority. Capability/class compatibility
+is sealed at construction, exact evidence is checked at transition, and the
+all-Small state-space reduction is an explicit semantic quotient rather than
+an increased exploration cap.
+
+The count-only `RetainedPermitGrant` edge remains intentionally open and
+visible; this checkpoint makes no claim that the provisional exchange can
+assign heterogeneous worker roles. M3.3 now resumes at step 1: define the
+stable-cut trace alphabet and normalized observations, then implement the
+independent test-only authority replay adapter before composing any real
+boundary trace.

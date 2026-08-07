@@ -1417,7 +1417,7 @@ fn finished_completion_key(
     omega: &Omega,
     finished: &FinishedWorkCapability,
 ) -> (u8, Arrival, TxId, CapabilityId) {
-    let capability = finished.capability;
+    let capability = &finished.capability;
     let Some(owner) = omega.authority.owners.get(&capability.transaction) else {
         return (
             u8::MAX,

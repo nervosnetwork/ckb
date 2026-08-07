@@ -2370,6 +2370,61 @@ manifest binds every `.tla` configuration to its module and expected outcome
 module/configuration, a missing run or a mismatched verdict. The multi-worker
 permit/effect model is part of this M3.3 gate.
 
+##### M3.3 startup trace-cut correction
+
+The first trace call-graph audit found a reference-model omission that must be
+closed before any replay claim. Production `ResolveThenVerify` keeps one
+move-only checkout token through resolution and VM verification. The
+resolve-to-verify handoff performs no authority Apply; the resident owner stays
+`Computing(ActiveWork { permit: ResolveThenVerify, .. })`, while the linear
+capability alone gains the resolved evidence. The existing model expresses
+only split Resolve settlement followed by Verify checkout, consuming two extra
+Apply stamps. Because Apply stamps, owner phase and linear capabilities are in
+`Obs`, a trace quotient may not erase that difference.
+
+The smallest correction is typed rather than a special-case counter rule:
+
+```text
+Computing owner = (transaction, version, work_permit)
+live capability = (transaction, version, work_permit, current_stage, evidence)
+resolved evidence = (..., verify_cycle_class)
+permits(Any, Small | Large) = true
+permits(SmallCycleOnly, Small) = true
+permits(SmallCycleOnly, Large) = false
+
+ResolveOnly permits only Resolve on the split route
+VerifyOnly(cap) permits Verify(evidence) iff permits(cap, evidence.verify_cycle_class)
+ResolveThenVerify(cap) permits Resolve -> Verify(evidence) without Apply
+  iff permits(cap, evidence.verify_cycle_class)
+ResolveThenVerify(cap) otherwise settles to queued Verify with one Apply
+
+ContinueResolveThenVerify:
+  authority' = authority
+  capability.stage' = Verify(evidence)
+  apply_stamp' = apply_stamp
+```
+
+Checkout constructs only a permit/stage-compatible capability. Split Resolve
+still settles to queued Verify with one Apply. Compatible continuous Resolve
+changes only the unique linear capability and final Verify settles directly to
+Ready with one Apply. A `SmallCycleOnly` token that resolves `Large` work
+cannot take that transition and instead consumes its token into queued Verify
+with one Apply, exactly like production. Cancellation, stale evidence and
+failure consume that same capability exactly once. This correction adds no
+production state and does not select a later topology; it makes the reference
+kernel capable of stating every existing legal production route before trace
+refinement begins.
+
+This correction does not silently promote the provisional compute-exchange
+candidate. Its current `RetainedPermitGrant` is a count-only fair-scheduler
+token and `plan_compute_exchange` requests only the split checkout route, so it
+cannot yet prove role-compatible `ResolveThenVerify` assignment. M3.3 must
+either add the worker-role/verification-capability fact to that ephemeral
+grant and refine the exact production scheduler, or narrow the exchange
+theorem to split work and leave continuous assignment as an M3.6 candidate
+obligation. Persistent owner state must not gain worker-role metadata to make
+this proof convenient.
+
 #### M3.4 develop refinement
 
 Map `develop` into the same command, observation, trace and cost vocabulary.

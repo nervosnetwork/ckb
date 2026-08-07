@@ -786,7 +786,7 @@ fn model_compute_exchange_is_invariant_to_worker_completion_order() {
     let second = Transaction::independent(2, 2, 11, 21);
     let first_capability = computing_verify_chain(&mut omega, first.clone());
     let second_capability = computing_verify_chain(&mut omega, second.clone());
-    for capability in [first_capability, second_capability] {
+    for capability in [&first_capability, &second_capability] {
         assert_eq!(
             omega.kernel_step(KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
@@ -939,7 +939,7 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
     assert_eq!(assignments.len(), 1);
     assert_eq!(assignments[0].0.request().id, next_request_id);
     assert_eq!(assignments[0].1.transaction, transaction.id);
-    assert_eq!(assignments[0].1.kind, super::state::WorkKind::Resolve);
+    assert_eq!(assignments[0].1.kind(), super::state::WorkKind::Resolve);
     assert_eq!(assignments[0].1.chain, omega.authority.chain);
     assert_eq!(omega.check_invariants(), Ok(()));
 }

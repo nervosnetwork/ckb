@@ -13,8 +13,8 @@ use super::{
     },
     kernel::{
         Admission, ChainTransition, Completion, DirectCompletion, DirectNegativeReason,
-        DirectWorkResult, KernelCommand, KernelDisposition, KernelStep, ReadyCapture, WorkResult,
-        invariant_after_each,
+        DirectWorkResult, KernelCommand, KernelDisposition, KernelStep, ReadyCapture,
+        ResolveContinuation, WorkResult, invariant_after_each,
     },
     permit::{
         FairPermitScheduler, PermitClass, PermitDomain, PermitGrant, PermitReleaseDisposition,
@@ -36,7 +36,8 @@ use super::{
         LogicalEffect, MembershipRejection, MissingDependencies, ModelInvariantError, ModelLimits,
         MonotonicTick, Omega, OwnerLocation, PeerId, PoolGeneration, ProposalBase, RemoteDeadline,
         RemoteResidency, ResolvedEvidence, ResourceVector, RetainedOwner, RetainedPhase,
-        RetainedSource, RulesId, Transaction, TxId, ViewId, WitnessId, WorkKind, WorkStage,
+        RetainedSource, RulesId, Transaction, TxId, VerifyCapability, VerifyCycleClass, ViewId,
+        WitnessId, WorkKind, WorkPermit, WorkStage,
     },
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -344,6 +345,290 @@ fn model_cold_retained_lifecycle_exposes_the_exact_sequential_apply_cost() {
 }
 
 #[test]
+fn model_continuous_resolve_verify_preserves_one_capability_and_exact_apply_cost() {
+    let transaction = Transaction::independent(1, 1, 10, 20);
+    let mut continuous = model();
+
+    assert!(matches!(
+        continuous.kernel_step(remote(transaction.clone(), 7)),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(1),
+            disposition: KernelDisposition::Retained(TxId(1)),
+        }
+    ));
+    let capability =
+        match continuous.kernel_step(KernelCommand::CheckoutContinuous(VerifyCapability::Any)) {
+            KernelStep::AuthorityCommit {
+                stamp: ApplyStamp(2),
+                disposition: KernelDisposition::CheckedOut(capability),
+            } => capability,
+            other => panic!("expected continuous resolve checkout, got {other:?}"),
+        };
+    assert_eq!(
+        capability.permit(),
+        WorkPermit::ResolveThenVerify(VerifyCapability::Any)
+    );
+    assert!(matches!(capability.stage(), WorkStage::Resolve));
+
+    let evidence = ResolvedEvidence::for_transaction(
+        &transaction,
+        continuous.authority.chain,
+        continuous.authority.rules,
+    );
+    let authority_before_continuation = continuous.authority.clone();
+    let linear_permits_before_continuation = continuous.linear.free_compute_permits;
+    let continued = continuous.kernel_step(KernelCommand::ContinueResolveThenVerify(
+        ResolveContinuation {
+            capability: capability.id,
+            evidence: evidence.clone(),
+        },
+    ));
+    let updated = match continued {
+        KernelStep::NoAuthorityCommit(KernelDisposition::ResolveContinued(capability)) => {
+            capability
+        }
+        other => panic!("expected a no-Apply resolve continuation, got {other:?}"),
+    };
+    assert_eq!(continuous.authority, authority_before_continuation);
+    assert_eq!(updated.id, capability.id);
+    assert_eq!(
+        updated.permit(),
+        WorkPermit::ResolveThenVerify(VerifyCapability::Any)
+    );
+    assert_eq!(updated.stage(), &WorkStage::Verify(evidence));
+    assert_eq!(continuous.linear.work.get(&capability.id), Some(&updated));
+    assert_eq!(
+        continuous.linear.free_compute_permits,
+        linear_permits_before_continuation
+    );
+    assert_eq!(
+        query_subject(&continuous, transaction.id, AcceptedStatus::Proposed),
+        QuerySubject::PreAcceptedPending,
+        "the authority-visible continuous permit stays conservatively Pending"
+    );
+    assert_eq!(continuous.check_invariants(), Ok(()));
+
+    assert!(matches!(
+        continuous.kernel_step(KernelCommand::Complete(Completion {
+            capability: capability.id,
+            result: WorkResult::Verified,
+        })),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(3),
+            disposition: KernelDisposition::Ready(TxId(1)),
+        }
+    ));
+    assert!(matches!(
+        continuous.kernel_step(KernelCommand::FinalizeNext { wall_time: 10 }),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(4),
+            disposition: KernelDisposition::Accepted(TxId(1)),
+        }
+    ));
+    let claim = match continuous.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected committed effect claim, got {other:?}"),
+    };
+    assert!(matches!(
+        continuous.kernel_step(KernelCommand::SettleEffect(claim)),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(5),
+            disposition: KernelDisposition::EffectSettled(settled),
+        } if settled == claim
+    ));
+
+    let mut split = model();
+    drive_ready(&mut split, &transaction, 7);
+    assert!(matches!(
+        split.kernel_step(KernelCommand::FinalizeNext { wall_time: 10 }),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(6),
+            disposition: KernelDisposition::Accepted(TxId(1)),
+        }
+    ));
+    let split_claim = match split.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected split-route effect claim, got {other:?}"),
+    };
+    assert!(matches!(
+        split.kernel_step(KernelCommand::SettleEffect(split_claim)),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(7),
+            disposition: KernelDisposition::EffectSettled(settled),
+        } if settled == split_claim
+    ));
+
+    assert_eq!(continuous.authority.last_apply, ApplyStamp(5));
+    assert_eq!(split.authority.last_apply, ApplyStamp(7));
+    assert_eq!(continuous.authority.owners, split.authority.owners);
+    assert_eq!(continuous.authority.effects, split.authority.effects);
+    assert_eq!(
+        continuous.authority.latest_generation_reset,
+        split.authority.latest_generation_reset
+    );
+    assert_eq!(
+        continuous.linear.free_compute_permits,
+        split.linear.free_compute_permits
+    );
+    assert!(continuous.linear.work.is_empty() && split.linear.work.is_empty());
+    assert!(continuous.linear.finished_work.is_empty() && split.linear.finished_work.is_empty());
+    assert_eq!(continuous.linear.next_capability, 2);
+    assert_eq!(split.linear.next_capability, 3);
+    assert_eq!(continuous.check_invariants(), Ok(()));
+    assert_eq!(split.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_continuous_resolve_falls_back_when_worker_cannot_verify_the_resolved_class() {
+    let transaction =
+        Transaction::independent(1, 1, 10, 20).with_verify_class(VerifyCycleClass::Large);
+    let mut omega = model();
+    assert!(matches!(
+        omega.kernel_step(remote(transaction.clone(), 7)),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(1),
+            disposition: KernelDisposition::Retained(TxId(1)),
+        }
+    ));
+    let continuous = checked_out(omega.kernel_step(KernelCommand::CheckoutContinuous(
+        VerifyCapability::SmallCycleOnly,
+    )));
+    assert_eq!(omega.authority.last_apply, ApplyStamp(2));
+
+    let evidence = ResolvedEvidence::for_transaction(
+        &transaction,
+        omega.authority.chain,
+        omega.authority.rules,
+    );
+    assert_eq!(evidence.verify_class, VerifyCycleClass::Large);
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::Complete(Completion {
+            capability: continuous,
+            result: WorkResult::Resolved(evidence.clone()),
+        })),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(3),
+            disposition: KernelDisposition::Continued(TxId(1)),
+        }
+    ));
+    assert!(matches!(
+        &omega.authority.owners[&TxId(1)].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Verify(queued)),
+            ..
+        }) if queued == &evidence
+    ));
+    assert!(!omega.linear.work.contains_key(&continuous));
+    assert_eq!(
+        omega.linear.free_compute_permits,
+        omega.authority.limits.compute_permits
+    );
+
+    let verify = match omega.kernel_step(KernelCommand::Checkout) {
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(4),
+            disposition: KernelDisposition::CheckedOut(capability),
+        } => capability,
+        other => panic!("expected split verify checkout, got {other:?}"),
+    };
+    assert_eq!(
+        verify.permit(),
+        WorkPermit::VerifyOnly(VerifyCapability::Any)
+    );
+    assert!(matches!(verify.stage(), WorkStage::Verify(current) if current == &evidence));
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::Complete(Completion {
+            capability: verify.id,
+            result: WorkResult::Verified,
+        })),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(5),
+            disposition: KernelDisposition::Ready(TxId(1)),
+        }
+    ));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mutation() {
+    let transaction = Transaction::independent(1, 1, 10, 20);
+
+    let mut split = model();
+    split.kernel_step(remote(transaction.clone(), 7));
+    let split_capability = checked_out(split.kernel_step(KernelCommand::Checkout));
+    let split_before = split.clone();
+    let current_evidence = ResolvedEvidence::for_transaction(
+        &transaction,
+        split.authority.chain,
+        split.authority.rules,
+    );
+    assert_eq!(
+        split.kernel_step(KernelCommand::ContinueResolveThenVerify(
+            ResolveContinuation {
+                capability: split_capability,
+                evidence: current_evidence,
+            },
+        )),
+        KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(split_capability))
+    );
+    assert_eq!(split, split_before);
+
+    let large = transaction
+        .clone()
+        .with_verify_class(VerifyCycleClass::Large);
+    let mut incompatible = model();
+    incompatible.kernel_step(remote(large.clone(), 7));
+    let incompatible_capability = checked_out(incompatible.kernel_step(
+        KernelCommand::CheckoutContinuous(VerifyCapability::SmallCycleOnly),
+    ));
+    let incompatible_before = incompatible.clone();
+    assert_eq!(
+        incompatible.kernel_step(KernelCommand::ContinueResolveThenVerify(
+            ResolveContinuation {
+                capability: incompatible_capability,
+                evidence: ResolvedEvidence::for_transaction(
+                    &large,
+                    incompatible.authority.chain,
+                    incompatible.authority.rules,
+                ),
+            },
+        )),
+        KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+            incompatible_capability
+        ))
+    );
+    assert_eq!(incompatible, incompatible_before);
+
+    let mut continuous = model();
+    continuous.kernel_step(remote(transaction.clone(), 7));
+    let continuous_capability = checked_out(
+        continuous.kernel_step(KernelCommand::CheckoutContinuous(VerifyCapability::Any)),
+    );
+    let continuous_before = continuous.clone();
+    let stale_evidence = ResolvedEvidence::for_transaction(
+        &transaction,
+        ChainView {
+            tip: ViewId(99),
+            revision: continuous.authority.chain.revision,
+        },
+        continuous.authority.rules,
+    );
+    assert_eq!(
+        continuous.kernel_step(KernelCommand::ContinueResolveThenVerify(
+            ResolveContinuation {
+                capability: continuous_capability,
+                evidence: stale_evidence,
+            },
+        )),
+        KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
+            continuous_capability
+        ))
+    );
+    assert_eq!(continuous, continuous_before);
+    assert_eq!(continuous.check_invariants(), Ok(()));
+}
+
+#[test]
 fn model_stale_completion_retires_only_its_linear_capability() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
@@ -569,7 +854,7 @@ fn model_queued_verify_evidence_is_lazily_requeued_after_a_chain_advance() {
     else {
         panic!("the lazily requeued owner must be checked out for resolve");
     };
-    assert_eq!(capability.kind, WorkKind::Resolve);
+    assert_eq!(capability.kind(), WorkKind::Resolve);
     assert_eq!(capability.chain, omega.authority.chain);
     assert_eq!(omega.check_invariants(), Ok(()));
 }
@@ -5559,6 +5844,10 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
         },
         SystemEvent::Kernel {
             access,
+            command: KernelCommand::CheckoutContinuous(VerifyCapability::Any),
+        },
+        SystemEvent::Kernel {
+            access,
             command: KernelCommand::BeginDirect {
                 request: DirectRequestId(1),
                 kind: DirectKind::TestAccept,
@@ -5643,11 +5932,26 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                 command: KernelCommand::CancelCapability(capability.id),
             });
             if let Some(owner) = authority.authority.owners.get(&capability.transaction) {
+                if matches!(capability.permit(), WorkPermit::ResolveThenVerify(_))
+                    && matches!(capability.stage(), WorkStage::Resolve)
+                {
+                    events.push(SystemEvent::Kernel {
+                        access,
+                        command: KernelCommand::ContinueResolveThenVerify(ResolveContinuation {
+                            capability: capability.id,
+                            evidence: ResolvedEvidence::for_transaction(
+                                &owner.transaction,
+                                authority.authority.chain,
+                                authority.authority.rules,
+                            ),
+                        }),
+                    });
+                }
                 events.push(SystemEvent::Kernel {
                     access,
                     command: KernelCommand::Complete(Completion {
                         capability: capability.id,
-                        result: if capability.kind == super::state::WorkKind::Resolve {
+                        result: if capability.kind() == super::state::WorkKind::Resolve {
                             WorkResult::Resolved(ResolvedEvidence::for_transaction(
                                 &owner.transaction,
                                 authority.authority.chain,
@@ -5709,6 +6013,8 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
         ),
         retained(child, RetainedSource::Proposal),
         KernelCommand::Checkout,
+        KernelCommand::CheckoutContinuous(VerifyCapability::Any),
+        KernelCommand::CheckoutContinuous(VerifyCapability::SmallCycleOnly),
         KernelCommand::BeginDirect {
             request: DirectRequestId(1),
             kind: DirectKind::Local,
@@ -5802,6 +6108,20 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             KernelCommand::CancelCapability(capability.id),
         ]);
         if let Some(owner) = state.authority.owners.get(&capability.transaction) {
+            if matches!(capability.permit(), WorkPermit::ResolveThenVerify(_))
+                && matches!(capability.stage(), WorkStage::Resolve)
+            {
+                commands.push(KernelCommand::ContinueResolveThenVerify(
+                    ResolveContinuation {
+                        capability: capability.id,
+                        evidence: ResolvedEvidence::for_transaction(
+                            &owner.transaction,
+                            state.authority.chain,
+                            state.authority.rules,
+                        ),
+                    },
+                ));
+            }
             if let Some(cell) = owner
                 .transaction
                 .inputs

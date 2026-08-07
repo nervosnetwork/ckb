@@ -1,6 +1,6 @@
 use super::state::{
     AcceptedStatus, Omega, OwnerLocation, RetainedOwner, RetainedPhase, RulesId, Source, TxId,
-    WitnessId, WorkStage,
+    WitnessId, WorkPermit, WorkStage,
 };
 use std::collections::BTreeSet;
 
@@ -250,7 +250,7 @@ pub(super) fn query_subject(
         Some(OwnerLocation::Retained(RetainedOwner {
             phase:
                 RetainedPhase::Queued(WorkStage::Verify(_))
-                | RetainedPhase::Computing(WorkStage::Verify(_))
+                | RetainedPhase::Computing(WorkPermit::VerifyOnly(_))
                 | RetainedPhase::Ready(_),
             ..
         })) => QuerySubject::PreAcceptedProposalAware(proposal_window_status),

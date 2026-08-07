@@ -472,6 +472,7 @@ pub(super) struct Transaction {
     pub(super) outputs: BTreeSet<CellId>,
     pub(super) bytes: u32,
     pub(super) fee: u64,
+    pub(super) verify_class: VerifyCycleClass,
 }
 
 impl Transaction {
@@ -486,6 +487,7 @@ impl Transaction {
             outputs: BTreeSet::from([CellId(output)]),
             bytes: 4,
             fee: 10,
+            verify_class: VerifyCycleClass::Small,
         }
     }
 
@@ -500,7 +502,13 @@ impl Transaction {
             outputs: BTreeSet::from([CellId(output)]),
             bytes: 4,
             fee: 10,
+            verify_class: VerifyCycleClass::Small,
         }
+    }
+
+    pub(super) fn with_verify_class(mut self, verify_class: VerifyCycleClass) -> Self {
+        self.verify_class = verify_class;
+        self
     }
 
     pub(super) fn charge(&self) -> Option<ResourceVector> {
@@ -616,6 +624,37 @@ pub(super) enum WorkKind {
     Verify,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum VerifyCycleClass {
+    #[default]
+    Small,
+    Large,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum VerifyCapability {
+    Any,
+    SmallCycleOnly,
+}
+
+impl VerifyCapability {
+    pub(super) const fn permits(self, class: VerifyCycleClass) -> bool {
+        matches!(self, Self::Any) || matches!(class, VerifyCycleClass::Small)
+    }
+}
+
+/// The exact authority-visible permit that owns one retained computation.
+///
+/// `ResolveThenVerify` is the only permit whose move-only capability may
+/// advance from Resolve to Verify without an authority Apply. The owner keeps
+/// this permit stable while the capability carries the private stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum WorkPermit {
+    ResolveOnly,
+    VerifyOnly(VerifyCapability),
+    ResolveThenVerify(VerifyCapability),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum DirectKind {
     Local,
@@ -639,6 +678,7 @@ pub(super) struct EvidenceContext {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ResolvedEvidence {
     pub(super) context: EvidenceContext,
+    pub(super) verify_class: VerifyCycleClass,
     pub(super) input_origins: BTreeMap<CellId, InputOrigin>,
     pub(super) dep_origins: BTreeMap<CellId, InputOrigin>,
     // Header dependencies are immutable chain-view reads. Keeping them in a
@@ -659,6 +699,7 @@ impl ResolvedEvidence {
                 rules,
                 witness: transaction.witness,
             },
+            verify_class: transaction.verify_class,
             input_origins: transaction
                 .inputs
                 .iter()
@@ -703,6 +744,7 @@ impl ResolvedEvidence {
                 rules,
                 witness: transaction.witness,
             })
+            && self.verify_class == transaction.verify_class
             && self.input_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.inputs
             && self.dep_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.deps
             && self.header_deps == transaction.header_deps
@@ -711,6 +753,7 @@ impl ResolvedEvidence {
     pub(super) fn has_transaction_shape(&self, transaction: &Transaction, rules: RulesId) -> bool {
         self.context.rules == rules
             && self.context.witness == transaction.witness
+            && self.verify_class == transaction.verify_class
             && self.input_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.inputs
             && self.dep_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.deps
             && self.header_deps == transaction.header_deps
@@ -833,7 +876,7 @@ impl WorkStage {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RetainedPhase {
     Queued(WorkStage),
-    Computing(WorkStage),
+    Computing(WorkPermit),
     Waiting { missing: MissingDependencies },
     Ready(ResolvedEvidence),
 }
@@ -1136,14 +1179,86 @@ pub(super) enum EffectClaimSource {
     GenerationReset,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct WorkCapability {
     pub(super) id: CapabilityId,
     pub(super) transaction: TxId,
     pub(super) version: EntryVersion,
-    pub(super) kind: WorkKind,
+    permit: WorkPermit,
+    stage: WorkStage,
     pub(super) chain: ChainView,
     pub(super) rules: RulesId,
+}
+
+impl WorkCapability {
+    pub(super) fn for_checkout(
+        id: CapabilityId,
+        transaction: TxId,
+        version: EntryVersion,
+        permit: WorkPermit,
+        stage: WorkStage,
+        chain: ChainView,
+        rules: RulesId,
+    ) -> Option<Self> {
+        permit.permits_checkout(&stage).then_some(Self {
+            id,
+            transaction,
+            version,
+            permit,
+            stage,
+            chain,
+            rules,
+        })
+    }
+
+    pub(super) const fn permit(&self) -> WorkPermit {
+        self.permit
+    }
+
+    pub(super) const fn stage(&self) -> &WorkStage {
+        &self.stage
+    }
+
+    pub(super) const fn kind(&self) -> WorkKind {
+        self.stage.kind()
+    }
+
+    pub(super) fn continue_resolve_then_verify(&mut self, evidence: ResolvedEvidence) -> bool {
+        let WorkPermit::ResolveThenVerify(capability) = self.permit else {
+            return false;
+        };
+        if !matches!(self.stage, WorkStage::Resolve) || !capability.permits(evidence.verify_class) {
+            return false;
+        }
+        self.stage = WorkStage::Verify(evidence);
+        true
+    }
+
+    pub(super) const fn is_compatible(&self) -> bool {
+        self.permit.permits_active(&self.stage)
+    }
+}
+
+impl WorkPermit {
+    const fn permits_checkout(self, stage: &WorkStage) -> bool {
+        match (self, stage) {
+            (Self::ResolveOnly | Self::ResolveThenVerify(_), WorkStage::Resolve) => true,
+            (Self::VerifyOnly(capability), WorkStage::Verify(evidence)) => {
+                capability.permits(evidence.verify_class)
+            }
+            _ => false,
+        }
+    }
+
+    const fn permits_active(self, stage: &WorkStage) -> bool {
+        self.permits_checkout(stage)
+            || match (self, stage) {
+                (Self::ResolveThenVerify(capability), WorkStage::Verify(evidence)) => {
+                    capability.permits(evidence.verify_class)
+                }
+                _ => false,
+            }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1224,6 +1339,7 @@ pub(super) enum ModelInvariantError {
     AcceptedCausalCycle,
     MissingPoolParent,
     InvalidPoolParentOutput,
+    InvalidWorkCapability,
     ComputingWithoutCapability,
     DuplicateCurrentCapability,
     InvalidFinishedCapability,
@@ -1527,17 +1643,6 @@ impl Omega {
                     return Err(ModelInvariantError::InvalidMissingDependencies);
                 }
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(WorkStage::Verify(evidence)),
-                    ..
-                }) if !evidence.is_for(
-                    &owner.transaction,
-                    self.authority.chain,
-                    self.authority.rules,
-                ) =>
-                {
-                    return Err(ModelInvariantError::InvalidStoredEvidence);
-                }
-                OwnerLocation::Retained(RetainedOwner {
                     phase:
                         RetainedPhase::Queued(WorkStage::Verify(evidence))
                         | RetainedPhase::Ready(evidence),
@@ -1667,7 +1772,7 @@ impl Omega {
 
         for owner in self.authority.owners.values() {
             let OwnerLocation::Retained(RetainedOwner {
-                phase: RetainedPhase::Computing(stage),
+                phase: RetainedPhase::Computing(permit),
                 ..
             }) = &owner.location
             else {
@@ -1686,7 +1791,7 @@ impl Omega {
                 .filter(|capability| {
                     capability.transaction == owner.transaction.id
                         && capability.version == owner.version
-                        && capability.kind == stage.kind()
+                        && capability.permit() == *permit
                         && capability.chain == self.authority.chain
                         && capability.rules == self.authority.rules
                 })
@@ -1702,6 +1807,9 @@ impl Omega {
             if *key != capability.id || capability.id.0 >= self.linear.next_capability {
                 return Err(ModelInvariantError::CapabilityKey);
             }
+            if !capability.is_compatible() {
+                return Err(ModelInvariantError::InvalidWorkCapability);
+            }
             let Some(owner) = self.authority.owners.get(&capability.transaction) else {
                 continue;
             };
@@ -1714,22 +1822,34 @@ impl Omega {
             if !matches!(
                 &owner.location,
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(stage),
+                    phase: RetainedPhase::Computing(permit),
                     ..
-                }) if stage.kind() == capability.kind
+                }) if *permit == capability.permit()
             ) {
                 return Err(ModelInvariantError::DuplicateCurrentCapability);
+            }
+            if let WorkStage::Verify(evidence) = capability.stage()
+                && !evidence.is_for(
+                    &owner.transaction,
+                    self.authority.chain,
+                    self.authority.rules,
+                )
+            {
+                return Err(ModelInvariantError::InvalidStoredEvidence);
             }
         }
 
         for (key, finished) in &self.linear.finished_work {
-            let capability = finished.capability;
+            let capability = &finished.capability;
             if *key != capability.id
                 || capability.id.0 >= self.linear.next_capability
                 || self.linear.work.contains_key(key)
             {
                 return Err(ModelInvariantError::CapabilityKey);
             }
+            if !capability.is_compatible() {
+                return Err(ModelInvariantError::InvalidWorkCapability);
+            }
             let Some(owner) = self.authority.owners.get(&capability.transaction) else {
                 continue;
             };
@@ -1742,11 +1862,20 @@ impl Omega {
             if !matches!(
                 &owner.location,
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(stage),
+                    phase: RetainedPhase::Computing(permit),
                     ..
-                }) if stage.kind() == capability.kind
+                }) if *permit == capability.permit()
             ) {
                 return Err(ModelInvariantError::InvalidFinishedCapability);
+            }
+            if let WorkStage::Verify(evidence) = capability.stage()
+                && !evidence.is_for(
+                    &owner.transaction,
+                    self.authority.chain,
+                    self.authority.rules,
+                )
+            {
+                return Err(ModelInvariantError::InvalidStoredEvidence);
             }
         }
 
