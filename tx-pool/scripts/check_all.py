@@ -12,7 +12,10 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
 SELF = Path(__file__).resolve()
-RUST_DISCOVERY_CHECK = "check_security_manifest.py"
+LIGHT_EXCLUDED_CHECKS = {
+    "check_formal_models.py",
+    "check_security_manifest.py",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--light",
         action="store_true",
-        help="skip the validator that invokes Rust test discovery",
+        help="skip validators that require Rust test discovery or external TLC",
     )
     return parser.parse_args()
 
@@ -32,7 +35,7 @@ def discovered_checks(light: bool) -> list[Path]:
         if path.resolve() != SELF
     ]
     if light:
-        checks = [path for path in checks if path.name != RUST_DISCOVERY_CHECK]
+        checks = [path for path in checks if path.name not in LIGHT_EXCLUDED_CHECKS]
     return checks
 
 

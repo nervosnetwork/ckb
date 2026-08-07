@@ -1,28 +1,22 @@
 use super::state::{
     AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
     DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectRecord, EntryVersion,
-    HeaderId, InputOrigin, LogicalEffect, MembershipRejection, MissingDependencies,
-    ModelInvariantError, MonotonicTick, Omega, Owner, OwnerLocation, PeerBanDeadline,
-    PeerBanRecord, PeerId, PoolGeneration, ProposalBase, RemoteDeadline, ResolvedEvidence,
-    RetainedOwner, RetainedPhase, RetainedSource, RulesId, Source, Transaction, TxId, ViewId,
-    WorkCapability, WorkStage,
+    FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect, MembershipRejection,
+    MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner, OwnerLocation,
+    PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase, RemoteDeadline,
+    ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId, Source, Transaction,
+    TxId, ViewId, WorkCapability, WorkStage,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
+
+pub(super) use super::state::WorkResult;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Admission {
     pub(super) transaction: Transaction,
     pub(super) source: RetainedSource,
     pub(super) observed_at: MonotonicTick,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum WorkResult {
-    Resolved(ResolvedEvidence),
-    Verified,
-    Missing(MissingDependencies),
-    Rejected,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +27,12 @@ enum WorkCompletionPlan {
     Wait(MissingDependencies),
     Reject,
     Invalid,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompletionLocation {
+    Executing,
+    Finished,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,6 +254,8 @@ pub(super) enum KernelCommand {
     Admit(Admission),
     Checkout,
     Complete(Completion),
+    FinishExecution(Completion),
+    SettleFinished(CapabilityId),
     BeginDirect {
         request: DirectRequestId,
         kind: DirectKind,
@@ -303,6 +305,8 @@ impl KernelCommand {
             })
             | Self::Checkout
             | Self::Complete(_)
+            | Self::FinishExecution(_)
+            | Self::SettleFinished(_)
             | Self::CancelCapability(_)
             | Self::CaptureReady { .. }
             | Self::FinalizeCaptured { .. }
@@ -325,6 +329,8 @@ impl KernelCommand {
         matches!(
             self,
             Self::Complete(_)
+                | Self::FinishExecution(_)
+                | Self::SettleFinished(_)
                 | Self::CompleteDirect(_)
                 | Self::CancelCapability(_)
                 | Self::ClaimEffect
@@ -348,6 +354,7 @@ pub(super) enum KernelDisposition {
     DirectCheckedOut(DirectCapability),
     Continued(TxId),
     Ready(TxId),
+    Finished(CapabilityId),
     Waiting(TxId),
     Rejected(TxId),
     InvalidEvidenceRejected(TxId),
@@ -429,6 +436,8 @@ impl Omega {
             KernelCommand::Admit(admission) => self.admit(admission),
             KernelCommand::Checkout => self.checkout(),
             KernelCommand::Complete(completion) => self.complete(completion),
+            KernelCommand::FinishExecution(completion) => self.finish_execution(completion),
+            KernelCommand::SettleFinished(capability) => self.settle_finished(capability),
             KernelCommand::BeginDirect {
                 request,
                 kind,
@@ -618,7 +627,15 @@ impl Omega {
     }
 
     fn checkout(&mut self) -> KernelStep {
-        if self.linear.free_compute_permits == 0 {
+        let retained_worker_slots = self
+            .linear
+            .work
+            .len()
+            .checked_add(self.linear.finished_work.len());
+        if self.linear.free_compute_permits == 0
+            || retained_worker_slots
+                .is_none_or(|slots| slots >= usize::from(self.authority.limits.compute_permits))
+        {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         }
         let Some(transaction) = self.queued_order().first().copied() else {
@@ -821,11 +838,23 @@ impl Omega {
                 KernelDisposition::StaleCapabilityRetired(capability),
             );
         }
+        if let Some(finished) = self.linear.finished_work.get(&capability) {
+            return self.cancel_work_capability(finished.capability, CompletionLocation::Finished);
+        }
         let Some(work) = self.linear.work.get(&capability).copied() else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
                 capability,
             ));
         };
+        self.cancel_work_capability(work, CompletionLocation::Executing)
+    }
+
+    fn cancel_work_capability(
+        &mut self,
+        work: WorkCapability,
+        location: CompletionLocation,
+    ) -> KernelStep {
+        let capability = work.id;
         let current = self.capability_is_current(work);
         let owner_loss = if current {
             self.owner_loss_plan(&BTreeSet::from([work.transaction]), &BTreeSet::new())
@@ -855,11 +884,9 @@ impl Omega {
             ));
         }
         let mut next = self.clone();
-        next.linear.work.remove(&capability);
-        let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
+        if !next.retire_work_capability(capability, location) {
             return counter_exhausted();
-        };
-        next.linear.free_compute_permits = free;
+        }
         if current {
             let Some(stamp) = next.reserve_apply() else {
                 return counter_exhausted();
@@ -881,26 +908,12 @@ impl Omega {
         KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(capability))
     }
 
-    fn complete(&mut self, completion: Completion) -> KernelStep {
-        let Some(capability) = self.linear.work.get(&completion.capability).copied() else {
-            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
-                completion.capability,
-            ));
-        };
-        if !self.capability_is_current(capability) {
-            let mut next = self.clone();
-            next.linear.work.remove(&completion.capability);
-            let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
-                return counter_exhausted();
-            };
-            next.linear.free_compute_permits = free;
-            *self = next;
-            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
-                completion.capability,
-            ));
-        }
-
-        let Some(stage) = self
+    fn work_completion_plan(
+        &self,
+        capability: WorkCapability,
+        result: &WorkResult,
+    ) -> Option<WorkCompletionPlan> {
+        let stage = self
             .authority
             .owners
             .get(&capability.transaction)
@@ -908,17 +921,12 @@ impl Omega {
                 OwnerLocation::Retained(RetainedOwner {
                     phase: RetainedPhase::Computing(stage),
                     ..
-                }) => Some(stage.clone()),
+                }) => Some(stage),
                 OwnerLocation::Retained(_)
                 | OwnerLocation::Accepted { .. }
                 | OwnerLocation::ReplacementHistory { .. } => None,
-            })
-        else {
-            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
-                completion.capability,
-            ));
-        };
-        let plan = match (&stage, &completion.result) {
+            })?;
+        Some(match (stage, result) {
             (WorkStage::Resolve, WorkResult::Resolved(evidence)) => {
                 match self.classify_evidence(capability.transaction, evidence) {
                     EvidenceValidity::Current => {
@@ -946,6 +954,87 @@ impl Omega {
             }
             (_, WorkResult::Rejected) => WorkCompletionPlan::Reject,
             _ => WorkCompletionPlan::Invalid,
+        })
+    }
+
+    fn finish_execution(&mut self, completion: Completion) -> KernelStep {
+        let Some(capability) = self.linear.work.get(&completion.capability).copied() else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                completion.capability,
+            ));
+        };
+        if !self.capability_is_current(capability) {
+            let mut next = self.clone();
+            next.linear.work.remove(&completion.capability);
+            let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
+                return counter_exhausted();
+            };
+            next.linear.free_compute_permits = free;
+            *self = next;
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                completion.capability,
+            ));
+        }
+        let mut next = self.clone();
+        next.linear.work.remove(&completion.capability);
+        next.linear.finished_work.insert(
+            completion.capability,
+            FinishedWorkCapability {
+                capability,
+                result: completion.result,
+            },
+        );
+        let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
+            return counter_exhausted();
+        };
+        next.linear.free_compute_permits = free;
+        *self = next;
+        KernelStep::NoAuthorityCommit(KernelDisposition::Finished(completion.capability))
+    }
+
+    fn settle_finished(&mut self, capability: CapabilityId) -> KernelStep {
+        let Some(finished) = self.linear.finished_work.get(&capability).cloned() else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                capability,
+            ));
+        };
+        self.settle_work_completion(
+            finished.capability,
+            finished.result,
+            CompletionLocation::Finished,
+        )
+    }
+
+    fn complete(&mut self, completion: Completion) -> KernelStep {
+        let Some(capability) = self.linear.work.get(&completion.capability).copied() else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                completion.capability,
+            ));
+        };
+        self.settle_work_completion(capability, completion.result, CompletionLocation::Executing)
+    }
+
+    fn settle_work_completion(
+        &mut self,
+        capability: WorkCapability,
+        result: WorkResult,
+        location: CompletionLocation,
+    ) -> KernelStep {
+        if !self.capability_is_current(capability) {
+            let mut next = self.clone();
+            if !next.retire_work_capability(capability.id, location) {
+                return counter_exhausted();
+            }
+            *self = next;
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                capability.id,
+            ));
+        }
+
+        let Some(plan) = self.work_completion_plan(capability, &result) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                capability.id,
+            ));
         };
         let terminal = matches!(
             plan,
@@ -996,22 +1085,20 @@ impl Omega {
         let Some(stamp) = next.reserve_apply() else {
             return counter_exhausted();
         };
-        next.linear.work.remove(&completion.capability);
-        let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
+        if !next.retire_work_capability(capability.id, location) {
             return counter_exhausted();
-        };
-        next.linear.free_compute_permits = free;
+        }
         let id = capability.transaction;
         let disposition = match plan {
             WorkCompletionPlan::ContinueVerify(evidence) => {
                 let Some(owner) = next.authority.owners.get_mut(&id) else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 let OwnerLocation::Retained(retained) = &mut owner.location else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 retained.phase = RetainedPhase::Queued(WorkStage::Verify(evidence));
@@ -1020,12 +1107,12 @@ impl Omega {
             WorkCompletionPlan::Ready(evidence) => {
                 let Some(owner) = next.authority.owners.get_mut(&id) else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 let OwnerLocation::Retained(retained) = &mut owner.location else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 retained.phase = RetainedPhase::Ready(evidence);
@@ -1034,12 +1121,12 @@ impl Omega {
             WorkCompletionPlan::RequeueResolve => {
                 let Some(owner) = next.authority.owners.get_mut(&id) else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 let OwnerLocation::Retained(retained) = &mut owner.location else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 retained.phase = RetainedPhase::Queued(WorkStage::Resolve);
@@ -1048,12 +1135,12 @@ impl Omega {
             WorkCompletionPlan::Wait(missing) => {
                 let Some(owner) = next.authority.owners.get_mut(&id) else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 let OwnerLocation::Retained(retained) = &mut owner.location else {
                     return KernelStep::NoAuthorityCommit(
-                        KernelDisposition::StaleCapabilityRetired(completion.capability),
+                        KernelDisposition::StaleCapabilityRetired(capability.id),
                     );
                 };
                 retained.phase = RetainedPhase::Waiting { missing };
@@ -1942,23 +2029,17 @@ impl Omega {
             }
         }
 
-        // A view advance makes active compute capabilities stale, but the
-        // affected slice is bounded by compute permits rather than pool size.
-        // Ready and queued Verify evidence remain resident and are lazily
-        // requeued by their exact consumers; Waiting and queued Resolve owners
-        // contain no positive chain proof.
-        let active = self
-            .linear
-            .work
-            .values()
-            .map(|capability| (capability.transaction, capability.version))
-            .collect::<Vec<_>>();
-        for (id, version) in active {
-            let Some(owner) = next.authority.owners.get_mut(&id) else {
-                continue;
-            };
-            if owner.version == version
-                && let OwnerLocation::Retained(retained) = &mut owner.location
+        // A chain revision invalidates the positive evidence of every current
+        // Computing owner, independent of whether its linear capability is
+        // still executing or has already released its permit into
+        // `finished_work`. Reclassify the semantic owner phase instead of
+        // enumerating capability containers; both capability locations remain
+        // linearly owned but stale and retire exactly once later. Ready and
+        // queued Verify evidence remain resident and are lazily requeued by
+        // their exact consumers; Waiting and queued Resolve owners contain no
+        // positive chain proof.
+        for owner in next.authority.owners.values_mut() {
+            if let OwnerLocation::Retained(retained) = &mut owner.location
                 && matches!(retained.phase, RetainedPhase::Computing(_))
             {
                 retained.phase = RetainedPhase::Queued(WorkStage::Resolve);
@@ -2576,6 +2657,30 @@ impl Omega {
         }
         *self = next;
         KernelStep::NoAuthorityCommit(disposition)
+    }
+
+    fn retire_work_capability(
+        &mut self,
+        capability: CapabilityId,
+        location: CompletionLocation,
+    ) -> bool {
+        match location {
+            CompletionLocation::Executing => {
+                if self.linear.work.remove(&capability).is_none() {
+                    return false;
+                }
+                let Some(free) = self.linear.free_compute_permits.checked_add(1) else {
+                    return false;
+                };
+                self.linear.free_compute_permits = free;
+            }
+            CompletionLocation::Finished => {
+                if self.linear.finished_work.remove(&capability).is_none() {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn release_direct_capability(&mut self, capability: CapabilityId) -> bool {

@@ -16,7 +16,10 @@ use super::{
         DirectWorkResult, KernelCommand, KernelDisposition, KernelStep, ReadyCapture, WorkResult,
         invariant_after_each,
     },
-    permit::{FairPermitScheduler, PermitClass, PermitDisposition, PermitRequest, PermitRequestId},
+    permit::{
+        FairPermitScheduler, PermitClass, PermitDomain, PermitGrant, PermitReleaseDisposition,
+        PermitRequest, PermitRequestDisposition, PermitRequestId,
+    },
     protocol::{
         DerivedComponent, DerivedHealth, KernelAccess, Lifecycle, PayloadCost, PayloadLocation,
         ProtocolLimits, RequestId, RequestKind, ResponseResult, SystemDisposition, SystemEvent,
@@ -369,6 +372,59 @@ fn model_stale_completion_retires_only_its_linear_capability() {
     );
     assert!(omega.authority.owners.contains_key(&TxId(1)));
     assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_chain_advance_requeues_finished_work_and_retires_it_without_double_release() {
+    let transaction = Transaction::independent(1, 1, 10, 20);
+    let mut omega = model();
+    omega.kernel_step(remote(transaction.clone(), 7));
+    let capability = checked_out(omega.kernel_step(KernelCommand::Checkout));
+    let evidence = ResolvedEvidence::for_transaction(
+        &transaction,
+        omega.authority.chain,
+        omega.authority.rules,
+    );
+    assert_eq!(
+        omega.kernel_step(KernelCommand::FinishExecution(Completion {
+            capability,
+            result: WorkResult::Resolved(evidence),
+        })),
+        KernelStep::NoAuthorityCommit(KernelDisposition::Finished(capability))
+    );
+    assert!(omega.linear.work.is_empty());
+    assert!(omega.linear.finished_work.contains_key(&capability));
+    let released_permits = omega.linear.free_compute_permits;
+
+    assert!(matches!(
+        omega.kernel_step(reconcile_view(omega.authority.chain, ViewId(2))),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    assert!(matches!(
+        omega.authority.owners[&transaction.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert!(omega.linear.finished_work.contains_key(&capability));
+    assert_eq!(omega.check_invariants(), Ok(()));
+
+    for command in [
+        KernelCommand::SettleFinished(capability),
+        KernelCommand::CancelCapability(capability),
+    ] {
+        let mut retired = omega.clone();
+        assert_eq!(
+            retired.kernel_step(command),
+            KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(capability))
+        );
+        assert_eq!(retired.linear.free_compute_permits, released_permits);
+        assert!(retired.linear.work.is_empty());
+        assert!(retired.linear.finished_work.is_empty());
+        assert!(retired.authority.owners.contains_key(&transaction.id));
+        assert_eq!(retired.check_invariants(), Ok(()));
+    }
 }
 
 #[test]
@@ -4961,7 +5017,8 @@ fn model_query_cost_keeps_concurrency_scan_sort_and_output_terms_explicit() {
 
 #[test]
 fn model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reuse_it() {
-    let mut scheduler = FairPermitScheduler::new(1, 4).expect("valid permit fixture");
+    let mut scheduler =
+        FairPermitScheduler::new(PermitDomain(1), 1, 4).expect("valid permit fixture");
     let retained = PermitRequest {
         id: PermitRequestId(1),
         class: PermitClass::Retained,
@@ -4979,30 +5036,32 @@ fn model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reus
         class: PermitClass::Retained,
     };
 
-    let retained_lease = match scheduler.request(retained) {
-        PermitDisposition::Granted { lease, .. } => lease,
+    let retained_token = match scheduler.request(retained) {
+        PermitRequestDisposition::Granted {
+            grant: PermitGrant::Retained(token),
+        } => token,
         other => panic!("expected the initial permit, got {other:?}"),
     };
     assert_eq!(
         scheduler.request(local),
-        PermitDisposition::Queued(local.id)
+        PermitRequestDisposition::Queued(local.id)
     );
     assert_eq!(
         scheduler.request(older_retained_waiter),
-        PermitDisposition::Queued(older_retained_waiter.id)
+        PermitRequestDisposition::Queued(older_retained_waiter.id)
     );
     assert_eq!(scheduler.waiting_position(local.id), Some(0));
 
-    let local_lease = match scheduler.release(retained_lease) {
-        PermitDisposition::Released {
+    let local_token = match scheduler.release(retained_token.into()) {
+        PermitReleaseDisposition::Released {
             request,
-            next: Some((next, lease)),
-        } if request == retained && next == local => lease,
+            next: Some(PermitGrant::Direct(token)),
+        } if request == retained && token.request() == local => token,
         other => panic!("expected the queued Local request to receive the permit, got {other:?}"),
     };
     assert_eq!(
         scheduler.request(retrying_completion),
-        PermitDisposition::Queued(retrying_completion.id)
+        PermitRequestDisposition::Queued(retrying_completion.id)
     );
     assert_eq!(
         scheduler.waiting_position(older_retained_waiter.id),
@@ -5011,11 +5070,11 @@ fn model_compute_completion_returns_to_the_fair_arbiter_before_new_work_can_reus
     assert_eq!(scheduler.waiting_position(retrying_completion.id), Some(1));
 
     assert!(matches!(
-        scheduler.release(local_lease),
-        PermitDisposition::Released {
-            next: Some((request, _)),
+        scheduler.release(local_token.into()),
+        PermitReleaseDisposition::Released {
+            next: Some(PermitGrant::Retained(token)),
             ..
-        } if request == older_retained_waiter
+        } if token.request() == older_retained_waiter
     ));
     assert_eq!(scheduler.check_invariants(), Ok(()));
 }
@@ -5377,6 +5436,13 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
             });
             events.push(SystemEvent::Kernel {
                 access,
+                command: KernelCommand::FinishExecution(Completion {
+                    capability: capability.id,
+                    result: WorkResult::Rejected,
+                }),
+            });
+            events.push(SystemEvent::Kernel {
+                access,
                 command: KernelCommand::CancelCapability(capability.id),
             });
             if let Some(owner) = authority.authority.owners.get(&capability.transaction) {
@@ -5396,6 +5462,16 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                     }),
                 });
             }
+        }
+        if let Some(finished) = authority.linear.finished_work.values().next() {
+            events.push(SystemEvent::Kernel {
+                access,
+                command: KernelCommand::SettleFinished(finished.capability.id),
+            });
+            events.push(SystemEvent::Kernel {
+                access,
+                command: KernelCommand::CancelCapability(finished.capability.id),
+            });
         }
         if let Some(capability) = authority.linear.direct_work.values().next() {
             events.push(SystemEvent::Kernel {
@@ -5487,6 +5563,11 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             capability: CapabilityId(u16::MAX),
             result: WorkResult::Rejected,
         }),
+        KernelCommand::FinishExecution(Completion {
+            capability: CapabilityId(u16::MAX),
+            result: WorkResult::Rejected,
+        }),
+        KernelCommand::SettleFinished(CapabilityId(u16::MAX)),
         KernelCommand::CancelCapability(CapabilityId(u16::MAX)),
     ];
 
@@ -5509,6 +5590,14 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                 result: WorkResult::Verified,
             }),
             KernelCommand::Complete(Completion {
+                capability: capability.id,
+                result: WorkResult::Rejected,
+            }),
+            KernelCommand::FinishExecution(Completion {
+                capability: capability.id,
+                result: WorkResult::Verified,
+            }),
+            KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
                 result: WorkResult::Rejected,
             }),
@@ -5547,6 +5636,14 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                     state.authority.rules,
                 )),
             }));
+            commands.push(KernelCommand::FinishExecution(Completion {
+                capability: capability.id,
+                result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
+                    &owner.transaction,
+                    state.authority.chain,
+                    state.authority.rules,
+                )),
+            }));
             commands.push(KernelCommand::Complete(Completion {
                 capability: capability.id,
                 result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
@@ -5559,6 +5656,10 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                 )),
             }));
         }
+    }
+    for finished in state.linear.finished_work.values() {
+        commands.push(KernelCommand::SettleFinished(finished.capability.id));
+        commands.push(KernelCommand::CancelCapability(finished.capability.id));
     }
     for capability in state.linear.direct_work.values() {
         commands.push(KernelCommand::CompleteDirect(DirectCompletion {

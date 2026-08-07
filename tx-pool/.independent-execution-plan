@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: proof-driven design audit active; topology selection is reopened
-Checkpoint: `2dee898d29`
-Active slice: M2 composition, progress and quantitative proof
+Status: M2 mathematical composition gate complete; production refinement active
+Checkpoint: M2 commit containing this record
+Active slice: M3 production/develop refinement and minimality audit
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -1372,13 +1372,16 @@ slots hold no semaphore permit. A completion retains its permit until the
 coordinator classifies its exact settlement. The permit must never transfer
 directly from one completed execution to a later execution: that bypasses an
 older synchronous Local waiter in Tokio's fair semaphore and can starve Local
-under a continuous retained wave. An effect-free completion eligible for the
-common exchange may consume its execution capability into a finished-work
-capability, return the count token to the fair semaphore, and use only a token
-that the coordinator subsequently reacquires. If a queued Local caller wins
-that token, the exchange settles the completion without a replacement
-checkout. A completion that can block on effect capacity retains its original
-permit in the existing bounded fallback.
+under a continuous retained wave. After classification, every completion
+consumes its execution capability into a finished-work capability, returns the
+count token to the fair semaphore, and may use only a token that the
+coordinator subsequently reacquires. If a queued Local caller wins that token,
+the exchange settles the completion without a replacement checkout. The
+derived law `executing + finished <= active_work_slots` prevents publisher
+backpressure from accumulating more completed results or checking out new
+retained work into an occupied slot. Therefore an effect-capacity-blocked
+completion retains only its original bounded worker slot, not the semaphore
+permit; retaining both would transfer effect pressure into Direct starvation.
 
 When queued work exists, the coordinator awaits at most one fair semaphore
 acquisition and then uses non-blocking acquisitions for the rest of the
@@ -1634,7 +1637,8 @@ Required falsifiers include:
 14. a Local caller already queued on the shared compute semaphore acquires a
     permit within the next completed retained execution; no completion-carried
     permit can bypass the fair gate, while an effect-capacity-blocked
-    completion still retains its exact bounded permit.
+    completion retains only its original bounded worker slot and cannot block
+    unrelated finished settlement.
 15. if a weaker Ready member becomes stale between the two OCC reads, the
     strongest still-current prefix commits without waiting for that member;
     a stale head commits nothing, observes a changed cut and yields after one
@@ -1750,6 +1754,31 @@ topology that M4 has not selected. This gate owns exposure by model checkpoint
 rather than by an arbitrary calendar threshold, while preserving the original
 decision that topology-entangled defects remain model counterexamples until
 the normative blueprint is frozen.
+
+### Fixed tool and evidence matrix
+
+The workstation toolchain is available, but tools do not define the proof
+claim. Each one has one phase-owned role so optional analysis cannot replace a
+required model, correctness or integration gate:
+
+| Tool | Fixed role | Earliest phase |
+|---|---|---|
+| `cargo nextest`, `cargo hack` | isolated/full test universes and feature-matrix discovery | every phase |
+| `cargo llvm-cov`, `cargo mutants` | coverage gaps and deliberate premise-removal strength | M2 closure, then V1 |
+| `cargo kani`, `cargo +nightly miri` | bounded unsafe/arithmetic/ownership checks selected by a named residual claim | M2 closure for model helpers; M4/V1 for selected production owners |
+| TLA+ TLC via `scripts/check_formal_models.py` | independent permit/effect safety, liveness and reachability falsifier | M2 |
+| `cargo deny`, `cargo machete`, `shellcheck`, `actionlint` | dependency, unused-dependency, script and CI static gates | M4 and V1 |
+| `cargo expand`, `ast-grep`, `cargo asm` | macro/source-shape/assembly inspection; the installed `cargo-show-asm` package registers the command as `cargo asm` | M3 static refinement; P for assembly |
+| `cargo llvm-lines`, `cargo bloat`, `difft` | implementation-cost, binary-size and review-diff evidence | M3/M4 and V2 |
+| `tokio-console`, `samply`, `cargo instruments` | task/wake, CPU and macOS Instruments profiling; all instrumentation remains feature-gated | P only |
+| `hyperfine` and the repository benchmark runner | fixed-binary command timing and paired A/B evidence | P only |
+
+Version availability is recovered in `.release-progress`. A tool failure is
+classified as a harness/environment failure rather than silently treated as a
+passing proof. The current host exposes only Xcode Command Line Tools through
+`xcode-select`; `cargo instruments` is installed, but its Xcode Instruments
+backend is not considered operational until `xctrace` is discoverable. This
+does not block M2-M4 because profiling is forbidden there.
 
 ### M0 - Trusted boundary and observational semantics
 
@@ -1892,16 +1921,121 @@ or schedule change reopens this disposition immediately.
   model stale work, cancellation, effect pressure, shutdown and crash boundary.
 - State source-specific fairness and environment assumptions; prove local rank
   or named-level progress and reject unchanged-cut retry traces.
+- Explore wall-clock rollback and process-monotonic progress as distinct,
+  finite environment actions at semantic event boundaries. Cross-check the
+  minimal permit/effect retry protocol with TLC as an independent falsifier;
+  the Rust transition model remains the semantic authority.
 - Derive fixed, per-item, per-edge, component and adversarial bounds, plus
   disjoint-traffic noninterference and hostile-work amplification properties.
 
 Exit: the executable model proves safety, linearization, conditional liveness
 and static cost bounds for both single-item and bounded-cohort transitions.
 
+#### M2 closure audit
+
+M2 closes only the mathematical composition theorem. It selects no production
+task topology and makes no throughput claim. The Rust reference model derives
+the complete transient Cell/policy/resource/effect footprint from one M1 cut,
+folds each supported cohort through the M1 sequential oracle, and commits one
+canonical stamp while retaining distinct owner versions and arrivals. A
+separately structured hostile explorer covers relation shapes, witness
+variants, short-ID collisions, RBF, effect pressure, clocks, peer isolation,
+deep chains and fanout. The minimal TLA+ model independently checks fair permit
+handoff and effect-blocked progress, including a required negative witness.
+
+The section 3.8 six-question audit has these exact results:
+
+1. **Boundary completeness:** the audit exposed two premises that are now
+   explicit rather than hidden. One assembled fair scheduler owns each permit
+   domain, and model tokens have sealed constructors. Rust move-only values are
+   affine, not linear: deliberate disposal outside a modeled transition is an
+   illegal protocol use. M3 must refine tokens to an RAII owner whose Drop or
+   shutdown path returns the capacity; `must_use` is only a review backstop.
+2. **Smaller basis:** the scheduler's monotonic numeric permit lease and its
+   eventual counter-exhaustion outcome had no business, attack or observation
+   owner. A sealed move-only token plus the unique active request identity
+   already excludes ABA. M2 therefore removes the lease, its counter and every
+   permit-specific exhaustion branch. Dynamic footprint indexes, hostile
+   clocks and quantitative counters remain transient proof scratch, not
+   authority state.
+3. **No implementation-shaped weakening:** counterexamples strengthened the
+   model: finished work remains worker-slot bounded after releasing the fair
+   permit; stale Plan returns every token; Ready uses the longest exact
+   priority prefix; same-cut retries are rejected; and effect pressure blocks
+   only the exact finished slot. No property was relaxed to match current UAK.
+4. **Refinement remains open:** production is unchanged. Every model command,
+   relation, ordinary disposition, capability handoff and fallback edge still
+   requires a pointwise M3 mapping. This is why
+   `MODEL-REFINEMENT-ACCEPTANCE` remains a release blocker after M2.
+5. **Cost ownership:** M2 adds no production field, state, lock, queue, task,
+   cache, journal or effect. Its checked equations keep item, key/edge,
+   component, scratch, worker-slot, Apply, wake, stale-work and external
+   backlog terms separate. M3 must bind every symbolic input to one production
+   bound before a topology can win.
+6. **Whole-system progress:** progress is conditional only on named premises:
+   a stable evidence epoch, fair permit service, eventual effect drain when the
+   endpoint contract remains live, and eventual wall-deadline observation for
+   wall-clock expiry. Each nonterminal local step otherwise lowers a finite
+   rank or waits on a monotonic level with one releaser. Persistent allocation
+   pressure and dead external endpoints remain typed bounded outcomes, not a
+   fabricated liveness proof.
+
+The preliminary layer-deletion result separates semantic obligations from the
+current runtime encoding. `RETAIN` does not retain today's task or queue:
+
+| Semantic layer | M2 necessity result | Current realization that M3 must try to remove or fuse |
+|---|---|---|
+| External handoff and retained ingress | `RETAIN` bounded ownership transfer, exact charge and acknowledgement | per-item controller transfer, separate ingress ceremony and one Apply per owner |
+| Resolve evidence | `RETAIN` exact chain/Accepted-overlay evidence outside the guard | dedicated resolver task, resident stage handoff and separate settlement when continuous compute is available |
+| Verify evidence and fair capacity | `RETAIN` parallel VM work, exact cache context and fair shared capacity | distinct Verify queue/task plumbing and a separate best-effort cache writer |
+| Verified overlap boundary | `RETAIN` charged verified evidence after scarce compute is released | the exact `Ready` representation and a dedicated Ready driver are not yet necessary facts |
+| Final membership | `RETAIN` one atomic authority plus exact coupled fallback | per-owner Apply and all-or-nothing bounded-tail OCC; commuting prefixes compile once |
+| Dependency and expiry | `RETAIN` levels, definitive-loss closure and clock source | a dedicated maintenance task rather than a fused level-driven coordinator |
+| Committed effects | `RETAIN` same-Apply residency, one claim and external I/O after commit | partition/task count and per-record settlement remain cost/refinement questions |
+| Chain control | `RETAIN` ordered commands and one complete reconciliation Apply | fixed allocation retry and any preparation work under the authority cut |
+| Query and template projections | `RETAIN` coherent read cuts and rebuildable projections | pool-sized work under the authority guard; full/reset remain serial while uncle/partial lanes stay optimistic and concurrent |
+| Supervision | `RETAIN` bounded dispatch, cancellation, join and capability drain | the current task-per-stage topology and signal graph |
+
+The corresponding serial-cut audit is also provisional until production
+refinement, but it rejects accidental serialization now:
+
+| Cut | Required serialization | Work that must remain concurrent or batchable |
+|---|---|---|
+| Transaction authority Apply | one total owner/resource/index/effect commit | read-only Plan, validation, allocation-prepared scratch and external I/O |
+| Retained ingress | canonical order inside one bounded homogeneous batch | independent requests before/after the Apply; no per-item authority round trip |
+| Fair permit arbitration | FIFO order for the one queued acquisition | additional idle-slot acquisition is immediate-only; VM work is parallel |
+| Completion exchange | one canonical drain/refill Apply per already-arrived wave | slow peers are never awaited; unrelated no-effect completions bypass an effect-blocked member |
+| Final membership | one Apply for the longest current commuting prefix | RBF, dependency, eviction or proposal coupling falls back to the exact cohort planner |
+| Effect partition head | one claim/settlement order per committed partition | endpoint I/O and unrelated partitions remain outside the authority guard |
+| Chain control | reliable command order and one atomic reconciliation | preparation and ordinary admission/compute/query work remain concurrent |
+| Template replacement | full/reset share their required replacement serialization | uncle/proposal/transaction partial lanes remain optimistic; stale work is discarded |
+| Query cuts | coherent immutable observation only | readers remain concurrent and cannot become mutation authority |
+| Relay acknowledgement | exact pre-authority ownership and terminal release | transport batching must not serialize transaction compute or membership |
+
+No row permits a second transaction authority, retained classification DAG,
+per-worker capability queue, timer-to-fill batch, direct permit transfer,
+unchanged-cut retry or serialization of full/reset with optimistic template
+lanes. M3 must still compare complete realizations and may delete more.
+
+The standing exposure review mechanically remains 5 `PROVEN`, 5 `SUPPORTED`
+and 18 `OPEN`: four topology-independent legal-input fail-stop paths, eight
+availability/liveness paths and six structural/proof debts. This is the second
+consecutive gate with the four fail-stop paths, so a fresh disposition is
+owned here. The production freeze is retained only because this branch is not
+deployed or releasable and M3 is the immediate next phase that replaces their
+open producer algebra pointwise; no row is waived. Deployment, a schedule
+change, an additional reachable fault or failure to close those four paths in
+M3 mandates a separately reviewable narrow correction before further topology
+work.
+
 ### M3 - Production/develop refinement and minimality audit
 
 - Map every production constructor, transition, projection, task, queue, lock,
   capability, version, effect and boundary handoff to one model term.
+- Differentially enumerate the adversarial footprint universe and require
+  pointwise equivalence between the model cohort classifier and the production
+  classifier for every relation kind and fallback boundary; anchor examples
+  alone are insufficient refinement evidence.
 - Replay the complete section 16 fault/liveness ledger. `SUPPORTED` and `OPEN`
   rows must become proven refinement facts or model counterexamples; labels do
   not disappear when phase names change.
@@ -2082,7 +2216,7 @@ to the named statement; it does not close a broader row by implication.
 | D1-SEM-EVIDENCE | PROVEN | Chain/pool origin, exact view, dependency cut, script rules and final membership context are sealed evidence, not inferred flags. Same-tip reuse is positive chain-location evidence only; pool-produced cells remain overlay-coupled. | `chain.rs::{CellLocationReceipt, VerificationContextReceipt, MembershipReceipt}`, `validation.rs::{AcceptedOriginOverlay, refresh_locations, current_location}`; falsifiers `uak_final_validation_reuses_same_tip_positive_location_evidence`, `uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin`, `uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply`, `uak_permissive_rbf_resolution_never_fabricates_a_chain_cell`. |
 | D1-SEM-COUPLING | PROVEN | Shared inputs, candidate producer relations, conditional read/write edges, Accepted parents/children/spenders/readers, capacity eviction and effect pressure require exact fallback; shared read-only deps/header reads do not by themselves couple membership. | `plan/membership/independent.rs::{classify, prepare_resources, prepare_projection}` plus `membership.rs` and `rbf.rs`; falsifiers `uak_independent_classifier_routes_every_accepted_relation_without_mutation`, `uak_independent_capacity_is_aggregate_and_never_partially_applied`, `uak_rbf_requires_positive_chain_evidence_for_every_new_input`, `uak_batch_acceptance_cannot_bypass_dependency_cut`. |
 | D1-LIFECYCLE | SUPPORTED | A cold successful retained transaction selected by a verifier's `ResolveThenVerify` path performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. If the dedicated ordered resolver wins, the split Resolve settlement and later Verify checkout raise that path to seven. Today only final independent membership is amortized. Static call tracing confirms these paths, but no operation-count gate yet fails if they regress or change. | `ingress.rs -> worker.rs::{checkout, try_process_one} -> runtime.rs::{commit_retained_ingress, try_checkout, settle_compute, try_drive_ready, settle_effect}` and `plan.rs`; profiling lock spans observe acquisitions but do not prove semantic transition count. T16 must count both continuous and split paths and prove steady-state exchange settlement plus next checkout share one Apply before this row can become PROVEN. |
-| D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M2 forbids cross-execution direct permit transfer: eligible effect-free work must return the token to the fair gate and use only a subsequently reacquired token; no reacquisition means settlement without replacement checkout. Effect-capacity fallback retains the exact permit. The M2/M4 evidence requires the bounded Local-waiter falsifier preserved in the historical candidate notebook. |
+| D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M2 forbids cross-execution direct permit transfer: every classified completion returns the token to the fair gate and uses only a subsequently reacquired token; no reacquisition means settlement without replacement checkout. The independently checked `executing + finished <= active_work_slots` law bounds effect-pressure residency, so effect-capacity fallback retains its slot but not the semaphore permit. The M2/M4 evidence requires the bounded Local-waiter and effect-full falsifiers preserved in the candidate notebook. |
 | D1-READY-OCC-LIVENESS | OPEN | The current second Ready OCC read is all-or-nothing across the strongest eight owners. If any weaker tail owner changes or disappears after scratch preparation, `complete_ready_batch` returns the tail's `Stale` error and discards the still-current head capture. `run_ready_driver` classifies that as `Progress` and immediately repeats with no await or yield. A legal schedule with continuous top-N tail mutation can therefore strand an unchanged strongest owner and synchronously consume one runtime thread. Plain high-fee insertion alone does not prove the stale-tail attack, so external exploitability remains a separate reachability question; the legal-schedule liveness failure is already sufficient to block release. | A temporary deterministic nextest falsifier admitted two Ready owners, prepared the complete read batch, removed only the weaker tail through the ordinary administrative Apply, and proved `complete_ready_batch` returned `FinalAdmissionCaptureError::Plan(PlanError::Stale(_))` while the head remained `PreAcceptedPhase::Ready`; it passed and was removed after diagnosis. The M1/M2 model must compare the captured ordered keys with the current `scheduler.ready()` frontier and return their longest exact strict-priority prefix, not merely independent per-member current bits. A newly inserted stronger owner makes that prefix empty; a removed or changed weaker tail preserves only the earlier prefix. Head mismatch uses a changed-cut cooperative yield. Skipping a stale or newly displaced stronger member is forbidden because it changes membership order. |
 | D1-DIRECT-NEGATIVE-OCC | OPEN | Direct Local/TestAccept resolution and final validation read only the transaction-bounded Accepted producers and spenders, but every negative result is sealed with the global Accepted source version. Any unrelated Accepted insertion, removal, or metadata change therefore makes the rejection stale. `execute_direct` maps that stale outcome to an unbounded full retry, including resolve and possibly VM verification. A legal continuous stream of disjoint Accepted commits can starve one unchanged direct request and consume compute capacity even though its evidence footprint never changed. Successful direct candidates do not have this defect: final Plan rechecks exact dependency evidence and current membership. | `resolver.rs::{AcceptedOverlay, DirectResolutionJob, DirectTransactionRejection}`, `validation.rs::{AcceptedOriginOverlay, DirectAdmissionValidation}`, `plan.rs::{validate_direct_rejection_validity,validate_direct_admission_subject}`, and `service.rs::execute_direct`. Existing test `uak_direct_validation_rejection_stales_with_its_accepted_source_cut` deliberately demonstrates the false conflict by accepting an unrelated transaction before settlement; `uak_direct_missing_rejection_stales_when_the_parent_becomes_available` demonstrates the necessary relevant conflict. M1 must model a preallocated bounded negative-evidence receipt over the exact queried producer/spender cells, revalidated in the same final authority read/Apply; M2 proves unrelated commutativity and relevant invalidation. It may add no persistent per-key version table, retry counter, timer or repair task. |
 | D1-BATCH-SEQUENCE | OPEN | `ApplySequence` is documented as the identity of one committed authority transition, but the current independent Ready planner increments it once per batch member even though `PreparedApply::apply_independent` performs one indivisible Apply. Only the final value is published to sources, dependency control, effects and clocks; intermediate values have no owner or observer. `EntryVersion` already supplies the required per-owner uniqueness. This is accidental counter/proof complexity and consumes the finite sequence space up to the batch bound faster than the real Apply history. | `plan/settlement.rs:145-163` is the only production loop around `next_sequence`; every other delta compiler acquires one sequence per `PreparedApply`. M1 must expose separate typed capabilities: one `ApplyStamp` for the whole delta and one bounded owner-version allocator for changed incarnations. M4 evidence varies batch size and proves one sequence step plus distinct versions and exact effect order; a generated check rejects member-loop sequence allocation in batch compilers. |
@@ -2209,23 +2343,29 @@ this section records semantic adjudication and later refinement debt only.
 
 ## 17. Exact next action
 
-Execute M2 without production edits or timing experiments:
+Execute M3 without production semantic edits or timing experiments:
 
-1. add a separate composition model that computes exact dynamic read/write,
-   graph, resource, policy-order and effect footprints from M1 evidence;
-2. classify bounded cohorts as independent, canonical-ordered or coupled and
-   prove the batch result equals one permitted canonical serialization from the
-   same initial authority cut;
-3. prove longest-current-prefix Ready capture, fair permit reacquisition,
-   source-specific progress ranks and no unchanged-cut retry cycle;
-4. derive checked per-item, per-edge, per-component, request-residency and
-   lock-hold bounds, including hostile fanout, full-pool query and effect
-   pressure shapes;
-5. run a separately structured hostile trace generator and premise-removal
-   review, then repeat the complete model-delta and standing-exposure gates.
+1. generate the bidirectional extraction/refinement inventory for every model
+   command, state, capability, ordinary disposition, fault, effect and boundary
+   handoff against current production constructors and consumers;
+2. differentially enumerate the bounded footprint universe and require exact
+   pointwise model/production classification, including every coupled fallback
+   edge rather than only representative examples;
+3. replay all 28 section 16 rows through closed producer-specific result
+   algebras and generated fault/task/capability reachability checks; the four
+   legal-input fail-stop paths must close in M3 or force a narrow pre-topology
+   correction;
+4. map `develop` into the same observations and prove which races require one
+   authority, which behavior is compatibility, and which current states,
+   queues, tasks, locks or retries are merely inherited encoding;
+5. complete the layer-deletion, serial-cut and static cost tables, attempting
+   fusion or deletion for every `OPEN` realization before comparing complete
+   candidate topologies;
+6. falsify the status quo and at least two materially distinct model-derived
+   realizations, then repeat the six-question and standing-exposure audits.
 
-The M1 checkpoint is the commit containing this record. Production refinement
-is M3, topology selection and normative freeze are M4, and production edits or
-performance claims before those gates are forbidden. A newly confirmed defect
-is added to the single section 16 ledger and its root model obligation; it does
-not create a local exception or a second risk list.
+The M2 checkpoint is the commit containing this record. Topology selection and
+normative freeze are M4; production edits and performance claims before that
+gate remain forbidden. A newly confirmed defect returns to the single section
+16 ledger and its root theorem rather than creating a local exception or a
+second risk list.

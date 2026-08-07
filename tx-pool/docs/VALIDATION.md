@@ -46,13 +46,33 @@ CI is read-only and fails on dangling symbols, zero-match evidence, missing
 T1-T13 coverage, unregistered relevant process specs, stale inventory,
 test-code leakage or generated Markdown drift.
 
+## Formal falsifier
+
+The bounded permit/effect protocol has an independent TLA+ falsifier under
+[`formal/`](../formal/). [`PermitEffect.tla`](../formal/PermitEffect.tla)
+models fair permit handoff, bounded worker occupancy, effect pressure and
+publisher progress. [`PermitEffect.cfg`](../formal/PermitEffect.cfg) must close
+the complete finite state space with its safety and liveness properties.
+[`PermitEffectReachability.cfg`](../formal/PermitEffectReachability.cfg)
+deliberately checks a false invariant and must produce the exact trace in which
+an effect-blocked finished worker releases its permit to a queued Direct
+request. A missing witness is a failure because it would make the positive
+claim vacuous.
+
+The pure Rust transition model remains the semantic authority. TLC is a
+separately encoded cross-check, not a second production specification. The
+runner requires Java 11+ and `tla2tools.jar` through `TLA2TOOLS_JAR` or
+`$HOME/.local/share/tlaplus/tla2tools.jar`; it writes TLC metadata only to a
+temporary directory.
+
 ## Tools
 
 | Command | Purpose | Writes by default |
 |---|---|---|
-| `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery for the lightweight CI workflow. | No |
+| `python3 tx-pool/scripts/check_all.py` | Discover and run every read-only `check_*.py` contract; `--light` skips Rust test discovery and the external TLC runtime for the lightweight CI workflow. | No |
 | `python3 tx-pool/scripts/check_ascii.py` | Reject non-ASCII styling in technical source, contracts and generated documentation while allowing the profiler's exact external microsecond unit token. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
+| `python3 tx-pool/scripts/check_formal_models.py` | Run the positive permit/effect TLC closure and the required negative reachability witness; reject setup errors, timeouts and missing exact sentinels. | Only temporary TLC metadata outside the source tree |
 | `python3 tx-pool/scripts/check_production_contracts.py` | Enforce the cross-crate best-tip/startup boundary, keep reorg and generation clears on one capacity-one ordered control lane, structurally prove that each direct `AuthorityRuntime` mutation consumes one post-commit wake receipt (with only the closed mutation-free superseded-reset disposition), keep effect publication read-only and claim-bound until private settlement, keep profiling acquisition/stage/effect seams centralized and feature-gated, and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions, reviewed test-only seams, and the explicit dormant-tx-pool retirement boundary used by chain-only sync tests. | No |

@@ -91,7 +91,7 @@ impl RemoteResidency {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) struct ResourceVector {
     pub(super) entries: u16,
     pub(super) bytes: u32,
@@ -118,7 +118,7 @@ impl ResourceVector {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ModelLimits {
     pub(super) owners: ResourceVector,
     pub(super) retained: ResourceVector,
@@ -217,7 +217,7 @@ impl ModelLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ValidatedLimits(ModelLimits);
 
 impl ValidatedLimits {
@@ -226,20 +226,20 @@ impl ValidatedLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ConfigurationError {
     ZeroCapacity,
     IndivisibleEffectBatch,
     InvalidPartition,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum InputOrigin {
     Chain,
     Pool(TxId),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum PeerBanDeadline {
     At(MonotonicTick),
     ProcessLifetime,
@@ -263,13 +263,13 @@ impl PeerBanDeadline {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct PeerBanRecord {
     pub(super) deadline: PeerBanDeadline,
     pub(super) order: ApplyStamp,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Transaction {
     pub(super) id: TxId,
     pub(super) witness: WitnessId,
@@ -325,14 +325,14 @@ impl Transaction {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum Source {
     Recovery(PoolGeneration),
     Proposal { base: ProposalBase },
     Remote(RemoteResidency),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum ProposalBase {
     Trusted,
     Remote(RemoteResidency),
@@ -375,7 +375,7 @@ impl Source {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum AcceptedProvenance {
     Trusted,
     Peer(PeerId),
@@ -390,7 +390,7 @@ impl AcceptedProvenance {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RetainedSource {
     Recovery(PoolGeneration),
     Proposal,
@@ -409,33 +409,33 @@ impl From<RetainedSource> for Source {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum WorkKind {
     Resolve,
     Verify,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum DirectKind {
     Local,
     TestAccept,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum AcceptedStatus {
     Pending,
     Gap,
     Proposed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EvidenceContext {
     pub(super) chain: ChainView,
     pub(super) rules: RulesId,
     pub(super) witness: WitnessId,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ResolvedEvidence {
     pub(super) context: EvidenceContext,
     pub(super) input_origins: BTreeMap<CellId, InputOrigin>,
@@ -516,13 +516,21 @@ impl ResolvedEvidence {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum WorkStage {
     Resolve,
     Verify(ResolvedEvidence),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) enum WorkResult {
+    Resolved(ResolvedEvidence),
+    Verified,
+    Missing(MissingDependencies),
+    Rejected,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct MissingDependencies {
     transaction: TxId,
     cells: BTreeSet<CellId>,
@@ -621,7 +629,7 @@ impl WorkStage {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RetainedPhase {
     Queued(WorkStage),
     Computing(WorkStage),
@@ -629,13 +637,13 @@ pub(super) enum RetainedPhase {
     Ready(ResolvedEvidence),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct RetainedOwner {
     pub(super) source: Source,
     pub(super) phase: RetainedPhase,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum OwnerLocation {
     Retained(RetainedOwner),
     Accepted {
@@ -649,7 +657,7 @@ pub(super) enum OwnerLocation {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Owner {
     pub(super) version: EntryVersion,
     pub(super) arrival: Arrival,
@@ -674,7 +682,7 @@ impl Owner {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum AcceptanceEffect {
     Admission {
         status: AcceptedStatus,
@@ -688,7 +696,7 @@ pub(super) enum AcceptanceEffect {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum MembershipRejection {
     Unavailable,
     Policy,
@@ -696,7 +704,7 @@ pub(super) enum MembershipRejection {
     CandidateEvicted,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RejectionEffect {
     Validation {
         ingress_peer: Option<PeerId>,
@@ -716,7 +724,7 @@ pub(super) enum RejectionEffect {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum LogicalEffect {
     Accepted {
         transaction: TxId,
@@ -863,14 +871,14 @@ impl LogicalEffect {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EffectRecord {
     pub(super) stamp: ApplyStamp,
     pub(super) ordinal: u16,
     pub(super) logical: LogicalEffect,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct WorkCapability {
     pub(super) id: CapabilityId,
     pub(super) transaction: TxId,
@@ -880,7 +888,13 @@ pub(super) struct WorkCapability {
     pub(super) rules: RulesId,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct FinishedWorkCapability {
+    pub(super) capability: WorkCapability,
+    pub(super) result: WorkResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct DirectCapability {
     pub(super) id: CapabilityId,
     pub(super) request: DirectRequestId,
@@ -890,13 +904,13 @@ pub(super) struct DirectCapability {
     pub(super) rules: RulesId,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EffectClaim {
     pub(super) stamp: ApplyStamp,
     pub(super) ordinal: u16,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct AuthorityState {
     pub(super) generation: PoolGeneration,
     pub(super) chain: ChainView,
@@ -910,22 +924,23 @@ pub(super) struct AuthorityState {
     pub(super) limits: ModelLimits,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct LinearState {
     pub(super) work: BTreeMap<CapabilityId, WorkCapability>,
+    pub(super) finished_work: BTreeMap<CapabilityId, FinishedWorkCapability>,
     pub(super) direct_work: BTreeMap<CapabilityId, DirectCapability>,
     pub(super) free_compute_permits: u16,
     pub(super) next_capability: u16,
     pub(super) effect_claim: Option<EffectClaim>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Omega {
     pub(super) authority: AuthorityState,
     pub(super) linear: LinearState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ModelInvariantError {
     CounterOrder,
     OwnerKey,
@@ -948,6 +963,8 @@ pub(super) enum ModelInvariantError {
     InvalidPoolParentOutput,
     ComputingWithoutCapability,
     DuplicateCurrentCapability,
+    InvalidFinishedCapability,
+    RetainedWorkerCapacity,
     CapabilityKey,
     DuplicateDirectRequest,
     CapabilityPermitConservation,
@@ -976,6 +993,7 @@ impl Omega {
             },
             linear: LinearState {
                 work: BTreeMap::new(),
+                finished_work: BTreeMap::new(),
                 direct_work: BTreeMap::new(),
                 free_compute_permits: limits.compute_permits,
                 next_capability: 1,
@@ -1274,6 +1292,12 @@ impl Omega {
                 .linear
                 .work
                 .values()
+                .chain(
+                    self.linear
+                        .finished_work
+                        .values()
+                        .map(|finished| &finished.capability),
+                )
                 .filter(|capability| {
                     capability.transaction == owner.transaction.id
                         && capability.version == owner.version
@@ -1313,11 +1337,50 @@ impl Omega {
             }
         }
 
+        for (key, finished) in &self.linear.finished_work {
+            let capability = finished.capability;
+            if *key != capability.id
+                || capability.id.0 >= self.linear.next_capability
+                || self.linear.work.contains_key(key)
+            {
+                return Err(ModelInvariantError::CapabilityKey);
+            }
+            let Some(owner) = self.authority.owners.get(&capability.transaction) else {
+                continue;
+            };
+            if owner.version != capability.version
+                || capability.chain != self.authority.chain
+                || capability.rules != self.authority.rules
+            {
+                continue;
+            }
+            if !matches!(
+                &owner.location,
+                OwnerLocation::Retained(RetainedOwner {
+                    phase: RetainedPhase::Computing(stage),
+                    ..
+                }) if stage.kind() == capability.kind
+            ) {
+                return Err(ModelInvariantError::InvalidFinishedCapability);
+            }
+        }
+
+        let retained_worker_slots = self
+            .linear
+            .work
+            .len()
+            .checked_add(self.linear.finished_work.len())
+            .ok_or(ModelInvariantError::RetainedWorkerCapacity)?;
+        if retained_worker_slots > usize::from(self.authority.limits.compute_permits) {
+            return Err(ModelInvariantError::RetainedWorkerCapacity);
+        }
+
         let mut direct_requests = BTreeSet::new();
         for (key, capability) in &self.linear.direct_work {
             if *key != capability.id
                 || capability.id.0 >= self.linear.next_capability
                 || self.linear.work.contains_key(key)
+                || self.linear.finished_work.contains_key(key)
             {
                 return Err(ModelInvariantError::CapabilityKey);
             }

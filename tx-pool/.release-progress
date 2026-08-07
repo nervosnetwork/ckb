@@ -2566,3 +2566,232 @@ remain forbidden before those gates.
 
 Recovery discipline: do not touch or stage the user-owned root `.gitignore`.
 The only intended M1 commit paths are under `tx-pool/`.
+
+### M2 fixed execution slices
+
+M2 starts from checkpoint `f1b8e1f1b`. It is a theorem phase, not a runtime-
+topology selection phase, and remains isolated under `src/tests/model`.
+
+1. **M2.1 dynamic footprint:** derive exact identity, cell read/write,
+   header-read, pool-origin, proposal, source-order, resource and effect terms
+   from one M1 authority cut. An incremental ephemeral index classifies a
+   cohort as independent, canonical-ordered or coupled without a retained DAG
+   or quadratic pair matrix.
+2. **M2.2 canonical batch quotient:** construct a read-only Plan by folding the
+   M1 sequential oracle under one coherent cut, then alpha-normalize only the
+   unobservable intermediate Apply stamps into one committed stamp and
+   canonical effect ordinals. Entry versions and arrivals remain distinct
+   semantic tokens. Unsupported same-owner or peer-revocation shapes fall back
+   mutation-free rather than being approximated.
+3. **M2.3 progress and exchange:** model already-available completion drain,
+   fair permit reacquisition, deterministic checkout and longest-current Ready
+   prefix. Independent completions and next assignments share one Apply; no
+   timer, direct permit transfer, unchanged-cut retry or slow batch peer is
+   allowed.
+4. **M2.4 adversarial and cost proof:** a separately structured trace generator
+   permutes completion order and constructs shared-input, causal, conditional-
+   read, RBF, full-resource, effect-pressure, deep-chain, fanout, short-ID and
+   repeated-view shapes. Premise removal must yield shortest counterexamples.
+   Checked operation equations cover per-item, per-key, per-edge, component,
+   scratch, lock-Apply, wake, stale-work and external backlog terms.
+
+At each slice boundary rerun the six-question model-delta and exposure gates.
+If the composition model needs a new persistent state, authority, queue, lock,
+task or effect, stop and reopen the design: none is currently justified. The
+M2 exit artifact must include the layer-deletion and serial-cut tables, but it
+does not amend production code or make performance claims.
+
+### M2.1-M2.3 executable checkpoint
+
+M2 remains isolated under `src/tests/model`; production code is unchanged.
+The executable model now has 136 exact tests and the complete model selector
+passes 136/136.
+
+- M2.1 derives the full transient Ready footprint and classifies the longest
+  strict prefix with incremental accepted/candidate indexes. Shared read-only
+  dependencies compose; input, causal, conditional-read, proposal, pool-origin,
+  accepted-capacity and effect-capacity relations stop at the first exact
+  coupled member. The scratch graph is not retained in authority state.
+- M2.2 proves canonical retained ingress, Ready-prefix membership and compute
+  exchange against the M1 sequential oracle. Plan is read-only, exact-cut OCC
+  is mutation-free on staleness, one Apply stamp replaces only unobservable
+  intermediate stamps, and entry versions/arrivals remain distinct semantic
+  tokens.
+- M2.3 batches every already-arrived completion through one linear drain and
+  performs settlement plus deterministic refill in one authority Apply. The
+  initial worker wave also checks out in one Apply. One coordinator permit
+  acquisition may wait in the fair queue; every additional acquisition is
+  immediate-only, so an older Direct waiter cannot be bypassed and one idle
+  wave cannot create one waiter per slot.
+
+The M2.3 whole-model review found and corrected four root mistakes rather than
+weakening invariants:
+
+1. Chain reconciliation enumerated only executing capabilities. It now
+   reclassifies the semantic `Computing` owner phase, so executing and finished
+   capabilities both become stale and retire exactly once.
+2. Releasing a semaphore permit initially allowed finished results to
+   accumulate beyond worker capacity. The derived law
+   `executing + finished <= configured worker slots` now gates checkout; no
+   additional mutable counter or queue was introduced.
+3. Compute Apply initially consumed fair grants on a stale authority cut.
+   Stale outcomes now return every grant; committed outcomes return exact
+   assignment capabilities and unused grants.
+4. The first design retained a permit for effectful completions and used a
+   synthetic permit reacquisition to settle/cancel finished work. Once the
+   worker-slot bound was explicit, that policy was proven to transfer journal
+   pressure into Direct starvation. Every completion result now occupies its
+   original bounded finished slot and releases the semaphore. Effect pressure
+   leaves only that slot blocked, while unrelated finished work settles; typed
+   executing/finished retirement removes the synthetic permit operation.
+
+No timer, minimum batch size, unchanged-cut retry, direct permit transfer,
+retained DAG, second transaction authority or pool-sized completion backlog was
+added. The exact next action is M2.4: add separately structured adversarial
+trace generation, premise-removal counterexamples, noninterference/work-
+amplification properties and checked count/byte/edge/slot/Apply/wake/backlog
+equations. Then rerun the six-question whole-model and standing exposure gates
+before M2 can close.
+
+### M2.4 executable closure in progress
+
+The separately submitted M2 deep-dive report was verified against the current
+tree. Its four suggestions were adjudicated as follows:
+
+- S1 was a real M2 liveness evidence gap. The effect-pressure regression now
+  executes the complete three-level cycle: a full journal leaves one bounded
+  finished slot blocked while releasing its fair permit, publisher settlement
+  frees capacity, and the next level-triggered exchange settles that exact
+  slot without a timer, new owner or permit reacquisition.
+- S2 was valid but its proposed arbitrary time values would create an
+  unbounded, mostly meaningless state dimension. The hostile explorer now
+  carries wall and process-monotonic environment state and exposes typed
+  `AdvanceWallClock` and `AdvanceMonotonic` actions only at the next semantic
+  deadline/successor boundary. Wall time may roll back; monotonic time cannot.
+- S3 is fixed as an M3 exit obligation: generated footprint relations must
+  prove pointwise model/production classifier equivalence, including every
+  fallback edge. It is not approximated inside the M2-only model.
+- S4 was correct hygiene and proof tightening. Explorer deduplication now uses
+  structurally derived `Hash`/`Eq` state identity rather than `Debug` text.
+
+The same review exposed a deeper capability-law defect not present in the
+report. A numeric lease could be reconstructed from scheduler observation,
+and a lease-keyed map could overwrite equal numbers from two scheduler
+domains. Planning and release errors could then consume a move-only token on a
+no-commit path. The first correction sealed and domain-bound the token; the
+final six-question audit then proved that the numeric lease and its eventual
+counter exhaustion had no semantic owner at all. The model now identifies a
+grant only by its sealed class-typed token, unique scheduler domain and active
+request, stores batches in canonical identity order, and returns every
+completion/grant on stale, invalid or resource-rejected paths. Request,
+immediate acquisition and release have separate result algebras, so
+operation-impossible variants are no longer represented as ordinary permit
+outcomes.
+
+Focused linearity/effect regressions pass 7/7. The complete mathematical-model
+selector passes 156/156 after clock exploration and structural state hashing.
+No production source is modified. Exact next actions are: add and run the
+minimal TLC permit/effect liveness cross-check; run strict Clippy and all M2
+static gates; then complete the six-question whole-model, layer-deletion,
+serial-cut and standing-exposure reviews before freezing the M2 checkpoint.
+
+### 2026-08-07 recovered toolchain and exact M2 continuation
+
+The fixed eight-phase route and all M2 artifacts survived interruption.
+Production source remains unchanged and the user-owned root `.gitignore`
+remains excluded. Locally verified tools include nextest 0.9.140, cargo-hack
+0.6.45, llvm-cov 0.8.7, cargo-deny 0.20.2, cargo-machete 0.9.2,
+cargo-mutants 27.1.0, cargo-bloat 0.12.1, cargo-llvm-lines 0.4.46,
+cargo-expand 1.0.124, Kani 0.67.0, nightly Miri, difftastic 0.69.0,
+ShellCheck 0.11.0, actionlint 1.7.12, samply 0.13.1, hyperfine 1.20.0,
+ast-grep 0.45.0, tokio-console 0.1.13, cargo-instruments and TLC. The
+`cargo-show-asm` package is installed as `cargo asm` 0.2.62; `cargo show-asm`
+is not a valid Cargo subcommand. Xcode currently selects Command Line Tools and
+does not expose `xctrace`, so Instruments profiling remains environment-
+unavailable and non-blocking before phase P.
+
+The interruption audit found one unfinished M2 proof-encoding cluster:
+`FairPermitScheduler` was still cloneable, a raw retained-grant batch could
+span scheduler domains, linear dispositions lacked `must_use`, and the private
+grant helper used a unit error. The active correction removes scheduler Clone,
+uses `Option` for grant absence, makes mixed/duplicate batch construction a
+typed rejection returning every token, and marks linear results `must_use`.
+After focused/full model verification, the exact remaining sequence is TLC,
+strict Clippy/static/full-nextest gates, the six-question/layer-deletion/
+serial-cut/exposure reviews, then the M2 checkpoint. No performance experiment
+or production edit is authorized before M4.
+
+### M2 closed; exact M3 restart state
+
+M2 is complete at the commit containing this record. Production source and
+runtime behavior remain unchanged; every semantic edit is isolated under
+`tx-pool/src/tests/model`, `tx-pool/formal`, review evidence or validation
+tooling. The user-owned root `.gitignore` remains modified and excluded from
+the checkpoint.
+
+The final whole-model audit removed one last accidental state family rather
+than adding a counter-exhaustion repair. The fair scheduler's numeric permit
+lease, monotonic lease allocator and permit-specific exhaustion variants had
+no external observation or attack owner: the sealed move-only token, unique
+scheduler domain and active request already provide the required identity.
+The model now uses that smaller basis. `FairPermitScheduler` is not Clone;
+mixed or duplicate grant identities are rejected with every affine token
+returned; every plan/apply rejection returns its exact completion or grant.
+The startup contract is one assembled scheduler per domain. Rust remains
+affine rather than linear, so M3 must map this proof to an RAII production
+owner whose Drop/shutdown path returns capacity; `must_use` is not claimed as a
+linearity theorem.
+
+The complete section 3.8 audit, model-level layer-deletion table and serial-cut
+table are recorded in `.independent-execution-plan`. They preserve one total
+transaction authority, ordered chain control, fair permit arbitration,
+committed effect ownership and full/reset template serialization while
+rejecting per-owner ingress/checkout/completion ceremony, retained
+classification DAGs, direct permit transfer, timer-to-fill batching,
+unchanged-cut retry and serialization of optimistic template lanes as
+unproven topology.
+
+Final M2 evidence:
+
+- composition-focused nextest: 31/31 passed;
+- complete mathematical model: 157/157 passed;
+- complete internal tx-pool nextest: 580/580 passed, zero skipped;
+- strict all-target internal-feature Clippy passed;
+- default-feature `cargo test -p ckb-tx-pool --no-run` passed with only the
+  pre-existing `start_with_handle` dead-code warning;
+- the complete seven-contract gate passed: ASCII, documentation, TLA+,
+  production contracts, review evidence, manifest/test discovery and layout;
+- TLC explored 561 generated / 184 distinct states to depth 12 with all safety
+  and conditional-liveness properties green, then found the required
+  effect-full/direct-handoff negative witness at depth 4;
+- review evidence remains 18 behaviors, 266 unique Rust tests / 1001 invariant
+  references, 9 cross-crate tests / 21 references, 19 integration anchors and
+  150 managed integration specs against 580 discovered nextest tests;
+- formatting and diff checks pass.
+
+Tool evidence was classified rather than forced green. `cargo-mutants --list`
+discovers no candidates under the `cfg(test)`-only model layout, so premise
+removal remains owned by the explicit typed counterexample suite. Both
+`cargo llvm-cov nextest` and the cargo-test collection path executed all 157
+model tests but exported a zero-hit map with no `src/tests/model` files; that
+is a coverage-harness failure, not a zero-coverage product conclusion, and is
+deferred to the M4 CI/tooling binding. Kani and Miri were not selected because
+M2 adds no unsafe/FFI code and no residual ownership or arithmetic claim that
+their current harnesses could strengthen beyond the Rust explorer plus TLC.
+
+The standing exposure gate is unchanged at 5 `PROVEN`, 5 `SUPPORTED`, 18
+`OPEN`: four legal-input fail-stop, eight availability/liveness and six
+structural/proof rows. Because the four topology-independent fail-stop paths
+survived two consecutive M gates, M2 owns a fresh disposition: retain the
+production freeze only while this branch stays undeployed and M3 immediately
+replaces those producer algebras pointwise. No row is waived. Deployment,
+schedule expansion, increased consequence or failure to close the four paths
+inside M3 triggers a narrow separately reviewed correction before topology
+selection.
+
+Three release blockers remain exactly: Rust API compatibility/migration,
+model-to-production refinement, and controlled performance acceptance. M3 is
+now active. Its first exact action is to generate the bidirectional model to
+production/develop extraction inventory, then run the full bounded footprint
+universe against both classifiers before any topology or production edit is
+admitted.
