@@ -2,15 +2,13 @@ use super::state::{
     Arrival, EntryVersion, OwnedTx, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
     RawTxHash, VerifyCapability, VerifyCycleClass,
 };
-use crate::util::fee_rate_cross_product;
+use crate::{constants::MAX_READY_BATCH, util::fee_rate_cross_product};
 use ckb_network::PeerIndex;
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     ops::Bound::{Excluded, Unbounded},
 };
-
-pub(super) const MAX_READY_BATCH: usize = 8;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum WorkOwner {

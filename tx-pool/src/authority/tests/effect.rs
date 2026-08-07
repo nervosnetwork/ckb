@@ -496,7 +496,7 @@ fn uak_production_effect_sizing_constructively_covers_trusted_rbf_shape() {
     let transaction_bytes = transaction.data().total_size();
     let victims = crate::constants::MAX_POOL_MUTATION_CANDIDATES;
     assert!(
-        super::super::scheduler::MAX_READY_BATCH <= victims + 1,
+        crate::constants::MAX_READY_BATCH <= victims + 1,
         "the independent settlement batch must remain a strict subset of the trusted shape proof"
     );
     let pool_bytes = victims

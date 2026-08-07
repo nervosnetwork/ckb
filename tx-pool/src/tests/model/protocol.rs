@@ -152,6 +152,140 @@ pub(super) enum Lifecycle {
     StartupFailed,
 }
 
+/// Ordered shutdown sub-protocol for the persistence eligibility cut.
+///
+/// Cancellation may wake several tasks concurrently, but persistence is
+/// legal only after this ownership order has completed. Derived degradation
+/// is recorded without retroactively invalidating the authority cut; loss of
+/// an authority-owning capability permanently forbids persistence. A later
+/// external write failure is terminal but does not rewrite authority history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ShutdownPhase {
+    Running,
+    IngressClosed,
+    HandlersDrained,
+    ChainControlJoined,
+    AuthorityWorkersJoined,
+    EffectsClosed,
+    EffectsDrained,
+    DerivedTasksJoined,
+    PersistenceCaptured,
+    Persisted,
+    PersistenceFailed,
+    PersistenceForbidden,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ShutdownAction {
+    CloseIngress,
+    DrainHandlers,
+    JoinChainControl,
+    JoinAuthorityWorkers,
+    CloseEffects,
+    DrainEffects,
+    JoinDerivedTasks,
+    CapturePersistence,
+    WritePersistence,
+    PersistenceWriteFailed,
+    DerivedTaskFailed,
+    AuthorityCapabilityLost,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ShutdownDisposition {
+    Advanced(ShutdownPhase),
+    DerivedDegraded(ShutdownPhase),
+    PersistenceFailed,
+    PersistenceForbidden,
+    OutOfOrder(ShutdownPhase),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ShutdownProtocol {
+    phase: ShutdownPhase,
+    derived_degraded: bool,
+}
+
+impl ShutdownProtocol {
+    pub(super) const fn running() -> Self {
+        Self {
+            phase: ShutdownPhase::Running,
+            derived_degraded: false,
+        }
+    }
+
+    pub(super) const fn phase(self) -> ShutdownPhase {
+        self.phase
+    }
+
+    pub(super) const fn derived_degraded(self) -> bool {
+        self.derived_degraded
+    }
+
+    pub(super) fn step(&mut self, action: ShutdownAction) -> ShutdownDisposition {
+        if action == ShutdownAction::AuthorityCapabilityLost {
+            if matches!(
+                self.phase,
+                ShutdownPhase::Persisted | ShutdownPhase::PersistenceFailed
+            ) {
+                return ShutdownDisposition::OutOfOrder(self.phase);
+            }
+            self.phase = ShutdownPhase::PersistenceForbidden;
+            return ShutdownDisposition::PersistenceForbidden;
+        }
+        if self.phase == ShutdownPhase::PersistenceForbidden {
+            return ShutdownDisposition::PersistenceForbidden;
+        }
+        if action == ShutdownAction::DerivedTaskFailed {
+            if matches!(
+                self.phase,
+                ShutdownPhase::DerivedTasksJoined
+                    | ShutdownPhase::PersistenceCaptured
+                    | ShutdownPhase::Persisted
+                    | ShutdownPhase::PersistenceFailed
+            ) {
+                return ShutdownDisposition::OutOfOrder(self.phase);
+            }
+            self.derived_degraded = true;
+            return ShutdownDisposition::DerivedDegraded(self.phase);
+        }
+        let next = match (self.phase, action) {
+            (ShutdownPhase::Running, ShutdownAction::CloseIngress) => ShutdownPhase::IngressClosed,
+            (ShutdownPhase::IngressClosed, ShutdownAction::DrainHandlers) => {
+                ShutdownPhase::HandlersDrained
+            }
+            (ShutdownPhase::HandlersDrained, ShutdownAction::JoinChainControl) => {
+                ShutdownPhase::ChainControlJoined
+            }
+            (ShutdownPhase::ChainControlJoined, ShutdownAction::JoinAuthorityWorkers) => {
+                ShutdownPhase::AuthorityWorkersJoined
+            }
+            (ShutdownPhase::AuthorityWorkersJoined, ShutdownAction::CloseEffects) => {
+                ShutdownPhase::EffectsClosed
+            }
+            (ShutdownPhase::EffectsClosed, ShutdownAction::DrainEffects) => {
+                ShutdownPhase::EffectsDrained
+            }
+            (ShutdownPhase::EffectsDrained, ShutdownAction::JoinDerivedTasks) => {
+                ShutdownPhase::DerivedTasksJoined
+            }
+            (ShutdownPhase::DerivedTasksJoined, ShutdownAction::CapturePersistence) => {
+                ShutdownPhase::PersistenceCaptured
+            }
+            (ShutdownPhase::PersistenceCaptured, ShutdownAction::WritePersistence) => {
+                ShutdownPhase::Persisted
+            }
+            (ShutdownPhase::PersistenceCaptured, ShutdownAction::PersistenceWriteFailed) => {
+                self.phase = ShutdownPhase::PersistenceFailed;
+                return ShutdownDisposition::PersistenceFailed;
+            }
+            _ => return ShutdownDisposition::OutOfOrder(self.phase),
+        };
+        self.phase = next;
+        ShutdownDisposition::Advanced(next)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct SystemState {
     pub(super) authority: Option<Omega>,

@@ -376,6 +376,7 @@ fn model_quantitative_equation_separates_linear_work_from_core_wave_applies() {
         wake_edges: 400,
         stale_capabilities: 64,
         effect_records: 100,
+        effect_batches: 25,
         effect_bytes: 20_000,
         relay_records: 100,
         relay_bytes: 40_000,
@@ -393,8 +394,8 @@ fn model_quantitative_equation_separates_linear_work_from_core_wave_applies() {
     assert_eq!(bound.completion_order_items, 64);
     assert_eq!(bound.completion_pair_space, 2_016);
     assert_eq!(bound.core_authority_applies, 3);
-    assert_eq!(bound.effect_settlement_applies, 100);
-    assert_eq!(bound.authority_apply_upper, 103);
+    assert_eq!(bound.effect_settlement_applies, 25);
+    assert_eq!(bound.authority_apply_upper, 28);
     assert_eq!(bound.wake_operations, 400);
     assert_eq!(bound.stale_retirements, 64);
     assert_eq!(bound.external_backlog_records, 204);
@@ -416,6 +417,7 @@ fn model_quantitative_equation_separates_linear_work_from_core_wave_applies() {
         wake_edges: 200,
         stale_capabilities: 32,
         effect_records: 50,
+        effect_batches: 13,
         effect_bytes: 10_000,
         relay_records: 50,
         relay_bytes: 20_000,
@@ -434,14 +436,10 @@ fn model_quantitative_equation_separates_linear_work_from_core_wave_applies() {
         half.completion_order_items * 2
     );
     assert_eq!(bound.core_authority_applies, half.core_authority_applies);
-    assert_eq!(
-        bound.effect_settlement_applies,
-        half.effect_settlement_applies * 2
-    );
-    assert_eq!(
-        bound.authority_apply_upper,
-        half.authority_apply_upper * 2 - bound.core_authority_applies
-    );
+    assert_eq!(bound.effect_settlement_applies, 25);
+    assert_eq!(half.effect_settlement_applies, 13);
+    assert_eq!(bound.authority_apply_upper, 28);
+    assert_eq!(half.authority_apply_upper, 16);
 }
 
 #[test]
@@ -456,6 +454,7 @@ fn model_ready_composition_cost_is_consumed_without_a_hand_copied_projection() {
     assert_eq!(analysis.prefix.len(), 2);
     let input = QuantitativeInput {
         effect_records: 2,
+        effect_batches: 1,
         effect_bytes: 32,
         ..QuantitativeInput::default()
     }
@@ -480,8 +479,8 @@ fn model_ready_composition_cost_is_consumed_without_a_hand_copied_projection() {
         )
     );
     assert_eq!(bound.core_authority_applies, 1);
-    assert_eq!(bound.effect_settlement_applies, 2);
-    assert_eq!(bound.authority_apply_upper, 3);
+    assert_eq!(bound.effect_settlement_applies, 1);
+    assert_eq!(bound.authority_apply_upper, 2);
 }
 
 #[test]
@@ -511,6 +510,16 @@ fn model_quantitative_equation_rejects_every_configured_bound_overrun() {
         },
         QuantitativeInput {
             effect_records: 5,
+            effect_batches: 5,
+            ..QuantitativeInput::default()
+        },
+        QuantitativeInput {
+            effect_records: 2,
+            effect_batches: 3,
+            ..QuantitativeInput::default()
+        },
+        QuantitativeInput {
+            effect_records: 1,
             ..QuantitativeInput::default()
         },
         QuantitativeInput {
@@ -527,6 +536,7 @@ fn model_ready_batch_bound_is_independent_of_the_current_worker_wave_width() {
     let bound = QuantitativeInput {
         ready_items: 4,
         effect_records: 4,
+        effect_batches: 1,
         ..QuantitativeInput::default()
     }
     .compile(QuantitativeLimits {
@@ -537,7 +547,81 @@ fn model_ready_batch_bound_is_independent_of_the_current_worker_wave_width() {
     })
     .expect("verified Ready backlog can span multiple worker waves");
     assert_eq!(bound.core_authority_applies, 1);
-    assert_eq!(bound.effect_settlement_applies, 4);
+    assert_eq!(bound.effect_settlement_applies, 1);
+}
+
+#[test]
+fn model_current_retained_path_separates_per_item_from_ready_batch_applies() {
+    use super::adversarial::{CurrentRetainedPathCost, CurrentRetainedPathInput};
+
+    let ready_batch_limit = u32::try_from(crate::constants::MAX_READY_BATCH)
+        .expect("production Ready batch limit fits the model domain");
+    assert_eq!(
+        CurrentRetainedPathInput {
+            items: 1,
+            ready_applies: 1,
+            ready_batch_limit,
+        }
+        .compile(),
+        Some(CurrentRetainedPathCost {
+            admission_applies: 1,
+            checkout_applies: 1,
+            completion_applies: 1,
+            membership_applies: 1,
+            effect_settlement_applies: 1,
+            total_applies: 5,
+        })
+    );
+
+    let fully_coalesced = CurrentRetainedPathInput {
+        items: ready_batch_limit,
+        ready_applies: 1,
+        ready_batch_limit,
+    }
+    .compile()
+    .expect("one full Ready slice is representable");
+    assert_eq!(
+        fully_coalesced.total_applies,
+        ready_batch_limit
+            .checked_mul(3)
+            .and_then(|value| value.checked_add(2))
+            .expect("production Ready batch limit has a representable cost")
+    );
+
+    let prompt = CurrentRetainedPathInput {
+        items: ready_batch_limit,
+        ready_applies: ready_batch_limit,
+        ready_batch_limit,
+    }
+    .compile()
+    .expect("one prompt Ready slice per owner is representable");
+    assert_eq!(
+        prompt.total_applies,
+        ready_batch_limit
+            .checked_mul(5)
+            .expect("production Ready batch limit has a representable prompt cost")
+    );
+
+    assert_eq!(
+        CurrentRetainedPathInput {
+            items: ready_batch_limit + 1,
+            ready_applies: 1,
+            ready_batch_limit,
+        }
+        .compile(),
+        None,
+        "one Apply cannot exceed the current Ready batch limit"
+    );
+    assert_eq!(
+        CurrentRetainedPathInput {
+            items: 2,
+            ready_applies: 3,
+            ready_batch_limit,
+        }
+        .compile(),
+        None,
+        "a non-empty Ready Apply cannot outnumber its owners"
+    );
 }
 
 #[test]

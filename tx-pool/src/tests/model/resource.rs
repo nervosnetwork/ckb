@@ -118,3 +118,45 @@ impl QueryCostInputs {
         })
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ServiceIngressResidencyInputs {
+    pub(super) verify_workers: u32,
+    pub(super) handler_multiplier: u32,
+    pub(super) ordinary_queue: u32,
+    pub(super) ordered_queue: u32,
+    /// Producer-owned ordered payloads suspended before channel admission.
+    pub(super) ordered_waiting_senders: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ServiceIngressResidencyBound {
+    pub(super) ordinary_handlers: u32,
+    pub(super) ordinary_owned_requests: u32,
+    pub(super) ordered_owned_requests: u32,
+}
+
+impl ServiceIngressResidencyInputs {
+    /// Compile the exact count-only service terms. Payload bytes remain a
+    /// separate protocol term, and a reliable bounded channel does not bound
+    /// producer-owned payloads waiting to send.
+    pub(super) fn compile(self) -> Option<ServiceIngressResidencyBound> {
+        if self.handler_multiplier == 0 {
+            return None;
+        }
+        let ordinary_handlers = self
+            .verify_workers
+            .max(1)
+            .checked_mul(self.handler_multiplier)?;
+        let ordinary_owned_requests = self.ordinary_queue.checked_add(ordinary_handlers)?;
+        let ordered_owned_requests = self
+            .ordered_queue
+            .checked_add(1)?
+            .checked_add(self.ordered_waiting_senders)?;
+        Some(ServiceIngressResidencyBound {
+            ordinary_handlers,
+            ordinary_owned_requests,
+            ordered_owned_requests,
+        })
+    }
+}

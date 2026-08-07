@@ -191,15 +191,18 @@
       "title": "Coherent bounded persistence",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/read.rs", "symbols": ["fn capture_persistence", "struct PersistenceReadReceipt", "struct ParentFirstPersistence"]},
-        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn save_pool", "fn replay_persisted"]},
-        {"path": "tx-pool/src/persisted.rs", "symbols": ["struct PersistenceWriter", "struct PersistenceSnapshot"]}
+        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn save_pool", "fn replay_persisted", "fn shutdown"]},
+        {"path": "tx-pool/src/authority/topology.rs", "symbols": ["fn shutdown", "fn shutdown_authority"]},
+        {"path": "tx-pool/src/persisted.rs", "symbols": ["struct PersistenceWriter", "struct PersistenceLease", "struct PersistenceSnapshot"]}
       ],
-      "required_behavior": "Persistence captures Accepted and Recovery-source owners from one authority read cut, releases the guard, orders parent-first, writes one bounded atomic snapshot and revalidates every replayed transaction. Startup derives one checked read ceiling and enforces it both before allocation and while the file is read.",
+      "required_behavior": "Persistence captures Accepted and Recovery-source owners from one authority read cut, releases the guard, orders parent-first, writes one bounded atomic snapshot and revalidates every replayed transaction. Startup derives one checked read ceiling and enforces it both before allocation and while the file is read. Final shutdown closes ingress, drains handlers and ordered control, joins authority workers, closes and drains committed effects, then joins derived tasks before capture; a derived-task failure is diagnostic, loss of an authority capability permanently forbids persistence, and external write failure is a distinct terminal best-effort outcome rather than false durability.",
       "hostile_case": "Save racing reorg/clear, recovery in any phase, malformed, growing or oversized file, configuration arithmetic overflow, duplicate partitions, writer failure or legacy v1 input must not persist an ownership splice, allocate unbounded data or trust stale verification evidence.",
       "reviewer_questions": [
         "Are ReplacementHistory, Remote and Proposal owners excluded?",
         "Does sorting and file I/O occur after the authority guard opens?",
-        "Are configured and observed file bounds checked before allocation, during reading and before fully validated replay?"
+        "Are configured and observed file bounds checked before allocation, during reading and before fully validated replay?",
+        "Can persistence begin before every authority capability and effect is settled, or can a derived-only failure erase a coherent cut?",
+        "Can an external write failure be mistaken for either durable success or authority corruption?"
       ],
       "performance_bound": "Persistence clone/sort/I/O is off admission paths and serialized by one writer capability."
     },
@@ -299,7 +302,8 @@
         {"path": "tx-pool/src/authority/publisher.rs", "symbols": ["fn publish_committed_effect_batch"]},
         {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct ReadyKey"]},
         {"path": "tx-pool/src/authority/relay.rs", "symbols": ["struct AuthorityRelaySink", "struct AuthorityRelayReceiver", "fn production_authority_relay_mailbox"]},
-        {"path": "tx-pool/src/block_assembler/candidate_uncles.rs", "symbols": ["struct CandidateUncles"]}
+        {"path": "tx-pool/src/block_assembler/candidate_uncles.rs", "symbols": ["struct CandidateUncles"]},
+        {"path": "tx-pool/src/service/builder.rs", "symbols": ["fn run", "fn run_dispatcher"]}
       ],
       "required_behavior": "Peer-controlled count, bytes, edges, fanout, closure, probes, channels and candidate sets are bounded while independent resolution/verification and optimistic template work remain concurrent and deterministic.",
       "hostile_case": "Idle-peer cardinality, saturated owner, long conditional graph, mailbox overflow, full candidate-uncle set, extreme fee weights or controller pressure must not cause unbounded scan, overflow, global serialization or nondeterministic order.",
@@ -322,15 +326,16 @@
         {"path": "sync/src/relayer/block_proposal_process.rs", "symbols": ["struct BlockProposalProcess"]},
         {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals"]}
       ],
-      "required_behavior": "Every controller command payload occupies exactly one caller, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
-      "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress, suppress an already committed authority result, or leave stale relay state that prevents the same raw transaction from being fetched from another peer.",
+      "required_behavior": "Every controller command payload occupies exactly one caller, waiting sender, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order without pretending that channel capacity bounds producer-owned waiting sends. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
+      "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress, let an RPC clear flood multiply unbounded waiting sends or suppress chain reconciliation, suppress an already committed authority result, or leave stale relay state that prevents the same raw transaction from being fetched from another peer.",
       "reviewer_questions": [
         "Does every payload move between ownership locations exactly once while acknowledgement remains a separate fact?",
         "Are request count, payload bytes, handler concurrency and response residency bounded separately?",
         "Can responder loss influence authority mutation or only result delivery?",
-        "Are ordinary concurrent requests kept separate from ordered chain controls?"
+        "Are ordinary concurrent requests kept separate from ordered chain controls?",
+        "What bounds producer-owned payloads suspended before a reliable ordered send?"
       ],
-      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit; the ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls. Relay settlement follows only the acknowledged request or exact terminal effect and adds no pool scan. M2 separately closes payload-byte and O(pool) query amplification bounds."
+      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit. The ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls plus one active control, but concurrent senders retain their own payloads before enqueue and remain an explicit open boundary. Relay settlement follows only the acknowledged request or exact terminal effect and adds no pool scan. M3.6 must close waiting-sender count/byte residency together with the existing request and query amplification bounds."
     }
   ],
   "unit_evidence": [
@@ -574,6 +579,8 @@
 
     {"test": "mathematical_model::properties::model_initialization_replay_failure_drains_without_publishing_partial_authority", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T7", "T9", "T10", "T12"]},
     {"test": "mathematical_model::properties::model_persistence_contains_only_accepted_and_recovery_retained_owners", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T11", "T12"]},
+    {"test": "mathematical_model::properties::model_shutdown_orders_capability_drain_before_persistence", "behavior_id": "TP-PERSIST-001", "invariants": ["T1", "T2", "T7", "T9", "T10", "T12"]},
+    {"test": "mathematical_model::properties::model_shutdown_rejects_early_persistence_and_distinguishes_derived_failure", "behavior_id": "TP-PERSIST-001", "invariants": ["T2", "T6", "T7", "T9", "T10", "T12"]},
 
     {"test": "mathematical_model::properties::model_optional_query_arithmetic_failure_never_invalidates_the_authority_result", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
     {"test": "mathematical_model::properties::model_query_projection_collapses_only_the_documented_internal_states", "behavior_id": "TP-QUERY-001", "invariants": ["T5", "T6", "T8", "T12"]},
@@ -669,10 +676,12 @@
     {"test": "mathematical_model::adversarial_properties::model_every_m2_root_premise_has_a_typed_minimum_counterexample", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T8", "T9", "T10", "T11"]},
     {"test": "mathematical_model::adversarial_properties::model_quantitative_equation_rejects_every_configured_bound_overrun", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8"]},
     {"test": "mathematical_model::adversarial_properties::model_quantitative_equation_separates_linear_work_from_core_wave_applies", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::adversarial_properties::model_current_retained_path_separates_per_item_from_ready_batch_applies", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T10"]},
     {"test": "mathematical_model::adversarial_properties::model_ready_batch_bound_is_independent_of_the_current_worker_wave_width", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "mathematical_model::adversarial_properties::model_ready_composition_cost_is_consumed_without_a_hand_copied_projection", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T4", "T5", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys", "behavior_id": "TP-PERF-001", "invariants": ["T4", "T8"]},
     {"test": "mathematical_model::composition_properties::model_remote_source_is_a_footprint_policy_term_not_a_second_authority", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},
+    {"test": "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10"]},
 
     {"test": "authority::tests::refinement::uak_candidate_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T11"]},
     {"test": "authority::tests::refinement::uak_candidate_accepted_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},

@@ -1253,6 +1253,102 @@ fn model_drain_cannot_drop_a_committed_effect_or_its_unique_claim() {
 }
 
 #[test]
+fn model_shutdown_orders_capability_drain_before_persistence() {
+    use super::protocol::{ShutdownAction, ShutdownDisposition, ShutdownPhase, ShutdownProtocol};
+
+    let mut shutdown = ShutdownProtocol::running();
+    for (action, phase) in [
+        (ShutdownAction::CloseIngress, ShutdownPhase::IngressClosed),
+        (
+            ShutdownAction::DrainHandlers,
+            ShutdownPhase::HandlersDrained,
+        ),
+        (
+            ShutdownAction::JoinChainControl,
+            ShutdownPhase::ChainControlJoined,
+        ),
+        (
+            ShutdownAction::JoinAuthorityWorkers,
+            ShutdownPhase::AuthorityWorkersJoined,
+        ),
+        (ShutdownAction::CloseEffects, ShutdownPhase::EffectsClosed),
+        (ShutdownAction::DrainEffects, ShutdownPhase::EffectsDrained),
+        (
+            ShutdownAction::JoinDerivedTasks,
+            ShutdownPhase::DerivedTasksJoined,
+        ),
+        (
+            ShutdownAction::CapturePersistence,
+            ShutdownPhase::PersistenceCaptured,
+        ),
+        (ShutdownAction::WritePersistence, ShutdownPhase::Persisted),
+    ] {
+        assert_eq!(shutdown.step(action), ShutdownDisposition::Advanced(phase));
+    }
+    assert_eq!(shutdown.phase(), ShutdownPhase::Persisted);
+    assert_eq!(
+        shutdown.step(ShutdownAction::AuthorityCapabilityLost),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::Persisted),
+        "a terminal durable state cannot retroactively lose a retired capability"
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::DerivedTaskFailed),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::Persisted),
+        "joined derived tasks cannot fail after persistence"
+    );
+}
+
+#[test]
+fn model_shutdown_rejects_early_persistence_and_distinguishes_derived_failure() {
+    use super::protocol::{ShutdownAction, ShutdownDisposition, ShutdownPhase, ShutdownProtocol};
+
+    let mut shutdown = ShutdownProtocol::running();
+    assert_eq!(
+        shutdown.step(ShutdownAction::CapturePersistence),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::Running)
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::DerivedTaskFailed),
+        ShutdownDisposition::DerivedDegraded(ShutdownPhase::Running)
+    );
+    assert!(shutdown.derived_degraded());
+    assert_eq!(
+        shutdown.step(ShutdownAction::AuthorityCapabilityLost),
+        ShutdownDisposition::PersistenceForbidden
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::CloseIngress),
+        ShutdownDisposition::PersistenceForbidden
+    );
+
+    let mut write_failure = ShutdownProtocol::running();
+    for action in [
+        ShutdownAction::CloseIngress,
+        ShutdownAction::DrainHandlers,
+        ShutdownAction::JoinChainControl,
+        ShutdownAction::JoinAuthorityWorkers,
+        ShutdownAction::CloseEffects,
+        ShutdownAction::DrainEffects,
+        ShutdownAction::JoinDerivedTasks,
+        ShutdownAction::CapturePersistence,
+    ] {
+        assert!(matches!(
+            write_failure.step(action),
+            ShutdownDisposition::Advanced(_)
+        ));
+    }
+    assert_eq!(
+        write_failure.step(ShutdownAction::PersistenceWriteFailed),
+        ShutdownDisposition::PersistenceFailed
+    );
+    assert_eq!(
+        write_failure.step(ShutdownAction::WritePersistence),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::PersistenceFailed),
+        "an external write failure is terminal and cannot be relabeled durable"
+    );
+}
+
+#[test]
 fn model_wall_clock_rollback_never_fabricates_expiry_progress() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
@@ -5630,6 +5726,64 @@ fn model_query_cost_keeps_concurrency_scan_sort_and_output_terms_explicit() {
         .compile(),
         None,
         "an unrepresentable bound is an explicit exclusion, never a wrapped cost"
+    );
+}
+
+#[test]
+fn model_service_ingress_residency_exposes_waiting_ordered_senders() {
+    use super::resource::{ServiceIngressResidencyBound, ServiceIngressResidencyInputs};
+
+    let handler_multiplier = u32::try_from(crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER)
+        .expect("production handler multiplier fits the model domain");
+    let ordinary_queue = u32::try_from(crate::service::DEFAULT_CHANNEL_SIZE)
+        .expect("production ordinary channel fits the model domain");
+    let ordered_queue = u32::try_from(crate::service::CHAIN_CONTROL_CHANNEL_SIZE)
+        .expect("production ordered channel fits the model domain");
+    let verify_workers = 8u32;
+    let ordinary_handlers = verify_workers
+        .checked_mul(handler_multiplier)
+        .expect("small production-shaped fixture is representable");
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers,
+            handler_multiplier,
+            ordinary_queue,
+            ordered_queue,
+            ordered_waiting_senders: 0,
+        }
+        .compile(),
+        Some(ServiceIngressResidencyBound {
+            ordinary_handlers,
+            ordinary_owned_requests: ordinary_queue + ordinary_handlers,
+            ordered_owned_requests: ordered_queue + 1,
+        })
+    );
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers: 0,
+            handler_multiplier,
+            ordinary_queue: 0,
+            ordered_queue: 0,
+            ordered_waiting_senders: 3,
+        }
+        .compile(),
+        Some(ServiceIngressResidencyBound {
+            ordinary_handlers: handler_multiplier,
+            ordinary_owned_requests: handler_multiplier,
+            ordered_owned_requests: 4,
+        }),
+        "waiting reliable senders remain caller-owned outside the channel bound"
+    );
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers: u32::MAX,
+            handler_multiplier: 2,
+            ordinary_queue: 0,
+            ordered_queue: 0,
+            ordered_waiting_senders: 0,
+        }
+        .compile(),
+        None
     );
 }
 

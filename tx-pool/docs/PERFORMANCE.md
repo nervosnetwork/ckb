@@ -159,29 +159,43 @@ executions, 500 Ready work slices and 999 effect publications. The reduction
 therefore removes failed scheduling probes rather than skipping dependency
 semantics, and the child-first order does not acquire a hidden retry path.
 
-### 3.2 Post-wake lower bound and candidate adjudication
+### 3.2 Current retained-path Apply cost and semantic obligations
 
-The common successful Remote lifecycle now exposes a constructive lower bound.
-This is a semantic bound, not a target obtained by weakening accounting or
-publication:
+The common successful Remote lifecycle has an exact current-topology cost, but
+not a five-Apply semantic lower bound. The distinction matters because M4 may
+batch commutative transitions without weakening any obligation:
 
-| Boundary | Current common-path authority work | Constructive minimum | Disposition |
+| Boundary | Current common-path authority work | Required semantic fact | Optimization freedom |
 |---|---|---|---|
-| Retained admission | one owner/charge/dedup Apply | one Apply | Required. Computing before ownership would recreate uncharged hostile work. |
-| Compute checkout | one successful `Queued -> Computing` Apply plus capability-mismatched probes | one successful Apply | The lease and active-work charge are required; failed probes are not. Route one typed baton to one compatible worker. |
-| Resolve/Verify handoff | zero extra Apply when a verifier continues Resolve into Verify, otherwise a queued-Verify settlement and checkout | zero extra Apply on the continuous path | Preserve the fallback, but make the compatible continuous path easier to select without creating a worker-owned queue. |
-| Verified finalization | `Computing -> Ready`, two read cuts, then `Ready -> Accepted` | two Applies in the retained pipeline topology | `Ready` is both the charged authority handoff and the concurrency boundary that releases compute before final membership. A one-Apply experiment deleted work but measurably reduced throughput by lengthening the compute stage. |
-| Ordinary effect publication | one coherent receipt read, external I/O, settlement Apply | one settlement Apply | The sole claimed publisher borrows the minimum committed record because later appends cannot displace the FIFO head and a newer coalesced reset subsumes an older reset receipt. Exclusivity is bound to the claim's type and settlement preserves exact partial progress. |
-| External endpoints | no authority guard during I/O | no authority guard during I/O | Fixed contract. |
+| Retained admission | one owner/charge/dedup Apply per item | hostile work is owned and charged before compute | several independent admissions may share one total Apply |
+| Compute checkout | one `Queued -> Computing` Apply per item | the owner and unique compute capability move atomically | one wave may issue several disjoint capabilities in one Apply |
+| Resolve/Verify handoff | no extra Apply on continuous Resolve-to-Verify; otherwise a settlement and later checkout | evidence and capability remain exact | continuous execution and bounded multi-completion settlement may remove topology-only cuts |
+| Verified completion | one `Computing -> Ready` Apply per item | compute capacity is released before unrelated final membership work | disjoint completions may settle together while retaining Ready overlap |
+| Ready membership | one Apply per non-empty Ready slice of at most eight | final validation, membership, resources and effects commit atomically | one commuting strict-priority prefix already shares this Apply |
+| Ordinary effect publication | external I/O followed by one settlement Apply per immutable effect batch | endpoint progress cannot reinterpret the committed transition | several logical records in one batch require only one settlement Apply |
+| External endpoints | no authority guard during I/O | fixed boundary | none |
 
-For an ordinary independent transaction the retained constructive floor is
-five Applies: admission, compute checkout, `Computing -> Ready`,
-`Ready -> Accepted`, and ordinary effect settlement. Ready batches up to eight
-owners, so the final membership Apply cost is amortized without keeping scarce
-compute capacity live. A four-Apply path is a mechanical work minimum, not a
-throughput-safe constructive minimum in this topology. These bounds are not
-valid for a generation reset, RBF component, missing dependency, resource
-rejection or effect-capacity fallback.
+For `N` homogeneous, chain-backed independent owners with continuous
+Resolve-to-Verify execution, no stale/pressure path and `R` non-empty Ready
+slices, the current implementation performs
+
+```text
+authority_applies(N, R) = 3N + 2R
+ceil(N / 8) <= R <= N
+```
+
+The three per-item terms are admission, checkout and completion. The two
+per-slice terms are membership and settlement of the resulting immutable
+effect batch. A prompt single item therefore uses five Applies, while one full
+eight-owner Ready slice uses 26 total Applies, or 3.25 per owner. Logical
+effect-record count is not effect-settlement Apply count.
+
+This equation is an executable description of the current topology, not a
+semantic minimum and not a timing model. Generation reset, RBF, missing
+dependency, resource rejection, stale work and effect-capacity fallback are
+outside its scope. The M3.5 model and production contract checker bind the
+equation to the actual batch, stage and settlement owners so later topology
+changes cannot silently preserve obsolete prose.
 
 The next candidates were reviewed together rather than accumulated as local
 patches:

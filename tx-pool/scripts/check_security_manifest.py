@@ -296,8 +296,8 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     )
     if contract is None:
         return errors
-    if contract.get("schema_version") != 9:
-        errors.append("architecture contract schema_version must be 9")
+    if contract.get("schema_version") != 10:
+        errors.append("architecture contract schema_version must be 10")
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):

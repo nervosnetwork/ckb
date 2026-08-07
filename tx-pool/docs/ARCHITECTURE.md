@@ -745,10 +745,12 @@ evidence is represented through the membership overlay and causal compiler.
 
 The chain layer owns one tip-installation boundary: install the new snapshot,
 then send the exact fork delta on a reliable capacity-one ordered channel. RPC
-readiness cannot suppress this transition. The ordered chain-control driver packages
-detached/attached inputs outside the authority guard, then one chain Plan/Apply
-pairs the new `Arc<Snapshot>` and `ChainViewId` with all owner, membership,
-status, recovery, dependency, resource and effect changes.
+readiness cannot suppress this transition. The ordered chain-control driver
+packages detached/attached inputs outside the authority guard. Runtime then
+retains one coherent upgradable read cut while selecting and validating the
+bounded proposal/recovery subjects against the paired snapshot, upgrades that
+same cut, and applies all owner, membership, status, recovery, dependency,
+resource and effect changes with the new `Arc<Snapshot>` and `ChainViewId`.
 
 Normal best-block and truncate paths use this same boundary. IBD and
 candidate-uncle notifications remain readiness-gated derived signals and must
@@ -870,14 +872,16 @@ task and owns:
 - the derived verification-cache updater;
 - optional block-template lanes.
 
-The service generation separately owns the ordered chain-control driver. Cancellation
-closes producers first, joins authority workers, closes and drains effects,
-then joins derived tasks. Every task exit is classified by what it owns;
+The service generation separately owns the ordered chain-control driver.
+Cancellation closes producers first, joins authority workers, closes and
+drains effects, then joins derived tasks. Every task exit is classified by what it owns;
 template/cache degradation retains authoritative state, while loss of the sole
 authority capability forbids persistence. Section 15 defines the backward
 constructor and producer/caller reachability obligation for that boundary;
 any unresolved route remains a release blocker rather than an assumed
-impossibility.
+impossibility. Persistence eligibility permits one best-effort external write;
+an I/O or join failure is a terminal non-durable outcome, not authority
+corruption and not false durable success.
 
 ### 12.3 Wait-for proof
 
@@ -894,6 +898,14 @@ Every wait must name an independently running releaser:
 | ordered chain-control channel | chain or clear request at producer boundary, no store guard | ordered chain-control driver |
 | template source change | no authority guard | exact pool source-version advance or candidate-uncle source mutation |
 | shutdown joins | topology owner only | cancellation-aware owned task or bounded operational timeout |
+
+The reliable ordered channel bounds queued commands, not producer-owned
+payloads suspended in `send`. If `C` callers are waiting, complete ordered
+residency is `C + CHAIN_CONTROL_CHANNEL_SIZE + 1`; public clear calls make `C`
+an open admission and blocking-thread bound. M3.6 must bound or fail-fast the
+administrative producers while preserving the sole chain publisher's reliable
+ordering. Adding another queue or treating channel capacity as a sender bound
+is not an admissible fix.
 
 The complete deadlock/livelock/lost-wake/starvation audit and constructive
 saturation tests are release gates, not assumptions inferred from timeouts.
@@ -949,7 +961,7 @@ The completed static complexity inventory is:
 | Remote/trusted ingress, checkout and compute settlement | Transition-local index/projection deltas. Queue checkout visits at most the charged owner rows; Ready selects at most `MAX_READY_BATCH = 8`. | Hot path; no full owner scan or attacker-sized destruction. |
 | RBF, eviction and accepted causal removal | Complete indexed conflict/descendant cohort capped by `MAX_POOL_MUTATION_CANDIDATES = 100`, with configured ancestor/descendant bounds. | Atomic membership requires the complete closure; over-bound input is rejected or the chain generation is rebuilt. |
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
-| Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Recovery is selected parent-first: an individually resource-excluded new trusted root and its new trusted recovery descendants are omitted while unrelated fitting roots continue. An already-owned PreAccepted descendant remains charged and re-enters validation under its source policy. The same closed selection drives normal reconciliation and fresh-generation fallback. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Block traversal and payload compaction occur before the write guard. |
+| Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Recovery is selected parent-first: an individually resource-excluded new trusted root and its new trusted recovery descendants are omitted while unrelated fitting roots continue. An already-owned PreAccepted descendant remains charged and re-enters validation under its source policy. The same closed selection drives normal reconciliation and fresh-generation fallback. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Fork traversal and detached payload compaction occur before the authority cut. Bounded in-memory proposal/recovery validation retains an upgradable read guard; only capacity/projection preparation and total Apply remain after upgrade. |
 | `ClearPipeline` / `ClearPool` | All live owners in an explicit administrative command. | Deliberate whole-generation operation, never ordinary ingress. Retired payload destruction happens after the guard opens. |
 | RPC, persistence, relay rebuild and template capture | Persistence, relay rebuild and template paths use owned receipts or bounded pages. Current full-pool ID/info, detail-rank and fee-estimate queries still perform O(pool) scan/sort/allocation under a shared guard and are open under `D1-QUERY-LOCK-COST`. | Coherent projection requires one read cut but not exclusive ownership. M2 must bound query concurrency, response residency and writer delay; M3 selects a compatible receipt/projection or boundary design before this row can close. |
 | Template graph algorithms | Outside the authority lock; selected dependency occurrences and descendant-cache memberships are each capped at 200,000 and conditional-cycle shedding at 64 rounds. | Derived consensus packaging with deterministic underfill fallback. |
@@ -1055,6 +1067,15 @@ version/evidence objects, exact derived projections and a bounded effect log.
 These costs must be measured, but no optimization may create another owner,
 weaken final validation, move expensive work under the guard or serialize the
 template lanes.
+
+For `N` homogeneous chain-backed independent retained owners and `R` non-empty
+Ready slices, the current implementation performs `3N + 2R` authority Applies,
+where `ceil(N / 8) <= R <= N`. Admission, checkout and compute completion are
+per owner; membership and effect settlement are per immutable Ready/effect
+batch. This is a source-checked description of current topology, not a
+semantic lower bound. The target bounded exchange must preserve the same
+ownership, evidence, fairness, Ready overlap and effect laws while making
+already available independent work scale by waves rather than owners.
 
 Static review precedes profiling. Profiling attributes cost and selects
 optimization candidates; fixed-binary A/B decides measured value. Neither is a

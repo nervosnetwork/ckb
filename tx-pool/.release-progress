@@ -3543,9 +3543,70 @@ used. The first complete contract attempt failed only because the sandbox
 forbade TLC's local RMI socket; the approved unsandboxed rerun completed with
 the expected positive and negative verdicts.
 
-M3.5 is now active. Its exact first action is the static layer and serial-cut
-inventory: derive every retained layer, mutable authority, lock/guard span,
-task/channel and manual publication point; classify dispatcher bounds,
-detached recovery validation, full-pool query work and shutdown/persistence
-ordering before proposing any fusion or deletion. No production semantic edit
-or timing experiment is permitted in this phase.
+M3.5 then derives every retained layer, mutable authority, lock/guard span,
+task/channel and manual publication point before proposing fusion or deletion.
+No production semantic edit or timing experiment is permitted in that phase.
+
+## M3.5 minimality, serial-cut and static-cost closure
+
+The static inventory and first high-level correction are implemented in the
+working tree. The current ordinary retained path is now modeled as
+`3N + 2R`, not a five-Apply semantic lower bound: admission, checkout and
+completion are per owner, while Ready membership and effect settlement are per
+immutable batch. The model separately counts logical effect records and
+resident effect batches. It consumes the production Ready/dispatcher constants
+instead of copying their values.
+
+The service-ingress residency equation and the exact shutdown/persistence
+protocol are executable model terms. The production contract checker binds
+them to the actual handler formula, channel owners, current authority stages,
+batch-level effect settlement, chain upgradable-read validation cut, task join
+order and persistence capture/write order.
+
+The full M3.5 layer, serial-cut, task/channel/lock and static-cost disposition
+is recorded in `.independent-execution-plan`. It retains semantic ownership,
+evidence, fairness, Ready overlap, coupled membership, dependency progress,
+effects, ordered chain control, template concurrency and capability-safe
+shutdown. It does not retain per-item admission/checkout/completion Applies,
+three compute-role wake paths or the cache-writer task as necessary topology.
+Full-pool query capture remains an explicit M3.6 component comparison; current
+unrestricted capture is not accepted as the final design.
+
+The whole-system review corrected two invalid proof shortcuts without adding a
+production owner, state, lock, task or channel. First, bounded reliable-channel
+capacity does not bound producer-owned commands suspended in `send`; the
+service-residency model therefore exposes those waiting senders and folds the
+public clear-RPC availability surface into `D1-REQUEST-PAYLOAD-BOUND`. Second,
+persistence eligibility after capability-safe drain does not imply durable
+success; the shutdown model now represents external write failure as an
+ordinary non-durable terminal outcome rather than authority corruption.
+
+Exact gates at this cut:
+
+- complete internal-feature nextest: 641/641, zero skipped;
+- complete default-feature nextest: 637/637, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- focused mathematical-model nextest after the final model changes: 193/193;
+- strict all-target internal-feature Clippy, formatting and diff checks;
+- all nine discovered repository contracts, including 18 behaviors, 328
+  unique tx-pool Rust tests / 1,265 invariant references, nine cross-crate
+  conformance tests / 21 references, two open counterexamples, 19 integration
+  anchors, 150 managed integration specs and 641 discovered internal tests;
+- TLC 1,098 generated / 318 distinct positive states and the required
+  four-state negative witness;
+- mechanically derived refinement frontier: model 218 reachable / 88 outside
+  roots / 21 files, production 617 / 11 / 38; expanded production has zero
+  constructorless registered variants and zero constructorless root structs.
+
+All Rust tests ran only through `cargo nextest run`. The standing exposure
+ledger remains 11 `PROVEN`, 5 `SUPPORTED` and 13 `OPEN`: this phase discovered
+no new legal-input generation-invalidity class and transferred no production
+risk. The ordered waiting-sender bound and persistence-write distinction are
+now explicit inputs to M3.6 rather than hidden assumptions.
+
+M3.6 is active. Its exact next action is complete-candidate falsification of
+the status quo, the self-fused bounded exchange and at least one materially
+distinct model-derived topology, including the query, cache-writer and ordered
+administrative-boundary dispositions. Repeat the six-question and standing-
+exposure audits before selection. Do not benchmark, profile or edit production
+semantics before M4 selects and freezes the complete topology.

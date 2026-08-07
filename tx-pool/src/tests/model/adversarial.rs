@@ -945,7 +945,11 @@ pub(super) struct QuantitativeInput {
     pub(super) coupled_edges: u32,
     pub(super) wake_edges: u32,
     pub(super) stale_capabilities: u32,
+    /// Logical endpoint records retained by immutable effect batches.
     pub(super) effect_records: u32,
+    /// Resident effect batches. Production settles one complete batch with
+    /// one authority Apply even when that batch contains several records.
+    pub(super) effect_batches: u32,
     pub(super) effect_bytes: u64,
     pub(super) relay_records: u32,
     pub(super) relay_bytes: u64,
@@ -992,6 +996,8 @@ impl QuantitativeInput {
             || self.grants > limits.worker_slots
             || self.ready_items > limits.mutation_batch
             || self.stale_capabilities > limits.worker_slots
+            || (self.effect_records == 0) != (self.effect_batches == 0)
+            || self.effect_batches > self.effect_records
         {
             return None;
         }
@@ -1047,7 +1053,7 @@ impl QuantitativeInput {
         .into_iter()
         .map(u32::from)
         .try_fold(0u32, u32::checked_add)?;
-        let effect_settlement_applies = self.effect_records;
+        let effect_settlement_applies = self.effect_batches;
         let authority_apply_upper =
             core_authority_applies.checked_add(effect_settlement_applies)?;
         Some(QuantitativeBound {
@@ -1065,6 +1071,61 @@ impl QuantitativeInput {
             stale_retirements: self.stale_capabilities,
             external_backlog_records,
             external_backlog_bytes,
+        })
+    }
+}
+
+/// Static authority-Apply cost for the current ordinary retained path.
+///
+/// Scope is deliberately narrow: homogeneous chain-backed independent owners,
+/// continuous Resolve-to-Verify execution, no stale work, no pressure and one
+/// non-empty acceptance-effect batch per Ready Apply. The equation describes
+/// current topology; it is neither a semantic lower bound nor a timing model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CurrentRetainedPathInput {
+    pub(super) items: u32,
+    pub(super) ready_applies: u32,
+    pub(super) ready_batch_limit: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CurrentRetainedPathCost {
+    pub(super) admission_applies: u32,
+    pub(super) checkout_applies: u32,
+    pub(super) completion_applies: u32,
+    pub(super) membership_applies: u32,
+    pub(super) effect_settlement_applies: u32,
+    pub(super) total_applies: u32,
+}
+
+impl CurrentRetainedPathInput {
+    pub(super) fn compile(self) -> Option<CurrentRetainedPathCost> {
+        if self.ready_batch_limit == 0 {
+            return None;
+        }
+        if self.items == 0 {
+            return (self.ready_applies == 0).then_some(CurrentRetainedPathCost {
+                admission_applies: 0,
+                checkout_applies: 0,
+                completion_applies: 0,
+                membership_applies: 0,
+                effect_settlement_applies: 0,
+                total_applies: 0,
+            });
+        }
+        let minimum_ready_applies = self.items.div_ceil(self.ready_batch_limit);
+        if !(minimum_ready_applies..=self.items).contains(&self.ready_applies) {
+            return None;
+        }
+        let per_item_applies = self.items.checked_mul(3)?;
+        let batched_applies = self.ready_applies.checked_mul(2)?;
+        Some(CurrentRetainedPathCost {
+            admission_applies: self.items,
+            checkout_applies: self.items,
+            completion_applies: self.items,
+            membership_applies: self.ready_applies,
+            effect_settlement_applies: self.ready_applies,
+            total_applies: per_item_applies.checked_add(batched_applies)?,
         })
     }
 }

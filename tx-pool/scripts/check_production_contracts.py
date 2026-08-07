@@ -25,6 +25,18 @@ TX_POOL_AUTHORITY_RUNTIME = (
 TX_POOL_AUTHORITY_PUBLISHER = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "publisher.rs"
 )
+TX_POOL_AUTHORITY_EFFECT = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "effect.rs"
+)
+TX_POOL_AUTHORITY_SCHEDULER = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "scheduler.rs"
+)
+TX_POOL_AUTHORITY_TOPOLOGY = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "topology.rs"
+)
+TX_POOL_AUTHORITY_WORKER = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "worker.rs"
+)
 TX_POOL_BENCHMARK = REPO_ROOT / "tx-pool" / "src" / "benchmark.rs"
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
 TX_POOL_AUTHORITY_QUERY = REPO_ROOT / "tx-pool" / "src" / "authority" / "query.rs"
@@ -186,6 +198,29 @@ def function_body(source: str, name: str) -> str | None:
         return None
     closing = matching_brace(masked, opening)
     return None if closing is None else source[opening + 1 : closing]
+
+
+def impl_method_body(source: str, impl_name: str, method: str) -> str:
+    matches = [body for name, body, _line in rust_impl_methods(source, impl_name) if name == method]
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected one {impl_name}::{method} method, found {len(matches)}"
+        )
+    return matches[0]
+
+
+def require_ordered_fragments(
+    body: str, owner: str, fragments: tuple[str, ...]
+) -> list[str]:
+    positions = [body.find(fragment) for fragment in fragments]
+    if any(position < 0 for position in positions):
+        missing = [
+            fragment for fragment, position in zip(fragments, positions) if position < 0
+        ]
+        return [f"{owner} lost ordered topology fragment(s) {missing}"]
+    if positions != sorted(positions):
+        return [f"{owner} changed required topology order {fragments}"]
+    return []
 
 
 def brace_depth(masked: str, offset: int) -> int:
@@ -757,6 +792,161 @@ def validate_effect_publication_authority() -> list[str]:
     return errors
 
 
+def validate_execution_topology_contract() -> list[str]:
+    """Bind current serial cuts, batching costs and shutdown order to source."""
+
+    try:
+        builder = TX_POOL_BUILDER.read_text()
+        controller = TX_POOL_CONTROLLER.read_text()
+        effect = TX_POOL_AUTHORITY_EFFECT.read_text()
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        scheduler = TX_POOL_AUTHORITY_SCHEDULER.read_text()
+        service = TX_POOL_AUTHORITY_SERVICE.read_text()
+        topology = TX_POOL_AUTHORITY_TOPOLOGY.read_text()
+        worker = TX_POOL_AUTHORITY_WORKER.read_text()
+
+        builder_run = impl_method_body(builder, "TxPoolServiceBuilder", "run")
+        dispatcher = impl_method_body(
+            builder, "TxPoolServiceBuilder", "run_dispatcher"
+        )
+        signals = impl_method_body(runtime, "AuthoritySignals", "new")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect execution topology contract: {error}"]
+
+    errors: list[str] = []
+
+    for fragment in (
+        ".max(1)",
+        ".checked_mul(MESSAGE_CONCURRENCY_MULTIPLIER)",
+    ):
+        if fragment not in builder_run:
+            errors.append(f"dispatcher concurrency formula lost {fragment!r}")
+    for fragment in (
+        "mpsc::channel(DEFAULT_CHANNEL_SIZE)",
+        "mpsc::channel(CHAIN_CONTROL_CHANNEL_SIZE)",
+    ):
+        if fragment not in builder:
+            errors.append(f"service assembly lost bounded channel owner {fragment!r}")
+    if "handlers.len() < handler_limit" not in dispatcher:
+        errors.append("dispatcher must bound live handlers before receiving more work")
+
+    ordered_methods = (
+        (runtime, "AuthorityRuntime", "commit_retained_ingress", (
+            "plan_retained_admission(ingress)",
+            "self.publish_committed(committed)",
+        )),
+        (runtime, "AuthorityRuntime", "try_checkout", (
+            "plan_checkout_next(permit)",
+            "plan.apply()",
+            "publish_post_commit_pair",
+        )),
+        (runtime, "AuthorityRuntime", "settle", (
+            "apply_settlement(settlement)",
+            "self.publish_committed(committed)",
+        )),
+        (runtime, "AuthorityRuntime", "try_drive_ready", (
+            "capture_ready_work_batch()",
+            ".prepare()",
+            "complete_ready_batch(prepared)",
+            ".validate()",
+            "self.publish_committed(committed)",
+        )),
+        (runtime, "AuthorityRuntime", "settle_effect", (
+            "apply_effect_settlement(settlement)",
+            "self.publish_committed(retirement)",
+        )),
+        (runtime, "AuthorityRuntimeConfig", "from_runtime", (
+            "config.max_tx_verify_workers.max(1)",
+            ".checked_add(1)",
+            "transient_compute_permits",
+        )),
+        (worker, "AuthorityRuntime", "spawn_workers", (
+            ".checked_add(3)",
+            "AuthorityWorkerRole::Resolver",
+            "for worker_id in 0..worker_count",
+            "AuthorityWorkerRole::Verifier(worker_id)",
+            "AuthorityWorkerRole::Ready",
+            "AuthorityWorkerRole::Maintenance",
+        )),
+        (runtime, "AuthorityRuntime", "apply_chain_update", (
+            "self.store.upgradable_read()",
+            "chain_validation_work_from_view(facts)",
+            "work.validate(&command.snapshot)",
+            "AuthorityStoreLock::upgrade(store)",
+            "plan_chain_transition(receipt)",
+            "plan.apply()",
+            "publish_post_commit(post_commit)",
+        )),
+        (builder, "TxPoolServiceBuilder", "run_dispatcher", (
+            "receiver.close()",
+            "while receiver.try_recv().is_ok()",
+            "generation.shutdown(handler_timeout).await",
+            "if let Err(error) = service.save_pool().await",
+        )),
+        (service, "AuthorityGeneration", "shutdown", (
+            "self.cancel.cancel()",
+            "self.chain_control.take()",
+            "topology.shutdown(timeout).await",
+        )),
+        (topology, "AuthorityTaskTopology", "shutdown_authority", (
+            "self.join_authority_workers().await",
+            "self.runtime.close_effects()",
+            "self.join_publisher().await",
+            "self.runtime.effects_closed_and_drained()",
+        )),
+        (topology, "AuthorityTaskTopology", "shutdown", (
+            "self.shutdown_authority()",
+            "self.join_templates(timeout, &mut derived_failures).await",
+            "self.join_verification_cache(timeout, &mut derived_failures)",
+        )),
+        (topology, "AuthorityTaskTopology", "start", (
+            ".spawn_workers(",
+            "run_verification_cache_updates",
+            "run_claimed_authority_effect_publisher",
+            ".spawn_drivers(",
+        )),
+        (service, "AuthorityService", "save_pool", (
+            "self.persistence_writer.acquire().await",
+            ".persistence_receipt()",
+            ".into_parent_first()",
+            "spawn_blocking(move || writer.write(&base, snapshot))",
+        )),
+    )
+    for source, impl_name, method, fragments in ordered_methods:
+        owner = f"{impl_name}::{method}"
+        try:
+            body = impl_method_body(source, impl_name, method)
+        except ValueError as error:
+            errors.append(str(error))
+            continue
+        errors.extend(require_ordered_fragments(body, owner, fragments))
+    if ".take(MAX_READY_BATCH)" not in scheduler:
+        errors.append("Ready capture must consume the named bounded batch limit")
+    if signals.count("Notify::new()") != 8:
+        errors.append("AuthoritySignals must own exactly eight coalescing wake hints")
+    if "templates: Option<[Option<AuthorityTemplateTask>; 5]>" not in topology:
+        errors.append("template topology must retain five independently joined lanes")
+    if "mpsc::channel(VERIFY_CACHE_CHANNEL_SIZE)" not in topology:
+        errors.append("verification-cache updates must retain their named bounded channel")
+    for fragment in (
+        ".send(ChainControl::$command(request))",
+        "self.chain_control_sender.send(command)",
+    ):
+        if fragment not in controller:
+            errors.append(
+                "service-residency model lost its producer-owned reliable-send "
+                f"source {fragment!r}"
+            )
+    for owner in ("EffectReceipt", "EffectSettlement"):
+        declaration = re.search(
+            rf"struct\s+{owner}\s*\{{(?P<body>.*?)\n\}}", effect, re.S
+        )
+        if declaration is None or "batch: Arc<EffectBatch>" not in declaration.group("body"):
+            errors.append(f"{owner} must retain one complete immutable EffectBatch")
+
+    return errors
+
+
 def production_rust_sources() -> list[Path]:
     sources: list[Path] = []
     excluded = {".git", "target", "test", "tests", "benches"}
@@ -892,6 +1082,7 @@ def main() -> int:
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
         *validate_effect_publication_authority(),
+        *validate_execution_topology_contract(),
     ]
     if errors:
         for error in errors:
@@ -902,7 +1093,7 @@ def main() -> int:
         "bounded chain-control backpressure plus authority post-commit wake coverage, "
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains and "
-        "current production vocabulary"
+        "current production vocabulary plus execution-topology cost and shutdown order"
     )
     return 0
 

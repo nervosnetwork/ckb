@@ -19,6 +19,8 @@ pub(crate) const EFFECT_JOURNAL_REMOTE_MAX_BATCHES: usize = 4096;
 /// bounded maintenance progress while an untrusted sink is saturated.
 pub(crate) const EFFECT_TRUSTED_HEADROOM_BATCHES: usize = 64;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
+/// Maximum number of verified owners committed by one Ready authority Apply.
+pub(crate) const MAX_READY_BATCH: usize = 8;
 /// One canonical ceiling for rejection diagnostics retained by either the
 /// authority journal or the recent-reject projection. Keeping both consumers
 /// on this value prevents an outcome that fits one committed boundary but can

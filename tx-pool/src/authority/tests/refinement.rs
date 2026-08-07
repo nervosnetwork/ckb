@@ -14,12 +14,12 @@ use crate::{
         effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
         plan::{Backpressure, PlanError, SettlementPlan, TxPoolAuthority},
         resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
-        scheduler::MAX_READY_BATCH,
         state::{
             AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, RawTxHash, ResolvedPayload,
             ValidatedAdmission,
         },
     },
+    constants::MAX_READY_BATCH,
     mathematical_model::{
         CellRole, EffectPressure, EvictionRefinementInput, EvictionRefinementMetrics,
         EvictionRefinementObservation, EvictionRefinementStatus, EvidenceOriginRole,

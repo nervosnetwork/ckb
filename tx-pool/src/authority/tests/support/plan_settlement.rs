@@ -1,5 +1,5 @@
 use super::*;
-use crate::authority::{scheduler::MAX_READY_BATCH, state::RawTxHash};
+use crate::{authority::state::RawTxHash, constants::MAX_READY_BATCH};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum CandidateBatchError {

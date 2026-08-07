@@ -1076,8 +1076,13 @@ pub(super) enum ProposalStatusBaseline {
     DetachedProposal,
 }
 
-/// Read-only, lock-outside validation work. It carries only the bounded owner
-/// slice and immutable transactions selected under the authority cut.
+/// Read-only validation work selected from one coherent authority cut.
+///
+/// Production currently validates this bounded owner slice while retaining an
+/// upgradable authority read guard. That serial cut prevents continuous
+/// admission from starving an ordered chain transition; fork traversal and
+/// detached payload preparation remain outside the guard. This value owns no
+/// mutable authority and performs no database or VM work.
 #[derive(Debug)]
 #[must_use = "chain validation work must be validated or discarded"]
 pub(super) struct ChainValidationWork {
