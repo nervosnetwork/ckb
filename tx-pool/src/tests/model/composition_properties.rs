@@ -1772,7 +1772,7 @@ fn model_retained_acquirer_queues_once_then_only_fills_immediately_available_slo
 
     let mut acquirer = RetainedPermitAcquirer::default();
     assert_eq!(
-        acquirer.acquire(
+        acquirer.acquire_for_idle(
             &mut scheduler,
             PermitRequestId(3),
             [PermitRequestId(4), PermitRequestId(5)],
@@ -1783,7 +1783,7 @@ fn model_retained_acquirer_queues_once_then_only_fills_immediately_available_slo
     assert_eq!(scheduler.waiting_position(PermitRequestId(3)), Some(1));
     assert_eq!(scheduler.waiting_position(PermitRequestId(4)), None);
     assert_eq!(
-        acquirer.acquire(&mut scheduler, PermitRequestId(4), [PermitRequestId(5)]),
+        acquirer.acquire_for_idle(&mut scheduler, PermitRequestId(4), [PermitRequestId(5)]),
         RetainedAcquireDisposition::Busy(PermitRequestId(3)),
         "a second coordinator waiter cannot be created while the first is pending"
     );
@@ -1834,5 +1834,48 @@ fn model_retained_acquirer_queues_once_then_only_fills_immediately_available_slo
     ));
     assert_eq!(scheduler.waiting_position(PermitRequestId(4)), None);
     assert_eq!(scheduler.waiting_position(PermitRequestId(5)), None);
+    assert_eq!(scheduler.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_finished_acquirer_never_queues_behind_a_direct_waiter() {
+    let mut scheduler =
+        FairPermitScheduler::new(PermitDomain(1), 1, 4).expect("valid fair permit fixture");
+    let (_, running) = granted_retained(&mut scheduler, 1);
+    let direct = PermitRequest {
+        id: PermitRequestId(2),
+        class: PermitClass::Direct,
+    };
+    assert_eq!(
+        scheduler.request(direct),
+        PermitRequestDisposition::Queued(direct.id)
+    );
+
+    let acquirer = RetainedPermitAcquirer::default();
+    let RetainedAcquireDisposition::Granted { grants, stopped_by } =
+        acquirer.acquire_for_finished(&mut scheduler, PermitRequestId(3), [PermitRequestId(4)])
+    else {
+        panic!("finished work must continue with an immediate zero-grant result")
+    };
+    assert!(grants.request_ids().is_empty());
+    assert_eq!(
+        stopped_by,
+        Some(RetainedAcquireStop::NoImmediatePermit(PermitRequestId(3)))
+    );
+    assert_eq!(scheduler.waiting_position(direct.id), Some(0));
+    assert_eq!(scheduler.waiting_position(PermitRequestId(3)), None);
+    assert_eq!(scheduler.waiting_position(PermitRequestId(4)), None);
+
+    let direct_token = match scheduler.release(running.into()) {
+        PermitReleaseDisposition::Released {
+            next: Some(PermitGrant::Direct(token)),
+            ..
+        } => token,
+        other => panic!("the older Direct waiter must receive the permit: {other:?}"),
+    };
+    assert!(matches!(
+        scheduler.release(direct_token.into()),
+        PermitReleaseDisposition::Released { next: None, .. }
+    ));
     assert_eq!(scheduler.check_invariants(), Ok(()));
 }

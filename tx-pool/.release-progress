@@ -2835,8 +2835,10 @@ the canary and full flow gate.
 
 The M3-startup report was adjudicated at this boundary. Its self-fused worker
 idea is retained as the corrected M9 hedge: it can fuse one worker's finished
-settlement and subsequent checkout but remains Theta(transactions), so it is a
-comparison topology rather than a substitute for the wave-level objective.
+settlement and subsequent checkout but still pays one serial settlement cut per
+completion, so it is a comparison topology rather than a substitute for the
+available-wave objective. Fixed bounded waves do not change big-O complexity;
+their value is the mechanically counted reduction in serial cuts.
 The claimed coordinator blast-radius regression was false because current
 production already invalidates the complete generation when any authority
 worker exits unexpectedly; the real obligation is to refine the same
@@ -3604,9 +3606,71 @@ no new legal-input generation-invalidity class and transferred no production
 risk. The ordered waiting-sender bound and persistence-write distinction are
 now explicit inputs to M3.6 rather than hidden assumptions.
 
-M3.6 is active. Its exact next action is complete-candidate falsification of
+At the M3.5 checkpoint, M3.6 became active. Its exact next action was
+complete-candidate falsification of
 the status quo, the self-fused bounded exchange and at least one materially
 distinct model-derived topology, including the query, cache-writer and ordered
 administrative-boundary dispositions. Repeat the six-question and standing-
 exposure audits before selection. Do not benchmark, profile or edit production
 semantics before M4 selects and freezes the complete topology.
+
+## M3.6 complete-candidate selection closure
+
+Three execution realizations were evaluated from one barrier-released,
+chain-backed independent workload and then composed with ingress, query, cache
+and ordered-boundary choices. The current UAK costs 26 authority Applies for
+one available eight-owner wave and 208 for 64 owners over eight slots. The
+self-fused hedge also costs 26 for the first wave and 152 for 64 owners because
+every completion still owns one settlement cut. The selected bounded semantic
+exchange costs five and 26 respectively: one bounded ingress Apply, one initial
+compute fill, one completion Apply per available worker wave, one Ready Apply
+and one effect settlement per wave. A prompt single owner remains five Applies.
+These are serial-cut counts for fixed bounded widths, not a false asymptotic
+claim or a wall-time prediction.
+
+The selected complete topology keeps `TxPoolAuthority` as the sole semantic
+owner. The existing dispatcher opportunistically drains immediately available,
+homogeneous, count-and-byte-bounded ingress without a timer or new actor. One
+compute coordinator replaces per-worker mutation loops and owns at most one
+completion plus one assignment slot per retained worker; the unique capability
+bound stays equal to worker count. Finished capabilities never wait for a fair
+permit: they use only immediately available grants or settle without refill.
+One full-query gate owns reusable scratch whose finite growth rank ends at the
+resource-ledger owner bound, leaving allocation and sorting outside the guard.
+The current bounded cache writer remains unchanged. Ordered control uses a
+typed lossless reorg source and one non-cloneable administrative capability so
+one accepted clear preserves order while excess clears fail fast.
+
+The six-question review found no duplicate authority, hidden state, weakened
+invariant or unpriced topology. It corrected three proof defects before
+selection: the earlier big-O overclaim, `u32` intermediate arithmetic in a
+declared `u64` query-cost domain and a first exchange design that could hold
+finished work while waiting behind Direct verification. The dedicated ingress
+actor, inline cache publication, resident query MVCC, sharded/DAG authorities
+and self-fused final topology were rejected by strict dominance, liveness,
+duplicate-state or serial-cut counterexamples. No production semantic source,
+lock, task, channel or hot path changed in this phase.
+
+Exact gates at this cut:
+
+- focused topology/fair-permit nextest: 13/13;
+- complete internal-feature nextest: 653/653, zero skipped;
+- complete default-feature nextest: 649/649, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- strict all-target internal-feature Clippy, formatting and diff checks;
+- all nine discovered repository contracts, including TLC 1,098 generated /
+  318 distinct positive states and the required four-state negative witness;
+- mechanically derived refinement frontier: model 238 reachable / 90 outside
+  roots / 23 files, production 617 / 11 / 38; zero model constructorless
+  variants and zero constructorless registered root structs;
+- generated evidence: 340 exact tx-pool Rust tests / 1,315 invariant
+  references, nine cross-crate conformance tests / 21 references, two open
+  counterexamples, 19 integration anchors, 150 managed specs and 653
+  discovered internal tests.
+
+All Rust tests ran only through `cargo nextest run`; direct `cargo test` was not
+used. The standing ledger remains 11 `PROVEN`, 5 `SUPPORTED` and 13 `OPEN`:
+design evidence did not masquerade as production proof. M4 is now active. Its
+first action is the normative blueprint and anti-drift freeze; production
+wiring begins only after each selected mechanism has an exact theorem, cost,
+deletion target, ordinary failure algebra and falsifier.

@@ -209,7 +209,9 @@ pub(super) struct RetainedPermitAcquirer {
 }
 
 impl RetainedPermitAcquirer {
-    pub(super) fn acquire(
+    /// An idle coordinator may join the fair queue once before filling only
+    /// immediately available additional slots.
+    pub(super) fn acquire_for_idle(
         &mut self,
         scheduler: &mut FairPermitScheduler,
         first: PermitRequestId,
@@ -240,6 +242,44 @@ impl RetainedPermitAcquirer {
                 RetainedAcquireDisposition::Duplicate(request)
             }
             PermitRequestDisposition::InvalidSchedulerState(request) => {
+                RetainedAcquireDisposition::InvalidSchedulerState(request)
+            }
+        }
+    }
+
+    /// A coordinator holding finished work must not wait for a permit before
+    /// settlement. It may fuse only permits available immediately at the
+    /// fairness cut; zero grants is an ordinary successful result.
+    pub(super) fn acquire_for_finished(
+        &self,
+        scheduler: &mut FairPermitScheduler,
+        first: PermitRequestId,
+        additional: impl IntoIterator<Item = PermitRequestId>,
+    ) -> RetainedAcquireDisposition {
+        if let Some(waiting) = self.waiting {
+            return RetainedAcquireDisposition::Busy(waiting);
+        }
+        let request = PermitRequest {
+            id: first,
+            class: PermitClass::Retained,
+        };
+        match scheduler.try_request(request) {
+            ImmediatePermitDisposition::Granted {
+                grant: PermitGrant::Retained(token),
+            } => Self::fill_immediate(scheduler, token, additional),
+            ImmediatePermitDisposition::Granted { grant } => {
+                RetainedAcquireDisposition::UnexpectedGrant(grant)
+            }
+            ImmediatePermitDisposition::Unavailable(request) => {
+                RetainedAcquireDisposition::Granted {
+                    grants: RetainedPermitGrant { tokens: Vec::new() },
+                    stopped_by: Some(RetainedAcquireStop::NoImmediatePermit(request)),
+                }
+            }
+            ImmediatePermitDisposition::Duplicate(request) => {
+                RetainedAcquireDisposition::Duplicate(request)
+            }
+            ImmediatePermitDisposition::InvalidSchedulerState(request) => {
                 RetainedAcquireDisposition::InvalidSchedulerState(request)
             }
         }

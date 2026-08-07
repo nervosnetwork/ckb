@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: M3.5 minimality and serial-cut audit complete; M3.6 candidate falsification active
-Checkpoint: M3.5 commit containing this record
-Active slice: M3.6 complete-candidate falsification and exposure review
+Status: M3.6 complete-candidate falsification complete; M4 normative blueprint active
+Checkpoint: M3.6 commit containing this record
+Active slice: M4 normative blueprint and anti-drift freeze
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -1314,7 +1314,7 @@ implementation proof cost.
 | M6 per-entry atomics/MVCC | local phase CAS is cheap | common owner changes parallelize | multi-owner RBF/capacity/chain commit needs a transaction log, rollback or global commit lock; recreates inferred ownership | reject |
 | M7 elected-worker flat combiner | no dedicated coordinator task | can batch checkout/completion | leader election, cancellation and ownership transfer are harder to prove than the saved idle task | reject |
 | M8 bounded semantic exchange inside UAK | `TxPoolAuthority` remains sole owner; channels carry only move-only compute capabilities | drains completed work, composes handoff and fills all idle workers in one bounded Apply; Ready remains a separate overlap boundary | one narrow supervised coordinator and O(worker-count) transient slots | leading historical candidate; not selected before D3 |
-| M9 self-fused worker exchange | each worker returns its completed permit through the fair gate, reacquires normally, then atomically settles its finished capability and optionally checks out its own next job | replaces one completion Apply plus one later checkout Apply with one worker-local fused Apply, but remains Theta(transactions) rather than Theta(waves) | no coordinator/channel/task; retains per-worker mutation contention and cannot amortize across simultaneous completions | retain as the low-complexity hedge and M3.6 falsifier, not as a target-equivalent contender |
+| M9 self-fused worker exchange | each worker returns its completed permit through the fair gate, attempts immediate reacquisition, then atomically settles its finished capability and optionally checks out its own next job | removes a later checkout cut only when another job is already queued; every completion still owns one settlement Apply, so a simultaneous worker wave cannot share its serial cut | no coordinator/channel/task; retains per-worker mutation contention and cannot amortize simultaneous completions | retain as the low-complexity hedge and M3.6 falsifier, not as a target-equivalent contender |
 
 M8 is not a new transaction authority and not a second DAG. It is one possible
 execution protocol for the existing UAK. The accepted dependency graph remains
@@ -1391,14 +1391,18 @@ retained work into an occupied slot. Therefore an effect-capacity-blocked
 completion retains only its original bounded worker slot, not the semaphore
 permit; retaining both would transfer effect pressure into Direct starvation.
 
-When queued work exists, the coordinator awaits at most one fair semaphore
-acquisition and then uses non-blocking acquisitions for the rest of the
-currently idle bounded slice. It never queues one semaphore waiter per idle
-worker. Every completed count token passes through the same fair semaphore
-before it can guard another execution, so an older Local waiter receives the
-released token before coordinator `try_acquire` calls can observe it. If the
-exact exchange finds no compatible owner, every unused permit is released
-immediately.
+When a finished capability exists, the coordinator never awaits semaphore
+capacity before settlement. It returns the completed token to the fair gate,
+uses only immediately available acquisitions to fuse replacement checkout,
+and otherwise settles the finished wave without replacement work. This avoids
+holding `Computing` behind a long-running Direct caller. Only an idle-fill
+cycle with no finished capability may await one fair acquisition and then use
+non-blocking acquisitions for the remaining idle bounded slice. It never
+queues one waiter per idle worker. Every completed count token passes through
+the same fair semaphore before it can guard another execution, so an older
+Local waiter receives the released token before coordinator `try_acquire`
+calls can observe it. If the exact exchange finds no compatible owner, every
+unused permit is released immediately.
 
 Role matching remains deterministic:
 
@@ -1454,12 +1458,14 @@ cancelled; an idle worker owns no transaction capability and exits directly.
 
 ### 9.4 Retained ingress batch
 
-The relayer's already validated transaction message and `NotifyTxBatch` are
-split into non-empty authority microbatches no larger than the common mutation
-ceiling. Non-contextual checks run outside the guard. Inside one Plan, items
-are simulated in canonical message order, including duplicates, Proposal
+The existing service dispatcher drains only immediately available homogeneous
+retained-ingress requests into non-empty count-and-byte-bounded microbatches;
+it adds no timer, task or channel. `NotifyTxBatch` uses the same compiler.
+Non-contextual checks run outside the guard. Inside one Plan, items are
+simulated in canonical dequeue order, including duplicates, Proposal
 promotion, proposal-ID collision, resource pressure and effects. One total
-Apply commits the resulting owner/effect prefix.
+Apply commits the resulting owner/effect prefix, while exact per-request
+responders preserve the existing public completion boundary.
 
 Remote batches are homogeneous by peer. If any item is malformed, one peer
 revocation transition wins: no owner from that not-yet-applied batch survives,
@@ -1623,13 +1629,15 @@ semaphore token. This is observationally one legal adjacent
 `settle; checkout` serialization and preserves the scheduler cursor and older
 Local waiter order.
 
-The hedge removes one authority round trip per steady worker completion but
-does not combine different workers' completions. Its dominant authority work
-therefore remains Theta(transactions), whereas the semantic exchange targets
-Theta(ceiling(transactions / bounded_wave)) for already available independent
-work. M3.6 retains it because it has no new task, channel or failure domain and
-can falsify whether cross-worker exchange complexity earns its cost. It is not
-allowed to satisfy T16's wave-level operation-count gate by relabeling the
+The hedge removes one later checkout cut per steady worker completion when the
+next job is already queued, but it does not combine different workers'
+settlements. The semantic exchange instead pays one serial cut per already
+available bounded wave. With a fixed configured wave width both costs remain
+linear in a long stream; the improvement is a mechanically counted constant
+factor and scaling with worker width, not an asymptotic-complexity claim. M3.6
+retains the hedge because it has no new task, channel or failure domain and can
+falsify whether cross-worker exchange complexity earns its cost. It is not
+allowed to satisfy T16's wave-level operation-count gate by relabeling a
 per-worker Apply.
 
 ## 10. Final machine-checkable contracts
@@ -2783,7 +2791,7 @@ per-item Apply.
 | Committed effects | bounded partitioned `EffectLog`, one claim, one publisher and one batch settlement Apply | `RETAIN`. This is the minimum post-commit I/O boundary already reached: no active effect owner, checkout Apply, retry queue or endpoint authority remains. |
 | Ordered chain reconciliation | capacity-one command lane, one driver and a coherent upgradable authority read promoted to total Apply | `RETAIN`. Command payload construction is outside the guard; immutable proposal/recovery validation stays under the upgradable cut so continuous admission cannot starve or escape the affected set. Releasing it would add global OCC, retry and a starvation proof rather than remove authority. |
 | Public reads and templates | shared authority reads; full-pool RPC work under the guard; five versioned template lanes | `RETAIN` coherent reads and the existing full/reset versus optimistic partial concurrency. Full-pool query scan/allocation is not closed and must use the query disposition below; template lanes cannot be serialized for model convenience. |
-| Verification cache | external bounded cache, best-effort update channel and one writer task | Cache truth is derived and droppable. The cache itself is retained as an acceleration and exact witness-plus-rules evidence store. Its writer task/channel remain an M3.6 deletion candidate against nonblocking inline publication; they have no correctness owner but may isolate verifier contention. |
+| Verification cache | external bounded cache, best-effort update channel and one writer task | Cache truth is derived and droppable. M3.6 retains the bounded writer because inline nonblocking publication can lose every update under continuous legal readers and make workers contend on the cache lock. The task is a performance isolation owner, never validation authority; batching changes wait for profiling. |
 | Supervision and persistence | bounded dispatcher, task owner, cancellation graph, unique persistence writer lease | `RETAIN` capability drain and one coherent best-effort snapshot. Extra stages may delete their joins, but persistence may never race a live authority capability or hold the authority guard across sort/file I/O. |
 
 The root-reachable production declarations outside the semantic frontier are
@@ -2843,8 +2851,8 @@ owned at shutdown, with `0 <= L <= 5` in the current topology.
 | Ordinary dispatcher | `DEFAULT_CHANNEL_SIZE` queued requests plus at most `H` joined handlers | retain concurrent boundary; byte carriers remain `D1-REQUEST-PAYLOAD-BOUND` until every public collection and fork aggregate has a typed bound |
 | Ordered control | `CHAIN_CONTROL_CHANNEL_SIZE` queued plus one active command and `C` producer-owned waiting sends | retain reliable producer order; `C` is not bounded by the channel, and RPC clear callers make this an M3.6 count/byte and blocking-thread disposition rather than a closed current bound |
 | Authority workers | `W + 3`: ordered resolver, `W` verifiers, Ready and maintenance | M8 replaces per-worker mutation loops with bounded exchange; M9 retains them as the no-new-task comparator |
-| Other generation tasks | one chain driver, one effect publisher, one cache updater and optional five template lanes; including the service dispatcher, total persistent service tasks are `W + 7` without templates and `W + 12` with templates | chain/publisher/template roles retained; cache task open; coordinator cost is explicit in M3.6 |
-| Cache updates | `VERIFY_CACHE_CHANNEL_SIZE` queued derived updates; a full/closed channel drops them | bounded and non-authoritative; compare with inline nonblocking publication |
+| Other generation tasks | one chain driver, one effect publisher, one cache updater and optional five template lanes; including the service dispatcher, total persistent service tasks are `W + 7` without templates and `W + 12` with templates | chain/publisher/template/cache roles retained; M3.6 adds one compute coordinator while deleting per-worker mutation ownership |
+| Cache updates | `VERIFY_CACHE_CHANNEL_SIZE` queued derived updates; a full/closed channel drops them | bounded and non-authoritative; retain the writer isolation unchanged until reproducible profiling can justify a different publication protocol |
 | Authority signals | eight coalescing `Notify` values: three compute roles, Ready, maintenance, effect publisher, effect capacity and template | M8 may delete the three compute signals; the remaining signals have distinct heterogeneous releasers and are not merged merely to reduce fields |
 | Authority lock | one synchronous `RwLock`; no await, VM, endpoint or file I/O under it | retain single authority; eliminate accidental acquisitions through batching rather than sharding |
 | Compute gate | one fair count-only semaphore with `W + 1` transient permits | retain Local/retained fairness; no transaction identity or lifecycle authority may enter it |
@@ -2905,11 +2913,118 @@ candidate passes the model, exposure and static-cost review.
 
 #### M3.6 complete candidate falsification and exposure review
 
-Falsify the status quo and at least two materially distinct complete
-realizations, including the low-complexity self-fused hedge and the bounded
-wave Plan/Apply realization. Compare safety, liveness, compatibility, task and
-failure topology, static work, deletion and residual exposure. Repeat the
-whole-model and standing exposure gates before selecting the M4 blueprint.
+The executable comparator uses a barrier-released homogeneous workload: `N`
+chain-backed independent owners, `P` retained worker slots and the current
+bounded mutation limits. It predicts no wall time. It counts authority Applies
+and separately names tasks, channels, capability residency and join edges.
+
+| Realization | 8 owners / 8 slots / one available wave | 64 owners / 8 slots | Decisive falsifier |
+| --- | ---: | ---: | --- |
+| current UAK | 26 Applies | 208 Applies | admission, checkout and completion remain per owner |
+| M9 self-fused workers | 26 Applies | 152 Applies | a first or final simultaneous wave still pays one checkout and one settlement cut per worker |
+| corrected M8 semantic exchange | 5 Applies | 26 Applies | no target failure; one ingress, initial checkout, completion, Ready and effect Apply for the one-wave case |
+
+The 64-owner M8 count is one ingress Apply, nine compute Applies (one initial
+fill plus eight completion waves), eight Ready Applies and eight effect
+settlements. With fixed `P` and batch limits, all long-stream counts remain
+linear in `N`; M8 wins by serial-cut amortization and scaling with available
+worker width, not by a false big-O claim. A prompt single owner costs five
+Applies in both current and M8 models, because no fill timer exists.
+
+The complete M8 price is explicit: one coordinator task, one completion slot
+and one assignment slot per retained worker, and one additional supervised join
+edge. The unique in-flight capability bound remains `P`; the coordinator owns
+no transaction map, policy, resource truth or membership decision. Compute
+mutation callers fall from `P` to one. This cost is accepted only together with
+deletion of per-worker checkout/settlement loops and the three role-specific
+compute notifications.
+
+The candidate required two design corrections during falsification:
+
+1. A coordinator holding any finished capability may only attempt immediate
+   fair-permit acquisition. If no grant is immediately available, it settles
+   now without replacement checkout. Only an idle-fill cycle with no finished
+   capability may queue one fair waiter. This prevents a long Direct caller
+   from holding completed retained work in `Computing`.
+2. Retained-ingress batching uses the existing dispatcher as a no-timer flat
+   combiner over immediately available homogeneous, count-and-byte-bounded
+   requests. It preserves exact per-request responders and adds no ingress
+   actor or channel. A dedicated ingress actor is strictly more topology for
+   the same observation and is rejected.
+
+The orthogonal components were adjudicated as part of the complete topology,
+not as later patches:
+
+| Component | Selected disposition | Rejected alternatives |
+| --- | --- | --- |
+| full-pool queries | one full-query gate owns reusable fallible scratch; capacity grows outside the authority guard with a finite rank up to the resource-ledger owner bound; one coherent cut only copies handles, while sorting and response construction remain outside | semaphore-only leaves fallible allocation/sort under the guard; resident MVCC duplicates O(pool) state and adds every-Apply work; page OCC cannot promise one coherent response |
+| point queries and templates | retain their independent coherent cuts and existing optimistic template lanes | routing them through the full-query gate would serialize unrelated O(1) reads and template convergence |
+| verification cache | retain the current bounded best-effort writer task/channel unchanged for M4; accepted queued updates have one releaser and workers never await the cache lock | inline `try_write` can lose every update under a legal continuous-reader schedule; speculative batch publication is deferred until profiling can price its residency and hit-rate effects |
+| ordered reorg/admin lane | retain lossless order; give public clear operations one non-cloneable administrative admission capability, so one accepted clear may wait in order while excess clears fail fast; the trusted reorg publisher remains single-source | the shared cloneable reliable sender leaves producer-held payload count unbounded; fail-fast delivery for reorg loses an irreplaceable chain delta |
+
+The selected full topology is therefore one authority plus five non-authority
+protocols: existing-dispatcher ingress drain, bounded compute exchange,
+longest-current Ready prefix, claim-bound effects and bounded full-query
+scratch. The cache writer, ordered chain driver, maintenance, Ready driver,
+effect publisher and concurrent template lanes retain distinct semantic
+releasers. None is merged merely to reduce task count.
+
+Standing exposure review against section 16:
+
+| Exposure family | M3.6 disposition |
+| --- | --- |
+| lifecycle Apply count and batch sequence | selected equations and one-wave falsifier close the design claim; M4 must bind one Apply stamp and distinct owner versions to production |
+| permit/effect settlement fairness | immediate-only acquisition with finished work plus monotonic capability order; no timer, retry queue or resident aging field |
+| Ready and Direct OCC liveness | longest exact priority prefix and transaction-bounded negative evidence remain mandatory M4 compilers |
+| request/query bounds | dispatcher byte-bounded batches, bounded admin capability and finite-rank query scratch are selected root mechanisms |
+| allocation/fault/task reachability | remains an M4 producer-owned closed-error and generated-topology obligation; no candidate may convert it to fail-stop |
+| clock, relay handoff and dependency closure | unchanged semantic obligations; ingress acknowledgement and existing same-Apply dependency deltas remain required |
+
+The section 3.8 six-question review closes M3.6 as follows:
+
+1. The compared state covers every topology dimension exposed by the M3.5
+   static inventory: execution, retained ingress, full-pool queries, cache
+   publication and ordered external control. Fixed Ready, effect, dependency,
+   template and shutdown protocols remain bound by their existing executable
+   composition models rather than silently disappearing from the candidate.
+2. The selected basis is minimal under current observations. The existing
+   dispatcher strictly dominates a dedicated ingress actor; the bounded cache
+   writer remains because deleting it loses a releaser and worker isolation;
+   the compute coordinator is retained only because the self-fused realization
+   cannot amortize a simultaneous completion wave.
+3. No rule was weakened to accept an implementation. The review corrected a
+   false asymptotic claim, widened query-cost arithmetic to its declared `u64`
+   domain and rejected permit waiting while finished capabilities are held.
+   Current UAK and M9 still fail the same available-wave target.
+4. Production refinement deliberately remains open until M4. No production
+   semantic source changed in M3.6, and the four affected section 16 rows remain
+   `SUPPORTED` or `OPEN` with exact production falsifiers rather than being
+   closed by model evidence alone.
+5. Every added topology cost is named: one coordinator, `2P` transient
+   completion/assignment slots and one join edge; one administrative
+   capability; and full-query scratch bounded by resource-ledger owner count.
+   Ingress adds zero topology, and cache publication adds nothing beyond the
+   already-owned bounded writer.
+6. Complete-system liveness remains explicit: a prompt single owner gains no
+   timer or extra Apply, Direct fairness precedes retained refill, finished
+   work settles under effect pressure, reorg delivery remains lossless,
+   full-query amplification is admitted once, and point queries plus template
+   lanes retain their concurrency.
+
+Current UAK is rejected only as the final performance topology, not as a safety
+kernel. M9 is rejected as the final topology because it cannot satisfy the
+available-wave operation-count contract; it remains a useful low-complexity
+comparison. Sharded/DAG and MVCC authorities remain rejected because global
+budget, RBF, conditional readers, chain generation and effect capacity require
+a cross-shard commit authority that recreates the selected kernel with more
+failure state. The corrected bounded semantic exchange is the sole execution
+candidate among the three compared realizations that closes the available-wave
+contract. The dispatcher drain then strictly dominates a dedicated ingress
+actor by adding neither a task nor a channel for the same observation. Together
+with the selected query, cache and ordered-boundary dispositions, this is the
+minimal complete candidate selected for the M4 normative freeze. Production
+semantics remain unchanged until that freeze generates the implementation
+slices and anti-drift gates.
 
 ### M4 - Normative blueprint and anti-drift freeze
 
@@ -3124,8 +3239,8 @@ to the named statement; it does not close a broader row by implication.
 | D1-SEM-RAW | PROVEN | `W`, direct deps, `H`, raw/witness/proposal identity and output-producer identity are immutable transaction facts; expanded dep-group members become known only after resolution. | `state.rs::{TxIdentity::from_transaction, ExpandedFootprint::from_transaction, ResolvedPayload::from_resolution}` and `util/types/src/core/cell.rs::ResolvedTransaction::related_dep_out_points`; falsifiers `uak_expanded_footprint_is_canonical_bounded_and_role_aware`, `uak_verification_cache_lookup_cannot_substitute_a_nearby_request` and the transaction-hash-collision integration anchor. |
 | D1-SEM-EVIDENCE | PROVEN | Chain/pool origin, exact view, dependency cut, script rules and final membership context are sealed evidence, not inferred flags. Same-tip reuse is positive chain-location evidence only; pool-produced cells remain overlay-coupled. | `chain.rs::{CellLocationReceipt, VerificationContextReceipt, MembershipReceipt}`, `validation.rs::{AcceptedOriginOverlay, refresh_locations, current_location}`; falsifiers `uak_final_validation_reuses_same_tip_positive_location_evidence`, `uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin`, `uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply`, `uak_permissive_rbf_resolution_never_fabricates_a_chain_cell`. |
 | D1-SEM-COUPLING | PROVEN | Shared inputs, candidate producer relations, conditional read/write edges, Accepted parents/children/spenders/readers, capacity eviction and effect pressure require exact fallback; shared read-only deps/header reads do not by themselves couple membership. | `plan/membership/independent.rs::{classify, prepare_resources, prepare_projection}` plus `membership.rs` and `rbf.rs`; falsifiers `uak_independent_classifier_routes_every_accepted_relation_without_mutation`, `uak_independent_capacity_is_aggregate_and_never_partially_applied`, `uak_rbf_requires_positive_chain_evidence_for_every_new_input`, `uak_batch_acceptance_cannot_bypass_dependency_cut`. |
-| D1-LIFECYCLE | SUPPORTED | A cold successful retained transaction selected by a verifier's `ResolveThenVerify` path performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. If the dedicated ordered resolver wins, the split Resolve settlement and later Verify checkout raise that path to seven. Today only final independent membership is amortized. Static call tracing confirms these paths, but no operation-count gate yet fails if they regress or change. | `ingress.rs -> worker.rs::{checkout, try_process_one} -> runtime.rs::{commit_retained_ingress, try_checkout, settle_compute, try_drive_ready, settle_effect}` and `plan.rs`; profiling lock spans observe acquisitions but do not prove semantic transition count. T16 must count both continuous and split paths and prove steady-state exchange settlement plus next checkout share one Apply before this row can become PROVEN. |
-| D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M2 forbids cross-execution direct permit transfer: every classified completion returns the token to the fair gate and uses only a subsequently reacquired token; no reacquisition means settlement without replacement checkout. The independently checked `executing + finished <= active_work_slots` law bounds effect-pressure residency, so effect-capacity fallback retains its slot but not the semaphore permit. The M2/M4 evidence requires the bounded Local-waiter and effect-full falsifiers preserved in the candidate notebook. |
+| D1-LIFECYCLE | SUPPORTED | A cold successful retained transaction selected by a verifier's `ResolveThenVerify` path performs five authority Applies: retained ingress, checkout, verification completion into Ready, Ready membership, and effect settlement. If the dedicated ordered resolver wins, the split Resolve settlement and later Verify checkout raise that path to seven. Today only final independent membership is amortized. Static call tracing confirms these paths, but no operation-count gate yet fails if they regress or change. | `ingress.rs -> worker.rs::{checkout, try_process_one} -> runtime.rs::{commit_retained_ingress, try_checkout, settle_compute, try_drive_ready, settle_effect}` and `plan.rs` establish the current cuts. The M3.6 executable comparator proves 26 current Applies versus five selected Applies for one already-available eight-owner wave, while preserving five for a prompt single owner. T16 must bind these equations to production Apply stamps, including continuous and split Resolve paths, before this row can become PROVEN. |
+| D1-PERMIT-FAIRNESS | OPEN | The current workers release each `AuthorityComputeExecutionPermit` before looping through Tokio's fair semaphore, so an older synchronous Local waiter is served. The first historical bounded-exchange blueprint instead allowed a completion to reuse its permit directly. Under a continuous retained completion wave that transfer never releases a token to the semaphore wait list and can starve an already queued Local caller forever. This is a blueprint defect, not a current implementation bug. | `runtime.rs::ComputeGate::acquire`, `worker.rs::{run, recover_settlement}` and Tokio `batch_semaphore::add_permits_locked` establish the current FIFO handoff. M3.6 seals separate idle and finished acquisition products: only idle fill may queue one waiter; a finished capability may take immediately available fair grants or settle with zero replacement checkout, but cannot wait. The independently checked `executing + finished <= active_work_slots` law bounds effect-pressure residency. M4 must refine the typed acquisition API and bounded Local/effect-full falsifiers into production before this row can close. |
 | D1-EFFECT-SETTLEMENT-FAIRNESS | OPEN | Effect-capacity publication is level-triggered, but the current per-worker retry protocol has no stable arbitration among same-class effectful settlements. `notify_waiters` wakes every retained capability and each independently races the authority write lock. Under a continuous completion stream, a newer waiter may repeatedly consume each freed effect slot while an older waiter remains resident. This is bounded memory but unbounded legal-schedule latency in the frozen authority, not an integrity failure. | The configured two-worker/two-permit TLC model produced this counterexample under weak fairness before settlement rank was added. `worker.rs::recover_settlement`, `runtime.rs::{publish_wake,settle}` and the parking-lot `RwLock` expose no age owner that invalidates the trace. The selected model reuses the already monotonic checkout identity: model `CapabilityId`, refined to production `SettlementToken::version`, is the well-founded rank among settlements contending for the same effect capacity. Newer effectful work cannot overtake it; no-effect work may bypass it. `PermitEffect.tla`, `model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work` and `model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees` are the exact falsifiers. M4 must realize this in the bounded compute exchange without a resident aging field, retry timer or second authority queue. |
 | D1-READY-OCC-LIVENESS | OPEN | The current second Ready OCC read is all-or-nothing across the strongest eight owners. If any weaker tail owner changes or disappears after scratch preparation, `complete_ready_batch` returns the tail's `Stale` error and discards the still-current head capture. `run_ready_driver` classifies that as `Progress` and immediately repeats with no await or yield. A legal schedule with continuous top-N tail mutation can therefore strand an unchanged strongest owner and synchronously consume one runtime thread. Plain high-fee insertion alone does not prove the stale-tail attack, so external exploitability remains a separate reachability question; the legal-schedule liveness failure is already sufficient to block release. | A temporary deterministic nextest falsifier admitted two Ready owners, prepared the complete read batch, removed only the weaker tail through the ordinary administrative Apply, and proved `complete_ready_batch` returned `FinalAdmissionCaptureError::Plan(PlanError::Stale(_))` while the head remained `PreAcceptedPhase::Ready`; it passed and was removed after diagnosis. The M1/M2 model must compare the captured ordered keys with the current `scheduler.ready()` frontier and return their longest exact strict-priority prefix, not merely independent per-member current bits. A newly inserted stronger owner makes that prefix empty; a removed or changed weaker tail preserves only the earlier prefix. Head mismatch uses a changed-cut cooperative yield. Skipping a stale or newly displaced stronger member is forbidden because it changes membership order. |
 | D1-DIRECT-NEGATIVE-OCC | OPEN | Direct Local/TestAccept resolution and final validation read only the transaction-bounded Accepted producers and spenders, but every negative result is sealed with the global Accepted source version. Any unrelated Accepted insertion, removal, or metadata change therefore makes the rejection stale. `execute_direct` maps that stale outcome to an unbounded full retry, including resolve and possibly VM verification. A legal continuous stream of disjoint Accepted commits can starve one unchanged direct request and consume compute capacity even though its evidence footprint never changed. Successful direct candidates do not have this defect: final Plan rechecks exact dependency evidence and current membership. | `resolver.rs::{AcceptedOverlay, DirectResolutionJob, DirectTransactionRejection}`, `validation.rs::{AcceptedOriginOverlay, DirectAdmissionValidation}`, `plan.rs::{validate_direct_rejection_validity,validate_direct_admission_subject}`, and `service.rs::execute_direct`. Existing test `uak_direct_validation_rejection_stales_with_its_accepted_source_cut` deliberately demonstrates the false conflict by accepting an unrelated transaction before settlement; `uak_direct_missing_rejection_stales_when_the_parent_becomes_available` demonstrates the necessary relevant conflict. M1 must model a preallocated bounded negative-evidence receipt over the exact queried producer/spender cells, revalidated in the same final authority read/Apply; M2 proves unrelated commutativity and relevant invalidation. It may add no persistent per-key version table, retry counter, timer or repair task. |
@@ -3135,8 +3250,8 @@ to the named statement; it does not close a broader row by implication.
 | D1-FAULT-RESOURCE | PROVEN | A detached transaction outside the configured compute envelope is now an ordinary deterministic recovery exclusion. Parent-first selection omits that new trusted owner and its new trusted recovery descendants while continuing unrelated fitting roots; normal reconciliation and fresh-generation replacement use the same closure rule. An already-owned PreAccepted descendant remains an independently charged owner and is revalidated under its source policy rather than being silently discarded. Only aggregate PreAccepted growth may select the existing generation-replacement outcome; Remote/peer/Accepted/history limits and charge-envelope mismatches remain structural because this transition cannot legitimately increase them. | `plan/chain_transition.rs::{select_chain_recoveries,charge_chain_recovery,chain_resource_error,plan_chain_generation_replacement}` and exact nextest regression `authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work`, which exercises both normal and fresh paths with non-zero residency metadata. |
 | D1-FAULT-COMPUTE-UNIT | PROVEN | `ResourceLedger` is the sole compiler of a sealed `ComputeGrant` whose byte unit is total retained residency. Resolved, missing-dependency and verified worker outcomes all consume that same compiler before settlement; settlement recomputes the identical charge only as a structural consistency check. Payload growth or dependency metadata beyond the grant therefore becomes an ordinary budget denial while the exact compute capability is consumed. | `resources.rs::{ComputeGrant,compute_grant,retained_charge,retained_base_charge}`, `work.rs::{build_resolved_payload,missing_settlement,verified}` and exact nextest regressions `uak_compute_grant_and_settlement_share_total_retained_byte_units` plus `uak_missing_growth_is_charged_or_becomes_budget_denied`, both using non-zero production-shaped metadata. |
 | D1-FALLIBLE-SCRATCH | OPEN | The authority advertises allocation pressure as an ordinary typed outcome, but eleven production `collect` sites and ten single-item `vec!` sites still allocate through infallible collection APIs. The high-value cases are peer/request-shaped: `ExpandedFootprint` collects transaction inputs and headers, `CellLocationReceipt` duplicates chain-backed outpoints, missing-frontier settlement collects dependency keys, compact-block capture collects requested proposals, and index/membership batch compilers collect transient maps while the authority guard is held. Allocation failure can therefore bypass the surrounding `ResourceUnavailable`/`Allocation` algebra; several sites also duplicate hot-path work. | `state.rs:485/501`, `chain.rs:63-81`, `resolver.rs:1206-1211`, `query.rs:415-420`, `indexes.rs:877`, and `plan/membership.rs:1675` are the primary producer sites. D2 must separate constant tiny carriers from attacker-sized or lock-held scratch. D3 must use one domain-owned fallible bounded scratch/inline-small representation and a generated production check rather than patching each call with an unrelated retry. The gate must allow only statically fixed constant-size allocation whose failure policy is explicitly justified. |
-| D1-REQUEST-PAYLOAD-BOUND | OPEN | The bounded ordinary channel proves request count only. `NotifyTxBatch` is correctly count/byte validated before enqueue, but Local/TestAccept/Remote single transactions are size-rejected only after handler ownership, public fresh/fetch ID carriers accept arbitrary collections, and the relayer's 100 ms proposal prune aggregates many individually bounded peer requests. The capacity-one reliable chain lane has a second count gap: each concurrent `send` caller owns its command while waiting for capacity, so queue plus active count excludes waiting RPC clear callers; reorg commands additionally own the complete fork payload. A valid external route can therefore retain or process substantially more than nearby channel capacities imply. | `service/{controller,message,builder}.rs`, `authority/ingress.rs`, `rpc/src/module/pool.rs::{clear_tx_pool,clear_tx_verify_queue}`, `sync/src/relayer/{mod.rs,get_transactions_process.rs,get_block_proposal_process.rs}`, `sync/src/types/mod.rs::pending_get_block_proposals`, `chain/src/verify.rs::install_chain_tip_transition`, the 4 MiB RelayV3 frame cap and configured RPC body cap establish the current partial bounds. The executable service-residency equation is `C + CHAIN_CONTROL_CHANNEL_SIZE + 1`, where `C` is producer-owned waiting sends and is not channel-bounded. M3.6 must select one root disposition: fail-fast/backpressured admission at the external administrative boundary, a separately bounded producer capability, or an explicit trusted single-producer premise for reorg only. It may not add another retry queue or claim that channel capacity bounds waiting senders or bytes. |
-| D1-QUERY-LOCK-COST | OPEN | Full-pool read paths contradict the documented short-receipt boundary. `all_entry_info` runs a full owner summary, accepted-order projection and replacement-history scan with allocation under the authority read guard; `pool_ids` scans, sorts and then copies pool-sized vectors; `pool_detail` scans up to the pending population for one constant-size response; fee estimation first builds full entry maps and may capture a second full candidate vector. Up to `2 * max_tx_verify_workers` handlers may execute concurrently. Public RPC exposes these paths, and `rpc_batch_limit` is unset by default. The pool bounds each scan, and the current dispatcher improves develop's unbounded task spawning, but a small query can still amplify to O(pool) shared-lock work and delay every Apply. | `authority/{runtime,read,query}.rs`, `service/{builder,dispatch}.rs`, `rpc/src/{server.rs,module/pool.rs,module/experiment.rs}` and `develop:tx-pool/src/{service.rs,pool.rs}` establish both the inherited risk and current single-authority consequence. M2 must model `query_concurrency * (owners + accepted_order + sort)` and output residency. M3 must compare three coherent designs: bounded/rate-limited boundary behavior, allocation-prepared versioned receipts, and immutable/rebuildable read projections. Pagination or an order-statistic index is admissible only with RPC compatibility and Apply-cost evidence. Profiling may compare already-safe candidates but cannot discover or waive this static bound. |
+| D1-REQUEST-PAYLOAD-BOUND | OPEN | The bounded ordinary channel proves request count only. `NotifyTxBatch` is correctly count/byte validated before enqueue, but Local/TestAccept/Remote single transactions are size-rejected only after handler ownership, public fresh/fetch ID carriers accept arbitrary collections, and the relayer's 100 ms proposal prune aggregates many individually bounded peer requests. The capacity-one reliable chain lane has a second count gap: each concurrent `send` caller owns its command while waiting for capacity, so queue plus active count excludes waiting RPC clear callers; reorg commands additionally own the complete fork payload. A valid external route can therefore retain or process substantially more than nearby channel capacities imply. | `service/{controller,message,builder}.rs`, `authority/ingress.rs`, `rpc/src/module/pool.rs::{clear_tx_pool,clear_tx_verify_queue}`, `sync/src/relayer/{mod.rs,get_transactions_process.rs,get_block_proposal_process.rs}`, `sync/src/types/mod.rs::pending_get_block_proposals`, `chain/src/verify.rs::install_chain_tip_transition`, the 4 MiB RelayV3 frame cap and configured RPC body cap establish the current partial bounds. M3.6 selects count-and-byte-bounded existing-dispatcher ingress drains plus a typed lossless reorg source and one non-cloneable administrative admission capability; one accepted clear preserves order and excess clears fail fast. M4 must bind those protocol bounds to every external carrier and exact responder before this row can close. |
+| D1-QUERY-LOCK-COST | OPEN | Full-pool read paths contradict the documented short-receipt boundary. `all_entry_info` runs a full owner summary, accepted-order projection and replacement-history scan with allocation under the authority read guard; `pool_ids` scans, sorts and then copies pool-sized vectors; `pool_detail` scans up to the pending population for one constant-size response; fee estimation first builds full entry maps and may capture a second full candidate vector. Up to `2 * max_tx_verify_workers` handlers may execute concurrently. Public RPC exposes these paths, and `rpc_batch_limit` is unset by default. The pool bounds each scan, and the current dispatcher improves develop's unbounded task spawning, but a small query can still amplify to O(pool) shared-lock work and delay every Apply. | `authority/{runtime,read,query}.rs`, `service/{builder,dispatch}.rs`, `rpc/src/{server.rs,module/pool.rs,module/experiment.rs}` and `develop:tx-pool/src/{service.rs,pool.rs}` establish both the inherited risk and current single-authority consequence. M3.6 selects one full-query admission gate with reusable scratch that grows outside the guard under a finite owner-count rank; the coherent guard cut copies handles only, and sort/response construction remains outside. Point queries and template lanes remain independent. M4 must prove exact RPC compatibility, ordinary allocation failure and the no-allocation/no-sort guard span before this row can close. |
 | D1-CLOCK-DOMAIN | OPEN | The previous proof text incorrectly treated every expiry deadline as a monotonic level. Ban/circuit timing uses process-monotonic `Instant`, but Remote admission records `unix_time().as_secs()`, Accepted membership records `unix_time_as_millis()`, maintenance compares those wall-clock values, and `accepted_at` also affects public timestamps and deterministic packing order. A legal wall-clock rollback can therefore postpone expiry and alter later timestamp order without advancing a monotonic level. Retained owner/resource counts remain hard-bounded, so this is not an unbounded-residency safety bypass, but an unconditional expiry-progress proof would be false. | `authority/{ingress,validation,runtime,state,indexes,packing}.rs` and `util/systemtime/src/lib.rs` establish the two clock domains. M1 models wall-clock observation/jump separately from `Instant`; expiry liveness is conditional on eventually observing the recorded deadline. M3 must compare the compatible current rule with a design that separates exact public wall timestamps from internal monotonic residency deadlines. It may not add a compensating timer or claim monotonicity from the integer representation. |
 | D1-ALLOCATION-LIVENESS | OPEN | Allocation pressure is not a level-triggered resource in the current runtime: there is no allocator-capacity source or unique releaser. Nevertheless compute/Ready/maintenance, administration and both chain preparation and chain Apply retry after a fixed 1 ms delay. Persistent pressure therefore repeats the same fallible construction under an unchanged authority cut; workers can burn bounded-but-continuous CPU, Ready can strand its head, and the capacity-one ordered chain lane can retain one large command while blocking later reconciliation or clear forever. | `worker.rs::{TRANSIENT_RETRY_DELAY,handle_runtime_error,classify_compute_cancellation,run_ready_driver,run_maintenance_driver_loop}` and `service.rs::{allocation_backoff_or_cancel,retry_administration,apply_chain_update}`. This violates the progress law because neither a finite rank decreases nor a monotonic level changes. D3 must define one operation-owned allocation algebra: hostile/optional work terminates or drops ordinarily; a checked-out capability is cancelled exactly once; indispensable chain/administrative transitions use construction-time bounded/reserved scratch or one deterministic safe replacement outcome. Timer tuning, exponential retry, watchdogs and per-loop exceptions are forbidden as the root fix. |
 | D1-RECOVERY-SELECTION | PROVEN | Recovery selection is deterministic, parent-first and closure-safe. A resource-excluded or proposal-colliding new trusted root excludes its new trusted descendants but does not stop the scan, so a later unrelated fitting root remains eligible. Normal reconciliation performs individual envelope selection and falls back only for aggregate PreAccepted growth; fresh-generation replacement applies the same exclusion relation while building the bounded scratch authority. | `canonical_recovery_transactions`, `select_chain_recoveries`, `charge_chain_recovery`, `plan_chain_generation_replacement`, model witness `model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work`, and exact nextest regression `authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work`. |
@@ -3277,12 +3392,16 @@ experiments:
    shutdown/persistence ordering and every retained task, lock and publication
    boundary. The review attempted fusion or deletion before retaining each
    mechanism;
-6. **M3.6 active:** falsify the status quo and at least two materially distinct
-   model-derived realizations, then repeat the six-question and standing-
-   exposure audits before selecting a topology.
+6. **M3.6 complete:** current UAK, self-fused workers and bounded semantic
+   exchange were compared as complete realizations; the selected topology
+   passed the six-question, minimality, static-cost and standing-exposure
+   audits without a production edit or timing claim.
+7. **M4 active:** publish the normative blueprint and generate the production
+   refinement slices, anti-drift contracts and exact falsifiers before wiring
+   the selected topology.
 
-The M3.5 checkpoint is the commit containing this record. Topology selection
-and normative freeze are M4; production semantic edits and performance claims
-before that gate remain forbidden. A newly confirmed defect returns to the
-single section 16 ledger and its root theorem rather than creating a local
+The M3.6 checkpoint is the commit containing this record. Production semantic
+edits and performance claims remain forbidden until the M4 normative freeze
+generates their exact refinement slices. A newly confirmed defect returns to
+the single section 16 ledger and its root theorem rather than creating a local
 exception or a second risk list.

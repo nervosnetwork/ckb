@@ -23,6 +23,8 @@ mod resource;
 mod scheduler_properties;
 mod scheduler_quotient;
 mod state;
+mod topology;
+mod topology_properties;
 mod trace;
 
 pub(crate) use boundary_trace::{

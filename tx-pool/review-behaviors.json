@@ -214,7 +214,7 @@
         {"path": "tx-pool/src/authority/query.rs", "symbols": ["enum AuthorityTransactionLookup", "enum AuthorityTransactionStatusLookup", "fn transaction_status_lookup", "struct PersistenceReceipt"]},
         {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["fn handle_get_tx_status", "fn handle_get_transaction_with_status"]}
       ],
-      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries observe one coherent authority cut. Status and detailed transaction lookup are distinct read products: status performs no optional detail arithmetic, and an unrepresentable minimum replacement fee is `None` rather than authority invalidity, matching the compatibility boundary. Compatibility mapping never drives internal state. The target receipt contract moves fallible population work outside the guard; current full-pool ID/info, detail-rank and fee-estimate paths remain open under D1-QUERY-LOCK-COST.",
+      "required_behavior": "RPC, compact-block, live-cell, pool detail, fee and persistence queries observe one coherent authority cut. Status and detailed transaction lookup are distinct read products: status performs no optional detail arithmetic, and an unrepresentable minimum replacement fee is `None` rather than authority invalidity, matching the compatibility boundary. Compatibility mapping never drives internal state. Full-pool queries use one bounded capture gate and reusable fallible scratch grown outside the authority guard with a finite resource-ledger-derived rank; the coherent cut only copies handles, while point queries, sorting and response construction remain independent of that cut.",
       "hostile_case": "Concurrent clear/reorg/admission, short-ID collision, ReplacementHistory lookup, optional replacement-fee overflow, storage delay, allocation failure or repeated small RPC queries must not splice generations, fabricate proof/status, invalidate a coherent authority generation, amplify without a bound or delay every Apply through O(pool) shared-lock work.",
       "reviewer_questions": [
         "Does each receipt own every value needed after the guard opens?",
@@ -222,7 +222,7 @@
         "Can public Pending ever be reused as an internal phase decision?",
         "What are the exact query concurrency, response-residency and lock-hold bounds?"
       ],
-      "performance_bound": "Coherent reads remain read-only. M2/M3 must close the current population-lock gap before claiming short read cuts; output-size compatibility cannot hide lock amplification."
+      "performance_bound": "Coherent reads remain read-only. At most one full-pool capture scans the authority at once; allocation and sorting are outside the guard, point queries and template lanes are not serialized by the capture gate, and output-size compatibility cannot hide response-residency cost."
     },
     {
       "id": "TP-DEFECT-001",
@@ -305,12 +305,13 @@
         {"path": "tx-pool/src/block_assembler/candidate_uncles.rs", "symbols": ["struct CandidateUncles"]},
         {"path": "tx-pool/src/service/builder.rs", "symbols": ["fn run", "fn run_dispatcher"]}
       ],
-      "required_behavior": "Peer-controlled count, bytes, edges, fanout, closure, probes, channels and candidate sets are bounded while independent resolution/verification and optimistic template work remain concurrent and deterministic.",
+      "required_behavior": "Peer-controlled count, bytes, edges, fanout, closure, probes, channels and candidate sets are bounded while independent resolution/verification and optimistic template work remain concurrent and deterministic. Immediately available homogeneous independent ingress, compute completion/checkout and Ready work share bounded canonical Plan/Apply cuts without a timer; fixed-width batching is claimed as serial-cut amortization, never as a false asymptotic improvement.",
       "hostile_case": "Idle-peer cardinality, saturated owner, long conditional graph, mailbox overflow, full candidate-uncle set, extreme fee weights or controller pressure must not cause unbounded scan, overflow, global serialization or nondeterministic order.",
       "reviewer_questions": [
         "Is every hostile loop bounded by a named constant or charged set?",
         "Does an optimization preserve the one authority and exact validation?",
-        "Has every statically inferable complexity issue closed before profiling?"
+        "Has every statically inferable complexity issue closed before profiling?",
+        "Does one barrier-released worker wave share a serial Apply cut without increasing prompt single-item latency?"
       ],
       "performance_bound": "No optimization claim is accepted without operation-count evidence and fixed-binary A/B after correctness gates."
     },
@@ -326,7 +327,7 @@
         {"path": "sync/src/relayer/block_proposal_process.rs", "symbols": ["struct BlockProposalProcess"]},
         {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals"]}
       ],
-      "required_behavior": "Every controller command payload occupies exactly one caller, waiting sender, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded; reliable chain controls retain producer order without pretending that channel capacity bounds producer-owned waiting sends. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
+      "required_behavior": "Every controller command payload occupies exactly one caller, waiting sender, queued, handler-owned or terminal protocol location. Enqueue acknowledgement and optional sender/receiver response states are separate observations, so a no-responder notification may return accepted while its payload remains queued. Remote known state and Proposal in-flight/known state cross the pre-authority boundary through one acknowledged handoff and are released or settled exactly once. Ordinary request count and handler concurrency are bounded. Lossless reorg publication has one trusted producer; public clear operations share one non-cloneable administrative admission capability, so one accepted clear preserves order and excess calls fail fast instead of multiplying waiting payloads. Queue-full, closure, cancellation and response abandonment cannot create authority ownership or retroactively decide whether a committed transition happened.",
       "hostile_case": "Queue saturation, delayed handling, caller cancellation, dropped response receivers, callback reentrancy, shutdown or a full ordered lane must not duplicate a request, leak its retained payload, block unrelated dispatcher progress, let an RPC clear flood multiply unbounded waiting sends or suppress chain reconciliation, suppress an already committed authority result, or leave stale relay state that prevents the same raw transaction from being fetched from another peer.",
       "reviewer_questions": [
         "Does every payload move between ownership locations exactly once while acknowledgement remains a separate fact?",
@@ -335,7 +336,7 @@
         "Are ordinary concurrent requests kept separate from ordered chain controls?",
         "What bounds producer-owned payloads suspended before a reliable ordered send?"
       ],
-      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit. The ordered chain lane retains at most CHAIN_CONTROL_CHANNEL_SIZE queued controls plus one active control, but concurrent senders retain their own payloads before enqueue and remain an explicit open boundary. Relay settlement follows only the acknowledged request or exact terminal effect and adds no pool scan. M3.6 must close waiting-sender count/byte residency together with the existing request and query amplification bounds."
+      "performance_bound": "The ordinary queue retains at most DEFAULT_CHANNEL_SIZE requests and the dispatcher owns at most its checked handler limit. The ordered lane retains at most its channel, active command, one trusted reorg sender and one admitted administrative sender; excess public clears fail before waiting. Relay settlement follows only the acknowledged request or exact terminal effect and adds no pool scan."
     }
   ],
   "unit_evidence": [
@@ -585,6 +586,9 @@
     {"test": "mathematical_model::properties::model_optional_query_arithmetic_failure_never_invalidates_the_authority_result", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
     {"test": "mathematical_model::properties::model_query_projection_collapses_only_the_documented_internal_states", "behavior_id": "TP-QUERY-001", "invariants": ["T5", "T6", "T8", "T12"]},
     {"test": "mathematical_model::properties::model_query_cost_keeps_concurrency_scan_sort_and_output_terms_explicit", "behavior_id": "TP-QUERY-001", "invariants": ["T8", "T10", "T12"]},
+    {"test": "mathematical_model::topology_properties::model_prepared_query_scratch_is_the_only_zero_duplicate_root_fix", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
+    {"test": "mathematical_model::topology_properties::model_query_cost_uses_the_full_declared_u64_domain", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
+    {"test": "mathematical_model::topology_properties::model_query_scratch_growth_has_a_finite_strict_rank", "behavior_id": "TP-QUERY-001", "invariants": ["T8", "T10", "T12"]},
 
     {"test": "mathematical_model::properties::model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry", "behavior_id": "TP-DEFECT-001", "invariants": ["T6", "T8", "T10"]},
     {"test": "mathematical_model::properties::model_counter_exhaustion_is_a_mutation_free_ordinary_outcome", "behavior_id": "TP-DEFECT-001", "invariants": ["T2", "T6", "T8"]},
@@ -611,6 +615,8 @@
     {"test": "authority::tests::boundary_refinement::uak_controller_remote_handoff_refines_queued_handler_and_response_cuts", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
     {"test": "authority::tests::boundary_refinement::uak_controller_proposal_handoff_refines_notification_cuts", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
     {"test": "authority::tests::boundary_refinement::uak_controller_full_and_closed_outcomes_refine_both_relay_sources", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T6", "T10"]},
+    {"test": "mathematical_model::topology_properties::model_existing_dispatcher_is_the_zero_topology_cost_ingress_combiner", "behavior_id": "TP-HANDOFF-001", "invariants": ["T1", "T3", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::topology_properties::model_typed_ordered_boundary_bounds_external_admin_residency_without_dropping_reorg", "behavior_id": "TP-HANDOFF-001", "invariants": ["T3", "T8", "T9", "T10"]},
 
     {"test": "mathematical_model::adversarial_properties::model_generated_cell_shapes_route_only_the_exact_independent_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},
     {"test": "mathematical_model::adversarial_properties::model_independent_hostile_trace_search_preserves_every_commit_contract", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"]},
@@ -641,6 +647,7 @@
     {"test": "mathematical_model::composition_properties::model_compute_exchange_is_invariant_to_worker_completion_order", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10"]},
     {"test": "mathematical_model::composition_properties::model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10"]},
     {"test": "mathematical_model::composition_properties::model_duplicate_permit_identity_is_rejected_without_token_loss", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8"]},
+    {"test": "mathematical_model::composition_properties::model_finished_acquirer_never_queues_behind_a_direct_waiter", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T8", "T10"]},
     {"test": "mathematical_model::composition_properties::model_finished_result_holds_its_worker_slot_until_the_exchange_settles_it", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T3", "T5", "T8", "T10"]},
     {"test": "mathematical_model::composition_properties::model_foreign_release_and_mixed_domain_batch_rejection_return_exact_tokens", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_foreign_scheduler_and_plan_rejections_return_exact_linear_tokens", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8"]},
@@ -649,6 +656,7 @@
     {"test": "mathematical_model::composition_properties::model_retained_acquirer_queues_once_then_only_fills_immediately_available_slots", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T8", "T10"]},
     {"test": "mathematical_model::composition_properties::model_stale_completion_drain_returns_the_exact_execution_capability", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T6", "T10"]},
     {"test": "mathematical_model::composition_properties::model_stale_compute_exchange_returns_every_fair_grant_without_mutation", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10"]},
+    {"test": "mathematical_model::topology_properties::model_finished_exchange_never_waits_for_a_fair_permit_before_settlement", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T8", "T10"]},
     {"test": "mathematical_model::scheduler_properties::model_compute_exchange_rejects_a_stale_scheduler_cut_and_returns_its_grant", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "mathematical_model::scheduler_properties::model_scheduler_cursor_persists_across_committed_compute_waves", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10"]},
     {"test": "mathematical_model::scheduler_properties::model_scheduler_wave_binds_canonical_worker_roles_to_distinct_fair_owners", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
@@ -682,6 +690,11 @@
     {"test": "mathematical_model::composition_properties::model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys", "behavior_id": "TP-PERF-001", "invariants": ["T4", "T8"]},
     {"test": "mathematical_model::composition_properties::model_remote_source_is_a_footprint_policy_term_not_a_second_authority", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},
     {"test": "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10"]},
+    {"test": "mathematical_model::topology_properties::model_bounded_cache_writer_retains_worker_isolation_with_one_named_cost", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T8", "T10", "T11"]},
+    {"test": "mathematical_model::topology_properties::model_bounded_exchange_is_wave_amortization_not_asymptotic_magic", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
+    {"test": "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T8", "T10", "T12"]},
+    {"test": "mathematical_model::topology_properties::model_exchange_cost_names_its_task_channel_and_failure_price", "behavior_id": "TP-PERF-001", "invariants": ["T2", "T3", "T5", "T8", "T10"]},
+    {"test": "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8"]},
 
     {"test": "authority::tests::refinement::uak_candidate_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T11"]},
     {"test": "authority::tests::refinement::uak_candidate_accepted_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},

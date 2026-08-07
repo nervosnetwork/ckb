@@ -103,7 +103,16 @@
       "tx-pool/src/tests/model/state.rs::PeerBanRecord": "peer_ban_fence",
       "tx-pool/src/tests/model/state.rs::ResourceVector": "resource_authority",
       "tx-pool/src/tests/model/state.rs::Source": "ingress_source",
-      "tx-pool/src/tests/model/state.rs::WorkCapability": "compute_capability"
+      "tx-pool/src/tests/model/state.rs::WorkCapability": "compute_capability",
+      "tx-pool/src/tests/model/topology.rs::CachePublicationInput": "cache_publication_input",
+      "tx-pool/src/tests/model/topology.rs::CandidateApplyCost": "candidate_apply_cost",
+      "tx-pool/src/tests/model/topology.rs::CandidateTopologySurface": "candidate_topology_surface",
+      "tx-pool/src/tests/model/topology.rs::CompleteTopology": "complete_candidate_topology",
+      "tx-pool/src/tests/model/topology.rs::IndependentWaveInput": "independent_wave_input",
+      "tx-pool/src/tests/model/topology.rs::OrderedBoundaryInput": "ordered_boundary_input",
+      "tx-pool/src/tests/model/topology.rs::QueryScratch": "query_scratch_protocol",
+      "tx-pool/src/tests/model/topology.rs::QueryTopologyInput": "candidate_query_input",
+      "tx-pool/src/tests/model/topology.rs::RetainedIngressSurface": "retained_ingress_surface"
     },
     "production_roots": {
       "tx-pool/src/authority/ban.rs::PeerBanRegistry": "peer_ban_fence",
@@ -201,11 +210,14 @@
         "model_roles": [
           "adversarial_cost_bound",
           "adversarial_cost_input",
+          "candidate_apply_cost",
+          "candidate_topology_surface",
           "compute_resource_admission",
           "compute_resource_grant",
           "current_retained_path_cost",
           "current_retained_path_input",
           "hostile_work_bound",
+          "independent_wave_input",
           "resource_authority",
           "retained_resource_equation"
         ],
@@ -235,6 +247,7 @@
       },
       "compute_and_fair_permits": {
         "model_roles": [
+          "cache_publication_input",
           "capability_handoff",
           "completion_exchange",
           "completion_exchange_failure",
@@ -349,9 +362,11 @@
       },
       "query_and_persistence": {
         "model_roles": [
+          "candidate_query_input",
           "query_boundary",
           "query_cost_bound",
           "query_cost_input",
+          "query_scratch_protocol",
           "query_subject"
         ],
         "production_roles": [
@@ -385,10 +400,13 @@
       "system_lifecycle_and_handoff": {
         "model_roles": [
           "boundary_request_protocol",
+          "complete_candidate_topology",
           "complete_system_disposition",
           "complete_system_event",
           "complete_system_state",
           "generation_lifecycle",
+          "ordered_boundary_input",
+          "retained_ingress_surface",
           "service_ingress_residency_bound",
           "service_ingress_residency_input",
           "shutdown_action",
