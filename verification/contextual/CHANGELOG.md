@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-verification-contextual-v1.1.1...ckb-verification-contextual-v1.2.0) - 2026-08-05
+
+### Changed
+
+- Adapt to the `ckb-verification` cache API change that removed the `EntryCache`
+  suspend status; import the new `VerifyCacheKey` / `CachedScriptCycles` /
+  `FetchedTxVerificationCache` / `TxVerificationCacheLookup` types from
+  `ckb_verification::cache` ([#5262](https://github.com/nervosnetwork/ckb/pull/5262)).
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-verification-contextual-v1.1.0...ckb-verification-contextual-v1.1.1) - 2026-06-08
 
 ### Changed
