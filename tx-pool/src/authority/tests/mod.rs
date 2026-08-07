@@ -8,6 +8,7 @@ mod packing;
 mod publisher;
 mod query;
 mod read;
+mod refinement;
 mod relay;
 mod residency;
 mod resolver;

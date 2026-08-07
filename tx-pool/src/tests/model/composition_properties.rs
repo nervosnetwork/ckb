@@ -14,9 +14,9 @@ use super::permit::{
     RetainedPermitToken,
 };
 use super::state::{
-    AcceptedStatus, ApplyStamp, CellId, EffectRecord, HeaderId, InputOrigin, LogicalEffect,
+    AcceptedStatus, ApplyStamp, CellId, EffectClass, HeaderId, InputOrigin, LogicalEffect,
     ModelLimits, Omega, OwnerLocation, PeerId, ProposalBase, RemoteDeadline, RemoteResidency,
-    ResolvedEvidence, RetainedSource, RulesId, Source, Transaction, ViewId, WorkCapability,
+    ResolvedEvidence, RetainedSource, RulesId, Source, Transaction, TxId, ViewId, WorkCapability,
 };
 
 fn model() -> Omega {
@@ -405,6 +405,69 @@ fn model_remote_source_is_a_footprint_policy_term_not_a_second_authority() {
             ..
         }
     ));
+}
+
+#[test]
+fn model_ready_prefix_stops_at_the_first_effect_control_class_boundary() {
+    let mut omega = model();
+    let trusted = Transaction::independent(1, 1, 10, 20);
+    let remote_transaction = Transaction::independent(2, 2, 11, 21);
+    let trusted_evidence =
+        ResolvedEvidence::for_transaction(&trusted, omega.authority.chain, omega.authority.rules);
+    ready(&mut omega, trusted.clone(), trusted_evidence);
+
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::Admit(remote(remote_transaction.clone(), 7))),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    let resolve = match omega.kernel_step(KernelCommand::Checkout) {
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::CheckedOut(capability),
+            ..
+        } => capability,
+        other => panic!("expected remote resolve checkout, got {other:?}"),
+    };
+    let evidence = ResolvedEvidence::for_transaction(
+        &remote_transaction,
+        omega.authority.chain,
+        omega.authority.rules,
+    );
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::Complete(Completion {
+            capability: resolve.id,
+            result: WorkResult::Resolved(evidence),
+        })),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    let verify = match omega.kernel_step(KernelCommand::Checkout) {
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::CheckedOut(capability),
+            ..
+        } => capability,
+        other => panic!("expected remote verify checkout, got {other:?}"),
+    };
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::Complete(Completion {
+            capability: verify.id,
+            result: WorkResult::Verified,
+        })),
+        KernelStep::AuthorityCommit { .. }
+    ));
+
+    let analysis = analyze_ready_prefix(&omega, 2);
+    assert_eq!(
+        analysis
+            .prefix
+            .iter()
+            .map(|footprint| footprint.transaction)
+            .collect::<Vec<_>>(),
+        vec![trusted.id]
+    );
+    assert!(matches!(
+        analysis.stopped_by,
+        Some(CouplingReason::EffectClassBoundary(id)) if id == remote_transaction.id
+    ));
+    assert_eq!(omega.check_invariants(), Ok(()));
 }
 
 #[test]
@@ -948,17 +1011,10 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
         omega.linear.free_compute_permits,
         omega.authority.limits.compute_permits
     );
-    let effect_stamp = omega.authority.last_apply;
-    omega
-        .authority
-        .effects
-        .extend(
-            (0..omega.authority.limits.effect_records).map(|ordinal| EffectRecord {
-                stamp: effect_stamp,
-                ordinal,
-                logical: LogicalEffect::GenerationReset,
-            }),
-        );
+    while omega.append_effect_fixture(
+        EffectClass::Trusted,
+        vec![LogicalEffect::IngressReleased(TxId(200))],
+    ) {}
     assert_eq!(omega.check_invariants(), Ok(()));
     let plan = plan_compute_exchange(
         &omega,

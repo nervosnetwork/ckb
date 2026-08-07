@@ -16,9 +16,9 @@ use super::{
         PermitRequestDisposition, PermitRequestId,
     },
     state::{
-        ChainView, EffectRecord, EvidenceContext, LogicalEffect, ModelLimits, Omega,
-        RemoteDeadline, RemoteResidency, ResolvedEvidence, RetainedSource, RulesId, Transaction,
-        TxId, ViewId, WitnessId, WorkKind,
+        ChainView, EffectClass, EvidenceContext, LogicalEffect, ModelLimits, Omega, RemoteDeadline,
+        RemoteResidency, ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, ViewId,
+        WitnessId, WorkKind,
     },
 };
 
@@ -226,17 +226,10 @@ fn model_full_effect_partition_stops_ready_before_any_authority_mutation() {
     let mut omega = model();
     let transaction = Transaction::independent(1, 1, 10, 20);
     make_ready(&mut omega, transaction.clone());
-    let stamp = omega.authority.last_apply;
-    omega
-        .authority
-        .effects
-        .extend(
-            (0..omega.authority.limits.effect_records).map(|ordinal| EffectRecord {
-                stamp,
-                ordinal,
-                logical: LogicalEffect::GenerationReset,
-            }),
-        );
+    while omega.append_effect_fixture(
+        EffectClass::Trusted,
+        vec![LogicalEffect::IngressReleased(TxId(200))],
+    ) {}
     assert_eq!(omega.check_invariants(), Ok(()));
     let before = omega.clone();
     let analysis = analyze_ready_prefix(&omega, 1);
@@ -272,6 +265,14 @@ fn model_completion_plan_is_equal_for_every_bounded_worker_permutation() {
     limits.compute_permits = 3;
     limits.owners.entries = 6;
     limits.retained.entries = 6;
+    let largest_batch_effects = limits
+        .owners
+        .entries
+        .checked_add(1)
+        .expect("the enlarged owner partition has a representable effect bound");
+    limits.effects.remote_bound.effects = largest_batch_effects;
+    limits.effects.trusted_bound.effects = largest_batch_effects;
+    limits.effects.critical_bound.effects = largest_batch_effects;
     let mut omega = Omega::new(
         limits
             .validate()

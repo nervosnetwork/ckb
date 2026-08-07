@@ -2811,22 +2811,23 @@ mechanically expands declaration/signature type closure, enum members, impl
 methods, reference counts and synchronization primitives, then proves every
 root role has exactly one bidirectional semantic binding backed by registered
 `TP-*` behavior. The light contract gate passes with 54 model roles, 65
-production roles and 12 bindings. The current generated frontier is 181 model
-types / 414 rooted variants / 241 rooted impl methods and 611 production types
+production roles and 12 bindings. The current generated frontier is 187 model
+types / 421 rooted variants / 262 rooted impl methods and 611 production types
 / 787 rooted variants / 1,216 rooted impl methods.
 
-Fifteen model and eleven production declarations remain deliberately visible
-outside semantic roots. Direct inspection classified them as hostile explorer
-or transient algorithm/Plan/resolve scratch; none is an owner, resource row,
-queue, task, lock, capability, effect, version or ordinary result. They stay
-generated M3.5 deletion/fusion candidates and are not copied into an exclusion
-list.
+Twenty-two model and eleven production declarations remain deliberately
+visible outside semantic roots. Direct inspection classified the original
+fifteen as hostile explorer or transient algorithm/Plan/resolve scratch. The
+seven additions are finite M3.2 refinement-domain and normalized-observation
+carriers. None is an owner, resource row, queue, task, lock, capability,
+effect, version or ordinary result. They stay generated M3.5 deletion/fusion
+candidates and are not copied into an exclusion list.
 
 M3.1 now also owns a permanent parser/negative-binding canary. The normal
 checker proves the canary's deliberately omitted semantic role is rejected;
 the slower `--variant-flow --cargo-expand-production` gate classifies source
 producer/consumer sites with `ast-grep` and regenerates the current expanded
-crate rather than trusting a stale file. It proves all 414 rooted model enum
+crate rather than trusting a stale file. It proves all 421 rooted model enum
 variants and all 787 rooted production enum variants have a producer. Exactly
 23 production variants are macro-produced and remain distinguished from
 explicit source evidence. The light contract gate and diff check pass after
@@ -2842,14 +2843,208 @@ worker exits unexpectedly; the real obligation is to refine the same
 generation-level capability closure for a coordinator exit. The stale draft
 that kept an effect-blocked completion's semaphore permit is explicitly
 superseded by the M2-proven rule that retains only the bounded worker slot and
-finished capability. The raw 611/181 type ratio remains module-derived M3.5
+finished capability. The raw 611/187 type ratio remains module-derived M3.5
 evidence, never bulk-deletion authority.
 
-M3.2 is active. Its exact next action is an independent test-only differential
-adapter over the complete bounded `CellFootprint` relation universe. It must
+At M3.2 entry, its exact action was an independent test-only differential
+adapter over the complete bounded `CellFootprint` relation universe. It had to
 compare `analyze_ready_prefix` with production independent-membership
 classification pointwise, distinguish valid shared states from model-only
 invalid initial states such as duplicate outputs/proposal collisions, and
-cover every coupled/resource/effect/stale fallback. Representative anchors do
-not close this theorem. Production semantics and timing experiments remain
+cover every coupled/resource/effect/stale fallback. Representative anchors did
+not close this theorem. Production semantics and timing experiments remained
 frozen.
+
+The startup audit has now frozen the finite domain and exposed the first
+non-representative deltas. The domain is the complete `None | Input | Read |
+Output` cell-role product for candidate/candidate and candidate/Accepted
+relations, plus chain/pool evidence, header reads, effect-control class,
+staleness, Accepted capacity and effect capacity. It checks every single edge
+position through the production maximum batch and every edge subset through
+four owners, with a mechanical monotonic-prefix law. Distinct raw identities
+with one output and distinct resident proposal owners with one short ID are
+model-only invalid states bound to identity/resolver/index premises, not
+synthetic production fixtures.
+
+Three obligations are now explicit. Current production collapses a captured
+slice with a coupled tail to one strongest owner instead of the model's
+longest independent prefix; this is a frozen topology gap for M4. Production
+also cuts a batch at the strongest owner's Remote/Trusted effect policy, which
+the normative model requires but the executable classifier omitted. More
+importantly, the executable model's global logical-effect record/byte ceiling
+does not refine production's immutable batch, per-class bound and partitioned
+headroom algebra under partial occupancy. M3.2 therefore first corrects the
+single reference effect ledger and makes composition consume its next-batch
+predicate. It must not add a second composition-only capacity approximation or
+edit production before M4. The next exact action is to enumerate every model
+effect producer and assign its semantic publication class before changing the
+model state type.
+
+The effect-ledger correction and finite production adapter are now in the
+working tree. The model uses Remote/Trusted/Critical immutable batches and
+nested usage; partial logical settlement retains the complete batch charge.
+The independent production adapter covers all 16 candidate role pairs, all 16
+candidate/Accepted role pairs, all 64 four-owner shared-input graphs, every
+single coupled edge position through the eight-owner Ready bound, source
+control, Accepted entry capacity, partitioned effect pressure, stale evidence
+and shared header reads. After reset-source closure, the focused
+model/production nextest universe passes 175/175.
+
+The M3 model-review report was independently rechecked against current source.
+Its Ready-order, flat-queue/fair-ring, uncomposed relay seam and single-flight
+TLA findings remain valid. The eviction finding is valid but understated:
+production also depends on cycles-derived weight, integer fee-rate rounding,
+status, descendant count and arrival/identity order. The Ready model now uses
+the exact production source/rate/fee/arrival/identity/version direction, and a
+production differential case deliberately makes absolute fee disagree with
+fee rate. The other four items are fixed M3.3 obligations; they are not local
+patches to M3.2.
+
+The suggestion-mining report was also adjudicated. Trace-level model to
+production conformance is the one new methodological requirement and is now
+part of M3.3, split into an authority-kernel adapter and real boundary
+harnesses joined by explicit observations. Formal discovery and expected
+negative witnesses are also M3.3. Existing profiles may calibrate M3.5 static
+constants but cannot replace static proof or authorize new timing. Scoped
+production mutation testing and a generated task kill-point matrix belong to
+V1. Superseded decisions now use stable successor identifiers. The proposed
+commit-message-only model gate was rejected as evidence; path-triggered model
+delta, generated binding and negative-falsifier gates own that obligation.
+
+M3.2 is closed. The exact next action is M3.3 trace conformance: build the
+independent authority and real-boundary replay adapters, adjudicate the
+fair-ring quotient, compose relay handoff, discover and extend the
+multi-worker TLA model, refine exact eviction ordering, and replay the complete
+section 16 ledger. Production semantic code and new timing remain frozen.
+
+## 2026-08-07 release-surface report adjudication
+
+The four release-facing suggestions were checked against current source and
+`develop`. Their claimed completeness is not admissible, but they exposed one
+shared evidence-graph omission rather than four production defects.
+
+- `get_raw_tx_pool.conflicted` is now derived only from charged
+  `ReplacementHistory`, whose constructor is reachable from successful
+  displacement of Accepted victims. Commit `0bc4b644e` deliberately removed
+  failed RBF candidates from that projection. The internal architecture and
+  integration regression say so, but `rpc/README.md` still says only
+  "Conflicted tx hash vec" and no gate binds the compatibility decision to the
+  public RPC document. This item is accepted for the M4 release-surface gate.
+- `tx-pool/CHANGELOG.md` has an empty Unreleased section. The new
+  `max_tx_pool_resident_size`, `max_tx_pipeline_resident_size` and
+  `verify_ordering` keys are real; additionally, the public `resource/ckb.toml`
+  template omits `verify_ordering`. The final entries belong to the owning
+  tx-pool, app-config and RPC release surfaces, not one catch-all changelog.
+  The fee-estimator lock/data path is not called an external behavior change
+  without an observable delta.
+- Persistence v2 reads v1 as fallback and writes a distinct `.v2` file. M4
+  documents and validates only the supported forward path: bounded v1 input is
+  revalidated and new snapshots use v2. CKB does not support node downgrade,
+  so no reverse reader, rollback matrix or old-binary promise is part of this
+  program.
+- No tx-pool deployment smoke exists under `devtools/smoking_test`, but an
+  uninvoked dozen-line script would not close the gap. V1 now requires a
+  deterministic known-funds fixed-binary submit/status/template smoke with a
+  CI or release-workflow owner.
+- No external-review decision is recorded. V2 now requires the project owner
+  to record a scoped independent review or an explicit decline rationale only
+  after the final authority/effect/chain surface is frozen.
+
+These obligations do not change M3 ordering or authorize production edits.
+They are one generated release-surface family owned by M4/V1/V2.
+
+### Release-policy correction: persistence downgrade is out of scope
+
+The report's downgrade-note recommendation is `REJECTED BY RELEASE POLICY`.
+CKB does not support node downgrade. The current M4 release-surface owner
+therefore proves and documents only the supported forward path: legacy v1 is
+accepted and revalidated, while new snapshots use v2. No reverse-reader,
+rollback test matrix or old-binary operational promise may be added. This
+correction supersedes the report's rollback language; the v1 fallback and v2
+format documentation obligations remain current.
+
+## M3.2 closed; M3.3 exact restart state
+
+M3.2 is complete and production semantics remain frozen. The pointwise domain
+now covers every candidate/candidate and candidate/Accepted role pair, all 64
+four-owner relation graphs, every single coupled-edge position through the
+eight-owner Ready bound, monotone edge supersets, source classes, exact Ready
+economic order, aggregate Accepted capacity, partitioned effect pressure,
+stale evidence, shared headers and chain/pool evidence origin. The production
+adapter constructs real transactions, receipts and authority state; the model
+adapter independently evaluates the executable reference transition. Their
+only shared values are finite symbolic inputs and normalized observations.
+
+The whole-model review found and closed one reference omission. Production's
+charged FIFO effect records and uncharged latest-generation-reset slot are
+different sources. The model now carries the same distinction, orders the two
+sources by committed stamp, coalesces newer resets, and settles an already
+claimed older reset as typed `EffectSuperseded` without an authority Apply.
+Empty or mixed reset batches are rejected, partial ordinary delivery retains
+the immutable-batch charge, and charged partition saturation cannot reject a
+reset or increase usage. This is model-only state that maps one-to-one to
+existing production facts; no production lock, task, queue, cache, allocation
+or hot-path work was added.
+
+Current mechanically derived evidence:
+
+- model frontier: 187 rooted types, 421 variants, 262 methods, 14 files;
+- production frontier: 611 rooted types, 787 variants, 1,216 methods, 37 files;
+- outside roots: 22 model and 11 production transient/test or local scratch
+  declarations, with no exclusion allowlist;
+- variant-flow: every rooted model and expanded production variant has a
+  producer; 23 production variants are macro-only at source level;
+- behavior evidence: 1,068 invariant references over 283 exact Rust tests;
+- exact inventory: 597 internal-feature Rust tests and 150 managed integration
+  specs.
+
+Gates passed at this cut:
+
+- focused model/production/reset nextest: 175/175;
+- normal library nextest: 593/593;
+- internal-feature nextest: 597/597;
+- `cargo fmt --all -- --check`;
+- strict all-target internal Clippy;
+- complete `scripts/check_all.py`, including the required successful TLC model
+  and expected reachability counterexample;
+- source plus cargo-expanded variant-flow extraction.
+
+The phase-level architecture review found no duplicate authority, concurrency
+loss, production risk transfer or snowball patch. The model grew only where
+the prior abstraction erased a real effect source and therefore made a legal
+supersession trace inexpressible. The known production all-or-one coupled-tail
+behavior still differs from the model's desired longest independent prefix;
+it remains visible as an M4 topology obligation rather than being normalized
+away or patched into the frozen implementation. Production endpoint partial
+delivery is still a trace-level refinement edge, not a pointwise M3.2 claim.
+
+The standing exposure inventory remains 5 `PROVEN`, 5 `SUPPORTED`, 18 `OPEN`:
+four legal-input fail-stop, eight liveness/availability and six
+structural/proof rows. No path or consequence increased in M3.2. The freeze is
+retained for the undeployed branch only through M3.3, which must close the four
+fail-stop rows with producer-owned ordinary result algebras before M3.4 may
+start. Failure blocks topology work and triggers the already-defined narrow
+correction review; it cannot be deferred again.
+
+Exact M3.3 execution order:
+
+1. define the stable-cut trace alphabet and normalized observation, then build
+   an independent test-only authority replay adapter;
+2. compose real relay/controller/publisher/lifecycle boundary harnesses through
+   explicit handoff observations and shrink divergences to minimum traces;
+3. adjudicate the flat-model/per-owner-fair-ring relation by exact trace or a
+   formally stated observation quotient plus separate bounded-fairness proof;
+4. map effect retain/partial progress, discover every formal model/config, and
+   extend permit/effect checking to the configured multi-worker shape;
+5. refine the complete production eviction key, including CKB size/cycle
+   weight, integer rounding, status, descendant aggregate/count, arrival and
+   identity;
+6. replay all 28 section 16 rows, close the four legal-input fail-stop classes,
+   regenerate fault/task/capability reachability and rerun the whole-model plus
+   standing-exposure reviews.
+
+Do not edit production semantics, run a new profile, or run timing A/B during
+M3.3. The release-surface RPC/config/changelog/forward-persistence obligations
+remain deferred to M4; the fixed-binary smoke and external-review decision
+remain V1/V2 gates. The user-owned root `.gitignore` is unrelated and must not
+be staged or changed.

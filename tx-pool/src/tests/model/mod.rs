@@ -14,5 +14,14 @@ mod kernel;
 mod permit;
 mod properties;
 mod protocol;
+mod refinement;
 mod resource;
 mod state;
+
+pub(crate) use refinement::{
+    CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
+    REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole, accepted_capacity_observation,
+    accepted_role_observation, candidate_graph_observation, candidate_role_observation,
+    evidence_origin_observation, positioned_role_observation, ready_order_observation,
+    shared_header_observation, source_observation, source_pressure_observation, stale_observation,
+};

@@ -632,7 +632,28 @@
     {"test": "mathematical_model::adversarial_properties::model_ready_batch_bound_is_independent_of_the_current_worker_wave_width", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "mathematical_model::adversarial_properties::model_ready_composition_cost_is_consumed_without_a_hand_copied_projection", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T4", "T5", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys", "behavior_id": "TP-PERF-001", "invariants": ["T4", "T8"]},
-    {"test": "mathematical_model::composition_properties::model_remote_source_is_a_footprint_policy_term_not_a_second_authority", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]}
+    {"test": "mathematical_model::composition_properties::model_remote_source_is_a_footprint_policy_term_not_a_second_authority", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},
+
+    {"test": "authority::tests::refinement::uak_candidate_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T11"]},
+    {"test": "authority::tests::refinement::uak_candidate_accepted_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},
+    {"test": "authority::tests::refinement::uak_every_four_owner_coupling_graph_refines_the_model_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T8"]},
+    {"test": "authority::tests::refinement::uak_every_single_coupled_edge_position_refines_the_model_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T8"]},
+    {"test": "authority::tests::refinement::uak_source_control_classes_refine_the_model_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T3", "T5", "T6", "T8"]},
+    {"test": "authority::tests::refinement::uak_stale_ready_evidence_refines_the_model_terminal", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
+    {"test": "authority::tests::refinement::uak_ready_economic_order_refines_when_fee_and_rate_disagree", "behavior_id": "TP-COMMIT-001", "invariants": ["T5", "T6", "T8"]},
+    {"test": "mathematical_model::refinement::tests::adding_candidate_relations_never_extends_the_independent_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6"]},
+    {"test": "mathematical_model::refinement::tests::finite_role_products_and_graph_masks_are_total", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T8", "T11"]},
+
+    {"test": "authority::tests::refinement::uak_chain_and_pool_evidence_origins_refine_pointwise", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T6", "T11"]},
+    {"test": "authority::tests::refinement::uak_shared_headers_refine_as_commutative_reads", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T6", "T11"]},
+
+    {"test": "authority::tests::refinement::uak_accepted_entry_capacity_refines_every_ready_prefix", "behavior_id": "TP-BUDGET-001", "invariants": ["T3", "T6", "T8"]},
+
+    {"test": "authority::tests::refinement::uak_partitioned_effect_pressure_refines_source_control", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::composition_properties::model_ready_prefix_stops_at_the_first_effect_control_class_boundary", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::properties::model_effect_regions_preserve_trusted_and_critical_headroom", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::properties::model_partially_settled_effect_batch_retains_its_full_capacity_charge", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
+    {"test": "mathematical_model::properties::model_generation_reset_claim_is_superseded_without_mutating_authority", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T6", "T7", "T9"]}
   ],
   "workspace_evidence": [
     {

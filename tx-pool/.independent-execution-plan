@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: M3.1 generated frontier complete; pointwise classifier refinement active
-Checkpoint: M2 commit containing this record
-Active slice: M3.2 bounded-footprint classifier equivalence
+Status: M3.2 bounded-footprint refinement complete; trace refinement active
+Checkpoint: M3.2 commit containing this record
+Active slice: M3.3 trace conformance and complete ledger replay
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -2113,11 +2113,11 @@ edit and makes no timing claim. Pointwise classifier equivalence, producer and
 consumer reachability, the complete fault ledger and topology selection remain
 the later M3 gates below.
 
-The first generated closure is now reproducible through
+The current generated closure is reproducible through
 `scripts/check_model_refinement.py`. Fifty-four model root roles and sixty-five
 production root roles are bound bidirectionally through twelve semantic groups
-and existing `TP-*` behavior owners. The source graph currently contains 181
-root-reachable model types with 414 enum variants and 241 implementation
+and existing `TP-*` behavior owners. The source graph currently contains 187
+root-reachable model types with 421 enum variants and 262 implementation
 methods, versus 611 root-reachable production types with 787 variants and
 1,216 methods. These counts are source observations, not line-count or
 complexity verdicts. The large production/model encoding ratio is an M3.5
@@ -2134,13 +2134,16 @@ reducing semantic construction authority. A type is removable only when its
 observation, conservation, liveness or cost owner is absent; the raw ratio is
 never deletion evidence.
 
-The generated root frontier leaves exactly fifteen model declarations and
+The generated root frontier leaves exactly twenty-two model declarations and
 eleven production declarations unbound. The model set consists only of the
 hostile-trace explorer carriers (`AdversarialShape`, `HostileAction`,
 `HostileState`, `HostileTraceError`, `HostileTraceGenerator`,
 `HostileTraceLimits`, `HostileTraceReport`, `HostileTransition`, `HostileTxKey`,
 `PremiseCounterexample`, `PremiseViolation`, `ScenarioError`) and transient
-classifier scratch (`AcceptedIndex`, `CandidateIndex`, `EvictionScore`). The
+classifier scratch (`AcceptedIndex`, `CandidateIndex`, `EvictionScore`), plus
+the finite refinement-domain and normalized-observation carriers (`CellRole`,
+`EffectPressure`, `EvidenceOriginRole`, `FrontierObservation`,
+`FrontierTerminal`, `ReadyOrderInput`, `SourceRole`). The
 production set consists only of Plan-local change/fact carriers
 (`IndexChange`, `PreparedOwnerChange`, `RecoveryCandidate`, `CandidateFact`,
 `LocationChange`), derived ordering/cache scratch (`CandidatePackingState`,
@@ -2148,14 +2151,17 @@ production set consists only of Plan-local change/fact carriers
 scratch/adaptation (`ResolvedComputation`, `SparsePoolCellProvider`). None owns
 lifecycle, charge, a task/queue/lock, a capability, an effect or an ordinary
 boundary result. They remain explicit M3.5 fusion/deletion candidates; the
-checker keeps discovering them and no exclusion allowlist exists.
+checker keeps discovering them and no exclusion allowlist exists. The seven
+new refinement carriers own no authority, resource, task, queue, lock,
+capability or effect; they are deliberately outside the model's semantic
+state roots because they are finite test inputs and normalized observations.
 
 The checker carries a permanent syntax and negative-binding canary under
 `scripts/fixtures/`. Every invocation must discover its generic enum/struct
 and methods, observe the deliberately unbound semantic root as an exact
 failure, then prove the complete binding succeeds. The slower M3 gate adds
 AST-classified producer/consumer sites and current `cargo expand` output so a
-macro-produced command is not mislabeled constructorless. All 414 rooted
+macro-produced command is not mislabeled constructorless. All 421 rooted
 model variants have a source producer; all 787 rooted production variants have
 a producer after current macro expansion. Twenty-three production variants
 are produced only through macros, which is recorded separately rather than
@@ -2163,8 +2169,232 @@ mistaken for source-level evidence.
 
 This closes M3.1's declaration, semantic-root and variant producer/consumer
 inventory. Producer existence is not behavioral refinement: the pointwise
-classifier theorem remains M3.2, so a parent-type binding is not treated as
+classifier theorem was M3.2, so a parent-type binding is not treated as
 production equivalence.
+
+#### M3.2 bounded footprint refinement domain
+
+M3.2 uses a finite cell-role algebra rather than a collection of named
+examples. For one cell and one owner, the only legal semantic roles at the
+Ready cut are `None`, `Input`, `Read` and `Output`. `Input` and `Read` are
+disjoint because production removes inputs from the expanded dependency set;
+an `Output` is derived from the raw transaction identity and output index.
+Header dependencies are a separate read-only role. The differential domain
+enumerates the complete 4 x 4 relation table for candidate/candidate and
+candidate/Accepted pairs, the chain/pool evidence axis, shared headers,
+source/effect-control class, current/stale evidence, Accepted capacity and
+effect capacity. It then enumerates every single coupled-edge position in the
+maximum Ready bound and every coupled-edge subset through four owners. The
+classifier is a monotone disjunction of those per-cell relations, so larger
+multi-edge cohorts add no new truth-table row; the test must mechanically
+check that monotonicity rather than assume it in prose.
+
+For ordered footprints `f[0..n]`, let `A(f)` mean a relation to current
+Accepted membership, `P(f_i, f_j)` a pairwise coupling relation, `R(k)` the
+aggregate Accepted-resource exclusion at prefix `k`, and `E(k)` the exact
+next effect-batch exclusion. The required prefix is:
+
+```text
+k_star = max { k <= n |
+  for every i < k: not A(f_i)
+  and for every i < j < k: not P(f_i, f_j)
+  and not R(k)
+  and not E(k)
+  and all f[0..k] share the selected effect-control class and current evidence
+}
+```
+
+Both adapters independently construct their own state and call the real model
+and production planners. They may share only the generated finite input
+domain and normalized public observation. Extracting the classifier into one
+shared implementation would turn the differential proof into a tautology and
+is forbidden.
+
+Two identity cases are outside the shared legal domain and remain explicit
+premises rather than forged production fixtures. Different raw identities
+cannot produce the same exact outpoint, because output identity is
+`(RawTxHash, output_index)`. Distinct resident owners cannot share one proposal
+short ID, because the proposal index rejects the second owner before Ready.
+The executable model must classify such hostile abstract states as invalid or
+unrepresentable; production must bind the exclusion to the sealed identity
+constructor and proposal-index transition. A raw-hash match with an invalid
+output index is likewise excluded by the resolver's positive cell-evidence
+contract, not by a classifier convention.
+
+The first M3.2 caller audit found three refinement obligations that the prior
+representative tests could not expose:
+
+1. The target model commits the longest independent Ready prefix, while the
+   current production caller submits the complete captured slice to an
+   all-or-one classifier. With three owners where only the second and third
+   couple, the model commits two and current production commits only the
+   strongest one. This is a topology/cost refinement gap and stays frozen for
+   M4 rather than being patched into the current caller.
+2. Production selects one `Remote` or `Trusted` effect-control class before
+   membership planning. The normative phrase "one fitting effect class"
+   already requires that cut, but the executable composition classifier does
+   not yet model it. M3.2 must add the control-class term to the reference
+   classifier before claiming equivalence.
+3. The executable model currently charges individual logical effect records
+   against one global record/byte ceiling. Production charges immutable
+   batches against partitioned Remote/Trusted/Critical regions and per-class
+   batch bounds. Partial occupancy therefore has pointwise counterexamples.
+   Section 3.4 already requires one checked effect partition algebra, so this
+   is a reference-model omission, not permission for a second composition-only
+   capacity rule. M3.2 must make the existing model ledger batch- and
+   class-aware, then reuse its exact next-batch predicate in composition.
+
+`LocationRefreshed` is not a semantic cell relation: it routes one production
+owner through the coupled compiler only to retire a distinct `Arc` payload
+outside the authority guard. It is retained as a physical-cost refinement
+obligation. The normalized semantic outcome must match a one-owner canonical
+Apply, while M3.5 decides whether the retirement mechanism belongs in the
+winning topology.
+
+The M3 model review exposed five related refinement gaps. They are one
+ordering/scheduling/refinement family, not five local fixes:
+
+1. Model Ready ordering must equal production source, exact fee-rate
+   cross-product, absolute fee and reachable deterministic tie order. A
+   differential case where fee and rate disagree is mandatory; fixtures whose
+   fee and rate happen to be monotone do not prove the mapping.
+2. Current production Resolve/Verify checkout uses a per-owner fair ring while
+   the sequential model chooses from a flat source/arrival order. M3.3 must
+   either refine both to one explicit scheduling automaton or prove a precise
+   quotient that hides checkout identity while separately preserving bounded
+   owner fairness. Calling the flat order merely conservative is insufficient
+   for transition-trace conformance.
+3. `RelayHandoff` is a separately tested automaton but is absent from the
+   composed `SystemState` search. Because the known-filter defect occurred at
+   exactly that seam, M3.3 must compose relay, controller and authority
+   handoffs under hostile interleavings; dedicated examples alone cannot close
+   this boundary.
+4. `formal/PermitEffect.tla` currently proves a single in-flight permit owner.
+   It cannot support a claim about the configured multi-worker exchange. The
+   formal gate must cover at least three workers, two Direct requests, multiple
+   simultaneous executing/finished workers and effect-capacity drain/refill.
+5. Model capacity eviction does not yet refine production's complete key.
+   Production uses status, integer fee-rate over the CKB size/cycle weight,
+   descendant aggregate/count, arrival and identity. The model currently uses
+   an exact fee/serialized-byte component ratio plus identity. M3.3 must add
+   the missing cycles/weight and integer rounding semantics and either map each
+   tie field or prove it unreachable at the named stable cut.
+
+#### M3.2 exit audit
+
+The bounded footprint theorem is complete for its stated stable cut. Two
+independent adapters enumerate all candidate/candidate and
+candidate/Accepted cell-role products, every four-owner coupling graph, every
+single coupled-edge position through `MAX_READY_BATCH`, chain/pool evidence
+origin, shared headers, Ready economic order, current/stale evidence, source
+control, aggregate Accepted capacity and partitioned effect pressure. An
+edge-superset property proves that adding relations cannot extend the
+independent prefix. Shared code is limited to the finite symbolic domain and
+normalized observation; neither adapter calls the other's classifier or
+transition implementation.
+
+The audit found one omitted system-state component rather than weakening the
+model to fit production. Production owns an ordinary charged FIFO effect log
+and a separate uncharged latest-generation-reset slot. A newer reset can
+supersede an already claimed older reset; settling that stale claim consumes
+only its linear capability and performs no authority Apply. The reference
+state now models that source distinction, reset coalescing, minimum-stamp
+publication order and typed `EffectSuperseded` outcome. Empty or mixed reset
+batches are unconstructible, ordinary partial delivery retains the complete
+immutable-batch charge, and a full charged partition still admits a reset
+without increasing usage. The separate reset slot and claim source each map
+to an existing production fact; they add no second authority or production
+state.
+
+The six-question whole-model review closes as follows:
+
+1. The reset slot was the only omitted legal input/observation at the M3.2
+   stable cut and is now modeled. Endpoint partial delivery, scheduler
+   rotation, relay handoff and lifecycle traces remain explicitly owned by
+   M3.3; pointwise evidence is not mislabeled trace conformance.
+2. The state basis is minimal for current semantics: deleting the reset source
+   makes supersession indistinguishable from FIFO settlement, while merging
+   its uncharged capacity into the FIFO fabricates backpressure.
+3. The model became stricter, not implementation-shaped: invalid reset batches
+   are rejected and superseded claims are forced to be mutation-free.
+4. The production longest-prefix gap remains visible. Current production may
+   collapse a coupled tail to the strongest owner; M3.2 records rather than
+   normalizes away that M4 topology obligation.
+5. This phase changes only executable model, test adapters and generated
+   evidence. It adds no production lock, task, queue, cache, allocation or hot
+   path work and therefore cannot serialize existing concurrency.
+6. Reset supersession has finite local work and retires the exact claim.
+   Partition pressure, staleness, edge monotonicity and maximum-prefix shapes
+   all have bounded adversarial witnesses.
+
+The exact focused universe passes 175/175, the normal library universe passes
+593/593, and the internal-feature universe passes 597/597. `cargo fmt`, strict
+all-target internal Clippy, the complete script gate including both TLC
+outcomes, and source plus expanded variant-flow extraction pass. The generated
+frontier is 187 model types / 421 variants / 262 methods and 611 production
+types / 787 variants / 1,216 methods; all rooted variants have producers. The
+behavior registry now owns 1,068 invariant references over 283 exact Rust tests
+and the generated inventory discovers all 597 internal-feature tests.
+
+The standing exposure disposition remains 5 `PROVEN`, 5 `SUPPORTED` and 18
+`OPEN`: four legal-input fail-stop, eight liveness/availability and six
+structural/proof rows. No path or consequence increased in M3.2 and this branch
+remains undeployed and unreleasable. The production freeze is retained only
+through M3.3, whose closed producer-specific result algebras must close the
+four fail-stop rows before M3.4 may start. Failure to do so blocks later
+topology work and authorizes the already-defined narrow correction review; it
+does not permit another deferral or an old-topology patch.
+
+#### M3.3 trace conformance and complete ledger replay
+
+M3.3 adds the missing top rung between pointwise classification and boundary
+examples. A generated legal model trace is replayed through an independently
+written production adapter and compares normalized `Obs` after every stable
+cut. Kernel actions use a test-only `TxPoolAuthority` adapter; controller,
+relay, publisher and lifecycle actions use their real boundary harnesses.
+These two scopes compose through explicit handoff observations rather than
+forcing private authority state through a public service facade. The adapter
+may share symbolic inputs and normalized observations, but never the model's
+transition or expected-result implementation.
+
+The hostile corpus includes scheduler owner rotation, relay/controller
+failure, chain/view change, ban/expiry, effect pressure and cancellation. It
+must shrink a divergence to the shortest trace. The same phase replays all 28
+section 16 rows through closed producer-specific result algebras, closes the
+four legal-input fail-stop classes or triggers the standing exposure rule, and
+completes the exact eviction-order mapping above.
+
+Formal models are discovered rather than named in a Python list. A canonical
+manifest binds every `.tla` configuration to its module and expected outcome
+(`success` or one exact required negative witness). CI fails on an unregistered
+module/configuration, a missing run or a mismatched verdict. The multi-worker
+permit/effect model is part of this M3.3 gate.
+
+#### M3.4 develop refinement
+
+Map `develop` into the same command, observation, trace and cost vocabulary.
+For every race or non-atomic outcome, record whether one authority is
+necessary, a local correction is sufficient, or the behavior is intentional
+compatibility. A current-UAK behavior is not evidence of superiority merely
+because the model can express it; its safety/liveness theorem and cost must be
+strictly stronger than the `develop` alternative.
+
+#### M3.5 minimality, serial cuts and calibrated static cost
+
+Complete the layer-deletion, duplicate-authority, manual-publication and
+serial-cut tables. Every retained layer and cut needs a semantic conflict,
+compatibility rule or progress theorem. Calibrate `C_fixed`, `C_item` and
+`C_edge` only from already-frozen profiles, and keep the static asymptotic and
+operation-count proof authoritative. No new timing run is allowed here and a
+historical profile cannot choose a topology whose semantics are incomplete.
+
+#### M3.6 complete candidate falsification and exposure review
+
+Falsify the status quo and at least two materially distinct complete
+realizations, including the low-complexity self-fused hedge and the bounded
+wave Plan/Apply realization. Compare safety, liveness, compatibility, task and
+failure topology, static work, deletion and residual exposure. Repeat the
+whole-model and standing exposure gates before selecting the M4 blueprint.
 
 ### M4 - Normative blueprint and anti-drift freeze
 
@@ -2176,6 +2406,19 @@ production equivalence.
   replace named old ceremony.
 - Add exact model/property/concurrency selectors, operation-count probes,
   constructor/consumer discovery and zero-match gates to CI.
+- Add one generated release-surface gate whose sources are the compatibility
+  table and final configuration/persistence schemas. It must bind each changed
+  RPC behavior to the public RPC documentation and owning crate changelog,
+  each new configuration key to its default template and legacy translation,
+  and the persistence format to its supported forward-upgrade note.
+  In particular, `conflicted` means charged successfully displaced Accepted
+  victims only, PreAccepted status visibility is an intentional RPC behavior,
+  and the v2 reader accepts the supported legacy v1 input. CKB does not support
+  node downgrade, so reverse-read or rollback behavior is not a compatibility
+  target and must not grow a second persistence path.
+  Internal architecture prose is not a substitute for these consumer-facing
+  surfaces, and internal lock/data-path rewrites are not changelog behavior
+  claims without an external observation.
 - Run the complete model-delta review. A blueprint cannot freeze while any
   required transition, ordinary outcome, liveness edge or cost term is prose
   only.
@@ -2209,6 +2452,19 @@ design pass. A contradiction reopens the owning M phase.
 - Exercise RBF, dependency, reorg, full-pool, fanout, proposal collision,
   cancellation, shutdown, allocation and fault shapes.
 - Verify public/develop compatibility decisions and coupled outcomes exactly.
+- Run one deterministic fixed-binary pool smoke owned by CI or the release
+  workflow: start an isolated node with a known spendable fixture, submit a
+  valid transaction, observe its documented status, and prove a normal block
+  template selects it. An uninvoked shell fragment or a smoke that depends on
+  ambient wallet state is not evidence.
+- Run mutation testing against the final changed authority planners,
+  resources, dependency and scheduler owners with the property/nextest suite
+  as oracle. Every survivor is classified as equivalent, unreachable under a
+  sealed premise or a missing property; a raw percentage is not closure.
+- Generate the task/capability kill-point matrix from the selected task
+  topology and exercise pre-Apply, post-Plan/pre-Apply, post-Apply/pre-effect,
+  worker compute, publisher I/O and maintenance interruption points. Every
+  capability is settled, staled or returned exactly once.
 
 ### P - Reproducible performance acceptance
 
@@ -2231,6 +2487,10 @@ design pass. A contradiction reopens the owning M phase.
 - Consolidate the winning design into public docs, retain useful exploration
   history, and delete temporary execution/recovery plans only after the final
   checkpoint is independently recoverable.
+- Record the project owner's explicit external-review decision after the final
+  authority/effect/chain scope is frozen: either the selected independent
+  review scope and owner, or the rationale and residual risk for declining it.
+  Automated internal proofs cannot silently make this governance decision.
 
 ## 14. Strengthened execution discipline
 
@@ -2280,6 +2540,25 @@ The following gates correct the process failures in section 2:
     distinguish a model gap, production refinement bug and trusted-boundary
     failure. Any drift reopens the owning M phase before code continues; it
     never creates a compensating flag, retry or repair structure.
+15. **Superseded decisions are explicit.** Every durable decision has a stable
+    identifier. Replacing it records `SUPERSEDED BY <identifier>` and leaves
+    exactly one current owner; restart recovery never infers the latest rule
+    from narrative order. The normative plan is current authority and
+    `.release-progress` is append-only evidence, not a competing decision
+    source.
+16. **Model changes are reviewed at the change checkpoint.** Any semantic
+    change under `src/tests/model/` or `formal/` records the affected law,
+    premise and observation (or proves a mechanical no-semantic-change move),
+    reruns its negative falsifier and the section 3.8 questions before the
+    checkpoint. A commit-message token is useful review metadata but is not a
+    correctness gate; path-triggered generated bindings, tests and model-delta
+    evidence are the gate.
+17. **Release surfaces are evidence graph nodes.** Public RPC documentation,
+    per-crate changelogs, default configuration templates, supported migration
+    notes and invoked deployment smoke commands are derived review targets,
+    not manual afterthoughts. CI rejects a changed compatibility/configuration/
+    persistence term that has no owning release surface; it must not infer a
+    semantic claim merely from a changelog sentence.
 
 ## 15. Mandatory acceptance observations
 
@@ -2458,15 +2737,16 @@ this section records semantic adjudication and later refinement debt only.
 
 ## 17. Exact next action
 
-Execute M3 without production semantic edits or timing experiments:
+Execute the remaining M3 roadmap without production semantic edits or timing
+experiments:
 
-1. generate the bidirectional extraction/refinement inventory for every model
+1. **M3.1 complete:** generate the bidirectional extraction/refinement inventory for every model
    command, state, capability, ordinary disposition, fault, effect and boundary
    handoff against current production constructors and consumers;
-2. differentially enumerate the bounded footprint universe and require exact
+2. **M3.2 complete:** differentially enumerate the bounded footprint universe and require exact
    pointwise model/production classification, including every coupled fallback
    edge rather than only representative examples;
-3. replay all 28 section 16 rows through closed producer-specific result
+3. **M3.3 active:** replay all 28 section 16 rows through closed producer-specific result
    algebras and generated fault/task/capability reachability checks; the four
    legal-input fail-stop paths must close in M3 or force a narrow pre-topology
    correction;

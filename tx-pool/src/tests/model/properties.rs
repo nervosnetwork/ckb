@@ -32,11 +32,11 @@ use super::{
     },
     state::{
         AcceptedStatus, ApplyStamp, CapabilityId, CellId, ChainView, DirectKind, DirectRequestId,
-        EntryVersion, HeaderId, LogicalEffect, MembershipRejection, MissingDependencies,
-        ModelInvariantError, ModelLimits, MonotonicTick, Omega, OwnerLocation, PeerId,
-        PoolGeneration, ProposalBase, RemoteDeadline, RemoteResidency, ResolvedEvidence,
-        ResourceVector, RetainedOwner, RetainedPhase, RetainedSource, RulesId, Transaction, TxId,
-        ViewId, WitnessId, WorkKind, WorkStage,
+        EffectBatchBound, EffectCapacity, EffectClaimSource, EffectUsage, EntryVersion, HeaderId,
+        LogicalEffect, MembershipRejection, MissingDependencies, ModelInvariantError, ModelLimits,
+        MonotonicTick, Omega, OwnerLocation, PeerId, PoolGeneration, ProposalBase, RemoteDeadline,
+        RemoteResidency, ResolvedEvidence, ResourceVector, RetainedOwner, RetainedPhase,
+        RetainedSource, RulesId, Transaction, TxId, ViewId, WitnessId, WorkKind, WorkStage,
     },
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -703,7 +703,11 @@ fn model_generation_replacement_clears_owners_and_leaves_only_bounded_stale_capa
     assert!(omega.authority.chain.revision > revision);
     assert!(omega.linear.work.contains_key(&capability));
     assert_eq!(
-        omega.authority.effects.back().map(|effect| &effect.logical),
+        omega
+            .authority
+            .latest_generation_reset
+            .as_ref()
+            .map(|effect| &effect.logical),
         Some(&LogicalEffect::GenerationReset)
     );
     assert_eq!(omega.check_invariants(), Ok(()));
@@ -1020,6 +1024,93 @@ fn model_effect_claim_remains_bound_to_the_head_across_later_commits() {
 }
 
 #[test]
+fn model_generation_reset_claim_is_superseded_without_mutating_authority() {
+    let mut omega = model();
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::ReplaceGeneration { view: ViewId(2) }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::GenerationReplaced { .. },
+            ..
+        }
+    ));
+    assert!(omega.authority.effects.is_empty());
+    assert_eq!(omega.effect_usage(), Some(EffectUsage::default()));
+
+    let old_reset = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected generation-reset claim, got {other:?}"),
+    };
+    assert_eq!(old_reset.source, EffectClaimSource::GenerationReset);
+
+    assert!(omega.append_effect_fixture(
+        super::state::EffectClass::Trusted,
+        vec![LogicalEffect::IngressReleased(TxId(1))],
+    ));
+    let queued_stamp = omega
+        .authority
+        .effects
+        .front()
+        .map(|effect| effect.stamp)
+        .expect("the ordinary fixture creates one queued record");
+    assert!(queued_stamp > old_reset.stamp);
+
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::ReplaceGeneration { view: ViewId(3) }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::GenerationReplaced { .. },
+            ..
+        }
+    ));
+    let latest_reset = omega
+        .authority
+        .latest_generation_reset
+        .as_ref()
+        .map(|reset| reset.stamp)
+        .expect("the newer generation reset remains resident");
+    assert!(latest_reset > queued_stamp);
+    assert_eq!(omega.linear.effect_claim, Some(old_reset));
+    assert_eq!(omega.check_invariants(), Ok(()));
+
+    let authority_before_superseded_settlement = omega.authority.clone();
+    assert_eq!(
+        omega.kernel_step(KernelCommand::SettleEffect(old_reset)),
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectSuperseded(old_reset))
+    );
+    assert_eq!(omega.authority, authority_before_superseded_settlement);
+    assert_eq!(omega.linear.effect_claim, None);
+
+    let queued = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected queued-effect claim, got {other:?}"),
+    };
+    assert_eq!(queued.source, EffectClaimSource::Queued);
+    assert_eq!(queued.stamp, queued_stamp);
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::SettleEffect(queued)),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::EffectSettled(observed),
+            ..
+        } if observed == queued
+    ));
+
+    let current_reset = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected current generation-reset claim, got {other:?}"),
+    };
+    assert_eq!(current_reset.source, EffectClaimSource::GenerationReset);
+    assert_eq!(current_reset.stamp, latest_reset);
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::SettleEffect(current_reset)),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::EffectSettled(observed),
+            ..
+        } if observed == current_reset
+    ));
+    assert!(!omega.has_pending_effects());
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
 fn model_invariant_detects_a_computing_owner_without_its_capability() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
@@ -1036,8 +1127,7 @@ fn model_invariant_detects_a_computing_owner_without_its_capability() {
 #[test]
 fn model_startup_rejects_an_effect_partition_smaller_than_one_indivisible_batch() {
     let mut limits = ModelLimits::small();
-    limits.effect_records = 3;
-    limits.effect_bytes = 12;
+    limits.effects.remote_bound = EffectBatchBound::new(3, 12);
     let mut system = SystemState::constructing(ProtocolLimits::small());
     assert_eq!(
         system.step(SystemEvent::Assemble {
@@ -1064,16 +1154,17 @@ fn model_startup_effect_bound_covers_mixed_payload_and_dependency_publication() 
     };
 
     let mut rejected = limits;
-    rejected.effect_records = records;
-    rejected.effect_bytes = too_small;
+    rejected.effects.trusted_bound = EffectBatchBound::new(records, too_small);
     assert!(matches!(
         rejected.validate(),
         Err(super::state::ConfigurationError::IndivisibleEffectBatch)
     ));
 
     let mut exact = limits;
-    exact.effect_records = records;
-    exact.effect_bytes = bytes;
+    let exact_bound = EffectBatchBound::new(records, bytes);
+    exact.effects.remote_bound = exact_bound;
+    exact.effects.trusted_bound = exact_bound;
+    exact.effects.critical_bound = exact_bound;
     assert!(exact.validate().is_ok());
 }
 
@@ -4062,18 +4153,21 @@ fn model_per_peer_resource_exclusion_is_pre_apply_and_other_peers_remain_indepen
 #[test]
 fn model_effect_capacity_wait_is_mutation_free_and_keeps_the_ready_owner() {
     let mut limits = ModelLimits::small();
-    limits.effect_records = limits
-        .owners
-        .entries
-        .checked_add(1)
-        .expect("the small model effect bound is representable");
+    limits.effects.remote.batches = 1;
+    limits.effects.trusted_headroom.batches = 4;
+    let ordinary_batches = limits
+        .effects
+        .remote
+        .batches
+        .checked_add(limits.effects.trusted_headroom.batches)
+        .expect("the small ordinary batch partition is representable");
     let validated = limits
         .validate()
         .expect("the journal holds the largest owner-derived effect batch");
     let mut omega = Omega::new(validated, ViewId(1), RulesId(1));
     let second = Transaction::independent(2, 2, 11, 21);
 
-    for index in 0..limits.effect_records {
+    for index in 0..ordinary_batches {
         let transaction = Transaction::independent(
             10 + u8::try_from(index).expect("small model record count"),
             10 + u8::try_from(index).expect("small model record count"),
@@ -4098,10 +4192,7 @@ fn model_effect_capacity_wait_is_mutation_free_and_keeps_the_ready_owner() {
             }
         ));
     }
-    assert_eq!(
-        omega.authority.effects.len(),
-        usize::from(limits.effect_records)
-    );
+    assert_eq!(omega.authority.effects.len(), usize::from(ordinary_batches));
     drive_ready(&mut omega, &second, 8);
     let before = omega.clone();
     assert_eq!(
@@ -4116,8 +4207,28 @@ fn model_effect_capacity_wait_is_mutation_free_and_keeps_the_ready_owner() {
 
 #[test]
 fn model_effect_payload_bytes_can_saturate_before_record_count() {
-    let limits = ModelLimits::small();
-    let mut omega = model();
+    let mut limits = ModelLimits::small();
+    let Some((largest_batch_effects, largest_batch_bytes)) =
+        limits.largest_indivisible_effect_batch()
+    else {
+        panic!("the small model effect bound is representable")
+    };
+    let ordinary_bytes = 192u32;
+    limits.effects.remote.bytes = largest_batch_bytes;
+    limits.effects.trusted_headroom.bytes = ordinary_bytes
+        .checked_sub(largest_batch_bytes)
+        .expect("the byte-saturation fixture covers one indivisible batch");
+    let batch_bound = EffectBatchBound::new(largest_batch_effects, largest_batch_bytes);
+    limits.effects.remote_bound = batch_bound;
+    limits.effects.trusted_bound = batch_bound;
+    limits.effects.critical_bound = batch_bound;
+    let mut omega = Omega::new(
+        limits
+            .validate()
+            .expect("the byte-saturation fixture keeps every batch representable"),
+        ViewId(1),
+        RulesId(1),
+    );
     for index in 0..3u16 {
         let byte = u8::try_from(index).expect("three fixtures fit u8");
         let mut transaction = Transaction::independent(10 + byte, 10 + byte, 30 + byte, 40 + byte);
@@ -4140,7 +4251,14 @@ fn model_effect_payload_bytes_can_saturate_before_record_count() {
             }
         ));
     }
-    assert_eq!(omega.effect_usage(), Some((3, limits.effect_bytes)));
+    assert_eq!(
+        omega.effect_usage(),
+        Some(EffectUsage {
+            remote: EffectCapacity::default(),
+            ordinary: EffectCapacity::new(3, ordinary_bytes),
+            total: EffectCapacity::new(3, ordinary_bytes),
+        })
+    );
 
     let candidate = Transaction::independent(1, 1, 10, 20);
     drive_ready(&mut omega, &candidate, 7);
@@ -4152,7 +4270,86 @@ fn model_effect_payload_bytes_can_saturate_before_record_count() {
         &KernelDisposition::EffectCapacityWait(candidate.id)
     );
     assert_eq!(omega, before);
-    assert!(omega.authority.effects.len() < usize::from(limits.effect_records));
+    let ordinary_batches = limits.effects.remote.batches + limits.effects.trusted_headroom.batches;
+    assert!(omega.authority.effects.len() < usize::from(ordinary_batches));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_effect_regions_preserve_trusted_and_critical_headroom() {
+    let mut omega = model();
+    let limits = omega.authority.limits.effects;
+    let remote_effect = vec![LogicalEffect::IngressReleased(TxId(200))];
+    let trusted_effect = vec![LogicalEffect::IngressReleased(TxId(201))];
+    let critical_effect = vec![LogicalEffect::PeerCohortRevoked(PeerId(9))];
+
+    let mut remote_batches = 0u16;
+    while omega.append_effect_fixture(super::state::EffectClass::Remote, remote_effect.clone()) {
+        remote_batches += 1;
+    }
+    assert_eq!(remote_batches, limits.remote.batches);
+    assert!(omega.can_append_effects(super::state::EffectClass::Trusted, &trusted_effect));
+    assert!(!omega.can_append_effects(super::state::EffectClass::Remote, &remote_effect));
+
+    let mut trusted_batches = 0u16;
+    while omega.append_effect_fixture(super::state::EffectClass::Trusted, trusted_effect.clone()) {
+        trusted_batches += 1;
+    }
+    assert_eq!(trusted_batches, limits.trusted_headroom.batches);
+    assert!(omega.can_append_effects(super::state::EffectClass::Critical, &critical_effect));
+    assert!(!omega.can_append_effects(super::state::EffectClass::Trusted, &trusted_effect));
+
+    let mut critical_batches = 0u16;
+    while omega.append_effect_fixture(super::state::EffectClass::Critical, critical_effect.clone())
+    {
+        critical_batches += 1;
+    }
+    assert_eq!(critical_batches, limits.critical_headroom.batches);
+    assert!(!omega.can_append_effects(super::state::EffectClass::Critical, &critical_effect));
+    let usage_before_reset = omega.effect_usage();
+    let reset = vec![LogicalEffect::GenerationReset];
+    assert!(omega.can_append_effects(super::state::EffectClass::Critical, &reset));
+    assert!(omega.append_effect_fixture(super::state::EffectClass::Critical, reset));
+    assert_eq!(omega.effect_usage(), usage_before_reset);
+    assert!(omega.authority.latest_generation_reset.is_some());
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_partially_settled_effect_batch_retains_its_full_capacity_charge() {
+    let mut omega = model();
+    let effects = vec![
+        LogicalEffect::IngressReleased(TxId(200)),
+        LogicalEffect::IngressReleased(TxId(201)),
+    ];
+    assert!(omega.append_effect_fixture(super::state::EffectClass::Trusted, effects));
+    let charged = EffectUsage {
+        remote: EffectCapacity::default(),
+        ordinary: EffectCapacity::new(1, 8),
+        total: EffectCapacity::new(1, 8),
+    };
+    assert_eq!(omega.effect_usage(), Some(charged));
+
+    let first = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected first effect claim, got {other:?}"),
+    };
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::SettleEffect(first)),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    assert_eq!(omega.effect_usage(), Some(charged));
+    assert_eq!(omega.check_invariants(), Ok(()));
+
+    let second = match omega.kernel_step(KernelCommand::ClaimEffect) {
+        KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim)) => claim,
+        other => panic!("expected second effect claim, got {other:?}"),
+    };
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::SettleEffect(second)),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    assert_eq!(omega.effect_usage(), Some(EffectUsage::default()));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -5556,6 +5753,7 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
         reconcile_view(state.authority.chain, ViewId(2)),
         KernelCommand::ClaimEffect,
         KernelCommand::SettleEffect(super::state::EffectClaim {
+            source: super::state::EffectClaimSource::Queued,
             stamp: ApplyStamp(1),
             ordinal: 0,
         }),
@@ -5681,8 +5879,9 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
         }));
         commands.push(KernelCommand::CancelCapability(capability.id));
     }
-    if let Some(effect) = state.authority.effects.front() {
+    if let Some((source, effect)) = state.next_effect_record() {
         commands.push(KernelCommand::SettleEffect(super::state::EffectClaim {
+            source,
             stamp: effect.stamp,
             ordinal: effect.ordinal,
         }));

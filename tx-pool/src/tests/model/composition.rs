@@ -10,12 +10,12 @@ use super::permit::{
     PermitRequestDisposition, PermitRequestId, RetainedPermitToken,
 };
 use super::state::{
-    ApplyStamp, Arrival, CapabilityId, CellId, EntryVersion, EvidenceContext,
-    FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect, ModelInvariantError, Omega,
-    Owner, OwnerLocation, ProposalId, ResolvedEvidence, ResourceVector, RetainedOwner,
-    RetainedPhase, Source, Transaction, TxId, WorkCapability,
+    ApplyStamp, Arrival, CapabilityId, CellId, EffectClass, EffectRecord, EntryVersion,
+    EvidenceContext, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
+    ModelInvariantError, Omega, Owner, OwnerLocation, ProposalId, ResolvedEvidence, ResourceVector,
+    RetainedOwner, RetainedPhase, Source, Transaction, TxId, WorkCapability,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RelationKind {
@@ -49,6 +49,7 @@ pub(super) enum CouplingReason {
         kind: RelationKind,
     },
     AcceptedCapacity(TxId),
+    EffectClassBoundary(TxId),
     EffectCapacity(TxId),
     Arithmetic,
 }
@@ -520,6 +521,7 @@ pub(super) struct DynamicFootprint {
     pub(super) pool_reads: BTreeMap<CellId, TxId>,
     pub(super) charge: ResourceVector,
     pub(super) effect: LogicalEffect,
+    pub(super) effect_class: EffectClass,
 }
 
 impl DynamicFootprint {
@@ -579,6 +581,7 @@ impl DynamicFootprint {
             pool_reads,
             charge,
             effect,
+            effect_class: source.effect_class(),
         })
     }
 }
@@ -935,20 +938,11 @@ pub(super) fn analyze_ready_prefix(omega: &Omega, limit: usize) -> ReadyComposit
             };
         }
     };
-    let Some((effect_records, used_effect_bytes)) = omega.effect_usage() else {
-        return ReadyComposition {
-            class: CohortClass::Coupled(CouplingReason::Arithmetic),
-            prefix: Vec::new(),
-            stopped_by: Some(CouplingReason::Arithmetic),
-            cost,
-        };
-    };
-
     let mut candidates = CandidateIndex::default();
     let mut prefix = Vec::new();
     let mut prefix_charge = ResourceVector::ZERO;
-    let mut prefix_effect_records = 0u16;
-    let mut prefix_effect_bytes = 0u32;
+    let mut prefix_effect_class = None;
+    let mut prefix_effects = Vec::with_capacity(limit);
     let mut stopped_by = None;
     for id in omega.ready_order().into_iter().take(limit) {
         let Some(owner) = omega.authority.owners.get(&id) else {
@@ -982,6 +976,10 @@ pub(super) fn analyze_ready_prefix(omega: &Omega, limit: usize) -> ReadyComposit
             stopped_by = Some(reason);
             break;
         }
+        if prefix_effect_class.is_some_and(|effect_class| effect_class != footprint.effect_class) {
+            stopped_by = Some(CouplingReason::EffectClassBoundary(footprint.transaction));
+            break;
+        }
         let Some(next_charge) = prefix_charge.checked_add(footprint.charge) else {
             stopped_by = Some(CouplingReason::Arithmetic);
             break;
@@ -993,25 +991,9 @@ pub(super) fn analyze_ready_prefix(omega: &Omega, limit: usize) -> ReadyComposit
             stopped_by = Some(CouplingReason::AcceptedCapacity(footprint.transaction));
             break;
         }
-        let Some(next_records) = prefix_effect_records.checked_add(1) else {
-            stopped_by = Some(CouplingReason::Arithmetic);
-            break;
-        };
-        let Some(candidate_effect_bytes) = footprint.effect.charge_bytes() else {
-            stopped_by = Some(CouplingReason::Arithmetic);
-            break;
-        };
-        let Some(next_bytes) = prefix_effect_bytes.checked_add(candidate_effect_bytes) else {
-            stopped_by = Some(CouplingReason::Arithmetic);
-            break;
-        };
-        if effect_records
-            .checked_add(next_records)
-            .is_none_or(|records| records > omega.authority.limits.effect_records)
-            || used_effect_bytes
-                .checked_add(next_bytes)
-                .is_none_or(|bytes| bytes > omega.authority.limits.effect_bytes)
-        {
+        prefix_effects.push(footprint.effect.clone());
+        if !omega.can_append_effects(footprint.effect_class, &prefix_effects) {
+            prefix_effects.pop();
             stopped_by = Some(CouplingReason::EffectCapacity(footprint.transaction));
             break;
         }
@@ -1024,8 +1006,7 @@ pub(super) fn analyze_ready_prefix(omega: &Omega, limit: usize) -> ReadyComposit
             break;
         }
         prefix_charge = next_charge;
-        prefix_effect_records = next_records;
-        prefix_effect_bytes = next_bytes;
+        prefix_effect_class = Some(footprint.effect_class);
         prefix.push(footprint);
     }
 
@@ -1178,6 +1159,13 @@ fn compact_live_stamps(
         .effects
         .iter()
         .map(|effect| effect.stamp)
+        .chain(
+            omega
+                .authority
+                .latest_generation_reset
+                .iter()
+                .map(|reset| reset.stamp),
+        )
         .chain(omega.authority.peer_bans.values().map(|ban| ban.order))
         .chain(omega.linear.effect_claim.map(|claim| claim.stamp))
         .collect::<BTreeSet<_>>();
@@ -1197,6 +1185,11 @@ fn compact_live_stamps(
     for effect in &mut omega.authority.effects {
         effect.stamp = *original_to_compact
             .get(&effect.stamp)
+            .ok_or(BatchPlanError::StampNormalization)?;
+    }
+    if let Some(reset) = &mut omega.authority.latest_generation_reset {
+        reset.stamp = *original_to_compact
+            .get(&reset.stamp)
             .ok_or(BatchPlanError::StampNormalization)?;
     }
     for ban in omega.authority.peer_bans.values_mut() {
@@ -1230,6 +1223,11 @@ fn restore_collapsed_stamps(
                 .get(&effect.stamp)
                 .ok_or(BatchPlanError::StampNormalization)?;
         }
+        if let Some(reset) = &mut planned.authority.latest_generation_reset {
+            reset.stamp = *compact_to_original
+                .get(&reset.stamp)
+                .ok_or(BatchPlanError::StampNormalization)?;
+        }
         for ban in planned.authority.peer_bans.values_mut() {
             ban.order = *compact_to_original
                 .get(&ban.order)
@@ -1252,18 +1250,37 @@ fn restore_collapsed_stamps(
             .checked_add(1)
             .ok_or(BatchPlanError::CounterExhausted)?,
     );
-    let mut next_ordinal = 0u16;
-    for effect in &mut planned.authority.effects {
+    let mut retained_effects = VecDeque::with_capacity(planned.authority.effects.len());
+    let mut collapsed_class = None;
+    let mut collapsed_effects = Vec::new();
+    for mut effect in std::mem::take(&mut planned.authority.effects) {
         if effect.stamp <= compact_cut {
             effect.stamp = *compact_to_original
                 .get(&effect.stamp)
                 .ok_or(BatchPlanError::StampNormalization)?;
+            retained_effects.push_back(effect);
+            continue;
+        }
+        if collapsed_class.is_some_and(|class| class != effect.class) {
+            return Err(BatchPlanError::UnsupportedCommand);
+        }
+        collapsed_class = Some(effect.class);
+        collapsed_effects.push(effect.logical);
+    }
+    if let Some(class) = collapsed_class {
+        retained_effects.extend(
+            EffectRecord::from_batch(stamp, class, collapsed_effects)
+                .ok_or(BatchPlanError::CounterExhausted)?,
+        );
+    }
+    planned.authority.effects = retained_effects;
+    if let Some(reset) = &mut planned.authority.latest_generation_reset {
+        if reset.stamp <= compact_cut {
+            reset.stamp = *compact_to_original
+                .get(&reset.stamp)
+                .ok_or(BatchPlanError::StampNormalization)?;
         } else {
-            effect.stamp = stamp;
-            effect.ordinal = next_ordinal;
-            next_ordinal = next_ordinal
-                .checked_add(1)
-                .ok_or(BatchPlanError::CounterExhausted)?;
+            return Err(BatchPlanError::UnsupportedCommand);
         }
     }
     for ban in planned.authority.peer_bans.values_mut() {

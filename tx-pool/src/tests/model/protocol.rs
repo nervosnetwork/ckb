@@ -605,7 +605,7 @@ impl SystemState {
             || !authority.linear.finished_work.is_empty()
             || !authority.linear.direct_work.is_empty()
             || authority.linear.effect_claim.is_some()
-            || !authority.authority.effects.is_empty()
+            || authority.has_pending_effects()
         {
             return SystemDisposition::DrainPending;
         }

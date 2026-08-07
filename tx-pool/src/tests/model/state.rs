@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+};
 
 pub(super) const EFFECT_ENVELOPE_BYTES: u32 = 4;
 const EFFECT_ID_BYTES: u32 = 1;
@@ -35,6 +38,40 @@ pub(super) struct ApplyStamp(pub(super) u16);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct Arrival(pub(super) u16);
+
+/// Exact semantic order of production's Ready frontier, represented in
+/// strongest-first order for the reference model. `TxId` is the finite-domain
+/// abstraction of the raw transaction hash, and `Transaction::bytes` is the
+/// extraction of the verified serialized-byte metric at this cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ReadyKey {
+    pub(super) source_priority: u8,
+    pub(super) fee: u64,
+    pub(super) serialized_bytes: u32,
+    pub(super) arrival: Arrival,
+    pub(super) transaction: TxId,
+    pub(super) version: EntryVersion,
+}
+
+impl Ord for ReadyKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let left_rate = u128::from(self.fee) * u128::from(other.serialized_bytes);
+        let right_rate = u128::from(other.fee) * u128::from(self.serialized_bytes);
+        self.source_priority
+            .cmp(&other.source_priority)
+            .then_with(|| right_rate.cmp(&left_rate))
+            .then_with(|| other.fee.cmp(&self.fee))
+            .then_with(|| self.arrival.cmp(&other.arrival))
+            .then_with(|| self.transaction.cmp(&other.transaction))
+            .then_with(|| other.version.cmp(&self.version))
+    }
+}
+
+impl PartialOrd for ReadyKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct CapabilityId(pub(super) u16);
@@ -118,6 +155,164 @@ impl ResourceVector {
     }
 }
 
+/// Semantic publication class for one immutable committed-effect batch.
+///
+/// The class is selected by the command authority, not reconstructed from an
+/// effect's audience: a Proposal promoted from Remote remains attributable to
+/// its peer while consuming trusted publication headroom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum EffectClass {
+    Remote,
+    Trusted,
+    Critical,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) struct EffectCapacity {
+    pub(super) batches: u16,
+    pub(super) bytes: u32,
+}
+
+impl EffectCapacity {
+    pub(super) const fn new(batches: u16, bytes: u32) -> Self {
+        Self { batches, bytes }
+    }
+
+    fn checked_add(self, other: Self) -> Option<Self> {
+        Some(Self {
+            batches: self.batches.checked_add(other.batches)?,
+            bytes: self.bytes.checked_add(other.bytes)?,
+        })
+    }
+
+    fn fits(self, limit: Self) -> bool {
+        self.batches <= limit.batches && self.bytes <= limit.bytes
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct EffectBatchBound {
+    pub(super) effects: u16,
+    pub(super) bytes: u32,
+}
+
+impl EffectBatchBound {
+    pub(super) const fn new(effects: u16, bytes: u32) -> Self {
+        Self { effects, bytes }
+    }
+}
+
+/// Partitioned committed-effect capacity. `trusted_headroom` extends the
+/// ordinary region without being available to Remote work; critical headroom
+/// extends only the total region. This is the mathematical counterpart of the
+/// production journal's three nested regions, not a second scheduling policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct EffectLimits {
+    pub(super) remote: EffectCapacity,
+    pub(super) trusted_headroom: EffectCapacity,
+    pub(super) critical_headroom: EffectCapacity,
+    pub(super) remote_bound: EffectBatchBound,
+    pub(super) trusted_bound: EffectBatchBound,
+    pub(super) critical_bound: EffectBatchBound,
+}
+
+impl EffectLimits {
+    pub(super) const fn small() -> Self {
+        Self {
+            remote: EffectCapacity::new(8, 1_536),
+            trusted_headroom: EffectCapacity::new(4, 768),
+            critical_headroom: EffectCapacity::new(1, 192),
+            remote_bound: EffectBatchBound::new(5, 192),
+            trusted_bound: EffectBatchBound::new(5, 192),
+            critical_bound: EffectBatchBound::new(5, 192),
+        }
+    }
+
+    pub(super) const fn bound(self, class: EffectClass) -> EffectBatchBound {
+        match class {
+            EffectClass::Remote => self.remote_bound,
+            EffectClass::Trusted => self.trusted_bound,
+            EffectClass::Critical => self.critical_bound,
+        }
+    }
+
+    fn ordinary(self) -> Option<EffectCapacity> {
+        self.remote.checked_add(self.trusted_headroom)
+    }
+
+    fn total(self) -> Option<EffectCapacity> {
+        self.ordinary()?.checked_add(self.critical_headroom)
+    }
+
+    fn validates(self, largest_effects: u16, largest_bytes: u32) -> bool {
+        let Some(ordinary) = self.ordinary() else {
+            return false;
+        };
+        let Some(total) = self.total() else {
+            return false;
+        };
+        if self.remote.batches == 0
+            || self.remote.bytes == 0
+            || ordinary.batches == 0
+            || ordinary.bytes == 0
+            || total.batches == 0
+            || total.bytes == 0
+        {
+            return false;
+        }
+        [self.remote_bound, self.trusted_bound, self.critical_bound]
+            .into_iter()
+            .all(|bound| {
+                bound.effects >= largest_effects
+                    && bound.bytes >= largest_bytes
+                    && bound.effects != 0
+                    && bound.bytes != 0
+            })
+            && self.remote_bound.bytes <= self.remote.bytes
+            && self.trusted_bound.bytes <= ordinary.bytes
+            && self.critical_bound.bytes <= total.bytes
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) struct EffectUsage {
+    pub(super) remote: EffectCapacity,
+    pub(super) ordinary: EffectCapacity,
+    pub(super) total: EffectCapacity,
+}
+
+impl EffectUsage {
+    fn checked_charge(self, class: EffectClass, bytes: u32) -> Option<Self> {
+        let batch = EffectCapacity::new(1, bytes);
+        Some(match class {
+            EffectClass::Remote => Self {
+                remote: self.remote.checked_add(batch)?,
+                ordinary: self.ordinary.checked_add(batch)?,
+                total: self.total.checked_add(batch)?,
+            },
+            EffectClass::Trusted => Self {
+                ordinary: self.ordinary.checked_add(batch)?,
+                total: self.total.checked_add(batch)?,
+                ..self
+            },
+            EffectClass::Critical => Self {
+                total: self.total.checked_add(batch)?,
+                ..self
+            },
+        })
+    }
+
+    fn fits(self, limits: EffectLimits) -> bool {
+        let Some(ordinary) = limits.ordinary() else {
+            return false;
+        };
+        let Some(total) = limits.total() else {
+            return false;
+        };
+        self.remote.fits(limits.remote) && self.ordinary.fits(ordinary) && self.total.fits(total)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ModelLimits {
     pub(super) owners: ResourceVector,
@@ -125,8 +320,7 @@ pub(super) struct ModelLimits {
     pub(super) accepted: ResourceVector,
     pub(super) replacement_history: ResourceVector,
     pub(super) remote_per_peer: ResourceVector,
-    pub(super) effect_records: u16,
-    pub(super) effect_bytes: u32,
+    pub(super) effects: EffectLimits,
     pub(super) compute_permits: u16,
     pub(super) peer_ban_fences: u16,
     pub(super) peer_ban_duration: u64,
@@ -160,8 +354,7 @@ impl ModelLimits {
                 bytes: 32,
                 edges: 8,
             },
-            effect_records: 8,
-            effect_bytes: 192,
+            effects: EffectLimits::small(),
             compute_permits: 2,
             peer_ban_fences: 2,
             peer_ban_duration: 10,
@@ -188,8 +381,6 @@ impl ModelLimits {
     pub(super) fn validate(self) -> Result<ValidatedLimits, ConfigurationError> {
         if self.compute_permits == 0
             || self.owners.entries == 0
-            || self.effect_records == 0
-            || self.effect_bytes == 0
             || self.peer_ban_fences == 0
             || self.peer_ban_duration == 0
         {
@@ -200,8 +391,9 @@ impl ModelLimits {
         else {
             return Err(ConfigurationError::IndivisibleEffectBatch);
         };
-        if largest_effect_batch_records > self.effect_records
-            || largest_effect_batch_bytes > self.effect_bytes
+        if !self
+            .effects
+            .validates(largest_effect_batch_records, largest_effect_batch_bytes)
         {
             return Err(ConfigurationError::IndivisibleEffectBatch);
         }
@@ -344,6 +536,15 @@ impl Source {
             Self::Recovery(_) => 0,
             Self::Proposal { .. } => 1,
             Self::Remote(_) => 2,
+        }
+    }
+
+    /// Effect control follows the current command authority. Immutable peer
+    /// attribution is deliberately not used for capacity selection.
+    pub(super) const fn effect_class(self) -> EffectClass {
+        match self {
+            Self::Remote(_) => EffectClass::Remote,
+            Self::Recovery(_) | Self::Proposal { .. } => EffectClass::Trusted,
         }
     }
 
@@ -875,7 +1076,64 @@ impl LogicalEffect {
 pub(super) struct EffectRecord {
     pub(super) stamp: ApplyStamp,
     pub(super) ordinal: u16,
+    pub(super) class: EffectClass,
+    /// Immutable batch metadata is repeated on each logical record so partial
+    /// endpoint progress cannot release journal capacity before the batch's
+    /// final record settles.
+    pub(super) batch_effects: u16,
+    pub(super) batch_bytes: u32,
     pub(super) logical: LogicalEffect,
+}
+
+impl EffectRecord {
+    pub(super) fn batch_shape(effects: &[LogicalEffect]) -> Option<(u16, u32)> {
+        let count = u16::try_from(effects.len()).ok()?;
+        let bytes = effects.iter().try_fold(0u32, |used, effect| {
+            used.checked_add(effect.charge_bytes()?)
+        })?;
+        Some((count, bytes))
+    }
+
+    /// Sealed model constructor for one immutable publication batch.
+    ///
+    /// Repeating the full batch shape on every remaining record is what keeps
+    /// a partially consumed batch charged as one indivisible journal unit.
+    pub(super) fn from_batch(
+        stamp: ApplyStamp,
+        class: EffectClass,
+        effects: Vec<LogicalEffect>,
+    ) -> Option<Vec<Self>> {
+        if effects.is_empty()
+            || effects
+                .iter()
+                .any(|effect| matches!(effect, LogicalEffect::GenerationReset))
+                && !(class == EffectClass::Critical
+                    && matches!(effects.as_slice(), [LogicalEffect::GenerationReset]))
+        {
+            return None;
+        }
+        let (batch_effects, batch_bytes) = Self::batch_shape(&effects)?;
+        effects
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, logical)| {
+                Some(Self {
+                    stamp,
+                    ordinal: u16::try_from(ordinal).ok()?,
+                    class,
+                    batch_effects,
+                    batch_bytes,
+                    logical,
+                })
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) enum EffectClaimSource {
+    Queued,
+    GenerationReset,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -906,6 +1164,7 @@ pub(super) struct DirectCapability {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct EffectClaim {
+    pub(super) source: EffectClaimSource,
     pub(super) stamp: ApplyStamp,
     pub(super) ordinal: u16,
 }
@@ -916,7 +1175,11 @@ pub(super) struct AuthorityState {
     pub(super) chain: ChainView,
     pub(super) rules: RulesId,
     pub(super) owners: BTreeMap<TxId, Owner>,
+    /// Capacity-charged immutable publication batches in commit order.
     pub(super) effects: VecDeque<EffectRecord>,
+    /// Rebuildable reset publication. A newer reset subsumes the previous
+    /// reset without consuming charged journal capacity.
+    pub(super) latest_generation_reset: Option<EffectRecord>,
     pub(super) peer_bans: BTreeMap<PeerId, PeerBanRecord>,
     pub(super) last_apply: ApplyStamp,
     pub(super) next_version: u16,
@@ -985,6 +1248,7 @@ impl Omega {
                 rules,
                 owners: BTreeMap::new(),
                 effects: VecDeque::new(),
+                latest_generation_reset: None,
                 peer_bans: BTreeMap::new(),
                 last_apply: ApplyStamp(0),
                 next_version: 1,
@@ -1066,16 +1330,137 @@ impl Omega {
             })
     }
 
-    pub(super) fn effect_usage(&self) -> Option<(u16, u32)> {
-        let records = u16::try_from(self.authority.effects.len()).ok()?;
-        let bytes = self
+    pub(super) fn effect_batch_shape(effects: &[LogicalEffect]) -> Option<(u16, u32)> {
+        EffectRecord::batch_shape(effects)
+    }
+
+    pub(super) fn can_append_effects(&self, class: EffectClass, effects: &[LogicalEffect]) -> bool {
+        if effects.is_empty() {
+            return true;
+        }
+        if !self.can_append_effects_against_empty_bound(class, effects) {
+            return false;
+        }
+        if matches!(effects, [LogicalEffect::GenerationReset]) {
+            return true;
+        }
+        let Some((_, bytes)) = Self::effect_batch_shape(effects) else {
+            return false;
+        };
+        self.effect_usage()
+            .and_then(|usage| usage.checked_charge(class, bytes))
+            .is_some_and(|usage| usage.fits(self.authority.limits.effects))
+    }
+
+    /// Injects one otherwise valid committed batch for capacity-bound model
+    /// fixtures. Tests use this instead of hand-building journal records, so
+    /// batch metadata and stamp ordering cannot drift from the model law.
+    pub(super) fn append_effect_fixture(
+        &mut self,
+        class: EffectClass,
+        effects: Vec<LogicalEffect>,
+    ) -> bool {
+        if effects.is_empty() || !self.can_append_effects(class, &effects) {
+            return false;
+        }
+        let Some(stamp) = self.authority.last_apply.0.checked_add(1).map(ApplyStamp) else {
+            return false;
+        };
+        let Some(records) = EffectRecord::from_batch(stamp, class, effects) else {
+            return false;
+        };
+        if !self.install_effect_records(records) {
+            return false;
+        }
+        self.authority.last_apply = stamp;
+        true
+    }
+
+    fn can_append_effects_against_empty_bound(
+        &self,
+        class: EffectClass,
+        effects: &[LogicalEffect],
+    ) -> bool {
+        if matches!(effects, [LogicalEffect::GenerationReset]) {
+            return class == EffectClass::Critical;
+        }
+        if effects.is_empty()
+            || effects
+                .iter()
+                .any(|effect| matches!(effect, LogicalEffect::GenerationReset))
+        {
+            return effects.is_empty();
+        }
+        let Some((count, bytes)) = Self::effect_batch_shape(effects) else {
+            return false;
+        };
+        let bound = self.authority.limits.effects.bound(class);
+        count <= bound.effects && bytes <= bound.bytes
+    }
+
+    pub(super) fn effect_usage(&self) -> Option<EffectUsage> {
+        let mut usage = EffectUsage::default();
+        let mut previous_batch = None;
+        for effect in &self.authority.effects {
+            if previous_batch == Some(effect.stamp) {
+                continue;
+            }
+            previous_batch = Some(effect.stamp);
+            usage = usage.checked_charge(effect.class, effect.batch_bytes)?;
+        }
+        Some(usage)
+    }
+
+    pub(super) fn next_effect_record(&self) -> Option<(EffectClaimSource, &EffectRecord)> {
+        match (
+            self.authority.effects.front(),
+            self.authority.latest_generation_reset.as_ref(),
+        ) {
+            (Some(queued), Some(reset)) if reset.stamp < queued.stamp => {
+                Some((EffectClaimSource::GenerationReset, reset))
+            }
+            (Some(queued), _) => Some((EffectClaimSource::Queued, queued)),
+            (None, Some(reset)) => Some((EffectClaimSource::GenerationReset, reset)),
+            (None, None) => None,
+        }
+    }
+
+    pub(super) fn has_pending_effects(&self) -> bool {
+        !self.authority.effects.is_empty() || self.authority.latest_generation_reset.is_some()
+    }
+
+    pub(super) fn install_effect_records(&mut self, mut records: Vec<EffectRecord>) -> bool {
+        let Some(first) = records.first() else {
+            return false;
+        };
+        let latest_stamp = self
             .authority
             .effects
-            .iter()
-            .try_fold(0u32, |used, effect| {
-                used.checked_add(effect.logical.charge_bytes()?)
-            })?;
-        Some((records, bytes))
+            .back()
+            .map(|effect| effect.stamp)
+            .into_iter()
+            .chain(
+                self.authority
+                    .latest_generation_reset
+                    .as_ref()
+                    .map(|reset| reset.stamp),
+            )
+            .max();
+        if latest_stamp.is_some_and(|latest| latest >= first.stamp) {
+            return false;
+        }
+        if matches!(first.logical, LogicalEffect::GenerationReset) {
+            if records.len() != 1 {
+                return false;
+            }
+            let Some(reset) = records.pop() else {
+                return false;
+            };
+            self.authority.latest_generation_reset = Some(reset);
+        } else {
+            self.authority.effects.extend(records);
+        }
+        true
     }
 
     pub(super) fn check_invariants(&self) -> Result<(), ModelInvariantError> {
@@ -1406,16 +1791,15 @@ impl Omega {
             return Err(ModelInvariantError::CapabilityPermitConservation);
         }
 
-        let Some((records, bytes)) = self.effect_usage() else {
+        let Some(effect_usage) = self.effect_usage() else {
             return Err(ModelInvariantError::EffectCapacity);
         };
-        if records > self.authority.limits.effect_records
-            || bytes > self.authority.limits.effect_bytes
-        {
+        if !effect_usage.fits(self.authority.limits.effects) {
             return Err(ModelInvariantError::EffectCapacity);
         }
         let mut previous = None;
-        for effect in &self.authority.effects {
+        let effects = self.authority.effects.iter().collect::<Vec<_>>();
+        for effect in &effects {
             let key = (effect.stamp, effect.ordinal);
             if effect.stamp.0 == 0
                 || effect.stamp > self.authority.last_apply
@@ -1425,15 +1809,80 @@ impl Omega {
             }
             previous = Some(key);
         }
-        if let Some(claim) = self.linear.effect_claim
-            && self
-                .authority
-                .effects
-                .front()
-                .map(|effect| (effect.stamp, effect.ordinal))
-                != Some((claim.stamp, claim.ordinal))
+        let mut batch_start = 0usize;
+        while batch_start < effects.len() {
+            let first = effects[batch_start];
+            let mut batch_end = batch_start + 1;
+            while batch_end < effects.len() && effects[batch_end].stamp == first.stamp {
+                batch_end += 1;
+            }
+            let batch = &effects[batch_start..batch_end];
+            let remaining_bytes = batch.iter().try_fold(0u32, |used, record| {
+                used.checked_add(record.logical.charge_bytes()?)
+            });
+            let Some(remaining_bytes) = remaining_bytes else {
+                return Err(ModelInvariantError::EffectCapacity);
+            };
+            let bound = self.authority.limits.effects.bound(first.class);
+            let last_ordinal = batch.last().map(|record| record.ordinal);
+            if first.ordinal > 0 && batch_start != 0
+                || batch.iter().enumerate().any(|(offset, record)| {
+                    u16::try_from(offset)
+                        .ok()
+                        .and_then(|offset| first.ordinal.checked_add(offset))
+                        != Some(record.ordinal)
+                        || record.class != first.class
+                        || record.batch_effects != first.batch_effects
+                        || record.batch_bytes != first.batch_bytes
+                })
+                || last_ordinal.and_then(|ordinal| ordinal.checked_add(1))
+                    != Some(first.batch_effects)
+                || first.batch_effects > bound.effects
+                || first.batch_bytes > bound.bytes
+                || remaining_bytes > first.batch_bytes
+                || first.ordinal == 0
+                    && (u16::try_from(batch.len()).ok() != Some(first.batch_effects)
+                        || remaining_bytes != first.batch_bytes)
+                || matches!(first.logical, LogicalEffect::GenerationReset)
+            {
+                return Err(ModelInvariantError::EffectOrder);
+            }
+            batch_start = batch_end;
+        }
+        if let Some(reset) = &self.authority.latest_generation_reset
+            && (reset.stamp.0 == 0
+                || reset.stamp > self.authority.last_apply
+                || reset.ordinal != 0
+                || reset.class != EffectClass::Critical
+                || reset.batch_effects != 1
+                || reset.batch_bytes != 0
+                || !matches!(reset.logical, LogicalEffect::GenerationReset)
+                || effects.iter().any(|effect| effect.stamp == reset.stamp))
         {
-            return Err(ModelInvariantError::EffectClaim);
+            return Err(ModelInvariantError::EffectOrder);
+        }
+        if let Some(claim) = self.linear.effect_claim {
+            let valid = match claim.source {
+                EffectClaimSource::Queued => self.authority.effects.front().is_some_and(|effect| {
+                    (effect.stamp, effect.ordinal) == (claim.stamp, claim.ordinal)
+                }),
+                EffectClaimSource::GenerationReset => {
+                    self.authority
+                        .latest_generation_reset
+                        .as_ref()
+                        .is_some_and(|reset| {
+                            claim.ordinal == 0 && reset.ordinal == 0 && reset.stamp >= claim.stamp
+                        })
+                        && self
+                            .authority
+                            .effects
+                            .front()
+                            .is_none_or(|queued| queued.stamp > claim.stamp)
+                }
+            };
+            if !valid {
+                return Err(ModelInvariantError::EffectClaim);
+            }
         }
         if u16::try_from(self.authority.peer_bans.len())
             .ok()
@@ -1463,16 +1912,18 @@ impl Omega {
                         ..
                     })
                 )
-                .then_some((
-                    owner.retained_source()?.priority(),
-                    std::cmp::Reverse(owner.transaction.fee),
-                    owner.arrival,
-                    owner.transaction.id,
-                ))
+                .then_some(ReadyKey {
+                    source_priority: owner.retained_source()?.priority(),
+                    fee: owner.transaction.fee,
+                    serialized_bytes: owner.transaction.bytes,
+                    arrival: owner.arrival,
+                    transaction: owner.transaction.id,
+                    version: owner.version,
+                })
             })
             .collect::<Vec<_>>();
         ready.sort_unstable();
-        ready.into_iter().map(|(_, _, _, id)| id).collect()
+        ready.into_iter().map(|key| key.transaction).collect()
     }
 
     pub(super) fn queued_order(&self) -> Vec<TxId> {

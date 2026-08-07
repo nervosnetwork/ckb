@@ -405,6 +405,7 @@ pub(super) enum HostileAction {
     AdvanceChain,
     ClaimEffect,
     SettleEffect {
+        source: super::state::EffectClaimSource,
         stamp: ApplyStamp,
         ordinal: u16,
     },
@@ -771,6 +772,7 @@ impl HostileTraceGenerator {
             if let Some(claim) = omega.linear.effect_claim {
                 push_kernel(
                     HostileAction::SettleEffect {
+                        source: claim.source,
                         stamp: claim.stamp,
                         ordinal: claim.ordinal,
                     },

@@ -1,11 +1,11 @@
 use super::state::{
     AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
-    DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectRecord, EntryVersion,
-    FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect, MembershipRejection,
-    MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner, OwnerLocation,
-    PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase, RemoteDeadline,
-    ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId, Source, Transaction,
-    TxId, ViewId, WorkCapability, WorkStage,
+    DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectClaimSource, EffectClass,
+    EffectRecord, EntryVersion, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
+    MembershipRejection, MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner,
+    OwnerLocation, PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase, ReadyKey,
+    RemoteDeadline, ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId,
+    Source, Transaction, TxId, ViewId, WorkCapability, WorkStage,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
@@ -80,15 +80,6 @@ pub(super) struct DirectCompletion {
     pub(super) capability: CapabilityId,
     pub(super) wall_time: u64,
     pub(super) result: DirectWorkResult,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct ReadyKey {
-    source_priority: u8,
-    reverse_fee: std::cmp::Reverse<u64>,
-    arrival: Arrival,
-    transaction: TxId,
-    version: EntryVersion,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -408,6 +399,7 @@ pub(super) enum KernelDisposition {
     },
     EffectClaimed(EffectClaim),
     EffectSettled(EffectClaim),
+    EffectSuperseded(EffectClaim),
     StaleEffectClaim(EffectClaim),
 }
 
@@ -479,7 +471,7 @@ impl Omega {
             && self.peer_ban_is_active(residency.peer, admission.observed_at)
         {
             let effect = LogicalEffect::IngressReleased(transaction.id);
-            if !self.can_append_effects(std::slice::from_ref(&effect)) {
+            if !self.can_append_effects(EffectClass::Remote, std::slice::from_ref(&effect)) {
                 return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(
                     transaction.id,
                 ));
@@ -488,7 +480,9 @@ impl Omega {
             let Some(stamp) = next.reserve_apply() else {
                 return counter_exhausted();
             };
-            next.append_effect(stamp, 0, effect);
+            if !next.append_effects(EffectClass::Remote, stamp, vec![effect]) {
+                return counter_exhausted();
+            }
             let transaction = transaction.id;
             *self = next;
             return KernelStep::AuthorityCommit {
@@ -760,7 +754,7 @@ impl Omega {
                     );
                 }
                 let effect = LogicalEffect::validation_rejected(&capability.transaction, None);
-                if !self.can_append_effects(std::slice::from_ref(&effect)) {
+                if !self.can_append_effects(EffectClass::Trusted, std::slice::from_ref(&effect)) {
                     return KernelStep::NoAuthorityCommit(
                         KernelDisposition::DirectEffectCapacityWait(capability.request),
                     );
@@ -774,7 +768,9 @@ impl Omega {
                         KernelDisposition::StaleCapabilityRetired(completion.capability),
                     );
                 }
-                next.append_effect(stamp, 0, effect);
+                if !next.append_effects(EffectClass::Trusted, stamp, vec![effect]) {
+                    return counter_exhausted();
+                }
                 *self = next;
                 KernelStep::AuthorityCommit {
                     stamp,
@@ -856,6 +852,12 @@ impl Omega {
     ) -> KernelStep {
         let capability = work.id;
         let current = self.capability_is_current(work);
+        let effect_class = self
+            .authority
+            .owners
+            .get(&work.transaction)
+            .and_then(Owner::retained_source)
+            .map_or(EffectClass::Trusted, Source::effect_class);
         let owner_loss = if current {
             self.owner_loss_plan(&BTreeSet::from([work.transaction]), &BTreeSet::new())
         } else {
@@ -878,7 +880,7 @@ impl Omega {
             return counter_exhausted();
         };
         effect_plan.extend(parent_requests);
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(effect_class, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(
                 work.transaction,
             ));
@@ -894,7 +896,7 @@ impl Omega {
             if !next.apply_owner_loss(&owner_loss) {
                 return counter_exhausted();
             }
-            if !next.append_effects(stamp, effect_plan) {
+            if !next.append_effects(effect_class, stamp, effect_plan) {
                 return counter_exhausted();
             }
             let removed = owner_loss.terminal.iter().copied().collect::<Vec<_>>();
@@ -1030,6 +1032,17 @@ impl Omega {
                 capability.id,
             ));
         }
+        let Some(effect_class) = self
+            .authority
+            .owners
+            .get(&capability.transaction)
+            .and_then(Owner::retained_source)
+            .map(Source::effect_class)
+        else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                capability.id,
+            ));
+        };
 
         let Some(plan) = self.work_completion_plan(capability, &result) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
@@ -1073,8 +1086,8 @@ impl Omega {
             }
             _ => Vec::new(),
         };
-        if (terminal && !self.can_append_effects(&terminal_effects))
-            || !self.can_append_effects(&waiting_effects)
+        if (terminal && !self.can_append_effects(effect_class, &terminal_effects))
+            || !self.can_append_effects(effect_class, &waiting_effects)
         {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(
                 capability.transaction,
@@ -1147,19 +1160,30 @@ impl Omega {
                 KernelDisposition::Waiting(id)
             }
             WorkCompletionPlan::Reject => {
-                if !next.terminalize_owner_loss(stamp, &terminal_loss, terminal_effects) {
+                if !next.terminalize_owner_loss(
+                    effect_class,
+                    stamp,
+                    &terminal_loss,
+                    terminal_effects,
+                ) {
                     return counter_exhausted();
                 }
                 KernelDisposition::Rejected(id)
             }
             WorkCompletionPlan::Invalid => {
-                if !next.terminalize_owner_loss(stamp, &terminal_loss, terminal_effects) {
+                if !next.terminalize_owner_loss(
+                    effect_class,
+                    stamp,
+                    &terminal_loss,
+                    terminal_effects,
+                ) {
                     return counter_exhausted();
                 }
                 KernelDisposition::InvalidEvidenceRejected(id)
             }
         };
-        if !waiting_effects.is_empty() && !next.append_effects(stamp, waiting_effects) {
+        if !waiting_effects.is_empty() && !next.append_effects(effect_class, stamp, waiting_effects)
+        {
             return counter_exhausted();
         }
         *self = next;
@@ -1221,7 +1245,7 @@ impl Omega {
 
     fn finalize_captured(&mut self, capture: ReadyCapture, wall_time: u64) -> KernelStep {
         let current = self.ready_keys();
-        let prefix = capture
+        let mut prefix = capture
             .keys
             .iter()
             .zip(&current)
@@ -1238,6 +1262,26 @@ impl Omega {
         if prefix.len() == 1 {
             return self.finalize_transaction(prefix[0], wall_time);
         }
+        let Some(effect_class) = prefix
+            .first()
+            .and_then(|transaction| self.authority.owners.get(transaction))
+            .and_then(Owner::retained_source)
+            .map(Source::effect_class)
+        else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::ReadyCutChanged);
+        };
+        prefix.truncate(
+            prefix
+                .iter()
+                .take_while(|transaction| {
+                    self.authority
+                        .owners
+                        .get(transaction)
+                        .and_then(Owner::retained_source)
+                        .is_some_and(|source| source.effect_class() == effect_class)
+                })
+                .count(),
+        );
         let mut simulated = self.clone();
         let mut accepted = Vec::new();
         for transaction in prefix {
@@ -1286,7 +1330,9 @@ impl Omega {
                 })
             })
             .collect::<Vec<_>>();
-        if effect_plan.len() != accepted.len() || !next.can_append_effects(&effect_plan) {
+        if effect_plan.len() != accepted.len()
+            || !next.can_append_effects(effect_class, &effect_plan)
+        {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(
                 accepted[0],
             ));
@@ -1318,7 +1364,7 @@ impl Omega {
                 evidence,
             };
         }
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(effect_class, stamp, effect_plan) {
             return counter_exhausted();
         }
         if !next.advance_dependency_and_wake() {
@@ -1355,6 +1401,7 @@ impl Omega {
             return self.requeue_stale_ready(transaction);
         }
         let provenance = source.accepted_provenance();
+        let effect_class = source.effect_class();
         let evidence = evidence.clone();
         let evaluation = self.evaluate_membership_candidate(&owner.transaction, &evidence);
         let rejection_roots = BTreeSet::from([transaction]);
@@ -1371,7 +1418,7 @@ impl Omega {
             };
             effect_plan.append(&mut dependent_effects);
         }
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(effect_class, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(
                 transaction,
             ));
@@ -1433,7 +1480,7 @@ impl Omega {
                 }
             }
         };
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(effect_class, stamp, effect_plan) {
             return counter_exhausted();
         }
         *self = next;
@@ -1695,16 +1742,17 @@ impl Omega {
             return counter_exhausted();
         };
         effect_plan.extend(parent_requests);
-        self.commit_removal(transaction, owner_loss, effect_plan)
+        self.commit_removal(EffectClass::Trusted, transaction, owner_loss, effect_plan)
     }
 
     fn commit_removal(
         &mut self,
+        effect_class: EffectClass,
         root: TxId,
         owner_loss: OwnerLossPlan,
         effect_plan: Vec<LogicalEffect>,
     ) -> KernelStep {
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(effect_class, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(root));
         }
         let mut next = self.clone();
@@ -1715,7 +1763,7 @@ impl Omega {
             return counter_exhausted();
         }
         let removed = owner_loss.terminal.iter().copied().collect::<Vec<_>>();
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(effect_class, stamp, effect_plan) {
             return counter_exhausted();
         }
         *self = next;
@@ -1746,7 +1794,7 @@ impl Omega {
         };
         let mut effect_plan = vec![LogicalEffect::PeerCohortRevoked(peer)];
         effect_plan.append(&mut parent_requests);
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(EffectClass::Critical, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::PeerEffectCapacityWait(peer));
         }
 
@@ -1763,7 +1811,7 @@ impl Omega {
         for id in &removed {
             next.authority.owners.remove(id);
         }
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(EffectClass::Critical, stamp, effect_plan) {
             return counter_exhausted();
         }
         *self = next;
@@ -1981,8 +2029,11 @@ impl Omega {
             return counter_exhausted();
         };
         effect_plan.extend(parent_requests);
-        if !self.can_append_effects(&effect_plan) {
-            return KernelStep::NoAuthorityCommit(KernelDisposition::ChainEffectCapacityWait);
+        // Chain detail is rebuildable. Saturation collapses it to the reserved
+        // constant-size reset instead of turning a legal chain transition into
+        // an effect-capacity wait.
+        if !self.can_append_effects(EffectClass::Critical, &effect_plan) {
+            effect_plan = vec![LogicalEffect::GenerationReset];
         }
 
         let mut next = self.clone();
@@ -2214,11 +2265,8 @@ impl Omega {
             return counter_exhausted();
         };
         recovered.extend(history_recovery);
-        for (ordinal, effect) in effect_plan.into_iter().enumerate() {
-            let Ok(ordinal) = u16::try_from(ordinal) else {
-                return counter_exhausted();
-            };
-            next.append_effect(stamp, ordinal, effect);
+        if !next.append_effects(EffectClass::Critical, stamp, effect_plan) {
+            return counter_exhausted();
         }
         removed.sort_unstable();
         removed.dedup();
@@ -2239,7 +2287,7 @@ impl Omega {
     fn replace_generation(&mut self, view: ViewId) -> KernelStep {
         let removed = self.authority.owners.keys().copied().collect::<Vec<_>>();
         let effect = LogicalEffect::GenerationReset;
-        if !self.can_append_effects(std::slice::from_ref(&effect)) {
+        if !self.can_append_effects(EffectClass::Critical, std::slice::from_ref(&effect)) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::ChainEffectCapacityWait);
         }
         let mut next = self.clone();
@@ -2255,7 +2303,9 @@ impl Omega {
         next.authority.generation = PoolGeneration(generation);
         next.authority.chain = chain;
         next.authority.owners.clear();
-        next.append_effect(stamp, 0, effect);
+        if !next.append_effects(EffectClass::Critical, stamp, vec![effect]) {
+            return counter_exhausted();
+        }
         *self = next;
         KernelStep::AuthorityCommit {
             stamp,
@@ -2333,7 +2383,7 @@ impl Omega {
         }) else {
             return counter_exhausted();
         };
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(EffectClass::Trusted, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::DirectEffectCapacityWait(
                 capability.request,
             ));
@@ -2415,7 +2465,7 @@ impl Omega {
                 KernelDisposition::DirectValid(capability.request)
             }
         };
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(EffectClass::Trusted, stamp, effect_plan) {
             return counter_exhausted();
         }
         if !next.release_direct_capability(capability_id) {
@@ -2458,7 +2508,7 @@ impl Omega {
             return counter_exhausted();
         };
         effect_plan.extend(parent_requests);
-        if !self.can_append_effects(&effect_plan) {
+        if !self.can_append_effects(EffectClass::Remote, &effect_plan) {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectCapacityWait(due[0]));
         }
 
@@ -2472,7 +2522,7 @@ impl Omega {
         for id in &due {
             next.authority.owners.remove(id);
         }
-        if !next.append_effects(stamp, effect_plan) {
+        if !next.append_effects(EffectClass::Remote, stamp, effect_plan) {
             return counter_exhausted();
         }
         *self = next;
@@ -2523,17 +2573,18 @@ impl Omega {
             return counter_exhausted();
         };
         effect_plan.extend(parent_requests);
-        self.commit_removal(root, owner_loss, effect_plan)
+        self.commit_removal(EffectClass::Critical, root, owner_loss, effect_plan)
     }
 
     fn claim_effect(&mut self) -> KernelStep {
         if let Some(claim) = self.linear.effect_claim {
             return KernelStep::NoAuthorityCommit(KernelDisposition::EffectClaimed(claim));
         }
-        let Some(effect) = self.authority.effects.front() else {
+        let Some((source, effect)) = self.next_effect_record() else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         let claim = EffectClaim {
+            source,
             stamp: effect.stamp,
             ordinal: effect.ordinal,
         };
@@ -2548,10 +2599,48 @@ impl Omega {
             return KernelStep::NoAuthorityCommit(KernelDisposition::StaleEffectClaim(claim));
         }
         let mut next = self.clone();
+        if claim.source == EffectClaimSource::GenerationReset
+            && next
+                .authority
+                .latest_generation_reset
+                .as_ref()
+                .is_some_and(|reset| reset.stamp > claim.stamp)
+        {
+            next.linear.effect_claim = None;
+            *self = next;
+            return KernelStep::NoAuthorityCommit(KernelDisposition::EffectSuperseded(claim));
+        }
         let Some(stamp) = next.reserve_apply() else {
             return counter_exhausted();
         };
-        next.authority.effects.pop_front();
+        match claim.source {
+            EffectClaimSource::Queued => {
+                let Some(effect) = next.authority.effects.front() else {
+                    return KernelStep::NoAuthorityCommit(KernelDisposition::StaleEffectClaim(
+                        claim,
+                    ));
+                };
+                if (effect.stamp, effect.ordinal) != (claim.stamp, claim.ordinal) {
+                    return KernelStep::NoAuthorityCommit(KernelDisposition::StaleEffectClaim(
+                        claim,
+                    ));
+                }
+                next.authority.effects.pop_front();
+            }
+            EffectClaimSource::GenerationReset => {
+                let Some(reset) = next.authority.latest_generation_reset.as_ref() else {
+                    return KernelStep::NoAuthorityCommit(KernelDisposition::StaleEffectClaim(
+                        claim,
+                    ));
+                };
+                if (reset.stamp, reset.ordinal) != (claim.stamp, claim.ordinal) {
+                    return KernelStep::NoAuthorityCommit(KernelDisposition::StaleEffectClaim(
+                        claim,
+                    ));
+                }
+                next.authority.latest_generation_reset = None;
+            }
+        }
         next.linear.effect_claim = None;
         *self = next;
         KernelStep::AuthorityCommit {
@@ -2733,7 +2822,8 @@ impl Omega {
                 self.authority.owners.get(&transaction).and_then(|owner| {
                     Some(ReadyKey {
                         source_priority: owner.retained_source()?.priority(),
-                        reverse_fee: std::cmp::Reverse(owner.transaction.fee),
+                        fee: owner.transaction.fee,
+                        serialized_bytes: owner.transaction.bytes,
                         arrival: owner.arrival,
                         transaction,
                         version: owner.version,
@@ -3257,6 +3347,7 @@ impl Omega {
 
     fn terminalize_owner_loss(
         &mut self,
+        effect_class: EffectClass,
         stamp: ApplyStamp,
         owner_loss: &OwnerLossPlan,
         effects: Vec<LogicalEffect>,
@@ -3264,7 +3355,7 @@ impl Omega {
         if !self.apply_owner_loss(owner_loss) {
             return false;
         }
-        self.append_effects(stamp, effects)
+        self.append_effects(effect_class, stamp, effects)
     }
 
     fn apply_dependency_availability(
@@ -3457,34 +3548,6 @@ impl Omega {
         }
     }
 
-    fn can_append_effects(&self, effects: &[LogicalEffect]) -> bool {
-        let Some(records) = u16::try_from(effects.len()).ok() else {
-            return false;
-        };
-        let Some(bytes) = effects.iter().try_fold(0u32, |used, effect| {
-            used.checked_add(effect.charge_bytes()?)
-        }) else {
-            return false;
-        };
-        self.effect_usage()
-            .is_some_and(|(used_records, used_bytes)| {
-                used_records
-                    .checked_add(records)
-                    .is_some_and(|total| total <= self.authority.limits.effect_records)
-                    && used_bytes
-                        .checked_add(bytes)
-                        .is_some_and(|total| total <= self.authority.limits.effect_bytes)
-            })
-    }
-
-    fn append_effect(&mut self, stamp: ApplyStamp, ordinal: u16, logical: LogicalEffect) {
-        self.authority.effects.push_back(EffectRecord {
-            stamp,
-            ordinal,
-            logical,
-        });
-    }
-
     fn membership_effects(
         &self,
         candidate: &Transaction,
@@ -3557,14 +3620,22 @@ impl Omega {
         Some(effects)
     }
 
-    fn append_effects(&mut self, stamp: ApplyStamp, effects: Vec<LogicalEffect>) -> bool {
-        for (ordinal, effect) in effects.into_iter().enumerate() {
-            let Ok(ordinal) = u16::try_from(ordinal) else {
-                return false;
-            };
-            self.append_effect(stamp, ordinal, effect);
+    fn append_effects(
+        &mut self,
+        class: EffectClass,
+        stamp: ApplyStamp,
+        effects: Vec<LogicalEffect>,
+    ) -> bool {
+        if effects.is_empty() {
+            return true;
         }
-        true
+        if !self.can_append_effects(class, &effects) {
+            return false;
+        }
+        let Some(records) = EffectRecord::from_batch(stamp, class, effects) else {
+            return false;
+        };
+        self.install_effect_records(records)
     }
 
     fn reserve_apply(&mut self) -> Option<ApplyStamp> {
