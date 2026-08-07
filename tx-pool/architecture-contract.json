@@ -41,6 +41,7 @@
         "invariants": ["T3", "T6", "T14"],
         "behavior_ids": ["TP-COMMIT-001", "TP-PERF-001"],
         "falsifier_tests": [
+          "authority::tests::foundation::uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions",
           "mathematical_model::composition_properties::model_batch_reserves_one_apply_stamp_even_at_the_counter_boundary",
           "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
           "mathematical_model::composition_properties::model_ready_batch_equals_the_canonical_no_interleave_fold_with_one_stamp"
@@ -384,7 +385,7 @@
       {
         "id": "I1-ATOMIC-BATCH-CORE",
         "sequence": 1,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": ["atomic_batch_apply"],
         "production_paths": [
           "tx-pool/src/authority/plan.rs",

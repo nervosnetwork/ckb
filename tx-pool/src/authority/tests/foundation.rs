@@ -3229,6 +3229,7 @@ fn uak_independent_batch_shape_is_non_empty_unique_and_bounded_by_type() {
 fn uak_independent_run_matches_every_canonical_single_prefix() {
     for count in 1..=4 {
         let (mut aggregate, hashes) = independent_fixture(count);
+        let batch_sequence = aggregate.clocks().next_sequence;
         let batch = independent_batch(&aggregate, &hashes);
         let SettlementPlan::IndependentRun(plan) = aggregate
             .plan_settlement(&batch)
@@ -3259,11 +3260,24 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
             ));
         }
 
+        let canonical_next_sequence = ApplySequence(
+            batch_sequence.0 + u128::try_from(count).expect("fixture count fits u128"),
+        );
+        assert_eq!(
+            aggregate.clocks().next_sequence,
+            ApplySequence(batch_sequence.0 + 1)
+        );
+        assert_eq!(reference.clocks().next_sequence, canonical_next_sequence);
+
         assert!(
             aggregate
                 .normalized_snapshot()
-                .equivalent_modulo_effect_batching(&reference.normalized_snapshot()),
-            "commuting Apply must equal its canonical single sequence apart from journal batching"
+                .equivalent_modulo_atomic_batch_stamp(
+                    &reference.normalized_snapshot(),
+                    batch_sequence,
+                    canonical_next_sequence,
+                ),
+            "commuting Apply must equal the canonical no-interleave fold under the one-stamp quotient"
         );
         assert_resource_reference(&aggregate);
         assert_membership_reference(&aggregate);
@@ -3498,7 +3512,49 @@ fn uak_mixed_ready_settlement_preserves_effect_headroom_by_source_control() {
 }
 
 #[test]
-fn uak_independent_plan_drop_and_mid_batch_counter_failure_are_mutation_free() {
+fn uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions() {
+    let (mut authority, hashes) = independent_fixture(3);
+    let before = authority.clocks();
+    let batch = independent_batch(&authority, &hashes);
+    let SettlementPlan::IndependentRun(plan) = authority
+        .plan_settlement(&batch)
+        .expect("independent Plan reserves one complete clock range")
+    else {
+        panic!("fixture is independent");
+    };
+    drop(apply_plan_for_delta(plan));
+
+    let after = authority.clocks();
+    assert_eq!(
+        after.next_sequence,
+        ApplySequence(before.next_sequence.0 + 1)
+    );
+    assert_eq!(
+        after.next_version,
+        EntryVersion(
+            before.next_version.0 + u128::try_from(hashes.len()).expect("fixture length fits u128")
+        )
+    );
+    assert_eq!(
+        authority.accepted_source_for_reference(),
+        before.next_sequence
+    );
+
+    let versions = hashes
+        .iter()
+        .map(|hash| owner_version(&authority, hash))
+        .collect::<HashSet<_>>();
+    assert_eq!(versions.len(), hashes.len());
+    for offset in 0..hashes.len() {
+        assert!(versions.contains(&EntryVersion(
+            before.next_version.0 + u128::try_from(offset).expect("fixture offset fits u128")
+        )));
+    }
+    assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free() {
     let (mut dropped, hashes) = independent_fixture(3);
     let before = dropped.normalized_snapshot();
     let batch = independent_batch(&dropped, &hashes);
@@ -3511,16 +3567,46 @@ fn uak_independent_plan_drop_and_mid_batch_counter_failure_are_mutation_free() {
     drop(plan);
     assert_eq!(dropped.normalized_snapshot(), before);
 
-    let (mut exhausted, hashes) = independent_fixture(2);
-    exhausted.force_next_sequence(ApplySequence(u128::MAX - 1));
-    let before = exhausted.normalized_snapshot();
-    let batch = independent_batch(&exhausted, &hashes);
+    let (mut final_sequence, hashes) = independent_fixture(2);
+    final_sequence.force_next_sequence(ApplySequence(u128::MAX - 1));
+    let batch = independent_batch(&final_sequence, &hashes);
+    let SettlementPlan::IndependentRun(plan) = final_sequence
+        .plan_settlement(&batch)
+        .expect("one batch may reserve the final available Apply sequence")
+    else {
+        panic!("fixture is independent");
+    };
+    drop(apply_plan_for_delta(plan));
     assert_eq!(
-        exhausted.plan_settlement(&batch).err(),
+        final_sequence.clocks().next_sequence,
+        ApplySequence(u128::MAX)
+    );
+    assert_eq!(
+        final_sequence.accepted_source_for_reference(),
+        ApplySequence(u128::MAX - 1)
+    );
+
+    let (mut sequence_exhausted, hashes) = independent_fixture(2);
+    sequence_exhausted.force_next_sequence(ApplySequence(u128::MAX));
+    let before = sequence_exhausted.normalized_snapshot();
+    let batch = independent_batch(&sequence_exhausted, &hashes);
+    assert_eq!(
+        sequence_exhausted.plan_settlement(&batch).err(),
         Some(PlanError::Fault(AuthorityFault::CounterExhausted))
     );
-    assert_eq!(exhausted.normalized_snapshot(), before);
-    assert_resource_reference(&exhausted);
+    assert_eq!(sequence_exhausted.normalized_snapshot(), before);
+    assert_resource_reference(&sequence_exhausted);
+
+    let (mut version_exhausted, hashes) = independent_fixture(2);
+    version_exhausted.force_next_version(EntryVersion(u128::MAX - 1));
+    let before = version_exhausted.normalized_snapshot();
+    let batch = independent_batch(&version_exhausted, &hashes);
+    assert_eq!(
+        version_exhausted.plan_settlement(&batch).err(),
+        Some(PlanError::Fault(AuthorityFault::CounterExhausted))
+    );
+    assert_eq!(version_exhausted.normalized_snapshot(), before);
+    assert_resource_reference(&version_exhausted);
 }
 
 #[test]

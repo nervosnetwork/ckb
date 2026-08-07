@@ -11,6 +11,55 @@ pub(in crate::authority) struct DependencySnapshot {
     unindexed: UnindexedDependencyLevel,
 }
 
+impl DependencySnapshot {
+    /// Collapse the canonical per-owner sequence interval onto the single
+    /// stamp of its observationally equivalent atomic batch, then compare the
+    /// complete dependency state. This retains exact keys, consumers,
+    /// waiters, dirty progress and loss kinds; only the internal serialization
+    /// points inside the no-interleave reference are quotiented.
+    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        canonical: &Self,
+        batch: DependencyCut,
+        canonical_next: DependencyCut,
+    ) -> bool {
+        fn compact(
+            cut: DependencyCut,
+            batch: DependencyCut,
+            canonical_next: DependencyCut,
+        ) -> DependencyCut {
+            if cut >= batch && cut < canonical_next {
+                batch
+            } else {
+                cut
+            }
+        }
+
+        let mut canonical = canonical.clone();
+        for level in canonical.levels.values_mut() {
+            level.last_change = compact(level.last_change, batch, canonical_next);
+            level.last_definitive_loss = level
+                .last_definitive_loss
+                .map(|cut| compact(cut, batch, canonical_next));
+        }
+        for dirty in canonical.dirty.values_mut() {
+            dirty.target = compact(dirty.target, batch, canonical_next);
+            if let Some(pending) = &mut dirty.pending {
+                pending.target = compact(pending.target, batch, canonical_next);
+            }
+        }
+        canonical.unindexed.last_change = canonical
+            .unindexed
+            .last_change
+            .map(|cut| compact(cut, batch, canonical_next));
+        canonical.unindexed.last_definitive_loss = canonical
+            .unindexed
+            .last_definitive_loss
+            .map(|cut| compact(cut, batch, canonical_next));
+        self == &canonical
+    }
+}
+
 impl DirtyScope {
     fn requires_definitive_loss(self) -> bool {
         match self {

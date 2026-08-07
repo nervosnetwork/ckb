@@ -1,7 +1,6 @@
 use super::{
-    AuthorityClocks, AuthorityDelta, AuthorityFault, CandidateDispositionPlan, IndependentDelta,
-    IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority, next_sequence,
-    next_version,
+    AuthorityDelta, AuthorityFault, BatchClockReservation, CandidateDispositionPlan,
+    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
 };
 use crate::authority::{
     chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
@@ -14,6 +13,7 @@ use crate::authority::{
     scheduler::ReadyKey,
     state::{AcceptedEntry, OwnedTx, PreAcceptedPhase},
 };
+use std::num::NonZeroUsize;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct IndependentCandidate {
@@ -137,27 +137,22 @@ impl TxPoolAuthority {
             return Ok(SettlementPlan::CoupledComponent(disposition));
         }
 
-        let mut clocks = self.clocks;
         let mut changes = Vec::new();
         let mut async_process_starts = Vec::new();
-        let mut source_sequence = None;
         changes
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         async_process_starts
             .try_reserve(facts.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        for fact in facts {
+        let member_count = NonZeroUsize::new(facts.len())
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let (source_sequence, versions, clocks) =
+            BatchClockReservation::reserve(self.clocks, member_count)?.into_parts();
+        for (fact, version) in facts.into_iter().zip(versions) {
             if !matches!(&fact.before.phase, PreAcceptedPhase::Ready(_)) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
-            let version = clocks.next_version;
-            let sequence = clocks.next_sequence;
-            clocks = AuthorityClocks {
-                next_version: next_version(version)?,
-                next_sequence: next_sequence(sequence)?,
-                ..clocks
-            };
             let mut record = fact.before.record.clone();
             record.version = version;
             let (proof, proposal, accepted_at, async_process_start) =
@@ -172,7 +167,6 @@ impl TxPoolAuthority {
             if let Some(started_at) = async_process_start {
                 async_process_starts.push(started_at);
             }
-            source_sequence = Some(sequence);
             changes.push(IndependentMembershipChange {
                 key: fact.before.record.identity.raw.clone(),
                 before: fact.before,
@@ -193,8 +187,6 @@ impl TxPoolAuthority {
                 return Ok(SettlementPlan::CoupledComponent(disposition));
             }
         };
-        let source_sequence =
-            source_sequence.ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         let mut effects = Vec::new();
         effects
             .try_reserve(changes.len())

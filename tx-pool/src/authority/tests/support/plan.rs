@@ -72,19 +72,81 @@ pub(in crate::authority) struct AuthoritySnapshot {
 }
 
 impl AuthoritySnapshot {
-    pub(in crate::authority) fn equivalent_modulo_effect_batching(&self, other: &Self) -> bool {
+    /// Compare one atomic batch with its named no-interleave per-owner
+    /// reference under the exact Apply-sequence quotient.
+    ///
+    /// Entry versions remain exact. Only reference sequence values in
+    /// `[batch_sequence, canonical_next_sequence)` collapse onto the one batch
+    /// stamp; callers separately prove both next-sequence cursors. Effects are
+    /// compared as their public ordered stream, independent of journal batch
+    /// envelopes.
+    pub(in crate::authority) fn equivalent_modulo_atomic_batch_stamp(
+        &self,
+        other: &Self,
+        batch_sequence: ApplySequence,
+        canonical_next_sequence: ApplySequence,
+    ) -> bool {
+        fn compact(
+            sequence: ApplySequence,
+            batch: ApplySequence,
+            canonical_next: ApplySequence,
+        ) -> ApplySequence {
+            if sequence >= batch && sequence < canonical_next {
+                batch
+            } else {
+                sequence
+            }
+        }
+
+        let own_template = self.source_versions.template();
+        let other_template = other.source_versions.template();
+        let source_versions_equivalent = self.source_versions.accepted()
+            == compact(
+                other.source_versions.accepted(),
+                batch_sequence,
+                canonical_next_sequence,
+            )
+            && self.source_versions.relay_parents()
+                == compact(
+                    other.source_versions.relay_parents(),
+                    batch_sequence,
+                    canonical_next_sequence,
+                )
+            && own_template.proposals
+                == compact(
+                    other_template.proposals,
+                    batch_sequence,
+                    canonical_next_sequence,
+                )
+            && own_template.transactions
+                == compact(
+                    other_template.transactions,
+                    batch_sequence,
+                    canonical_next_sequence,
+                )
+            && own_template.chain
+                == compact(
+                    other_template.chain,
+                    batch_sequence,
+                    canonical_next_sequence,
+                );
         self.generation == other.generation
             && self.chain_view == other.chain_view
             && self.entries == other.entries
             && self.indexes == other.indexes
-            && self.source_versions == other.source_versions
+            && source_versions_equivalent
             && self.resources == other.resources
             && self.membership == other.membership
             && self.scheduler == other.scheduler
-            && self.dependencies == other.dependencies
+            && self.dependencies.equivalent_after_atomic_stamp_compaction(
+                &other.dependencies,
+                DependencyCut(batch_sequence),
+                DependencyCut(canonical_next_sequence),
+            )
             && self.effects.equivalent_stream(&other.effects)
             && self.peer_bans == other.peer_bans
-            && self.clocks == other.clocks
+            && self.clocks.next_version == other.clocks.next_version
+            && self.clocks.next_arrival == other.clocks.next_arrival
     }
 }
 
@@ -351,6 +413,10 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn force_next_sequence(&mut self, sequence: ApplySequence) {
         self.clocks.next_sequence = sequence;
+    }
+
+    pub(in crate::authority) fn force_next_version(&mut self, version: EntryVersion) {
+        self.clocks.next_version = version;
     }
 
     pub(in crate::authority) fn normalized_snapshot(&self) -> AuthoritySnapshot {

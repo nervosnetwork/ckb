@@ -1567,6 +1567,53 @@ fn next_sequence(sequence: ApplySequence) -> Result<ApplySequence, PlanError> {
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
 }
 
+/// A sealed clock capability for one non-empty atomic owner batch.
+///
+/// One committed `PreparedApply` has exactly one `ApplySequence`, regardless
+/// of member count. Entries still need distinct versions, so construction
+/// checks the complete half-open version range before any member delta is
+/// compiled. The range and final clocks leave this capability together;
+/// callers cannot independently advance either clock or publish a partial
+/// reservation.
+struct BatchClockReservation {
+    sequence: ApplySequence,
+    versions: std::ops::Range<u128>,
+    clocks: AuthorityClocks,
+}
+
+impl BatchClockReservation {
+    fn reserve(clocks: AuthorityClocks, members: NonZeroUsize) -> Result<Self, PlanError> {
+        let member_count = u128::try_from(members.get())
+            .map_err(|_| PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let first_version = clocks.next_version.0;
+        let next_version = first_version
+            .checked_add(member_count)
+            .map(EntryVersion)
+            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let sequence = clocks.next_sequence;
+        let clocks = AuthorityClocks {
+            next_version,
+            next_sequence: next_sequence(sequence)?,
+            ..clocks
+        };
+        Ok(Self {
+            sequence,
+            versions: first_version..next_version.0,
+            clocks,
+        })
+    }
+
+    fn into_parts(
+        self,
+    ) -> (
+        ApplySequence,
+        impl Iterator<Item = EntryVersion>,
+        AuthorityClocks,
+    ) {
+        (self.sequence, self.versions.map(EntryVersion), self.clocks)
+    }
+}
+
 fn retired_buffer(capacity: usize) -> Result<Vec<OwnedTx>, PlanError> {
     let mut retired = Vec::new();
     retired

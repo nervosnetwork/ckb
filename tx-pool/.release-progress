@@ -26,14 +26,14 @@ implemented and correctness-gated.
 7. ACTIVE - implement the M4-frozen bounded semantic exchange in six ordered
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
-   core is active.
+   core is complete and I2 retained-ingress batching is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
 
 The order is fixed. Phase 6 is closed. Benchmark tooling is frozen, but the
-performance verdict may not run ahead of the two active architecture proof
-obligations in phase 7.
+performance verdict may not run ahead of the six ordered implementation slices
+and the phase-7 correctness gate.
 
 ## Phase-4 checkpoint evidence
 
@@ -3728,3 +3728,52 @@ sealed `BatchClockReservation`. I2 and I3 retain domain-specific deltas and may
 reuse only that proved clock primitive plus existing projection batch
 compilers. Nested undo, another authority and a generic transaction framework
 remain forbidden.
+
+## I1 one-stamp atomic batch core closure
+
+The production Ready batch now reserves clocks through one sealed
+`BatchClockReservation`. Construction requires a non-empty member count,
+preflights the complete half-open `EntryVersion` range with checked arithmetic
+and advances `ApplySequence` exactly once. The single batch sequence is shared
+by source-version publication, dependency events and the immutable effect
+batch; every accepted owner still receives a distinct version. Planning and
+counter failures remain mutation-free.
+
+No authority, lock, task, channel, heap allocation, retry, rollback layer or
+generic batch-delta framework was added. The only new production state is a
+stack-owned planning capability that is consumed before `PreparedApply` is
+returned. The existing `IndependentDelta` and projection batch compilers remain
+the implementation owners.
+
+Exact evidence at this cut:
+
+- focused nextest: the one-stamp/distinct-version production regression and
+  the Plan-drop/sequence-boundary/version-overflow regression both pass;
+- `check_production_contracts.py` rejects per-member `next_sequence` or
+  `next_version` allocation in Ready settlement and requires total reservation
+  preflight;
+- the architecture contract marks only I1 implemented and binds the production
+  falsifier to T2, T6, T8 and T14;
+- complete internal-feature nextest: 654/654, zero skipped;
+- complete default-feature nextest: 650/650, zero skipped, with only the
+  pre-existing test-build `start_with_handle` dead-code warning;
+- strict all-target internal-feature Clippy, formatting and diff checks;
+- all nine repository contracts, including TLC 1,098 generated / 318 distinct
+  positive states and the required four-state negative witness;
+- generated evidence: 341 exact tx-pool Rust tests / 1,345 invariant
+  references, 19 integration anchors, 150 managed specs and 654 discovered
+  internal tests;
+- the standing exposure ledger is now 12 PROVEN, 5 SUPPORTED and 12 OPEN; I1
+  closes D1-BATCH-SEQUENCE without transferring it to another state or retry.
+
+The first complete default-feature run correctly rejected an obsolete
+differential-test assumption: an N-member atomic Apply cannot have the exact
+counter state of N separate Applies. The test was not weakened to ignore
+clocks. Its test-only refinement now collapses exactly the canonical
+no-interleave interval onto the batch stamp, retains exact entry versions,
+source/dependency structure and effect order, and separately proves both next
+sequence cursors. Both complete nextest universes pass after that correction.
+
+I2 retained-ingress batching is now active. It must use the existing dispatcher,
+preserve prompt-single behavior and exact response/relay handoff ownership, and
+add no actor, timer or generic transaction framework.

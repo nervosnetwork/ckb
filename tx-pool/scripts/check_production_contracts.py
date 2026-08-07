@@ -39,6 +39,9 @@ TX_POOL_AUTHORITY_WORKER = (
 )
 TX_POOL_BENCHMARK = REPO_ROOT / "tx-pool" / "src" / "benchmark.rs"
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
+TX_POOL_AUTHORITY_SETTLEMENT = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "settlement.rs"
+)
 TX_POOL_AUTHORITY_QUERY = REPO_ROOT / "tx-pool" / "src" / "authority" / "query.rs"
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
@@ -612,6 +615,47 @@ def validate_transaction_query_failure_domains() -> list[str]:
     return errors
 
 
+def validate_atomic_batch_clock_reservation() -> list[str]:
+    """Keep one authoritative Apply stamp per atomic Ready batch."""
+
+    try:
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        settlement = TX_POOL_AUTHORITY_SETTLEMENT.read_text()
+        reserve = impl_method_body(plan, "BatchClockReservation", "reserve")
+        settlement_plan = function_body(settlement, "plan_settlement")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect atomic batch clock reservation: {error}"]
+
+    errors: list[str] = []
+    if settlement_plan is None:
+        return ["TxPoolAuthority::plan_settlement disappeared"]
+    masked_settlement = mask_rust_non_code(settlement_plan)
+    if masked_settlement.count("BatchClockReservation::reserve") != 1:
+        errors.append("Ready settlement must consume exactly one sealed batch clock reservation")
+    for forbidden in ("next_sequence(", "next_version("):
+        if forbidden in masked_settlement:
+            errors.append(
+                "Ready settlement must not allocate clocks per member; found "
+                f"{forbidden!r} outside BatchClockReservation"
+            )
+    if "facts.into_iter().zip(versions)" not in masked_settlement:
+        errors.append(
+            "Ready settlement must consume the exact reserved version range with its sealed facts"
+        )
+
+    masked_reserve = mask_rust_non_code(reserve)
+    for required in (
+        "checked_add(member_count)",
+        "next_sequence: next_sequence(sequence)?",
+        "versions: first_version..next_version.0",
+    ):
+        if required not in masked_reserve:
+            errors.append(f"BatchClockReservation lost total preflight fragment {required!r}")
+    if masked_reserve.count("next_sequence(") != 1:
+        errors.append("BatchClockReservation must advance ApplySequence exactly once")
+    return errors
+
+
 def validate_compute_capability_identity() -> list[str]:
     """Keep EntryVersion as the sole numeric identity for active computation."""
 
@@ -1078,6 +1122,7 @@ def main() -> int:
         *validate_authority_profiling_seams(),
         *validate_authority_failure_algebra(),
         *validate_transaction_query_failure_domains(),
+        *validate_atomic_batch_clock_reservation(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -1092,7 +1137,8 @@ def main() -> int:
         "validated cross-crate chain-tip publication, startup ordering and "
         "bounded chain-control backpressure plus authority post-commit wake coverage, "
         "claim-bound effect publication, centralized profiling seams, the typed "
-        "authority failure algebra, split transaction-query failure domains and "
+        "authority failure algebra, split transaction-query failure domains, "
+        "one-stamp atomic Ready batches and "
         "current production vocabulary plus execution-topology cost and shutdown order"
     )
     return 0

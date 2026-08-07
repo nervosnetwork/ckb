@@ -620,6 +620,7 @@
 
     {"test": "mathematical_model::adversarial_properties::model_generated_cell_shapes_route_only_the_exact_independent_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},
     {"test": "mathematical_model::adversarial_properties::model_independent_hostile_trace_search_preserves_every_commit_contract", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"]},
+    {"test": "authority::tests::foundation::uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8", "T14"]},
     {"test": "mathematical_model::composition_properties::model_batch_plan_rejects_a_changed_authority_cut_without_mutation", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T11"]},
     {"test": "mathematical_model::composition_properties::model_batch_reserves_one_apply_stamp_even_at_the_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_dynamic_footprint_keeps_reads_writes_headers_and_pool_origin_distinct", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T4", "T5", "T6", "T8", "T11"]},
