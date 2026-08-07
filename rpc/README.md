@@ -855,6 +855,9 @@ Returns the information about a transaction requested by transaction hash.
 This RPC returns `null` if the transaction is not committed in the
 [canonical chain](#canonical-chain) nor the transaction memory pool.
 
+Transactions retained by tx-pool while validation is in flight are reported as `pending`.
+Internal validation phases are not exposed as additional public status values.
+
 If the transaction is in the chain, the block hash is also returned.
 
 ###### Params
@@ -7838,7 +7841,7 @@ Tx-pool entries object
 
 `TxPoolEntries` is a JSON object with the following fields.
 
-* `conflicted`: `Array<` [`H256`](#type-h256) `>` - Conflicted tx hash vec
+* `conflicted`: `Array<` [`H256`](#type-h256) `>` - Successfully displaced accepted transaction hashes retained as replacement history. Failed replacement candidates are reported through recent-reject status instead.
 
 * `pending`:  - Pending tx verbose info
 

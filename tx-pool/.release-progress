@@ -23,9 +23,10 @@ implemented and correctness-gated.
    specs; every failure was classified before changing code.
 6. COMPLETE - benchmark-preceding global static, model, liveness,
    manual-process and convergence audit against current code and `develop`.
-7. ACTIVE - close the P10 architecture prerequisites exposed by profiling:
-   exhaustive legal-input fault reachability and the missing end-to-end
-   independent-transaction execution model.
+7. ACTIVE - implement the M4-frozen bounded semantic exchange in six ordered
+   slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
+   and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
+   core is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
@@ -3674,3 +3675,56 @@ design evidence did not masquerade as production proof. M4 is now active. Its
 first action is the normative blueprint and anti-drift freeze; production
 wiring begins only after each selected mechanism has an exact theorem, cost,
 deletion target, ordinary failure algebra and falsifier.
+
+## M4 normative blueprint and anti-drift closure
+
+The bounded semantic exchange is now the normative topology in
+`architecture-contract.json` schema 11 and the reviewer-facing architecture
+and performance documents. T14 StageCommutativity, T15 BoundedComputeExchange
+and T16 SemanticBatchProgress make the missing end-to-end objective mandatory.
+The behavior registry binds those obligations to the exact ingress, Ready,
+completion, permit, topology and one-wave counterexamples.
+
+The contract freezes eight coordinated components and six ordered production
+slices. Every component has one disposition, model-role set, invariant set,
+behavior set, exact falsifiers, target owner, current owner and complete cost
+ledger. The validator derives the invariant vocabulary from the contract,
+rejects unassigned or multiply assigned components, checks current symbols
+while a slice is a blueprint and target symbols once it is implemented, and
+binds RPC/configuration/persistence/changelog release surfaces. Four built-in
+negative canaries prove that unknown invariants, absent target owners,
+duplicate slice ownership and stale release documentation cannot pass.
+
+The exact implementation order is:
+
+1. I1 one-stamp atomic batch core;
+2. I2 retained-ingress batch through the existing dispatcher;
+3. I3 bounded compute exchange;
+4. I4 prepared full-query scratch;
+5. I5 typed ordered public administration;
+6. I6 obsolete-ceremony deletion and complete convergence audit.
+
+M4 adds no production authority, lock, task, channel or semantic state. Its
+release documentation records the narrowed `conflicted` projection, in-flight
+Pending visibility, three configuration fields and v2 persistence with legacy
+v1 migration input. Node downgrade is outside CKB's supported release policy,
+so no reverse persistence path was added.
+
+Exact gates at this cut:
+
+- mathematical-model nextest: 205/205, zero failures;
+- complete contract discovery: 653 internal-feature nextest tests, 340 exact
+  registered Rust tests / 1,341 invariant references, 19 integration anchors
+  and 150 managed specs;
+- all nine repository contracts, including TLC 1,098 generated / 318 distinct
+  positive states and the required four-state negative witness;
+- lightweight documentation, ASCII, develop-refinement, model-refinement,
+  production-contract, review-guide and test-layout gates.
+
+All Rust tests continue to use `cargo nextest run`; direct `cargo test` is not
+accepted. I1 is the next exact action. It first makes the already-batched Ready
+transition consume one Apply sequence and distinct owner versions through one
+sealed `BatchClockReservation`. I2 and I3 retain domain-specific deltas and may
+reuse only that proved clock primitive plus existing projection batch
+compilers. Nested undo, another authority and a generic transaction framework
+remain forbidden.

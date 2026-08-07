@@ -1,6 +1,7 @@
 {
-  "schema_version": 10,
+  "schema_version": 11,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
+  "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
   "validation_document": "tx-pool/docs/VALIDATION.md",
   "authority": {
@@ -20,6 +21,515 @@
     "progress": "per_obligation_rank_or_monotonic_level_under_named_fairness_premises",
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
+  },
+  "selected_topology": {
+    "schema_version": 1,
+    "id": "bounded_semantic_exchange",
+    "status": "normative_blueprint",
+    "authority": "TxPoolAuthority",
+    "reference_serialization": "canonical_source_then_strict_ready_order_from_one_authority_cut",
+    "components": [
+      {
+        "id": "atomic_batch_apply",
+        "disposition": "implement",
+        "model_roles": [
+          "canonical_ordered_batch",
+          "candidate_apply_cost",
+          "ordered_batch_family",
+          "total_apply"
+        ],
+        "invariants": ["T3", "T6", "T14"],
+        "behavior_ids": ["TP-COMMIT-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::composition_properties::model_batch_reserves_one_apply_stamp_even_at_the_counter_boundary",
+          "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
+          "mathematical_model::composition_properties::model_ready_batch_equals_the_canonical_no_interleave_fold_with_one_stamp"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/plan.rs",
+          "symbols": ["BatchClockReservation", "AuthorityDelta", "PreparedApply"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/plan/settlement.rs",
+            "symbols": ["SettlementBatch", "plan_settlement"]
+          },
+          {
+            "path": "tx-pool/src/authority/plan.rs",
+            "symbols": ["AuthorityDelta", "IndependentDelta", "PreparedApply"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0",
+          "protocol_state_bound": "one stack-owned checked clock reservation per prepared batch",
+          "transient_bound": "O(B) prepared owner changes for configured batch bound B",
+          "apply_bound": "one Apply sequence and one atomic projection commit per batch"
+        }
+      },
+      {
+        "id": "retained_ingress_combiner",
+        "disposition": "implement",
+        "model_roles": [
+          "canonical_ordered_batch",
+          "retained_ingress_surface",
+          "service_ingress_residency_bound"
+        ],
+        "invariants": ["T1", "T3", "T6", "T8", "T14", "T16"],
+        "behavior_ids": ["TP-COMMIT-001", "TP-HANDOFF-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
+          "mathematical_model::topology_properties::model_existing_dispatcher_is_the_zero_topology_cost_ingress_combiner",
+          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/service/builder.rs",
+          "symbols": ["RetainedIngressBatch", "run_dispatcher"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/service/builder.rs",
+            "symbols": ["run_dispatcher"]
+          },
+          {
+            "path": "tx-pool/src/authority/runtime.rs",
+            "symbols": ["commit_retained_ingress"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0",
+          "protocol_state_bound": "one dispatcher lookahead message already charged by the controller handoff",
+          "transient_bound": "existing controller count and byte bounds plus one dispatcher lookahead message",
+          "apply_bound": "one Apply for the longest immediately available homogeneous independent prefix"
+        }
+      },
+      {
+        "id": "compute_exchange",
+        "disposition": "implement",
+        "model_roles": [
+          "completion_exchange",
+          "completion_exchange_failure",
+          "compute_capability",
+          "compute_completion",
+          "fair_permit_protocol",
+          "permit_work_exchange",
+          "permit_work_exchange_failure"
+        ],
+        "invariants": ["T2", "T5", "T6", "T8", "T10", "T14", "T15", "T16"],
+        "behavior_ids": ["TP-COMMIT-001", "TP-WORKER-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::composition_properties::model_compute_exchange_is_invariant_to_worker_completion_order",
+          "mathematical_model::composition_properties::model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply",
+          "mathematical_model::composition_properties::model_finished_result_holds_its_worker_slot_until_the_exchange_settles_it",
+          "mathematical_model::composition_properties::model_initial_compute_wave_checks_out_every_available_worker_in_one_apply",
+          "mathematical_model::composition_properties::model_stale_compute_exchange_returns_every_fair_grant_without_mutation",
+          "mathematical_model::topology_properties::model_finished_exchange_never_waits_for_a_fair_permit_before_settlement",
+          "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/exchange.rs",
+          "symbols": ["ComputeExchange", "ComputeWorkerSlot"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/worker.rs",
+            "symbols": ["ComputeWorker"]
+          },
+          {
+            "path": "tx-pool/src/authority/runtime.rs",
+            "symbols": ["try_checkout", "settle_compute", "execute_compute"]
+          },
+          {
+            "path": "tx-pool/src/authority/topology.rs",
+            "symbols": ["AuthorityTaskTopology"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 1,
+          "channel_instances_bound": "P + 1: P one-slot assignment channels plus one P-slot completion channel",
+          "protocol_state_bound": "one coordinator and one assignment/completion slot pair per retained compute slot P",
+          "transient_bound": "P assignment slots plus P completion slots for retained compute capacity P",
+          "apply_bound": "one exchange Apply settles the compatible completion cut and checks out the immediately available worker wave"
+        }
+      },
+      {
+        "id": "ready_effect_overlap",
+        "disposition": "retain",
+        "model_roles": [
+          "commutative_membership",
+          "effect_claim",
+          "effect_endpoint_boundary"
+        ],
+        "invariants": ["T5", "T6", "T7", "T10", "T14"],
+        "behavior_ids": ["TP-COMMIT-001", "TP-EFFECT-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::composition_properties::model_ready_batch_equals_the_canonical_no_interleave_fold_with_one_stamp",
+          "mathematical_model::composition_properties::model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_priority_work"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/plan/settlement.rs",
+          "symbols": ["SettlementBatch", "SettlementPlan"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/plan/settlement.rs",
+            "symbols": ["SettlementBatch", "SettlementPlan"]
+          },
+          {
+            "path": "tx-pool/src/authority/runtime.rs",
+            "symbols": ["AuthorityEffectPublisherClaim", "AuthorityEffectPublicationLease"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0 new channels",
+          "protocol_state_bound": "existing Ready prefix effect log and unique publisher claim only",
+          "transient_bound": "existing Ready prefix bound and effect partition capacity",
+          "apply_bound": "one membership Apply and one later effect-settlement Apply per immutable publication batch"
+        }
+      },
+      {
+        "id": "prepared_full_query",
+        "disposition": "implement",
+        "model_roles": [
+          "candidate_query_input",
+          "fallible_scratch_outcome",
+          "query_cost_bound",
+          "query_scratch_protocol"
+        ],
+        "invariants": ["T6", "T8", "T10", "T12"],
+        "behavior_ids": ["TP-QUERY-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_prepared_query_scratch_is_the_only_zero_duplicate_root_fix",
+          "mathematical_model::topology_properties::model_query_cost_uses_the_full_declared_u64_domain",
+          "mathematical_model::topology_properties::model_query_scratch_growth_has_a_finite_strict_rank"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/query.rs",
+          "symbols": ["AuthorityQueryScratch", "FullQueryPermit"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/read.rs",
+            "symbols": ["AuthorityReadView", "pool_ids"]
+          },
+          {
+            "path": "tx-pool/src/authority/query.rs",
+            "symbols": ["all_entry_info", "pool_detail"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0",
+          "protocol_state_bound": "one full-query-only synchronization gate owning one reusable scratch value",
+          "transient_bound": "one reusable full-query scratch bounded by the authority owner limit",
+          "apply_bound": "not applicable; one coherent read cut copies handles only and sorting remains outside"
+        }
+      },
+      {
+        "id": "typed_ordered_control",
+        "disposition": "implement",
+        "model_roles": [
+          "boundary_request_protocol",
+          "candidate_topology_surface",
+          "complete_candidate_topology"
+        ],
+        "invariants": ["T3", "T8", "T9", "T10"],
+        "behavior_ids": ["TP-ADMIN-001", "TP-HANDOFF-001", "TP-PERF-001", "TP-REORG-001"],
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_typed_ordered_boundary_bounds_external_admin_residency_without_dropping_reorg",
+          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/service/controller.rs",
+          "symbols": ["AdminAdmission", "TxPoolController"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/service/controller.rs",
+            "symbols": ["TxPoolController"]
+          },
+          {
+            "path": "tx-pool/src/service/message.rs",
+            "symbols": ["ChainControl"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0 new channels; reuse the existing capacity-one ordered lane",
+          "protocol_state_bound": "one move-only public administrative admission capability",
+          "transient_bound": "one move-only accepted administrative admission plus the existing capacity-one ordered channel",
+          "apply_bound": "one ordered control Apply; excess public clear attempts fail before retaining payload"
+        }
+      },
+      {
+        "id": "bounded_cache_writer",
+        "disposition": "retain",
+        "model_roles": ["cache_publication_input", "candidate_topology_surface"],
+        "invariants": ["T5", "T8", "T10", "T11"],
+        "behavior_ids": ["TP-IDENTITY-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_bounded_cache_writer_retains_worker_isolation_with_one_named_cost"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/topology.rs",
+          "symbols": ["run_verification_cache_updates"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/topology.rs",
+            "symbols": ["run_verification_cache_updates"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0 new channels; retain the existing bounded cache channel",
+          "protocol_state_bound": "existing best-effort cache writer and bounded queued updates only",
+          "transient_bound": "existing bounded best-effort cache update channel",
+          "apply_bound": "no authority Apply and no validation authority"
+        }
+      },
+      {
+        "id": "concurrent_template_lanes",
+        "disposition": "retain",
+        "model_roles": ["template_boundary", "candidate_uncle_boundary"],
+        "invariants": ["T9", "T10", "T13"],
+        "behavior_ids": ["TP-TEMPLATE-001", "TP-PERF-001"],
+        "falsifier_tests": [
+          "mathematical_model::properties::model_template_full_preempts_reset_without_serializing_optimistic_lanes",
+          "mathematical_model::properties::model_template_filters_candidate_uncles_that_would_censor_current_proposals"
+        ],
+        "target_owner": {
+          "path": "tx-pool/src/authority/template_driver.rs",
+          "symbols": ["AuthorityBlockAssembler"]
+        },
+        "current_owners": [
+          {
+            "path": "tx-pool/src/authority/template_driver.rs",
+            "symbols": ["AuthorityBlockAssembler"]
+          },
+          {
+            "path": "tx-pool/src/authority/template.rs",
+            "symbols": ["TemplateConvergence"]
+          }
+        ],
+        "cost": {
+          "authority_owners_added": 0,
+          "authority_locks_added": 0,
+          "tasks_added": 0,
+          "channel_instances_bound": "0 new channels",
+          "protocol_state_bound": "existing versioned template receipts and derived template guards only",
+          "transient_bound": "existing versioned full reset uncle proposal and transaction lane receipts",
+          "apply_bound": "no transaction authority Apply; stale optimistic receipts are discarded"
+        }
+      }
+    ],
+    "rejected_alternatives": [
+      {
+        "id": "current_per_owner_uak",
+        "reason": "safe but fails the one-immediately-available-wave serial-cut target",
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets"
+        ]
+      },
+      {
+        "id": "self_fused_workers",
+        "reason": "retains per-worker authority settlement and therefore does not amortize the serial cut",
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets"
+        ]
+      },
+      {
+        "id": "dedicated_ingress_actor",
+        "reason": "duplicates the existing dispatcher and adds a task queue and failure edge without semantic value",
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_existing_dispatcher_is_the_zero_topology_cost_ingress_combiner"
+        ]
+      },
+      {
+        "id": "resident_query_projection",
+        "reason": "creates a second mutable full-pool projection instead of preparing bounded scratch outside the authority cut",
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_prepared_query_scratch_is_the_only_zero_duplicate_root_fix"
+        ]
+      },
+      {
+        "id": "separate_dag_or_sharded_authorities",
+        "reason": "duplicates RBF membership resource and chain facts instead of using dependency footprints under one authority",
+        "falsifier_tests": [
+          "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions"
+        ]
+      }
+    ]
+  },
+  "implementation_slices": {
+    "schema_version": 1,
+    "allowed_statuses": ["blueprint", "implemented"],
+    "slices": [
+      {
+        "id": "I1-ATOMIC-BATCH-CORE",
+        "sequence": 1,
+        "status": "blueprint",
+        "component_ids": ["atomic_batch_apply"],
+        "production_paths": [
+          "tx-pool/src/authority/plan.rs",
+          "tx-pool/src/authority/plan/settlement.rs"
+        ],
+        "exit_gate": "one Apply stamp per batch, exact owner versions, total preflight and no nested undo"
+      },
+      {
+        "id": "I2-RETAINED-INGRESS-BATCH",
+        "sequence": 2,
+        "status": "blueprint",
+        "component_ids": ["retained_ingress_combiner"],
+        "production_paths": [
+          "tx-pool/src/service/builder.rs",
+          "tx-pool/src/authority/runtime.rs",
+          "tx-pool/src/authority/plan.rs"
+        ],
+        "exit_gate": "canonical immediately available homogeneous prefix commits once and every response or relay handoff settles exactly once"
+      },
+      {
+        "id": "I3-COMPUTE-EXCHANGE",
+        "sequence": 3,
+        "status": "blueprint",
+        "component_ids": ["compute_exchange"],
+        "production_paths": [
+          "tx-pool/src/authority/exchange.rs",
+          "tx-pool/src/authority/runtime.rs",
+          "tx-pool/src/authority/topology.rs",
+          "tx-pool/src/authority/worker.rs"
+        ],
+        "exit_gate": "bounded completion and assignment cuts exchange in one Apply without permit inversion slow-peer wait or capability loss"
+      },
+      {
+        "id": "I4-PREPARED-FULL-QUERY",
+        "sequence": 4,
+        "status": "blueprint",
+        "component_ids": ["prepared_full_query"],
+        "production_paths": [
+          "tx-pool/src/authority/query.rs",
+          "tx-pool/src/authority/read.rs",
+          "tx-pool/src/authority/runtime.rs",
+          "tx-pool/src/authority/service.rs"
+        ],
+        "exit_gate": "fallible growth is outside the read cut, one full-query gate is bounded and point/template reads remain concurrent"
+      },
+      {
+        "id": "I5-TYPED-ORDERED-CONTROL",
+        "sequence": 5,
+        "status": "blueprint",
+        "component_ids": ["typed_ordered_control"],
+        "production_paths": [
+          "tx-pool/src/service/controller.rs",
+          "tx-pool/src/service/message.rs",
+          "tx-pool/src/service/builder.rs"
+        ],
+        "exit_gate": "trusted reorg remains lossless and ordered while at most one public clear retains a payload"
+      },
+      {
+        "id": "I6-CONVERGENCE",
+        "sequence": 6,
+        "status": "blueprint",
+        "component_ids": [
+          "ready_effect_overlap",
+          "bounded_cache_writer",
+          "concurrent_template_lanes"
+        ],
+        "production_paths": [
+          "tx-pool/src/authority/plan/settlement.rs",
+          "tx-pool/src/authority/runtime.rs",
+          "tx-pool/src/authority/topology.rs",
+          "tx-pool/src/authority/template_driver.rs"
+        ],
+        "exit_gate": "old per-owner ceremony is deleted, retained concurrency boundaries remain exact and no duplicate authority or manual publication point survives"
+      }
+    ]
+  },
+  "release_surface": {
+    "schema_version": 1,
+    "anchors": [
+      {
+        "id": "rpc_conflicted_semantics",
+        "files": [
+          {
+            "path": "util/jsonrpc-types/src/pool.rs",
+            "required_phrases": ["Successfully displaced accepted transaction hashes retained as replacement history"]
+          },
+          {
+            "path": "rpc/README.md",
+            "required_phrases": ["Successfully displaced accepted transaction hashes retained as replacement history"]
+          }
+        ]
+      },
+      {
+        "id": "rpc_inflight_pending_semantics",
+        "files": [
+          {
+            "path": "rpc/src/module/chain.rs",
+            "required_phrases": ["Transactions retained by tx-pool while validation is in flight are reported as `pending`"]
+          },
+          {
+            "path": "rpc/README.md",
+            "required_phrases": ["Transactions retained by tx-pool while validation is in flight are reported as `pending`"]
+          }
+        ]
+      },
+      {
+        "id": "configuration_surface",
+        "files": [
+          {
+            "path": "util/app-config/src/configs/tx_pool.rs",
+            "required_phrases": ["max_tx_pool_resident_size", "max_tx_pipeline_resident_size", "verify_ordering"]
+          },
+          {
+            "path": "util/app-config/src/legacy/tx_pool.rs",
+            "required_phrases": ["max_tx_pool_resident_size", "max_tx_pipeline_resident_size", "verify_ordering"]
+          },
+          {
+            "path": "resource/ckb.toml",
+            "required_phrases": ["max_tx_pool_resident_size", "max_tx_pipeline_resident_size", "verify_ordering = \"arrival_time\""]
+          }
+        ]
+      },
+      {
+        "id": "persistence_surface",
+        "files": [
+          {
+            "path": "tx-pool/src/persisted.rs",
+            "required_phrases": ["pub(crate) const VERSION: u32 = 2", "const LEGACY_VERSION: u32 = 1"]
+          },
+          {
+            "path": "tx-pool/CHANGELOG.md",
+            "required_phrases": ["persistence v2", "legacy v1"]
+          }
+        ]
+      },
+      {
+        "id": "unreleased_summary",
+        "files": [
+          {
+            "path": "tx-pool/CHANGELOG.md",
+            "required_phrases": ["conflicted", "In-flight", "max_tx_pool_resident_size", "max_tx_pipeline_resident_size", "verify_ordering"]
+          }
+        ]
+      }
+    ]
   },
   "refinement_inventory": {
     "schema_version": 1,
@@ -1065,7 +1575,10 @@
     "T10": "LevelTriggeredProgress",
     "T11": "IdentityAndEvidence",
     "T12": "CoherentPublicProjection",
-    "T13": "TemplateConvergence"
+    "T13": "TemplateConvergence",
+    "T14": "StageCommutativity",
+    "T15": "BoundedComputeExchange",
+    "T16": "SemanticBatchProgress"
   },
   "residual_risks": {
     "R2": "External effects are not crash durable or universally exactly-once.",

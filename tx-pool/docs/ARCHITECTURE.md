@@ -253,6 +253,9 @@ and cannot feed proposal or commit selection.
 | T11 IdentityAndEvidence | Every proof is bound to the exact raw/witness identity, script rules, chain view and policy context it proves. |
 | T12 CoherentPublicProjection | RPC, compact-block, persistence, relay rebuild and fee/template reads are captured from one authority read cut and finished outside the guard. |
 | T13 TemplateConvergence | Template lanes publish only receipts whose chain/source cut remains current; full/reset priority and optimistic partial concurrency are preserved. |
+| T14 StageCommutativity | A multi-owner Apply is observationally equal to one named canonical no-interleaving fold from the same authority cut, or every pair in it has an exact commuting proof. Transition families without that proof cannot share a batch. |
+| T15 BoundedComputeExchange | Only the retained compute checkout/settlement boundary may exchange move-only work capabilities in batches, every assignment and completion slot is bounded by active-work capacity, and workers never mutate authority directly. |
+| T16 SemanticBatchProgress | Immediately available compatible retained work fills immediately available worker slots without one write-side round trip per owner; compatible completions settle without a timer or a slow batch peer. |
 
 These invariants are checked by construction first and by bounded validation as
 defense in depth. A runtime check is not a substitute for a type that can
@@ -883,13 +886,74 @@ impossibility. Persistence eligibility permits one best-effort external write;
 an I/O or join failure is a terminal non-durable outcome, not authority
 corruption and not false durable success.
 
-### 12.3 Wait-for proof
+### 12.3 Normative bounded semantic exchange
+
+The M3.6 model comparison selects the **bounded semantic exchange** as the
+normative execution topology. The current per-owner worker protocol remains a
+safe cutover checkpoint while implementation slices I1-I6 are in progress; it
+is not the final performance topology. The machine-readable component, cost,
+falsifier and slice ownership is in `architecture-contract.json`.
+
+```mermaid
+flowchart LR
+    D["Existing service dispatcher"] -->|"bounded homogeneous ingress cut"| A["TxPoolAuthority Plan / Apply"]
+    A -->|"move-only wave capabilities"| X["Compute exchange coordinator"]
+    X --> W1["Resolve worker slot"]
+    X --> WN["Verify worker slots"]
+    W1 -->|"completion capability"| X
+    WN -->|"completion capability"| X
+    X -->|"bounded canonical settle + refill cut"| A
+    A --> R["Strict-priority Ready compiler"]
+    R --> A
+    A --> E["Claim-bound effect publisher"]
+    E -->|"typed settlement"| A
+    A -.-> Q["Prepared full-query scratch"]
+    A -.-> T["Concurrent optimistic template lanes"]
+```
+
+There is still one transaction authority. The coordinator owns only bounded
+transport slots and linear capabilities; it cannot decide lifecycle state.
+Each retained worker has one assignment slot, and the completion transport has
+capacity `P`, where `P` is retained active-work capacity. Thus transport holds
+at most `2P` items and cannot become an uncharged waiting room. A finished
+capability releases its execution permit before an immediate refill attempt;
+it never waits behind Direct work. Only an idle coordinator may own one fair
+permit wait, then fill additional slots using immediately available permits.
+
+```mermaid
+sequenceDiagram
+    participant D as Dispatcher
+    participant A as Authority
+    participant X as Exchange
+    participant W as Parallel workers
+    participant E as Effect publisher
+    D->>A: One bounded retained-ingress Apply
+    X->>A: One initial wave checkout Apply
+    A-->>W: Move-only jobs
+    par Independent compute
+        W-->>X: Completion 1
+        W-->>X: Completion 2..P
+    end
+    X->>A: Canonical completion settle plus immediate refill Apply
+    A->>A: One strict Ready-prefix membership Apply
+    A-->>E: Immutable committed effect batch
+    E->>A: One claim-bound settlement Apply
+```
+
+No fixed-width delay is introduced. A prompt single transaction still
+progresses immediately. RBF, pool-produced dependencies, shared writes,
+effect-control changes, stale evidence and resource exclusions stop the exact
+commuting prefix and use the existing coupled compiler. This is a proof cut,
+not a fast path that skips validation.
+
+### 12.4 Wait-for proof
 
 Every wait must name an independently running releaser:
 
 | Wait | Held authority capability | Releaser |
 |---|---|---|
 | compute semaphore | none | completion/cancellation of another checked-out computation |
+| compute assignment/completion transport | one exact bounded capability, never an authority guard | retained worker or exchange coordinator; every slot has one owner and shutdown retirement path |
 | resolver/verifier/Ready level hint | none | a changed committed scheduler head; each role rechecks its exact level first |
 | dependency-maintenance hint or expiry timer | none | dirty frontier activation or the independent wall-clock tick |
 | effect publisher hint | none | committed effect availability or closed-and-drained transition |
@@ -900,12 +964,10 @@ Every wait must name an independently running releaser:
 | shutdown joins | topology owner only | cancellation-aware owned task or bounded operational timeout |
 
 The reliable ordered channel bounds queued commands, not producer-owned
-payloads suspended in `send`. If `C` callers are waiting, complete ordered
-residency is `C + CHAIN_CONTROL_CHANNEL_SIZE + 1`; public clear calls make `C`
-an open admission and blocking-thread bound. M3.6 must bound or fail-fast the
-administrative producers while preserving the sole chain publisher's reliable
-ordering. Adding another queue or treating channel capacity as a sender bound
-is not an admissible fix.
+payloads suspended in `send`. The selected boundary preserves the sole trusted
+reorg producer's lossless order and admits at most one move-only public clear
+capability. Excess clear calls fail before retaining a payload. Adding another
+queue or treating channel capacity as a sender bound is not an admissible fix.
 
 The complete deadlock/livelock/lost-wake/starvation audit and constructive
 saturation tests are release gates, not assumptions inferred from timeouts.
@@ -1073,9 +1135,24 @@ Ready slices, the current implementation performs `3N + 2R` authority Applies,
 where `ceil(N / 8) <= R <= N`. Admission, checkout and compute completion are
 per owner; membership and effect settlement are per immutable Ready/effect
 batch. This is a source-checked description of current topology, not a
-semantic lower bound. The target bounded exchange must preserve the same
-ownership, evidence, fairness, Ready overlap and effect laws while making
-already available independent work scale by waves rather than owners.
+semantic lower bound.
+
+For the same fixed semantic trace, let `A` be the number of bounded ingress
+cuts and `W` the number of retained compute waves. The selected bounded
+semantic exchange target is:
+
+```text
+current_applies(N, R) = 3N + 2R
+selected_applies(A, W, R) = A + (W + 1) + 2R
+```
+
+The `W + 1` term is one initial checkout plus one completion exchange per wave;
+an exchange may refill the next wave in the same Apply. Under the executable
+eight-slot examples, one eight-owner wave moves from 26 to 5 Applies and 64
+owners move from 208 to 26. One prompt owner remains 5, so batching never buys
+throughput by delaying latency-sensitive work. These are operation-count
+theorems, not throughput claims; profiling and fixed-binary A/B remain later
+acceptance gates.
 
 Static review precedes profiling. Profiling attributes cost and selects
 optimization candidates; fixed-binary A/B decides measured value. Neither is a
@@ -1118,6 +1195,28 @@ membership projections extract graph parallelism under one owner. A future
 shard design must prove conflict/RBF/chain atomicity and lower measured cost
 before adding state.
 
+### Self-fused authority workers
+
+Rejected. A worker that computes and then settles its own result retains the
+per-owner authority round trip. The executable one-available-wave witness gives
+the current topology and self-fused topology 26 Applies for eight owners, while
+the selected exchange gives 5. It also makes fair permit ordering harder
+because a finished worker is both a completion holder and a permit acquirer.
+
+### Dedicated ingress actor
+
+Rejected. The existing dispatcher already owns bounded message order and can
+opportunistically drain an immediately available homogeneous prefix. A new
+actor adds a task, queue, cancellation edge and failure domain without a new
+semantic owner or lower Apply count.
+
+### Resident full-query projection
+
+Rejected. It duplicates the complete owner view and needs its own publication
+and rebuild protocol. One fallible reusable scratch, grown outside the read
+cut and admitted through a full-query-only gate, preserves coherent reads
+without serializing point queries, template reads or authority mutations.
+
 ### No pipeline
 
 Rejected. Removing retained parallel computation would simplify scheduling but
@@ -1125,11 +1224,13 @@ discard the main scalable property: chain-backed independent transactions can
 resolve and verify concurrently. The correct simplification is one owning
 kernel with typed borrowed work, not serialized computation.
 
-The current UAK is a constructively safe candidate, not yet a proved minimum.
-The mathematical/refinement audit has reopened execution-topology selection:
-semantic obligations for ownership, validation, effects and chain control are
-lower bounds, but the current resident states, tasks, queues and per-owner
-Apply boundaries still require independent necessity and composition proofs.
+The UAK is the constructively safe kernel and the bounded semantic exchange is
+the selected execution topology. The selection is frozen by exact model roles,
+cost ledgers, falsifier tests and ordered implementation slices in
+`architecture-contract.json`. It may be reopened only by a new model that
+preserves T1-T16 and falsifies the selected topology on correctness,
+availability or measured cost; local implementation convenience is not a
+reason to stitch in another authority, queue or retry protocol.
 
 "Smallest" here means semantic state and proof surface, not minimum source
 lines. The explicit transition algebra is substantially larger than

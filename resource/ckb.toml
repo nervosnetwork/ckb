@@ -218,6 +218,8 @@ min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units
 min_rbf_rate = 1_500 # Here fee_rate are calculated directly using size in units of shannons/KB
 max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
+# Retained verification scheduling: `arrival_time` (FIFO) or `fee_rate`.
+# verify_ordering = "arrival_time"
 # Conservative total memory charge for every pre-pool pipeline state,
 # including raw, dependency-waiting, resolved, verifying, conflict-waiting,
 # and commit-ready transactions plus their indexes.

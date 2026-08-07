@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 from pathlib import Path
 import re
@@ -14,6 +15,7 @@ from check_review_guide import (
     invariant_unit_evidence,
     load_registry,
     repo_path,
+    target_invariant_ids,
     validate_registry,
 )
 
@@ -21,7 +23,6 @@ from check_review_guide import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
 REQUIRED_ROOT_FAMILIES = {f"F{number}" for number in range(1, 9)}
-REQUIRED_TARGET_INVARIANTS = {f"T{number}" for number in range(1, 14)}
 REQUIRED_PROOF_POLICY = {
     "primary_evidence": "executable_mathematical_model_and_mechanical_check_before_prose",
     "system_transition": "total_Step_over_AuthoritySlot_P_D_L_with_KernelStep_over_Omega_A_K",
@@ -175,6 +176,373 @@ def require_source_symbols(
     ]
 
 
+def _nonempty_unique_strings(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, str) and bool(item.strip()) for item in value)
+        and len(value) == len(set(value))
+    )
+
+
+def _validate_planned_owner(
+    value: object, description: str, require_symbols: bool
+) -> list[str]:
+    if not isinstance(value, dict):
+        return [f"{description} must be an object"]
+    path_value = value.get("path")
+    symbols = value.get("symbols")
+    if not isinstance(path_value, str) or not _nonempty_unique_strings(symbols):
+        return [f"{description} must define one path and unique symbols"]
+    try:
+        path = repo_path(path_value)
+    except ValueError as error:
+        return [str(error)]
+    if require_symbols:
+        return require_source_symbols(path_value, symbols, description)
+    if not path.parent.is_dir():
+        return [f"{description} parent directory is absent for {path_value}"]
+    return []
+
+
+def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
+    errors: list[str] = []
+    topology = contract.get("selected_topology")
+    slices_contract = contract.get("implementation_slices")
+    release_surface = contract.get("release_surface")
+    if not isinstance(topology, dict) or topology.get("schema_version") != 1:
+        return ["architecture contract selected_topology schema_version must be 1"]
+    if not isinstance(slices_contract, dict) or slices_contract.get("schema_version") != 1:
+        return ["architecture contract implementation_slices schema_version must be 1"]
+    if not isinstance(release_surface, dict) or release_surface.get("schema_version") != 1:
+        return ["architecture contract release_surface schema_version must be 1"]
+    if topology.get("status") not in {"normative_blueprint", "implemented"}:
+        errors.append("selected topology has an invalid status")
+    if topology.get("authority") != contract.get("authority", {}).get("transaction_owner"):
+        errors.append("selected topology must reuse the sole transaction authority")
+
+    inventory = contract.get("refinement_inventory", {})
+    model_roots = inventory.get("model_roots", {})
+    model_roles = set(model_roots.values()) if isinstance(model_roots, dict) else set()
+    invariants = target_invariant_ids(contract)
+    behavior_ids = {
+        entry.get("id")
+        for entry in registry.get("behaviors", [])
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+    unit_evidence = {
+        entry.get("test"): entry
+        for entry in registry.get("unit_evidence", [])
+        if isinstance(entry, dict) and isinstance(entry.get("test"), str)
+    }
+
+    allowed_statuses = _string_set(slices_contract.get("allowed_statuses"))
+    if allowed_statuses != {"blueprint", "implemented"}:
+        errors.append("implementation slices must allow exactly blueprint and implemented")
+    slices = slices_contract.get("slices")
+    if not isinstance(slices, list) or not slices:
+        errors.append("implementation slices must be a non-empty list")
+        slices = []
+    component_statuses: dict[str, str] = {}
+    seen_slice_ids: set[str] = set()
+    sequences: list[int] = []
+    for entry in slices:
+        if not isinstance(entry, dict):
+            errors.append(f"invalid implementation slice: {entry!r}")
+            continue
+        slice_id = entry.get("id")
+        sequence = entry.get("sequence")
+        status = entry.get("status")
+        component_ids = entry.get("component_ids")
+        paths = entry.get("production_paths")
+        if not isinstance(slice_id, str) or not slice_id.strip() or slice_id in seen_slice_ids:
+            errors.append(f"implementation slice has invalid or duplicate ID: {slice_id!r}")
+        else:
+            seen_slice_ids.add(slice_id)
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence <= 0:
+            errors.append(f"implementation slice {slice_id!r} has invalid sequence")
+        else:
+            sequences.append(sequence)
+        if status not in allowed_statuses:
+            errors.append(f"implementation slice {slice_id!r} has invalid status {status!r}")
+        if not _nonempty_unique_strings(component_ids):
+            errors.append(f"implementation slice {slice_id!r} has invalid component IDs")
+            component_ids = []
+        for component_id in component_ids:
+            if component_id in component_statuses:
+                errors.append(f"topology component {component_id!r} belongs to multiple slices")
+            elif isinstance(status, str):
+                component_statuses[component_id] = status
+        if not _nonempty_unique_strings(paths):
+            errors.append(f"implementation slice {slice_id!r} has invalid production paths")
+        else:
+            for path_value in paths:
+                try:
+                    path = repo_path(path_value)
+                except ValueError as error:
+                    errors.append(str(error))
+                    continue
+                if not path.exists() and not path.parent.is_dir():
+                    errors.append(
+                        f"implementation slice {slice_id!r} path has no existing parent: {path_value}"
+                    )
+        if not isinstance(entry.get("exit_gate"), str) or not entry["exit_gate"].strip():
+            errors.append(f"implementation slice {slice_id!r} has no exit gate")
+    if sorted(sequences) != list(range(1, len(slices) + 1)):
+        errors.append("implementation slice sequences must be contiguous from one")
+
+    components = topology.get("components")
+    if not isinstance(components, list) or not components:
+        errors.append("selected topology components must be a non-empty list")
+        components = []
+    seen_component_ids: set[str] = set()
+    expected_cost_fields = {
+        "authority_owners_added",
+        "authority_locks_added",
+        "tasks_added",
+        "channel_instances_bound",
+        "protocol_state_bound",
+        "transient_bound",
+        "apply_bound",
+    }
+    for component in components:
+        if not isinstance(component, dict):
+            errors.append(f"invalid topology component: {component!r}")
+            continue
+        component_id = component.get("id")
+        if (
+            not isinstance(component_id, str)
+            or not component_id.strip()
+            or component_id in seen_component_ids
+        ):
+            errors.append(f"topology component has invalid or duplicate ID: {component_id!r}")
+            continue
+        seen_component_ids.add(component_id)
+        status = component_statuses.get(component_id)
+        if status is None:
+            errors.append(f"topology component {component_id!r} has no implementation slice")
+            status = "blueprint"
+        disposition = component.get("disposition")
+        if disposition not in {"implement", "retain"}:
+            errors.append(f"topology component {component_id!r} has invalid disposition")
+        configured_roles = _string_set(component.get("model_roles"))
+        if not _nonempty_unique_strings(component.get("model_roles")):
+            errors.append(f"topology component {component_id!r} has invalid model roles")
+        unknown_roles = configured_roles.difference(model_roles)
+        if unknown_roles:
+            errors.append(
+                f"topology component {component_id!r} uses unknown model roles: {sorted(unknown_roles)}"
+            )
+        configured_invariants = _string_set(component.get("invariants"))
+        if not _nonempty_unique_strings(component.get("invariants")):
+            errors.append(f"topology component {component_id!r} has invalid invariants")
+        unknown_invariants = configured_invariants.difference(invariants)
+        if unknown_invariants:
+            errors.append(
+                f"topology component {component_id!r} uses unknown invariants: {sorted(unknown_invariants)}"
+            )
+        configured_behaviors = _string_set(component.get("behavior_ids"))
+        if not _nonempty_unique_strings(component.get("behavior_ids")):
+            errors.append(f"topology component {component_id!r} has invalid behaviors")
+        unknown_behaviors = configured_behaviors.difference(behavior_ids)
+        if unknown_behaviors:
+            errors.append(
+                f"topology component {component_id!r} uses unknown behaviors: {sorted(unknown_behaviors)}"
+            )
+        falsifiers = component.get("falsifier_tests")
+        if not _nonempty_unique_strings(falsifiers):
+            errors.append(f"topology component {component_id!r} has invalid falsifiers")
+            falsifiers = []
+        covered: set[str] = set()
+        for test in falsifiers:
+            evidence = unit_evidence.get(test)
+            if evidence is None:
+                errors.append(f"topology component {component_id!r} has unknown falsifier {test!r}")
+                continue
+            if evidence.get("behavior_id") not in configured_behaviors:
+                errors.append(
+                    f"topology component {component_id!r} falsifier {test!r} belongs to an unrelated behavior"
+                )
+            covered.update(_string_set(evidence.get("invariants")))
+        missing_coverage = configured_invariants.difference(covered)
+        if missing_coverage:
+            errors.append(
+                f"topology component {component_id!r} lacks exact falsifiers for {sorted(missing_coverage)}"
+            )
+        errors.extend(
+            _validate_planned_owner(
+                component.get("target_owner"),
+                f"topology component {component_id!r} target owner",
+                disposition == "retain" or status == "implemented",
+            )
+        )
+        current_owners = component.get("current_owners")
+        if not isinstance(current_owners, list) or not current_owners:
+            errors.append(f"topology component {component_id!r} has no current owner anchors")
+        elif disposition == "retain" or status == "blueprint":
+            for index, owner in enumerate(current_owners):
+                errors.extend(
+                    _validate_planned_owner(
+                        owner,
+                        f"topology component {component_id!r} current owner {index}",
+                        True,
+                    )
+                )
+        cost = component.get("cost")
+        if not isinstance(cost, dict) or set(cost) != expected_cost_fields:
+            errors.append(f"topology component {component_id!r} has an incomplete cost ledger")
+        else:
+            for field in {
+                "authority_owners_added",
+                "authority_locks_added",
+                "tasks_added",
+            }:
+                value = cost[field]
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    errors.append(
+                        f"topology component {component_id!r} cost {field!r} must be a non-negative integer"
+                    )
+            for field in (
+                "channel_instances_bound",
+                "protocol_state_bound",
+                "transient_bound",
+                "apply_bound",
+            ):
+                if not isinstance(cost[field], str) or not cost[field].strip():
+                    errors.append(
+                        f"topology component {component_id!r} cost {field!r} must be explicit"
+                    )
+    unknown_slice_components = set(component_statuses).difference(seen_component_ids)
+    if unknown_slice_components:
+        errors.append(
+            f"implementation slices use unknown topology components: {sorted(unknown_slice_components)}"
+        )
+
+    alternatives = topology.get("rejected_alternatives")
+    if not isinstance(alternatives, list) or not alternatives:
+        errors.append("selected topology must record rejected alternatives")
+        alternatives = []
+    seen_alternatives: set[str] = set()
+    for alternative in alternatives:
+        if not isinstance(alternative, dict):
+            errors.append(f"invalid rejected topology alternative: {alternative!r}")
+            continue
+        alternative_id = alternative.get("id")
+        if (
+            not isinstance(alternative_id, str)
+            or not alternative_id.strip()
+            or alternative_id in seen_alternatives
+        ):
+            errors.append(f"rejected topology has invalid or duplicate ID: {alternative_id!r}")
+        else:
+            seen_alternatives.add(alternative_id)
+        if not isinstance(alternative.get("reason"), str) or not alternative["reason"].strip():
+            errors.append(f"rejected topology {alternative_id!r} has no reason")
+        falsifiers = alternative.get("falsifier_tests")
+        if not _nonempty_unique_strings(falsifiers):
+            errors.append(f"rejected topology {alternative_id!r} has invalid falsifiers")
+        else:
+            for test in falsifiers:
+                if test not in unit_evidence:
+                    errors.append(
+                        f"rejected topology {alternative_id!r} has unknown falsifier {test!r}"
+                    )
+
+    anchors = release_surface.get("anchors")
+    if not isinstance(anchors, list) or not anchors:
+        errors.append("release surface must contain anchors")
+        anchors = []
+    seen_anchor_ids: set[str] = set()
+    for anchor in anchors:
+        if not isinstance(anchor, dict):
+            errors.append(f"invalid release-surface anchor: {anchor!r}")
+            continue
+        anchor_id = anchor.get("id")
+        if (
+            not isinstance(anchor_id, str)
+            or not anchor_id.strip()
+            or anchor_id in seen_anchor_ids
+        ):
+            errors.append(f"release surface has invalid or duplicate ID: {anchor_id!r}")
+        else:
+            seen_anchor_ids.add(anchor_id)
+        files = anchor.get("files")
+        if not isinstance(files, list) or not files:
+            errors.append(f"release surface {anchor_id!r} has no files")
+            continue
+        for file_entry in files:
+            if not isinstance(file_entry, dict):
+                errors.append(f"release surface {anchor_id!r} has invalid file entry")
+                continue
+            path_value = file_entry.get("path")
+            phrases = file_entry.get("required_phrases")
+            if not isinstance(path_value, str) or not _nonempty_unique_strings(phrases):
+                errors.append(f"release surface {anchor_id!r} has invalid path or phrases")
+                continue
+            try:
+                contents = repo_path(path_value).read_text()
+            except (OSError, ValueError) as error:
+                errors.append(f"release surface {anchor_id!r} cannot read {path_value}: {error}")
+                continue
+            for phrase in phrases:
+                if phrase not in contents:
+                    errors.append(
+                        f"release surface {anchor_id!r} phrase {phrase!r} is absent from {path_value}"
+                    )
+    return errors
+
+
+def validate_selected_topology_canaries(contract: dict, registry: dict) -> list[str]:
+    errors: list[str] = []
+
+    unknown_invariant = copy.deepcopy(contract)
+    unknown_invariant["selected_topology"]["components"][0]["invariants"].append(
+        "T999999"
+    )
+    observed = validate_selected_topology(unknown_invariant, registry)
+    if not any("unknown invariants" in error and "T999999" in error for error in observed):
+        errors.append("selected-topology validator missed its unknown-invariant canary")
+
+    missing_target = copy.deepcopy(contract)
+    retained = next(
+        (
+            component
+            for component in missing_target["selected_topology"]["components"]
+            if component.get("disposition") == "retain"
+        ),
+        None,
+    )
+    if retained is None:
+        errors.append("selected-topology contract has no retained target for canary")
+        return errors
+    retained["target_owner"]["symbols"].append("__contract_canary_missing_symbol__")
+    observed = validate_selected_topology(missing_target, registry)
+    if not any("__contract_canary_missing_symbol__" in error for error in observed):
+        errors.append("selected-topology validator missed its absent-target canary")
+
+    duplicate_component = copy.deepcopy(contract)
+    duplicate_id = duplicate_component["implementation_slices"]["slices"][0][
+        "component_ids"
+    ][0]
+    duplicate_component["implementation_slices"]["slices"][1][
+        "component_ids"
+    ].append(duplicate_id)
+    observed = validate_selected_topology(duplicate_component, registry)
+    if not any("belongs to multiple slices" in error for error in observed):
+        errors.append("selected-topology validator missed its duplicate-slice canary")
+
+    missing_release_phrase = copy.deepcopy(contract)
+    missing_release_phrase["release_surface"]["anchors"][0]["files"][0][
+        "required_phrases"
+    ].append("__contract_canary_missing_release_phrase__")
+    observed = validate_selected_topology(missing_release_phrase, registry)
+    if not any(
+        "__contract_canary_missing_release_phrase__" in error for error in observed
+    ):
+        errors.append("selected-topology validator missed its release-surface canary")
+    return errors
+
+
 def validate_enum_boundary_mapping(
     value: object,
     path_value: str,
@@ -290,14 +658,12 @@ def validate_impl_method_boundary_mapping(
     return errors
 
 
-def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
-    contract, errors = load_repo_json(
-        manifest.get("architecture_contract"), "architecture_contract"
-    )
-    if contract is None:
-        return errors
-    if contract.get("schema_version") != 10:
-        errors.append("architecture contract schema_version must be 10")
+def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
+    errors: list[str] = []
+    if contract.get("schema_version") != 11:
+        errors.append("architecture contract schema_version must be 11")
+    errors.extend(validate_selected_topology(contract, registry))
+    errors.extend(validate_selected_topology_canaries(contract, registry))
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):
@@ -678,23 +1044,20 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
     if not isinstance(root_families, dict) or set(root_families) != REQUIRED_ROOT_FAMILIES:
         errors.append("architecture contract must define exactly F1-F8")
     target_invariants = contract.get("target_invariants", {})
-    if (
-        not isinstance(target_invariants, dict)
-        or set(target_invariants) != REQUIRED_TARGET_INVARIANTS
-    ):
-        errors.append("architecture contract must define exactly T1-T13")
+    required_target_invariants = target_invariant_ids(contract)
     residual_risks = contract.get("residual_risks")
     if not isinstance(residual_risks, dict) or set(residual_risks) != {
         f"R{number}" for number in range(2, 9)
     }:
         errors.append("architecture contract must define exactly stable residual risks R2-R8")
 
-    evidence = invariant_unit_evidence(registry)
-    if set(evidence) != REQUIRED_TARGET_INVARIANTS:
-        errors.append("review evidence must map directly to exactly T1-T13")
+    evidence = invariant_unit_evidence(registry, required_target_invariants)
+    if set(evidence) != required_target_invariants:
+        errors.append("review evidence must map directly to every target invariant")
 
     required_links = {
-        "authority_document": ["REVIEW_GUIDE.md", "VALIDATION.md"],
+        "authority_document": ["PERFORMANCE.md", "REVIEW_GUIDE.md", "VALIDATION.md"],
+        "performance_document": ["ARCHITECTURE.md", "VALIDATION.md"],
         "review_guide": ["ARCHITECTURE.md", "VALIDATION.md"],
         "validation_document": ["ARCHITECTURE.md", "REVIEW_GUIDE.md"],
     }
@@ -715,6 +1078,11 @@ def validate_architecture_contract(manifest: dict, registry: dict) -> list[str]:
             "authority_document": [
                 "### 4.5 Executable mathematical proof kernel",
                 "ObsKernel(CommitBatch_E(Omega, X))",
+                "bounded semantic exchange",
+            ],
+            "performance_document": [
+                "bounded semantic exchange",
+                "one available wave",
             ],
             "review_guide": [
                 "## Mathematical-model gate",
@@ -790,11 +1158,13 @@ def discover_tests(manifest: dict) -> tuple[set[str], int]:
     return tests, int(listing.get("test-count", len(tests)))
 
 
-def validate_test_anchors(registry: dict, tests: set[str]) -> list[str]:
+def validate_test_anchors(
+    registry: dict, tests: set[str], required_target_invariants: set[str]
+) -> list[str]:
     errors: list[str] = []
-    evidence = invariant_unit_evidence(registry)
-    missing_invariants = REQUIRED_TARGET_INVARIANTS.difference(evidence)
-    extra_invariants = set(evidence).difference(REQUIRED_TARGET_INVARIANTS)
+    evidence = invariant_unit_evidence(registry, required_target_invariants)
+    missing_invariants = required_target_invariants.difference(evidence)
+    extra_invariants = set(evidence).difference(required_target_invariants)
     if missing_invariants:
         errors.append(f"missing invariant groups: {sorted(missing_invariants)}")
     if extra_invariants:
@@ -1081,8 +1451,20 @@ def main() -> int:
             "security manifest may not duplicate evidence owned by behavior_registry"
         )
     registry = load_registry(registry_path(manifest))
-    errors = validate_registry(registry)
-    errors.extend(validate_architecture_contract(manifest, registry))
+    contract, contract_errors = load_repo_json(
+        manifest.get("architecture_contract"), "architecture_contract"
+    )
+    errors = list(contract_errors)
+    required_target_invariants = (
+        target_invariant_ids(contract) if contract is not None else set()
+    )
+    errors.extend(
+        validate_registry(
+            registry, required_invariants=required_target_invariants or None
+        )
+    )
+    if contract is not None:
+        errors.extend(validate_architecture_contract(contract, registry))
     managed_integration_specs, impact_errors = load_integration_impact(manifest)
     errors.extend(impact_errors)
     discovered_integration_specs: set[str] | None = None
@@ -1101,7 +1483,9 @@ def main() -> int:
             write_test_inventory(
                 inventory_path(manifest), tests, managed_integration_specs
             )
-        errors.extend(validate_test_anchors(registry, tests))
+        errors.extend(
+            validate_test_anchors(registry, tests, required_target_invariants)
+        )
         errors.extend(validate_model_test_coverage(registry, tests))
     errors.extend(
         validate_test_inventory(
@@ -1131,7 +1515,7 @@ def main() -> int:
     if test_count is None:
         print("error: nextest discovery produced no test-count result", file=sys.stderr)
         return 1
-    evidence = invariant_unit_evidence(registry)
+    evidence = invariant_unit_evidence(registry, required_target_invariants)
     references = sum(map(len, evidence.values()))
     unique_tests = len(registry["unit_evidence"])
     source_anchors = len(registry["integration_evidence"])

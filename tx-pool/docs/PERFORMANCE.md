@@ -3,7 +3,8 @@
 This document is the reviewer-facing performance companion to
 [`ARCHITECTURE.md`](ARCHITECTURE.md). It records the current UAK performance
 model, reproducible profiling method, evidence strength and final acceptance
-matrix. It is not an implementation diary.
+matrix. Machine-contract maintenance is defined by
+[`VALIDATION.md`](VALIDATION.md). It is not an implementation diary.
 
 The current architecture has not yet passed either the M0-M4 mathematical/
 refinement/minimality gate or the later controlled performance gate. New
@@ -238,6 +239,40 @@ RBF/conflict, parent-first/child-first dependency order, peer revocation and
 chain revision races. A candidate is removed if it adds a decision authority,
 changes an externally visible outcome, loses progress under any of those
 interleavings, or fails fixed-binary A/B after the complete correctness gates.
+
+#### M3.6 selected topology
+
+The complete-candidate model selected the **bounded semantic exchange**. It is
+the only candidate that preserves the single authority, Ready/effect overlap,
+Direct permit priority and template concurrency while removing per-owner
+write-side round trips from one available wave. This is now a normative design
+decision, not another optional P10 prototype.
+
+For homogeneous independent work:
+
+```text
+current_applies(N, R) = 3N + 2R
+selected_applies(A, W, R) = A + (W + 1) + 2R
+```
+
+`A` is the number of immediately available bounded ingress cuts, `W` is the
+number of retained compute waves and `R` is the number of strict Ready/effect
+slices. With one ingress cut, eight worker slots and full Ready slices, the
+executable model gives:
+
+| Owners | Current UAK | Self-fused workers | Bounded semantic exchange |
+|---:|---:|---:|---:|
+| 1 | 5 Applies | 5 Applies | 5 Applies |
+| 8 | 26 Applies | 26 Applies | 5 Applies |
+| 64 | 208 Applies | 152 Applies | 26 Applies |
+
+The one available wave counterexample rejects both inherited alternatives.
+The selected design pays for one compute coordinator task, `P` one-slot worker
+assignments, one `P`-slot completion transport and one additional join edge.
+It adds no authority, authority lock, persistent state, timer or retry queue.
+Those costs are bounded by the existing active-work capacity and are checked
+against the exact capability conservation law. Throughput improvement remains
+unclaimed until the production slices pass profiling and fixed-binary A/B.
 
 ### 3.3 Shared compute baton result
 

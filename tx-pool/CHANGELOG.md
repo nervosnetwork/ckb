@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `max_tx_pool_resident_size` and `max_tx_pipeline_resident_size` as
+  conservative accepted-pool and retained-pipeline memory budgets.
+- Add `verify_ordering` with `arrival_time` and `fee_rate` policies; legacy
+  configuration is translated through the existing migration layer.
+
+### Changed
+
+- Replace the fragmented pre-pool queues with one charged transaction
+  authority and atomic Plan/Apply transitions. In-flight retained transactions
+  are visible through `get_transaction` as `pending` rather than `unknown`.
+- Narrow `get_raw_tx_pool.conflicted` to successfully displaced accepted
+  victims retained as replacement history. Failed replacement candidates use
+  the recent-reject surface.
+- Write tx-pool persistence v2 while accepting legacy v1 files as migration
+  input. Every restored transaction re-enters validation.
+
 ## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.1...ckb-tx-pool-v1.2.2) - 2026-06-08
 
 ### Changed

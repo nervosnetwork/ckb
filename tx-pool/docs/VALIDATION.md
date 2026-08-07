@@ -16,8 +16,8 @@ and Markdown tables are discovered, generated or checked.
 
 | File | Authority and purpose | Consumer | Update rule |
 |---|---|---|---|
-| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T13 obligations, executable mathematical proof policy, semantic roots for the generated model/production refinement frontier, the immutable develop comparison cases and durable residual risks. Validators derive public builder/controller/relay-receiver methods, owner/phase/status/boundary variants, identity anchors and the transitive Rust type frontier; current release status is deliberately absent. | `check_security_manifest.py`, `check_model_refinement.py`, `check_develop_refinement.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, behavior evidence and tests together. Never copy Rust enums, public methods or a generated current-code refinement observation into a validator. Historical source facts must remain bound to the exact immutable commit and tree. |
-| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1-T13 mappings and curated unit/integration evidence. Cross-crate counterexamples are typed separately, bind mechanically to an `OPEN` finding, and do not count as conformance. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
+| [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T16 obligations, the selected bounded semantic exchange, ordered implementation slices and their exact costs/falsifiers, executable mathematical proof policy, semantic roots for the generated model/production refinement frontier, immutable develop comparison cases, release-surface anchors and durable residual risks. Validators derive the invariant vocabulary from this file rather than copying it. | `check_security_manifest.py`, `check_model_refinement.py`, `check_develop_refinement.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, `PERFORMANCE.md`, behavior evidence and tests together. A blueprint slice must retain its current source anchors; an implemented slice must expose its target owner. Never copy Rust enums, public methods or a generated current-code observation into a validator. |
+| [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1-T16 mappings and curated unit/integration evidence. Cross-crate counterexamples are typed separately, bind mechanically to an `OPEN` finding, and do not count as conformance. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
 | [`integration-impact.json`](../integration-impact.json) | Curated complete set of registered process specs whose production paths cross tx-pool ingress, verification, pool mutation, relay, mining/template or transaction-bearing reorg boundaries. | `check_review_guide.py`, `check_security_manifest.py` | Hand-edit when a relevant spec is added, removed, renamed or its boundary changes. Integration CI checks it against `ckb-test --list-specs`. |
 | [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory and explicit release blockers. It stores no derived count or individual evidence. | `check_security_manifest.py` | Edit only when an assembly input or release decision changes. Test counts are always derived. |
 | [`test-layout-manifest.json`](../test-layout-manifest.json) | Allowed dedicated test roots plus named irreducible test observation seams. Module wiring and `cfg(test)` sites are discovered from Rust rather than copied. | `check_test_layout.py` | Edit only for a deliberate directory boundary or exceptional seam. A current observation is never accepted merely by copying it into an allowlist. |
@@ -30,7 +30,7 @@ Rust source -------- discovers -------> owner/state/identity facts
 nextest + ckb-test -- discovers -------> complete executable test universe
          |
          v exact reconciliation
-architecture-contract.json -----------> T1-T13 vocabulary
+architecture-contract.json -----------> T1-T16 vocabulary + selected topology/slices
          +----------------------------> immutable develop source/counterexample cases
 review-behaviors.json -----------------> semantic rules + exact owners/evidence
 integration-impact.json --------------> curated process boundary
@@ -44,7 +44,7 @@ The only manual layer is semantic: why a rule exists, its attack case,
 compatibility and performance bounds, and whether a residual risk is accepted.
 Everything mechanically derivable has one owner and is generated or checked.
 CI is read-only and fails on dangling symbols, zero-match evidence, missing
-T1-T13 coverage, unregistered relevant process specs, stale inventory,
+T1-T16 coverage, unregistered relevant process specs, stale inventory,
 test-code leakage or generated Markdown drift.
 
 ## Formal falsifier

@@ -19,12 +19,12 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REGISTRY = REPO_ROOT / "tx-pool" / "review-behaviors.json"
+DEFAULT_ARCHITECTURE_CONTRACT = REPO_ROOT / "tx-pool" / "architecture-contract.json"
 START_MARKER = "<!-- BEGIN GENERATED: TX_POOL_BEHAVIORS -->"
 END_MARKER = "<!-- END GENERATED: TX_POOL_BEHAVIORS -->"
 BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 RUST_PACKAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-REQUIRED_PROOF_OBLIGATIONS = {f"T{number}" for number in range(1, 14)}
 WORKSPACE_EVIDENCE_KINDS = {"conformance", "counterexample"}
 
 
@@ -45,6 +45,34 @@ def load_registry(path: Path = DEFAULT_REGISTRY) -> dict:
         return json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"cannot load tx-pool behavior registry {path}: {error}") from error
+
+
+def load_architecture_contract(path: Path = DEFAULT_ARCHITECTURE_CONTRACT) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot load tx-pool architecture contract {path}: {error}") from error
+
+
+def target_invariant_ids(contract: dict | None = None) -> set[str]:
+    if contract is None:
+        contract = load_architecture_contract()
+    invariants = contract.get("target_invariants")
+    if not isinstance(invariants, dict) or not invariants:
+        raise SystemExit("architecture contract must define target_invariants")
+    invalid = {
+        invariant
+        for invariant, name in invariants.items()
+        if not isinstance(invariant, str)
+        or re.fullmatch(r"T[1-9][0-9]*", invariant) is None
+        or not isinstance(name, str)
+        or not name.strip()
+    }
+    if invalid:
+        raise SystemExit(
+            f"architecture contract has invalid target invariants: {sorted(invalid)}"
+        )
+    return set(invariants)
 
 
 def load_integration_impact(registry: dict) -> dict:
@@ -87,8 +115,14 @@ def _nonempty_strings(value: object) -> bool:
     )
 
 
-def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
+def validate_registry(
+    registry: dict,
+    impact: dict | None = None,
+    required_invariants: set[str] | None = None,
+) -> list[str]:
     errors: list[str] = []
+    if required_invariants is None:
+        required_invariants = target_invariant_ids()
     if registry.get("schema_version") != 6:
         errors.append("behavior registry schema_version must be 6")
 
@@ -277,7 +311,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         if not _nonempty_strings(invariants):
             errors.append(f"unit evidence {test!r} has no invariants")
         else:
-            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
+            unknown = set(invariants).difference(required_invariants)
             if unknown:
                 errors.append(f"unit evidence {test!r} has unknown invariants {sorted(unknown)}")
             covered_invariants.update(invariants)
@@ -357,7 +391,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         if not _nonempty_strings(invariants):
             errors.append(f"workspace evidence {test!r} has no invariants")
         else:
-            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
+            unknown = set(invariants).difference(required_invariants)
             if unknown:
                 errors.append(
                     f"workspace evidence {test!r} has unknown invariants {sorted(unknown)}"
@@ -424,7 +458,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
         if not _nonempty_strings(invariants):
             errors.append(f"integration evidence {spec_id!r} has no invariants")
         else:
-            unknown = set(invariants).difference(REQUIRED_PROOF_OBLIGATIONS)
+            unknown = set(invariants).difference(required_invariants)
             if unknown:
                 errors.append(
                     f"integration evidence {spec_id!r} has unknown invariants {sorted(unknown)}"
@@ -485,7 +519,7 @@ def validate_registry(registry: dict, impact: dict | None = None) -> list[str]:
     unreferenced = behavior_ids.difference(referenced_behaviors)
     if unreferenced:
         errors.append(f"behaviors without executable evidence: {sorted(unreferenced)}")
-    missing_invariants = REQUIRED_PROOF_OBLIGATIONS.difference(covered_invariants)
+    missing_invariants = required_invariants.difference(covered_invariants)
     if missing_invariants:
         errors.append(f"invariants without executable evidence: {sorted(missing_invariants)}")
     return errors
@@ -495,8 +529,12 @@ def behavior_ids(registry: dict) -> set[str]:
     return {entry["id"] for entry in registry["behaviors"]}
 
 
-def invariant_unit_evidence(registry: dict) -> dict[str, list[str]]:
-    evidence = {invariant: [] for invariant in sorted(REQUIRED_PROOF_OBLIGATIONS)}
+def invariant_unit_evidence(
+    registry: dict, required_invariants: set[str] | None = None
+) -> dict[str, list[str]]:
+    if required_invariants is None:
+        required_invariants = target_invariant_ids()
+    evidence = {invariant: [] for invariant in sorted(required_invariants)}
     for entry in registry["unit_evidence"]:
         for invariant in entry["invariants"]:
             evidence[invariant].append(entry["test"])

@@ -187,7 +187,8 @@ pub struct TxPoolEntries {
     pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
     pub proposed: HashMap<H256, TxPoolEntry>,
-    /// Conflicted tx hash vec
+    /// Successfully displaced accepted transaction hashes retained as replacement history.
+    /// Failed replacement candidates are reported through recent-reject status instead.
     pub conflicted: Vec<H256>,
 }
 

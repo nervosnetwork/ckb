@@ -12,8 +12,8 @@
       "reason": "cargo-semver-checks against develop reports 9 major-change lint classes, including removal of public TxPool/module/method/macro surfaces, builder signature changes, exhaustive enum changes and PlugTarget gaining Copy; release requires either non-authoritative compatibility designs for each retained API or an explicit major-version migration"
     },
     {
-      "id": "MODEL-REFINEMENT-ACCEPTANCE",
-      "reason": "M0-M4 executable mathematical model, production/develop refinement, topology minimality and anti-drift evidence have not yet passed"
+      "id": "INDEPENDENT-EXECUTION-CUTOVER",
+      "reason": "M4 selected and froze the bounded semantic exchange, but production slices I1-I6 and their complete production refinement and correctness acceptance have not yet passed"
     },
     {
       "id": "PERFORMANCE-ACCEPTANCE",
