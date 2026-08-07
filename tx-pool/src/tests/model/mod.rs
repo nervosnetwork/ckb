@@ -17,6 +17,7 @@ mod protocol;
 mod refinement;
 mod resource;
 mod state;
+mod trace;
 
 pub(crate) use refinement::{
     CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
@@ -24,4 +25,12 @@ pub(crate) use refinement::{
     accepted_role_observation, candidate_graph_observation, candidate_role_observation,
     evidence_origin_observation, positioned_role_observation, ready_order_observation,
     shared_header_observation, source_observation, source_pressure_observation, stale_observation,
+};
+pub(crate) use trace::{
+    TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,
+    TraceEffect, TraceEffectClaim, TraceEffectClass, TraceEffectObservation, TraceLifecycleRoute,
+    TraceObservation, TraceOwnerLocation, TraceOwnerObservation, TracePeerId, TraceResourceCounts,
+    TraceRetainedPhase, TraceRetainedSource, TraceScenario, TraceTxId, TraceVerifyCapability,
+    TraceVerifyClass, TraceWorkLocation, TraceWorkObservation, TraceWorkPermit, TraceWorkStage,
+    replay_reference_trace,
 };

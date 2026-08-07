@@ -2113,10 +2113,10 @@ edit and makes no timing claim. Pointwise classifier equivalence, producer and
 consumer reachability, the complete fault ledger and topology selection remain
 the later M3 gates below.
 
-The current generated closure is reproducible through
+The M3.1 checkpoint closure is reproducible through
 `scripts/check_model_refinement.py`. Fifty-four model root roles and sixty-five
 production root roles are bound bidirectionally through twelve semantic groups
-and existing `TP-*` behavior owners. The source graph currently contains 187
+and existing `TP-*` behavior owners. That source graph contained 187
 root-reachable model types with 421 enum variants and 262 implementation
 methods, versus 611 root-reachable production types with 787 variants and
 1,216 methods. These counts are source observations, not line-count or
@@ -2134,8 +2134,9 @@ reducing semantic construction authority. A type is removable only when its
 observation, conservation, liveness or cost owner is absent; the raw ratio is
 never deletion evidence.
 
-The generated root frontier leaves exactly twenty-two model declarations and
-eleven production declarations unbound. The model set consists only of the
+The generated root frontier at that checkpoint left exactly twenty-two model
+declarations and eleven production declarations unbound. The model set
+consists only of the
 hostile-trace explorer carriers (`AdversarialShape`, `HostileAction`,
 `HostileState`, `HostileTraceError`, `HostileTraceGenerator`,
 `HostileTraceLimits`, `HostileTraceReport`, `HostileTransition`, `HostileTxKey`,
@@ -2424,6 +2425,85 @@ grant and refine the exact production scheduler, or narrow the exchange
 theorem to split work and leave continuous assignment as an M3.6 candidate
 obligation. Persistent owner state must not gain worker-role metadata to make
 this proof convenient.
+
+##### M3.3 authority trace alphabet and first closed domain
+
+The trace harness shares only a symbolic transaction/peer/action vocabulary
+and normalized observation value types. Its two adapters remain independent:
+the reference adapter calls the pure kernel, while the production adapter
+constructs real `TransactionView`, evidence, checkout and settlement receipts
+and calls `TxPoolAuthority`. Neither adapter may call the other's transition,
+normalizer or expected-disposition implementation. Opaque capability,
+version and arrival identities are mapped to transaction symbols and relative
+order independently on each side.
+
+An authority stable cut follows one complete Plan/Apply, one mutation-free
+linear capability handoff, or one effect claim. No prepared production delta
+may survive the cut. The initial neutral alphabet is:
+
+```text
+AdmitRemote(tx, peer, deadline)
+Checkout(ResolveOnly | VerifyOnly(cap) | ResolveThenVerify(cap))
+Resolve(capability-of tx)
+Verify(capability-of tx)
+FinalizeReady
+ClaimEffect
+SettleEffect
+```
+
+The first closed finite domain is the product of `Small | Large` verification
+class with split, continuous-Any and continuous-SmallCycleOnly execution. An
+incompatible continuous-SmallCycleOnly/`Large` resolution must expose the
+queued-Verify Apply and a later Any checkout. Every other continuous route
+must expose the no-Apply handoff. The six traces continue through Accepted
+ownership and exact effect settlement; comparison stops at the first unequal
+cut and reports that shortest prefix.
+
+The normalized authority-core observation contains the exact last Apply
+count, generation and chain revision; symbolic owner source/phase and
+version/arrival order; active capability permit/stage; charged owner,
+retained, Remote, Accepted, history and active-work counts; canonical
+committed-effect class/sequence/order/content; and the unique current effect
+claim. Effect payloads are normalized only to semantic fields represented by
+the reference model. Physical effect-envelope bytes and complete callback
+snapshots remain covered by their pointwise resource/effect laws until the
+trace model acquires those exact domains; they may not be inferred from the
+action that produced them.
+
+This first domain deliberately has one runnable owner, so it proves lifecycle,
+capability and Apply-cut refinement without assuming the unresolved flat-order
+versus fair-ring relation. Multi-owner rotation is added only in the scheduler
+quotient step. Multi-effect immutable-batch partial progress, chain/admin
+commands and relay/controller/publisher/lifecycle actors likewise remain
+explicit later M3.3 obligations; passing the six lifecycle traces is not a
+claim about those domains. The harness and any additional production
+extractor are test-only and add no runtime branch, lock, state or cost.
+
+M3.3 step 1 is closed by six uniform eight-action traces and 48 stable-cut
+comparisons. The first production replay exposed a reference-model defect
+rather than being normalized away: checkout creates the active-compute owner
+incarnation, and every non-terminal compute settlement retires it, so both
+transitions must give the surviving owner and its sole capability a fresh
+non-reused `EntryVersion`. Split and continuous routes therefore finish with
+different opaque numeric versions even though their owner semantics are
+alpha-equivalent. The reference kernel now implements that existing identity
+law, and the route-equivalence regression compares semantic owners while
+retaining exact Apply-cost and version-rotation assertions.
+
+The second initial failure was a domain-construction error: the first Large
+witness used a million cycles and correctly reached capacity eviction, mixing
+an unrelated membership policy into the lifecycle trace. The finite domain now
+states its resolver premise explicitly: with large-cycle threshold one, cycle
+claims one and two construct reachable Small and Large evidence while both fit
+the same authority fixture. Capacity and eviction remain separate adversarial
+domains instead of being silently bypassed. The complete mathematical model,
+production adapter and generated evidence gates pass with the full observation
+unchanged. The current derived frontier is 192 rooted model types plus 50
+test/transient declarations across 15 files, and 611 rooted production types
+plus 11 local declarations across 37 files; every rooted variant has a
+producer after macro expansion. M3.3 step 2 is next and must compose real
+relay/controller/publisher/lifecycle handoffs rather than extending this
+single-owner adapter into a second runtime.
 
 #### M3.4 develop refinement
 

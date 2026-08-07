@@ -119,6 +119,10 @@ impl VerifyWork {
         self.resolved.payload().resolved_transaction()
     }
 
+    pub(in crate::authority) fn verify_class_for_foundation(&self) -> VerifyCycleClass {
+        self.resolved.verify_class()
+    }
+
     pub(in crate::authority) fn rejected(
         self,
         reason: impl Into<CommittedPublicReject>,
@@ -155,6 +159,10 @@ impl VerifyWork {
 }
 
 impl ContinuousVerifyWork {
+    pub(in crate::authority) fn verify_class_for_foundation(&self) -> VerifyCycleClass {
+        self.resolved.verify_class()
+    }
+
     pub(in crate::authority) fn internal_failure(self) -> ComputeSettlement {
         internal_failure(self.token)
     }

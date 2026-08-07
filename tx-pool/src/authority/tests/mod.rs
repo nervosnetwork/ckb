@@ -16,5 +16,6 @@ mod service;
 mod template;
 mod template_driver;
 mod topology;
+mod trace_refinement;
 mod validation;
 mod worker;

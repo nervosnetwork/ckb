@@ -4,7 +4,7 @@ use super::super::{
         test_support::{AdmissionEvidenceError, ChainTransitionFacts},
     },
     dependency::test_support::DependencySnapshot,
-    effect::test_support::{EffectObservation, EffectSnapshot},
+    effect::test_support::{EffectObservation, EffectSnapshot, EffectTraceBatch},
     indexes::test_support::IndexSnapshot,
     resources::test_support::ResourceSnapshot,
     scheduler::test_support::SchedulerSnapshot,
@@ -289,6 +289,10 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn generation(&self) -> PoolGeneration {
         self.generation
+    }
+
+    pub(in crate::authority) fn chain_view_for_reference(&self) -> &ChainViewId {
+        &self.chain_view
     }
 
     pub(in crate::authority) fn clocks(&self) -> AuthorityClocks {
@@ -734,6 +738,10 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn effect_observation_for_foundation(&self) -> EffectObservation {
         self.effects.observation()
+    }
+
+    pub(in crate::authority) fn effect_trace_for_reference(&self) -> Vec<EffectTraceBatch> {
+        self.effects.trace_batches()
     }
 
     pub(in crate::authority) fn plan_dependency_availability_for_foundation(

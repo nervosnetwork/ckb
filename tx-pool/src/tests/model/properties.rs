@@ -460,7 +460,23 @@ fn model_continuous_resolve_verify_preserves_one_capability_and_exact_apply_cost
 
     assert_eq!(continuous.authority.last_apply, ApplyStamp(5));
     assert_eq!(split.authority.last_apply, ApplyStamp(7));
-    assert_eq!(continuous.authority.owners, split.authority.owners);
+    assert_eq!(
+        continuous.authority.owners.keys().collect::<Vec<_>>(),
+        split.authority.owners.keys().collect::<Vec<_>>()
+    );
+    for (transaction, continuous_owner) in &continuous.authority.owners {
+        let Some(split_owner) = split.authority.owners.get(transaction) else {
+            panic!("split route lost owner {transaction:?}");
+        };
+        assert_eq!(continuous_owner.arrival, split_owner.arrival);
+        assert_eq!(continuous_owner.transaction, split_owner.transaction);
+        assert_eq!(continuous_owner.location, split_owner.location);
+    }
+    assert_ne!(
+        continuous.authority.owners[&transaction.id].version,
+        split.authority.owners[&transaction.id].version,
+        "opaque owner-incarnation names reflect the two extra split transitions"
+    );
     assert_eq!(continuous.authority.effects, split.authority.effects);
     assert_eq!(
         continuous.authority.latest_generation_reset,

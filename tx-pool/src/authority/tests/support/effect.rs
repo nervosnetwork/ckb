@@ -9,6 +9,34 @@ pub(in crate::authority) struct EffectSnapshot {
     closed: bool,
 }
 
+/// Test-only extraction of the committed stream at one authority stable cut.
+/// It exposes production facts, not model-normalized values, so refinement
+/// adapters must still perform their own independent semantic mapping.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) struct EffectTraceBatch {
+    pub(in crate::authority) sequence: ApplySequence,
+    pub(in crate::authority) class: Option<EffectTraceClass>,
+    pub(in crate::authority) processed_steps: usize,
+    pub(in crate::authority) effects: Vec<CommittedEffect>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum EffectTraceClass {
+    Remote,
+    Trusted,
+    Critical,
+}
+
+impl From<EffectClass> for EffectTraceClass {
+    fn from(class: EffectClass) -> Self {
+        match class {
+            EffectClass::Remote => Self::Remote,
+            EffectClass::Trusted => Self::Trusted,
+            EffectClass::Critical => Self::Critical,
+        }
+    }
+}
+
 impl EffectProgress {
     fn is_pending(self, batch: &EffectBatch) -> bool {
         self.0 < batch.publication_steps()
@@ -235,6 +263,29 @@ impl EffectLog {
             pending_recent_rejects: self.pending_recent_rejects.len(),
             closed: self.closed,
         }
+    }
+
+    pub(in crate::authority) fn trace_batches(&self) -> Vec<EffectTraceBatch> {
+        let mut batches = self
+            .queued
+            .iter()
+            .map(|queued| EffectTraceBatch {
+                sequence: queued.record.sequence,
+                class: Some(queued.class.into()),
+                processed_steps: queued.record.processed.0,
+                effects: queued.record.batch.effects().to_vec(),
+            })
+            .collect::<Vec<_>>();
+        if let Some(reset) = &self.latest_generation_reset {
+            batches.push(EffectTraceBatch {
+                sequence: reset.sequence,
+                class: None,
+                processed_steps: reset.processed.0,
+                effects: reset.batch.effects().to_vec(),
+            });
+        }
+        batches.sort_unstable_by_key(|batch| batch.sequence);
+        batches
     }
 
     pub(in crate::authority) fn snapshot(&self) -> EffectSnapshot {

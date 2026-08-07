@@ -3139,3 +3139,61 @@ assign heterogeneous worker roles. M3.3 now resumes at step 1: define the
 stable-cut trace alphabet and normalized observations, then implement the
 independent test-only authority replay adapter before composing any real
 boundary trace.
+
+### M3.3 step 1 stable-cut refinement checkpoint
+
+The neutral trace vocabulary and two independent adapters now close the first
+authority-core domain. The reference adapter calls only the pure kernel. The
+production adapter constructs real transactions, admissions, move-only work,
+resolution/verification settlements, final membership receipts, effect claims
+and effect settlements against `TxPoolAuthority`. They share symbolic inputs
+and normalized values only; neither shares transitions, normalization code or
+expected outcomes.
+
+The complete finite product is two verification classes by split,
+continuous-Any and continuous-SmallCycleOnly routes. Every route executes the
+same eight actions, including an intentionally idle second checkout for a
+compatible continuous handoff. The six traces compare disposition and complete
+initial authority-core observation after every action, yielding 48 stable-cut
+comparisons with shortest-prefix failure diagnostics.
+
+The harness found and closed two errors before passing:
+
+- The executable model preserved an owner's version across checkout and
+  non-terminal compute settlement even though the standing identity law and
+  production both assign a fresh active-compute incarnation and retire it on
+  settlement. The model now rotates `EntryVersion` at both transitions. The
+  split/continuous equivalence test treats the resulting opaque names by alpha
+  equivalence while still asserting exact five-versus-seven Apply cost.
+- The original Large witness used 1,000,000 cycles and correctly exceeded the
+  foundation Accepted capacity. The authority trace now records a resolver
+  threshold premise of one and uses reachable cycle witnesses one/two for
+  Small/Large, keeping capacity eviction in its separate adversarial domain.
+  No membership rejection or observation was weakened to make the trace pass.
+
+All edits remain under test/model, test-only authority support, generated
+review evidence and recovery documentation. Production semantics, tasks,
+locks, state, effects and hot paths are unchanged. Gates at this cut:
+
+- focused lifecycle trace nextest: 3/3;
+- complete mathematical-model nextest: 168/168;
+- complete internal-feature nextest: 603/603, zero skipped;
+- complete default-feature nextest: 599/599, zero skipped;
+- strict all-target internal-feature Clippy and formatting;
+- complete eight-contract gate, including TLC 561 generated / 184 distinct
+  positive states and the required four-state negative witness;
+- generated evidence: 289 registered tx-pool Rust tests, 1,108 invariant
+  references, 9 cross-crate tests, 19 integration anchors, 150 managed specs
+  and 603 discovered internal tests;
+- refinement/variant flow: model 192 rooted / 50 outside roots / 15 files,
+  production 611 / 11 / 37, with zero constructorless rooted variants after
+  expansion.
+
+The phase-level review found no duplicate authority, production risk transfer,
+new failure domain, serialized work or snowball patch. The extra outside-root
+model declarations are the neutral trace input/observation and independent
+adapter carriers; they own no lifecycle or resource fact and are deliberately
+not semantic roots. This closes only M3.3 step 1. The exact next action is step
+2: define boundary handoff observations, then compose real relay, controller,
+publisher and lifecycle harnesses without building a parallel runtime or
+claiming the unresolved scheduler quotient.

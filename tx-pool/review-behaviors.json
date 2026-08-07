@@ -522,6 +522,9 @@
     {"test": "mathematical_model::properties::model_ready_capture_never_skips_a_new_stronger_head", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
     {"test": "mathematical_model::properties::model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mutation", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T6", "T11"]},
     {"test": "mathematical_model::properties::model_verification_suspend_blocks_checkout_without_discarding_active_work", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
+    {"test": "mathematical_model::trace::tests::trace_lifecycle_domain_is_the_complete_class_route_product", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T8", "T11", "T12"]},
+    {"test": "mathematical_model::trace::tests::reference_lifecycle_domain_preserves_every_stable_cut", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T8", "T10", "T11"]},
+    {"test": "authority::tests::trace_refinement::uak_authority_lifecycle_traces_refine_model_at_every_stable_cut", "behavior_id": "TP-WORKER-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T8", "T10", "T11", "T12"]},
 
     {"test": "mathematical_model::properties::model_peer_ban_fence_is_bounded_and_expires_in_the_monotonic_clock_domain", "behavior_id": "TP-ADMIN-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "mathematical_model::properties::model_peer_ban_releases_only_matching_pre_authority_relay_handoffs", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T7", "T10"]},

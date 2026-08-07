@@ -700,10 +700,14 @@ impl Omega {
                 return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
             }
         };
-        let version = owner.version;
-
         let mut next = self.clone();
         let Some(capability_id) = next.reserve_capability() else {
+            return counter_exhausted();
+        };
+        // Checkout creates the active-compute incarnation. Its owner and the
+        // sole move-only capability must acquire the same fresh version so a
+        // stale capability can never match a later phase of this owner.
+        let Some(version) = next.reserve_owner_version() else {
             return counter_exhausted();
         };
         let Some(stamp) = next.reserve_apply() else {
@@ -732,6 +736,7 @@ impl Omega {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         retained.phase = RetainedPhase::Computing(permit);
+        owner.version = version;
         *self = next;
         KernelStep::AuthorityCommit {
             stamp,
@@ -1210,6 +1215,14 @@ impl Omega {
         }
 
         let mut next = self.clone();
+        let owner_version = if terminal {
+            None
+        } else {
+            let Some(version) = next.reserve_owner_version() else {
+                return counter_exhausted();
+            };
+            Some(version)
+        };
         let Some(stamp) = next.reserve_apply() else {
             return counter_exhausted();
         };
@@ -1302,6 +1315,14 @@ impl Omega {
                 ));
             }
         };
+        if let Some(version) = owner_version {
+            let Some(owner) = next.authority.owners.get_mut(&id) else {
+                return KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(
+                    capability.id,
+                ));
+            };
+            owner.version = version;
+        }
         if !waiting_effects.is_empty() && !next.append_effects(effect_class, stamp, waiting_effects)
         {
             return counter_exhausted();
