@@ -535,8 +535,12 @@ Rust evidence:
 
 Cross-crate Rust evidence:
 
+Generated cross-crate command: `cargo nextest run -p ckb-app-config -E 'test(=legacy::tx_pool::tests::explicit_unified_pipeline_budget_takes_precedence_over_legacy_input) | test(=legacy::tx_pool::tests::legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity) | test(=legacy::tx_pool::tests::omitted_pipeline_budget_keeps_the_unified_default)'`
 Generated cross-crate command: `cargo nextest run -p ckb-sync -E 'test(=relayer::tests::block_proposal_process::accepted_proposal_consumes_inflight_and_marks_known) | test(=relayer::tests::block_proposal_process::test_clear_expired_inflight_proposals) | test(=relayer::tests::block_proposal_process::test_no_asked) | test(=relayer::tests::block_proposal_process::test_no_unknown) | test(=relayer::tests::block_proposal_process::test_oversized_batch_is_rejected_before_relay_state_changes)'`
 
+- `util/app-config/src/legacy/tx_pool.rs::legacy::tx_pool::tests::explicit_unified_pipeline_budget_takes_precedence_over_legacy_input` (T3, T8) - An explicit current pipeline budget has deterministic precedence over its legacy translation input.
+- `util/app-config/src/legacy/tx_pool.rs::legacy::tx_pool::tests::legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity` (T3, T8) - A legacy verify-queue budget is translated to the unified pipeline budget without shrinking the old aggregate retained capacity.
+- `util/app-config/src/legacy/tx_pool.rs::legacy::tx_pool::tests::omitted_pipeline_budget_keeps_the_unified_default` (T3, T8) - A legacy configuration omitting every new tx-pool field receives the validated resident, pipeline and arrival-order compatibility defaults.
 - `sync/src/relayer/tests/block_proposal_process.rs::relayer::tests::block_proposal_process::accepted_proposal_consumes_inflight_and_marks_known` (T1, T6, T7, T8, T10) - A requested valid Proposal consumes its network request when the response arrives, remains unknown during authority validation, and becomes known only through the committed Accepted effect.
 - `sync/src/relayer/tests/block_proposal_process.rs::relayer::tests::block_proposal_process::test_clear_expired_inflight_proposals` (T7, T8, T10) - Expired proposal requests are cleared without retaining stale relay state.
 - `sync/src/relayer/tests/block_proposal_process.rs::relayer::tests::block_proposal_process::test_no_asked` (T7, T8) - An unsolicited valid proposal transaction does not enter the known projection.

@@ -23,7 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   victims retained as replacement history. Failed replacement candidates use
   the recent-reject surface.
 - Write tx-pool persistence v2 while accepting legacy v1 files as migration
-  input. Every restored transaction re-enters validation.
+  input. Every restored transaction re-enters validation. Node downgrade and
+  reverse persistence migration are not supported.
+- Legacy tx-pool configuration files remain accepted on forward node upgrades.
+  Missing resident-budget and verify-ordering fields use validated compatibility
+  defaults, while the legacy verify-queue budget is translated without shrinking
+  its former aggregate pipeline capacity.
 
 ## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.1...ckb-tx-pool-v1.2.2) - 2026-06-08
 

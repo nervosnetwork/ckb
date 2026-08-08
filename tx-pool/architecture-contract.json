@@ -1,5 +1,5 @@
 {
-  "schema_version": 12,
+  "schema_version": 13,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -650,7 +650,16 @@
     ]
   },
   "release_surface": {
-    "schema_version": 1,
+    "schema_version": 2,
+    "compatibility_policy": {
+      "node_downgrade": "unsupported",
+      "legacy_tx_pool_configuration": "accepted_on_forward_upgrade",
+      "missing_new_configuration_fields": "validated_compatibility_defaults",
+      "legacy_verify_budget": "translated_without_shrinking_the_old_aggregate",
+      "legacy_persistence_v1": "accepted_and_revalidated",
+      "current_persistence_write": "v2_only",
+      "reverse_persistence_migration": "unsupported"
+    },
     "anchors": [
       {
         "id": "rpc_conflicted_semantics",
@@ -692,6 +701,10 @@
           {
             "path": "resource/ckb.toml",
             "required_phrases": ["max_tx_pool_resident_size", "max_tx_pipeline_resident_size", "verify_ordering = \"arrival_time\""]
+          },
+          {
+            "path": "tx-pool/CHANGELOG.md",
+            "required_phrases": ["Legacy tx-pool configuration files remain accepted on forward node upgrades"]
           }
         ]
       },
@@ -704,7 +717,7 @@
           },
           {
             "path": "tx-pool/CHANGELOG.md",
-            "required_phrases": ["persistence v2", "legacy v1"]
+            "required_phrases": ["persistence v2", "legacy v1", "Node downgrade and reverse persistence migration are not supported"]
           }
         ]
       },

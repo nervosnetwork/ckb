@@ -9,6 +9,7 @@ on:
       - 'rpc/**'
       - 'sync/**'
       - 'test/**'
+      - 'util/**'
       - 'verification/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   push:
@@ -19,6 +20,7 @@ on:
       - 'rpc/**'
       - 'sync/**'
       - 'test/**'
+      - 'util/**'
       - 'verification/**'
       - '.github/workflows/ci_tx_pool_review.yaml'
   merge_group: {}

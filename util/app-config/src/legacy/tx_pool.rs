@@ -218,8 +218,13 @@ max_ancestors_count = 25
     fn omitted_pipeline_budget_keeps_the_unified_default() {
         let config = parse("");
         assert_eq!(
+            config.max_tx_pool_resident_size,
+            DEFAULT_MAX_TX_POOL_RESIDENT_SIZE
+        );
+        assert_eq!(
             config.max_tx_pipeline_resident_size,
             DEFAULT_MAX_TX_PIPELINE_RESIDENT_SIZE
         );
+        assert_eq!(config.verify_ordering, VerifyOrdering::ArrivalTime);
     }
 }

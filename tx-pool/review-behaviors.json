@@ -859,6 +859,30 @@
       "behavior_ids": ["TP-OWN-001", "TP-COMMIT-001"],
       "invariants": ["T1", "T6", "T10"],
       "boundary": "The local-test RPC starts from an absent transaction and observes the final direct admission result instead of relying on the retired verify-queue acknowledgement gap."
+    },
+    {
+      "package": "ckb-app-config",
+      "path": "util/app-config/src/legacy/tx_pool.rs",
+      "test": "legacy::tx_pool::tests::legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T3", "T8"],
+      "boundary": "A legacy verify-queue budget is translated to the unified pipeline budget without shrinking the old aggregate retained capacity."
+    },
+    {
+      "package": "ckb-app-config",
+      "path": "util/app-config/src/legacy/tx_pool.rs",
+      "test": "legacy::tx_pool::tests::explicit_unified_pipeline_budget_takes_precedence_over_legacy_input",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T3", "T8"],
+      "boundary": "An explicit current pipeline budget has deterministic precedence over its legacy translation input."
+    },
+    {
+      "package": "ckb-app-config",
+      "path": "util/app-config/src/legacy/tx_pool.rs",
+      "test": "legacy::tx_pool::tests::omitted_pipeline_budget_keeps_the_unified_default",
+      "behavior_ids": ["TP-BUDGET-001"],
+      "invariants": ["T3", "T8"],
+      "boundary": "A legacy configuration omitting every new tx-pool field receives the validated resident, pipeline and arrival-order compatibility defaults."
     }
   ],
   "integration_evidence": [

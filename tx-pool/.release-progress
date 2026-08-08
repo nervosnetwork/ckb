@@ -4475,3 +4475,61 @@ Rust items and cargo-mutants candidates. The matrix must mechanically reject
 unowned, ambiguous, stale and zero-match rows, and the whole-system checkpoint
 must pass before its exact command and digest can be frozen. Cleanup remains
 blocked until the complete post-change V1 verification and checkpoint pass.
+
+## V1 model-root and forward-compatibility checkpoint
+
+The root-goal review restarted from CKB transaction semantics rather than the
+current task graph. Raw transaction identity owns inputs and outputs; witness
+identity plus script rules owns verification evidence; expanded cell deps and
+header deps are read facts; pool-produced cells, RBF, global resource/effect
+capacity, chain generations and public ordering make composition
+state-dependent. The resulting proof kernel remains
+`M = (E, Sigma, Legal, Step, Inv, Obs, Equivalent, Live, Cost)`. Resolve and VM
+work, point reads and optimistic template lanes remain parallel outside the
+authority guard; only ownership, charge, membership/RBF, dependency effects
+and committed publication are canonically ordered by one authority. No new
+legal input, observation, authority or topology falsified the selected bounded
+semantic exchange, so the fixed architecture is retained rather than patched
+or reopened.
+
+The user confirmed the release policy that CKB does not support node downgrade
+but forward upgrades must accept legacy configuration files. Architecture
+contract schema 13 and release-surface schema 2 now own that exact boundary:
+legacy tx-pool configuration receives validated defaults for omitted new
+fields, the old verify budget is translated without shrinking its former
+aggregate pipeline capacity, an explicit current budget wins, legacy
+persistence v1 is accepted and revalidated, writes are v2-only, and reverse
+persistence migration is unsupported. The policy has a negative downgrade
+canary, consumer-facing release anchors and three registered `ckb-app-config`
+conformance tests. Complete app-config Nextest run
+`0eead242-d0ed-4936-98ea-1dc8673e8ba0` passed 13/13.
+
+The first complete contract run correctly rejected the two new
+compute-exchange tests missing from the generated inventory. The inventory was
+regenerated from Nextest discovery rather than edited. Adding cross-crate
+configuration evidence then exposed a missing `util/**` CI trigger; the
+generic evidence-root checker required both pull-request and push coverage.
+A final harness issue was release-anchor matching that depended on Markdown
+line wrapping. Its root correction normalizes whitespace for every release
+anchor while the existing missing-phrase canary preserves semantic failure;
+no phrase-specific exception was added.
+
+The complete discovered contract gate now passes all nine checks. TLC closed
+1,098 generated / 318 distinct positive states and reproduced the required
+four-state `NoEffectBlockedDirectHandoff` negative witness. Mathematical-model
+Nextest run `2e468f4d-ecfb-4372-ab1c-fc6b0eb3297e` passed 205/205 with 494
+non-model tests intentionally skipped. The generated graph covers 376 tx-pool
+tests / 1,495 invariant references, 14 cross-crate conformance tests / 38
+references, 19 integration anchors and 150 managed specs against 699 discovered
+tx-pool tests.
+
+The whole-system snowball audit found no production state, authority, lock,
+task, queue, channel, retry, capability, effect, compatibility execution branch
+or hot-path operation added. The changed surfaces are one existing legacy test,
+one canonical compatibility policy, its generic checker/canary, generated
+inventory/review projections, derived CI roots and consumer documentation.
+Each has one directional proof owner; no second policy registry or local
+exception was introduced. The next exact product action remains section 29:
+derive the remaining mutation matrix mechanically from the existing model,
+architecture, behavior, Rust-item and cargo-mutants authorities before freezing
+or executing another cohort.

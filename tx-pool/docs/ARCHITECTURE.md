@@ -1308,6 +1308,26 @@ solely to let tests reconstruct the mutation. Tests inspect a sealed Plan
 before Apply and the authority/effect state after Apply; otherwise the test
 receipt becomes a second hand-maintained projection of the transition graph.
 
+### Forward-upgrade compatibility policy
+
+CKB does not support node downgrade. The tx-pool therefore has no reverse
+persistence migration, rollback writer or old-format decision authority.
+Forward upgrades remain compatible with legacy tx-pool configuration files:
+missing new fields receive validated compatibility defaults, the legacy
+verify-queue budget is translated without shrinking its former aggregate
+pipeline capacity, and an explicitly configured current pipeline budget takes
+precedence. Persistence accepts legacy v1 as a migration input, revalidates
+every transaction and writes only v2. These are separate compatibility cuts:
+unsupported node downgrade cannot be used to remove old-configuration parsing
+from a supported forward upgrade.
+
+`architecture-contract.json#release_surface.compatibility_policy` owns this
+boundary. Its checker verifies the exact policy and consumer-facing release
+anchors; the registered `ckb-app-config` Nextest evidence proves legacy
+translation and defaults. Adding a configuration field without a legacy
+default or explicit migration decision reopens the release surface before
+production use.
+
 ### Historical finding convergence
 
 Historical reports are evidence inputs, not parallel design documents. Their

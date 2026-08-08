@@ -33,6 +33,15 @@ REQUIRED_PROOF_POLICY = {
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only",
 }
+REQUIRED_RELEASE_COMPATIBILITY_POLICY = {
+    "node_downgrade": "unsupported",
+    "legacy_tx_pool_configuration": "accepted_on_forward_upgrade",
+    "missing_new_configuration_fields": "validated_compatibility_defaults",
+    "legacy_verify_budget": "translated_without_shrinking_the_old_aggregate",
+    "legacy_persistence_v1": "accepted_and_revalidated",
+    "current_persistence_write": "v2_only",
+    "reverse_persistence_migration": "unsupported",
+}
 MODEL_BOUNDARY_FAMILIES = {
     "acceptance_publication",
     "administration",
@@ -116,6 +125,12 @@ def _string_set(value: object) -> set[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         return set()
     return set(value)
+
+
+def normalized_prose(value: str) -> str:
+    """Compare release prose independently of Markdown line wrapping."""
+
+    return " ".join(value.split())
 
 
 def rust_enum_variants(path_value: str, enum_name: str) -> tuple[set[str], list[str]]:
@@ -215,8 +230,13 @@ def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
         return ["architecture contract selected_topology schema_version must be 1"]
     if not isinstance(slices_contract, dict) or slices_contract.get("schema_version") != 1:
         return ["architecture contract implementation_slices schema_version must be 1"]
-    if not isinstance(release_surface, dict) or release_surface.get("schema_version") != 1:
-        return ["architecture contract release_surface schema_version must be 1"]
+    if not isinstance(release_surface, dict) or release_surface.get("schema_version") != 2:
+        return ["architecture contract release_surface schema_version must be 2"]
+    if release_surface.get("compatibility_policy") != REQUIRED_RELEASE_COMPATIBILITY_POLICY:
+        errors.append(
+            "release surface must define the exact forward-only node, configuration "
+            "and persistence compatibility policy"
+        )
     if topology.get("status") not in {"normative_blueprint", "implemented"}:
         errors.append("selected topology has an invalid status")
     if topology.get("authority") != contract.get("authority", {}).get("transaction_owner"):
@@ -485,8 +505,9 @@ def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
             except (OSError, ValueError) as error:
                 errors.append(f"release surface {anchor_id!r} cannot read {path_value}: {error}")
                 continue
+            normalized_contents = normalized_prose(contents)
             for phrase in phrases:
-                if phrase not in contents:
+                if normalized_prose(phrase) not in normalized_contents:
                     errors.append(
                         f"release surface {anchor_id!r} phrase {phrase!r} is absent from {path_value}"
                     )
@@ -541,6 +562,14 @@ def validate_selected_topology_canaries(contract: dict, registry: dict) -> list[
         "__contract_canary_missing_release_phrase__" in error for error in observed
     ):
         errors.append("selected-topology validator missed its release-surface canary")
+
+    downgrade_policy = copy.deepcopy(contract)
+    downgrade_policy["release_surface"]["compatibility_policy"]["node_downgrade"] = (
+        "supported"
+    )
+    observed = validate_selected_topology(downgrade_policy, registry)
+    if not any("forward-only" in error for error in observed):
+        errors.append("selected-topology validator missed its downgrade-policy canary")
     return errors
 
 
@@ -661,8 +690,8 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 12:
-        errors.append("architecture contract schema_version must be 12")
+    if contract.get("schema_version") != 13:
+        errors.append("architecture contract schema_version must be 13")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
     errors.extend(validate_interruption_contract(contract, registry))
