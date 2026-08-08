@@ -4221,3 +4221,44 @@ classification, exact command and exact restart action are in section 29 of
 `.independent-execution-plan`. No complete post-change V1 gate is claimed. The
 mutation process is stopped, and the user-owned root `.gitignore` remains
 unstaged and excluded.
+
+Device migration is now the only active operational slice. The tracked
+`.device-handoff` contains the complete recovery index, exact roadmap and
+evidence, historical finding convergence, mutation restart, release blockers,
+verified source-device tools, destination install commands, resume prompt and
+post-restore cleanup. The root `AGENTS.md` has been updated with the accumulated
+methodology and remains intentionally untracked for manual copy; its required
+SHA-256 is
+`34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd`.
+
+Unlike earlier checkpoints, this migration commit includes the root
+`.gitignore` change so the manually restored `AGENTS.md` and Python tool caches
+remain ignored on the destination. The independent-execution release blocker
+wording was synchronized with actual progress without closing it: I1-I6 and
+the earlier related/integration/interruption gates are complete, but selected
+mutation, deterministic smoke and full post-change V1 acceptance remain open.
+No product continuation has run after the stop. The next product action remains
+the exact section 29 survivor census and six unstarted mutants, after the
+destination recovery gates and one recorded post-restore checkpoint.
+
+The source migration gate initially rejected four new compute-exchange tests
+that had not entered `review-behaviors.json`. The tests were mapped to the
+existing `TP-WORKER-001` capability-bound and `TP-ADMIN-001` peer-revocation
+semantics; the generated review guide and test inventory now report 374 exact
+Rust tests and 1,481 invariant references. This closes evidence drift only and
+does not advance or alter the active V1 product slice.
+
+The root `AGENTS.md` audit is complete. Stable obligations were consolidated
+under 13 unique top-level owners; duplicate phase-gate prose was removed, the
+reference model was distinguished from mutable production authority,
+unsupported downgrade was made an explicit compatibility-policy option,
+panic-containment scaffolding was forbidden as a substitute for typed outcomes,
+and volatile branch/tool/run state was excluded from the long-lived contract.
+Its ASCII scan and recorded SHA-256 pass.
+
+The final source-side migration gate passed all nine discovered tx-pool
+contracts, including TLC positive/negative runs, the 374-test/1,481-reference
+review graph, 19 integration anchors and 150 managed specs. Repository-wide
+format checking and `git diff --check` also pass. These are migration/evidence
+checks only; the three declared release blockers and active V1 continuation are
+unchanged.

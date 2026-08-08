@@ -13,7 +13,7 @@
     },
     {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
-      "reason": "M4 selected and froze the bounded semantic exchange, but production slices I1-I6 and their complete production refinement and correctness acceptance have not yet passed"
+      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 are implemented; related-crate Nextest, the complete 150-spec managed integration universe and interruption contracts passed before the latest compute-exchange correction, but the selected mutation cohort, deterministic smoke and complete post-change V1 gate have not yet passed"
     },
     {
       "id": "PERFORMANCE-ACCEPTANCE",

@@ -3965,3 +3965,38 @@ After this cohort closes, continue the remaining selected authority/resource/
 dependency/scheduler mutation slice, deterministic fixed-binary pool smoke and
 the final complete V1 gate. Constructive simplification, release reconciliation
 and profiling/A/B remain later fixed-roadmap phases.
+
+## 30. Device migration freeze
+
+The active V1 state is frozen for GitHub device transfer in the tracked
+`.device-handoff`. That file indexes the complete model/implementation roadmap,
+historical report convergence, exact current mutation outcomes, evidence,
+release blockers, source-device toolchain, destination installation commands,
+resume prompt and post-restore cleanup. It adds no product requirement or
+parallel specification; the authorities remain the machine registries,
+architecture, this plan and `.release-progress` in that order.
+
+Root `AGENTS.md` was expanded with the accumulated evidence-adjudication,
+mutation-reachability, blueprint-completeness, whole-phase review, performance-
+experiment and device-recovery disciplines. It remains intentionally ignored
+and will be copied manually. Its migration SHA-256 is
+`34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd`.
+The migration checkpoint commits the corresponding `.gitignore` rule so the
+destination worktree is clean after that copy.
+
+The `INDEPENDENT-EXECUTION-CUTOVER` release-blocker text now reflects current
+state: I1-I6 are implemented and the earlier related-crate, 150-spec and
+interruption gates passed, while selected mutation, deterministic smoke and the
+complete post-change V1 rerun remain open. The blocker itself is not closed.
+
+Migration validation also caught four correction regressions absent from the
+machine review graph. They were assigned to the existing worker-capability and
+peer-revocation behaviors, then the generated guide and inventory were rebuilt:
+374 exact Rust tests now carry 1,481 invariant references. No model term,
+behavior row or implementation state was added.
+
+The exact product continuation does not change: recover on the destination,
+pass the handoff recovery checks, record one destination checkpoint, then
+continue section 29's version/blocked-revocation survivor adjudication and six
+unstarted mutants. Only after that first destination checkpoint may the
+temporary `.device-handoff` be removed in a zero-behavior cleanup commit.
