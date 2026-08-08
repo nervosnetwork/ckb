@@ -1,6 +1,6 @@
 use super::foundation::{
-    admit_remote, checkout_remote_for_verify_with_claim, limits, owner_version, take_resolve_work,
-    tx,
+    admit_remote, apply_plan, checkout_remote_for_verify_with_claim, limits, owner_version,
+    take_resolve_work, tx,
 };
 use crate::{
     authority::{
@@ -18,15 +18,15 @@ use crate::{
         },
         resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
         state::{
-            ApplySequence, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, VerifyCapability,
-            WorkPermit,
+            ApplySequence, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, ValidatedAdmission,
+            VerifyCapability, WorkPermit,
         },
         work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
     },
     error::Reject,
 };
 use ckb_network::PeerIndex;
-use ckb_types::packed::Byte32;
+use ckb_types::{bytes::Bytes, packed::Byte32, prelude::Pack};
 use std::sync::Arc;
 use tokio::sync::{Notify, Semaphore};
 
@@ -500,6 +500,105 @@ fn uak_compute_exchange_without_a_fair_grant_can_settle_but_never_checkout() {
 }
 
 #[test]
+fn uak_compute_exchange_rejects_an_old_completion_while_replacement_is_computing() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let raw = tx(80_032);
+    let remote = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"remote-active").pack()])
+        .build();
+    let trusted = raw
+        .as_advanced_builder()
+        .set_witnesses(vec![Bytes::from_static(b"trusted-active").pack()])
+        .build();
+    let admission = ValidatedAdmission::remote(remote, PeerIndex::from(33usize))
+        .expect("the remote witness variant is valid");
+    let hash = admission.identity.raw.clone();
+    apply_plan(
+        authority
+            .plan_admission(admission)
+            .expect("the remote witness enters ownership"),
+    );
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the remote witness checks out")
+        .apply();
+    let (_, old_work) = take_resolve_work(checkout);
+    let old_version = owner_version(&authority, &hash);
+
+    apply_plan(
+        authority
+            .plan_admission(
+                ValidatedAdmission::proposal(trusted)
+                    .expect("the trusted witness replacement is valid"),
+            )
+            .expect("the trusted witness replaces the active remote owner"),
+    );
+    assert_ne!(owner_version(&authority, &hash), old_version);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(_))
+    ));
+
+    let replacement = authority
+        .apply_compute_exchange(Vec::new(), vec![grant(any_verifier(0))])
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("the replacement checks out while the old worker is still live: {error:?}");
+        });
+    let (_, execution, replacement_work) = replacement
+        .assignments
+        .into_iter()
+        .next()
+        .expect("the replacement owns the available second worker slot")
+        .into_parts();
+    drop(execution);
+    assert_eq!(assignment_hash(&replacement_work), hash);
+    let replacement_version = owner_version(&authority, &hash);
+    assert_ne!(replacement_version, old_version);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    let before_old_completion = authority.normalized_snapshot();
+
+    let old_slot = ComputeWorkerSlot::ordered_resolve();
+    let stale = authority
+        .apply_compute_exchange(
+            vec![ComputeExchangeCompletion::new(
+                old_slot,
+                old_work.internal_failure(),
+            )],
+            Vec::new(),
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("the old completion is an ordinary obsolete capability: {error:?}");
+        });
+    assert!(stale.retirement.is_none());
+    assert!(stale.settled.is_empty());
+    assert_eq!(stale.obsolete, vec![old_slot]);
+    assert!(stale.deferred.is_empty());
+    assert!(stale.assignments.is_empty());
+    assert_eq!(authority.normalized_snapshot(), before_old_completion);
+    assert_eq!(owner_version(&authority, &hash), replacement_version);
+
+    drop(
+        authority
+            .apply_settlement(replacement_work.cancelled())
+            .expect("the exact replacement capability remains current"),
+    );
+}
+
+#[test]
 fn uak_effectful_completion_keeps_its_slot_and_returns_a_matching_grant_unused() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 80_041, 9);
@@ -756,6 +855,86 @@ fn uak_blocked_peer_revocation_freezes_that_peer_but_preserves_unrelated_progres
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
     assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(peer)));
+}
+
+#[test]
+fn uak_blocked_multi_peer_revocations_exclude_every_deferred_peer_from_refill() {
+    let mut authority =
+        TxPoolAuthority::for_foundation_with_effect_limits(limits(), one_batch_effect_limits())
+            .expect("the bounded fixture reserves its one effect slot");
+    fill_total_effect_capacity(&mut authority);
+
+    let first_peer = 34usize;
+    let second_peer = 35usize;
+    let first_culprit = admit_remote(&mut authority, 80_064, first_peer);
+    let second_culprit = admit_remote(&mut authority, 80_065, second_peer);
+    let second_peer_cohort = admit_remote(&mut authority, 80_066, second_peer);
+    let first_checkout = authority
+        .plan_checkout_for_foundation(
+            &first_culprit,
+            owner_version(&authority, &first_culprit),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the first malformed owner checks out")
+        .apply();
+    let (_, first_work) = take_resolve_work(first_checkout);
+    let second_checkout = authority
+        .plan_checkout_for_foundation(
+            &second_culprit,
+            owner_version(&authority, &second_culprit),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the second malformed owner checks out")
+        .apply();
+    let (_, second_work) = take_resolve_work(second_checkout);
+
+    let committed = authority
+        .apply_compute_exchange(
+            vec![
+                ComputeExchangeCompletion::new(
+                    ComputeWorkerSlot::ordered_resolve(),
+                    first_work.rejected(Reject::Malformed(
+                        "fixture".to_owned(),
+                        "first blocked peer".to_owned(),
+                    )),
+                ),
+                ComputeExchangeCompletion::new(
+                    any_verifier(0),
+                    second_work.rejected(Reject::Malformed(
+                        "fixture".to_owned(),
+                        "second blocked peer".to_owned(),
+                    )),
+                ),
+            ],
+            vec![grant(any_verifier(1))],
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("both effect-blocked peer revocations defer exactly: {error:?}");
+        });
+
+    assert!(committed.settled.is_empty());
+    assert_eq!(committed.deferred.len(), 2);
+    assert!(committed.assignments.is_empty());
+    assert_eq!(committed.unused_grants.len(), 1);
+    assert!(matches!(
+        authority.entry(&second_peer_cohort),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(_))
+    ));
+    assert!(matches!(
+        authority.entry(&first_culprit),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    assert!(matches!(
+        authority.entry(&second_culprit),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(first_peer)));
+    assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(second_peer)));
 }
 
 #[test]

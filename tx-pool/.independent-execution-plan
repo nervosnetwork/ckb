@@ -3953,18 +3953,29 @@ five remaining nonempty/`Some` return replacements for
 temporary outcome directory is diagnostic only; this paragraph is the durable
 result.
 
-The version-guard survivor has a partially completed construction proof: every
-known transition that changes `EntryVersion` also moves the owner out of
-`PreAcceptedPhase::Computing`, while source-only transitions that preserve the
-phase also preserve the version. Do not add an invalid-state fixture merely to
-kill the mutant. The next exact action is to finish the producer/transition
-census for that sealed invariant, classify the blocked-revocation survivor
-against a legal multi-peer deferred exchange, then execute the six unstarted
-mutants and rerun the complete selected slice from this clean checkpoint.
-After this cohort closes, continue the remaining selected authority/resource/
-dependency/scheduler mutation slice, deterministic fixed-binary pool smoke and
-the final complete V1 gate. Constructive simplification, release reconciliation
-and profiling/A/B remain later fixed-roadmap phases.
+The survivor census is complete. Production has one `Computing` constructor;
+its owner version and move-only completion token come from the same sealed
+batch reservation. Every direct active-owner version change removes or
+requeues that owner, while source-only promotion/demotion preserves both phase
+and version. That local transition fact did not make the version guard
+redundant: with at least two worker slots, an old capability may survive a
+trusted witness replacement while the same raw hash is checked out again at a
+new `Computing` version. A legal production-path regression now proves the old
+completion is obsolete and cannot settle the new owner. A second regression
+proves that, after effect capacity blocks one peer revocation, every later
+malformed peer must enter the blocked set so its queued cohort cannot refill in
+the same exchange. Both former survivors are caught.
+
+The six previously unstarted mutants completed with two caught and four
+compile-unviable outcomes. Combined with the durable first 22 outcomes, the
+diagnostic projection is now 20 caught, eight compile-unviable, zero missed,
+zero timed out and zero unstarted. This projection is not acceptance evidence
+until the complete 28-mutant cohort reruns from the clean survivor checkpoint.
+That full rerun is the next exact action. After it closes, continue the
+remaining selected authority/resource/dependency/scheduler mutation slice,
+deterministic fixed-binary pool smoke and the final complete V1 gate.
+Constructive simplification, release reconciliation and profiling/A/B remain
+later fixed-roadmap phases.
 
 ## 30. Device migration freeze
 

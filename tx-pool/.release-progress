@@ -4377,3 +4377,61 @@ the temporary `.device-handoff` and replaces its freeze body with a pointer to
 this checkpoint. After that independent commit, product work resumes section
 29 with the sealed Computing/version census, the legal multi-peer
 blocked-revocation adjudication and the six unstarted compute-exchange mutants.
+
+## V1 compute-exchange survivor adjudication checkpoint
+
+Product work resumed from clean post-migration commit
+`c7b2a2f42b7336a6c09c3f77d0040e4ccff6144b`. The complete production
+constructor/transition census confirmed one sealed `Computing` producer in
+`plan/compute_exchange.rs`: `BatchClockReservation` supplies the same fresh
+`EntryVersion` to the owner and its move-only `SettlementToken`. Settlement,
+cancellation, dependency requeue, chain recovery and payload replacement all
+remove or move the current owner out of `Computing` when they rotate its
+version. Same-witness proposal promotion and chain source demotion preserve
+both phase and version; dependency maintenance only advances its cursor while
+an owner is `Computing`.
+
+The census also disproved the initial equivalence hypothesis. With two worker
+slots, a checked-out old witness can outlive a trusted same-raw-hash witness
+replacement; an idle second slot can then check out the replacement at a new
+`Computing` version before the old completion returns. Forcing the version
+guard true lets that old completion settle the new owner. The new exact test
+`uak_compute_exchange_rejects_an_old_completion_while_replacement_is_computing`
+constructs this schedule only through production Plan/Apply paths and proves
+the current owner and its exact replacement capability remain unchanged.
+
+The second survivor also had a legal observable counterexample. If full effect
+capacity blocks one malformed peer revocation and a later malformed completion
+belongs to another peer, that second peer must be added to
+`blocked_revocation_peers`; otherwise its queued cohort can consume a refill
+grant in the same exchange even though the peer's revocation is deferred. The
+new exact test
+`uak_blocked_multi_peer_revocations_exclude_every_deferred_peer_from_refill`
+removes unrelated scheduler choices and proves the refill remains unused.
+Both tests are mapped to their existing authority and administration behavior
+owners; no production code, state, lock, task, queue, retry or policy changed.
+
+Focused evidence is:
+
+- version-interleaving Nextest run
+  `634470dc-2a91-479c-9d84-245b8b70b447`: one of one passed;
+- final multi-peer Nextest run `eb879130-ed0b-4cd7-a4f9-f82609358b05`: one of
+  one passed;
+- complete compute-exchange run `cb3cecbf-663c-44c2-9aa8-35360d3cea65`: 19
+  of 19 passed with 680 intentionally filtered out;
+- the version-guard mutant was caught by Nextest run
+  `b683d9e0-f85b-43fa-ac10-1afd616c0724`;
+- after removing a scheduler-choice confounder, the blocked-peer mutant was
+  caught by Nextest run `640daa19-81d8-4e62-9b99-416a05851825`;
+- the six previously unstarted mutants completed with two caught, four
+  compile-unviable, zero missed and zero timed out.
+
+The diagnostic aggregate for the 28 selected mutants is therefore 20 caught,
+eight compile-unviable, zero missed, zero timed out and zero unstarted. It is
+not promoted to complete-cohort acceptance until the exact section 29 command
+runs again from the clean checkpoint. The generated review projection now
+contains 376 exact tx-pool Rust tests and 1,495 invariant references; all seven
+light contracts, formatting and `git diff --check` pass. Temporary mutation
+directories under `/private/tmp` remain diagnostic only. The next exact action
+is to commit this survivor checkpoint, verify a clean worktree and rerun the
+complete 28-mutant compute-exchange cohort with the frozen command.
