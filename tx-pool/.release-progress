@@ -4435,3 +4435,43 @@ light contracts, formatting and `git diff --check` pass. Temporary mutation
 directories under `/private/tmp` remain diagnostic only. The next exact action
 is to commit this survivor checkpoint, verify a clean worktree and rerun the
 complete 28-mutant compute-exchange cohort with the frozen command.
+
+## V1 complete compute-exchange mutation acceptance
+
+Checkpoint `c4d777a0a8d7f4d7d6953475afcb712be5dd3494` was clean before the
+frozen 28-mutant command started. The unmutated baseline passed under Nextest
+run `a11345c1-aee5-403f-a3e6-9ea09bd3f216`. The generated outcome ledger
+contains exactly 28 mutants and classifies every row: 20 caught, eight
+compile-unviable, zero missed and zero timed out. The run used cargo-mutants
+27.1.0 from 2026-08-08T15:16:24Z through 15:20:57Z. The compute-exchange
+mutation cohort is therefore accepted; `/private/tmp/ckb-tx-pool-v1-mutants-
+compute-r2` remains diagnostic and is not a portable authority.
+
+An initial selector experiment named eight intended semantic owners across
+clock/settlement/wake decisions, compute reservation/release and active-work
+capacity, dependency maintenance and fair scheduler replacement. It emitted
+132 rows (plan 68, resources 32, dependency 21, scheduler 11) with SHA-256
+`e4f705f2e81c4f8e5f96ea858e0279b81266ede19277ecf841c2151d8d33f21e`.
+Review found that cargo-mutants also includes structural field-deletion rows
+without filterable function attribution. The result is therefore a diagnostic
+candidate census, not a semantically closed selector, and the proposed
+132-row command is rejected before execution. This does not invalidate the
+accepted 28-row compute-exchange cohort.
+
+The user reasserted two cross-cutting requirements: every phase boundary must
+perform a persisted whole-system architecture/model-delta review and course
+correction, and mechanically derivable facts cannot be maintained or accepted
+by hand. Section 26 now binds this gate to the remaining V1 mutation scope,
+smoke, final V1 rerun, simplification environment freeze and every cleanup
+slice, release, performance and final production review. Executable
+mathematics owns state-transition, conservation, equivalence, ordering,
+liveness-rank and cost-bound claims; human judgment is limited to semantic
+provenance and design adjudication.
+
+No production source changed during list generation or compute-exchange
+acceptance. The next exact action is to generate a row-level mutation matrix
+from the existing architecture and behavior authorities joined to discovered
+Rust items and cargo-mutants candidates. The matrix must mechanically reject
+unowned, ambiguous, stale and zero-match rows, and the whole-system checkpoint
+must pass before its exact command and digest can be frozen. Cleanup remains
+blocked until the complete post-change V1 verification and checkpoint pass.

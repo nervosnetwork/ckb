@@ -1,9 +1,12 @@
 # Transaction-Semantic Architecture Replan
 
 Status: I6 convergence complete; V1 correctness acceptance active
-Checkpoint: `c91d5fe21` (`tx-pool: converge production execution topology`)
+Architecture baseline: `c91d5fe21` (`tx-pool: converge production execution topology`)
+Current product-source checkpoint: `c4d777a0a8d7f4d7d6953475afcb712be5dd3494`
 Active slice: V1 static, model and correctness acceptance
 Restart authority: `tx-pool/.release-progress`
+Fixed tail: constructive simplification, release reconciliation,
+profiling/fixed-binary A/B, production completion review
 
 This is a temporary design and execution authority. It is deliberately not a
 second public architecture document. When one model has passed its
@@ -3839,6 +3842,49 @@ The remaining V1 order is fixed: selected production mutation testing through
 Nextest, deterministic fixed-binary submit/status/template smoke, then the
 complete lint/static/model/Nextest gate rerun. Profiling and A/B remain frozen.
 
+### Cross-phase whole-system checkpoint gate
+
+Every transition to a later roadmap phase is blocked on one whole-system
+checkpoint. This is an architecture and model-delta adjudication, not a test
+summary and not a review of only the latest diff. It applies after the selected
+V1 mutation scope, after deterministic smoke and the complete V1 rerun, before
+constructive simplification, after the simplification environment freeze and
+every accepted cleanup slice, and before release reconciliation, performance
+acceptance and the final production review.
+
+Each checkpoint must regenerate its derivable inputs from the exact Git tree
+and the existing machine authorities. Cargo features and the Rust module graph
+own source roles; `architecture-contract.json` and `review-behaviors.json` own
+semantic and evidence bindings; test discovery, source symbols, selectors,
+counts, coverage, commands and Git deltas must be generated and checked. Manual
+path lists, copied test names, hand-curated mutation selectors, sampled counts
+and prose-only coverage claims are forbidden. Human judgment is reserved for
+business/attack provenance, semantic equivalence and topology choice; it
+cannot replace a mechanically discoverable fact.
+
+The checkpoint must review the complete trusted boundary and state basis,
+single-authority and linear-capability conservation, transition totality,
+resource/effect ownership, task/lock/wait-for/publication graphs, preserved
+parallel work and canonical ordering, external observations and compatibility,
+and fixed plus adversarial cost bounds. It must compare the complete current
+architecture with the frozen baseline-to-target ledger, classify each risk as
+eliminated, mitigated or transferred, and give every residual an owner,
+falsifier and explicit defer decision. Duplicate authority or policy,
+invariant growth, new failure domains, concurrency loss, compatibility drift
+and snowball complexity are phase blockers rather than cleanup debt.
+
+Where a claim is a state machine, set relation, conservation law, equivalence,
+partial order, finite rank or complexity bound, its authority is executable
+mathematics: sealed Rust types and constructors, the pure reference model with
+property/differential tests, deterministic schedule checking, and TLC or a
+more specialized checker only for a named residual claim. Manual inspection
+and prose may explain a trusted boundary or decision but cannot discharge the
+claim. If implementation reveals a new semantic case, authority, failure
+domain, topology or compatibility boundary, production work stops until the
+model and fixed plan are updated and re-adjudicated. The durable checkpoint
+records the exact revision, generated inputs, model/plan delta, residuals and
+next action; no later phase inherits a pass implicitly.
+
 ## 27. V1 restart checkpoint during mutation review
 
 The recoverable Git base is `6b770ead03`. The complete related-crate,
@@ -3870,26 +3916,33 @@ missing. Then rerun the exact 24-mutant slice through
 survivors and do not patch production to satisfy the mutation tool. Continue
 with the remaining selected authority/resource/dependency/scheduler slice only
 after this cohort closes, then execute deterministic pool smoke and the final
-complete V1 rerun. The user-owned root `.gitignore` remains excluded.
+complete V1 rerun. At that historical checkpoint, the user-owned root
+`.gitignore` was excluded from the product change.
 
 ## 28. Post-V1 constructive-simplification gate
 
-V1 freezes correctness evidence before structural cleanup. Immediately after
-V1 and before release-surface reconciliation or performance claims, run one
-separate constructive-simplification phase. The initial path-based diff against
-`develop` reports roughly 39,810 net added production-like Rust lines, dominated
-by the new authority implementation, but that estimate still mixes the default
-production graph with internal-feature code. It is evidence that minimization
-has not yet been proved, not a line-count verdict.
+The complete post-change V1 gate and its whole-system checkpoint must pass
+before any structural deletion or fusion. Immediately afterward, and before
+release-surface reconciliation or performance claims, run one separate
+constructive-simplification phase. The initial path-based diff against
+`develop` reports roughly 39,810 net added production-like Rust lines,
+dominated by the new authority implementation, but that estimate still mixes
+the default production graph with internal-feature code. It is evidence that
+minimization has not yet been proved, not a line-count verdict.
 
-The phase starts by generating the exact default-production, internal-feature,
-test-only and documentation source-role census from Cargo features and the Rust
-module graph. Hand-maintained path classification is forbidden. It then binds
-every production state, field, transition, lock, task, effect, projection and
-adapter bidirectionally to one business, compatibility, concurrency or attack
-rule and exact regression evidence. A historical rule with no model owner
-reopens the model; implementation with no semantic owner is a deletion or
-fusion candidate.
+The phase begins with a non-deleting environment-freeze slice. It generates
+the exact default-production, internal-feature, test-only and documentation
+source-role census from Cargo metadata, resolved features and the Rust module
+graph; hand-maintained path classification is forbidden. Using the existing
+architecture and behavior registries as authorities, it then generates a
+bidirectional item-level matrix for every production state, field, transition,
+lock, task, effect, projection and adapter against one business,
+compatibility, concurrency or attack rule, its mathematical term and its exact
+regression evidence. It records generated baseline size, owner/type/transition,
+task/lock, authority-guard, clone/allocation and static-cost metrics. A
+historical rule with no model owner reopens the model; implementation with no
+semantic owner is a deletion or fusion candidate. The environment freeze and
+its whole-system checkpoint must pass before the first cleanup edit.
 
 Review candidates in this order: duplicate authority or policy, repeated
 Plan/Apply and projection/index compiler scaffolding, compatibility adapters
@@ -3901,21 +3954,26 @@ Mechanical moves stay separate from semantic consolidation.
 
 Each accepted slice must preserve the mathematical transition relation,
 external observations, task/lock topology, concurrency and static adversarial
-cost bounds, and must rerun its exact model/Nextest/integration evidence. Any
-semantic change returns to the mathematical model instead of being disguised
-as cleanup. Production-only net size, owner/type/transition counts, authority
-guard work and clone/allocation counts are recorded before and after each
-slice. These measurements are complexity evidence rather than a hard target:
-correctness and constructive safety remain primary, but retained code must have
-one named semantic owner. Only the converged result proceeds to release docs
-and reproducible profiling/fixed-binary A/B.
+cost bounds, and must rerun its machine-derived exact
+model/Nextest/integration evidence plus the cross-phase whole-system
+checkpoint. Candidate selection, affected evidence and before/after deltas are
+generated rather than copied into an allowlist. Any semantic change returns to
+the mathematical model instead of being disguised as cleanup. Production-only
+net size, owner/type/transition counts, authority guard work and
+clone/allocation counts are regenerated before and after each slice. These
+measurements are complexity evidence rather than a hard target: correctness
+and constructive safety remain primary, but retained code must have one named
+semantic owner. Only the converged result proceeds to release docs and
+reproducible profiling/fixed-binary A/B.
 
 ## 29. V1 compute-exchange mutation checkpoint
 
-The recovery source base is `86bb108b2`; the Git commit containing this
-section is the next recoverable checkpoint. Work stopped on request without a
-running mutation process. The user-owned root `.gitignore` remains modified,
-unstaged and outside this checkpoint.
+The historical recovery source base for this section was `86bb108b2`; work
+then stopped on request without a running mutation process. At that checkpoint,
+the user-owned root `.gitignore` was modified, unstaged and outside the product
+change. Later paragraphs in this section and the latest `.release-progress`
+entry supersede that execution status; the current product-source checkpoint
+is the one named in this plan header.
 
 The first mutation survivors exposed one production-invalid bound rather than
 only missing tests. A settle/refill exchange owns two distinct linear
@@ -3967,15 +4025,44 @@ malformed peer must enter the blocked set so its queued cohort cannot refill in
 the same exchange. Both former survivors are caught.
 
 The six previously unstarted mutants completed with two caught and four
-compile-unviable outcomes. Combined with the durable first 22 outcomes, the
-diagnostic projection is now 20 caught, eight compile-unviable, zero missed,
-zero timed out and zero unstarted. This projection is not acceptance evidence
-until the complete 28-mutant cohort reruns from the clean survivor checkpoint.
-That full rerun is the next exact action. After it closes, continue the
-remaining selected authority/resource/dependency/scheduler mutation slice,
-deterministic fixed-binary pool smoke and the final complete V1 gate.
-Constructive simplification, release reconciliation and profiling/A/B remain
-later fixed-roadmap phases.
+compile-unviable outcomes. The exact 28-mutant command then reran from clean
+checkpoint `c4d777a0a8d7f4d7d6953475afcb712be5dd3494`. Its unmutated
+baseline Nextest run `a11345c1-aee5-403f-a3e6-9ea09bd3f216` passed, and all
+28 outcomes closed as 20 caught, eight compile-unviable, zero missed and zero
+timed out. The compute-exchange cohort is accepted.
+
+An initial cargo-mutants census attempted to select the remaining four semantic
+surfaces through eight function filters: atomic clock reservation plus
+settlement/wake classification, compute reservation/release and active-work
+availability, dependency-maintenance action, and fair scheduler batch
+replacement. It emitted 132 rows: 68 in `plan.rs`, 32 in `resources.rs`, 21 in
+`dependency.rs` and 11 in `scheduler.rs`, with ordered-list SHA-256
+`e4f705f2e81c4f8e5f96ea858e0279b81266ede19277ecf841c2151d8d33f21e`.
+That output is diagnostic only and is not a frozen acceptance selector:
+cargo-mutants also included structural field-deletion candidates with no
+filterable function attribution, so the list does not prove that every row is
+owned by one of the intended semantic surfaces. It must not be committed as a
+hand-maintained scope or executed as the next cohort.
+
+The next exact action is to derive the remaining mutation matrix from the
+existing `architecture-contract.json` semantic owners and
+`review-behaviors.json` falsifiers, joined mechanically to discovered Rust
+items and cargo-mutants candidates. The generated projection must give every
+selected row one invariant, production owner, legal-input falsifier, exact
+Nextest universe and inclusion reason; it must reject zero-match, ambiguous,
+unowned and stale rows. Existing registry schemas should be extended only if
+they cannot express this projection; no second semantic authority or copied
+selector is permitted. The whole-system checkpoint then adjudicates the
+generated scope and freezes its exact revision, command and digest before any
+mutation run. Every survivor still requires a legal construction and
+observable-difference adjudication before an edit.
+
+After the mechanically selected cohort closes, execute deterministic
+fixed-binary pool smoke and the complete post-change V1 gate, followed by the
+whole-system checkpoint. Only that final verification authorizes the
+constructive-simplification environment freeze; it does not authorize a
+cleanup edit directly. Release reconciliation and profiling/A/B remain later
+fixed-roadmap phases.
 
 ## 30. Device migration freeze
 
@@ -3985,5 +4072,4 @@ Device recovery completed at exact destination checkpoint
 entry owns the destination environment differences, recovery gates, semantic
 reconstruction and next action. The temporary recovery index was then removed
 in a zero-behavior cleanup; section 29 and the fixed product roadmap remain
-unchanged and resume with the Computing/version and blocked-revocation survivor
-adjudication followed by the six unstarted compute-exchange mutants.
+live and own the current V1 continuation.
