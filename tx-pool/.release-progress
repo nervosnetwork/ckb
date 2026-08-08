@@ -4601,3 +4601,66 @@ exact action is to commit this B1 checkpoint, verify a clean worktree, generate
 `tx-pool/mutation-acceptance-lock.json` from that clean revision, review its
 machine diff, rerun the whole-system gates and commit the B2 freeze before any
 mutation execution.
+
+## V1-B2 generated mutation-lock freeze
+
+V1-B1 committed at `e40abed6c205a64c9623d903cdd3035bbaed0c6f`.
+Review of the first generated lock rejected an evidence-set join that was
+formally complete but semantically too broad: unioning every binding/component
+behavior labeled some resource rows with all T1-T16 obligations. The root
+correction at `bf848ea673f3ceb8614a4ebe6c95d6652e95beac` derives evidence only
+from the semantic owner's primary behavior plus the selected component's exact
+falsifiers. A second pre-freeze review found that exact recovery also requires
+the generator and its shared semantic validator to be hash-bound inputs; that
+closed at `f71feedcb6b18b5e508f33fc15eba8a1635af962`. Both corrections preceded
+formal lock generation and mutation execution.
+
+`mutation-acceptance-lock.json` is now the authoritative generated projection.
+Its `inputs` object owns the exact architecture, behavior, manifest, inventory,
+production-source and tool hashes plus the derived production source revision.
+Its `test_universe` owns the complete library Nextest count/digest and exact
+argv. Its `execution` object owns the candidate count/digest, exact temporary
+config digest and command-template digest. Every row contains the cargo-mutants
+name, exact function attribution, genre and one semantic obligation; every
+obligation maps mechanically to its production owner, invariant set and
+legal-input falsifier digest. No row or derived fact was hand edited.
+
+The generated candidate surface is complete across the small atomic/wake,
+resource, dependency and scheduler owners, the exact settlement-classification
+premise and every function-attributed `TxPoolAuthority` structural-field
+deletion. The generated cargo-mutants config relisted with zero missing,
+ambiguous, unowned or extra rows against cargo-mutants 27.1.0. A default
+generator rerun regenerated the matrix and matched the lock byte-for-byte.
+
+The first complete B2 contract run correctly failed because the crate root
+index did not name the new generated machine contract. Same-surface review also
+found its architecture summary still said T1-T13. The root correction adds the
+lock to the generated documentation coverage, publishes T1-T16, and states
+that the semantic manifest cannot copy counts or selectors. The subsequent
+`python3 -B tx-pool/scripts/check_all.py` passed all nine discovered contracts:
+TLC closed 1,098 generated / 318 distinct positive states and reproduced the
+required four-state negative witness; refinement and production gates passed;
+the review graph retained 376 tx-pool tests / 1,495 invariant references, 14
+cross-crate tests / 38 references, 19 integration anchors and 150 managed specs
+against 699 discovered library tests.
+
+Whole-system model delta is empty. The trusted CKB semantic basis, legal-input
+set, authority count, transition totality, Plan/Apply/effect split,
+capability/resource conservation, wait-for/publication graphs, forward-only
+compatibility boundary, concurrency topology and static cost equations are
+unchanged. No production Rust, runtime state, lock, task, queue, channel,
+capability, retry, effect, compatibility branch or hot-path operation was
+added. Repository evidence grew by one generated lock and one necessary
+generator assembly; deleting either would reintroduce a hand-maintained scope
+or make exact cross-device candidate reconstruction impossible. Their final
+post-V1 maintenance disposition remains owned by the constructive
+simplification/production review rather than silently becoming permanent.
+
+No mutation has executed from this lock and cleanup remains forbidden. The
+next exact action is to commit this B2 freeze, verify a clean tree, generate
+the exact external config with
+`python3 -B tx-pool/scripts/generate_mutation_matrix.py --write-config
+/private/tmp/ckb-tx-pool-v1-mutants-remaining.toml`, then run the lock's printed
+command with output rooted at
+`/private/tmp/ckb-tx-pool-v1-mutants-remaining`. Every outcome must reconcile
+through `--verify-outcomes` before V1 can advance.

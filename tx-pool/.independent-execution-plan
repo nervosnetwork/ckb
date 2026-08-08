@@ -4089,6 +4089,37 @@ commits the deterministic row lock, reruns the whole-system checkpoint and
 freezes the exact external config/command/digest. No mutation execution begins
 before that gate, and no cleanup authorization changes.
 
+V1-B1 closed at `e40abed6c`, followed by two pre-freeze generator corrections:
+`bf848ea67` narrowed each evidence set from a broad behavior union to the
+semantic owner's primary behavior plus the selected component's exact
+falsifiers, and `f71feedcb` bound the generator and shared semantic validator
+hashes as lock inputs. Both corrections happened before a mutation run and
+added no candidate exception. The final generated
+`mutation-acceptance-lock.json` is the sole row/count/digest projection; this
+plan deliberately does not copy those derived facts.
+
+The B2 whole-system gate passed from that generated lock. The first complete
+documentation pass rejected the missing root-index edge, which also exposed
+the stale `T1-T13` index phrase. The root index now names the generated lock,
+the current T1-T16 vocabulary and the rule that the security manifest stores
+no generated count or selector. The complete nine-contract gate then passed,
+including both TLC verdicts, refinement discovery, production topology,
+behavior/test evidence, documentation and static safety. Model delta is empty:
+the CKB semantic basis, `M`, `Legal`, `Step`, `Inv`, `Obs`, single authority,
+Plan/Apply/effect boundary, wait-for/publication graphs, compatibility policy
+and cost equations are unchanged. The added cost is repository-only evidence:
+one phase-owned generator, semantic references in the existing manifest and
+one generated lock; there is no runtime state, lock, task, queue, channel,
+capability, retry, branch or hot-path operation.
+
+The next exact action is to commit the B2 lock/checkpoint, verify a clean tree,
+generate the external cargo-mutants config through the locked generator and
+execute the printed command against the complete library Nextest universe.
+Every missed, timed-out, unexpected or unstarted row reopens its semantic
+owner; no survivor authorizes a local production patch. Cleanup remains
+blocked behind the later deterministic smoke and complete post-change V1
+whole-system checkpoint.
+
 After the mechanically selected cohort closes, execute deterministic
 fixed-binary pool smoke and the complete post-change V1 gate, followed by the
 whole-system checkpoint. Only that final verification authorizes the

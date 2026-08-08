@@ -45,6 +45,7 @@ RETIRED_DOCUMENT_NAMES = {
 MACHINE_CONTRACTS = (
     "architecture-contract.json",
     "integration-impact.json",
+    "mutation-acceptance-lock.json",
     "review-behaviors.json",
     "security-regression-manifest.json",
     "test-inventory.txt",

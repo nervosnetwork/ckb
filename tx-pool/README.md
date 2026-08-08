@@ -19,14 +19,18 @@ The machine-readable contracts consumed by validation and CI live beside this
 README:
 
 - [`architecture-contract.json`](architecture-contract.json) freezes the
-  architecture vocabulary, T1-T13 proof obligations, semantic refinement
+  architecture vocabulary, T1-T16 proof obligations, semantic refinement
   roots and residual-risk IDs.
 - [`review-behaviors.json`](review-behaviors.json) owns the `TP-*` behavior and
   executable-evidence mapping.
 - [`integration-impact.json`](integration-impact.json) owns the complete
   tx-pool-related process-spec universe.
+- [`mutation-acceptance-lock.json`](mutation-acceptance-lock.json) is the
+  generated row-level V1 mutation projection over the semantic obligations,
+  exact tool/input hashes and complete library-test universe.
 - [`security-regression-manifest.json`](security-regression-manifest.json)
-  binds the other contracts, inventory counts and release blockers.
+  binds the other contracts, semantic mutation obligations and release
+  blockers without copying generated counts or selectors.
 - [`test-layout-manifest.json`](test-layout-manifest.json) allows only reviewed
   test roots, module wiring and test-only seams.
 - [`test-inventory.txt`](test-inventory.txt) is the generated exact Rust and

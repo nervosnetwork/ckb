@@ -1,0 +1,2667 @@
+{
+  "cargo_mutants_version": "cargo-mutants 27.1.0",
+  "evidence_sets": {
+    "V1-MUT-ACTIVE-WORK-AVAILABILITY": {
+      "behavior_ids": [
+        "TP-BUDGET-001",
+        "TP-PERF-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "bounded_hostility_and_resources -> V1-MUT-ACTIVE-WORK-AVAILABILITY -> tx-pool/src/authority/resources.rs::fn active_work_availability",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 29,
+      "legal_input_falsifier_sha256": "4b3ae609bad77463618b1bdab03d2e303bab72b420ca1dce60e0a3a288cdff83",
+      "production_owner": {
+        "path": "tx-pool/src/authority/resources.rs",
+        "symbol": "fn active_work_availability"
+      },
+      "semantic_binding": "bounded_hostility_and_resources"
+    },
+    "V1-MUT-ATOMIC-BATCH-CLOCK": {
+      "behavior_ids": [
+        "TP-COMMIT-001"
+      ],
+      "component_id": "atomic_batch_apply",
+      "inclusion_reason": "authority_and_atomic_apply -> V1-MUT-ATOMIC-BATCH-CLOCK -> tx-pool/src/authority/plan.rs::BatchClockReservation",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 39,
+      "legal_input_falsifier_sha256": "e63a302615679d656189d73c01ac2dfa20201501bdb55c66df50e306388174ec",
+      "production_owner": {
+        "path": "tx-pool/src/authority/plan.rs",
+        "symbol": "BatchClockReservation"
+      },
+      "semantic_binding": "authority_and_atomic_apply"
+    },
+    "V1-MUT-ATOMIC-TRANSITION-FIELDS": {
+      "behavior_ids": [
+        "TP-COMMIT-001",
+        "TP-OWN-001"
+      ],
+      "component_id": "atomic_batch_apply",
+      "inclusion_reason": "authority_and_atomic_apply -> V1-MUT-ATOMIC-TRANSITION-FIELDS -> tx-pool/src/authority/plan.rs::struct TxPoolAuthority",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 14,
+      "legal_input_falsifier_sha256": "43e7abff48407d21429363a058d16a8912e41b241123f4adc577ddd6d251784b",
+      "production_owner": {
+        "path": "tx-pool/src/authority/plan.rs",
+        "symbol": "struct TxPoolAuthority"
+      },
+      "semantic_binding": "authority_and_atomic_apply"
+    },
+    "V1-MUT-AUTHORITY-WAKE": {
+      "behavior_ids": [
+        "TP-COMMIT-001",
+        "TP-WORKER-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "compute_and_fair_permits -> V1-MUT-AUTHORITY-WAKE -> tx-pool/src/authority/plan.rs::struct AuthorityWakeTransition",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T12",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 59,
+      "legal_input_falsifier_sha256": "1e61302f96455a5bdbf8feada4dbf74af338b5bda5cbabc0ac4e720e775227a7",
+      "production_owner": {
+        "path": "tx-pool/src/authority/plan.rs",
+        "symbol": "struct AuthorityWakeTransition"
+      },
+      "semantic_binding": "compute_and_fair_permits"
+    },
+    "V1-MUT-DEPENDENCY-FRONTIER": {
+      "behavior_ids": [
+        "TP-DEP-001"
+      ],
+      "component_id": null,
+      "inclusion_reason": "chain_and_dependency -> V1-MUT-DEPENDENCY-FRONTIER -> tx-pool/src/authority/dependency.rs::struct DependencyFrontier",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 37,
+      "legal_input_falsifier_sha256": "5d0c9c7d064bb66269ad878441415406b6836037f3919e107b68f5552980b2da",
+      "production_owner": {
+        "path": "tx-pool/src/authority/dependency.rs",
+        "symbol": "struct DependencyFrontier"
+      },
+      "semantic_binding": "chain_and_dependency"
+    },
+    "V1-MUT-DEPENDENCY-MAINTENANCE": {
+      "behavior_ids": [
+        "TP-DEP-001"
+      ],
+      "component_id": null,
+      "inclusion_reason": "chain_and_dependency -> V1-MUT-DEPENDENCY-MAINTENANCE -> tx-pool/src/authority/dependency.rs::struct DependencyMaintenanceTicket",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 37,
+      "legal_input_falsifier_sha256": "5d0c9c7d064bb66269ad878441415406b6836037f3919e107b68f5552980b2da",
+      "production_owner": {
+        "path": "tx-pool/src/authority/dependency.rs",
+        "symbol": "struct DependencyMaintenanceTicket"
+      },
+      "semantic_binding": "chain_and_dependency"
+    },
+    "V1-MUT-FAIR-FRONTIER": {
+      "behavior_ids": [
+        "TP-COMMIT-001",
+        "TP-WORKER-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "compute_and_fair_permits -> V1-MUT-FAIR-FRONTIER -> tx-pool/src/authority/scheduler.rs::struct FairFrontier",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T12",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 59,
+      "legal_input_falsifier_sha256": "1e61302f96455a5bdbf8feada4dbf74af338b5bda5cbabc0ac4e720e775227a7",
+      "production_owner": {
+        "path": "tx-pool/src/authority/scheduler.rs",
+        "symbol": "struct FairFrontier"
+      },
+      "semantic_binding": "compute_and_fair_permits"
+    },
+    "V1-MUT-ORDERED-RESOURCE-PROJECTION": {
+      "behavior_ids": [
+        "TP-BUDGET-001",
+        "TP-PERF-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "bounded_hostility_and_resources -> V1-MUT-ORDERED-RESOURCE-PROJECTION -> tx-pool/src/authority/resources.rs::struct OrderedResourceProjection",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 29,
+      "legal_input_falsifier_sha256": "4b3ae609bad77463618b1bdab03d2e303bab72b420ca1dce60e0a3a288cdff83",
+      "production_owner": {
+        "path": "tx-pool/src/authority/resources.rs",
+        "symbol": "struct OrderedResourceProjection"
+      },
+      "semantic_binding": "bounded_hostility_and_resources"
+    },
+    "V1-MUT-RESOURCE-LEDGER": {
+      "behavior_ids": [
+        "TP-BUDGET-001",
+        "TP-PERF-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "bounded_hostility_and_resources -> V1-MUT-RESOURCE-LEDGER -> tx-pool/src/authority/resources.rs::struct ResourceLedger",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 29,
+      "legal_input_falsifier_sha256": "4b3ae609bad77463618b1bdab03d2e303bab72b420ca1dce60e0a3a288cdff83",
+      "production_owner": {
+        "path": "tx-pool/src/authority/resources.rs",
+        "symbol": "struct ResourceLedger"
+      },
+      "semantic_binding": "bounded_hostility_and_resources"
+    },
+    "V1-MUT-RESOURCE-VECTOR": {
+      "behavior_ids": [
+        "TP-BUDGET-001",
+        "TP-PERF-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "bounded_hostility_and_resources -> V1-MUT-RESOURCE-VECTOR -> tx-pool/src/authority/resources.rs::struct ResourceVector",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 29,
+      "legal_input_falsifier_sha256": "4b3ae609bad77463618b1bdab03d2e303bab72b420ca1dce60e0a3a288cdff83",
+      "production_owner": {
+        "path": "tx-pool/src/authority/resources.rs",
+        "symbol": "struct ResourceVector"
+      },
+      "semantic_binding": "bounded_hostility_and_resources"
+    },
+    "V1-MUT-SCHEDULER-WAVE-CURSOR": {
+      "behavior_ids": [
+        "TP-COMMIT-001",
+        "TP-WORKER-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "compute_and_fair_permits -> V1-MUT-SCHEDULER-WAVE-CURSOR -> tx-pool/src/authority/scheduler.rs::struct SchedulerWaveCursor",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T12",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "legal_input_falsifier_count": 59,
+      "legal_input_falsifier_sha256": "1e61302f96455a5bdbf8feada4dbf74af338b5bda5cbabc0ac4e720e775227a7",
+      "production_owner": {
+        "path": "tx-pool/src/authority/scheduler.rs",
+        "symbol": "struct SchedulerWaveCursor"
+      },
+      "semantic_binding": "compute_and_fair_permits"
+    },
+    "V1-MUT-SETTLEMENT-CLASSIFICATION": {
+      "behavior_ids": [
+        "TP-COMMIT-001",
+        "TP-OWN-001",
+        "TP-WORKER-001"
+      ],
+      "component_id": "compute_exchange",
+      "inclusion_reason": "compute_and_fair_permits -> V1-MUT-SETTLEMENT-CLASSIFICATION -> tx-pool/src/authority/plan.rs::struct TxPoolAuthority",
+      "invariants": [
+        "T1",
+        "T10",
+        "T11",
+        "T14",
+        "T15",
+        "T16",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ],
+      "legal_input_falsifier_count": 22,
+      "legal_input_falsifier_sha256": "8c3a303f193e337c14476cc3cdc520ddaf18683e9297c442eb2384281e80ceac",
+      "production_owner": {
+        "path": "tx-pool/src/authority/plan.rs",
+        "symbol": "struct TxPoolAuthority"
+      },
+      "semantic_binding": "compute_and_fair_permits"
+    }
+  },
+  "execution": {
+    "candidate_count": 365,
+    "candidate_sha256": "9982849a77eac971d7dfdd97a066f2a9d21fe1b23f993b00c587fc63debb7928",
+    "command_sha256": "aefb1d4f1fa304acdd186c966a12181c8b89f12a805bb6485deabef6c99e3fba",
+    "command_template": [
+      "cargo",
+      "mutants",
+      "--config",
+      "<CONFIG>",
+      "-p",
+      "ckb-tx-pool",
+      "--features",
+      "internal",
+      "--test-tool",
+      "nextest",
+      "--baseline",
+      "run",
+      "-j",
+      "1",
+      "--minimum-test-timeout",
+      "120",
+      "--timeout-multiplier",
+      "3",
+      "--build-timeout-multiplier",
+      "3",
+      "--no-shuffle",
+      "-f",
+      "tx-pool/src/authority/dependency.rs",
+      "-f",
+      "tx-pool/src/authority/plan.rs",
+      "-f",
+      "tx-pool/src/authority/resources.rs",
+      "-f",
+      "tx-pool/src/authority/scheduler.rs",
+      "-o",
+      "<OUTPUT>",
+      "--",
+      "--lib"
+    ],
+    "config_sha256": "1c4892d89a4085238d82ba42ccdcb0cdb221ac0763277fda09ab447d630678d7"
+  },
+  "generator": "tx-pool/scripts/generate_mutation_matrix.py",
+  "inputs": {
+    "architecture_contract": {
+      "path": "tx-pool/architecture-contract.json",
+      "sha256": "6dc012f3df53a4ee9372484bb0420c28c33e40a11577cc2e65341cf3ddd0261d"
+    },
+    "behavior_registry": {
+      "path": "tx-pool/review-behaviors.json",
+      "sha256": "664dd3714247304514ec050f213d0b6e8dc400cb26f3cb0734ab7c4bd1359459"
+    },
+    "manifest": {
+      "path": "tx-pool/security-regression-manifest.json",
+      "sha256": "a8890ce124979e6565a8e66867cfaa08659f156ed42cc4874c43276407abba95"
+    },
+    "production_source_revision": "5bc9c326e0cc9a3cfdc8e14388ca372b473fa679",
+    "production_sources": [
+      {
+        "path": "tx-pool/src/authority/dependency.rs",
+        "sha256": "73b426d3a27b9674d0e48289ca70142a9739674bee8ab0163129962ab86634fc"
+      },
+      {
+        "path": "tx-pool/src/authority/plan.rs",
+        "sha256": "ce1a92c225eaa44cd75ac87d73fa86da29336c7de4695c11a05a3f5a49c8727f"
+      },
+      {
+        "path": "tx-pool/src/authority/resources.rs",
+        "sha256": "0f5fcb0d702b6317084136a17b0521304c045deff680747b19ba29bd6c72071f"
+      },
+      {
+        "path": "tx-pool/src/authority/scheduler.rs",
+        "sha256": "b4984459632839ff1c733eba70fcb6abea4ec86e631f9f701a9ebae276d73db9"
+      }
+    ],
+    "test_inventory": {
+      "path": "tx-pool/test-inventory.txt",
+      "sha256": "b2dae0ac1f0c62f87dddb3b991ba2d6b160b936ef81e54d6707a31fb2165cb8f"
+    },
+    "tools": [
+      {
+        "path": "tx-pool/scripts/generate_mutation_matrix.py",
+        "sha256": "b6ed4285fec0585ebbfee83955d744b42a0a949995ccde3aa939254d7c442738"
+      },
+      {
+        "path": "tx-pool/scripts/check_security_manifest.py",
+        "sha256": "f18410ac71c89b94a275ec10070e2271a4ec8d8ad9d9cdfd3b8589ea54cbf8b8"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:164:9: replace DependencyMaintenanceTicket::hash -> Option<&RawTxHash> with None",
+      "function": "DependencyMaintenanceTicket::hash",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:164:9: replace DependencyMaintenanceTicket::hash -> Option<&RawTxHash> with Some(Box::leak(Box::new(Default::default())))",
+      "function": "DependencyMaintenanceTicket::hash",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:172:9: replace DependencyMaintenanceTicket::action -> Result<DependencyMaintenanceAction, DependencyError> with Ok(Default::default())",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:176:41: replace != with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:187:78: replace < with <= in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:187:78: replace < with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:187:78: replace < with > in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:196:20: delete ! in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:207:25: replace && with || in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:216:12: delete ! in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:222:53: replace && with || in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:222:82: replace < with <= in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:222:82: replace < with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:222:82: replace < with > in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:240:51: replace < with <= in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:240:51: replace < with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:240:51: replace < with > in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:247:51: replace < with <= in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:247:51: replace < with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:247:51: replace < with > in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:249:84: replace < with <= in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:249:84: replace < with == in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:249:84: replace < with > in DependencyMaintenanceTicket::action",
+      "function": "DependencyMaintenanceTicket::action",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:296:9: replace DependencyFrontier::all_observed_dependencies_available -> bool with false",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:296:9: replace DependencyFrontier::all_observed_dependencies_available -> bool with true",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:298:43: replace < with <= in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:298:43: replace < with == in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:298:43: replace < with > in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:299:21: replace && with || in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:301:49: replace < with <= in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:301:49: replace < with == in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:301:49: replace < with > in DependencyFrontier::all_observed_dependencies_available",
+      "function": "DependencyFrontier::all_observed_dependencies_available",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:312:9: replace DependencyFrontier::observe_missing -> ObservedDependencies with Default::default()",
+      "function": "DependencyFrontier::observe_missing",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:319:9: replace DependencyFrontier::keys_for_origin -> Option<&BTreeSet<DependencyKey>> with None",
+      "function": "DependencyFrontier::keys_for_origin",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:319:9: replace DependencyFrontier::keys_for_origin -> Option<&BTreeSet<DependencyKey>> with Some(Box::leak(Box::new(BTreeSet::from_iter([Default::default()]))))",
+      "function": "DependencyFrontier::keys_for_origin",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:319:9: replace DependencyFrontier::keys_for_origin -> Option<&BTreeSet<DependencyKey>> with Some(Box::leak(Box::new(BTreeSet::new())))",
+      "function": "DependencyFrontier::keys_for_origin",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:323:9: replace DependencyFrontier::consumers_for -> Option<&BTreeSet<RawTxHash>> with None",
+      "function": "DependencyFrontier::consumers_for",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:323:9: replace DependencyFrontier::consumers_for -> Option<&BTreeSet<RawTxHash>> with Some(Box::leak(Box::new(BTreeSet::from_iter([Default::default()]))))",
+      "function": "DependencyFrontier::consumers_for",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:323:9: replace DependencyFrontier::consumers_for -> Option<&BTreeSet<RawTxHash>> with Some(Box::leak(Box::new(BTreeSet::new())))",
+      "function": "DependencyFrontier::consumers_for",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:331:9: replace DependencyFrontier::proof_is_current -> bool with false",
+      "function": "DependencyFrontier::proof_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:331:9: replace DependencyFrontier::proof_is_current -> bool with true",
+      "function": "DependencyFrontier::proof_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:335:41: replace <= with > in DependencyFrontier::proof_is_current",
+      "function": "DependencyFrontier::proof_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:348:9: replace DependencyFrontier::owner_free_proof_is_current -> bool with false",
+      "function": "DependencyFrontier::owner_free_proof_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:348:9: replace DependencyFrontier::owner_free_proof_is_current -> bool with true",
+      "function": "DependencyFrontier::owner_free_proof_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:349:13: replace && with || in DependencyFrontier::owner_free_proof_is_current",
+      "function": "DependencyFrontier::owner_free_proof_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:352:41: replace <= with > in DependencyFrontier::owner_free_proof_is_current",
+      "function": "DependencyFrontier::owner_free_proof_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:361:9: replace DependencyFrontier::resolution_is_current -> bool with false",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:361:9: replace DependencyFrontier::resolution_is_current -> bool with true",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:362:13: replace && with || in DependencyFrontier::resolution_is_current",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:362:17: delete ! in DependencyFrontier::resolution_is_current",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:363:17: replace || with && in DependencyFrontier::resolution_is_current",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:366:45: replace <= with > in DependencyFrontier::resolution_is_current",
+      "function": "DependencyFrontier::resolution_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:376:9: replace DependencyFrontier::missing_result_is_current -> bool with false",
+      "function": "DependencyFrontier::missing_result_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:376:9: replace DependencyFrontier::missing_result_is_current -> bool with true",
+      "function": "DependencyFrontier::missing_result_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:377:13: replace && with || in DependencyFrontier::missing_result_is_current",
+      "function": "DependencyFrontier::missing_result_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:386:9: replace DependencyFrontier::missing_observation_is_current -> bool with false",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:386:9: replace DependencyFrontier::missing_observation_is_current -> bool with true",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:387:13: replace && with || in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:389:39: replace <= with > in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:390:25: replace && with || in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:390:78: replace <= with > in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:393:13: replace && with || in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:393:17: delete ! in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:397:17: replace || with && in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:400:49: replace <= with > in DependencyFrontier::missing_observation_is_current",
+      "function": "DependencyFrontier::missing_observation_is_current",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:407:9: replace DependencyFrontier::has_new_dependencies -> bool with false",
+      "function": "DependencyFrontier::has_new_dependencies",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:407:9: replace DependencyFrontier::has_new_dependencies -> bool with true",
+      "function": "DependencyFrontier::has_new_dependencies",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:422:9: replace DependencyFrontier::plan_events -> Result<Option<DependencyControlDelta>, DependencyError> with Ok(None)",
+      "function": "DependencyFrontier::plan_events",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:422:9: replace DependencyFrontier::plan_events -> Result<Option<DependencyControlDelta>, DependencyError> with Ok(Some(Default::default()))",
+      "function": "DependencyFrontier::plan_events",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:433:25: replace == with != in DependencyFrontier::plan_events",
+      "function": "DependencyFrontier::plan_events",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:446:63: replace >= with < in DependencyFrontier::plan_events",
+      "function": "DependencyFrontier::plan_events",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:472:9: delete ! in DependencyFrontier::maintenance_pending",
+      "function": "DependencyFrontier::maintenance_pending",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:472:9: replace DependencyFrontier::maintenance_pending -> bool with false",
+      "function": "DependencyFrontier::maintenance_pending",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:472:9: replace DependencyFrontier::maintenance_pending -> bool with true",
+      "function": "DependencyFrontier::maintenance_pending",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:478:9: replace DependencyFrontier::next_maintenance -> Result<Option<DependencyMaintenanceTicket>, DependencyError> with Ok(None)",
+      "function": "DependencyFrontier::next_maintenance",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:478:9: replace DependencyFrontier::next_maintenance -> Result<Option<DependencyMaintenanceTicket>, DependencyError> with Ok(Some(Default::default()))",
+      "function": "DependencyFrontier::next_maintenance",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:510:9: replace DependencyFrontier::next_dirty_key -> Option<&DependencyKey> with None",
+      "function": "DependencyFrontier::next_dirty_key",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:510:9: replace DependencyFrontier::next_dirty_key -> Option<&DependencyKey> with Some(Box::leak(Box::new(Default::default())))",
+      "function": "DependencyFrontier::next_dirty_key",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:525:40: replace != with == in DependencyFrontier::plan_maintenance",
+      "function": "DependencyFrontier::plan_maintenance",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:525:9: replace DependencyFrontier::plan_maintenance -> Result<DependencyControlDelta, DependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_maintenance",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:526:13: replace || with && in DependencyFrontier::plan_maintenance",
+      "function": "DependencyFrontier::plan_maintenance",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:526:38: replace != with == in DependencyFrontier::plan_maintenance",
+      "function": "DependencyFrontier::plan_maintenance",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:547:9: replace DependencyFrontier::apply_control with ()",
+      "function": "DependencyFrontier::apply_control",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:557:9: replace DependencyFrontier::apply_event with ()",
+      "function": "DependencyFrontier::apply_event",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:558:16: delete ! in DependencyFrontier::apply_event",
+      "function": "DependencyFrontier::apply_event",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:584:44: delete ! in DependencyFrontier::apply_event",
+      "function": "DependencyFrontier::apply_event",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:588:46: delete ! in DependencyFrontier::apply_event",
+      "function": "DependencyFrontier::apply_event",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:608:9: replace DependencyFrontier::apply_maintenance with ()",
+      "function": "DependencyFrontier::apply_maintenance",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:642:24: delete ! in DependencyFrontier::apply_maintenance",
+      "function": "DependencyFrontier::apply_maintenance",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:643:25: replace && with || in DependencyFrontier::apply_maintenance",
+      "function": "DependencyFrontier::apply_maintenance",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:648:38: delete ! in DependencyFrontier::apply_maintenance",
+      "function": "DependencyFrontier::apply_maintenance",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:658:9: replace DependencyFrontier::plan_replace -> Result<DependencyDelta, DependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_replace",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:660:47: delete ! in DependencyFrontier::plan_replace",
+      "function": "DependencyFrontier::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:663:19: replace == with != in DependencyFrontier::plan_replace",
+      "function": "DependencyFrontier::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:688:9: replace DependencyFrontier::plan_stable_replace -> Result<DependencyDelta, StableDependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_stable_replace",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:692:19: replace != with == in DependencyFrontier::plan_stable_replace",
+      "function": "DependencyFrontier::plan_stable_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:692:28: replace || with && in DependencyFrontier::plan_stable_replace",
+      "function": "DependencyFrontier::plan_stable_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:692:31: delete ! in DependencyFrontier::plan_stable_replace",
+      "function": "DependencyFrontier::plan_stable_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:706:9: replace DependencyFrontier::plan_replacements -> Result<DependencyBatchDelta, DependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_replacements",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:717:9: replace DependencyFrontier::plan_primary_replacements -> Result<DependencyBatchDelta, DependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_primary_replacements",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:725:9: replace DependencyFrontier::plan_replacements_with_additions -> Result<DependencyBatchDelta, DependencyError> with Ok(Default::default())",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:746:20: delete ! in DependencyFrontier::plan_replacements_with_additions",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:746:64: replace || with && in DependencyFrontier::plan_replacements_with_additions",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:746:67: delete ! in DependencyFrontier::plan_replacements_with_additions",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:752:20: delete ! in DependencyFrontier::plan_replacements_with_additions",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:765:20: delete ! in DependencyFrontier::plan_replacements_with_additions",
+      "function": "DependencyFrontier::plan_replacements_with_additions",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:779:9: replace DependencyFrontier::apply with ()",
+      "function": "DependencyFrontier::apply",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:792:9: replace DependencyFrontier::apply_batch with ()",
+      "function": "DependencyFrontier::apply_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:805:9: replace DependencyFrontier::contains -> bool with false",
+      "function": "DependencyFrontier::contains",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:805:9: replace DependencyFrontier::contains -> bool with true",
+      "function": "DependencyFrontier::contains",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:809:17: replace && with || in DependencyFrontier::contains",
+      "function": "DependencyFrontier::contains",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:813:12: replace && with || in DependencyFrontier::contains",
+      "function": "DependencyFrontier::contains",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:823:9: replace DependencyFrontier::attach with ()",
+      "function": "DependencyFrontier::attach",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:844:9: replace DependencyFrontier::detach with ()",
+      "function": "DependencyFrontier::detach",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:867:9: replace DependencyFrontier::prune_orphaned with ()",
+      "function": "DependencyFrontier::prune_orphaned",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/dependency.rs:890:9: replace DependencyFrontier::retire_level with ()",
+      "function": "DependencyFrontier::retire_level",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:1503:9: replace BatchClockReservation::reserve -> Result<Self, PlanError> with Ok(Default::default())",
+      "function": "BatchClockReservation::reserve",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:1512:13: delete field next_version from struct AuthorityClocks expression in BatchClockReservation::reserve",
+      "function": "BatchClockReservation::reserve",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:1513:13: delete field next_sequence from struct AuthorityClocks expression in BatchClockReservation::reserve",
+      "function": "BatchClockReservation::reserve",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:1530:9: replace BatchClockReservation::into_parts -> (ApplySequence, impl Iterator<Item = EntryVersion>, AuthorityClocks,) with (Default::default(), ::std::iter::empty(), Default::default())",
+      "function": "BatchClockReservation::into_parts",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:1530:9: replace BatchClockReservation::into_parts -> (ApplySequence, impl Iterator<Item = EntryVersion>, AuthorityClocks,) with (Default::default(), ::std::iter::once(Default::default()), Default::default())",
+      "function": "BatchClockReservation::into_parts",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2256:21: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_existing_admission",
+      "function": "TxPoolAuthority::plan_existing_admission",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2284:21: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::plan_existing_admission",
+      "function": "TxPoolAuthority::plan_existing_admission",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2285:21: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_existing_admission",
+      "function": "TxPoolAuthority::plan_existing_admission",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2362:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::plan_replacement_history_admission",
+      "function": "TxPoolAuthority::plan_replacement_history_admission",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2363:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_replacement_history_admission",
+      "function": "TxPoolAuthority::plan_replacement_history_admission",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2468:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::plan_final_reresolution",
+      "function": "TxPoolAuthority::plan_final_reresolution",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2469:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_final_reresolution",
+      "function": "TxPoolAuthority::plan_final_reresolution",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2874:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::prepare_accept_delta",
+      "function": "TxPoolAuthority::prepare_accept_delta",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:2875:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::prepare_accept_delta",
+      "function": "TxPoolAuthority::prepare_accept_delta",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3139:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_preaccepted_terminalization",
+      "function": "TxPoolAuthority::plan_preaccepted_terminalization",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3153:17: delete field dependency from struct TransitionControls expression in TxPoolAuthority::plan_preaccepted_terminalization",
+      "function": "TxPoolAuthority::plan_preaccepted_terminalization",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3154:17: delete field effect from struct TransitionControls expression in TxPoolAuthority::plan_preaccepted_terminalization",
+      "function": "TxPoolAuthority::plan_preaccepted_terminalization",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3185:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_clear_pipeline",
+      "function": "TxPoolAuthority::plan_clear_pipeline",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3212:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_clear_pool",
+      "function": "TxPoolAuthority::plan_clear_pool",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3330:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::compile_administrative_removal",
+      "function": "TxPoolAuthority::compile_administrative_removal",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3690:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::prepare_effect_only",
+      "function": "TxPoolAuthority::prepare_effect_only",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3702:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::prepared_effect_only",
+      "function": "TxPoolAuthority::prepared_effect_only",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3728:21: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_dependency_maintenance",
+      "function": "TxPoolAuthority::plan_dependency_maintenance",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3762:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::plan_dependency_maintenance",
+      "function": "TxPoolAuthority::plan_dependency_maintenance",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3763:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::plan_dependency_maintenance",
+      "function": "TxPoolAuthority::plan_dependency_maintenance",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3902:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::apply_compute_cancellation",
+      "function": "TxPoolAuthority::apply_compute_cancellation",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:3905:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::apply_compute_cancellation",
+      "function": "TxPoolAuthority::apply_compute_cancellation",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4005:9: replace TxPoolAuthority::classify_settlement -> Result<SettlementClassification, PlanError> with Ok(Default::default())",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4007:12: delete ! in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4023:50: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4024:21: replace || with && in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4024:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4028:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4031:20: delete ! in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4064:21: replace && with || in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4082:39: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4083:21: replace || with && in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4083:54: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4084:21: replace || with && in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4084:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4088:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4110:43: replace || with && in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4125:50: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4126:21: replace || with && in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4126:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4130:46: replace != with == in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4134:35: replace == with != in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4151:19: replace && with || in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4151:37: replace == with != in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4153:24: delete ! in TxPoolAuthority::classify_settlement",
+      "function": "TxPoolAuthority::classify_settlement",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4344:13: delete field next_version from struct AuthorityClocks expression in TxPoolAuthority::prepare_settlement_inner",
+      "function": "TxPoolAuthority::prepare_settlement_inner",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4345:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::prepare_settlement_inner",
+      "function": "TxPoolAuthority::prepare_settlement_inner",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4364:17: delete field effect from struct TransitionControls expression in TxPoolAuthority::prepare_settlement_inner",
+      "function": "TxPoolAuthority::prepare_settlement_inner",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4409:13: delete field next_sequence from struct AuthorityClocks expression in TxPoolAuthority::prepare_compute_rejection",
+      "function": "TxPoolAuthority::prepare_compute_rejection",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4424:17: delete field dependency from struct TransitionControls expression in TxPoolAuthority::prepare_compute_rejection",
+      "function": "TxPoolAuthority::prepare_compute_rejection",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4425:17: delete field effect from struct TransitionControls expression in TxPoolAuthority::prepare_compute_rejection",
+      "function": "TxPoolAuthority::prepare_compute_rejection",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4459:17: delete field dependency from struct TransitionControls expression in TxPoolAuthority::prepare_entry_delta_with_dependency",
+      "function": "TxPoolAuthority::prepare_entry_delta_with_dependency",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4460:17: delete field effect from struct TransitionControls expression in TxPoolAuthority::prepare_entry_delta_with_dependency",
+      "function": "TxPoolAuthority::prepare_entry_delta_with_dependency",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:4479:17: delete field replacement_retirement from struct TransitionControls expression in TxPoolAuthority::prepare_entry_delta_with_replacement_retirement",
+      "function": "TxPoolAuthority::prepare_entry_delta_with_replacement_retirement",
+      "genre": "StructField",
+      "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:531:25: replace && with || in AuthorityWakeTransition::head_advanced",
+      "function": "AuthorityWakeTransition::head_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:531:35: replace != with == in AuthorityWakeTransition::head_advanced",
+      "function": "AuthorityWakeTransition::head_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:531:9: replace AuthorityWakeTransition::head_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::head_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:531:9: replace AuthorityWakeTransition::head_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::head_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:535:9: replace AuthorityWakeTransition::resolve_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::resolve_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:535:9: replace AuthorityWakeTransition::resolve_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::resolve_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:539:9: replace AuthorityWakeTransition::verify_small_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::verify_small_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:539:9: replace AuthorityWakeTransition::verify_small_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::verify_small_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:546:9: replace AuthorityWakeTransition::verify_any_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::verify_any_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:546:9: replace AuthorityWakeTransition::verify_any_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::verify_any_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:557:60: replace < with <= in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:557:60: replace < with == in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:557:60: replace < with > in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:557:9: replace AuthorityWakeTransition::compute_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:557:9: replace AuthorityWakeTransition::compute_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:559:13: replace || with && in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:560:13: replace || with && in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:561:13: replace || with && in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:562:17: replace && with || in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:563:21: replace || with && in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:564:21: replace || with && in AuthorityWakeTransition::compute_advanced",
+      "function": "AuthorityWakeTransition::compute_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:568:9: replace AuthorityWakeTransition::ready_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::ready_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:568:9: replace AuthorityWakeTransition::ready_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::ready_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:572:45: replace && with || in AuthorityWakeTransition::dependency_maintenance_activated",
+      "function": "AuthorityWakeTransition::dependency_maintenance_activated",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:572:9: delete ! in AuthorityWakeTransition::dependency_maintenance_activated",
+      "function": "AuthorityWakeTransition::dependency_maintenance_activated",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:572:9: replace AuthorityWakeTransition::dependency_maintenance_activated -> bool with false",
+      "function": "AuthorityWakeTransition::dependency_maintenance_activated",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:572:9: replace AuthorityWakeTransition::dependency_maintenance_activated -> bool with true",
+      "function": "AuthorityWakeTransition::dependency_maintenance_activated",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:576:9: replace AuthorityWakeTransition::effect_publisher_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::effect_publisher_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:576:9: replace AuthorityWakeTransition::effect_publisher_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::effect_publisher_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:582:9: replace AuthorityWakeTransition::effect_capacity_released -> bool with false",
+      "function": "AuthorityWakeTransition::effect_capacity_released",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:582:9: replace AuthorityWakeTransition::effect_capacity_released -> bool with true",
+      "function": "AuthorityWakeTransition::effect_capacity_released",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:588:30: replace != with == in AuthorityWakeTransition::template_source_advanced",
+      "function": "AuthorityWakeTransition::template_source_advanced",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:588:9: replace AuthorityWakeTransition::template_source_advanced -> bool with false",
+      "function": "AuthorityWakeTransition::template_source_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/plan.rs:588:9: replace AuthorityWakeTransition::template_source_advanced -> bool with true",
+      "function": "AuthorityWakeTransition::template_source_advanced",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-AUTHORITY-WAKE"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1004:38: replace != with == in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1005:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1005:42: replace != with == in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1006:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1006:35: replace != with == in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1007:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1008:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1008:30: replace != with == in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1025:13: delete match arm (None, None) in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "MatchArm",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1027:20: replace match guard old_peer == new_peer && self.peers.contains_key(&old_peer) with false in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1027:20: replace match guard old_peer == new_peer && self.peers.contains_key(&old_peer) with true in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1027:29: replace == with != in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1027:41: replace && with || in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1043:12: delete ! in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1044:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1044:16: delete ! in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1045:13: replace || with && in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1045:53: delete ! in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1065:9: replace ResourceLedger::plan_batch -> Result<ResourceBatchPlan, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1085:16: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1088:33: replace != with == in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1091:35: replace && with || in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1163:12: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1166:12: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1171:42: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1176:12: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1179:12: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1188:28: delete ! in ResourceLedger::plan_batch",
+      "function": "ResourceLedger::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1204:9: replace ResourceLedger::apply with ()",
+      "function": "ResourceLedger::apply",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1216:22: replace == with != in ResourceLedger::apply",
+      "function": "ResourceLedger::apply",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1226:9: replace ResourceLedger::apply_batch with ()",
+      "function": "ResourceLedger::apply_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1240:22: replace == with != in ResourceLedger::apply_batch",
+      "function": "ResourceLedger::apply_batch",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1256:5: replace active_work_availability -> Result<ActiveWorkAvailability, ResourceError> with Ok(Default::default())",
+      "function": "active_work_availability",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ACTIVE-WORK-AVAILABILITY"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1261:8: delete ! in active_work_availability",
+      "function": "active_work_availability",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ACTIVE-WORK-AVAILABILITY"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1267:8: delete ! in active_work_availability",
+      "function": "active_work_availability",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ACTIVE-WORK-AVAILABILITY"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1270:8: delete ! in active_work_availability",
+      "function": "active_work_availability",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ACTIVE-WORK-AVAILABILITY"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1282:9: replace OrderedResourceProjection::active_work_availability -> Result<ActiveWorkAvailability, ResourceError> with Ok(Default::default())",
+      "function": "OrderedResourceProjection::active_work_availability",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1308:9: replace OrderedResourceProjection::replace -> Result<(), ResourceError> with Ok(())",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1383:55: replace == with != in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1397:12: delete ! in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1400:12: delete ! in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1406:42: delete ! in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1411:12: delete ! in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:1414:12: delete ! in OrderedResourceProjection::replace",
+      "function": "OrderedResourceProjection::replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-ORDERED-RESOURCE-PROJECTION"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:194:9: replace ResourceVector::with_compute_capacity -> Option<Self> with None",
+      "function": "ResourceVector::with_compute_capacity",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:194:9: replace ResourceVector::with_compute_capacity -> Option<Self> with Some(Default::default())",
+      "function": "ResourceVector::with_compute_capacity",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:29: replace != with == in ResourceVector::reserve_compute",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:34: replace || with && in ResourceVector::reserve_compute",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:56: replace != with == in ResourceVector::reserve_compute",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:61: replace || with && in ResourceVector::reserve_compute",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:83: replace != with == in ResourceVector::reserve_compute",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:9: replace ResourceVector::reserve_compute -> Option<Self> with None",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:202:9: replace ResourceVector::reserve_compute -> Option<Self> with Some(Default::default())",
+      "function": "ResourceVector::reserve_compute",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:212:9: replace ResourceVector::without_compute -> Self with Default::default()",
+      "function": "ResourceVector::without_compute",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:26: replace != with == in ResourceVector::has_compute_reservation",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:31: replace || with && in ResourceVector::has_compute_reservation",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:53: replace != with == in ResourceVector::has_compute_reservation",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:58: replace || with && in ResourceVector::has_compute_reservation",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:80: replace != with == in ResourceVector::has_compute_reservation",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:9: replace ResourceVector::has_compute_reservation -> bool with false",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:219:9: replace ResourceVector::has_compute_reservation -> bool with true",
+      "function": "ResourceVector::has_compute_reservation",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:223:9: replace ResourceVector::total_bytes -> Option<usize> with None",
+      "function": "ResourceVector::total_bytes",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:223:9: replace ResourceVector::total_bytes -> Option<usize> with Some(0)",
+      "function": "ResourceVector::total_bytes",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:223:9: replace ResourceVector::total_bytes -> Option<usize> with Some(1)",
+      "function": "ResourceVector::total_bytes",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:227:9: replace ResourceVector::total_edges -> Option<usize> with None",
+      "function": "ResourceVector::total_edges",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:227:9: replace ResourceVector::total_edges -> Option<usize> with Some(0)",
+      "function": "ResourceVector::total_edges",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:227:9: replace ResourceVector::total_edges -> Option<usize> with Some(1)",
+      "function": "ResourceVector::total_edges",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:231:9: replace ResourceVector::checked_add -> Option<Self> with None",
+      "function": "ResourceVector::checked_add",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:231:9: replace ResourceVector::checked_add -> Option<Self> with Some(Default::default())",
+      "function": "ResourceVector::checked_add",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:242:9: replace ResourceVector::checked_sub -> Option<Self> with None",
+      "function": "ResourceVector::checked_sub",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:242:9: replace ResourceVector::checked_sub -> Option<Self> with Some(Default::default())",
+      "function": "ResourceVector::checked_sub",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:253:22: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:253:9: replace ResourceVector::fits -> bool with false",
+      "function": "ResourceVector::fits",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:253:9: replace ResourceVector::fits -> bool with true",
+      "function": "ResourceVector::fits",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:254:13: replace && with || in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:254:27: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:255:13: replace && with || in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:255:27: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:256:13: replace && with || in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:256:33: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:257:13: replace && with || in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:257:35: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:258:13: replace && with || in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:258:35: replace <= with > in ResourceVector::fits",
+      "function": "ResourceVector::fits",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-VECTOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:688:9: replace ResourceLedger::charge -> Option<ChargeRecord> with None",
+      "function": "ResourceLedger::charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:688:9: replace ResourceLedger::charge -> Option<ChargeRecord> with Some(Default::default())",
+      "function": "ResourceLedger::charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:692:9: replace ResourceLedger::preaccepted -> ResourceVector with Default::default()",
+      "function": "ResourceLedger::preaccepted",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:696:9: replace ResourceLedger::remote -> ResourceVector with Default::default()",
+      "function": "ResourceLedger::remote",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:700:9: replace ResourceLedger::replacement_history -> ResourceVector with Default::default()",
+      "function": "ResourceLedger::replacement_history",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:704:9: replace ResourceLedger::peer -> ResourceVector with Default::default()",
+      "function": "ResourceLedger::peer",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:708:9: replace ResourceLedger::accepted -> AcceptedResources with Default::default()",
+      "function": "ResourceLedger::accepted",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:712:9: replace ResourceLedger::accepted_fits -> bool with false",
+      "function": "ResourceLedger::accepted_fits",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:712:9: replace ResourceLedger::accepted_fits -> bool with true",
+      "function": "ResourceLedger::accepted_fits",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:719:9: replace ResourceLedger::ordered_projection -> Result<OrderedResourceProjection, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::ordered_projection",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:738:9: replace ResourceLedger::compute_grant -> ComputeGrant with Default::default()",
+      "function": "ResourceLedger::compute_grant",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:748:9: replace ResourceLedger::admission_charge -> Result<ResourceVector, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::admission_charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:755:9: replace ResourceLedger::charge_admission -> Result<ChargedAdmission, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::charge_admission",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:767:9: replace ResourceLedger::retained_charge -> Result<ResourceVector, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::retained_charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:784:9: replace ResourceLedger::retained_entry_charge -> Result<ResourceVector, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::retained_entry_charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:797:9: replace ResourceLedger::replacement_history_charge -> Result<ReplacementHistoryCharge, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::replacement_history_charge",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:816:9: replace ResourceLedger::limits -> ResourceLimits with Default::default()",
+      "function": "ResourceLedger::limits",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:823:9: replace ResourceLedger::validate_admission -> Result<(), ResourceError> with Ok(())",
+      "function": "ResourceLedger::validate_admission",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:836:9: replace ResourceLedger::plan_replace -> Result<ResourcePlan, ResourceError> with Ok(Default::default())",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:838:30: replace != with == in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:887:12: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:890:12: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:893:12: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:901:25: replace == with != in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:909:25: replace == with != in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:917:16: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:926:40: replace != with == in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:943:12: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:947:31: replace && with || in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:952:40: delete ! in ResourceLedger::plan_replace",
+      "function": "ResourceLedger::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:980:9: replace ResourceLedger::plan_compute_release -> Result<ResourcePlan, ComputeReleaseError> with Ok(Default::default())",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/resources.rs:986:30: replace != with == in ResourceLedger::plan_compute_release",
+      "function": "ResourceLedger::plan_compute_release",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-RESOURCE-LEDGER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1000:9: replace FairFrontier::next_queued_in_wave_with_overlay -> Option<CheckoutTicket> with None",
+      "function": "FairFrontier::next_queued_in_wave_with_overlay",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1000:9: replace FairFrontier::next_queued_in_wave_with_overlay -> Option<CheckoutTicket> with Some(Default::default())",
+      "function": "FairFrontier::next_queued_in_wave_with_overlay",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1028:9: replace FairFrontier::next_queued_after_in_wave_with_overlay -> Option<CheckoutTicket> with None",
+      "function": "FairFrontier::next_queued_after_in_wave_with_overlay",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1028:9: replace FairFrontier::next_queued_after_in_wave_with_overlay -> Option<CheckoutTicket> with Some(Default::default())",
+      "function": "FairFrontier::next_queued_after_in_wave_with_overlay",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1050:9: replace FairFrontier::wake_projection -> SchedulerWakeProjection with Default::default()",
+      "function": "FairFrontier::wake_projection",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1068:9: replace FairFrontier::ready -> Vec<(RawTxHash, EntryVersion)> with vec![(Default::default(), Default::default())]",
+      "function": "FairFrontier::ready",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1068:9: replace FairFrontier::ready -> Vec<(RawTxHash, EntryVersion)> with vec![]",
+      "function": "FairFrontier::ready",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1077:9: replace FairFrontier::apply with ()",
+      "function": "FairFrontier::apply",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1095:9: replace FairFrontier::apply_batch with ()",
+      "function": "FairFrontier::apply_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1106:9: replace FairFrontier::contains -> bool with false",
+      "function": "FairFrontier::contains",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1106:9: replace FairFrontier::contains -> bool with true",
+      "function": "FairFrontier::contains",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1116:9: replace FairFrontier::insert with ()",
+      "function": "FairFrontier::insert",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:1128:9: replace FairFrontier::remove with ()",
+      "function": "FairFrontier::remove",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:777:9: replace SchedulerWaveCursor::lane_cursor -> Option<WorkOwner> with None",
+      "function": "SchedulerWaveCursor::lane_cursor",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-SCHEDULER-WAVE-CURSOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:777:9: replace SchedulerWaveCursor::lane_cursor -> Option<WorkOwner> with Some(Default::default())",
+      "function": "SchedulerWaveCursor::lane_cursor",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-SCHEDULER-WAVE-CURSOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:784:9: replace SchedulerWaveCursor::select -> Result<(), SchedulerError> with Ok(())",
+      "function": "SchedulerWaveCursor::select",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-SCHEDULER-WAVE-CURSOR"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:807:9: replace FairFrontier::verify_order -> VerifyOrder with Default::default()",
+      "function": "FairFrontier::verify_order",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:811:9: replace FairFrontier::slot -> Result<Option<SchedulerSlot>, SchedulerError> with Ok(None)",
+      "function": "FairFrontier::slot",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:811:9: replace FairFrontier::slot -> Result<Option<SchedulerSlot>, SchedulerError> with Ok(Some(Default::default()))",
+      "function": "FairFrontier::slot",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:830:37: replace == with != in FairFrontier::slot",
+      "function": "FairFrontier::slot",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:860:9: replace FairFrontier::plan_replace -> Result<SchedulerDelta, SchedulerError> with Ok(Default::default())",
+      "function": "FairFrontier::plan_replace",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:862:47: delete ! in FairFrontier::plan_replace",
+      "function": "FairFrontier::plan_replace",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:867:44: replace != with == in FairFrontier::plan_replace",
+      "function": "FairFrontier::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:867:63: replace && with || in FairFrontier::plan_replace",
+      "function": "FairFrontier::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:878:36: replace != with == in FairFrontier::plan_replace",
+      "function": "FairFrontier::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:878:55: replace || with && in FairFrontier::plan_replace",
+      "function": "FairFrontier::plan_replace",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:896:9: replace FairFrontier::plan_batch -> Result<SchedulerBatchDelta, SchedulerError> with Ok(Default::default())",
+      "function": "FairFrontier::plan_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:911:33: delete ! in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:911:33: replace match guard !self.contains(before) || !removed.insert(before.clone()) with false in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:911:33: replace match guard !self.contains(before) || !removed.insert(before.clone()) with true in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:911:56: replace || with && in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:911:59: delete ! in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:917:32: delete ! in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:917:32: replace match guard !added.insert(after.clone()) with false in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:917:32: replace match guard !added.insert(after.clone()) with true in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "MatchArmGuard",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:925:45: replace && with || in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "BinaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:925:48: delete ! in FairFrontier::plan_batch",
+      "function": "FairFrontier::plan_batch",
+      "genre": "UnaryOperator",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:945:9: replace FairFrontier::plan_exchange_batch -> Result<SchedulerBatchDelta, SchedulerError> with Ok(Default::default())",
+      "function": "FairFrontier::plan_exchange_batch",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:955:9: replace FairFrontier::checkout_wave -> Result<SchedulerWaveCursor, SchedulerError> with Ok(Default::default())",
+      "function": "FairFrontier::checkout_wave",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    },
+    {
+      "candidate": "tx-pool/src/authority/scheduler.rs:971:9: replace FairFrontier::exchange_wave_after -> Result<SchedulerExchangeWave<'_>, SchedulerError> with Ok(Default::default())",
+      "function": "FairFrontier::exchange_wave_after",
+      "genre": "FnValue",
+      "obligation_id": "V1-MUT-FAIR-FRONTIER"
+    }
+  ],
+  "schema_version": 1,
+  "test_universe": {
+    "count": 699,
+    "features": [
+      "internal"
+    ],
+    "id": "ckb-tx-pool:internal:lib",
+    "nextest_argv": [
+      "cargo",
+      "nextest",
+      "run",
+      "-p",
+      "ckb-tx-pool",
+      "--features",
+      "internal",
+      "--lib"
+    ],
+    "package": "ckb-tx-pool",
+    "sha256": "694ae9cdc0939c4d3ad25f14b21f8c567f321ff45f5519e107291d739a363f63",
+    "target": "lib"
+  }
+}
