@@ -19,7 +19,7 @@ and Markdown tables are discovered, generated or checked.
 | [`architecture-contract.json`](../architecture-contract.json) | Stable UAK vocabulary, T1-T16 obligations, the selected bounded semantic exchange, ordered implementation slices and their exact costs/falsifiers, executable mathematical proof policy, semantic roots for the generated model/production refinement frontier, immutable develop comparison cases, release-surface anchors and durable residual risks. Validators derive the invariant vocabulary from this file rather than copying it. | `check_security_manifest.py`, `check_model_refinement.py`, `check_develop_refinement.py` | Edit only for an architecture decision; update `ARCHITECTURE.md`, `PERFORMANCE.md`, behavior evidence and tests together. A blueprint slice must retain its current source anchors; an implemented slice must expose its target owner. Never copy Rust enums, public methods or a generated current-code observation into a validator. |
 | [`review-behaviors.json`](../review-behaviors.json) | Stable `TP-*` rule/attack semantics, exact production-symbol owners, T1-T16 mappings and curated unit/integration evidence. Cross-crate counterexamples are typed separately, bind mechanically to an `OPEN` finding, and do not count as conformance. Focused commands and the review table are generated from it. | `check_review_guide.py`, `check_security_manifest.py`, `check_test_layout.py` | Edit only when behavior, ownership or proof evidence changes. Every symbol and exact test must resolve; no command or count field is allowed. |
 | [`integration-impact.json`](../integration-impact.json) | Curated complete set of registered process specs whose production paths cross tx-pool ingress, verification, pool mutation, relay, mining/template or transaction-bearing reorg boundaries. | `check_review_guide.py`, `check_security_manifest.py` | Hand-edit when a relevant spec is added, removed, renamed or its boundary changes. Integration CI checks it against `ckb-test --list-specs`. |
-| [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory and explicit release blockers. It stores no derived count or individual evidence. | `check_security_manifest.py` | Edit only when an assembly input or release decision changes. Test counts are always derived. |
+| [`security-regression-manifest.json`](../security-regression-manifest.json) | Assembly manifest binding package/features, architecture, behavior, integration universe, generated inventory, V1 semantic mutation obligations and explicit release blockers. Mutation obligations reference existing topology components, semantic bindings and behavior owners; they never copy candidate rows, paths, test names, commands, counts or digests. | `check_security_manifest.py`, `generate_mutation_matrix.py` | Edit only when an assembly input, semantic mutation scope or release decision changes. Candidate rows, paths, tests, commands, counts and digests are always derived. |
 | [`test-layout-manifest.json`](../test-layout-manifest.json) | Allowed dedicated test roots plus named irreducible test observation seams. Module wiring and `cfg(test)` sites are discovered from Rust rather than copied. | `check_test_layout.py` | Edit only for a deliberate directory boundary or exceptional seam. A current observation is never accepted merely by copying it into an allowlist. |
 | [`test-inventory.txt`](../test-inventory.txt) | Exact sorted snapshot of discovered internal-feature Rust tests and the managed integration spec names. This is generated evidence, not a hand-written selection list. | `check_security_manifest.py` | Regenerate with `--update-inventory` after an intentional test/integration inventory change, then review the diff. |
 
@@ -38,6 +38,8 @@ integration-impact.json --------------> curated process boundary
          +-- generates ----------------> REVIEW_GUIDE.md commands and tables
          +-- generates ----------------> test-inventory.txt
          +-- validates ----------------> test-layout exceptions and CI gates
+security-regression-manifest.json ----> semantic mutation obligations
+         + cargo-mutants JSON --------> generated row lock + exact run config
 ```
 
 The only manual layer is semantic: why a rule exists, its attack case,
@@ -78,6 +80,7 @@ temporary directory.
 | `python3 tx-pool/scripts/check_develop_refinement.py` | Require the full immutable develop baseline commit/tree, extract every registered historical function directly from Git, verify the semantic call-order facts, cover F1-F8 and bind each negative witness to current behavior evidence. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
 | `python3 tx-pool/scripts/check_formal_models.py` | Discover every registered TLA module/config pair, reject registry drift, run each expected verdict, and require the named negative reachability witness. | Only temporary TLC metadata outside the source tree |
+| `python3 tx-pool/scripts/generate_mutation_matrix.py` | Join the manifest's semantic mutation obligations to architecture components, behavior owners, the generated library-test inventory and structured cargo-mutants candidates. It rejects zero-match, ambiguous, stale and unowned rows, verifies an exact generated cargo-mutants config by relisting it, and reconciles every final outcome. | Only an explicitly requested generated lock/config; ordinary validation uses a temporary config outside the source tree |
 | `python3 tx-pool/scripts/check_model_refinement.py` | Starting only from semantic roots in `architecture-contract.json`, derive the reachable model and production Rust types, enum members, implementation methods, reference counts and synchronization primitives. Every run executes permanent parser, deliberately-unbound semantic-root and deliberately-unconstructed-capability canaries in `scripts/fixtures/model_refinement_canary.rs`. `--json` emits the complete read-only M3 frontier; no generated observation is an allowlist. | No |
 | `python3 tx-pool/scripts/check_model_refinement.py --variant-flow --cargo-expand-production` | Run the slower M3 route gate with `ast-grep` and current `cargo expand` output. It distinguishes source producers/consumers from macro-expanded evidence, rejects a rooted model or expanded-production enum variant with no producer, and requires an explicit construction witness for every registered model and expanded-production root struct, including task owners and move-only capabilities. Expanded derive matches never replace source-level consumer evidence. | Only Cargo build cache and temporary expansion outside the source tree |
 | `python3 tx-pool/scripts/check_production_contracts.py` | Enforce a closed Rust module graph with no uncompiled source residue; enforce the cross-crate best-tip/startup boundary; keep reorg and generation clears on one capacity-one ordered control lane; structurally prove that each direct `AuthorityRuntime` mutation consumes one post-commit wake receipt (with only the closed mutation-free superseded-reset disposition); keep retained proposal ingress batched; keep effect publication read-only and claim-bound until private settlement; keep profiling acquisition/stage/effect seams centralized and feature-gated; keep status RPC wiring outside optional detail arithmetic; and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |
@@ -135,6 +138,34 @@ inventory. Counts and selectors update from discovery; they are never edited:
 python3 tx-pool/scripts/check_security_manifest.py --update-inventory
 python3 tx-pool/scripts/check_all.py
 ```
+
+For the V1 mutation checkpoint, first commit the reviewed semantic obligations.
+Then generate the row-level lock from that clean input revision and review the
+diff; never edit a row, count, digest or regular expression by hand:
+
+```bash
+python3 tx-pool/scripts/generate_mutation_matrix.py --write-lock
+python3 tx-pool/scripts/generate_mutation_matrix.py \
+  --write-config /private/tmp/ckb-tx-pool-v1-mutants.toml
+```
+
+The generated lock owns the exact candidate and test-universe digests. The
+temporary config contains one anchored expression per selected row plus the
+mechanically derived exclusion closure required by cargo-mutants structural
+field generation. Execute the printed command only from the frozen clean
+checkpoint, replacing `<CONFIG>` and `<OUTPUT>` with those exact external
+paths. After completion, require total row closure and no survivor or timeout:
+
+```bash
+python3 tx-pool/scripts/generate_mutation_matrix.py \
+  --verify-outcomes /private/tmp/ckb-tx-pool-v1-mutants
+```
+
+`Unviable` means the generated Rust failed to compile and is not a survivor;
+every `MissedMutant`, timeout, unexpected row or unstarted row blocks V1 and
+requires semantic adjudication. Mutation evidence remains a falsifier of the
+registered laws, never a second specification or permission to patch code for
+the tool.
 
 For a built integration runner, validate that the curated impact set still
 exists in the executable process-test universe:

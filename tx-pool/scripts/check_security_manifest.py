@@ -76,6 +76,7 @@ REQUIRED_MODEL_CROSS_CUTTING_PROTOCOLS = {
     "ordered_chain_request_conservation",
 }
 MODEL_TEST_PREFIX = "mathematical_model::"
+MUTATION_SELECTOR_KINDS = {"all_methods", "method", "function", "struct_fields"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -219,6 +220,233 @@ def _validate_planned_owner(
     if not path.parent.is_dir():
         return [f"{description} parent directory is absent for {path_value}"]
     return []
+
+
+def resolve_mutation_owner(
+    owner_ref: object, contract: dict, registry: dict
+) -> tuple[dict | None, list[str]]:
+    """Resolve one semantic owner reference without copying its path."""
+
+    if not isinstance(owner_ref, dict):
+        return None, ["mutation obligation owner_ref must be an object"]
+    kind = owner_ref.get("kind")
+    symbol = owner_ref.get("symbol")
+    if not isinstance(symbol, str) or not symbol.strip():
+        return None, ["mutation obligation owner_ref must name one symbol"]
+
+    if kind == "topology_target":
+        component_id = owner_ref.get("component_id")
+        components = contract.get("selected_topology", {}).get("components", [])
+        matches = [
+            component
+            for component in components
+            if isinstance(component, dict) and component.get("id") == component_id
+        ]
+        if len(matches) != 1:
+            return None, [
+                f"mutation topology owner references unknown component {component_id!r}"
+            ]
+        owner = matches[0].get("target_owner")
+        if not isinstance(owner, dict) or symbol not in _string_set(owner.get("symbols")):
+            return None, [
+                f"mutation topology owner symbol {symbol!r} is absent from "
+                f"component {component_id!r}"
+            ]
+        return {"path": owner.get("path"), "symbol": symbol}, []
+
+    if kind == "behavior_owner":
+        behavior_id = owner_ref.get("behavior_id")
+        owners = [
+            owner
+            for behavior in registry.get("behaviors", [])
+            if isinstance(behavior, dict) and behavior.get("id") == behavior_id
+            for owner in behavior.get("implementation_owners", [])
+            if isinstance(owner, dict) and symbol in _string_set(owner.get("symbols"))
+        ]
+        if len(owners) != 1:
+            return None, [
+                f"mutation behavior owner {behavior_id!r} symbol {symbol!r} "
+                f"resolved {len(owners)} times"
+            ]
+        return {"path": owners[0].get("path"), "symbol": symbol}, []
+
+    return None, [f"mutation obligation has unknown owner_ref kind {kind!r}"]
+
+
+def validate_mutation_acceptance(
+    value: object, contract: dict, registry: dict
+) -> list[str]:
+    """Validate semantic mutation obligations; candidate rows stay generated."""
+
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return ["security manifest mutation_acceptance schema_version must be 1"]
+    errors: list[str] = []
+    if value.get("test_target") != "lib":
+        errors.append("mutation acceptance must use the complete library test target")
+    obligations = value.get("obligations")
+    if not isinstance(obligations, list) or not obligations:
+        return errors + ["mutation acceptance obligations must be a non-empty list"]
+
+    bindings = contract.get("refinement_inventory", {}).get("semantic_bindings", {})
+    components = {
+        component.get("id"): component
+        for component in contract.get("selected_topology", {}).get("components", [])
+        if isinstance(component, dict) and isinstance(component.get("id"), str)
+    }
+    seen_ids: set[str] = set()
+    forbidden_derived_fields = {
+        "candidate_count",
+        "candidate_digest",
+        "cargo_mutants_version",
+        "command",
+        "invariants",
+        "path",
+        "test_count",
+        "tests",
+    }
+    for obligation in obligations:
+        if not isinstance(obligation, dict):
+            errors.append(f"invalid mutation obligation: {obligation!r}")
+            continue
+        obligation_id = obligation.get("id")
+        if (
+            not isinstance(obligation_id, str)
+            or not obligation_id.startswith("V1-MUT-")
+            or obligation_id in seen_ids
+        ):
+            errors.append(f"invalid or duplicate mutation obligation ID: {obligation_id!r}")
+        else:
+            seen_ids.add(obligation_id)
+        copied_fields = forbidden_derived_fields.intersection(obligation)
+        if copied_fields:
+            errors.append(
+                f"mutation obligation {obligation_id!r} copies generated fields: "
+                f"{sorted(copied_fields)}"
+            )
+
+        binding_id = obligation.get("semantic_binding")
+        binding = bindings.get(binding_id) if isinstance(bindings, dict) else None
+        if not isinstance(binding, dict):
+            errors.append(
+                f"mutation obligation {obligation_id!r} references unknown semantic "
+                f"binding {binding_id!r}"
+            )
+            binding = {}
+
+        component_id = obligation.get("component_id")
+        component = components.get(component_id) if component_id is not None else None
+        if component_id is not None and component is None:
+            errors.append(
+                f"mutation obligation {obligation_id!r} references unknown component "
+                f"{component_id!r}"
+            )
+        if component is not None and not _string_set(component.get("behavior_ids")).intersection(
+            _string_set(binding.get("behavior_ids"))
+        ):
+            errors.append(
+                f"mutation obligation {obligation_id!r} component and semantic binding "
+                "share no behavior law"
+            )
+
+        owner, owner_errors = resolve_mutation_owner(
+            obligation.get("owner_ref"), contract, registry
+        )
+        errors.extend(owner_errors)
+        owner_ref = obligation.get("owner_ref")
+        if isinstance(owner_ref, dict) and owner_ref.get("kind") == "behavior_owner":
+            behavior_id = owner_ref.get("behavior_id")
+            if behavior_id not in _string_set(binding.get("behavior_ids")):
+                errors.append(
+                    f"mutation obligation {obligation_id!r} owner behavior "
+                    f"{behavior_id!r} is absent from semantic binding {binding_id!r}"
+                )
+        if (
+            isinstance(owner_ref, dict)
+            and owner_ref.get("kind") == "topology_target"
+            and owner_ref.get("component_id") != component_id
+        ):
+            errors.append(
+                f"mutation obligation {obligation_id!r} topology owner and component differ"
+            )
+        if owner is not None:
+            path_value = owner.get("path")
+            symbol = owner.get("symbol")
+            if not isinstance(path_value, str) or not isinstance(symbol, str):
+                errors.append(
+                    f"mutation obligation {obligation_id!r} resolved an invalid owner"
+                )
+            else:
+                errors.extend(
+                    require_source_symbols(
+                        path_value, [symbol], f"mutation obligation {obligation_id}"
+                    )
+                )
+
+        selector = obligation.get("selector")
+        if not isinstance(selector, dict) or selector.get("kind") not in MUTATION_SELECTOR_KINDS:
+            errors.append(
+                f"mutation obligation {obligation_id!r} has an invalid selector"
+            )
+            continue
+        selector_kind = selector.get("kind")
+        selector_name = selector.get("name")
+        owner_symbol = owner.get("symbol") if owner is not None else None
+        if selector_kind == "method":
+            if not isinstance(selector_name, str) or not re.fullmatch(
+                r"[a-z][A-Za-z0-9_]*", selector_name
+            ):
+                errors.append(
+                    f"mutation obligation {obligation_id!r} method selector needs one name"
+                )
+            if isinstance(owner_symbol, str) and owner_symbol.startswith("fn "):
+                errors.append(
+                    f"mutation obligation {obligation_id!r} cannot select a method "
+                    "from a free-function owner"
+                )
+        elif selector_name is not None:
+            errors.append(
+                f"mutation obligation {obligation_id!r} non-method selector copies a name"
+            )
+        if selector_kind == "function" and (
+            not isinstance(owner_symbol, str) or not owner_symbol.startswith("fn ")
+        ):
+            errors.append(
+                f"mutation obligation {obligation_id!r} function selector needs a "
+                "free-function owner"
+            )
+        if selector_kind in {"all_methods", "struct_fields"} and isinstance(
+            owner_symbol, str
+        ) and owner_symbol.startswith(("fn ", "enum ")):
+            errors.append(
+                f"mutation obligation {obligation_id!r} {selector_kind} needs a type owner"
+            )
+    return errors
+
+
+def validate_mutation_acceptance_canaries(
+    value: dict, contract: dict, registry: dict
+) -> list[str]:
+    """Prove that unknown, duplicate and copied mutation facts are rejected."""
+
+    errors: list[str] = []
+    unknown_binding = copy.deepcopy(value)
+    unknown_binding["obligations"][0]["semantic_binding"] = "missing_binding"
+    observed = validate_mutation_acceptance(unknown_binding, contract, registry)
+    if not any("unknown semantic binding" in error for error in observed):
+        errors.append("mutation acceptance unknown-binding canary did not fail")
+
+    duplicate = copy.deepcopy(value)
+    duplicate["obligations"].append(copy.deepcopy(duplicate["obligations"][0]))
+    observed = validate_mutation_acceptance(duplicate, contract, registry)
+    if not any("duplicate mutation obligation ID" in error for error in observed):
+        errors.append("mutation acceptance duplicate-ID canary did not fail")
+
+    copied_row = copy.deepcopy(value)
+    copied_row["obligations"][0]["candidate_count"] = 1
+    observed = validate_mutation_acceptance(copied_row, contract, registry)
+    if not any("copies generated fields" in error for error in observed):
+        errors.append("mutation acceptance copied-row canary did not fail")
+    return errors
 
 
 def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
@@ -1475,8 +1703,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 7:
-        raise SystemExit("security manifest schema_version must be 7")
+    if manifest.get("schema_version") != 8:
+        raise SystemExit("security manifest schema_version must be 8")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
@@ -1496,6 +1724,16 @@ def main() -> int:
     )
     if contract is not None:
         errors.extend(validate_architecture_contract(contract, registry))
+        mutation_acceptance = manifest.get("mutation_acceptance")
+        errors.extend(
+            validate_mutation_acceptance(mutation_acceptance, contract, registry)
+        )
+        if isinstance(mutation_acceptance, dict):
+            errors.extend(
+                validate_mutation_acceptance_canaries(
+                    mutation_acceptance, contract, registry
+                )
+            )
     managed_integration_specs, impact_errors = load_integration_impact(manifest)
     errors.extend(impact_errors)
     discovered_integration_specs: set[str] | None = None

@@ -1,11 +1,147 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
   "architecture_contract": "tx-pool/architecture-contract.json",
   "integration_impact": "tx-pool/integration-impact.json",
   "test_inventory": {"path": "tx-pool/test-inventory.txt"},
+  "mutation_acceptance": {
+    "schema_version": 1,
+    "test_target": "lib",
+    "obligations": [
+      {
+        "id": "V1-MUT-ATOMIC-BATCH-CLOCK",
+        "semantic_binding": "authority_and_atomic_apply",
+        "component_id": "atomic_batch_apply",
+        "owner_ref": {
+          "kind": "topology_target",
+          "component_id": "atomic_batch_apply",
+          "symbol": "BatchClockReservation"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-OWN-001",
+          "symbol": "struct TxPoolAuthority"
+        },
+        "selector": {"kind": "method", "name": "classify_settlement"}
+      },
+      {
+        "id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
+        "semantic_binding": "authority_and_atomic_apply",
+        "component_id": "atomic_batch_apply",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-OWN-001",
+          "symbol": "struct TxPoolAuthority"
+        },
+        "selector": {"kind": "struct_fields"}
+      },
+      {
+        "id": "V1-MUT-AUTHORITY-WAKE",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-WORKER-001",
+          "symbol": "struct AuthorityWakeTransition"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-RESOURCE-VECTOR",
+        "semantic_binding": "bounded_hostility_and_resources",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-BUDGET-001",
+          "symbol": "struct ResourceVector"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-RESOURCE-LEDGER",
+        "semantic_binding": "bounded_hostility_and_resources",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-BUDGET-001",
+          "symbol": "struct ResourceLedger"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-ORDERED-RESOURCE-PROJECTION",
+        "semantic_binding": "bounded_hostility_and_resources",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-BUDGET-001",
+          "symbol": "struct OrderedResourceProjection"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-ACTIVE-WORK-AVAILABILITY",
+        "semantic_binding": "bounded_hostility_and_resources",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-BUDGET-001",
+          "symbol": "fn active_work_availability"
+        },
+        "selector": {"kind": "function"}
+      },
+      {
+        "id": "V1-MUT-DEPENDENCY-FRONTIER",
+        "semantic_binding": "chain_and_dependency",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-DEP-001",
+          "symbol": "struct DependencyFrontier"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+        "semantic_binding": "chain_and_dependency",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-DEP-001",
+          "symbol": "struct DependencyMaintenanceTicket"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-FAIR-FRONTIER",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-WORKER-001",
+          "symbol": "struct FairFrontier"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-SCHEDULER-WAVE-CURSOR",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-WORKER-001",
+          "symbol": "struct SchedulerWaveCursor"
+        },
+        "selector": {"kind": "all_methods"}
+      }
+    ]
+  },
   "release_blockers": [
     {
       "id": "RUST-API-COMPATIBILITY-DECISION",

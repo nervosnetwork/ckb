@@ -4533,3 +4533,71 @@ exception was introduced. The next exact product action remains section 29:
 derive the remaining mutation matrix mechanically from the existing model,
 architecture, behavior, Rust-item and cargo-mutants authorities before freezing
 or executing another cohort.
+
+## V1-B1 semantic mutation-scope checkpoint
+
+Work resumed from clean checkpoint `31037f98eaa683e2a597e3f99a70fb4e5f9600af`.
+A read-only structured cargo-mutants census disproved the earlier proposed
+101-row scope before execution: selecting only
+`BatchClockReservation::reserve` omitted the same sealed capability's
+`into_parts` consumer, whose return mutants can replace the Apply sequence,
+version iterator and final clocks together. The 31 rows previously described
+as lacking function attribution are in fact all attributed to concrete
+`TxPoolAuthority` methods and form the complete `StructField` class for
+deleting clock, dependency, effect or retirement fields. Exact positive and
+negative row-name expressions cannot isolate that class in cargo-mutants
+27.1.0 because its filter is applied at the structural generation context.
+
+The correction is architecture-owned rather than a regex exception.
+Security-manifest schema 8 now contains only semantic mutation obligations
+that reference existing topology components, refinement bindings and behavior
+owners. Resource-vector/projection and scheduler-wave-cursor owners were added
+to their existing TP-BUDGET-001 and TP-WORKER-001 behavior rows because they
+already own the typed resource equation and sealed fairness cursor; no new
+semantic registry was created. Small coupled owner types select their complete
+method surface. The broad `TxPoolAuthority` selects only the named settlement
+classification premise plus the complete same-class structural-field deletion
+surface, avoiding both an unbounded line-coverage exercise and an omitted
+atomic transition consumer.
+
+`scripts/generate_mutation_matrix.py` joins those semantic references to the
+architecture/behavior registries, Rust-item attribution, generated library
+test inventory and cargo-mutants JSON. It runs permanent positive,
+zero-match and ambiguity canaries, rejects copied derived fields in the
+manifest, constructs an exact external config, then relists that config and
+rejects missing or unowned rows. Candidate rows, paths, tests, invariants,
+commands, counts and digests are generated; the checked-in semantic manifest
+copies none of them. A temporary preview under `/private/tmp` closed exactly
+against the complete generated library test universe. Its rows and output are
+diagnostic and are not yet the frozen acceptance lock.
+
+Evidence at this checkpoint:
+
+- `python3 -B tx-pool/scripts/check_review_guide.py --write` regenerated the
+  owner projection and validated 18 behaviors, 376 tx-pool Rust tests / 1,495
+  invariant references, 14 cross-crate tests / 38 references, 19 integration
+  anchors and 150 managed specs;
+- `python3 -B tx-pool/scripts/check_all.py` passed all nine discovered
+  contracts, including the generated model/production frontier, generic
+  script/documentation coverage, 1,098 generated / 318 distinct positive TLC
+  states, the required four-state negative witness, and the security evidence
+  graph against 699 discovered library tests with three existing release
+  blockers;
+- the external preview generator relisted its exact config with zero missing,
+  ambiguous or extra rows; its derived count and digests deliberately remain
+  outside this hand-maintained progress entry until the generated lock owns
+  them;
+- no production Rust, model transition, authority, state, lock, task, queue,
+  channel, retry, capability, effect, configuration path, compatibility branch
+  or hot-path operation changed.
+
+The whole-system review retains the selected bounded semantic exchange and the
+fixed V1 -> constructive simplification -> release -> performance -> final
+production route. This B1 assembly adds one phase-owned generator and one
+semantic obligation projection, with zero runtime cost and one deletion owner:
+after V1 it remains only if the final evidence/maintenance review proves that
+portable mutation reproduction needs it. Cleanup is still forbidden. The next
+exact action is to commit this B1 checkpoint, verify a clean worktree, generate
+`tx-pool/mutation-acceptance-lock.json` from that clean revision, review its
+machine diff, rerun the whole-system gates and commit the B2 freeze before any
+mutation execution.

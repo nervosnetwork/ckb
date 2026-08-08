@@ -4057,6 +4057,38 @@ generated scope and freezes its exact revision, command and digest before any
 mutation run. Every survivor still requires a legal construction and
 observable-difference adjudication before an edit.
 
+The V1-B1 read-only closure at checkpoint `31037f98e` falsified the earlier
+101-row expectation before it became an acceptance scope. Selecting only
+`BatchClockReservation::reserve` omitted the same capability's `into_parts`
+consumer, whose generated return mutants can replace the Apply sequence,
+complete version iterator and final clocks together. The initial statement
+that the 31 extra structural rows lacked function attribution was also false:
+cargo-mutants JSON attributes every one to a concrete `TxPoolAuthority`
+method. Cargo-mutants 27.1.0 applies positive and negative regular-expression
+filters before that structural-field class is isolatable by its final row
+name, so even exact anchored rows retain the complete same-class field surface.
+
+The root correction is one semantic acceptance assembly, not a filter
+exception. `security-regression-manifest.json#mutation_acceptance` references
+only existing topology components, refinement bindings and behavior owners.
+Small capability/authority types select their complete method surface;
+`TxPoolAuthority` selects the named settlement-classification method plus the
+complete function-attributed `StructField` class that can erase version,
+sequence, dependency, effect or retirement state. The generator derives every
+path, function, candidate, invariant, falsifier, complete library Nextest
+universe, regular expression, count and digest. It must relist its generated
+cargo-mutants configuration and reject any zero-match, ambiguous, stale,
+unowned, missing or extra row. This expands proof observation at zero
+production topology or hot-path cost and avoids both hand-maintained candidate
+lists and method-by-method omissions.
+
+The exact next action is V1-B1 closure: validate and commit the semantic
+obligations, generator, generic negative canaries, generated review projection
+and this explicit plan delta. From that clean checkpoint, V1-B2 generates and
+commits the deterministic row lock, reruns the whole-system checkpoint and
+freezes the exact external config/command/digest. No mutation execution begins
+before that gate, and no cleanup authorization changes.
+
 After the mechanically selected cohort closes, execute deterministic
 fixed-binary pool smoke and the complete post-change V1 gate, followed by the
 whole-system checkpoint. Only that final verification authorizes the

@@ -96,7 +96,7 @@
       "id": "TP-BUDGET-001",
       "title": "Continuous hostile-resource accounting",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/resources.rs", "symbols": ["struct ResourceLedger", "struct ResourceLimits", "enum ResourceError", "struct ComputeLimits", "struct ComputeGrant", "fn compute_grant", "fn retained_charge"]},
+        {"path": "tx-pool/src/authority/resources.rs", "symbols": ["struct ResourceVector", "struct ResourceLedger", "struct OrderedResourceProjection", "struct ResourceLimits", "enum ResourceError", "struct ComputeLimits", "struct ComputeGrant", "fn compute_grant", "fn retained_charge", "fn active_work_availability"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct ComputeGate", "AuthorityComputeExecutionPermit"]}
       ],
       "required_behavior": "Every owner continuously carries exact entry, byte, edge, active-work and compute-reservation charges, with accepted, remote, per-peer and replacement-history sublimits validated by checked construction. The resource ledger is the sole compiler of a sealed compute grant, and worker admission plus settlement use its exact total-retained byte and edge units rather than comparing payload bytes with retained residency.",
@@ -116,7 +116,7 @@
         {"path": "tx-pool/src/authority/plan/compute_exchange.rs", "symbols": ["struct ComputeExchangeDelta", "fn apply_compute_exchange"]},
         {"path": "tx-pool/src/authority/compute_coordinator.rs", "symbols": ["struct ComputeCoordinator", "fn spawn_compute_exchange"]},
         {"path": "tx-pool/src/authority/exchange.rs", "symbols": ["struct ComputeWorkerGrant", "enum ComputeWorkerSlot"]},
-        {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct SchedulerExchangeWave"]},
+        {"path": "tx-pool/src/authority/scheduler.rs", "symbols": ["struct FairFrontier", "struct SchedulerExchangeWave", "struct SchedulerWaveCursor"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["struct AuthoritySignals", "fn publish_post_commit", "fn publish_wake", "fn exchange_compute", "fn execute_compute"]},
         {"path": "tx-pool/src/authority/worker.rs", "symbols": ["fn spawn_workers", "run_ready_driver", "run_maintenance_driver"]}
       ],
