@@ -4229,7 +4229,7 @@ verified source-device tools, destination install commands, resume prompt and
 post-restore cleanup. The root `AGENTS.md` has been updated with the accumulated
 methodology and remains intentionally untracked for manual copy; its required
 SHA-256 is
-`34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd`.
+`e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998`.
 
 Unlike earlier checkpoints, this migration commit includes the root
 `.gitignore` change so the manually restored `AGENTS.md` and Python tool caches
@@ -4255,6 +4255,47 @@ unsupported downgrade was made an explicit compatibility-policy option,
 panic-containment scaffolding was forbidden as a substitute for typed outcomes,
 and volatile branch/tool/run state was excluded from the long-lived contract.
 Its ASCII scan and recorded SHA-256 pass.
+
+The user requested a second recovery-equivalence audit. It found eight stable
+methods that were present in the session but only implicit in the contract:
+baseline-to-target necessity/risk-transfer accounting, credible architecture
+candidate comparison, blueprint re-adjudication before compensating code,
+performance targets beyond parity, semantic code/test/document convergence and
+continuous execution within granted authority, recovery-index-first startup and
+feature-gated reproducible profiling with strict environment fingerprints. They
+were merged into existing sections rather than appended as another checklist;
+volatile progress and permission state remain correctly owned outside
+`AGENTS.md`.
+
+The handoff now states the boundary as an executable recovery-equivalence
+model. Stable method belongs only to `AGENTS.md`; machine registries and
+normative architecture own product truth; plan/progress own volatile work;
+handoff is a temporary index. Exact Git/submodule/agent-rule hashes, portable
+uncommitted-state emptiness, work/evidence equality and active-tool capability
+form the portable predicate. Conversation UI state, credentials, approvals,
+caches, processes and temporary worktrees are explicitly nonportable and cannot
+be correctness premises.
+
+The recovery design was then audited from authority, completeness, lifecycle,
+tool reproducibility, hostile fresh-start and cleanup perspectives. It exposed a
+real contradiction: cleanup was described both as a release-phase item and an
+immediate post-restore step, while deleting only the handoff would leave plan
+section 30 dangling. Device recovery is now its own operational gate. Its exit
+atomically records the destination checkpoint, deletes the temporary index and
+retires only section 30's freeze body to a completion pointer. Product section
+29, evidence and roadmap remain live. A first mechanical audit failure was an
+exact-line anchor split by Markdown wrapping; it was classified as a checker
+false negative and corrected without removing the semantic predicate.
+
+The corrected final recovery predicate passed all authority, portable-state,
+lifecycle, semantic-reconstruction and credential-exclusion checks. Its final
+projection review separated exactly three machine-declared release blockers
+from two pending non-blocker roadmap gates. The ignored-file closure also
+classified the clean `ckb-c-stdlib` script-test dependency at exact revision
+`a582bcae6a5c12fcfed33023688d4768cd352605`, separately from disposable caches
+and build output. The full nine-contract runner and formatting gate passed again
+after the authority, cleanup and projection corrections. No product test result
+or V1 status was promoted by this migration validation.
 
 The final source-side migration gate passed all nine discovered tx-pool
 contracts, including TLC positive/negative runs, the 374-test/1,481-reference

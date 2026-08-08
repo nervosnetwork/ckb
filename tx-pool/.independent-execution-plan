@@ -3980,7 +3980,7 @@ Root `AGENTS.md` was expanded with the accumulated evidence-adjudication,
 mutation-reachability, blueprint-completeness, whole-phase review, performance-
 experiment and device-recovery disciplines. It remains intentionally ignored
 and will be copied manually. Its migration SHA-256 is
-`34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd`.
+`e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998`.
 The migration checkpoint commits the corresponding `.gitignore` rule so the
 destination worktree is clean after that copy.
 
@@ -3995,8 +3995,20 @@ peer-revocation behaviors, then the generated guide and inventory were rebuilt:
 374 exact Rust tests now carry 1,481 invariant references. No model term,
 behavior row or implementation state was added.
 
+The final recovery-equivalence audit also made the rewrite decision ledger,
+credible-candidate comparison, design-freeze/model-delta rule, domain-derived
+performance target, review-surface convergence and authorized continuous-
+execution discipline explicit in the existing root contract sections. These
+are method constraints, not new product phases. Stable method, product truth,
+volatile work state and the temporary recovery index now have explicit,
+non-overlapping owners; the handoff's executable equivalence model verifies the
+portable boundary without pretending to transfer credentials or approvals.
+
 The exact product continuation does not change: recover on the destination,
 pass the handoff recovery checks, record one destination checkpoint, then
 continue section 29's version/blocked-revocation survivor adjudication and six
-unstarted mutants. Only after that first destination checkpoint may the
-temporary `.device-handoff` be removed in a zero-behavior cleanup commit.
+unstarted mutants. Device recovery is a separate operational gate, not part of
+release reconciliation. Only after that first destination checkpoint may a
+zero-behavior cleanup delete `.device-handoff` and replace this section's
+temporary freeze body with a compact pointer to the destination progress
+checkpoint; section 29 and every product phase remain unchanged.

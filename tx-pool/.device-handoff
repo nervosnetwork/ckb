@@ -1,23 +1,29 @@
 # Tx-Pool Device Handoff
 
-Status: temporary, tracked migration authority.
+Status: temporary tracked recovery index; not a product, architecture or
+engineering-method authority.
 Source branch: `zhangsoledad/txpool-pipeline`.
 Source checkpoint before this handoff: `5bc9c326e0cc9a3cfdc8e14388ca372b473fa679`.
-Final migration checkpoint: the commit that contains this file. Record the
-exact hash printed by `git rev-parse HEAD` after that commit and push it before
-leaving the source device.
+Final migration checkpoint: the final source-side branch-tip commit with subject
+`tx-pool: finalize device recovery contract`. A commit cannot contain its own
+hash, so record the exact value printed by `git rev-parse HEAD` after that
+commit and verify the remote ref before leaving the source device.
 
 This document makes recovery independent of the Codex conversation, local
 temporary files and build artifacts. It is deliberately detailed. Delete it
 only after the first verified post-restore checkpoint described in section 12.
 
-## 1. Recovery authority and trusted order
+## 1. Recovery boundaries and precedence
+
+Runtime system/developer instructions and current user authorization always
+take precedence and are not transferable through Git. They must be established
+normally on the destination; this file never grants permissions.
 
 Recover decisions in this order:
 
 1. The manually copied root `AGENTS.md` governs engineering behavior. Its
    source-device SHA-256 after the migration update is
-   `34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd`.
+   `e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998`.
 2. `architecture-contract.json`, `review-behaviors.json`,
    `integration-impact.json`, `security-regression-manifest.json`,
    `test-layout-manifest.json` and `formal/models.json` are the machine-owned
@@ -25,13 +31,15 @@ Recover decisions in this order:
 3. `docs/ARCHITECTURE.md` is the normative human architecture and historical
    finding convergence record.
 4. `.independent-execution-plan` is the fixed mathematical and implementation
-   roadmap. Sections 27-29 own the active V1 mutation slice; section 28 owns the
-   later constructive-simplification gate.
+   roadmap. Sections 27 and 29 own the active V1 mutation slice; section 28 owns
+   the later constructive-simplification gate and section 30 owns this temporary
+   migration freeze.
 5. `.release-progress` is the chronological evidence ledger.
 6. `docs/REVIEW_GUIDE.md`, `docs/VALIDATION.md`, `docs/PERFORMANCE.md` and
    `docs/BENCHMARK.md` own review, validation, profiling and A/B procedures.
-7. This file is the recovery index over those authorities. It does not create
-   another product specification.
+7. This file is the temporary recovery index over those authorities. It may
+   locate and summarize them, but cannot redefine their engineering rules,
+   product semantics, roadmap status or evidence.
 
 Conversation history and attached review reports are not required for
 recovery. Confirmed, superseded and suppressed report families were absorbed
@@ -44,6 +52,10 @@ Do not copy an entire `~/.codex` directory between machines. It may contain
 credentials, host-local caches and nonportable task state. Login normally on
 the destination device. Conversation/thread transfer is optional convenience;
 the Git state and this evidence graph are the recovery authority.
+Model, reasoning-effort and sandbox approval settings are also UI/runtime state:
+select the desired available coding model and reasoning level again, and grant
+permissions only through the destination environment. No engineering claim in
+this handoff depends on a hidden model setting.
 
 The migration update performed a complete contract audit of root `AGENTS.md`.
 Its 13 top-level sections now give each stable obligation one owner: domain
@@ -56,6 +68,77 @@ may be an explicit compatibility boundary; panic containment cannot substitute
 for typed outcomes; and volatile branch state is excluded from the contract.
 The file contains only ASCII technical text and the checksum above freezes the
 audited copy.
+
+A second recovery-equivalence audit added the remaining session-level method:
+one baseline-to-target necessity and risk-transfer ledger for rewrites,
+evidence-based comparison of credible topology candidates, mandatory model/plan
+re-adjudication before compensating implementation, domain-derived performance
+targets beyond baseline parity, semantic module/test/document convergence, and
+continuous execution through the persisted roadmap within granted authority.
+Recovery-index-first startup and feature-gated reproducible profiling with
+strict environment fingerprints are also explicit. These rules were merged
+into the existing sections rather than added as a parallel checklist.
+
+### 1.1 Portable recovery-equivalence model
+
+The recovery claim is an observational equivalence, not a claim that host or UI
+state is cloned:
+
+```text
+Portable = (
+  GitCommit,
+  SubmoduleMap,
+  AgentRules,
+  ProductTruth,
+  WorkState,
+  EvidenceAndBlockers,
+  ToolContract
+)
+
+Ephemeral = {
+  conversation UI state,
+  model, reasoning and sandbox runtime settings,
+  credentials and approvals,
+  build and Python caches,
+  target and /tmp artifacts,
+  running processes and local worktree registrations
+}
+```
+
+`AgentRules` is exactly the manually copied `AGENTS.md` bytes. `ProductTruth`
+is the machine registries plus normative architecture at `GitCommit`.
+`WorkState` is the fixed plan, progress ledger, TODO set and one exact next
+action. `EvidenceAndBlockers` is the committed evidence graph and explicit
+release-blocker set. `ToolContract` requires sufficient destination capability
+for the active slice; version differences are observations to record, not
+silent equivalence.
+
+Source and destination are task-equivalent only when all predicates hold:
+
+```text
+Destination.GitCommit == supplied_final_migration_commit
+Destination.SubmoduleMap == Source.SubmoduleMap
+sha256(Destination.AgentRules) == recorded_agent_rules_sha256
+Destination.ProductTruth == Source.ProductTruth
+Destination.WorkState == Source.WorkState
+Destination.EvidenceAndBlockers == Source.EvidenceAndBlockers
+Destination.ToolContract satisfies ActiveSlice.required_tools
+UnaccountedPortableSourceFilesExceptAgentRules == empty
+```
+
+The Git equality makes tracked product, plan and evidence content byte-exact;
+the separate terms make their semantic owners reviewable. `Ephemeral` is
+deliberately outside the equivalence and must not affect a correctness claim.
+Credentials and approvals are reacquired, while caches and processes are
+rebuilt or discarded.
+
+Define `recovery_rank` as the number of unsatisfied predicates above plus the
+uncompleted verification and first-checkpoint steps in section 12. Every
+recovery action must reduce that finite rank or return a typed external blocker.
+Deleting this index is forbidden until the rank is zero and the destination
+records its first checkpoint. The executable checks in section 10 falsify the
+mechanical part; section 11.1's artifact-cited reconstruction falsifies the
+semantic part.
 
 ## 2. Exact Git and local state at handoff creation
 
@@ -76,6 +159,20 @@ Before the handoff commit:
 - `stash@{0}` is unrelated WIP on `develop` and is not part of tx-pool
   recovery. Do not mix it into this branch. Export it separately only if the
   user wants unrelated workstation state.
+- apart from the checksum-accounted manual `AgentRules`, the unaccounted
+  portable untracked-file set was empty. The complete ignored set was
+  classified: `.DS_Store`, `devtools` and `tx-pool/scripts` Python caches, and
+  `target/` are disposable host/build state. The clean ignored dependency clone
+  `script/testdata/deps/ckb-c-stdlib` is not required by the active slice or a
+  product authority, but its reproducible source revision is
+  `a582bcae6a5c12fcfed33023688d4768cd352605`. `/private/tmp`
+  mutation/profile artifacts are also reproducible or have their semantic
+  outcomes recorded here; do not copy them;
+- numerous historical benchmark/profile worktrees remain registered under
+  `/private/tmp`, many already prunable. They are local experiment mechanics,
+  not evidence authorities or recovery inputs. Do not transfer their Git
+  metadata and do not prune the source checkout until destination recovery is
+  verified.
 
 Cloning the old upstream before the migration commit is pushed is not a
 recovery. The destination must resolve the final migration hash on the remote
@@ -89,6 +186,12 @@ inventory. `cargo fmt --all -- --check`, `git diff --check` and the separate
 root-`AGENTS.md` ASCII scan also passed. Three declared release blockers remain
 by design and are listed in section 8; these checks do not close V1.
 
+The final source-side recovery predicate also passed: authority precedence,
+portable/manual/ephemeral partitioning, submodule and artifact completeness,
+roadmap/active-slice/blocker anchors, cleanup lifecycle, semantic reconstruction
+coverage and credential-pattern exclusion all held. This is the executable
+falsifier for sections 1 and 11, not a prose-only recovery claim.
+
 ## 3. Fixed roadmap and current phase
 
 The fixed route is:
@@ -101,9 +204,10 @@ The fixed route is:
 | M3 production refinement | complete | Bidirectional model/production owners, exact develop counterexamples and closed ordinary error producers. |
 | M4 topology selection | complete | One bounded semantic exchange selected with cost and falsifier owners. |
 | I1-I6 implementation | complete | Batch clock, retained ingress, compute exchange, prepared queries, typed ordered control and topology convergence are wired. |
+| Device migration recovery | active operational gate | Transfer final commit and agent contract, satisfy section 12, create the destination checkpoint and retire the temporary index before product work resumes. |
 | V1 correctness acceptance | active | Related-crate, 150-spec integration and interruption gates passed before the latest correction; mutation, smoke and final complete post-change rerun remain. |
 | Constructive simplification | pending after V1 | Generate source-role census and remove only semantically ownerless or duplicated implementation. |
-| Release reconciliation | pending | API decision, manifest/docs/inventory/CI cleanup and temporary handoff cleanup. |
+| Release reconciliation | pending | API decision plus final manifest/docs/inventory/CI cleanup. |
 | P profiling and fixed-binary A/B | pending | Run only after correctness, simplification and release-surface reconciliation. |
 | Production completion review | pending | Whole architecture, security, compatibility, integration and performance acceptance. |
 
@@ -355,7 +459,8 @@ A/B until V1 closes.
 
 ## 8. Open blockers, deferred work and accepted residual risks
 
-Release blockers after this handoff:
+The machine manifest declares exactly three release blockers after this
+handoff:
 
 1. `RUST-API-COMPATIBILITY-DECISION`: `cargo-semver-checks` reports nine major
    change classes against develop. Preserve non-authoritative compatibility or
@@ -363,14 +468,18 @@ Release blockers after this handoff:
 2. `INDEPENDENT-EXECUTION-CUTOVER`: I1-I6 are implemented and earlier V1 gates
    passed, but current mutation, deterministic smoke and complete post-change
    V1 acceptance remain open.
-3. Constructive simplification: generate exact source roles and bidirectional
-   semantic ownership, then remove/fuse ownerless or duplicated encoding
-   without changing behavior or concurrency.
-4. Release reconciliation: update final docs, generated inventory/CI, RPC and
-   changelog surfaces, and remove this temporary handoff only after successful
-   device recovery.
-5. `PERFORMANCE-ACCEPTANCE`: reproducible profiling and controlled fixed-binary
+3. `PERFORMANCE-ACCEPTANCE`: reproducible profiling and controlled fixed-binary
    final-versus-develop and final-versus-pre-performance A/B remain open.
+
+Two additional roadmap gates remain pending but are not separate release-
+blocker records:
+
+- Constructive simplification: generate exact source roles and bidirectional
+  semantic ownership, then remove/fuse ownerless or duplicated encoding
+  without changing behavior or concurrency.
+- Release reconciliation: update final docs, generated inventory/CI, RPC and
+  changelog surfaces. The temporary migration index has its own earlier
+  section 12 exit gate and is not a release-phase obligation.
 
 The stable accepted boundaries R2-R8 remain:
 
@@ -409,6 +518,11 @@ Exact tools used or registered by the current evidence program:
 
 | Tool | Source version | Role |
 |---|---:|---|
+| Git | 2.55.0 | exact history, checkpoint and submodule transfer |
+| ripgrep | 15.0.0 | canonical source and contract discovery |
+| GNU Make | 3.81 | repository-managed test/integration entry points |
+| Go | 1.26.5 | managed integration support |
+| jq | 1.7.1 | repository/CI JSON support |
 | cargo-nextest | 0.9.140 | mandatory isolated Rust tests |
 | cargo-hack | 0.6.45 | feature-matrix discovery |
 | cargo-mutants | 27.1.0 | selected premise-removal strength |
@@ -443,22 +557,53 @@ prerequisites. Add them only if a later residual claim justifies them.
 
 ### 9.2 Destination bootstrap
 
-Install Xcode Command Line Tools and Homebrew first, then:
+The commands below assume a new macOS destination. On Linux or Windows, use the
+current repository CI workflow for that OS as the system-dependency authority,
+then preserve the same Rust/Cargo/formal tool capabilities and record the OS
+difference. Install Xcode Command Line Tools and Homebrew first, then:
 
 ```text
-brew install cargo-binstall cargo-nextest hyperfine actionlint ast-grep difftastic shellcheck openjdk@21 z3
+xcode-select --install
+brew install \
+  rustup-init cargo-binstall cargo-nextest \
+  git ripgrep jq go tor grep gnu-sed bash python-yq \
+  python@3.14 node openjdk@21 z3 \
+  hyperfine actionlint ast-grep difftastic shellcheck
+rustup-init -y
 rustup toolchain install 1.95.0
 rustup default 1.95.0
 rustup component add rustfmt clippy rust-src llvm-tools-preview
 rustup target add wasm32-unknown-unknown
 rustup toolchain install nightly --component miri
+export PATH="$(brew --prefix openjdk@21)/bin:$PATH"
+```
+
+The repository pin in `rust-toolchain.toml`, not this prose, owns Rust 1.95.0.
+The macOS integration CI installs `tor` and `go`; quick-check CI additionally
+uses GNU grep/sed/bash and Python yq. The source workstation did not have every
+CI convenience command on `PATH`, so install from the current workflows rather
+than treating source-machine absence as a supported-environment claim. A full
+Xcode installation is optional unless Instruments/`xctrace` profiling is
+selected later.
+
+The ignored C script-test dependency is unnecessary for the active tx-pool
+slice. If later work rebuilds those fixtures, reproduce the audited clean clone
+rather than copying its nested Git directory:
+
+```text
+git clone https://github.com/nervosnetwork/ckb-c-stdlib script/testdata/deps/ckb-c-stdlib
+git -C script/testdata/deps/ckb-c-stdlib checkout a582bcae6a5c12fcfed33023688d4768cd352605
 ```
 
 Install the Cargo utilities. `cargo-binstall` may use prebuilt artifacts; fall
 back to `cargo install --locked <crate>` if a package has no matching binary:
 
 ```text
-cargo binstall --no-confirm cargo-hack cargo-deny cargo-machete cargo-mutants cargo-bloat cargo-llvm-lines cargo-expand cargo-llvm-cov cargo-instruments cargo-show-asm cargo-semver-checks cargo-audit cargo-geiger samply tokio-console
+cargo binstall --no-confirm \
+  cargo-hack cargo-deny cargo-machete cargo-mutants \
+  cargo-bloat cargo-llvm-lines cargo-expand cargo-llvm-cov \
+  cargo-instruments cargo-show-asm cargo-semver-checks \
+  cargo-audit cargo-geiger samply tokio-console
 cargo install --locked kani-verifier
 ```
 
@@ -476,6 +621,13 @@ The downloaded jar must match the SHA-256 above. Create an executable
 ```text
 #!/bin/sh
 exec java -XX:+UseParallelGC -jar "$HOME/.local/share/tlaplus/tla2tools.jar" "$@"
+```
+
+Then make the wrapper discoverable:
+
+```text
+chmod +x "$HOME/.local/bin/tlc"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Verify, do not merely assume, the installation:
@@ -534,12 +686,49 @@ shasum -a 256 AGENTS.md
 Expected SHA-256:
 
 ```text
-34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd
+e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998
 ```
 
 Because `.gitignore` is committed by the migration checkpoint, the manually
 copied file must remain ignored and `git status --short` must be empty. Verify
 the two submodule hashes from section 2.
+
+Set `TXPOOL_MIGRATION_HEAD` to the final hash printed on the source device, then
+execute the mechanical part of the recovery-equivalence predicate:
+
+```text
+TXPOOL_MIGRATION_HEAD='<paste-final-migration-hash>'
+TXPOOL_AGENT_SHA='e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998'
+test "$(git branch --show-current)" = 'zhangsoledad/txpool-pipeline'
+test "$(git rev-parse HEAD)" = "$TXPOOL_MIGRATION_HEAD"
+test "$(git ls-remote origin refs/heads/zhangsoledad/txpool-pipeline | awk '{print $1}')" = "$TXPOOL_MIGRATION_HEAD"
+test "$(git -C test/obfs4 rev-parse HEAD)" = 'c3e2d44b1033e03645cc971565175e56d86a8200'
+test "$(git -C test/vendor rev-parse HEAD)" = '99059f4d2ebfd9fcb006e42a4b0f5dec9761191c'
+test "$(shasum -a 256 AGENTS.md | awk '{print $1}')" = "$TXPOOL_AGENT_SHA"
+git check-ignore -q AGENTS.md
+test -z "$(git status --porcelain --untracked-files=all)"
+for TXPOOL_RECOVERY_FILE in \
+  tx-pool/.device-handoff \
+  tx-pool/.independent-execution-plan \
+  tx-pool/.release-progress \
+  tx-pool/architecture-contract.json \
+  tx-pool/review-behaviors.json \
+  tx-pool/integration-impact.json \
+  tx-pool/security-regression-manifest.json \
+  tx-pool/test-layout-manifest.json \
+  tx-pool/test-inventory.txt \
+  tx-pool/formal/models.json \
+  tx-pool/docs/ARCHITECTURE.md \
+  tx-pool/docs/REVIEW_GUIDE.md \
+  tx-pool/docs/VALIDATION.md \
+  tx-pool/docs/PERFORMANCE.md \
+  tx-pool/docs/BENCHMARK.md; do
+  test -f "$TXPOOL_RECOVERY_FILE"
+done
+```
+
+Any failure leaves `recovery_rank` nonzero. Diagnose the mismatched authority or
+environment; do not edit the expected value to make the check pass.
 
 Run the recovery checks before resuming mutation work:
 
@@ -566,10 +755,10 @@ Read root AGENTS.md completely and obey it.
 Verify that the branch is zhangsoledad/txpool-pipeline and that HEAD is the
 device-handoff migration checkpoint supplied by the old device. The worktree
 must be clean; AGENTS.md must be ignored and have SHA-256
-34c3b145018c61c35401a503cea5bcd3bb351375cf731e77fde2a58fa6dd6cfd.
+e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998.
 
 Read tx-pool/.device-handoff completely. Then read
-tx-pool/.independent-execution-plan sections 13, 16, 27, 28 and 29, the tail of
+tx-pool/.independent-execution-plan sections 13, 16 and 27-30, the tail of
 tx-pool/.release-progress, and the linked architecture/validation/review files
 required by the active slice. Do not restart completed M0-M4 or I1-I6 work.
 
@@ -588,6 +777,32 @@ AGENTS.md and persist the exact checkpoint, evidence, deferred findings and
 next action before continuing.
 ```
 
+### 11.1 Semantic reconstruction acceptance
+
+Before any migration cleanup, the resumed agent must reconstruct, without old
+conversation history:
+
+1. the authority boundary and why UAK plus the bounded semantic exchange is
+   necessary relative to the named develop failure families and cheaper
+   alternatives;
+2. the ownership/resource/capability/effect/progress laws in section 4 and the
+   independent-versus-coupled concurrency boundary;
+3. every fixed-roadmap phase and its exact complete/active/pending status;
+4. the historical report-family dispositions and their normative owners;
+5. which test/model/integration evidence is durable, which predates the latest
+   correction and therefore cannot close V1;
+6. the exact two missed and six unstarted compute-exchange mutants, their
+   current adjudication state and section 7.3 continuation;
+7. all release blockers, accepted residual boundaries and later simplification,
+   release and performance gates;
+8. the whole-architecture phase review and persistence discipline from
+   `AGENTS.md`.
+
+This is not a memory quiz. Every statement must cite the declared artifact or
+machine owner. An omitted or contradictory obligation keeps `recovery_rank`
+nonzero and reopens the relevant source document; it must not be filled from
+guesswork.
+
 ## 12. Post-restore cleanup
 
 Do not clean migration artifacts immediately after clone. First complete all of
@@ -597,14 +812,18 @@ the following on the destination:
 2. worktree is clean;
 3. required tools are installed and their versions recorded;
 4. light/static/formal and focused compute-exchange recovery gates pass;
-5. Codex has reconstructed the fixed TODO and can state the exact section 7.3
-   continuation without consulting old conversation history;
+5. Codex passes the complete semantic reconstruction in section 11.1 without
+   consulting old conversation history;
 6. create one first post-restore checkpoint in `.release-progress` recording
    destination environment differences and gate results.
 
 Then perform one zero-behavior mechanical cleanup commit:
 
-- delete only `tx-pool/.device-handoff`;
+- delete `tx-pool/.device-handoff`;
+- replace only section 30's temporary device-freeze body in
+  `.independent-execution-plan` with a compact completion pointer to the exact
+  destination checkpoint in `.release-progress`, leaving section 29 and the
+  fixed product roadmap unchanged;
 - retain root `AGENTS.md`, its `.gitignore` rule, the active
   `.independent-execution-plan`, `.release-progress`, architecture, review,
   validation, machine registries and all evidence;
