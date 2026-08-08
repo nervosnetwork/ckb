@@ -482,6 +482,10 @@ def build_lock(
         "generator": GENERATOR_PATH,
         "cargo_mutants_version": version,
         "inputs": {
+            "tools": [
+                input_record(REPO_ROOT / GENERATOR_PATH),
+                input_record(REPO_ROOT / "tx-pool/scripts/check_security_manifest.py"),
+            ],
             "manifest": input_record(manifest_path),
             "architecture_contract": input_record(contract_path),
             "behavior_registry": input_record(behavior_path),
