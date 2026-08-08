@@ -995,6 +995,39 @@ queue or treating channel capacity as a sender bound is not an admissible fix.
 The complete deadlock/livelock/lost-wake/starvation audit and constructive
 saturation tests are release gates, not assumptions inferred from timeouts.
 
+### 12.5 Production convergence boundary
+
+The production crate has one mechanically closed Rust module graph rooted at
+`tx-pool/src/lib.rs`. The production-contract checker follows conventional and
+explicit `#[path]` modules, including conditional test and internal modules,
+and rejects every Rust source file that is not reachable. This prevents an
+uncompiled historical implementation from being mistaken for a live owner by
+reviewers or source scanners.
+
+Retained Proposal ingress exposes only the validated batch carrier and
+`submit_proposal_batch`; the carrier deliberately has no `IntoIterator`
+implementation. Both the normal dispatcher cut and its exhaustive fallback
+therefore transfer the complete vector to the same bounded admission compiler.
+Remote retains one explicit single-request adapter because a payload that
+cannot form dispatcher scratch must still receive a typed bounded outcome. It
+calls the same batch compiler with one member and is not a second admission
+authority.
+
+The other surviving single-item routes are semantic fallbacks, not duplicate
+implementations. An exchange capability that cannot join a batch is settled by
+the same `apply_settlement` transition, and a Ready head whose dependency, RBF
+or refreshed-payload relation is coupled uses the same candidate disposition
+planner. Point queries remain outside prepared full-query serialization.
+These routes preserve correctness when the commutativity premise is false;
+they do not add another owner, resource ledger, publication point or policy.
+
+Ready, effect publication, retained verification-cache publication and block
+template construction retain distinct task boundaries. In particular, Ready
+does not publish external effects, retained compute never awaits the derived
+cache writer, and full/reset serialization does not serialize proposal,
+transaction or uncle construction. The static topology contract checks these
+boundaries together with the sole post-commit publication rule.
+
 ## 13. Block-template convergence
 
 The block assembler is a rebuildable derived projection. It owns no tx-pool

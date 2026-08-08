@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: I5 typed ordered control complete; I6 convergence active
-Checkpoint: I5 commit containing this record
-Active slice: I6 convergence
+Status: I6 convergence complete; V1 correctness acceptance active
+Checkpoint: I6 commit containing this record
+Active slice: V1 static, model and correctness acceptance
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -3729,3 +3729,60 @@ four-state negative witness. The registry records 363 exact tx-pool tests /
 1,435 invariant references, 19 integration anchors and 150 managed specs. The
 affected `make integration CKB_TEST_ARGS='-c 1 RpcTruncate'` boundary passed.
 The next exact action is I6 `CONVERGENCE`; profiling and A/B remain frozen.
+
+## 23. I6 convergence startup
+
+Recovery starts from I5 checkpoint `46a09becc`. I6 adds no new optimization
+mechanism. It derives the final production topology from the machine contract,
+then removes obsolete per-owner ceremony, duplicate adapters and manual
+publication points only where the selected owner already makes them
+unreachable. It also proves that strict Ready/effect overlap, the bounded cache
+writer and all five independently joined template lanes retain their exact
+concurrency and shutdown boundaries.
+
+The first action is a complete producer/consumer and call-graph census of the
+three I6 components plus every I1-I5 owner. Any live historical path with no
+semantic owner is deleted; any target rule with no production owner reopens
+its owning design instead of receiving a local patch. Profiling, A/B and broad
+performance claims remain frozen until this convergence and the correctness
+gate close.
+
+## 24. I6 convergence result
+
+The machine-derived module census found one tracked but unreachable historical
+implementation, `block_assembler/process.rs`. It had no module declaration or
+caller and still described the retired `TxPoolService` template protocol. The
+file is deleted, and the production-contract gate now derives the complete Rust
+module graph from `src/lib.rs`, including explicit path and conditional test
+modules, then rejects every source file outside that graph. The rule is
+generated from source structure rather than maintained as an allowlist.
+
+Proposal notification fallback no longer reconstructs per-item authority
+admission. It transfers the validated `NotifyTxBatch` into the same
+`submit_proposal_batch` compiler used by the dispatcher-owned homogeneous
+prefix. The obsolete single-proposal service adapter and the carrier's implicit
+`IntoIterator` surface are deleted; a test-only extractor preserves boundary
+refinement without widening production API. Together these changes remove 160
+net production Rust lines.
+
+The complete fallback census retained only semantically necessary paths. An
+oversized or allocation-blocked Remote request still needs a one-item typed
+outcome, but that adapter invokes the same batch compiler. A compute capability
+that cannot join an exchange settles through the same `apply_settlement`, and
+a dependency/RBF/refreshed-payload-coupled Ready head uses the same candidate
+planner. These are the exact non-commutative cases, not duplicate authorities.
+No resource ledger, policy, publication point, retry or repair state was added.
+
+The topology census proves one independent Ready driver, one claimed effect
+publisher, one bounded best-effort verification-cache writer and five separately
+joined template roles. Full/reset ordering therefore does not serialize the
+proposal, transaction or uncle lanes. Static source checks bind those facts and
+the sole post-commit publication rule.
+
+Strict internal-feature Clippy, formatting, diff checks and all nine complete
+generated/formal contracts pass. TLC explored 1,098 generated / 318 distinct
+positive states and reproduced the required four-state negative witness. Final
+Nextest run `72536d5b-d090-43a5-9271-39d8e09a0edd` executed 693 tests: 693
+passed, zero skipped. I1-I6 are now implemented; the next exact action is V1
+complete related-crate and managed-integration correctness acceptance. Profiling
+and fixed-binary A/B remain frozen.

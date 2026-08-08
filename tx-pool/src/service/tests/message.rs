@@ -1,5 +1,11 @@
 use super::{NotifyTxBatch, NotifyTxBatchError};
-use ckb_types::core::TransactionBuilder;
+use ckb_types::core::{TransactionBuilder, TransactionView};
+
+impl NotifyTxBatch {
+    pub(crate) fn into_transactions_for_test(self) -> Vec<TransactionView> {
+        self.transactions
+    }
+}
 
 #[test]
 fn notify_tx_batch_rejects_count_before_dispatch() {

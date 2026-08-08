@@ -31,7 +31,7 @@ use crate::{
 use ckb_async_runtime::Handle;
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
-use ckb_types::core::{TransactionBuilder, TransactionView};
+use ckb_types::core::TransactionBuilder;
 use ckb_verification::cache::init_cache;
 use std::{
     sync::{Arc, atomic::AtomicBool},
@@ -172,7 +172,7 @@ async fn uak_controller_proposal_handoff_refines_notification_cuts() {
         panic!("the proposal controller fixture must retain the exact notification variant");
     };
     assert_eq!(
-        arguments.into_iter().collect::<Vec<TransactionView>>(),
+        arguments.into_transactions_for_test(),
         vec![expected_transaction]
     );
     actual.push(BoundaryCheckpoint::Controller {

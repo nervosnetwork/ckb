@@ -113,12 +113,13 @@ pub(crate) async fn process(
             respond_outer(responder, result, "submit_remote_tx")
         }
         Message::NotifyTxs(Notify { arguments }) => {
-            for transaction in arguments {
-                if let Err(error) = service.submit_proposal(transaction).await {
-                    return settle_service_error(error);
-                }
+            match service
+                .submit_proposal_batch(arguments.into_transactions())
+                .await
+            {
+                Ok(()) => Ok(()),
+                Err(error) => settle_service_error(error),
             }
-            Ok(())
         }
         Message::FreshProposalsFilter(request) => {
             let AsyncRequest {

@@ -533,7 +533,7 @@
       {
         "id": "I6-CONVERGENCE",
         "sequence": 6,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": [
           "ready_effect_overlap",
           "bounded_cache_writer",

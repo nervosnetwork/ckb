@@ -927,13 +927,6 @@ impl AuthorityService {
         }
     }
 
-    pub(crate) async fn submit_proposal(
-        &self,
-        tx: TransactionView,
-    ) -> Result<(), AuthorityServiceError> {
-        self.submit_proposal_batch(vec![tx]).await
-    }
-
     pub(crate) async fn submit_remote_batch(
         &self,
         peer: PeerIndex,

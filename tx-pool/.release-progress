@@ -23,15 +23,19 @@ correctness-gated.
    specs; every failure was classified before changing code.
 6. COMPLETE - benchmark-preceding global static, model, liveness,
    manual-process and convergence audit against current code and `develop`.
-7. ACTIVE - implement the M4-frozen bounded semantic exchange in six ordered
+7. COMPLETE - implement the M4-frozen bounded semantic exchange in six ordered
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
    core, I2 retained-ingress batching and I3 bounded compute exchange are
    complete. I4 prepared full query and I5 typed ordered control are complete;
-   I6 convergence is active.
-8. PENDING - reproducible fixed-binary A/B against both `develop` and the
+   I6 production convergence is complete.
+8. ACTIVE - V1 complete static/model/related-crate Nextest and all managed
+   tx-pool-related integration correctness acceptance.
+9. PENDING - release-facing documentation, generated evidence, scripts, CI,
+   smoke and external-review decision reconciliation.
+10. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
-9. PENDING - final production completion review and release handoff.
+11. PENDING - final production completion review and release handoff.
 
 The order is fixed. Phase 6 is closed. Benchmark tooling is frozen, but the
 performance verdict may not run ahead of the six ordered implementation slices
@@ -4106,3 +4110,37 @@ required negative witness. The review graph now has 363 exact tx-pool tests /
 affected `RpcTruncate` scenario passed through `make integration`.
 The next exact action is I6 `CONVERGENCE`; complete managed integration and
 performance evidence remain later fixed-route gates.
+
+## I6 convergence startup
+
+Recovery checkpoint is `46a09becc`. I6 performs the final topology and
+publication census, deletes obsolete ceremony, and verifies the retained
+Ready/effect, cache-writer and five-lane template concurrency boundaries. It
+introduces no new optimization topology. The exact next action is the
+machine-derived producer/consumer and call-graph audit across every I1-I5
+owner; findings return to their model owner rather than becoming local repair
+state. Every Rust test remains Nextest-only.
+
+## I6 convergence closure
+
+The production census deleted the unreachable 145-line historical block
+assembler process module, removed the single-proposal authority adapter and
+removed implicit per-item iteration from the validated proposal batch. The
+dispatcher fallback now invokes the same batch compiler once. Net production
+Rust deletion is 160 lines. A generic module-graph gate rooted at `src/lib.rs`
+now rejects uncompiled Rust source residue instead of naming this one file.
+
+The remaining exact compute settlement, coupled Ready planning and one-item
+Remote fallback all consume their existing single-authority compilers; each is
+required precisely when the batching premise is false. The whole-topology
+review found no second authority, resource ledger, publication point or policy.
+It also re-proved independent Ready/effect tasks, one non-blocking bounded cache
+writer and all five separately joined template roles, including full/reset
+ordering without serializing proposal, transaction or uncle construction.
+
+Strict internal Clippy, formatting and every static/formal contract pass. TLC
+explored 1,098 generated / 318 distinct positive states and reproduced the
+required negative witness. Nextest run
+`72536d5b-d090-43a5-9271-39d8e09a0edd` passed 693/693 with zero skipped. I1-I6
+are complete. V1 complete correctness acceptance is active; all Rust tests
+remain Nextest-only, and profiling/A/B remain frozen.

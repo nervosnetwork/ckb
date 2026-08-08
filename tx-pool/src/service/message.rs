@@ -128,15 +128,6 @@ impl NotifyTxBatch {
     }
 }
 
-impl IntoIterator for NotifyTxBatch {
-    type Item = TransactionView;
-    type IntoIter = std::vec::IntoIter<TransactionView>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.transactions.into_iter()
-    }
-}
-
 /// A remote controller submission whose origin cannot be confused with Local
 /// or Proposal admission at the service boundary.
 pub(crate) struct RemoteTxSubmission {

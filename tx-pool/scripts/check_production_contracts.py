@@ -11,6 +11,7 @@ import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TX_POOL_SRC = REPO_ROOT / "tx-pool" / "src"
 TX_POOL_ARCHITECTURE_CONTRACT = REPO_ROOT / "tx-pool" / "architecture-contract.json"
 CHAIN_VERIFY = REPO_ROOT / "chain" / "src" / "verify.rs"
 TX_POOL_SERVICE = REPO_ROOT / "tx-pool" / "src" / "service.rs"
@@ -39,6 +40,9 @@ TX_POOL_AUTHORITY_SCHEDULER = (
 TX_POOL_AUTHORITY_TOPOLOGY = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "topology.rs"
 )
+TX_POOL_AUTHORITY_TEMPLATE_DRIVER = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "template_driver.rs"
+)
 TX_POOL_AUTHORITY_WORKER = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "worker.rs"
 )
@@ -63,6 +67,13 @@ POST_COMMIT_PUBLICATION = re.compile(
     r"\.\s*(?:publish_committed|publish_post_commit(?:_pair)?)\s*\("
 )
 EARLY_EXIT = re.compile(r"\b(?:return|break|continue)\b|\?")
+RUST_FILE_MODULE = re.compile(
+    r"\b(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+)
+RUST_PATH_ATTRIBUTE = re.compile(
+    r'#\s*\[\s*path\s*=\s*"(?P<path>[^"]+)"\s*\]'
+)
 
 
 def mask_rust_non_code(source: str) -> str:
@@ -1121,7 +1132,10 @@ def validate_execution_topology_contract() -> list[str]:
         service = TX_POOL_AUTHORITY_SERVICE.read_text()
         compute_coordinator = TX_POOL_AUTHORITY_COMPUTE_COORDINATOR.read_text()
         topology = TX_POOL_AUTHORITY_TOPOLOGY.read_text()
+        template_driver = TX_POOL_AUTHORITY_TEMPLATE_DRIVER.read_text()
         worker = TX_POOL_AUTHORITY_WORKER.read_text()
+        dispatch = TX_POOL_DISPATCH.read_text()
+        message = TX_POOL_MESSAGE.read_text()
 
         builder_run = impl_method_body(builder, "TxPoolServiceBuilder", "run")
         dispatcher = impl_method_body(
@@ -1257,14 +1271,61 @@ def validate_execution_topology_contract() -> list[str]:
         errors.append(
             "retained ingress must not regain a second single-item production kernel"
         )
+    if re.search(r"\bfn\s+submit_proposal\s*\(", service):
+        errors.append(
+            "proposal ingress must not regain a second single-item service adapter"
+        )
+    if re.search(r"impl\s+IntoIterator\s+for\s+NotifyTxBatch", message):
+        errors.append(
+            "the validated proposal batch must not expose implicit per-item consumption"
+        )
+    proposal_dispatch = function_body(dispatch, "process")
+    if proposal_dispatch is None:
+        errors.append("the exhaustive service message dispatcher disappeared")
+    else:
+        if "submit_proposal_batch(arguments.into_transactions())" not in proposal_dispatch:
+            errors.append("proposal notification fallback must retain one batch submission")
+        if re.search(r"for\s+transaction\s+in\s+arguments", proposal_dispatch):
+            errors.append("proposal notification fallback must not restore per-item Apply")
     if ".take(MAX_READY_BATCH)" not in scheduler:
         errors.append("Ready capture must consume the named bounded batch limit")
     if signals.count("Notify::new()") != 6:
         errors.append("AuthoritySignals must own exactly six coalescing wake hints")
+    if worker.count("role: AuthorityWorkerRole::Ready") != 1:
+        errors.append("Ready must retain exactly one independently spawned driver")
+    if topology.count("run_claimed_authority_effect_publisher(") != 1:
+        errors.append("Ready and effects must retain one separate claimed publisher task")
     if "templates: Option<[Option<AuthorityTemplateTask>; 5]>" not in topology:
         errors.append("template topology must retain five independently joined lanes")
+    try:
+        template_spawn = impl_method_body(
+            template_driver, "AuthorityBlockAssembler", "spawn_drivers"
+        )
+    except ValueError as error:
+        errors.append(str(error))
+    else:
+        errors.extend(
+            require_ordered_fragments(
+                template_spawn,
+                "AuthorityBlockAssembler::spawn_drivers",
+                (
+                    "run_replacement_lane(cancel)",
+                    "TemplateComponent::Proposals",
+                    "TemplateComponent::Transactions",
+                    "TemplateComponent::Uncles",
+                    "run_notification_lane(cancel, enabled)",
+                    "tasks: [replacement, proposals, transactions, uncles, notification]",
+                ),
+            )
+        )
     if "mpsc::channel(VERIFY_CACHE_CHANNEL_SIZE)" not in topology:
         errors.append("verification-cache updates must retain their named bounded channel")
+    if topology.count("run_verification_cache_updates(") != 2:
+        errors.append("verification cache must retain one task entry and one implementation")
+    if compute_coordinator.count("self.cache_updates.try_send(update)") != 1:
+        errors.append("retained verification cache publication must remain best-effort and unique")
+    if re.search(r"cache_updates\s*\.\s*send\s*\(", compute_coordinator):
+        errors.append("retained compute must not await the derived verification cache writer")
     if controller.count("chain_control_sender.send(command)") != 2:
         errors.append(
             "service-residency model requires exactly one trusted reorg send and one "
@@ -1288,6 +1349,83 @@ def production_rust_sources() -> list[Path]:
         base = Path(root)
         sources.extend(base / name for name in files if name.endswith(".rs"))
     return sources
+
+
+def validate_tx_pool_module_reachability() -> list[str]:
+    """Reject Rust source files that are absent from the crate module graph."""
+
+    root = TX_POOL_SRC / "lib.rs"
+    pending = [root]
+    reachable: set[Path] = set()
+    errors: list[str] = []
+
+    while pending:
+        source = pending.pop()
+        source = source.resolve()
+        if source in reachable:
+            continue
+        reachable.add(source)
+        try:
+            raw = source.read_text()
+            masked = mask_rust_non_code(raw)
+        except (OSError, ValueError) as error:
+            errors.append(
+                f"cannot inspect Rust module source {source.relative_to(REPO_ROOT)}: {error}"
+            )
+            continue
+
+        module_root = (
+            source.parent
+            if source.name in {"lib.rs", "main.rs", "mod.rs"}
+            else source.with_suffix("")
+        )
+        for declaration in RUST_FILE_MODULE.finditer(masked):
+            prefix = raw[: declaration.start()]
+            attributes = re.search(
+                r"(?P<attributes>(?:\s*#\s*\[[^]]*\]\s*)*)$", prefix
+            )
+            paths = (
+                RUST_PATH_ATTRIBUTE.findall(attributes.group("attributes"))
+                if attributes is not None
+                else []
+            )
+            if len(paths) > 1:
+                errors.append(
+                    f"module {declaration.group('name')} in "
+                    f"{source.relative_to(REPO_ROOT)} has multiple path attributes"
+                )
+                continue
+            if paths:
+                candidates = [(source.parent / paths[0]).resolve()]
+            else:
+                name = declaration.group("name")
+                candidates = [
+                    (module_root / f"{name}.rs").resolve(),
+                    (module_root / name / "mod.rs").resolve(),
+                ]
+            existing = [candidate for candidate in candidates if candidate.is_file()]
+            if len(existing) != 1:
+                rendered = ", ".join(
+                    candidate.relative_to(REPO_ROOT).as_posix()
+                    if candidate.is_relative_to(REPO_ROOT)
+                    else candidate.as_posix()
+                    for candidate in candidates
+                )
+                errors.append(
+                    f"module {declaration.group('name')} in "
+                    f"{source.relative_to(REPO_ROOT)} resolves to {len(existing)} files: "
+                    f"{rendered}"
+                )
+                continue
+            pending.append(existing[0])
+
+    discovered = {source.resolve() for source in TX_POOL_SRC.rglob("*.rs")}
+    for source in sorted(discovered - reachable):
+        errors.append(
+            "Rust source is absent from the tx-pool module graph: "
+            f"{source.relative_to(REPO_ROOT)}"
+        )
+    return errors
 
 
 def validate_chain_transition_publication() -> list[str]:
@@ -1508,6 +1646,7 @@ def validate_startup_backpressure() -> list[str]:
 
 def main() -> int:
     errors = [
+        *validate_tx_pool_module_reachability(),
         *validate_chain_transition_publication(),
         *validate_startup_backpressure(),
         *validate_authority_mutation_publication(),
@@ -1533,7 +1672,8 @@ def main() -> int:
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
         "one-stamp atomic Ready batches and "
-        "current production vocabulary plus execution-topology cost and shutdown order"
+        "a closed Rust module graph plus current production vocabulary and "
+        "execution-topology cost and shutdown order"
     )
     return 0
 
