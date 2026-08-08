@@ -4177,3 +4177,24 @@ effect retention, compute cancellation, publisher cancellation, maintenance
 and ordered shutdown without adding runtime test state. V1 remains active for
 selected production mutation strength, deterministic pool smoke and the final
 complete gate rerun. Performance work remains frozen.
+
+The post-convergence review found no new correctness, safety or liveness
+defect. Its claimed Remote-versus-Proposal one-item authority asymmetry was
+rejected after tracing the complete relay/controller/dispatcher path: Remote
+requests are individually handed off and acknowledged, but the dispatcher
+already folds an immediately available same-peer, count-and-byte-bounded
+prefix into one `submit_remote_batch` Apply. Proposal batching is more
+deterministic because its wire payload already carries a vector; Remote batch
+fill remains only a P-phase measurement variable, not a missing V1 topology or
+a premise for another API.
+
+V1 was deliberately suspended for a machine restart during the first selected
+mutation slice. The recoverable base before this progress-only checkpoint is
+`6b770ead03`. The 24-mutant compute-exchange cohort completed 16 outcomes before
+interruption: seven caught, four compile-unviable, five missed and zero timed
+out. The missed boundaries are the two `member_count` upper-limit mutations,
+forcing the current-owner/version guard true, and forcing the malformed
+`VerificationRejected` guard both true and false. Eight mutants remain
+unstarted. Section 27 of `.independent-execution-plan` owns their exact
+classification and restart order. No production source was modified; the
+user-owned `.gitignore` remains excluded.

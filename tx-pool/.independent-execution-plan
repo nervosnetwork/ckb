@@ -3834,3 +3834,36 @@ task, state or branch. The review graph now records 370 tx-pool Rust tests /
 The remaining V1 order is fixed: selected production mutation testing through
 Nextest, deterministic fixed-binary submit/status/template smoke, then the
 complete lint/static/model/Nextest gate rerun. Profiling and A/B remain frozen.
+
+## 27. V1 restart checkpoint during mutation review
+
+The recoverable Git base is `6b770ead03`. The complete related-crate,
+150-spec managed-integration, static/formal and seven-cut interruption gates in
+section 26 remain valid. A post-convergence report was adjudicated before the
+mutation run: Remote controller requests are individually acknowledged but the
+dispatcher already combines an immediately available same-peer, count-and-byte
+bounded prefix into one authority batch. Only the measured coalescing rate
+differs from Proposal; no V1 topology is missing.
+
+The first mutation slice selected 24 mutants in
+`authority/plan/compute_exchange.rs` covering exchange Apply, preparation,
+revocation and batch-state compilation. It was stopped on request after 16
+completed outcomes: seven caught, four compile-unviable and five missed, with
+zero timeouts. The five exact missed mutants are:
+
+- line 598: replace `member_count > MAX_POOL_MUTATION_CANDIDATES` with `==`;
+- line 598: replace that comparison with `>=`;
+- line 684: force the current-owner/version match guard to `true`;
+- line 748: force the malformed `VerificationRejected` guard to `true`;
+- line 748: force the same guard to `false`.
+
+Eight selected mutants were not started: the line-788 negation, six return
+replacements for `compile_compute_exchange_state`, and its line-1073 zero-count
+comparison. On recovery, first classify the five survivors against sealed
+reachability and add only semantic boundary tests where a reachable proof is
+missing. Then rerun the exact 24-mutant slice through
+`cargo mutants --test-tool nextest`; do not treat compile-unviable mutants as
+survivors and do not patch production to satisfy the mutation tool. Continue
+with the remaining selected authority/resource/dependency/scheduler slice only
+after this cohort closes, then execute deterministic pool smoke and the final
+complete V1 rerun. The user-owned root `.gitignore` remains excluded.
