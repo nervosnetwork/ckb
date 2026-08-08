@@ -331,17 +331,23 @@ def evidence_set(
         obligation["semantic_binding"]
     ]
     component = component_index(contract).get(obligation.get("component_id"))
-    behavior_ids = set(binding["behavior_ids"])
     owner_ref = obligation["owner_ref"]
+    primary_behavior_ids: set[str] = set()
     if owner_ref["kind"] == "behavior_owner":
-        behavior_ids.add(owner_ref["behavior_id"])
+        primary_behavior_ids.add(owner_ref["behavior_id"])
+    component_binding_behaviors: set[str] = set()
     if component is not None:
-        behavior_ids.update(component["behavior_ids"])
+        component_binding_behaviors = set(component["behavior_ids"]).intersection(
+            binding["behavior_ids"]
+        )
+    if not primary_behavior_ids:
+        primary_behavior_ids.update(component_binding_behaviors)
+    behavior_ids = primary_behavior_ids.union(component_binding_behaviors)
 
     unit_evidence = [
         entry
         for entry in registry["unit_evidence"]
-        if entry["behavior_id"] in behavior_ids
+        if entry["behavior_id"] in primary_behavior_ids
     ]
     falsifiers = {entry["test"] for entry in unit_evidence}
     invariants = {
