@@ -3968,47 +3968,11 @@ and profiling/A/B remain later fixed-roadmap phases.
 
 ## 30. Device migration freeze
 
-The active V1 state is frozen for GitHub device transfer in the tracked
-`.device-handoff`. That file indexes the complete model/implementation roadmap,
-historical report convergence, exact current mutation outcomes, evidence,
-release blockers, source-device toolchain, destination installation commands,
-resume prompt and post-restore cleanup. It adds no product requirement or
-parallel specification; the authorities remain the machine registries,
-architecture, this plan and `.release-progress` in that order.
-
-Root `AGENTS.md` was expanded with the accumulated evidence-adjudication,
-mutation-reachability, blueprint-completeness, whole-phase review, performance-
-experiment and device-recovery disciplines. It remains intentionally ignored
-and will be copied manually. Its migration SHA-256 is
-`e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998`.
-The migration checkpoint commits the corresponding `.gitignore` rule so the
-destination worktree is clean after that copy.
-
-The `INDEPENDENT-EXECUTION-CUTOVER` release-blocker text now reflects current
-state: I1-I6 are implemented and the earlier related-crate, 150-spec and
-interruption gates passed, while selected mutation, deterministic smoke and the
-complete post-change V1 rerun remain open. The blocker itself is not closed.
-
-Migration validation also caught four correction regressions absent from the
-machine review graph. They were assigned to the existing worker-capability and
-peer-revocation behaviors, then the generated guide and inventory were rebuilt:
-374 exact Rust tests now carry 1,481 invariant references. No model term,
-behavior row or implementation state was added.
-
-The final recovery-equivalence audit also made the rewrite decision ledger,
-credible-candidate comparison, design-freeze/model-delta rule, domain-derived
-performance target, review-surface convergence and authorized continuous-
-execution discipline explicit in the existing root contract sections. These
-are method constraints, not new product phases. Stable method, product truth,
-volatile work state and the temporary recovery index now have explicit,
-non-overlapping owners; the handoff's executable equivalence model verifies the
-portable boundary without pretending to transfer credentials or approvals.
-
-The exact product continuation does not change: recover on the destination,
-pass the handoff recovery checks, record one destination checkpoint, then
-continue section 29's version/blocked-revocation survivor adjudication and six
-unstarted mutants. Device recovery is a separate operational gate, not part of
-release reconciliation. Only after that first destination checkpoint may a
-zero-behavior cleanup delete `.device-handoff` and replace this section's
-temporary freeze body with a compact pointer to the destination progress
-checkpoint; section 29 and every product phase remain unchanged.
+Device recovery completed at exact destination checkpoint
+`ea54c28dace317b0b32fb3e4abcec3a10e3d4fcf`, recorded under
+`Destination recovery-equivalence checkpoint` in `.release-progress`. That
+entry owns the destination environment differences, recovery gates, semantic
+reconstruction and next action. The temporary recovery index was then removed
+in a zero-behavior cleanup; section 29 and the fixed product roadmap remain
+unchanged and resume with the Computing/version and blocked-revocation survivor
+adjudication followed by the six unstarted compute-exchange mutants.
