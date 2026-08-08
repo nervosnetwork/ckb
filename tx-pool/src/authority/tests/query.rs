@@ -1,8 +1,8 @@
 use super::super::{
     plan::{CandidateDispositionPlan, TxPoolAuthority},
     query::{
-        AuthorityTransactionLookup, AuthorityTransactionStatusLookup, FeeEstimateReadError,
-        PublicPoolStatus,
+        AuthorityQueryError, AuthorityQueryScratch, AuthorityTransactionLookup,
+        AuthorityTransactionStatusLookup, FeeEstimateReadError, PublicPoolStatus,
     },
     runtime::AuthorityRuntime,
     state::{AcceptedStatus, RawTxHash},
@@ -21,7 +21,7 @@ use ckb_types::{
     packed::{Byte32, CellInput, CellOutput, OutPoint},
     prelude::Pack,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 fn runtime_with(authority: TxPoolAuthority) -> AuthorityRuntime {
     runtime_with_snapshot(authority, genesis_snapshot())
@@ -204,8 +204,8 @@ fn uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow() {
     assert_eq!(detail.min_replace_fee, None);
 }
 
-#[test]
-fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
+#[tokio::test]
+async fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let pending_tx = tx(811);
     let pending = accept_remote_transaction(
@@ -227,7 +227,7 @@ fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
     let preaccepted = admit_remote(&mut authority, 813, 813);
     let runtime = runtime_with(authority);
 
-    let summary = runtime.pool_summary().expect("summary is coherent");
+    let summary = runtime.pool_summary().await.expect("summary is coherent");
     assert_eq!((summary.pending_size, summary.proposed_size), (1, 1));
     assert_eq!(
         summary.total_tx_size,
@@ -236,16 +236,20 @@ fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
     );
     assert_eq!(summary.orphan_size, 0);
 
-    let ids = runtime.pool_ids().expect("ids are coherent");
+    let ids = runtime.pool_ids().await.expect("ids are coherent");
     assert_eq!(ids.pending, vec![pending.0.clone()]);
     assert_eq!(ids.proposed, vec![proposed.0.clone()]);
-    let info = runtime.all_entry_info().expect("entry info is coherent");
+    let info = runtime
+        .all_entry_info()
+        .await
+        .expect("entry info is coherent");
     assert!(info.pending.contains_key(&pending.0));
     assert!(info.proposed.contains_key(&proposed.0));
     assert!(info.conflicted.is_empty());
 
     let detail = runtime
         .pool_detail(&pending.0)
+        .await
         .expect("detail query is coherent")
         .expect("accepted entry has detail");
     assert_eq!(detail.entry_status, "gap");
@@ -255,6 +259,7 @@ fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
     assert!(
         runtime
             .pool_detail(&preaccepted.0)
+            .await
             .expect("preaccepted lookup is coherent")
             .is_none()
     );
@@ -371,8 +376,8 @@ fn uak_persistence_receipt_is_owned_and_mutation_independent() {
     assert!(recovery.is_empty());
 }
 
-#[test]
-fn uak_fee_receipt_is_owned_and_mutation_independent() {
+#[tokio::test]
+async fn uak_fee_receipt_is_owned_and_mutation_independent() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     accept_remote_transaction(
         &mut authority,
@@ -384,6 +389,7 @@ fn uak_fee_receipt_is_owned_and_mutation_independent() {
     let runtime = runtime_with(authority);
     let fee = runtime
         .fee_estimate_receipt()
+        .await
         .expect("fee receipt captures one authority cut");
     runtime
         .clear_pool(genesis_snapshot())
@@ -398,7 +404,107 @@ fn uak_fee_receipt_is_owned_and_mutation_independent() {
     let empty_runtime = runtime_with(TxPoolAuthority::for_foundation(limits()));
     let invalid = empty_runtime
         .fee_estimate_receipt()
+        .await
         .expect("empty receipt is coherent")
         .estimate(crate::constants::MIN_ESTIMATE_TARGET - 1);
     assert_eq!(invalid, Err(FeeEstimateReadError::InvalidTarget));
+}
+
+#[tokio::test]
+async fn uak_full_query_scratch_makes_strict_progress_across_repeated_growth() {
+    let scratch = AuthorityQueryScratch::new(usize::MAX);
+    let mut permit = scratch.acquire().await;
+
+    permit.grow(1).expect("the first bounded growth succeeds");
+    let first_capacity = permit.prepared_rows_for_foundation();
+    let second_requirement = first_capacity
+        .checked_add(1)
+        .expect("one more row is representable");
+    assert!(
+        !permit
+            .is_prepared(second_requirement)
+            .expect("the observed owner count is within the configured bound")
+    );
+
+    permit
+        .grow(second_requirement)
+        .expect("a second bounded growth must not become a no-op");
+    assert!(permit.prepared_rows_for_foundation() > first_capacity);
+    assert!(
+        permit
+            .is_prepared(second_requirement)
+            .expect("the second growth covers the observed owner count")
+    );
+}
+
+#[tokio::test]
+async fn uak_full_query_scratch_rejects_bounds_and_allocation_failure() {
+    let bounded = AuthorityQueryScratch::new(2);
+    let mut permit = bounded.acquire().await;
+    assert_eq!(permit.is_prepared(3), Err(AuthorityQueryError::Projection));
+    assert_eq!(permit.grow(3), Err(AuthorityQueryError::Projection));
+    drop(permit);
+
+    let impossible = AuthorityQueryScratch::new(usize::MAX);
+    let mut permit = impossible.acquire().await;
+    assert_eq!(
+        permit.grow(usize::MAX),
+        Err(AuthorityQueryError::Allocation)
+    );
+}
+
+#[tokio::test]
+async fn uak_full_query_gate_does_not_serialize_point_status_reads() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = tx(851);
+    let hash = accept_remote_transaction(
+        &mut authority,
+        transaction,
+        851,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let runtime = runtime_with(authority);
+    let permit = runtime.acquire_full_query_for_foundation().await;
+
+    assert!(matches!(
+        runtime.transaction_status_lookup(&hash.0),
+        AuthorityTransactionStatusLookup::Live(_)
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), runtime.pool_ids())
+            .await
+            .is_err(),
+        "a second full scan waits for the sole full-query permit"
+    );
+
+    drop(permit);
+    let ids = tokio::time::timeout(Duration::from_secs(1), runtime.pool_ids())
+        .await
+        .expect("releasing the permit wakes the queued full scan")
+        .expect("the resumed full scan is coherent");
+    assert_eq!(ids.pending, vec![hash.0]);
+}
+
+#[tokio::test]
+async fn uak_fixed_output_full_queries_do_not_grow_row_scratch() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = accept_remote_transaction(
+        &mut authority,
+        tx(852),
+        852,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let runtime = runtime_with(authority);
+
+    runtime.pool_summary().await.expect("summary is coherent");
+    runtime
+        .pool_detail(&hash.0)
+        .await
+        .expect("detail is coherent")
+        .expect("the accepted entry has detail");
+
+    let permit = runtime.acquire_full_query_for_foundation().await;
+    assert_eq!(permit.prepared_rows_for_foundation(), 0);
 }

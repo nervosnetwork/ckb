@@ -40,6 +40,7 @@ pub(crate) async fn process(
                 responder,
                 service
                     .pool_summary()
+                    .await
                     .and_then(|summary| pool_info(&service, summary)),
                 "get_tx_pool_info",
             )
@@ -168,17 +169,22 @@ pub(crate) async fn process(
                 responder,
                 service
                     .pool_detail(&arguments)
+                    .await
                     .map(|detail| detail.unwrap_or_else(PoolTxDetailInfo::with_unknown)),
                 "get_pool_tx_details",
             )
         }
         Message::GetAllEntryInfo(request) => {
             let Request { responder, .. } = request;
-            respond_outer(responder, service.all_entry_info(), "get_all_entry_info")
+            respond_outer(
+                responder,
+                service.all_entry_info().await,
+                "get_all_entry_info",
+            )
         }
         Message::GetAllIds(request) => {
             let Request { responder, .. } = request;
-            respond_outer(responder, service.pool_ids(), "get_all_ids")
+            respond_outer(responder, service.pool_ids().await, "get_all_ids")
         }
         Message::SavePool(request) => {
             let Request { responder, .. } = request;
@@ -214,7 +220,7 @@ pub(crate) async fn process(
             } = request;
             respond_derived(
                 responder,
-                service.estimate_fee_rate(mode, fallback),
+                service.estimate_fee_rate(mode, fallback).await,
                 "estimate_fee_rate",
             )
         }

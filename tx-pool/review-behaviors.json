@@ -439,6 +439,10 @@
     {"test": "authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee", "behavior_id": "TP-QUERY-001", "invariants": ["T12"]},
     {"test": "authority::tests::query::uak_status_and_detail_queries_isolate_optional_replacement_fee_overflow", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T12"]},
     {"test": "authority::tests::query::uak_compact_receipt_releases_authority_before_storage_lookup", "behavior_id": "TP-QUERY-001", "invariants": ["T10", "T12"]},
+    {"test": "authority::tests::query::uak_full_query_scratch_makes_strict_progress_across_repeated_growth", "behavior_id": "TP-QUERY-001", "invariants": ["T8", "T10"]},
+    {"test": "authority::tests::query::uak_full_query_scratch_rejects_bounds_and_allocation_failure", "behavior_id": "TP-QUERY-001", "invariants": ["T6", "T8", "T10"]},
+    {"test": "authority::tests::query::uak_full_query_gate_does_not_serialize_point_status_reads", "behavior_id": "TP-QUERY-001", "invariants": ["T8", "T10", "T12"]},
+    {"test": "authority::tests::query::uak_fixed_output_full_queries_do_not_grow_row_scratch", "behavior_id": "TP-QUERY-001", "invariants": ["T8", "T10"]},
 
     {"test": "authority::tests::ingress::uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T8"]},
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_keeps_recovery_payload_variant_unchanged", "behavior_id": "TP-DEFECT-001", "invariants": ["T1", "T3", "T6", "T11"]},

@@ -1457,8 +1457,8 @@ impl AuthorityService {
         self.runtime.transaction_status_lookup(hash)
     }
 
-    pub(crate) fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityServiceError> {
-        self.runtime.pool_summary().map_err(map_query_error)
+    pub(crate) async fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityServiceError> {
+        self.runtime.pool_summary().await.map_err(map_query_error)
     }
 
     pub(crate) fn filter_fresh_proposals(
@@ -1497,23 +1497,26 @@ impl AuthorityService {
             .map_err(map_query_error)
     }
 
-    pub(crate) fn pool_ids(
+    pub(crate) async fn pool_ids(
         &self,
     ) -> Result<ckb_types::core::tx_pool::TxPoolIds, AuthorityServiceError> {
-        self.runtime.pool_ids().map_err(map_query_error)
+        self.runtime.pool_ids().await.map_err(map_query_error)
     }
 
-    pub(crate) fn all_entry_info(
+    pub(crate) async fn all_entry_info(
         &self,
     ) -> Result<ckb_types::core::tx_pool::TxPoolEntryInfo, AuthorityServiceError> {
-        self.runtime.all_entry_info().map_err(map_query_error)
+        self.runtime.all_entry_info().await.map_err(map_query_error)
     }
 
-    pub(crate) fn pool_detail(
+    pub(crate) async fn pool_detail(
         &self,
         hash: &Byte32,
     ) -> Result<Option<ckb_types::core::tx_pool::PoolTxDetailInfo>, AuthorityServiceError> {
-        self.runtime.pool_detail(hash).map_err(map_query_error)
+        self.runtime
+            .pool_detail(hash)
+            .await
+            .map_err(map_query_error)
     }
 
     pub(crate) fn live_cell_receipt(&self, out_point: OutPoint) -> LiveCellReadReceipt {
@@ -1583,10 +1586,13 @@ impl AuthorityService {
         Ok(replay)
     }
 
-    pub(crate) fn fee_estimate_receipt(
+    pub(crate) async fn fee_estimate_receipt(
         &self,
     ) -> Result<FeeEstimateReadReceipt, AuthorityServiceError> {
-        self.runtime.fee_estimate_receipt().map_err(map_query_error)
+        self.runtime
+            .fee_estimate_receipt()
+            .await
+            .map_err(map_query_error)
     }
 
     pub(crate) fn update_ibd_state(&self, in_ibd: bool) {
@@ -1612,13 +1618,14 @@ impl AuthorityService {
         }
     }
 
-    pub(crate) fn estimate_fee_rate(
+    pub(crate) async fn estimate_fee_rate(
         &self,
         estimate_mode: EstimateMode,
         enable_fallback: bool,
     ) -> Result<FeeRate, AuthorityDerivedError> {
         let entries = self
             .all_entry_info()
+            .await
             .map_err(AuthorityDerivedError::Authority)?;
         match self.fee_estimator.estimate_fee_rate(estimate_mode, entries) {
             Ok(rate) => Ok(rate),
@@ -1626,6 +1633,7 @@ impl AuthorityService {
             Err(_) => {
                 let target = FeeEstimator::target_blocks_for_estimate_mode(estimate_mode);
                 self.fee_estimate_receipt()
+                    .await
                     .map_err(AuthorityDerivedError::Authority)?
                     .estimate(target)
                     .map_err(|error| {

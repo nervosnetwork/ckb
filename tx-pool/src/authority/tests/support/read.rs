@@ -21,6 +21,49 @@ impl<'authority> AuthorityReadView<'authority> {
     ) -> impl Iterator<Item = AuthorityReadEntry<'authority>> + '_ {
         self.entries.values().map(AuthorityReadEntry::new)
     }
+
+    pub(in crate::authority) fn pool_ids(&self) -> Result<AuthorityPoolIds, AuthorityReadError> {
+        let (pending_capacity, proposed_capacity) = self.accepted_status_counts()?;
+        let mut pending = Vec::new();
+        let mut proposed = Vec::new();
+        pending
+            .try_reserve(pending_capacity)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        proposed
+            .try_reserve(proposed_capacity)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        for order in self.accepted_order() {
+            let accepted = self.accepted_entry_for_order(order)?;
+            match accepted.entry().status() {
+                AcceptedStatus::Pending | AcceptedStatus::Gap => pending.push(order.hash().clone()),
+                AcceptedStatus::Proposed => proposed.push(order.hash().clone()),
+            }
+        }
+        if pending.len() != pending_capacity || proposed.len() != proposed_capacity {
+            return Err(AuthorityReadError::Projection);
+        }
+        pending.sort_unstable();
+        proposed.sort_unstable();
+        Ok(AuthorityPoolIds { pending, proposed })
+    }
+
+    pub(in crate::authority) fn replacement_history_hashes(
+        &self,
+    ) -> Result<Vec<RawTxHash>, AuthorityReadError> {
+        let mut history = Vec::new();
+        history
+            .try_reserve(self.owner_count())
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        history.extend(self.replacement_history().cloned());
+        history.sort_unstable();
+        Ok(history)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct AuthorityPoolIds {
+    pub(in crate::authority) pending: Vec<RawTxHash>,
+    pub(in crate::authority) proposed: Vec<RawTxHash>,
 }
 
 impl PersistenceReadReceipt {

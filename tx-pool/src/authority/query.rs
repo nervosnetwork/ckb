@@ -17,12 +17,15 @@ use ckb_types::{
     core::{
         BlockNumber, Capacity, Cycle, FeeRate, TransactionView,
         cell::{CellMetaBuilder, CellProvider, CellStatus},
-        tx_pool::{PoolTxDetailInfo, TxEntryInfo, TxPoolEntryInfo, TxPoolIds},
+        tx_pool::{
+            AncestorsScoreSortKey, PoolTxDetailInfo, TxEntryInfo, TxPoolEntryInfo, TxPoolIds,
+        },
     },
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::Unpack,
 };
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AuthorityQueryError {
@@ -42,6 +45,350 @@ impl From<AuthorityReadError> for AuthorityQueryError {
             AuthorityReadError::AcceptedCycle => Self::AcceptedCycle,
             AuthorityReadError::RecoveryCycle => Self::RecoveryCycle,
         }
+    }
+}
+
+/// The sole admission gate and reusable storage for public full-pool reads.
+///
+/// It is derived scratch, never transaction authority. The runtime is a
+/// cloneable cross-task handle, so every handle shares this one FIFO Tokio
+/// mutex through the same `Arc`; contending async handlers suspend instead of
+/// blocking a runtime thread. The contained vector grows only while no
+/// authority guard is held and never exceeds the resource-ledger owner bound
+/// requested at construction.
+#[derive(Clone)]
+pub(super) struct AuthorityQueryScratch {
+    state: Arc<Mutex<AuthorityQueryScratchState>>,
+}
+
+struct AuthorityQueryScratchState {
+    rows: Vec<FullQueryRow>,
+    max_rows: usize,
+}
+
+/// Exclusive full-query admission plus the reusable prepared row storage.
+/// Dropping the permit clears captured handles but retains capacity.
+#[must_use = "a full-query permit must finish or discard its captured rows"]
+pub(super) struct FullQueryPermit {
+    state: OwnedMutexGuard<AuthorityQueryScratchState>,
+}
+
+enum FullQueryRow {
+    PoolId {
+        hash: RawTxHash,
+        status: AcceptedStatus,
+    },
+    EntryInfo {
+        hash: RawTxHash,
+        status: AcceptedStatus,
+        info: TxEntryInfo,
+    },
+    ReplacementHistory(RawTxHash),
+    Fee(FeeCandidate),
+}
+
+#[must_use = "captured pool IDs must be materialized outside the authority guard"]
+pub(super) struct PreparedPoolIds<'permit> {
+    permit: &'permit mut FullQueryPermit,
+    pending_count: usize,
+    proposed_count: usize,
+}
+
+#[must_use = "captured pool entries must be materialized outside the authority guard"]
+pub(super) struct PreparedEntryInfo<'permit> {
+    permit: &'permit mut FullQueryPermit,
+    pending_count: usize,
+    proposed_count: usize,
+    history_count: usize,
+}
+
+struct CapturedPoolDetail {
+    timestamp: u64,
+    status: AcceptedStatus,
+    rank_in_pending: usize,
+    pending_count: usize,
+    proposed_count: usize,
+    descendants_count: usize,
+    ancestors_count: usize,
+    score_sortkey: AncestorsScoreSortKey,
+}
+
+#[must_use = "captured pool detail must be materialized outside the authority guard"]
+pub(super) struct PreparedPoolDetail<'permit> {
+    _permit: &'permit mut FullQueryPermit,
+    detail: Option<CapturedPoolDetail>,
+}
+
+#[must_use = "captured fee candidates must be materialized outside the authority guard"]
+pub(super) struct PreparedFeeEstimate<'permit> {
+    permit: &'permit mut FullQueryPermit,
+    closest: BlockNumber,
+    max_block_bytes: usize,
+    max_block_cycles: Cycle,
+    min_fee_rate: FeeRate,
+    candidate_count: usize,
+}
+
+impl AuthorityQueryScratch {
+    pub(super) fn new(max_rows: usize) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(AuthorityQueryScratchState {
+                rows: Vec::new(),
+                max_rows,
+            })),
+        }
+    }
+
+    pub(super) async fn acquire(&self) -> FullQueryPermit {
+        FullQueryPermit {
+            state: Arc::clone(&self.state).lock_owned().await,
+        }
+    }
+}
+
+impl FullQueryPermit {
+    /// Check the observed cut without allocating. `false` authorizes exactly
+    /// one later lock-external growth step; exceeding the configured owner
+    /// ceiling is a structural projection contradiction.
+    pub(super) fn is_prepared(&self, observed_rows: usize) -> Result<bool, AuthorityQueryError> {
+        if observed_rows > self.state.max_rows {
+            return Err(AuthorityQueryError::Projection);
+        }
+        Ok(self.state.rows.capacity() >= observed_rows)
+    }
+
+    /// Grow geometrically outside the authority guard. Every successful call
+    /// raises prepared capacity and therefore strictly decreases the finite
+    /// `max_rows - prepared_rows` rank.
+    pub(super) fn grow(&mut self, observed_rows: usize) -> Result<(), AuthorityQueryError> {
+        if observed_rows > self.state.max_rows {
+            return Err(AuthorityQueryError::Projection);
+        }
+        let capacity = self.state.rows.capacity().min(self.state.max_rows);
+        if capacity >= observed_rows {
+            return Ok(());
+        }
+        let doubled = capacity
+            .checked_mul(2)
+            .map_or(self.state.max_rows, |value| value.min(self.state.max_rows));
+        let target = doubled.max(1).max(observed_rows).min(self.state.max_rows);
+        // `Vec::try_reserve_exact` interprets `additional` relative to length,
+        // not capacity. Scratch rows are empty at every growth cut, so asking
+        // only for `target - capacity` could make a second growth a no-op and
+        // violate the finite-rank progress proof.
+        let additional = target.saturating_sub(self.state.rows.len());
+        self.state
+            .rows
+            .try_reserve_exact(additional)
+            .map_err(|_| AuthorityQueryError::Allocation)?;
+        if self.state.rows.capacity() <= capacity || self.state.rows.capacity() < observed_rows {
+            return Err(AuthorityQueryError::Projection);
+        }
+        Ok(())
+    }
+
+    pub(super) fn capture_pool_summary(
+        &mut self,
+        view: &AuthorityReadView<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<AuthorityPoolSummary, AuthorityReadError> {
+        if !self.state.rows.is_empty() {
+            return Err(AuthorityReadError::Projection);
+        }
+        AuthorityPoolSummary::capture(snapshot, view.summary()?)
+    }
+
+    pub(super) fn capture_pool_ids<'permit>(
+        &'permit mut self,
+        view: &AuthorityReadView<'_>,
+    ) -> Result<PreparedPoolIds<'permit>, AuthorityReadError> {
+        self.begin_capture(view.owner_count())?;
+        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        for order in view.accepted_order() {
+            let accepted = view.accepted_entry_for_order(order)?;
+            self.push(FullQueryRow::PoolId {
+                hash: order.hash().clone(),
+                status: accepted.entry().status(),
+            })?;
+        }
+        let captured = self.state.rows.len();
+        let expected = pending_count
+            .checked_add(proposed_count)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if captured != expected {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(PreparedPoolIds {
+            permit: self,
+            pending_count,
+            proposed_count,
+        })
+    }
+
+    pub(super) fn capture_entry_info<'permit>(
+        &'permit mut self,
+        view: &AuthorityReadView<'_>,
+    ) -> Result<PreparedEntryInfo<'permit>, AuthorityReadError> {
+        self.begin_capture(view.owner_count())?;
+        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        for order in view.accepted_order().rev() {
+            let accepted = view.accepted_entry_for_order(order)?;
+            self.push(FullQueryRow::EntryInfo {
+                hash: order.hash().clone(),
+                status: accepted.entry().status(),
+                info: entry_info(&accepted)?,
+            })?;
+        }
+        let accepted_count = self.state.rows.len();
+        let expected = pending_count
+            .checked_add(proposed_count)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if accepted_count != expected {
+            return Err(AuthorityReadError::Projection);
+        }
+        for hash in view.replacement_history() {
+            self.push(FullQueryRow::ReplacementHistory(hash.clone()))?;
+        }
+        let history_count = self
+            .state
+            .rows
+            .len()
+            .checked_sub(accepted_count)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        Ok(PreparedEntryInfo {
+            permit: self,
+            pending_count,
+            proposed_count,
+            history_count,
+        })
+    }
+
+    pub(super) fn capture_pool_detail<'permit>(
+        &'permit mut self,
+        view: &AuthorityReadView<'_>,
+        hash: &RawTxHash,
+    ) -> Result<PreparedPoolDetail<'permit>, AuthorityReadError> {
+        if !self.state.rows.is_empty() {
+            return Err(AuthorityReadError::Projection);
+        }
+        let Some(target) = view.accepted_entry_by_raw(hash)? else {
+            return Ok(PreparedPoolDetail {
+                _permit: self,
+                detail: None,
+            });
+        };
+        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        let rank_in_pending = if target.entry().status() == AcceptedStatus::Proposed {
+            0
+        } else {
+            let mut rank = None;
+            let mut pending_position = 0usize;
+            for order in view.accepted_order().rev() {
+                let entry = view.accepted_entry_for_order(order)?;
+                if !matches!(
+                    entry.entry().status(),
+                    AcceptedStatus::Pending | AcceptedStatus::Gap
+                ) {
+                    continue;
+                }
+                if order.hash() == hash {
+                    rank = Some(
+                        pending_position
+                            .checked_add(1)
+                            .ok_or(AuthorityReadError::Arithmetic)?,
+                    );
+                    break;
+                }
+                pending_position = pending_position
+                    .checked_add(1)
+                    .ok_or(AuthorityReadError::Arithmetic)?;
+            }
+            rank.ok_or(AuthorityReadError::Projection)?
+        };
+        let ancestors_count = target
+            .ancestor()
+            .entries
+            .checked_sub(1)
+            .ok_or(AuthorityReadError::Projection)?;
+        let descendants_count = target
+            .descendant()
+            .entries
+            .checked_sub(1)
+            .ok_or(AuthorityReadError::Projection)?;
+        let detail = CapturedPoolDetail {
+            timestamp: target.entry().accepted_at.0,
+            status: target.entry().status(),
+            rank_in_pending,
+            pending_count,
+            proposed_count,
+            descendants_count,
+            ancestors_count,
+            score_sortkey: target.order().score().clone().into(),
+        };
+        Ok(PreparedPoolDetail {
+            _permit: self,
+            detail: Some(detail),
+        })
+    }
+
+    pub(super) fn capture_fee_estimate<'permit>(
+        &'permit mut self,
+        view: &AuthorityReadView<'_>,
+        snapshot: &Snapshot,
+        min_fee_rate: FeeRate,
+    ) -> Result<PreparedFeeEstimate<'permit>, AuthorityReadError> {
+        self.begin_capture(view.owner_count())?;
+        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        let candidate_count = pending_count
+            .checked_add(proposed_count)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        for order in view.accepted_order().rev() {
+            let accepted = view.accepted_entry_for_order(order)?;
+            let metrics = accepted.entry().proof.metrics();
+            self.push(FullQueryRow::Fee(FeeCandidate {
+                fee: metrics.fee,
+                bytes: metrics.cost.serialized_bytes,
+                cycles: metrics.cost.cycles,
+            }))?;
+        }
+        if self.state.rows.len() != candidate_count {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(PreparedFeeEstimate {
+            permit: self,
+            closest: snapshot.consensus().tx_proposal_window().closest(),
+            max_block_bytes: usize::try_from(snapshot.consensus().max_block_bytes())
+                .map_err(|_| AuthorityReadError::Arithmetic)?,
+            max_block_cycles: snapshot.consensus().max_block_cycles(),
+            min_fee_rate,
+            candidate_count,
+        })
+    }
+
+    fn begin_capture(&mut self, observed_rows: usize) -> Result<(), AuthorityReadError> {
+        if !self.state.rows.is_empty()
+            || observed_rows > self.state.max_rows
+            || self.state.rows.capacity() < observed_rows
+        {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, row: FullQueryRow) -> Result<(), AuthorityReadError> {
+        if self.state.rows.len() >= self.state.max_rows
+            || self.state.rows.len() >= self.state.rows.capacity()
+        {
+            return Err(AuthorityReadError::Projection);
+        }
+        self.state.rows.push(row);
+        Ok(())
+    }
+}
+
+impl Drop for FullQueryPermit {
+    fn drop(&mut self) {
+        self.state.rows.clear();
     }
 }
 
@@ -199,73 +546,80 @@ fn minimum_replacement_fee(
     Ok(accepted.descendant().fee.safe_add(rate.fee(size)).ok())
 }
 
-pub(super) fn pool_ids(view: &AuthorityReadView<'_>) -> Result<TxPoolIds, AuthorityReadError> {
-    let ids = view.pool_ids()?;
-    let mut pending = Vec::new();
-    let mut proposed = Vec::new();
-    pending
-        .try_reserve(ids.pending.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    proposed
-        .try_reserve(ids.proposed.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    pending.extend(ids.pending.into_iter().map(|hash| hash.0));
-    proposed.extend(ids.proposed.into_iter().map(|hash| hash.0));
-    Ok(TxPoolIds { pending, proposed })
-}
-
-pub(super) fn all_entry_info(
-    view: &AuthorityReadView<'_>,
-) -> Result<TxPoolEntryInfo, AuthorityReadError> {
-    let summary = view.summary()?;
-    let accepted_count = summary
-        .accepted_pending
-        .checked_add(summary.accepted_gap)
-        .and_then(|count| count.checked_add(summary.accepted_proposed))
-        .ok_or(AuthorityReadError::Arithmetic)?;
-    let mut pending = HashMap::new();
-    let mut proposed = HashMap::new();
-    let pending_count = summary
-        .accepted_pending
-        .checked_add(summary.accepted_gap)
-        .ok_or(AuthorityReadError::Arithmetic)?;
-    pending
-        .try_reserve(pending_count)
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    proposed
-        .try_reserve(summary.accepted_proposed)
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    for order in view.accepted_order().rev() {
-        let accepted = view.accepted_entry_for_order(order)?;
-        let entry = accepted.entry();
-        let info = entry_info(&accepted)?;
-        match entry.status() {
-            AcceptedStatus::Pending | AcceptedStatus::Gap => {
-                pending.insert(order.hash().0.clone(), info);
-            }
-            AcceptedStatus::Proposed => {
-                proposed.insert(order.hash().0.clone(), info);
+impl PreparedPoolIds<'_> {
+    pub(super) fn finish(self) -> Result<TxPoolIds, AuthorityReadError> {
+        let mut pending = Vec::new();
+        let mut proposed = Vec::new();
+        pending
+            .try_reserve(self.pending_count)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        proposed
+            .try_reserve(self.proposed_count)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        for row in self.permit.state.rows.drain(..) {
+            let FullQueryRow::PoolId { hash, status } = row else {
+                return Err(AuthorityReadError::Projection);
+            };
+            match status {
+                AcceptedStatus::Pending | AcceptedStatus::Gap => pending.push(hash.0),
+                AcceptedStatus::Proposed => proposed.push(hash.0),
             }
         }
+        if pending.len() != self.pending_count || proposed.len() != self.proposed_count {
+            return Err(AuthorityReadError::Projection);
+        }
+        pending.sort_unstable();
+        proposed.sort_unstable();
+        Ok(TxPoolIds { pending, proposed })
     }
-    let projected_count = pending
-        .len()
-        .checked_add(proposed.len())
-        .ok_or(AuthorityReadError::Arithmetic)?;
-    if projected_count != accepted_count {
-        return Err(AuthorityReadError::Projection);
+}
+
+impl PreparedEntryInfo<'_> {
+    pub(super) fn finish(self) -> Result<TxPoolEntryInfo, AuthorityReadError> {
+        let mut pending = HashMap::new();
+        let mut proposed = HashMap::new();
+        pending
+            .try_reserve(self.pending_count)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        proposed
+            .try_reserve(self.proposed_count)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        let mut conflicted = Vec::new();
+        conflicted
+            .try_reserve(self.history_count)
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        for row in self.permit.state.rows.drain(..) {
+            match row {
+                FullQueryRow::EntryInfo { hash, status, info } => {
+                    let replaced = match status {
+                        AcceptedStatus::Pending | AcceptedStatus::Gap => {
+                            pending.insert(hash.0, info)
+                        }
+                        AcceptedStatus::Proposed => proposed.insert(hash.0, info),
+                    };
+                    if replaced.is_some() {
+                        return Err(AuthorityReadError::Projection);
+                    }
+                }
+                FullQueryRow::ReplacementHistory(hash) => conflicted.push(hash.0),
+                FullQueryRow::PoolId { .. } | FullQueryRow::Fee(_) => {
+                    return Err(AuthorityReadError::Projection);
+                }
+            }
+        }
+        if pending.len() != self.pending_count
+            || proposed.len() != self.proposed_count
+            || conflicted.len() != self.history_count
+        {
+            return Err(AuthorityReadError::Projection);
+        }
+        conflicted.sort_unstable();
+        Ok(TxPoolEntryInfo {
+            pending,
+            proposed,
+            conflicted,
+        })
     }
-    let history = view.replacement_history_hashes()?;
-    let mut conflicted = Vec::new();
-    conflicted
-        .try_reserve(history.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    conflicted.extend(history.into_iter().map(|hash| hash.0));
-    Ok(TxPoolEntryInfo {
-        pending,
-        proposed,
-        conflicted,
-    })
 }
 
 fn entry_info(
@@ -291,70 +645,32 @@ fn entry_info(
     })
 }
 
-pub(super) fn pool_detail(
-    view: &AuthorityReadView<'_>,
-    hash: &RawTxHash,
-) -> Result<Option<PoolTxDetailInfo>, AuthorityReadError> {
-    let Some(target) = view.accepted_entry_by_raw(hash)? else {
-        return Ok(None);
-    };
-    let summary = view.summary()?;
-    let pending_count = summary
-        .accepted_pending
-        .checked_add(summary.accepted_gap)
-        .ok_or(AuthorityReadError::Arithmetic)?;
-    let rank_in_pending = if target.entry().status() == AcceptedStatus::Proposed {
-        0
-    } else {
-        let mut rank = None;
-        let mut pending_position = 0usize;
-        for order in view.accepted_order().rev() {
-            let entry = view.accepted_entry_for_order(order)?;
-            if !matches!(
-                entry.entry().status(),
-                AcceptedStatus::Pending | AcceptedStatus::Gap
-            ) {
-                continue;
-            }
-            if order.hash() == hash {
-                rank = Some(
-                    pending_position
-                        .checked_add(1)
-                        .ok_or(AuthorityReadError::Arithmetic)?,
-                );
-                break;
-            }
-            pending_position = pending_position
-                .checked_add(1)
-                .ok_or(AuthorityReadError::Arithmetic)?;
-        }
-        rank.ok_or(AuthorityReadError::Projection)?
-    };
-    let ancestors_count = target
-        .ancestor()
-        .entries
-        .checked_sub(1)
-        .ok_or(AuthorityReadError::Projection)?;
-    let descendants_count = target
-        .descendant()
-        .entries
-        .checked_sub(1)
-        .ok_or(AuthorityReadError::Projection)?;
-    let entry_status = match target.entry().status() {
-        AcceptedStatus::Pending => "pending",
-        AcceptedStatus::Gap => "gap",
-        AcceptedStatus::Proposed => "proposed",
-    };
-    Ok(Some(PoolTxDetailInfo {
-        timestamp: target.entry().accepted_at.0,
-        entry_status: entry_status.to_owned(),
-        rank_in_pending,
-        pending_count,
-        proposed_count: summary.accepted_proposed,
-        descendants_count,
-        ancestors_count,
-        score_sortkey: target.order().score().clone().into(),
-    }))
+impl PreparedPoolDetail<'_> {
+    pub(super) fn finish(self) -> Result<Option<PoolTxDetailInfo>, AuthorityReadError> {
+        let Some(detail) = self.detail else {
+            return Ok(None);
+        };
+        let status = match detail.status {
+            AcceptedStatus::Pending => "pending",
+            AcceptedStatus::Gap => "gap",
+            AcceptedStatus::Proposed => "proposed",
+        };
+        let mut entry_status = String::new();
+        entry_status
+            .try_reserve_exact(status.len())
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        entry_status.push_str(status);
+        Ok(Some(PoolTxDetailInfo {
+            timestamp: detail.timestamp,
+            entry_status,
+            rank_in_pending: detail.rank_in_pending,
+            pending_count: detail.pending_count,
+            proposed_count: detail.proposed_count,
+            descendants_count: detail.descendants_count,
+            ancestors_count: detail.ancestors_count,
+            score_sortkey: detail.score_sortkey,
+        }))
+    }
 }
 
 #[derive(Debug)]
@@ -589,39 +905,32 @@ pub(crate) enum FeeEstimateReadError {
     InvalidTarget,
 }
 
-impl FeeEstimateReadReceipt {
-    pub(super) fn capture(
-        view: &AuthorityReadView<'_>,
-        snapshot: &Snapshot,
-        min_fee_rate: FeeRate,
-    ) -> Result<Self, AuthorityReadError> {
-        let summary = view.summary()?;
+impl PreparedFeeEstimate<'_> {
+    pub(super) fn finish(self) -> Result<FeeEstimateReadReceipt, AuthorityReadError> {
         let mut candidates = Vec::new();
         candidates
-            .try_reserve(summary.accepted_resources.entries)
+            .try_reserve(self.candidate_count)
             .map_err(|_| AuthorityReadError::Allocation)?;
-        for order in view.accepted_order().rev() {
-            let accepted = view.accepted_entry_for_order(order)?;
-            let metrics = accepted.entry().proof.metrics();
-            candidates.push(FeeCandidate {
-                fee: metrics.fee,
-                bytes: metrics.cost.serialized_bytes,
-                cycles: metrics.cost.cycles,
-            });
+        for row in self.permit.state.rows.drain(..) {
+            let FullQueryRow::Fee(candidate) = row else {
+                return Err(AuthorityReadError::Projection);
+            };
+            candidates.push(candidate);
         }
-        if candidates.len() != summary.accepted_resources.entries {
+        if candidates.len() != self.candidate_count {
             return Err(AuthorityReadError::Projection);
         }
-        Ok(Self {
-            closest: snapshot.consensus().tx_proposal_window().closest(),
-            max_block_bytes: usize::try_from(snapshot.consensus().max_block_bytes())
-                .map_err(|_| AuthorityReadError::Arithmetic)?,
-            max_block_cycles: snapshot.consensus().max_block_cycles(),
-            min_fee_rate,
+        Ok(FeeEstimateReadReceipt {
+            closest: self.closest,
+            max_block_bytes: self.max_block_bytes,
+            max_block_cycles: self.max_block_cycles,
+            min_fee_rate: self.min_fee_rate,
             candidates,
         })
     }
+}
 
+impl FeeEstimateReadReceipt {
     pub(crate) fn estimate(
         self,
         target_to_be_committed: BlockNumber,

@@ -312,6 +312,10 @@ authority::tests::publisher::uak_retained_later_endpoint_does_not_replay_complet
 authority::tests::publisher::uak_unregistered_callback_does_not_enter_the_blocking_boundary
 authority::tests::query::uak_compact_receipt_releases_authority_before_storage_lookup
 authority::tests::query::uak_fee_receipt_is_owned_and_mutation_independent
+authority::tests::query::uak_fixed_output_full_queries_do_not_grow_row_scratch
+authority::tests::query::uak_full_query_gate_does_not_serialize_point_status_reads
+authority::tests::query::uak_full_query_scratch_makes_strict_progress_across_repeated_growth
+authority::tests::query::uak_full_query_scratch_rejects_bounds_and_allocation_failure
 authority::tests::query::uak_live_cell_receipt_releases_authority_before_storage_lookup
 authority::tests::query::uak_owned_pool_queries_share_one_status_and_aggregate_cut
 authority::tests::query::uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee

@@ -9,3 +9,9 @@ impl ParentFirstPersistenceReceipt {
         self.0.recovery()
     }
 }
+
+impl FullQueryPermit {
+    pub(in crate::authority) fn prepared_rows_for_foundation(&self) -> usize {
+        self.state.rows.capacity()
+    }
+}

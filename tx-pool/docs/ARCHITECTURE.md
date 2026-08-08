@@ -1048,17 +1048,17 @@ The completed static complexity inventory is:
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
 | Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Recovery is selected parent-first: an individually resource-excluded new trusted root and its new trusted recovery descendants are omitted while unrelated fitting roots continue. An already-owned PreAccepted descendant remains charged and re-enters validation under its source policy. The same closed selection drives normal reconciliation and fresh-generation fallback. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Fork traversal and detached payload compaction occur before the authority cut. Bounded in-memory proposal/recovery validation retains an upgradable read guard; only capacity/projection preparation and total Apply remain after upgrade. |
 | `ClearPipeline` / `ClearPool` | All live owners in an explicit administrative command. | Deliberate whole-generation operation, never ordinary ingress. Retired payload destruction happens after the guard opens. |
-| RPC, persistence, relay rebuild and template capture | Persistence, relay rebuild and template paths use owned receipts or bounded pages. Current full-pool ID/info, detail-rank and fee-estimate queries still perform O(pool) scan/sort/allocation under a shared guard and are open under `D1-QUERY-LOCK-COST`. | Coherent projection requires one read cut but not exclusive ownership. M2 must bound query concurrency, response residency and writer delay; M3 selects a compatible receipt/projection or boundary design before this row can close. |
+| RPC, persistence, relay rebuild and template capture | Persistence, relay rebuild and template paths use owned receipts or bounded pages. The exact public full-scan class is serialized by one derived FIFO gate. ID/info/fee captures copy into one reusable row scratch bounded by `preaccepted.entries + accepted.entries`; summary/detail retain only fixed output. Fallible growth, sorting, formatting and response allocation happen after the authority guard opens. | Whole-pool compatibility requires an O(pool) coherent scan, but at most one such scan can delay Apply at once. Point/status/live-cell queries, bounded proposal reads and all template lanes remain independent of the gate. |
 | Template graph algorithms | Outside the authority lock; selected dependency occurrences and descendant-cache memberships are each capped at 200,000 and conditional-cycle shedding at 64 rounds. | Derived consensus packaging with deterministic underfill fallback. |
 | Candidate uncles and committed-hash cache | Hard limits of 128 and 100,000 respectively, outside lifecycle authority decisions. | Bounded compatibility/template projections; exhaustion degrades or evicts derived data only. |
 | Peer-ban fence | At most `PEER_BAN_FENCE_CAPACITY = 1024` session rows; expiry and oldest-live retirement are incremental. | Bounds session-churn memory without a second relayer/controller lease authority. Saturation may send one old delayed submission back through full bounded validation, never through a trust fast path. |
 
-No other population scan is admitted as a closed design. The open query row is
-recorded counterevidence, not an exception. The chain-transition population
-cases above are bounded by charged Accepted ownership and driven only by an
-ordered, consensus-validated chain command, not peer transaction ingress.
-Adding or retaining a scan requires an explicit row, attack bound and
-complexity regression before implementation.
+No other population scan is admitted as a closed design. The query and chain
+transition rows are explicit bounded cases, not implicit exceptions. The
+chain-transition population cases are bounded by charged Accepted ownership
+and driven only by an ordered, consensus-validated chain command, not peer
+transaction ingress. Adding or retaining a scan requires an explicit row,
+attack bound and complexity regression before implementation.
 
 ## 15. Rust-native failure model
 

@@ -8,6 +8,14 @@ use super::super::{
     plan::test_support::RetainedAdmissionDisposition,
 };
 use super::*;
+
+impl AuthorityRuntime {
+    pub(in crate::authority) async fn acquire_full_query_for_foundation(
+        &self,
+    ) -> super::super::query::FullQueryPermit {
+        self.full_query.acquire().await
+    }
+}
 use ckb_network::PeerIndex;
 use ckb_types::core::Cycle;
 

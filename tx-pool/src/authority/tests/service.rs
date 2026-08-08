@@ -218,6 +218,7 @@ async fn uak_internal_plug_reuses_membership_without_publication_or_displacement
         assembly
             .service
             .pool_summary()
+            .await
             .expect("the accepted projection remains coherent")
             .proposed_size,
         1
@@ -271,6 +272,7 @@ async fn uak_internal_plug_reuses_membership_without_publication_or_displacement
     let ids = assembly
         .service
         .pool_ids()
+        .await
         .expect("the rejected fixture changed no owner");
     assert_eq!(ids.proposed, vec![original_hash]);
     assert!(relay.try_recv().is_none());
@@ -359,6 +361,7 @@ async fn uak_service_boundary_preserves_direct_mutation_and_read_only_semantics(
         assembly
             .service
             .pool_summary()
+            .await
             .expect("the empty projection is coherent")
             .pending_size,
         0

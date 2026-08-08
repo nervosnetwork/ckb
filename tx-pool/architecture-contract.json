@@ -233,22 +233,66 @@
         "invariants": ["T6", "T8", "T10", "T12"],
         "behavior_ids": ["TP-QUERY-001", "TP-PERF-001"],
         "falsifier_tests": [
+          "authority::tests::query::uak_fixed_output_full_queries_do_not_grow_row_scratch",
+          "authority::tests::query::uak_full_query_gate_does_not_serialize_point_status_reads",
+          "authority::tests::query::uak_full_query_scratch_makes_strict_progress_across_repeated_growth",
+          "authority::tests::query::uak_full_query_scratch_rejects_bounds_and_allocation_failure",
           "mathematical_model::topology_properties::model_prepared_query_scratch_is_the_only_zero_duplicate_root_fix",
           "mathematical_model::topology_properties::model_query_cost_uses_the_full_declared_u64_domain",
           "mathematical_model::topology_properties::model_query_scratch_growth_has_a_finite_strict_rank"
         ],
+        "full_scan_runtime_methods": [
+          "pool_summary",
+          "pool_ids",
+          "all_entry_info",
+          "pool_detail",
+          "fee_estimate_receipt"
+        ],
+        "row_materializing_runtime_methods": [
+          "pool_ids",
+          "all_entry_info",
+          "fee_estimate_receipt"
+        ],
+        "fixed_output_runtime_methods": [
+          "pool_summary",
+          "pool_detail"
+        ],
+        "concurrent_runtime_methods": [
+          "transaction_lookup",
+          "transaction_status_lookup",
+          "live_cell_receipt",
+          "template_input"
+        ],
+        "capture_methods": [
+          "capture_pool_summary",
+          "capture_pool_ids",
+          "capture_entry_info",
+          "capture_pool_detail",
+          "capture_fee_estimate"
+        ],
+        "runtime_capture_methods": {
+          "pool_summary": "capture_pool_summary",
+          "pool_ids": "capture_pool_ids",
+          "all_entry_info": "capture_entry_info",
+          "pool_detail": "capture_pool_detail",
+          "fee_estimate_receipt": "capture_fee_estimate"
+        },
         "target_owner": {
           "path": "tx-pool/src/authority/query.rs",
           "symbols": ["AuthorityQueryScratch", "FullQueryPermit"]
         },
         "current_owners": [
           {
-            "path": "tx-pool/src/authority/read.rs",
-            "symbols": ["AuthorityReadView", "pool_ids"]
+            "path": "tx-pool/src/authority/query.rs",
+            "symbols": ["AuthorityQueryScratch", "FullQueryPermit"]
           },
           {
-            "path": "tx-pool/src/authority/query.rs",
-            "symbols": ["all_entry_info", "pool_detail"]
+            "path": "tx-pool/src/authority/runtime.rs",
+            "symbols": ["pool_summary", "pool_ids", "all_entry_info", "pool_detail", "fee_estimate_receipt"]
+          },
+          {
+            "path": "tx-pool/src/authority/resources.rs",
+            "symbols": ["max_owner_entries"]
           }
         ],
         "cost": {
@@ -452,7 +496,7 @@
       {
         "id": "I4-PREPARED-FULL-QUERY",
         "sequence": 4,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": ["prepared_full_query"],
         "production_paths": [
           "tx-pool/src/authority/query.rs",

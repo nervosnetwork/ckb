@@ -323,12 +323,6 @@ impl<'authority> AcceptedReadEntry<'authority> {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct AuthorityPoolIds {
-    pub(super) pending: Vec<RawTxHash>,
-    pub(super) proposed: Vec<RawTxHash>,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct AuthorityReadSummary {
     pub(super) owners: usize,
@@ -544,6 +538,31 @@ impl<'authority> AuthorityReadView<'authority> {
         self.membership.accepted_order()
     }
 
+    pub(super) fn owner_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
+        let counts = self.membership.counts();
+        let pending = counts
+            .pending
+            .checked_add(counts.gap)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        let total = pending
+            .checked_add(counts.proposed)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if total != self.accepted_resources.entries {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok((pending, counts.proposed))
+    }
+
+    pub(super) fn replacement_history(&self) -> impl Iterator<Item = &'authority RawTxHash> + '_ {
+        self.entries.iter().filter_map(|(hash, owner)| {
+            matches!(owner, OwnedTx::ReplacementHistory(_)).then_some(hash)
+        })
+    }
+
     pub(super) fn entry_by_proposal(
         &self,
         proposal: &ProposalId,
@@ -575,51 +594,6 @@ impl<'authority> AuthorityReadView<'authority> {
             }
         }
         Ok(transactions)
-    }
-
-    pub(super) fn pool_ids(&self) -> Result<AuthorityPoolIds, AuthorityReadError> {
-        let counts = self.membership.counts();
-        let pending_capacity = counts
-            .pending
-            .checked_add(counts.gap)
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        let mut pending = Vec::new();
-        let mut proposed = Vec::new();
-        pending
-            .try_reserve(pending_capacity)
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        proposed
-            .try_reserve(counts.proposed)
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        for (hash, owner) in self.entries {
-            let OwnedTx::Accepted(entry) = owner else {
-                continue;
-            };
-            match entry.status() {
-                AcceptedStatus::Pending | AcceptedStatus::Gap => pending.push(hash.clone()),
-                AcceptedStatus::Proposed => proposed.push(hash.clone()),
-            }
-        }
-        if pending.len() != pending_capacity || proposed.len() != counts.proposed {
-            return Err(AuthorityReadError::Projection);
-        }
-        pending.sort_unstable();
-        proposed.sort_unstable();
-        Ok(AuthorityPoolIds { pending, proposed })
-    }
-
-    pub(super) fn replacement_history_hashes(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
-        let mut history = Vec::new();
-        history
-            .try_reserve(self.entries.len())
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        for (hash, owner) in self.entries {
-            if matches!(owner, OwnedTx::ReplacementHistory(_)) {
-                history.push(hash.clone());
-            }
-        }
-        history.sort_unstable();
-        Ok(history)
     }
 
     pub(super) fn summary(&self) -> Result<AuthorityReadSummary, AuthorityReadError> {

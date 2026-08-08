@@ -413,6 +413,13 @@ impl ResourceLimits {
         self.replacement_history = replacement_history;
         Ok(self)
     }
+
+    /// Hard upper bound for one reusable full-query row set. Replacement
+    /// history is already charged inside `preaccepted`, so adding a third
+    /// partition here would double-count the only optional owner class.
+    pub(super) fn max_owner_entries(self) -> Option<usize> {
+        self.preaccepted.entries.checked_add(self.accepted.entries)
+    }
 }
 
 /// Per-lease upper bounds reserved before attacker-shaped resolve/verify

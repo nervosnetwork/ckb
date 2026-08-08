@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: I3 bounded compute exchange complete; I4 prepared full query active
-Checkpoint: I3 commit containing this record
-Active slice: I4 prepared full query
+Status: I4 prepared full query complete; I5 typed ordered control active
+Checkpoint: I4 commit containing this record
+Active slice: I5 typed ordered control
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -3289,7 +3289,7 @@ to the named statement; it does not close a broader row by implication.
 | D1-FAULT-COMPUTE-UNIT | PROVEN | `ResourceLedger` is the sole compiler of a sealed `ComputeGrant` whose byte unit is total retained residency. Resolved, missing-dependency and verified worker outcomes all consume that same compiler before settlement; settlement recomputes the identical charge only as a structural consistency check. Payload growth or dependency metadata beyond the grant therefore becomes an ordinary budget denial while the exact compute capability is consumed. | `resources.rs::{ComputeGrant,compute_grant,retained_charge,retained_base_charge}`, `work.rs::{build_resolved_payload,missing_settlement,verified}` and exact nextest regressions `uak_compute_grant_and_settlement_share_total_retained_byte_units` plus `uak_missing_growth_is_charged_or_becomes_budget_denied`, both using non-zero production-shaped metadata. |
 | D1-FALLIBLE-SCRATCH | OPEN | The authority advertises allocation pressure as an ordinary typed outcome, but eleven production `collect` sites and ten single-item `vec!` sites still allocate through infallible collection APIs. The high-value cases are peer/request-shaped: `ExpandedFootprint` collects transaction inputs and headers, `CellLocationReceipt` duplicates chain-backed outpoints, missing-frontier settlement collects dependency keys, compact-block capture collects requested proposals, and index/membership batch compilers collect transient maps while the authority guard is held. Allocation failure can therefore bypass the surrounding `ResourceUnavailable`/`Allocation` algebra; several sites also duplicate hot-path work. | `state.rs:485/501`, `chain.rs:63-81`, `resolver.rs:1206-1211`, `query.rs:415-420`, `indexes.rs:877`, and `plan/membership.rs:1675` are the primary producer sites. D2 must separate constant tiny carriers from attacker-sized or lock-held scratch. D3 must use one domain-owned fallible bounded scratch/inline-small representation and a generated production check rather than patching each call with an unrelated retry. The gate must allow only statically fixed constant-size allocation whose failure policy is explicitly justified. |
 | D1-REQUEST-PAYLOAD-BOUND | OPEN | The bounded ordinary channel proves request count only. `NotifyTxBatch` is correctly count/byte validated before enqueue, but Local/TestAccept/Remote single transactions are size-rejected only after handler ownership, public fresh/fetch ID carriers accept arbitrary collections, and the relayer's 100 ms proposal prune aggregates many individually bounded peer requests. The capacity-one reliable chain lane has a second count gap: each concurrent `send` caller owns its command while waiting for capacity, so queue plus active count excludes waiting RPC clear callers; reorg commands additionally own the complete fork payload. A valid external route can therefore retain or process substantially more than nearby channel capacities imply. | `service/{controller,message,builder}.rs`, `authority/ingress.rs`, `rpc/src/module/pool.rs::{clear_tx_pool,clear_tx_verify_queue}`, `sync/src/relayer/{mod.rs,get_transactions_process.rs,get_block_proposal_process.rs}`, `sync/src/types/mod.rs::pending_get_block_proposals`, `chain/src/verify.rs::install_chain_tip_transition`, the 4 MiB RelayV3 frame cap and configured RPC body cap establish the current partial bounds. M3.6 selects count-and-byte-bounded existing-dispatcher ingress drains plus a typed lossless reorg source and one non-cloneable administrative admission capability; one accepted clear preserves order and excess clears fail fast. M4 must bind those protocol bounds to every external carrier and exact responder before this row can close. |
-| D1-QUERY-LOCK-COST | OPEN | Full-pool read paths contradict the documented short-receipt boundary. `all_entry_info` runs a full owner summary, accepted-order projection and replacement-history scan with allocation under the authority read guard; `pool_ids` scans, sorts and then copies pool-sized vectors; `pool_detail` scans up to the pending population for one constant-size response; fee estimation first builds full entry maps and may capture a second full candidate vector. Up to `2 * max_tx_verify_workers` handlers may execute concurrently. Public RPC exposes these paths, and `rpc_batch_limit` is unset by default. The pool bounds each scan, and the current dispatcher improves develop's unbounded task spawning, but a small query can still amplify to O(pool) shared-lock work and delay every Apply. | `authority/{runtime,read,query}.rs`, `service/{builder,dispatch}.rs`, `rpc/src/{server.rs,module/pool.rs,module/experiment.rs}` and `develop:tx-pool/src/{service.rs,pool.rs}` establish both the inherited risk and current single-authority consequence. M3.6 selects one full-query admission gate with reusable scratch that grows outside the guard under a finite owner-count rank; the coherent guard cut copies handles only, and sort/response construction remains outside. Point queries and template lanes remain independent. M4 must prove exact RPC compatibility, ordinary allocation failure and the no-allocation/no-sort guard span before this row can close. |
+| D1-QUERY-LOCK-COST | PROVEN | The complete public full-scan class is `Q = {pool_summary, pool_ids, all_entry_info, pool_detail, fee_estimate_receipt}`; `estimate_fee_rate` composes the entry/fallback paths rather than adding a sixth capture. Exactly `Q` shares one asynchronous FIFO gate, so at most one O(pool) scan can delay Apply. The row-bearing subset `{pool_ids, all_entry_info, fee_estimate_receipt}` uses one reusable fallible scratch bounded by `preaccepted.entries + accepted.entries`; ReplacementHistory is already charged inside preaccepted. Summary/detail retain fixed output and never grow row storage. Guard-external geometric growth strictly advances prepared capacity; allocation failure is ordinary. The coherent cut performs no allocation, sorting, formatting or await, and response construction follows guard release. Transaction/status/live-cell and template reads do not use the gate. | `query.rs::{AuthorityQueryScratch,FullQueryPermit,PreparedPoolIds,PreparedEntryInfo,PreparedPoolDetail,PreparedFeeEstimate}`, `runtime.rs::{pool_summary,pool_ids,all_entry_info,pool_detail,fee_estimate_receipt}`, `resources.rs::ResourceLimits::max_owner_entries`, exact regressions `uak_full_query_scratch_makes_strict_progress_across_repeated_growth`, `uak_full_query_scratch_rejects_bounds_and_allocation_failure`, `uak_full_query_gate_does_not_serialize_point_status_reads`, `uak_fixed_output_full_queries_do_not_grow_row_scratch`, and `check_production_contracts.py::validate_prepared_full_query`. |
 | D1-CLOCK-DOMAIN | OPEN | The previous proof text incorrectly treated every expiry deadline as a monotonic level. Ban/circuit timing uses process-monotonic `Instant`, but Remote admission records `unix_time().as_secs()`, Accepted membership records `unix_time_as_millis()`, maintenance compares those wall-clock values, and `accepted_at` also affects public timestamps and deterministic packing order. A legal wall-clock rollback can therefore postpone expiry and alter later timestamp order without advancing a monotonic level. Retained owner/resource counts remain hard-bounded, so this is not an unbounded-residency safety bypass, but an unconditional expiry-progress proof would be false. | `authority/{ingress,validation,runtime,state,indexes,packing}.rs` and `util/systemtime/src/lib.rs` establish the two clock domains. M1 models wall-clock observation/jump separately from `Instant`; expiry liveness is conditional on eventually observing the recorded deadline. M3 must compare the compatible current rule with a design that separates exact public wall timestamps from internal monotonic residency deadlines. It may not add a compensating timer or claim monotonicity from the integer representation. |
 | D1-ALLOCATION-LIVENESS | OPEN | Allocation pressure is not a level-triggered resource in the current runtime: there is no allocator-capacity source or unique releaser. Nevertheless compute/Ready/maintenance, administration and both chain preparation and chain Apply retry after a fixed 1 ms delay. Persistent pressure therefore repeats the same fallible construction under an unchanged authority cut; workers can burn bounded-but-continuous CPU, Ready can strand its head, and the capacity-one ordered chain lane can retain one large command while blocking later reconciliation or clear forever. | `worker.rs::{TRANSIENT_RETRY_DELAY,handle_runtime_error,classify_compute_cancellation,run_ready_driver,run_maintenance_driver_loop}` and `service.rs::{allocation_backoff_or_cancel,retry_administration,apply_chain_update}`. This violates the progress law because neither a finite rank decreases nor a monotonic level changes. D3 must define one operation-owned allocation algebra: hostile/optional work terminates or drops ordinarily; a checked-out capability is cancelled exactly once; indispensable chain/administrative transitions use construction-time bounded/reserved scratch or one deterministic safe replacement outcome. Timer tuning, exponential retry, watchdogs and per-loop exceptions are forbidden as the root fix. |
 | D1-RECOVERY-SELECTION | PROVEN | Recovery selection is deterministic, parent-first and closure-safe. A resource-excluded or proposal-colliding new trusted root excludes its new trusted descendants but does not stop the scan, so a later unrelated fitting root remains eligible. Normal reconciliation performs individual envelope selection and falls back only for aggregate PreAccepted growth; fresh-generation replacement applies the same exclusion relation while building the bounded scratch authority. | `canonical_recovery_transactions`, `select_chain_recoveries`, `charge_chain_recovery`, `plan_chain_generation_replacement`, model witness `model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work`, and exact nextest regression `authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work`. |
@@ -3457,11 +3457,14 @@ experiments:
     role wake paths are absent from production; Direct fairness, effect rank,
     cancellation and exact move-only capability conservation are closed by
     executable and generated evidence.
-11. **I4 active:** implement the prepared full-query protocol. Grow one bounded
-    reusable scratch outside the authority read cut, admit full queries through
-    one bounded gate, copy only coherent handles under the guard, and keep
-    point/template reads concurrent. Do not add a resident projection or a
-    second read authority.
+11. **I4 complete:** the exact public full-scan class shares one bounded FIFO
+    gate. Row-bearing ID/info/fee captures use one reusable scratch grown
+    outside the authority cut; fixed-output summary/detail captures allocate no
+    row scratch. Response construction is lock-external, while point/template
+    reads remain concurrent. No resident projection or second read authority
+    exists.
+12. **I5 active:** implement typed admission for the existing ordered control
+    lane without serializing admission or optimistic template work.
 
 I3 is executed through five ordered refinement cuts. They are checkpoints of
 one design, not optional alternative paths, and the old and new protocols may
@@ -3589,6 +3592,65 @@ negative handoff witness. Nextest run
 `5b6c82d2-79a8-47ba-8a09-16bd636190a3` executed 687 tests: 687 passed, zero
 skipped. The user-owned `.gitignore` remains outside this checkpoint.
 
-The next exact action is I4 `PREPARED-FULL-QUERY`. Profiling, benchmark claims
+The next exact action is I5 `TYPED-ORDERED-CONTROL`. Profiling, benchmark claims
 and full integration remain deferred until I1-I6 and the complete correctness
 gate close.
+
+## 20. I4 prepared full-query freeze
+
+The I4 scope is derived from the complete public call graph rather than the
+older four-function prose. The full-scan class is:
+
+```text
+Q = { pool_summary, pool_ids, all_entry_info, pool_detail,
+      fee_estimate_receipt }
+```
+
+`estimate_fee_rate` composes `all_entry_info` and, on fallback, a fee receipt;
+it is not a sixth capture implementation. Point transaction/status/live-cell
+queries, bounded proposal fetches, persistence administration, relay pages and
+the five optimistic template lanes keep their existing independent cuts.
+
+I4 is one design executed through four ordered cuts:
+
+1. **I4a class and bound:** register every member of `Q` in the machine
+   contract and derive `MaxRows = preaccepted.entries + accepted.entries` from
+   the resource ledger. ReplacementHistory is already included in the first
+   term. Configuration arithmetic failure remains a startup error.
+2. **I4b typed gate and growth:** add one async FIFO full-query gate owning one
+   reusable scratch vector. No task or channel is added. Row-bearing queries
+   observe the current owner count under a short read cut; insufficient
+   capacity opens the guard before fallible geometric growth. Every successful
+   growth strictly decreases `MaxRows - PreparedRows`; allocation failure is
+   an ordinary query error, and an unchanged cut is never retried. Fixed-output
+   summary/detail queries acquire the gate but never grow row storage.
+3. **I4c coherent capture and output:** each query-specific sealed capture
+   performs no allocation, sorting, formatting or await while the authority
+   guard is held. Row-bearing captures write prepared storage; fixed-output
+   captures retain only scalar data. The guard then opens; the same permit
+   builds the exact legacy RPC value and retains scratch capacity for the next
+   request. Handler cancellation drops the permit and returns the sole gate
+   automatically.
+4. **I4d deletion and convergence:** delete the old guarded alloc/sort query
+   builders, prove all `Q` methods acquire the gate and all excluded point/
+   template methods do not, then run differential behavior, allocation,
+   concurrency and complete Nextest/static gates. Only then mark I4
+   implemented and advance to I5.
+
+Rejected shortcuts remain fixed: a semaphore without prepared scratch still
+allocates under the guard; a resident projection duplicates O(pool) authority
+state and adds every-Apply publication work; page OCC cannot return one
+coherent legacy response; routing point or template reads through the gate
+destroys useful concurrency. Profiling and A/B remain forbidden during I4.
+
+I4 closed with no second authority, task, channel or resident projection. The
+complete internal Nextest run `71dc78f4-28dc-4712-a987-7d2092ff0114` passed
+691/691 with zero skipped. Strict all-target internal Clippy, formatting,
+compilation, diff checks and all nine generated/formal contracts pass; TLC
+explored 1,098 generated / 318 distinct positive states and reproduced the
+required four-state negative witness. The review inventory contains 361 exact
+tx-pool tests / 1,430 invariant references, 11 cross-crate tests / 32
+references, 19 integration anchors and 150 managed specs. Whole-architecture
+review found one accidental O(pool) scratch growth on fixed-output detail and
+removed it before closure. The next exact action is I5
+`TYPED-ORDERED-CONTROL`; benchmark and profiling remain frozen.

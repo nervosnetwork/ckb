@@ -38,9 +38,9 @@ use super::{
         TxPoolAuthority,
     },
     query::{
-        AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
-        AuthorityTransactionStatusLookup, CompactBlockReadReceipt, FeeEstimateReadReceipt,
-        LiveCellReadReceipt, PersistenceReceipt,
+        AuthorityPoolSummary, AuthorityQueryError, AuthorityQueryScratch,
+        AuthorityTransactionLookup, AuthorityTransactionStatusLookup, CompactBlockReadReceipt,
+        FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
     },
     read::{
         RelayParentRebuildCursor, RelayParentRebuildCut, RelayParentRebuildError,
@@ -176,6 +176,7 @@ struct AuthorityRuntimeConfig {
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute_permits: NonZeroUsize,
+    full_query_max_rows: usize,
 }
 
 /// Wall-clock retention and bounded maintenance policy compiled once from
@@ -413,6 +414,9 @@ impl AuthorityRuntimeConfig {
             crate::constants::MAX_POOL_MUTATION_CANDIDATES,
             replacement_rate,
         );
+        let full_query_max_rows = resources
+            .max_owner_entries()
+            .ok_or(RuntimeConfigError::Arithmetic)?;
 
         Ok(Self {
             resources,
@@ -430,6 +434,7 @@ impl AuthorityRuntimeConfig {
             },
             verify_workers,
             transient_compute_permits,
+            full_query_max_rows,
         })
     }
 }
@@ -849,6 +854,7 @@ pub(crate) struct AuthorityRuntime {
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute: ComputeGate,
+    full_query: AuthorityQueryScratch,
     #[cfg(test)]
     template_captures: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -1684,6 +1690,7 @@ impl AuthorityRuntime {
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
         let transient_compute = ComputeGate::new(runtime.transient_compute_permits);
+        let full_query = AuthorityQueryScratch::new(runtime.full_query_max_rows);
         Ok(Self {
             store: Arc::new(AuthorityStoreLock::new(AuthorityStore::from_runtime(
                 runtime, snapshot,
@@ -1693,6 +1700,7 @@ impl AuthorityRuntime {
             expiry_policy,
             verify_workers,
             transient_compute,
+            full_query,
             #[cfg(test)]
             template_captures: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         })
@@ -1723,10 +1731,12 @@ impl AuthorityRuntime {
         )
     }
 
-    pub(crate) fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityQueryError> {
+    pub(crate) async fn pool_summary(&self) -> Result<AuthorityPoolSummary, AuthorityQueryError> {
+        let mut permit = self.full_query.acquire().await;
         let store = self.store.read();
-        let summary = store.authority.read_view().summary()?;
-        AuthorityPoolSummary::capture(&store.snapshot, summary).map_err(Into::into)
+        permit
+            .capture_pool_summary(&store.authority.read_view(), &store.snapshot)
+            .map_err(Into::into)
     }
 
     pub(crate) fn filter_fresh_proposals(
@@ -1777,26 +1787,62 @@ impl AuthorityRuntime {
             .map_err(Into::into)
     }
 
-    pub(crate) fn pool_ids(
+    pub(crate) async fn pool_ids(
         &self,
     ) -> Result<ckb_types::core::tx_pool::TxPoolIds, AuthorityQueryError> {
-        let store = self.store.read();
-        super::query::pool_ids(&store.authority.read_view()).map_err(Into::into)
+        let mut permit = self.full_query.acquire().await;
+        loop {
+            let store = self.store.read();
+            let view = store.authority.read_view();
+            let observed_rows = view.owner_count();
+            if !permit.is_prepared(observed_rows)? {
+                drop(store);
+                permit.grow(observed_rows)?;
+                continue;
+            }
+            let captured = permit.capture_pool_ids(&view);
+            drop(store);
+            return captured
+                .map_err(AuthorityQueryError::from)?
+                .finish()
+                .map_err(Into::into);
+        }
     }
 
-    pub(crate) fn all_entry_info(
+    pub(crate) async fn all_entry_info(
         &self,
     ) -> Result<ckb_types::core::tx_pool::TxPoolEntryInfo, AuthorityQueryError> {
-        let store = self.store.read();
-        super::query::all_entry_info(&store.authority.read_view()).map_err(Into::into)
+        let mut permit = self.full_query.acquire().await;
+        loop {
+            let store = self.store.read();
+            let view = store.authority.read_view();
+            let observed_rows = view.owner_count();
+            if !permit.is_prepared(observed_rows)? {
+                drop(store);
+                permit.grow(observed_rows)?;
+                continue;
+            }
+            let captured = permit.capture_entry_info(&view);
+            drop(store);
+            return captured
+                .map_err(AuthorityQueryError::from)?
+                .finish()
+                .map_err(Into::into);
+        }
     }
 
-    pub(crate) fn pool_detail(
+    pub(crate) async fn pool_detail(
         &self,
         hash: &Byte32,
     ) -> Result<Option<ckb_types::core::tx_pool::PoolTxDetailInfo>, AuthorityQueryError> {
+        let hash = RawTxHash(hash.clone());
+        let mut permit = self.full_query.acquire().await;
         let store = self.store.read();
-        super::query::pool_detail(&store.authority.read_view(), &RawTxHash(hash.clone()))
+        let captured = permit.capture_pool_detail(&store.authority.read_view(), &hash);
+        drop(store);
+        captured
+            .map_err(AuthorityQueryError::from)?
+            .finish()
             .map_err(Into::into)
     }
 
@@ -1814,16 +1860,30 @@ impl AuthorityRuntime {
         PersistenceReceipt::capture(&store.authority.read_view()).map_err(Into::into)
     }
 
-    pub(crate) fn fee_estimate_receipt(
+    pub(crate) async fn fee_estimate_receipt(
         &self,
     ) -> Result<FeeEstimateReadReceipt, AuthorityQueryError> {
-        let store = self.store.read();
-        FeeEstimateReadReceipt::capture(
-            &store.authority.read_view(),
-            &store.snapshot,
-            self.resolution_policy.min_fee_rate,
-        )
-        .map_err(Into::into)
+        let mut permit = self.full_query.acquire().await;
+        loop {
+            let store = self.store.read();
+            let view = store.authority.read_view();
+            let observed_rows = view.owner_count();
+            if !permit.is_prepared(observed_rows)? {
+                drop(store);
+                permit.grow(observed_rows)?;
+                continue;
+            }
+            let captured = permit.capture_fee_estimate(
+                &view,
+                &store.snapshot,
+                self.resolution_policy.min_fee_rate,
+            );
+            drop(store);
+            return captured
+                .map_err(AuthorityQueryError::from)?
+                .finish()
+                .map_err(Into::into);
+        }
     }
 
     /// Capture immutable block-template payloads and the paired chain snapshot

@@ -27,7 +27,8 @@ correctness-gated.
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
    core, I2 retained-ingress batching and I3 bounded compute exchange are
-   complete. I4 prepared full query is active.
+   complete. I4 prepared full query is complete and I5 typed ordered control
+   is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
@@ -4008,6 +4009,62 @@ eligible-slot iteration is ownership-driven, retry arithmetic is checked,
 capture output is routed directly and recovery uses a bounded visitor. The
 user-owned `.gitignore` is unchanged and excluded from staging.
 
-The next exact action is I4 `PREPARED-FULL-QUERY`. Full integration,
+The next exact action is I5 `TYPED-ORDERED-CONTROL`. Full integration,
 profiling and fixed-binary A/B remain frozen until I1-I6 and correctness
 acceptance close.
+
+## I4 prepared full-query startup
+
+Recovery starts from checkpoint `a18f7cf72`. The initial complete call-graph
+audit corrected one frozen-text omission before production edits:
+`pool_summary` also scans every owner under the shared authority read guard.
+The exact full-scan class is therefore `pool_summary`, `pool_ids`,
+`all_entry_info`, `pool_detail` and `fee_estimate_receipt`; fee estimation
+composes the latter entry/fallback captures. The old four-entry list is not an
+implementation allowlist.
+
+I4 uses one async FIFO gate owning reusable fallible scratch, with no task,
+channel, authority or resident projection. Its maximum row count is derived
+from the preaccepted plus accepted resource partitions. Growth occurs only
+after the authority guard opens and has the finite rank `MaxRows -
+PreparedRows`; a later coherent cut copies query-specific scalar/hash rows
+without allocation or sorting. Required response allocation and sorting stay
+outside the guard. Point/status/live-cell reads, bounded proposal reads,
+persistence, relay pages and template lanes remain outside the gate.
+
+The exact ordered cuts are I4a machine class/bound, I4b typed gate/growth, I4c
+query-specific capture/output conversion and I4d deletion plus whole-system
+convergence. Every Rust test uses `cargo nextest run`; profiling and A/B remain
+frozen.
+
+## I4 prepared full-query closure
+
+The machine-owned public full-scan class is exactly `pool_summary`, `pool_ids`,
+`all_entry_info`, `pool_detail` and `fee_estimate_receipt`; static discovery
+fails if a gate user is added or removed without changing the contract.
+Exactly one shared FIFO gate exists across every cloneable runtime handle. The
+row-bearing ID/info/fee subset grows one reusable scratch only after releasing
+the authority guard, with checked `MaxRows = preaccepted.entries +
+accepted.entries` and a strict prepared-capacity rank. Summary/detail use fixed
+captures and do not grow row storage. All response allocation, sorting and
+formatting is guard-external; point/status/live-cell and template reads do not
+use the gate.
+
+The closure review caught and removed two implementation defects before the
+checkpoint: `try_reserve_exact` is relative to vector length rather than old
+capacity, so the first implementation could make a second growth a no-op; and
+`pool_detail` initially allocated O(pool) scratch despite retaining fixed
+output. Exact regressions and the generated production contract now reject
+both shapes. No authority, task, channel, retry timer, resident projection or
+legal-input fail-stop was added.
+
+Complete internal Nextest run `71dc78f4-28dc-4712-a987-7d2092ff0114` passed
+691/691 with zero skipped. Strict all-target internal Clippy, formatting,
+compilation, diff checks and all nine generated/formal contracts pass. TLC
+explored 1,098 generated / 318 distinct positive states and reproduced the
+required four-state negative witness. The generated review inventory records
+361 exact tx-pool tests / 1,430 invariant references, 11 cross-crate tests / 32
+references, 19 integration anchors and 150 managed specs. The user-owned root
+`.gitignore` remains untouched and excluded from staging. The next exact action
+is I5 `TYPED-ORDERED-CONTROL`; full integration, profiling and fixed-binary A/B
+remain frozen until I1-I6 and correctness acceptance close.

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+TX_POOL_ARCHITECTURE_CONTRACT = REPO_ROOT / "tx-pool" / "architecture-contract.json"
 CHAIN_VERIFY = REPO_ROOT / "chain" / "src" / "verify.rs"
 TX_POOL_SERVICE = REPO_ROOT / "tx-pool" / "src" / "service.rs"
 TX_POOL_CONTROLLER = REPO_ROOT / "tx-pool" / "src" / "service" / "controller.rs"
@@ -46,6 +48,10 @@ TX_POOL_AUTHORITY_SETTLEMENT = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "settlement.rs"
 )
 TX_POOL_AUTHORITY_QUERY = REPO_ROOT / "tx-pool" / "src" / "authority" / "query.rs"
+TX_POOL_AUTHORITY_READ = REPO_ROOT / "tx-pool" / "src" / "authority" / "read.rs"
+TX_POOL_AUTHORITY_RESOURCES = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "resources.rs"
+)
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
 RUST_CHAR_LITERAL = re.compile(
@@ -153,7 +159,11 @@ def rust_impl_methods(source: str, impl_name: str) -> list[tuple[str, str, int]]
 
     masked = mask_rust_non_code(source)
     declarations = list(
-        re.finditer(rf"\bimpl\s+{re.escape(impl_name)}\s*\{{", masked)
+        re.finditer(
+            rf"\bimpl(?:\s*<[^{{}}]*>)?\s+{re.escape(impl_name)}"
+            rf"(?:\s*<[^{{}}]*>)?\s*\{{",
+            masked,
+        )
     )
     if len(declarations) != 1:
         raise ValueError(
@@ -633,6 +643,248 @@ def validate_transaction_query_failure_domains() -> list[str]:
             errors.append(
                 "get_transaction_with_status must consume the detailed authority product"
             )
+    return errors
+
+
+def validate_prepared_full_query() -> list[str]:
+    """Bind the complete public full-scan class to one bounded prepared protocol."""
+
+    try:
+        contract = json.loads(TX_POOL_ARCHITECTURE_CONTRACT.read_text())
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        query = TX_POOL_AUTHORITY_QUERY.read_text()
+        read = TX_POOL_AUTHORITY_READ.read_text()
+        resources = TX_POOL_AUTHORITY_RESOURCES.read_text()
+        runtime_methods = {
+            name: body for name, body, _line in rust_impl_methods(runtime, "AuthorityRuntime")
+        }
+        permit_methods = {
+            name: body for name, body, _line in rust_impl_methods(query, "FullQueryPermit")
+        }
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return [f"cannot inspect prepared full-query protocol: {error}"]
+
+    components = contract.get("selected_topology", {}).get("components", [])
+    matches = [
+        component
+        for component in components
+        if isinstance(component, dict) and component.get("id") == "prepared_full_query"
+    ]
+    if len(matches) != 1:
+        return [
+            "architecture contract must own exactly one prepared_full_query component"
+        ]
+    component = matches[0]
+    errors: list[str] = []
+
+    def declared_methods(field: str) -> list[str]:
+        value = component.get(field)
+        if (
+            not isinstance(value, list)
+            or not value
+            or any(not isinstance(item, str) or not item for item in value)
+            or len(value) != len(set(value))
+        ):
+            errors.append(f"prepared_full_query has an invalid {field} registry")
+            return []
+        return value
+
+    full_scan = declared_methods("full_scan_runtime_methods")
+    row_materializing = declared_methods("row_materializing_runtime_methods")
+    fixed_output = declared_methods("fixed_output_runtime_methods")
+    concurrent = declared_methods("concurrent_runtime_methods")
+    captures = declared_methods("capture_methods")
+    runtime_captures = component.get("runtime_capture_methods")
+    if (
+        not isinstance(runtime_captures, dict)
+        or set(runtime_captures) != set(full_scan)
+        or any(
+            not isinstance(capture, str) or not capture
+            for capture in runtime_captures.values()
+        )
+    ):
+        errors.append(
+            "prepared_full_query runtime_capture_methods must total the full-scan class"
+        )
+        runtime_captures = {}
+    elif set(runtime_captures.values()) != set(captures):
+        errors.append(
+            "prepared_full_query capture registry must equal its runtime capture range"
+        )
+
+    if set(row_materializing).intersection(fixed_output):
+        errors.append("prepared full-query row and fixed-output classes must be disjoint")
+    if set(row_materializing).union(fixed_output) != set(full_scan):
+        errors.append("prepared full-query row and fixed-output classes must total Q")
+    if set(full_scan).intersection(concurrent):
+        errors.append("full-scan and explicitly concurrent query classes must be disjoint")
+
+    masked_query = mask_rust_non_code(query)
+    shared_gate = re.search(
+        r"#\s*\[\s*derive\s*\([^]]*\bClone\b[^]]*\)\s*\]\s*"
+        r"pub\s*\(super\)\s+struct\s+AuthorityQueryScratch\s*\{\s*"
+        r"state\s*:\s*Arc\s*<\s*Mutex\s*<\s*AuthorityQueryScratchState\s*>\s*>",
+        masked_query,
+    )
+    if shared_gate is None:
+        errors.append(
+            "every cloneable AuthorityRuntime handle must share one Arc-owned full-query gate"
+        )
+    acquire = impl_method_body(query, "AuthorityQueryScratch", "acquire")
+    if "Arc::clone(&self.state).lock_owned().await" not in acquire:
+        errors.append("full-query acquisition must consume the shared gate through an owned guard")
+    if runtime.count("full_query: AuthorityQueryScratch") != 1:
+        errors.append("AuthorityRuntime must own exactly one full-query gate")
+    if runtime.count("AuthorityQueryScratch::new(runtime.full_query_max_rows)") != 1:
+        errors.append("AuthorityRuntime must construct exactly one full-query gate")
+
+    actual_gated = {
+        name
+        for name, body in runtime_methods.items()
+        if "self.full_query.acquire().await" in body
+    }
+    if actual_gated != set(full_scan):
+        errors.append(
+            "the architecture-owned full-scan class must exactly equal the runtime gate "
+            f"users: declared={sorted(full_scan)}, observed={sorted(actual_gated)}"
+        )
+
+    for method in full_scan:
+        body = runtime_methods.get(method)
+        if body is None:
+            errors.append(f"AuthorityRuntime::{method} disappeared")
+            continue
+        if body.count("self.full_query.acquire().await") != 1:
+            errors.append(f"AuthorityRuntime::{method} must acquire the sole query gate once")
+        if body.count(".await") != 1:
+            errors.append(
+                f"AuthorityRuntime::{method} must not await after acquiring full-query ownership"
+            )
+        capture = runtime_captures.get(method)
+        if capture is not None and re.search(
+            rf"\bpermit\s*\.\s*{re.escape(capture)}\s*\(", body
+        ) is None:
+            errors.append(
+                f"AuthorityRuntime::{method} lost its declared {capture} coherent capture"
+            )
+
+    for method in concurrent:
+        body = runtime_methods.get(method)
+        if body is None:
+            errors.append(f"AuthorityRuntime::{method} disappeared")
+        elif "full_query" in body:
+            errors.append(
+                f"AuthorityRuntime::{method} must remain independent of the full-query gate"
+            )
+
+    for method in row_materializing:
+        body = runtime_methods.get(method)
+        if body is None:
+            continue
+        first_drop = body.find("drop(store)")
+        growth = body.find("permit.grow(observed_rows)?")
+        capture = runtime_captures.get(method)
+        capture_match = (
+            None
+            if capture is None
+            else re.search(rf"\bpermit\s*\.\s*{re.escape(capture)}\s*\(", body)
+        )
+        capture_position = -1 if capture_match is None else capture_match.start()
+        final_drop = body.rfind("drop(store)")
+        finish = body.find(".finish()")
+        if min(first_drop, growth, capture_position, final_drop, finish) < 0:
+            errors.append(
+                f"AuthorityRuntime::{method} lost prepared growth/capture/finish topology"
+            )
+        elif not first_drop < growth < capture_position < final_drop < finish:
+            errors.append(
+                f"AuthorityRuntime::{method} must grow and finish outside the authority guard"
+            )
+        for fragment in (
+            "let observed_rows = view.owner_count()",
+            "!permit.is_prepared(observed_rows)?",
+            "continue;",
+        ):
+            if fragment not in body:
+                errors.append(
+                    f"AuthorityRuntime::{method} lost finite-rank fragment {fragment!r}"
+                )
+
+    for method in fixed_output:
+        body = runtime_methods.get(method)
+        if body is None:
+            continue
+        for forbidden in ("permit.grow(", "permit.is_prepared(", "owner_count()"):
+            if forbidden in body:
+                errors.append(
+                    f"AuthorityRuntime::{method} must not grow row scratch for fixed output"
+                )
+        if method == "pool_detail":
+            released = body.rfind("drop(store)")
+            finish = body.find(".finish()")
+            if released < 0 or finish < 0 or released >= finish:
+                errors.append(
+                    "AuthorityRuntime::pool_detail must build its response after the guard opens"
+                )
+
+    forbidden_capture_work = (
+        ".await",
+        "try_reserve",
+        ".reserve(",
+        ".sort(",
+        ".sort_",
+        "String::",
+        "HashMap::",
+    )
+    for method in captures:
+        body = permit_methods.get(method)
+        if body is None:
+            errors.append(f"FullQueryPermit::{method} disappeared")
+            continue
+        for forbidden in forbidden_capture_work:
+            if forbidden in body:
+                errors.append(
+                    f"FullQueryPermit::{method} performs forbidden guard-held work "
+                    f"{forbidden!r}"
+                )
+
+    grow = permit_methods.get("grow")
+    if grow is None:
+        errors.append("FullQueryPermit::grow disappeared")
+    else:
+        errors.extend(
+            require_ordered_fragments(
+                grow,
+                "FullQueryPermit::grow",
+                (
+                    "observed_rows > self.state.max_rows",
+                    "let additional = target.saturating_sub(self.state.rows.len())",
+                    ".try_reserve_exact(additional)",
+                    "self.state.rows.capacity() <= capacity",
+                ),
+            )
+        )
+
+    max_owners = impl_method_body(resources, "ResourceLimits", "max_owner_entries")
+    if "self.preaccepted.entries.checked_add(self.accepted.entries)" not in max_owners:
+        errors.append(
+            "full-query owner bound must remain the checked retained-plus-accepted ledger sum"
+        )
+
+    masked_read = mask_rust_non_code(read)
+    for retired in ("pool_ids", "replacement_history_hashes"):
+        if re.search(rf"\bfn\s+{retired}\s*\(", masked_read):
+            errors.append(f"AuthorityReadView::{retired} must remain retired")
+    for retired in ("pool_ids", "all_entry_info", "pool_detail"):
+        if re.search(rf"(?m)^\s*pub\s*\(super\)\s+fn\s+{retired}\s*\(", masked_query):
+            errors.append(f"legacy guarded query::{retired} must remain retired")
+    try:
+        fee_methods = rust_impl_methods(query, "FeeEstimateReadReceipt")
+    except ValueError as error:
+        errors.append(str(error))
+    else:
+        if any(name == "capture" for name, _body, _line in fee_methods):
+            errors.append("FeeEstimateReadReceipt::capture must remain retired")
     return errors
 
 
@@ -1163,6 +1415,7 @@ def main() -> int:
         *validate_authority_profiling_seams(),
         *validate_authority_failure_algebra(),
         *validate_transaction_query_failure_domains(),
+        *validate_prepared_full_query(),
         *validate_atomic_batch_clock_reservation(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
@@ -1179,6 +1432,7 @@ def main() -> int:
         "bounded chain-control backpressure plus authority post-commit wake coverage, "
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains, "
+        "the architecture-owned prepared full-query protocol, "
         "one-stamp atomic Ready batches and "
         "current production vocabulary plus execution-topology cost and shutdown order"
     )
