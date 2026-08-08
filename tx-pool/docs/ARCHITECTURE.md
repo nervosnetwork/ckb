@@ -867,13 +867,15 @@ conditional publication or an unpaired receipt.
 
 The exhaustive Apply compiler, rather than each caller, derives changed
 Resolve, small-Verify, any-Verify and Ready heads, dependency activation,
-effect availability/capacity and template source versions. The runtime routes
-those facts to role-specific lossy hints. Wake-one batons are used only where
-every selected waiter can service that role; Resolve also has a dedicated
-resolver hint so a verifier cannot consume its sole progress edge. Effect
-capacity and changed template sources retain bounded broadcast because their
-waiters have heterogeneous batch sizes or independent optimistic source cuts.
-No hint is a scheduler, level mirror or second authority.
+effect availability/capacity and template source versions. The three
+role-compatible compute heads are one allocation-free observation cut, not
+three routing decisions: the runtime emits one coalesced compute prompt and
+the coordinator derives a complete bounded role probe from the authoritative
+scheduler. A released active-work slot republishes that prompt when a stable
+head may have become eligible. Effect capacity and changed template sources
+retain bounded broadcast because their waiters have heterogeneous batch sizes
+or independent optimistic source cuts. No hint is a scheduler, level mirror
+or second authority.
 
 Other locks protect derived outputs only: verification cache, relay mailbox,
 candidate uncles, current block template and template convergence. They cannot
@@ -889,7 +891,7 @@ transaction identity and has no independent lifecycle state.
 `AuthorityTaskTopology` constructs every capability before spawning the first
 task and owns:
 
-- resolve/verify workers;
+- one bounded compute coordinator and its resolve/verify worker slots;
 - Ready and bounded maintenance drivers;
 - the sole effect publisher;
 - the derived verification-cache updater;
@@ -909,11 +911,11 @@ corruption and not false durable success.
 ### 12.3 Normative bounded semantic exchange
 
 The M3.6 model comparison selects the **bounded semantic exchange** as the
-normative execution topology. I1 one-stamp atomic batches and I2 retained
-ingress batching are implemented. The compute worker protocol remains the safe
-per-owner cutover checkpoint until I3 replaces its mutation loops; it is not
-the final performance topology. The machine-readable component, cost,
-falsifier and slice ownership is in `architecture-contract.json`.
+normative execution topology. I1 one-stamp atomic batches, I2 retained ingress
+batching and I3 compute exchange are implemented. The old per-worker
+checkout/settlement protocol exists only as a test-only sequential refinement
+oracle; it is not a second production path. The machine-readable component,
+cost, falsifier and slice ownership is in `architecture-contract.json`.
 
 ```mermaid
 flowchart LR
@@ -975,7 +977,7 @@ Every wait must name an independently running releaser:
 |---|---|---|
 | compute semaphore | none | completion/cancellation of another checked-out computation |
 | compute assignment/completion transport | one exact bounded capability, never an authority guard | retained worker or exchange coordinator; every slot has one owner and shutdown retirement path |
-| resolver/verifier/Ready level hint | none | a changed committed scheduler head; each role rechecks its exact level first |
+| coalesced compute or Ready level hint | none | a changed committed scheduler head or active-work release; the coordinator or Ready driver rechecks its exact authoritative level |
 | dependency-maintenance hint or expiry timer | none | dirty frontier activation or the independent wall-clock tick |
 | effect publisher hint | none | committed effect availability or closed-and-drained transition |
 | effect capacity | possibly the exact failed settlement capability, never a store guard | sole effect publisher settlement or cancellation; release broadcasts across heterogeneous batch shapes |
@@ -1041,7 +1043,7 @@ The completed static complexity inventory is:
 
 | Path class | Maximum work under the authority guard | Why it is admitted |
 |---|---|---|
-| Remote/trusted ingress, checkout and compute settlement | Transition-local index/projection deltas. Queue checkout visits at most the charged owner rows; Ready selects at most `MAX_READY_BATCH = 8`. | Hot path; no full owner scan or attacker-sized destruction. |
+| Remote/trusted ingress and compute exchange | Transition-local index/projection deltas. One exchange visits at most the configured retained slot count and mutation bound; Ready selects at most `MAX_READY_BATCH = 8`. | Hot path; no full owner scan or attacker-sized destruction. |
 | RBF, eviction and accepted causal removal | Complete indexed conflict/descendant cohort capped by `MAX_POOL_MUTATION_CANDIDATES = 100`, with configured ancestor/descendant bounds. | Atomic membership requires the complete closure; over-bound input is rejected or the chain generation is rebuilt. |
 | Dependency/expiry maintenance | One dependency edge/marker step, one accepted causal root closure, or at most `ADMIN_MAINTENANCE_SLICE = 32` due Remote owners per Apply. | Level-triggered bounded progress; repeated work yields between Apply cuts. |
 | Ordered chain transition | Work proportional to the actual fork plus indexed affected closures. A detached chain may visit every validation-proven tip-context-sensitive Accepted owner; a script-rule change necessarily visits every Accepted owner. Recovery is selected parent-first: an individually resource-excluded new trusted root and its new trusted recovery descendants are omitted while unrelated fitting roots continue. An already-owned PreAccepted descendant remains charged and re-enters validation under its source policy. The same closed selection drives normal reconciliation and fresh-generation fallback. | Chain generation is trusted consensus work and must reconcile as one ordered cut. The context-sensitive index avoids a stable-owner scan on ordinary reorgs; a rules change invalidates every retained script proof by definition. Fork traversal and detached payload compaction occur before the authority cut. Bounded in-memory proposal/recovery validation retains an upgradable read guard; only capacity/projection preparation and total Apply remain after upgrade. |
@@ -1165,7 +1167,7 @@ semantic exchange target is:
 
 ```text
 i2_applies(A, N, R) = A + 2N + 2R
-selected_applies(A, W, R) = A + (W + 1) + 2R
+i3_applies(A, W, R) = A + (W + 1) + 2R
 ```
 
 The `W + 1` term is one initial checkout plus one completion exchange per wave;
@@ -1223,7 +1225,8 @@ before adding state.
 Rejected. A worker that computes and then settles its own result retains the
 per-owner authority round trip. The executable one-available-wave witness gives
 the frozen pre-I2 topology and self-fused topology 26 Applies for eight owners,
-while I2 currently costs 19 and the selected I3 exchange gives 5. It also makes fair permit ordering harder
+while the I2 checkpoint costs 19 and the implemented I3 exchange gives 5. It
+also makes fair permit ordering harder
 because a finished worker is both a completion holder and a permit acquirer.
 
 ### Dedicated ingress actor

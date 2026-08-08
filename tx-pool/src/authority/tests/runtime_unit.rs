@@ -1,12 +1,11 @@
 use super::{
-    AuthorityAdministrationError, AuthorityComputeCheckout, AuthorityComputeCompletion,
-    AuthorityComputeError, AuthorityComputeJob, AuthorityComputeOutcome,
-    AuthorityComputeSettlement, AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
+    AuthorityAdministrationError, AuthorityComputeCompletion, AuthorityComputeJob,
+    AuthorityComputeOutcome, AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
     AuthorityDirectResolutionOutcome, AuthorityDriverError, AuthorityReadyOutcome,
     AuthorityRuntime, AuthorityRuntimeConfig, FinalAdmissionCaptureError, PREACCEPTED_ENTRY_BYTES,
     PlanError, ReadyValidationError, RuntimeConfigError, SettlementOrigin,
     runtime_authority_config_error, runtime_resource_config_error,
-    test_support::FoundationCheckoutError,
+    test_support::{AuthorityComputeError, AuthorityComputeSettlement, FoundationCheckoutError},
 };
 use crate::authority::effect::{
     CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
@@ -73,6 +72,25 @@ fn runtime() -> AuthorityRuntime {
     let snapshot = genesis_snapshot();
     AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production authority runtime fixture is valid")
+}
+
+async fn stop_worker_set(
+    command_tx: &watch::Sender<ChunkCommand>,
+    cancel: &CancellationToken,
+    handles: crate::authority::worker::AuthorityWorkerHandles,
+) {
+    command_tx
+        .send(ChunkCommand::Stop)
+        .expect("the test owns the live verification control");
+    cancel.cancel();
+    for task in handles.tasks.into_iter().rev() {
+        let role = task.role;
+        tokio::time::timeout(std::time::Duration::from_secs(5), task.handle)
+            .await
+            .unwrap_or_else(|_| panic!("the {role:?} task must stop within the test bound"))
+            .expect("authority worker task remains healthy")
+            .expect("authority worker exits without a structural fault");
+    }
 }
 
 fn runtime_with_effect_limits(
@@ -278,11 +296,7 @@ fn runtime_resolution_uses_assembled_policy_and_returns_linear_completion() {
             .expect("checkout remains healthy"),
     )
     .expect("resolve work is ready");
-    let completion = completion(
-        runtime
-            .execute_compute(job)
-            .expect("the assembled zero-fee policy accepts this fixture"),
-    );
+    let completion = completion(runtime.execute_compute(job));
     {
         let store = runtime.store.read();
         assert!(matches!(
@@ -304,25 +318,20 @@ fn runtime_resolution_uses_assembled_policy_and_returns_linear_completion() {
 }
 
 #[tokio::test]
-async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() {
+async fn runtime_compute_wake_coalesces_role_heads_without_becoming_authority() {
     let runtime = runtime();
 
     runtime
         .admit(admission(1_064, 99))
         .expect("the small-cycle admission commits");
     expect_signal(
-        runtime.resolve_signal(),
-        "admission must publish the shared Resolve level",
+        runtime.compute_signal(),
+        "admission must publish the shared compute level",
     )
     .await;
     expect_no_signal(
-        runtime.verify_small_signal(),
-        "Resolve admission must not publish a Verify hint",
-    )
-    .await;
-    expect_no_signal(
-        runtime.verify_any_signal(),
-        "Resolve admission must not duplicate a Verify hint",
+        runtime.compute_signal(),
+        "one owner transition must not duplicate the coalesced compute hint",
     )
     .await;
 
@@ -332,20 +341,16 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
             .expect("small-cycle resolution checkout remains healthy"),
     )
     .expect("small-cycle resolution is ready");
-    let small = completion(
-        runtime
-            .execute_compute(small)
-            .expect("small-cycle resolution completes"),
-    );
+    let small = completion(runtime.execute_compute(small));
     drop(continued(runtime.settle_completion(small)));
     expect_signal(
-        runtime.verify_small_signal(),
-        "a shared Small/Any head must publish exactly the Small signal",
+        runtime.compute_signal(),
+        "a queued Verify head must publish the shared compute level",
     )
     .await;
     expect_no_signal(
-        runtime.verify_any_signal(),
-        "a shared Small/Any head must not publish a duplicate Any signal",
+        runtime.compute_signal(),
+        "Small and Any projections must still coalesce to one level hint",
     )
     .await;
 
@@ -357,8 +362,8 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
         .admit(admission_with_cycles(1_065, 1, large_cycles))
         .expect("the large-cycle admission commits");
     expect_signal(
-        runtime.resolve_signal(),
-        "the second admission must republish the Resolve baton",
+        runtime.compute_signal(),
+        "the second admission must republish the compute level",
     )
     .await;
     let large = continued(
@@ -367,20 +372,16 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
             .expect("large-cycle resolution checkout remains healthy"),
     )
     .expect("large-cycle resolution is ready");
-    let large = completion(
-        runtime
-            .execute_compute(large)
-            .expect("large-cycle resolution completes"),
-    );
+    let large = completion(runtime.execute_compute(large));
     drop(continued(runtime.settle_completion(large)));
     expect_signal(
-        runtime.verify_any_signal(),
-        "a distinct large head must publish the Any-only signal",
+        runtime.compute_signal(),
+        "a distinct large head and active-work release publish one level",
     )
     .await;
-    expect_signal(
-        runtime.verify_small_signal(),
-        "releasing an active-work slot must republish the unchanged Small head",
+    expect_no_signal(
+        runtime.compute_signal(),
+        "one Apply cannot publish separate role-routing decisions",
     )
     .await;
 }
@@ -397,10 +398,7 @@ async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() 
             .expect("checkout remains healthy"),
     )
     .expect("resolve work is ready");
-    let AuthorityComputeOutcome::Verification(request) = runtime
-        .execute_compute(job)
-        .expect("resolution continues under the same worker capability")
-    else {
+    let AuthorityComputeOutcome::Verification(request) = runtime.execute_compute(job) else {
         panic!("the empty-script fixture fits continuous verification")
     };
     let cache = ckb_verification::cache::init_cache();
@@ -442,8 +440,8 @@ async fn runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work() {
         .try_checkout(WorkPermit::ResolveOnly, retained_execution)
         .expect("retained checkout remains healthy")
     {
-        ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => job,
-        ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+        ControlFlow::Continue(Ok(job)) => job,
+        ControlFlow::Continue(Err(execution)) => {
             drop(execution);
             panic!("the retained fixture has queued resolve work")
         }
@@ -590,13 +588,7 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
         .unpack();
     assert_eq!(update.key.witness_hash(), &expected_witness);
 
-    cancel.cancel();
-    for task in handles.tasks {
-        task.handle
-            .await
-            .expect("authority worker task remains healthy")
-            .expect("authority worker exits without a structural fault");
-    }
+    stop_worker_set(&command_tx, &cancel, handles).await;
     assert_eq!(
         runtime
             .store
@@ -611,7 +603,7 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn runtime_role_batons_drain_a_coalesced_preexisting_frontier() {
+async fn runtime_compute_coordinator_drains_a_coalesced_preexisting_frontier() {
     const TRANSACTIONS: usize = 64;
 
     let runtime = runtime();
@@ -632,7 +624,7 @@ async fn runtime_role_batons_drain_a_coalesced_preexisting_frontier() {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
     let cancel = CancellationToken::new();
     let handles = runtime
         .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
@@ -653,19 +645,13 @@ async fn runtime_role_batons_drain_a_coalesced_preexisting_frontier() {
         }
     })
     .await
-    .expect("role-specific wake-one batons must drain every preexisting head");
+    .expect("the bounded coordinator probe must drain every preexisting head");
 
-    cancel.cancel();
-    for task in handles.tasks {
-        task.handle
-            .await
-            .expect("authority worker task remains healthy")
-            .expect("authority worker exits without a structural fault");
-    }
+    stop_worker_set(&command_tx, &cancel, handles).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_consumed() {
+async fn runtime_single_any_verifier_settles_mixed_preexisting_frontier() {
     const TRANSACTIONS: usize = 32;
 
     let mut config = runtime_config();
@@ -697,11 +683,7 @@ async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_con
                 .expect("every resolution checkout remains healthy"),
         )
         .expect("the just-admitted resolution is ready");
-        let completion = completion(
-            runtime
-                .execute_compute(job)
-                .expect("every mixed resolution completes"),
-        );
+        let completion = completion(runtime.execute_compute(job));
         drop(continued(runtime.settle_completion(completion)));
     }
 
@@ -709,29 +691,20 @@ async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_con
     // must still recover from the authoritative levels through its initial
     // probe; notifications never become a second work authority.
     expect_signal(
-        runtime.resolve_signal(),
-        "coalesced admissions retain one Resolve hint",
+        runtime.compute_signal(),
+        "the mixed frontier retains one coalesced compute hint",
     )
     .await;
-    expect_signal(
-        runtime.verify_small_signal(),
-        "the mixed frontier retains one Small hint",
-    )
-    .await;
-    // Depending on the fair-owner cursor, the current Any head may be the
-    // same Small entry and therefore have no separate permit. Consume a
-    // distinct Any permit when present without making duplicated publication
-    // a requirement.
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_millis(10),
-        runtime.verify_any_signal().notified(),
+    expect_no_signal(
+        runtime.compute_signal(),
+        "role projections never create a second transport authority",
     )
     .await;
 
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
     let cancel = CancellationToken::new();
     let handles = runtime
         .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
@@ -771,13 +744,7 @@ async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_con
     assert_eq!(accepted, TRANSACTIONS / 2);
     assert_eq!(rejected, TRANSACTIONS / 2);
 
-    cancel.cancel();
-    for task in handles.tasks {
-        task.handle
-            .await
-            .expect("authority worker task remains healthy")
-            .expect("authority worker exits without a structural fault");
-    }
+    stop_worker_set(&command_tx, &cancel, handles).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -805,7 +772,7 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(1);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
     let cancel = CancellationToken::new();
     let handles = runtime
         .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
@@ -868,13 +835,7 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
         0
     );
 
-    cancel.cancel();
-    for task in handles.tasks {
-        task.handle
-            .await
-            .expect("authority worker task remains healthy")
-            .expect("authority worker exits without a structural fault");
-    }
+    stop_worker_set(&command_tx, &cancel, handles).await;
 }
 
 #[tokio::test]

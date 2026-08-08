@@ -92,9 +92,9 @@ as current UAK throughput. Their surviving value is methodological:
 4. profile a candidate before retaining or rejecting it;
 5. use controlled paired A/B, not flame-graph percentages, for acceptance.
 
-### 3.1 Current P10 candidate evidence
+### 3.1 Historical P10 candidate evidence
 
-Product checkpoint `6f486cdf5` replaces the heterogeneous global authority
+Product checkpoint `6f486cdf5` replaced the heterogeneous global authority
 mutation broadcast with role-specific hints derived from one committed
 before/after authority projection. The hints contain no work identity or
 decision state. Resolve, capability-specific Verify, Ready, dependency
@@ -160,18 +160,19 @@ executions, 500 Ready work slices and 999 effect publications. The reduction
 therefore removes failed scheduling probes rather than skipping dependency
 semantics, and the child-first order does not acquire a hidden retry path.
 
-### 3.2 Current retained-path Apply cost and semantic obligations
+### 3.2 I2 checkpoint Apply cost and semantic obligations
 
-The common successful Remote lifecycle has an exact current-topology cost, but
-not a five-Apply semantic lower bound. The distinction matters because M4 may
-batch commutative transitions without weakening any obligation:
+The I2 checkpoint's common successful Remote lifecycle had an exact topology
+cost, but not a five-Apply semantic lower bound. The distinction is the input
+to the implemented I3 exchange, which batches commutative transitions without
+weakening any obligation:
 
-| Boundary | Current common-path authority work | Required semantic fact | Optimization freedom |
+| Boundary | I2 checkpoint authority work | Required semantic fact | I3 realization |
 |---|---|---|---|
 | Retained admission | one owner/charge/dedup Apply per immediately available homogeneous prefix | hostile work is owned and charged before compute | I2 implements one ordered count/byte-bounded Apply without delaying a prompt item |
-| Compute checkout | one `Queued -> Computing` Apply per item | the owner and unique compute capability move atomically | one wave may issue several disjoint capabilities in one Apply |
+| Compute checkout | one `Queued -> Computing` Apply per item | the owner and unique compute capability move atomically | one exchange issues the complete immediately available compatible wave in one Apply |
 | Resolve/Verify handoff | no extra Apply on continuous Resolve-to-Verify; otherwise a settlement and later checkout | evidence and capability remain exact | continuous execution and bounded multi-completion settlement may remove topology-only cuts |
-| Verified completion | one `Computing -> Ready` Apply per item | compute capacity is released before unrelated final membership work | disjoint completions may settle together while retaining Ready overlap |
+| Verified completion | one `Computing -> Ready` Apply per item | compute capacity is released before unrelated final membership work | the canonical available completion cut settles together and may refill in the same Apply |
 | Ready membership | one Apply per non-empty Ready slice of at most eight | final validation, membership, resources and effects commit atomically | one commuting strict-priority prefix already shares this Apply |
 | Ordinary effect publication | external I/O followed by one settlement Apply per immutable effect batch | endpoint progress cannot reinterpret the committed transition | several logical records in one batch require only one settlement Apply |
 | External endpoints | no authority guard during I/O | fixed boundary | none |
@@ -193,7 +194,7 @@ Applies, while one full eight-owner Ready slice in one ingress cut uses 19
 total Applies. Logical effect-record count is not effect-settlement Apply
 count.
 
-This equation is an executable description of the current topology, not a
+This equation is an executable description of the I2 checkpoint, not a
 semantic minimum and not a timing model. Generation reset, RBF, missing
 dependency, resource rejection, stale work and effect-capacity fallback are
 outside its scope. The M3.5 model and production contract checker bind the
@@ -203,15 +204,12 @@ changes cannot silently preserve obsolete prose.
 The next candidates were reviewed together rather than accumulated as local
 patches:
 
-1. **Capability-routed shared compute batons - retained.** Resolve is one
-   executable level shared by the resolver and verifier helpers. A typed wake
-   reason makes the selected worker attempt that exact lane first. Small-Verify
-   is shared by all verifiers; Large-Verify is consumable only by an Any
-   verifier. Runnable publication derives both scheduler heads and release of
-   the existing active-work charge, because a stable head can be temporarily
-   ineligible under a global, Remote or per-peer limit. This removes duplicate
-   notifications and write-lock probes while adding no owner, queue, lock,
-   task, timer or retry state.
+1. **Capability-routed shared compute batons - superseded by I3.** The
+   historical prototype established the complete runnable predicate and
+   removed duplicate notifications, but retained per-worker authority
+   checkout and settlement. I3 preserves its level-triggered lesson with one
+   coalesced compute prompt and a complete coordinator role probe, while the
+   bounded exchange removes the remaining per-worker mutation ownership.
 2. **Direct verified commit - measured and rejected.** The experiment reused
    the exact final validator and membership compiler and removed every Ready
    probe on eligible chain-backed work. It nevertheless held the compute
@@ -250,13 +248,13 @@ Direct permit priority and template concurrency while removing per-owner
 write-side round trips from one available wave. This is now a normative design
 decision, not another optional P10 prototype.
 
-For homogeneous independent work, the frozen pre-I2 baseline, the implemented
-I2 intermediate state and the selected I3 target are:
+For homogeneous independent work, the frozen pre-I2 baseline, the I2
+checkpoint and the implemented I3 static contract are:
 
 ```text
 pre_i2_applies(N, R) = 3N + 2R
 i2_applies(A, N, R) = A + 2N + 2R
-selected_applies(A, W, R) = A + (W + 1) + 2R
+i3_applies(A, W, R) = A + (W + 1) + 2R
 ```
 
 `A` is the number of immediately available bounded ingress cuts, `W` is the
@@ -264,7 +262,7 @@ number of retained compute waves and `R` is the number of strict Ready/effect
 slices. With one ingress cut, eight worker slots and full Ready slices, the
 executable model gives:
 
-| Owners | Frozen pre-I2 UAK | I2 current | Self-fused workers | I3 target |
+| Owners | Frozen pre-I2 UAK | I2 checkpoint | Self-fused workers | I3 exchange |
 |---:|---:|---:|---:|---:|
 | 1 | 5 Applies | 5 Applies | 5 Applies | 5 Applies |
 | 8 | 26 Applies | 19 Applies | 26 Applies | 5 Applies |

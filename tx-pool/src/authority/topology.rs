@@ -13,6 +13,7 @@ use super::{
     },
     resolver::VerificationCacheUpdate,
     runtime::AuthorityRuntime,
+    service::{AuthorityVerificationCommand, AuthorityVerificationControl},
     template_driver::{
         AuthorityBlockAssembler, AuthorityTemplateDriverFault, AuthorityTemplateRole,
         AuthorityTemplateTask,
@@ -24,7 +25,6 @@ use super::{
 };
 use crate::constants::VERIFY_CACHE_CHANNEL_SIZE;
 use ckb_async_runtime::Handle;
-use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
 use std::{
@@ -34,7 +34,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AuthorityTaskRole {
@@ -187,6 +187,7 @@ impl AuthorityShutdownReport {
 pub(in crate::authority) struct AuthorityTaskTopology {
     runtime: AuthorityRuntime,
     cancel: CancellationToken,
+    verification_stop: AuthorityVerificationCommand,
     workers: Vec<AuthorityWorkerTask>,
     templates: Option<[Option<AuthorityTemplateTask>; 5]>,
     publisher: Option<tokio::task::JoinHandle<Result<(), AuthorityEffectPublisherFault>>>,
@@ -198,7 +199,7 @@ impl AuthorityTaskTopology {
         handle: &Handle,
         runtime: AuthorityRuntime,
         cache: Arc<RwLock<TxVerificationCache>>,
-        command_rx: watch::Receiver<ChunkCommand>,
+        verification_control: AuthorityVerificationControl,
         endpoints: AuthorityEffectEndpoints,
         block_assembler: Option<AuthorityBlockAssembler>,
         parent_cancel: CancellationToken,
@@ -210,6 +211,7 @@ impl AuthorityTaskTopology {
         let claim = runtime
             .claim_effect_publisher()
             .ok_or(AuthorityTopologyStartError::EffectPublisherClaimed)?;
+        let (verification_stop, command_rx) = verification_control.into_parts();
         let (cache_updates, cache_receiver) = mpsc::channel(VERIFY_CACHE_CHANNEL_SIZE);
         let workers = runtime
             .spawn_workers(
@@ -237,6 +239,7 @@ impl AuthorityTaskTopology {
         Ok(Self {
             runtime,
             cancel,
+            verification_stop,
             workers: workers.tasks,
             templates,
             publisher: Some(publisher),
@@ -259,7 +262,7 @@ impl AuthorityTaskTopology {
         mut self,
         timeout: Duration,
     ) -> AuthorityShutdownReport {
-        self.cancel.cancel();
+        self.begin_shutdown();
         match tokio::time::timeout(timeout, self.shutdown_authority()).await {
             Ok(Ok(())) => {
                 let mut derived_failures = Vec::new();
@@ -297,7 +300,7 @@ impl AuthorityTaskTopology {
         mut self,
         fault: AuthorityGenerationFault,
     ) -> AuthorityShutdownReport {
-        self.cancel.cancel();
+        self.begin_shutdown();
         self.abort_all();
         AuthorityShutdownReport {
             status: AuthorityShutdownStatus::PersistenceForbidden(fault),
@@ -320,6 +323,18 @@ impl AuthorityTaskTopology {
             return Err(AuthorityGenerationFault::EffectDrain);
         }
         Ok(())
+    }
+
+    /// Publish the absorbing verification stop before cancelling task owners.
+    /// This non-consuming phase lets the service stop lock-external Direct
+    /// verification before it drains request handlers, while effect and
+    /// settlement ownership remain available for the final ordered join.
+    pub(in crate::authority) fn begin_shutdown(&self) {
+        // This command is paired with the exact receivers owned by the
+        // generation. Stop is absorbing, so a concurrent controller update
+        // cannot reopen verification after this boundary.
+        self.verification_stop.stop();
+        self.cancel.cancel();
     }
 
     async fn join_authority_workers(&mut self) -> Option<AuthorityGenerationFault> {
@@ -394,14 +409,17 @@ impl AuthorityTaskTopology {
 
     fn poll_next_event(&mut self, context: &mut Context<'_>) -> Poll<AuthorityTopologyEvent> {
         let cancelled = self.cancel.is_cancelled();
-        let mut completed_worker = None;
-        for (index, task) in self.workers.iter_mut().enumerate() {
-            if let Poll::Ready(result) = Pin::new(&mut task.handle).poll(context) {
-                completed_worker = Some((index, result));
-                break;
+        loop {
+            let mut completed_worker = None;
+            for (index, task) in self.workers.iter_mut().enumerate() {
+                if let Poll::Ready(result) = Pin::new(&mut task.handle).poll(context) {
+                    completed_worker = Some((index, result));
+                    break;
+                }
             }
-        }
-        if let Some((index, result)) = completed_worker {
+            let Some((index, result)) = completed_worker else {
+                break;
+            };
             let task = self.workers.remove(index);
             let role = AuthorityTaskRole::Worker(task.role);
             if let Some(event) = worker_event(role, result) {
@@ -446,7 +464,7 @@ mod test_support;
 
 impl Drop for AuthorityTaskTopology {
     fn drop(&mut self) {
-        self.cancel.cancel();
+        self.begin_shutdown();
         self.abort_all();
     }
 }
@@ -503,21 +521,33 @@ fn worker_event(
     role: AuthorityTaskRole,
     result: Result<Result<(), AuthorityWorkerFault>, tokio::task::JoinError>,
 ) -> Option<AuthorityTopologyEvent> {
-    Some(match result {
-        Ok(Ok(())) => AuthorityTopologyEvent::ShutdownRequested(role),
-        Ok(Err(fault)) => {
-            AuthorityTopologyEvent::GenerationInvalid(AuthorityGenerationFault::Worker {
+    match result {
+        // Retained compute workers, Ready and Maintenance are children of the
+        // generation lifecycle: their only clean exits are caused by the
+        // coordinator closing assignments or by generation cancellation. A
+        // child can become join-ready before the coordinator that caused the
+        // closure; treating that derivative exit as the root event would mask
+        // the coordinator's typed fault. The coordinator is the sole clean
+        // lifecycle sentinel. Every child error remains generation-invalid.
+        Ok(Ok(()))
+            if matches!(
+                role,
+                AuthorityTaskRole::Worker(AuthorityWorkerRole::ComputeCoordinator)
+            ) =>
+        {
+            Some(AuthorityTopologyEvent::ShutdownRequested(role))
+        }
+        Ok(Ok(())) => None,
+        Ok(Err(fault)) => Some(AuthorityTopologyEvent::GenerationInvalid(
+            AuthorityGenerationFault::Worker {
                 role,
                 fault: fault.into_kind(),
-            })
-        }
-        Err(error) => {
-            AuthorityTopologyEvent::GenerationInvalid(AuthorityGenerationFault::WorkerJoin {
-                role,
-                error,
-            })
-        }
-    })
+            },
+        )),
+        Err(error) => Some(AuthorityTopologyEvent::GenerationInvalid(
+            AuthorityGenerationFault::WorkerJoin { role, error },
+        )),
+    }
 }
 
 fn poll_template_slot(

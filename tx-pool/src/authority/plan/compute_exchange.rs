@@ -1,12 +1,16 @@
 use super::{
-    ActiveWorkAvailability, ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault,
-    BatchClockReservation, CheckoutEligibility, DerivedOwnerDelta, OwnerLocalSettlement, PlanError,
-    PreparedApply, SettlementClassification, TxPoolAuthority,
+    ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault, BatchClockReservation,
+    CheckoutEligibility, DerivedOwnerDelta, OwnerLocalSettlement, PlanError, PreparedApply,
+    SettlementClassification, TxPoolAuthority,
 };
 use crate::authority::{
     dependency::DependencyBatchDelta,
     exchange::{AuthorityComputeExecutionPermit, ComputeWorkerGrant, ComputeWorkerSlot},
-    resources::{ChargeRecord, OrderedResourceProjection, ResourceBatchPlan, ResourceError},
+    resources::{
+        ActiveWorkAvailability, ChargeRecord, OrderedResourceProjection, ResourceBatchPlan,
+        ResourceError,
+    },
+    runtime::{AuthorityComputeAftermath, AuthorityFinishedCompute},
     scheduler::{CheckoutTicket, SchedulerBatchDelta, SchedulerExchangeWave},
     state::{
         ActiveWork, EntryVersion, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash, WorkPermit,
@@ -23,19 +27,72 @@ use std::{collections::HashMap, num::NonZeroUsize};
 #[must_use = "a finished compute slot must be exchanged, settled, or discharged"]
 pub(in crate::authority) struct ComputeExchangeCompletion {
     slot: ComputeWorkerSlot,
-    settlement: ComputeSettlement,
+    finished: AuthorityFinishedCompute,
 }
 
 impl ComputeExchangeCompletion {
-    pub(in crate::authority) fn new(
+    pub(in crate::authority) fn from_finished(
         slot: ComputeWorkerSlot,
-        settlement: ComputeSettlement,
+        finished: AuthorityFinishedCompute,
     ) -> Self {
-        Self { slot, settlement }
+        Self { slot, finished }
     }
 
     pub(in crate::authority) fn version(&self) -> EntryVersion {
-        self.settlement.token.version
+        self.finished.settlement().token.version
+    }
+
+    pub(in crate::authority) fn slot(&self) -> ComputeWorkerSlot {
+        self.slot
+    }
+
+    pub(in crate::authority) fn permits_immediate_refill(&self) -> bool {
+        self.finished.aftermath().permits_immediate_refill()
+    }
+
+    pub(in crate::authority) fn into_parts(self) -> (ComputeWorkerSlot, AuthorityFinishedCompute) {
+        (self.slot, self.finished)
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "a settled worker slot must release its post-commit consequence"]
+pub(in crate::authority) struct ComputeExchangeSettled {
+    slot: ComputeWorkerSlot,
+    aftermath: AuthorityComputeAftermath,
+}
+
+impl ComputeExchangeSettled {
+    pub(in crate::authority) fn into_parts(self) -> (ComputeWorkerSlot, AuthorityComputeAftermath) {
+        (self.slot, self.aftermath)
+    }
+}
+
+impl PartialEq<ComputeWorkerSlot> for ComputeExchangeSettled {
+    fn eq(&self, other: &ComputeWorkerSlot) -> bool {
+        self.slot == *other
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum ComputeExchangeDeferredRoute {
+    ExactSettlement,
+    ExchangeRetry,
+    ExchangeAfterEffect,
+}
+
+#[derive(Debug)]
+#[must_use = "a deferred completion must follow its sealed settlement route"]
+pub(in crate::authority) struct ComputeExchangeDeferred {
+    route: ComputeExchangeDeferredRoute,
+    completion: ComputeExchangeCompletion,
+}
+
+impl ComputeExchangeDeferred {
+    pub(in crate::authority) fn into_parts(
+        self,
+    ) -> (ComputeExchangeDeferredRoute, ComputeExchangeCompletion) {
+        (self.route, self.completion)
     }
 }
 
@@ -65,11 +122,14 @@ enum ClassifiedCompletion {
         token: SettlementToken,
         ingress_peer: Option<PeerIndex>,
         settlement: Option<OwnerLocalSettlement>,
+        aftermath: AuthorityComputeAftermath,
     },
     Deferred {
         slot: ComputeWorkerSlot,
         token: SettlementToken,
         next: SettlementNext,
+        aftermath: AuthorityComputeAftermath,
+        route: ComputeExchangeDeferredRoute,
     },
     Obsolete {
         slot: ComputeWorkerSlot,
@@ -77,24 +137,34 @@ enum ClassifiedCompletion {
 }
 
 impl ClassifiedCompletion {
-    fn into_recovery(self) -> ComputeExchangeRecovery {
+    fn recover_into<S: ComputeExchangeRecoverySink>(self, sink: &mut S) -> Result<(), S::Error> {
         match self {
-            Self::OwnerLocal { slot, token, .. } => {
-                ComputeExchangeRecovery::Settlement(ComputeExchangeCompletion {
-                    slot,
-                    settlement: ComputeSettlement {
+            Self::OwnerLocal {
+                slot,
+                token,
+                aftermath,
+                ..
+            } => sink.recover_settlement(ComputeExchangeCompletion::from_finished(
+                slot,
+                AuthorityFinishedCompute::from_parts(
+                    ComputeSettlement {
                         token,
                         next: SettlementNext::Retry,
                     },
-                })
-            }
-            Self::Deferred { slot, token, next } => {
-                ComputeExchangeRecovery::Settlement(ComputeExchangeCompletion {
-                    slot,
-                    settlement: ComputeSettlement { token, next },
-                })
-            }
-            Self::Obsolete { slot } => ComputeExchangeRecovery::Obsolete(slot),
+                    aftermath,
+                ),
+            )),
+            Self::Deferred {
+                slot,
+                token,
+                next,
+                aftermath,
+                ..
+            } => sink.recover_settlement(ComputeExchangeCompletion::from_finished(
+                slot,
+                AuthorityFinishedCompute::from_parts(ComputeSettlement { token, next }, aftermath),
+            )),
+            Self::Obsolete { slot } => sink.recover_obsolete(slot),
         }
     }
 }
@@ -107,39 +177,65 @@ pub(in crate::authority) struct ComputeExchangePlanFailure {
     grants: std::vec::IntoIter<ComputeWorkerGrant>,
 }
 
-pub(in crate::authority) enum ComputeExchangeRecovery {
-    Settlement(ComputeExchangeCompletion),
-    Obsolete(ComputeWorkerSlot),
-    Grant(ComputeWorkerGrant),
+impl std::fmt::Debug for ComputeExchangePlanFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ComputeExchangePlanFailure")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
 }
 
-pub(in crate::authority) struct ComputeExchangeRecoveryIter {
+/// Linear failure router. It is deliberately a visitor rather than a large
+/// tagged recovery value: every capability moves directly to its owner without
+/// boxing or allocating in the allocator/effect-backpressure path.
+pub(in crate::authority) trait ComputeExchangeRecoverySink {
+    type Error;
+
+    fn recover_settlement(
+        &mut self,
+        completion: ComputeExchangeCompletion,
+    ) -> Result<(), Self::Error>;
+
+    fn recover_obsolete(&mut self, slot: ComputeWorkerSlot) -> Result<(), Self::Error>;
+
+    fn recover_grant(&mut self, grant: ComputeWorkerGrant) -> Result<(), Self::Error>;
+}
+
+#[must_use = "every failed exchange capability must be routed exactly once"]
+pub(in crate::authority) struct ComputeExchangeRecoveries {
     classified: std::vec::IntoIter<ClassifiedCompletion>,
     remaining: std::vec::IntoIter<ComputeExchangeCompletion>,
     grants: std::vec::IntoIter<ComputeWorkerGrant>,
 }
 
-impl Iterator for ComputeExchangeRecoveryIter {
-    type Item = ComputeExchangeRecovery;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.classified
-            .next()
-            .map(ClassifiedCompletion::into_recovery)
-            .or_else(|| {
-                self.remaining
-                    .next()
-                    .map(ComputeExchangeRecovery::Settlement)
-            })
-            .or_else(|| self.grants.next().map(ComputeExchangeRecovery::Grant))
+impl ComputeExchangeRecoveries {
+    pub(in crate::authority) fn recover_into<S: ComputeExchangeRecoverySink>(
+        self,
+        sink: &mut S,
+    ) -> Result<(), S::Error> {
+        for completion in self.classified {
+            completion.recover_into(sink)?;
+        }
+        for completion in self.remaining {
+            sink.recover_settlement(completion)?;
+        }
+        for grant in self.grants {
+            sink.recover_grant(grant)?;
+        }
+        Ok(())
     }
 }
 
 impl ComputeExchangePlanFailure {
-    pub(in crate::authority) fn into_parts(self) -> (PlanError, ComputeExchangeRecoveryIter) {
+    pub(in crate::authority) fn error(&self) -> &PlanError {
+        &self.error
+    }
+
+    pub(in crate::authority) fn into_recovery(self) -> (PlanError, ComputeExchangeRecoveries) {
         (
             self.error,
-            ComputeExchangeRecoveryIter {
+            ComputeExchangeRecoveries {
                 classified: self.classified,
                 remaining: self.remaining,
                 grants: self.grants,
@@ -287,9 +383,9 @@ struct ComputeExchangeCompileFailure {
 }
 
 struct ComputeExchangeOutcomeBuffers {
-    settled: Vec<ComputeWorkerSlot>,
+    settled: Vec<ComputeExchangeSettled>,
     obsolete: Vec<ComputeWorkerSlot>,
-    deferred: Vec<ComputeExchangeCompletion>,
+    deferred: Vec<ComputeExchangeDeferred>,
 }
 
 impl ComputeExchangeOutcomeBuffers {
@@ -321,7 +417,7 @@ impl ComputeExchangeOutcomeBuffers {
 struct PreparedComputeExchange<'authority> {
     plan: Option<PreparedApply<'authority>>,
     classified: Vec<ClassifiedCompletion>,
-    exclusive_settled: Option<ComputeWorkerSlot>,
+    exclusive_settled: Option<ComputeExchangeSettled>,
     assignments: Vec<ComputeExchangeAssignment>,
     unused_grants: Vec<ComputeWorkerGrant>,
     outcomes: ComputeExchangeOutcomeBuffers,
@@ -330,9 +426,9 @@ struct PreparedComputeExchange<'authority> {
 #[must_use = "committed exchange consequences must leave the authority guard"]
 pub(in crate::authority) struct CommittedComputeExchange {
     pub(in crate::authority) retirement: Option<super::CommittedDelta>,
-    pub(in crate::authority) settled: Vec<ComputeWorkerSlot>,
+    pub(in crate::authority) settled: Vec<ComputeExchangeSettled>,
     pub(in crate::authority) obsolete: Vec<ComputeWorkerSlot>,
-    pub(in crate::authority) deferred: Vec<ComputeExchangeCompletion>,
+    pub(in crate::authority) deferred: Vec<ComputeExchangeDeferred>,
     pub(in crate::authority) assignments: Vec<ComputeExchangeAssignment>,
     pub(in crate::authority) unused_grants: Vec<ComputeWorkerGrant>,
 }
@@ -345,18 +441,30 @@ impl PreparedComputeExchange<'_> {
             mut obsolete,
             mut deferred,
         } = self.outcomes;
-        if let Some(slot) = self.exclusive_settled {
-            settled.push(slot);
+        if let Some(completion) = self.exclusive_settled {
+            settled.push(completion);
         }
         for classified in self.classified {
             match classified {
-                ClassifiedCompletion::OwnerLocal { slot, .. } => settled.push(slot),
-                ClassifiedCompletion::Deferred { slot, token, next } => {
-                    deferred.push(ComputeExchangeCompletion {
+                ClassifiedCompletion::OwnerLocal {
+                    slot, aftermath, ..
+                } => settled.push(ComputeExchangeSettled { slot, aftermath }),
+                ClassifiedCompletion::Deferred {
+                    slot,
+                    token,
+                    next,
+                    aftermath,
+                    route,
+                } => deferred.push(ComputeExchangeDeferred {
+                    route,
+                    completion: ComputeExchangeCompletion::from_finished(
                         slot,
-                        settlement: ComputeSettlement { token, next },
-                    });
-                }
+                        AuthorityFinishedCompute::from_parts(
+                            ComputeSettlement { token, next },
+                            aftermath,
+                        ),
+                    ),
+                }),
                 ClassifiedCompletion::Obsolete { slot } => obsolete.push(slot),
             }
         }
@@ -395,7 +503,11 @@ fn provisional_version(first: EntryVersion, offset: usize) -> Result<EntryVersio
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
 }
 
-fn defer_owner_local(member: &mut ClassifiedCompletion, peer: Option<PeerIndex>) {
+fn defer_owner_local(
+    member: &mut ClassifiedCompletion,
+    peer: Option<PeerIndex>,
+    route: ComputeExchangeDeferredRoute,
+) {
     let should_defer = matches!(
         member,
         ClassifiedCompletion::OwnerLocal { ingress_peer, .. }
@@ -409,20 +521,38 @@ fn defer_owner_local(member: &mut ClassifiedCompletion, peer: Option<PeerIndex>)
         ClassifiedCompletion::Deferred { .. } | ClassifiedCompletion::Obsolete { .. } => return,
     };
     let previous = std::mem::replace(member, ClassifiedCompletion::Obsolete { slot });
-    let ClassifiedCompletion::OwnerLocal { slot, token, .. } = previous else {
+    let ClassifiedCompletion::OwnerLocal {
+        slot,
+        token,
+        aftermath,
+        ..
+    } = previous
+    else {
         return;
     };
     *member = ClassifiedCompletion::Deferred {
         slot,
         token,
         next: SettlementNext::Retry,
+        aftermath,
+        route,
     };
 }
 
-fn defer_completion(completion: ComputeExchangeCompletion) -> ClassifiedCompletion {
-    let ComputeExchangeCompletion { slot, settlement } = completion;
+fn defer_completion(
+    completion: ComputeExchangeCompletion,
+    route: ComputeExchangeDeferredRoute,
+) -> ClassifiedCompletion {
+    let ComputeExchangeCompletion { slot, finished } = completion;
+    let (settlement, aftermath) = finished.into_parts();
     let ComputeSettlement { token, next } = settlement;
-    ClassifiedCompletion::Deferred { slot, token, next }
+    ClassifiedCompletion::Deferred {
+        slot,
+        token,
+        next,
+        aftermath,
+        route,
+    }
 }
 
 impl TxPoolAuthority {
@@ -547,7 +677,8 @@ impl TxPoolAuthority {
         let mut blocked_revocation = false;
         let mut remaining = completions.into_iter();
         while let Some(completion) = remaining.next() {
-            let ComputeExchangeCompletion { slot, settlement } = completion;
+            let ComputeExchangeCompletion { slot, finished } = completion;
+            let (settlement, aftermath) = finished.into_parts();
             let ComputeSettlement { token, next } = settlement;
             let existing = match self.entries.get(&token.hash) {
                 Some(existing) if existing.record().version == token.version => existing,
@@ -573,6 +704,7 @@ impl TxPoolAuthority {
                     token,
                     ingress_peer: preaccepted.source.ingress_peer(),
                     settlement: None,
+                    aftermath,
                 });
                 return Err(exchange_failure_from_iter(
                     PlanError::Fault(AuthorityFault::ResourceProjection),
@@ -586,7 +718,13 @@ impl TxPoolAuthority {
                 .ingress_peer()
                 .is_some_and(|peer| blocked_revocation_peers.contains(&peer))
             {
-                classified.push(ClassifiedCompletion::Deferred { slot, token, next });
+                classified.push(ClassifiedCompletion::Deferred {
+                    slot,
+                    token,
+                    next,
+                    aftermath,
+                    route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
+                });
                 continue;
             }
             match self.classify_settlement(preaccepted, active, next) {
@@ -596,6 +734,7 @@ impl TxPoolAuthority {
                         token,
                         ingress_peer: preaccepted.source.ingress_peer(),
                         settlement: Some(settlement),
+                        aftermath,
                     });
                 }
                 Ok(SettlementClassification::NonLocal(nonlocal)) => {
@@ -619,6 +758,8 @@ impl TxPoolAuthority {
                             slot,
                             token,
                             next: deferred_next(nonlocal),
+                            aftermath,
+                            route: ComputeExchangeDeferredRoute::ExactSettlement,
                         });
                         continue;
                     };
@@ -636,6 +777,8 @@ impl TxPoolAuthority {
                                 slot,
                                 token,
                                 next: SettlementNext::Waiting(missing),
+                                aftermath,
+                                route: ComputeExchangeDeferredRoute::ExactSettlement,
                             });
                             continue;
                         }
@@ -649,6 +792,8 @@ impl TxPoolAuthority {
                             slot,
                             token,
                             next: SettlementNext::Rejected(retry),
+                            aftermath,
+                            route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
                         });
                         continue;
                     }
@@ -659,16 +804,25 @@ impl TxPoolAuthority {
                     ) {
                         Ok(delta) => {
                             for member in &mut classified {
-                                defer_owner_local(member, None);
+                                defer_owner_local(
+                                    member,
+                                    None,
+                                    ComputeExchangeDeferredRoute::ExchangeRetry,
+                                );
                             }
-                            classified.extend(remaining.map(defer_completion));
+                            classified.extend(remaining.map(|completion| {
+                                defer_completion(
+                                    completion,
+                                    ComputeExchangeDeferredRoute::ExchangeRetry,
+                                )
+                            }));
                             return Ok(PreparedComputeExchange {
                                 plan: Some(PreparedApply {
                                     authority: self,
                                     delta: AuthorityDelta::Admin(delta),
                                 }),
                                 classified,
-                                exclusive_settled: Some(slot),
+                                exclusive_settled: Some(ComputeExchangeSettled { slot, aftermath }),
                                 assignments: Vec::new(),
                                 unused_grants: grants,
                                 outcomes,
@@ -678,12 +832,18 @@ impl TxPoolAuthority {
                             blocked_revocation = true;
                             blocked_revocation_peers.push(peer);
                             for member in &mut classified {
-                                defer_owner_local(member, Some(peer));
+                                defer_owner_local(
+                                    member,
+                                    Some(peer),
+                                    ComputeExchangeDeferredRoute::ExchangeAfterEffect,
+                                );
                             }
                             classified.push(ClassifiedCompletion::Deferred {
                                 slot,
                                 token,
                                 next: SettlementNext::Rejected(retry),
+                                aftermath,
+                                route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
                             });
                         }
                         Err(error) => {
@@ -691,6 +851,8 @@ impl TxPoolAuthority {
                                 slot,
                                 token,
                                 next: SettlementNext::Rejected(retry),
+                                aftermath,
+                                route: ComputeExchangeDeferredRoute::ExchangeRetry,
                             });
                             return Err(exchange_failure_from_iter(
                                 error, classified, remaining, grants,
@@ -704,6 +866,7 @@ impl TxPoolAuthority {
                         token,
                         ingress_peer: preaccepted.source.ingress_peer(),
                         settlement: None,
+                        aftermath,
                     });
                     return Err(exchange_failure_from_iter(
                         error, classified, remaining, grants,
@@ -1185,3 +1348,7 @@ fn exchange_failure_from_iter(
         grants: grants.into_iter(),
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/support/compute_exchange.rs"]
+pub(super) mod test_support;

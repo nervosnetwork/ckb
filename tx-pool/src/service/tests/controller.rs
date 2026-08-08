@@ -1,8 +1,10 @@
 use super::*;
+use crate::authority::service::AuthorityVerificationControl;
 use crate::service::{AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission};
 use crate::test_support::genesis_snapshot;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
+use ckb_script::ChunkCommand;
 use std::{
     collections::{HashSet, VecDeque},
     future::Future,
@@ -13,7 +15,8 @@ use std::{
 fn full_controller() -> TxPoolController {
     let (sender, _receiver) = mpsc::channel(1);
     let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
-    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     assert!(
         sender
             .try_send(Message::NotifyTxs(Notify::new(
@@ -26,7 +29,7 @@ fn full_controller() -> TxPoolController {
     TxPoolController {
         sender,
         chain_control_sender,
-        chunk_tx: Arc::new(chunk_tx),
+        verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         signal: CancellationToken::new(),
@@ -37,11 +40,12 @@ fn full_controller() -> TxPoolController {
 async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
     let (sender, _receiver) = mpsc::channel(1);
     let (chain_control_sender, mut chain_control_receiver) = mpsc::channel(1);
-    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let controller = TxPoolController {
         sender,
         chain_control_sender,
-        chunk_tx: Arc::new(chunk_tx),
+        verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
         signal: CancellationToken::new(),
@@ -74,12 +78,13 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
 fn closed_reorg_consumer_fails_without_waiting() {
     let (sender, _receiver) = mpsc::channel(1);
     let (chain_control_sender, chain_control_receiver) = mpsc::channel(1);
-    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     drop(chain_control_receiver);
     let controller = TxPoolController {
         sender,
         chain_control_sender,
-        chunk_tx: Arc::new(chunk_tx),
+        verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
         signal: CancellationToken::new(),
@@ -100,11 +105,12 @@ fn closed_reorg_consumer_fails_without_waiting() {
 async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
     let (sender, _receiver) = mpsc::channel(1);
     let (chain_control_sender, mut chain_control_receiver) = mpsc::channel(1);
-    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let controller = TxPoolController {
         sender,
         chain_control_sender,
-        chunk_tx: Arc::new(chunk_tx),
+        verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         signal: CancellationToken::new(),
@@ -171,11 +177,12 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
     runtime.block_on(async {
         let (sender, mut receiver) = mpsc::channel(1);
         let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
-        let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let (_verification_control, verification_command) =
+            AuthorityVerificationControl::channel(ChunkCommand::Resume);
         let controller = TxPoolController {
             sender,
             chain_control_sender,
-            chunk_tx: Arc::new(chunk_tx),
+            verification_command,
             handle: new_background_runtime(),
             started: Arc::new(AtomicBool::new(true)),
             signal: CancellationToken::new(),

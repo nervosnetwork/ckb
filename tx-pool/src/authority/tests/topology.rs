@@ -3,10 +3,11 @@ use super::super::{
         CommittedAcceptance, CommittedEffect, CommittedEntrySnapshot, EffectBatchBound,
         EffectBatchBounds, EffectCapacity, EffectLimits, EffectPolicy,
     },
-    plan::AuthorityFault,
+    plan::{AuthorityFault, PlanError},
     publisher::AuthorityEffectEndpoints,
     relay::{AuthorityRelayReceiver, AuthorityRelaySink, authority_relay_mailbox},
     runtime::AuthorityRuntime,
+    service::AuthorityVerificationControl,
     state::{AcceptedStatus, ApplySequence, RawTxHash},
     template_driver::{AuthorityTemplateRole, AuthorityTemplateTask},
     topology::{
@@ -50,26 +51,58 @@ fn endpoints(relay: AuthorityRelaySink) -> AuthorityEffectEndpoints {
 fn start(
     runtime: AuthorityRuntime,
     relay: AuthorityRelaySink,
-    command_rx: watch::Receiver<ChunkCommand>,
+    command: ChunkCommand,
 ) -> Result<AuthorityTaskTopology, AuthorityTopologyStartError> {
-    start_with_endpoints(runtime, endpoints(relay), command_rx)
+    start_with_endpoints(runtime, endpoints(relay), command)
 }
 
 fn start_with_endpoints(
     runtime: AuthorityRuntime,
     endpoints: AuthorityEffectEndpoints,
-    command_rx: watch::Receiver<ChunkCommand>,
+    command: ChunkCommand,
+) -> Result<AuthorityTaskTopology, AuthorityTopologyStartError> {
+    let (verification_control, _command_tx) = AuthorityVerificationControl::channel(command);
+    start_with_control(runtime, endpoints, verification_control)
+}
+
+fn start_with_control(
+    runtime: AuthorityRuntime,
+    endpoints: AuthorityEffectEndpoints,
+    verification_control: AuthorityVerificationControl,
 ) -> Result<AuthorityTaskTopology, AuthorityTopologyStartError> {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     AuthorityTaskTopology::start(
         &handle,
         runtime,
         Arc::new(RwLock::new(init_cache())),
-        command_rx,
+        verification_control,
         endpoints,
         None,
         CancellationToken::new(),
     )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_topology_shutdown_stops_the_paired_verification_generation() {
+    let runtime = runtime();
+    let (relay, _receiver) = relay_mailbox(2);
+    let (verification_control, command_tx) =
+        AuthorityVerificationControl::channel(ChunkCommand::Suspend);
+    let mut command_observer: watch::Receiver<ChunkCommand> = command_tx.subscribe();
+    let topology = start_with_control(runtime, endpoints(relay), verification_control)
+        .expect("the complete task topology starts atomically");
+
+    let report = topology.shutdown(Duration::from_secs(2)).await;
+    assert!(report.persistence_eligible());
+    assert!(command_observer.has_changed().unwrap_or(false));
+    assert!(matches!(
+        &*command_observer.borrow_and_update(),
+        ChunkCommand::Stop
+    ));
+    command_tx
+        .resume()
+        .expect("the observer keeps the generation command channel live");
+    assert!(matches!(&*command_observer.borrow(), ChunkCommand::Stop));
 }
 
 fn relay_mailbox(max_items: usize) -> (AuthorityRelaySink, AuthorityRelayReceiver) {
@@ -108,8 +141,7 @@ async fn uak_topology_clean_shutdown_drains_effects_before_persistence() {
         )
         .expect("the committed effect fits the bounded journal");
     let (relay, relay_rx) = relay_mailbox(4);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let topology = start(runtime.clone(), relay, command_rx)
+    let topology = start(runtime.clone(), relay, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
 
     let report = topology.shutdown(Duration::from_secs(2)).await;
@@ -137,8 +169,7 @@ async fn uak_topology_relay_disconnect_is_local_degradation_not_shutdown() {
         .expect("the committed effect fits the bounded journal");
     let (relay, relay_rx) = relay_mailbox(2);
     drop(relay_rx);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let mut topology = start(runtime.clone(), relay, command_rx)
+    let mut topology = start(runtime.clone(), relay, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
 
     tokio::time::timeout(Duration::from_secs(1), async {
@@ -186,8 +217,7 @@ async fn uak_topology_relay_overflow_is_nonblocking_and_reconciled() {
             super::super::relay::RelayMailboxDisposition::Exact
         ));
     }
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let topology = start(runtime.clone(), relay, command_rx)
+    let topology = start(runtime.clone(), relay, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
 
     let report = topology.shutdown(Duration::from_secs(2)).await;
@@ -244,8 +274,7 @@ async fn uak_topology_relay_overflow_cannot_pin_effect_blocked_compute() {
             super::super::relay::RelayMailboxDisposition::Exact
         ));
     }
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let topology = start(runtime.clone(), relay, command_rx)
+    let topology = start(runtime.clone(), relay, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
 
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -274,8 +303,7 @@ async fn uak_topology_relay_overflow_cannot_pin_effect_blocked_compute() {
 async fn uak_topology_derived_timeout_does_not_forbid_persistence() {
     let runtime = runtime();
     let (relay, _relay_rx) = relay_mailbox(2);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let mut topology = start(runtime.clone(), relay, command_rx)
+    let mut topology = start(runtime.clone(), relay, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
     topology.install_template_task_for_foundation(AuthorityTemplateTask {
         role: AuthorityTemplateRole::Replacement,
@@ -325,8 +353,7 @@ async fn uak_topology_bounds_one_stuck_callback_without_forbidding_persistence()
         Arc::new(callbacks),
         None,
     );
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let topology = start_with_endpoints(runtime.clone(), endpoints, command_rx)
+    let topology = start_with_endpoints(runtime.clone(), endpoints, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
 
     tokio::time::timeout(Duration::from_millis(1_500), async {
@@ -357,8 +384,7 @@ async fn uak_topology_claim_conflict_fails_before_any_task_is_spawned() {
         .claim_effect_publisher()
         .expect("the fixture holds the sole publisher capability");
     let (first_relay, _first_receiver) = relay_mailbox(2);
-    let (_first_command, first_command_rx) = watch::channel(ChunkCommand::Resume);
-    let result = start(runtime.clone(), first_relay, first_command_rx);
+    let result = start(runtime.clone(), first_relay, ChunkCommand::Resume);
     assert!(matches!(
         result,
         Err(AuthorityTopologyStartError::EffectPublisherClaimed)
@@ -366,8 +392,7 @@ async fn uak_topology_claim_conflict_fails_before_any_task_is_spawned() {
 
     drop(claim);
     let (relay, _receiver) = relay_mailbox(2);
-    let (_command, command_rx) = watch::channel(ChunkCommand::Resume);
-    let topology = start(runtime, relay, command_rx)
+    let topology = start(runtime, relay, ChunkCommand::Resume)
         .expect("releasing the construction capability permits one topology");
     assert!(
         topology
@@ -385,9 +410,8 @@ async fn uak_topology_forbids_persistence_only_after_authority_integrity_loss() 
         authority.force_next_sequence(ApplySequence(u128::MAX));
     });
     let (relay, _receiver) = relay_mailbox(2);
-    let (_command, command_rx) = watch::channel(ChunkCommand::Resume);
-    let mut topology =
-        start(runtime, relay, command_rx).expect("the complete task topology starts atomically");
+    let mut topology = start(runtime, relay, ChunkCommand::Resume)
+        .expect("the complete task topology starts atomically");
 
     let event = tokio::time::timeout(Duration::from_secs(2), topology.next_event())
         .await
@@ -396,20 +420,29 @@ async fn uak_topology_forbids_persistence_only_after_authority_integrity_loss() 
         AuthorityTopologyEvent::GenerationInvalid(fault) => fault,
         other => panic!("unexpected topology event: {other:?}"),
     };
-    assert!(matches!(
-        &fault,
-        AuthorityGenerationFault::Worker {
-            fault: AuthorityWorkerFaultKind::Authority(AuthorityFault::CounterExhausted),
-            ..
-        }
-    ));
+    assert!(
+        matches!(
+            &fault,
+            AuthorityGenerationFault::Worker {
+                fault: AuthorityWorkerFaultKind::Exchange(failure),
+                ..
+            } if matches!(
+                failure.error(),
+                PlanError::Fault(AuthorityFault::CounterExhausted)
+            )
+        ),
+        "unexpected generation fault: {fault:?}"
+    );
 
     let report = topology.invalidate_generation(fault);
     assert!(matches!(
         report.status(),
         AuthorityShutdownStatus::PersistenceForbidden(AuthorityGenerationFault::Worker {
-            fault: AuthorityWorkerFaultKind::Authority(AuthorityFault::CounterExhausted),
+            fault: AuthorityWorkerFaultKind::Exchange(failure),
             ..
-        })
+        }) if matches!(
+            failure.error(),
+            PlanError::Fault(AuthorityFault::CounterExhausted)
+        )
     ));
 }

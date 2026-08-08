@@ -2,7 +2,7 @@ use super::*;
 
 impl ResolutionJob {
     pub(in crate::authority) fn retry_for_foundation(self) -> ComputeSettlement {
-        self.work.retry()
+        self.retry()
     }
 }
 

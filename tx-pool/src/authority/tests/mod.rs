@@ -1,6 +1,7 @@
 mod ban;
 mod boundary_refinement;
 mod chain;
+mod compute_coordinator;
 mod compute_exchange;
 mod dependency;
 mod effect;

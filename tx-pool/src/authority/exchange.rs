@@ -5,7 +5,8 @@
 //! the only component that may turn an idle slot into checked-out work.
 
 use super::state::{VerifyCapability, WorkPermit};
-use tokio::sync::OwnedSemaphorePermit;
+use std::sync::Arc;
+use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum ComputeWorkerSlotId {
@@ -39,12 +40,27 @@ pub(super) struct ComputeVerifierSlot {
 #[derive(Debug)]
 #[must_use = "a transient compute permit must guard one complete execution"]
 pub(in crate::authority) struct AuthorityComputeExecutionPermit {
-    _permit: OwnedSemaphorePermit,
+    permit: Option<OwnedSemaphorePermit>,
+    released: Arc<Notify>,
 }
 
 impl AuthorityComputeExecutionPermit {
-    pub(in crate::authority) fn new(permit: OwnedSemaphorePermit) -> Self {
-        Self { _permit: permit }
+    pub(in crate::authority) fn new(permit: OwnedSemaphorePermit, released: Arc<Notify>) -> Self {
+        Self {
+            permit: Some(permit),
+            released,
+        }
+    }
+}
+
+impl Drop for AuthorityComputeExecutionPermit {
+    fn drop(&mut self) {
+        // Release the fair semaphore count before publishing its derived
+        // level. `notify_one` coalesces releases and stores one wake when the
+        // coordinator has not yet polled, so a failed immediate acquisition
+        // cannot miss the transition to available capacity.
+        drop(self.permit.take());
+        self.released.notify_one();
     }
 }
 
@@ -130,13 +146,6 @@ impl ComputeWorkerSlot {
         match self {
             Self::OrderedResolve => None,
             Self::Verifier(slot) => Some(WorkPermit::ResolveThenVerify(slot.capability)),
-        }
-    }
-
-    pub(super) const fn verify_capability(self) -> Option<VerifyCapability> {
-        match self {
-            Self::OrderedResolve => None,
-            Self::Verifier(slot) => Some(slot.capability),
         }
     }
 }

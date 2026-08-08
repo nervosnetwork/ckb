@@ -80,6 +80,7 @@ use std::{
     collections::{HashMap, VecDeque},
     num::NonZeroUsize,
     path::PathBuf,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -246,6 +247,86 @@ impl From<AuthorityFault> for AuthorityProjectionFault {
 
 /// Immutable construction inputs. This value exists only until the runtime,
 /// derived endpoints and task topology have all been constructed.
+#[derive(Clone)]
+pub(crate) struct AuthorityVerificationCommand {
+    sender: Arc<watch::Sender<ChunkCommand>>,
+}
+
+impl AuthorityVerificationCommand {
+    fn update(&self, command: ChunkCommand) -> Result<(), watch::error::SendError<ChunkCommand>> {
+        // Match `watch::Sender::send` at the public controller boundary: a
+        // command with no generation receiver is rejected. The conditional
+        // mutation itself is serialized by the watch value lock, making Stop
+        // absorbing even when an operator Resume races generation shutdown.
+        if self.sender.receiver_count() == 0 {
+            return Err(watch::error::SendError(command));
+        }
+        self.sender.send_if_modified(|current| {
+            if matches!(current, ChunkCommand::Stop) || *current == command {
+                false
+            } else {
+                *current = command;
+                true
+            }
+        });
+        Ok(())
+    }
+
+    pub(crate) fn suspend(&self) -> Result<(), watch::error::SendError<ChunkCommand>> {
+        self.update(ChunkCommand::Suspend)
+    }
+
+    pub(crate) fn resume(&self) -> Result<(), watch::error::SendError<ChunkCommand>> {
+        self.update(ChunkCommand::Resume)
+    }
+
+    pub(in crate::authority) fn stop(&self) {
+        self.sender.send_if_modified(|current| {
+            if matches!(current, ChunkCommand::Stop) {
+                false
+            } else {
+                *current = ChunkCommand::Stop;
+                true
+            }
+        });
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/support/service.rs"]
+mod test_support;
+
+pub(crate) struct AuthorityVerificationControl {
+    command: AuthorityVerificationCommand,
+    receiver: watch::Receiver<ChunkCommand>,
+}
+
+impl AuthorityVerificationControl {
+    pub(crate) fn channel(initial: ChunkCommand) -> (Self, AuthorityVerificationCommand) {
+        let (sender, receiver) = watch::channel(initial);
+        let command = AuthorityVerificationCommand {
+            sender: Arc::new(sender),
+        };
+        (
+            Self {
+                command: command.clone(),
+                receiver,
+            },
+            command,
+        )
+    }
+
+    fn receiver(&self) -> watch::Receiver<ChunkCommand> {
+        self.receiver.clone()
+    }
+
+    pub(in crate::authority) fn into_parts(
+        self,
+    ) -> (AuthorityVerificationCommand, watch::Receiver<ChunkCommand>) {
+        (self.command, self.receiver)
+    }
+}
+
 pub(crate) struct AuthorityServiceInputs {
     pub(crate) bootstrap: AuthorityServiceBootstrap,
     pub(crate) block_assembler: Option<BlockAssembler>,
@@ -256,7 +337,7 @@ pub(crate) struct AuthorityServiceInputs {
     pub(crate) recent_reject: Option<Arc<crate::component::recent_reject::RecentReject>>,
     pub(crate) fee_estimator: FeeEstimator,
     pub(crate) chain_control_receiver: mpsc::Receiver<ChainControl>,
-    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
+    pub(crate) verification_control: AuthorityVerificationControl,
     pub(crate) cancel: CancellationToken,
 }
 
@@ -549,8 +630,18 @@ impl AuthorityGeneration {
         }
     }
 
-    pub(crate) async fn shutdown(mut self, timeout: Duration) -> AuthorityShutdownOutcome {
+    /// Begin the terminal generation phase without consuming the topology.
+    /// Handler-owned Direct capabilities may still settle while workers stop;
+    /// effects remain open until `shutdown` performs the ordered final join.
+    pub(crate) fn begin_shutdown(&self) {
+        if let Some(topology) = self.topology.as_ref() {
+            topology.begin_shutdown();
+        }
         self.cancel.cancel();
+    }
+
+    pub(crate) async fn shutdown(mut self, timeout: Duration) -> AuthorityShutdownOutcome {
+        self.begin_shutdown();
         if let Some(mut chain_control) = self.chain_control.take() {
             match tokio::time::timeout(timeout, &mut chain_control).await {
                 Ok(Ok(Ok(()))) => {}
@@ -630,7 +721,11 @@ pub(super) fn authority_failure_boundary(
 ) -> crate::metrics::FailureBoundary {
     match fault {
         AuthorityGenerationFault::Worker {
-            fault: AuthorityWorkerFaultKind::Authority(_) | AuthorityWorkerFaultKind::Settlement(_),
+            fault:
+                AuthorityWorkerFaultKind::Authority(_)
+                | AuthorityWorkerFaultKind::Settlement(_)
+                | AuthorityWorkerFaultKind::Completion(_)
+                | AuthorityWorkerFaultKind::Exchange(_),
             ..
         } => crate::metrics::FailureBoundary::TypedFault,
         AuthorityGenerationFault::Worker {
@@ -745,7 +840,7 @@ impl AuthorityService {
             recent_reject,
             fee_estimator,
             chain_control_receiver,
-            chunk_rx,
+            verification_control,
             cancel: parent_cancel,
         } = inputs;
         let AuthorityServiceBootstrap {
@@ -769,11 +864,12 @@ impl AuthorityService {
             Arc::new(callbacks),
             recent_reject.clone(),
         );
+        let chunk_rx = verification_control.receiver();
         let topology = AuthorityTaskTopology::start(
             handle,
             runtime.clone(),
             Arc::clone(&verification_cache),
-            chunk_rx.clone(),
+            verification_control,
             endpoints,
             block_assembler.clone(),
             cancel.clone(),
@@ -948,6 +1044,8 @@ impl AuthorityService {
         while let Some(head) = attempts.pop_front() {
             let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
             let batch = match RetainedAdmissionBatch::new(head, attempts) {
                 Ok(batch) => batch,
                 Err(error) => {
@@ -980,7 +1078,7 @@ impl AuthorityService {
                         )
                     ) {
                         attempts = batch.into_attempts();
-                        if !wait_or_cancel(&self.cancel, notified).await {
+                        if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                             return RemoteIngressBatchProgress::failed(
                                 completed,
                                 AuthorityServiceError::Cancelled,
@@ -1053,6 +1151,8 @@ impl AuthorityService {
                 AuthorityDirectResolutionOutcome::Rejected(rejection) => {
                     let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
+                    tokio::pin!(notified);
+                    let _ = notified.as_mut().enable();
                     match self.runtime.settle_direct_transaction_rejection(rejection) {
                         Ok(AuthorityDirectRejectionExecution::Local(reason)) if !test_accept => {
                             return Ok(Err(reason.reject().clone()));
@@ -1073,7 +1173,7 @@ impl AuthorityService {
                         Err(error) => match classify_direct_error(error) {
                             DirectErrorDisposition::Retry => continue,
                             DirectErrorDisposition::WaitEffect => {
-                                if !wait_or_cancel(&self.cancel, notified).await {
+                                if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                                     return Err(AuthorityServiceError::Cancelled);
                                 }
                                 continue;
@@ -1111,6 +1211,8 @@ impl AuthorityService {
                 AuthorityDirectVerificationOutcome::Rejected(rejection) => {
                     let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
+                    tokio::pin!(notified);
+                    let _ = notified.as_mut().enable();
                     match self.runtime.settle_direct_transaction_rejection(rejection) {
                         Ok(AuthorityDirectRejectionExecution::Local(reason)) if !test_accept => {
                             return Ok(Err(reason.reject().clone()));
@@ -1131,7 +1233,7 @@ impl AuthorityService {
                         Err(error) => match classify_direct_error(error) {
                             DirectErrorDisposition::Retry => continue,
                             DirectErrorDisposition::WaitEffect => {
-                                if !wait_or_cancel(&self.cancel, notified).await {
+                                if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                                     return Err(AuthorityServiceError::Cancelled);
                                 }
                                 continue;
@@ -1144,12 +1246,14 @@ impl AuthorityService {
                 AuthorityDirectVerificationOutcome::Candidate(candidate) => {
                     let signal = self.runtime.effect_capacity_signal();
                     let notified = signal.notified();
+                    tokio::pin!(notified);
+                    let _ = notified.as_mut().enable();
                     let outcome = match self.runtime.settle_verified_direct_admission(candidate) {
                         Ok(outcome) => outcome,
                         Err(error) => match classify_direct_error(error) {
                             DirectErrorDisposition::Retry => continue,
                             DirectErrorDisposition::WaitEffect => {
-                                if !wait_or_cancel(&self.cancel, notified).await {
+                                if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                                     return Err(AuthorityServiceError::Cancelled);
                                 }
                                 continue;
@@ -1245,6 +1349,8 @@ impl AuthorityService {
         loop {
             let signal = self.runtime.effect_capacity_signal();
             let notified = signal.notified();
+            tokio::pin!(notified);
+            let _ = notified.as_mut().enable();
             match attempt() {
                 Ok(value) => return Ok(value),
                 Err(AuthorityAdministrationError::Allocation) => {
@@ -1253,7 +1359,7 @@ impl AuthorityService {
                     }
                 }
                 Err(AuthorityAdministrationError::EffectCapacity) => {
-                    if !wait_or_cancel(&self.cancel, notified).await {
+                    if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                         return Err(AuthorityServiceError::Cancelled);
                     }
                 }
@@ -1734,11 +1840,11 @@ fn direct_pressure_reject() -> Reject {
 
 async fn wait_or_cancel(
     cancel: &CancellationToken,
-    notified: tokio::sync::futures::Notified<'_>,
+    mut notified: Pin<&mut tokio::sync::futures::Notified<'_>>,
 ) -> bool {
     tokio::select! {
         _ = cancel.cancelled() => false,
-        _ = notified => true,
+        _ = notified.as_mut() => true,
     }
 }
 

@@ -29,12 +29,6 @@
     },
     {
       "file": "tx-pool/src/authority/plan.rs",
-      "symbols": ["CheckoutSearch::probes"],
-      "kind": "zero-production-cost bounded scheduler probe counter",
-      "behavior_ids": ["TP-WORKER-001", "TP-PERF-001"]
-    },
-    {
-      "file": "tx-pool/src/authority/plan.rs",
       "symbols": ["DependencyLossWork", "DependencyLossKeys::work"],
       "kind": "zero-production-cost bounded dependency-loss operation counter",
       "behavior_ids": ["TP-DEP-001", "TP-PERF-001"]

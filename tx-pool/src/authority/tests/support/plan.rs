@@ -6,9 +6,10 @@ use super::super::{
     dependency::test_support::DependencySnapshot,
     effect::test_support::{EffectObservation, EffectSnapshot, EffectTraceBatch},
     indexes::test_support::IndexSnapshot,
-    resources::test_support::ResourceSnapshot,
-    scheduler::test_support::SchedulerSnapshot,
-    state::{AcceptedStatus, TxIdentity},
+    resources::{ActiveWorkAvailability, test_support::ResourceSnapshot},
+    scheduler::{CheckoutTicket, test_support::SchedulerSnapshot},
+    state::{AcceptedStatus, ActiveWork, ComputeAttribution, TxIdentity},
+    work::{CheckedOutWork, LeaseToken},
 };
 use super::*;
 use crate::authority::ingress::RetainedIngress;
@@ -16,9 +17,60 @@ use ckb_types::core::TransactionView;
 use ckb_verification::cache::ScriptVerificationRules;
 
 pub(in crate::authority) use super::super::rejection::ComponentLimitKind;
+pub(in crate::authority) use super::compute_exchange::test_support::ComputeExchangeRecovery;
 pub(in crate::authority) use super::membership::StatusCounts;
 pub(in crate::authority) use super::membership::test_support::MembershipSnapshot;
 pub(in crate::authority) use super::settlement::test_support::CandidateBatchError;
+
+/// Test-only sequential checkout oracle. Production checkout is owned solely
+/// by the bounded compute exchange; keeping this oracle in test support makes
+/// the differential fold explicit without compiling a second mutation path
+/// into the service.
+struct CheckoutReservation {
+    resources: ResourcePlan,
+    grant: ComputeGrant,
+    after_charge: ResourceVector,
+}
+
+enum CheckoutUnavailable {
+    SkipOwner,
+    Stop,
+}
+
+type CheckoutResource = Result<CheckoutReservation, CheckoutUnavailable>;
+
+struct CheckoutSearch {
+    selected: Option<(CheckoutTicket, CheckoutReservation)>,
+    probes: usize,
+}
+
+#[must_use = "the sequential checkout oracle has no effect until applied"]
+pub(in crate::authority) struct PreparedCheckout<'authority> {
+    plan: PreparedApply<'authority>,
+    work: CheckedOutWork,
+}
+
+#[must_use = "test checkout work and retirement must leave the oracle guard together"]
+pub(in crate::authority) struct CommittedCheckout {
+    work: CheckedOutWork,
+    retirement: CommittedDelta,
+}
+
+impl PreparedCheckout<'_> {
+    pub(in crate::authority) fn apply(self) -> CommittedCheckout {
+        let Self { plan, work } = self;
+        CommittedCheckout {
+            work,
+            retirement: plan.apply(),
+        }
+    }
+}
+
+impl CommittedCheckout {
+    pub(in crate::authority) fn into_parts(self) -> (CheckedOutWork, CommittedDelta) {
+        (self.work, self.retirement)
+    }
+}
 
 /// Sequential retained-ingress oracle used only to refine the production
 /// ordered batch against the canonical no-interleave fold.
@@ -1062,6 +1114,256 @@ impl TxPoolAuthority {
         Ok(self.dependencies.next_maintenance_observation()?)
     }
 
+    /// Canonical one-member reference transition used by scheduler and trace
+    /// refinement. Production uses `apply_compute_exchange`; this test-only
+    /// oracle deliberately keeps the old no-interleave serialization visible.
+    pub(in crate::authority) fn plan_checkout_next(
+        &mut self,
+        permit: super::super::state::WorkPermit,
+    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
+        let search = self.search_checkout(permit)?;
+        self.prepare_checkout_search(search, permit)
+    }
+
+    fn search_checkout(
+        &mut self,
+        permit: super::super::state::WorkPermit,
+    ) -> Result<CheckoutSearch, PlanError> {
+        match self
+            .resources
+            .active_work_availability_for_reference(ComputeAttribution::Trusted)?
+        {
+            ActiveWorkAvailability::Available => {}
+            ActiveWorkAvailability::PreAcceptedExhausted => {
+                return Ok(CheckoutSearch {
+                    selected: None,
+                    probes: 0,
+                });
+            }
+            ActiveWorkAvailability::RemoteExhausted | ActiveWorkAvailability::PeerExhausted(_) => {
+                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
+            }
+        }
+        let owner_count = self.scheduler.owner_count_for_reference(permit);
+        let mut wave = self.scheduler.checkout_wave(1)?;
+        let mut cursor = None;
+        let mut selected = None;
+        let mut probes = 0usize;
+        for _ in 0..owner_count {
+            let ticket = match cursor {
+                Some(owner) => self
+                    .scheduler
+                    .next_queued_after_in_wave_for_reference(&wave, permit, owner),
+                None => self
+                    .scheduler
+                    .next_queued_in_wave_for_reference(&wave, permit),
+            };
+            let Some(ticket) = ticket else {
+                break;
+            };
+            probes = probes
+                .checked_add(1)
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+            cursor = Some(ticket.owner());
+            match self.plan_checkout_resources(ticket.hash(), ticket.version(), permit)? {
+                Ok(reservation) => {
+                    wave.select(&ticket)?;
+                    selected = Some((ticket, reservation));
+                    break;
+                }
+                Err(CheckoutUnavailable::SkipOwner) => {}
+                Err(CheckoutUnavailable::Stop) => break,
+            }
+        }
+        Ok(CheckoutSearch { selected, probes })
+    }
+
+    fn prepare_checkout_search(
+        &mut self,
+        search: CheckoutSearch,
+        permit: super::super::state::WorkPermit,
+    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
+        let Some((ticket, reservation)) = search.selected else {
+            return Ok(None);
+        };
+        let key = ticket.hash().clone();
+        let version = ticket.version();
+        self.plan_selected_checkout(&key, version, permit, ticket, reservation)
+            .map(Some)
+    }
+
+    fn plan_checkout_resources(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        permit: super::super::state::WorkPermit,
+    ) -> Result<CheckoutResource, PlanError> {
+        let existing = self
+            .entries
+            .get(key)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != expected {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let attribution = preaccepted.source.compute_attribution();
+        match self
+            .resources
+            .active_work_availability_for_reference(attribution)?
+        {
+            ActiveWorkAvailability::Available => {}
+            ActiveWorkAvailability::PeerExhausted(_) => {
+                return Ok(Err(CheckoutUnavailable::SkipOwner));
+            }
+            ActiveWorkAvailability::PreAcceptedExhausted
+            | ActiveWorkAvailability::RemoteExhausted => {
+                return Ok(Err(CheckoutUnavailable::Stop));
+            }
+        }
+        let (grant, after_charge) = match self.checkout_eligibility(preaccepted, permit)? {
+            CheckoutEligibility::Ready {
+                grant,
+                after_charge,
+            } => (grant, after_charge),
+            CheckoutEligibility::StaleDependency => {
+                return Ok(Err(CheckoutUnavailable::SkipOwner));
+            }
+        };
+        let expected_charge = existing.charge_record();
+        let after_record = ChargeRecord::PreAccepted {
+            resources: after_charge,
+            residency_peer: preaccepted.source.ingress_peer(),
+            compute_peer: attribution.peer(),
+        };
+        let resources = self
+            .resources
+            .plan_replace(key.clone(), Some(expected_charge), Some(after_record))
+            .map_err(|error| match error {
+                ResourceError::PreAcceptedLimit
+                | ResourceError::PeerLimit(_)
+                | ResourceError::RemoteLimit => {
+                    PlanError::Fault(AuthorityFault::ResourceProjection)
+                }
+                error => error.into(),
+            })?;
+        Ok(Ok(CheckoutReservation {
+            resources,
+            grant,
+            after_charge,
+        }))
+    }
+
+    fn plan_selected_checkout(
+        &mut self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        permit: super::super::state::WorkPermit,
+        ticket: CheckoutTicket,
+        reservation: CheckoutReservation,
+    ) -> Result<PreparedCheckout<'_>, PlanError> {
+        self.effects.ensure_open()?;
+        let existing = self
+            .entries
+            .get(key)
+            .cloned()
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != expected {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let queued_lane = match queued {
+            QueuedWork::Resolve => QueueLane::Resolve,
+            QueuedWork::Verify(_) => QueueLane::Verify,
+        };
+        if QueueLane::for_permit(permit) != queued_lane {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        }
+
+        let CheckoutReservation {
+            resources,
+            grant,
+            after_charge,
+        } = reservation;
+        let version = self.clocks.next_version;
+        let sequence = self.clocks.next_sequence;
+        let dependency_cut = match queued {
+            QueuedWork::Resolve => DependencyCut(sequence),
+            QueuedWork::Verify(resolved) => resolved.dependency_cut(),
+        };
+        let token = LeaseToken {
+            settlement: SettlementToken {
+                hash: key.clone(),
+                version,
+            },
+            chain_view: self.chain_view.clone(),
+            dependency_cut,
+            permit,
+            grant,
+            payload_policy: preaccepted.source.payload_policy(),
+        };
+        let work = CheckedOutWork::new(
+            token,
+            Arc::clone(&preaccepted.record.tx),
+            preaccepted.basis.dependencies().clone(),
+            queued.clone(),
+        )
+        .map_err(|_| PlanError::Stale(StalePlan::Phase))?;
+        let after = existing
+            .with_preaccepted_phase(
+                PreAcceptedPhase::Computing(ActiveWork {
+                    chain_view: self.chain_view.clone(),
+                    permit,
+                    grant,
+                    attribution: preaccepted.source.compute_attribution(),
+                    payload_policy: preaccepted.source.payload_policy(),
+                    dependency_cut,
+                    dependencies: preaccepted.dependencies().clone(),
+                }),
+                version,
+                after_charge,
+            )
+            .map_err(PlanError::Stale)?;
+        let clocks = AuthorityClocks {
+            next_version: next_version(version)?,
+            next_sequence: next_sequence(sequence)?,
+            ..self.clocks
+        };
+        let scheduler = self
+            .scheduler
+            .plan_replace(Some(&existing), Some(&after), Some(ticket))?;
+        let dependency = self
+            .dependencies
+            .plan_replace(Some(&existing), Some(&after))?;
+        let sources = self
+            .source_versions
+            .plan_replacements(std::iter::once((Some(&existing), Some(&after))), sequence);
+        let indexes = self
+            .indexes
+            .plan_replace(key, Some(&existing), Some(&after))?;
+        let plan = PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Entry(EntryDelta {
+                key: key.clone(),
+                after: Some(after),
+                owners: DerivedOwnerDelta { indexes, sources },
+                retirement: EntryRetirement::InlineDrop,
+                resource: resources,
+                scheduler,
+                dependency,
+                effect: EffectDelta::default(),
+                clocks,
+            }),
+        };
+        Ok(PreparedCheckout { plan, work })
+    }
+
     pub(in crate::authority) fn plan_checkout_for_foundation(
         &mut self,
         key: &RawTxHash,
@@ -1080,7 +1382,7 @@ impl TxPoolAuthority {
         };
         match self
             .resources
-            .active_work_availability(preaccepted.source.compute_attribution())?
+            .active_work_availability_for_reference(preaccepted.source.compute_attribution())?
         {
             ActiveWorkAvailability::Available => {}
             ActiveWorkAvailability::PreAcceptedExhausted => {
@@ -1098,11 +1400,11 @@ impl TxPoolAuthority {
             .ticket_for_foundation(key, expected, permit)
             .ok_or(PlanError::Stale(StalePlan::Phase))?;
         let reservation = match self.plan_checkout_resources(key, expected, permit)? {
-            CheckoutResource::Reserved(reservation) => reservation,
-            CheckoutResource::SkipOwner => {
+            Ok(reservation) => reservation,
+            Err(CheckoutUnavailable::SkipOwner) => {
                 return Err(PlanError::Stale(StalePlan::Dependency));
             }
-            CheckoutResource::Stop => {
+            Err(CheckoutUnavailable::Stop) => {
                 return Err(PlanError::Backpressure(Backpressure::ComputeResources));
             }
         };

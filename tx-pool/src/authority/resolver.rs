@@ -554,6 +554,10 @@ struct ResolvedComputation {
 }
 
 impl ResolutionJob {
+    pub(super) fn retry(self) -> ComputeSettlement {
+        self.work.retry()
+    }
+
     #[expect(
         clippy::result_large_err,
         reason = "capture failure returns the exact unboxed compute settlement capability; boxing would allocate on stale or hostile work"

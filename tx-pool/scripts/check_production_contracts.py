@@ -28,6 +28,9 @@ TX_POOL_AUTHORITY_PUBLISHER = (
 TX_POOL_AUTHORITY_EFFECT = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "effect.rs"
 )
+TX_POOL_AUTHORITY_COMPUTE_COORDINATOR = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "compute_coordinator.rs"
+)
 TX_POOL_AUTHORITY_SCHEDULER = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "scheduler.rs"
 )
@@ -304,6 +307,24 @@ def validate_authority_mutation_publication() -> list[str]:
                 errors.append(
                     "AuthorityRuntime::settle_effect publishes before its possible Apply "
                     f"near runtime.rs:{line}"
+                )
+            continue
+        if name == "exchange_compute":
+            optional_exchange = re.search(
+                r"if\s+let\s+Some\(retirement\)\s*=\s*retirement\s*\{\s*"
+                r"self\.publish_committed\(retirement\);\s*\}",
+                body,
+            )
+            if len(mutations) != 1 or len(publications) != 1 or optional_exchange is None:
+                errors.append(
+                    "AuthorityRuntime::exchange_compute must keep the closed "
+                    "Applied -> post-commit publication / Unchanged -> mutation-free "
+                    f"algebra near runtime.rs:{line}"
+                )
+            elif publications[0].start() <= mutations[0].end():
+                errors.append(
+                    "AuthorityRuntime::exchange_compute publishes before its possible "
+                    f"Apply near runtime.rs:{line}"
                 )
             continue
         if not mutations:
@@ -846,6 +867,7 @@ def validate_execution_topology_contract() -> list[str]:
         runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
         scheduler = TX_POOL_AUTHORITY_SCHEDULER.read_text()
         service = TX_POOL_AUTHORITY_SERVICE.read_text()
+        compute_coordinator = TX_POOL_AUTHORITY_COMPUTE_COORDINATOR.read_text()
         topology = TX_POOL_AUTHORITY_TOPOLOGY.read_text()
         worker = TX_POOL_AUTHORITY_WORKER.read_text()
 
@@ -880,10 +902,10 @@ def validate_execution_topology_contract() -> list[str]:
             "prepared.apply()",
             "self.publish_committed(retirement)",
         )),
-        (runtime, "AuthorityRuntime", "try_checkout", (
-            "plan_checkout_next(permit)",
-            "plan.apply()",
-            "publish_post_commit_pair",
+        (runtime, "AuthorityRuntime", "exchange_compute", (
+            "apply_compute_exchange(completions, grants)",
+            "if let Some(retirement) = retirement",
+            "self.publish_committed(retirement)",
         )),
         (runtime, "AuthorityRuntime", "settle", (
             "apply_settlement(settlement)",
@@ -905,11 +927,15 @@ def validate_execution_topology_contract() -> list[str]:
             ".checked_add(1)",
             "transient_compute_permits",
         )),
-        (worker, "AuthorityRuntime", "spawn_workers", (
+        (compute_coordinator, None, "spawn_compute_exchange", (
             ".checked_add(3)",
             "AuthorityWorkerRole::Resolver",
-            "for worker_id in 0..worker_count",
-            "AuthorityWorkerRole::Verifier(worker_id)",
+            "for worker_id in 0..verifier_count",
+            "AuthorityWorkerRole::Verifier(slot.worker_id())",
+            "AuthorityWorkerRole::ComputeCoordinator",
+        )),
+        (worker, "AuthorityRuntime", "spawn_workers", (
+            "spawn_compute_exchange(",
             "AuthorityWorkerRole::Ready",
             "AuthorityWorkerRole::Maintenance",
         )),
@@ -928,8 +954,12 @@ def validate_execution_topology_contract() -> list[str]:
             "generation.shutdown(handler_timeout).await",
             "if let Err(error) = service.save_pool().await",
         )),
-        (service, "AuthorityGeneration", "shutdown", (
+        (service, "AuthorityGeneration", "begin_shutdown", (
+            "topology.begin_shutdown()",
             "self.cancel.cancel()",
+        )),
+        (service, "AuthorityGeneration", "shutdown", (
+            "self.begin_shutdown()",
             "self.chain_control.take()",
             "topology.shutdown(timeout).await",
         )),
@@ -958,12 +988,18 @@ def validate_execution_topology_contract() -> list[str]:
         )),
     )
     for source, impl_name, method, fragments in ordered_methods:
-        owner = f"{impl_name}::{method}"
-        try:
-            body = impl_method_body(source, impl_name, method)
-        except ValueError as error:
-            errors.append(str(error))
-            continue
+        owner = method if impl_name is None else f"{impl_name}::{method}"
+        if impl_name is None:
+            body = function_body(source, method)
+            if body is None:
+                errors.append(f"expected one {method} function, found 0")
+                continue
+        else:
+            try:
+                body = impl_method_body(source, impl_name, method)
+            except ValueError as error:
+                errors.append(str(error))
+                continue
         errors.extend(require_ordered_fragments(body, owner, fragments))
     if re.search(r"\bfn\s+commit_retained_ingress\s*\(", runtime):
         errors.append(
@@ -971,8 +1007,8 @@ def validate_execution_topology_contract() -> list[str]:
         )
     if ".take(MAX_READY_BATCH)" not in scheduler:
         errors.append("Ready capture must consume the named bounded batch limit")
-    if signals.count("Notify::new()") != 8:
-        errors.append("AuthoritySignals must own exactly eight coalescing wake hints")
+    if signals.count("Notify::new()") != 6:
+        errors.append("AuthoritySignals must own exactly six coalescing wake hints")
     if "templates: Option<[Option<AuthorityTemplateTask>; 5]>" not in topology:
         errors.append("template topology must retain five independently joined lanes")
     if "mpsc::channel(VERIFY_CACHE_CHANNEL_SIZE)" not in topology:

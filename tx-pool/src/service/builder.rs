@@ -5,7 +5,7 @@ use crate::{
     authority::service::{
         AuthorityGeneration, AuthorityGenerationEvent, AuthorityPersistenceError, AuthorityService,
         AuthorityServiceBootstrap, AuthorityServiceInputs, AuthorityServiceStartError,
-        AuthorityShutdownOutcome,
+        AuthorityShutdownOutcome, AuthorityVerificationControl,
     },
     block_assembler::BlockAssembler,
     callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback},
@@ -36,7 +36,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{RwLock, mpsc, watch},
+    sync::{RwLock, mpsc},
     task::JoinSet,
 };
 use tokio_util::sync::CancellationToken;
@@ -248,7 +248,7 @@ pub struct TxPoolServiceBuilder {
     pub(crate) chain_control_receiver: mpsc::Receiver<ChainControl>,
     pub(crate) signal_receiver: CancellationToken,
     pub(crate) handle: Handle,
-    pub(crate) chunk_rx: watch::Receiver<ChunkCommand>,
+    pub(crate) verification_control: AuthorityVerificationControl,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) fee_estimator: FeeEstimator,
     pub(crate) recent_reject: Option<Arc<RecentReject>>,
@@ -280,13 +280,14 @@ impl TxPoolServiceBuilder {
             mpsc::channel(CHAIN_CONTROL_CHANNEL_SIZE);
         let process_exit = new_tokio_exit_rx();
         let signal_receiver = service_cancellation_token(&process_exit);
-        let (chunk_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+        let (verification_control, verification_command) =
+            AuthorityVerificationControl::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
         let controller = TxPoolController {
             sender,
             chain_control_sender,
             handle: handle.clone(),
-            chunk_tx: Arc::new(chunk_tx),
+            verification_command,
             started: Arc::clone(&started),
             signal: signal_receiver.clone(),
         };
@@ -314,7 +315,7 @@ impl TxPoolServiceBuilder {
                 chain_control_receiver,
                 signal_receiver,
                 handle: handle.clone(),
-                chunk_rx,
+                verification_control,
                 started,
                 fee_estimator,
                 recent_reject,
@@ -412,7 +413,7 @@ impl TxPoolServiceBuilder {
             chain_control_receiver,
             signal_receiver,
             handle,
-            chunk_rx,
+            verification_control,
             started,
             fee_estimator,
             recent_reject,
@@ -447,7 +448,7 @@ impl TxPoolServiceBuilder {
                 recent_reject,
                 fee_estimator,
                 chain_control_receiver,
-                chunk_rx,
+                verification_control,
                 cancel: signal_receiver.clone(),
             },
         )
@@ -573,6 +574,7 @@ impl TxPoolServiceBuilder {
         }
 
         started.store(false, Ordering::Release);
+        generation.begin_shutdown();
         signal.cancel();
         receiver.close();
         while receiver.try_recv().is_ok() {}

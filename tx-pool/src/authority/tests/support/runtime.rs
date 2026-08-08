@@ -1,4 +1,4 @@
-use super::super::state::{ValidatedAdmission, VerifyCapability};
+use super::super::state::{ValidatedAdmission, WorkPermit};
 use super::super::{
     ingress::{
         RemoteIngressPressure, RetainedIngress, RetainedIngressBoundaryError, RetainedIngressError,
@@ -11,11 +11,72 @@ use super::*;
 use ckb_network::PeerIndex;
 use ckb_types::core::Cycle;
 
-impl ComputeGate {
-    fn try_acquire(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.permits).try_acquire_owned().ok()
-    }
+#[derive(Debug)]
+#[must_use = "the sequential compute oracle must preserve its execution permit"]
+pub(in crate::authority) struct AuthorityComputeSettlement {
+    settlement: ComputeSettlement,
+    execution: AuthorityComputeExecutionPermit,
+}
 
+#[derive(Debug)]
+pub(in crate::authority) enum AuthorityComputeError {
+    Allocation,
+    EffectCapacity,
+    LifecycleClosed,
+    Fault(AuthorityFault),
+    Resolution(ResolutionExecutionKind),
+}
+
+impl AuthorityComputeError {
+    /// The test-only sequential oracle consumes a scheduler ticket under one
+    /// authority guard, so stale checkout evidence is a projection defect in
+    /// that reference transition rather than retryable OCC progress.
+    pub(in crate::authority) fn from_checkout_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::Stale(_) => Self::Fault(AuthorityFault::SchedulerProjection),
+            error => match AuthorityDriverError::from_ready_plan(error) {
+                AuthorityDriverError::Stale => Self::Fault(AuthorityFault::SchedulerProjection),
+                AuthorityDriverError::Allocation => Self::Allocation,
+                AuthorityDriverError::EffectCapacity => Self::EffectCapacity,
+                AuthorityDriverError::LifecycleClosed => Self::LifecycleClosed,
+                AuthorityDriverError::Fault(fault) => Self::Fault(fault),
+            },
+        }
+    }
+}
+
+/// Test-only result of the canonical one-member checkout transition. `Err`
+/// carries the unused execution capability; it is not an operational error.
+pub(in crate::authority) type AuthorityComputeCheckout =
+    Result<AuthorityComputeJob, AuthorityComputeExecutionPermit>;
+
+/// A test-oracle capture failure carries its execution permit beyond the
+/// authority guard so returning fair capacity cannot contend with that guard.
+struct PendingSettlementWithExecution {
+    failure: ComputeSettlementFailure,
+    origin: SettlementOrigin,
+    execution: AuthorityComputeExecutionPermit,
+}
+
+impl PendingSettlementWithExecution {
+    fn finish_execution(self) -> AuthorityPendingSettlement {
+        let Self {
+            failure,
+            origin,
+            execution,
+        } = self;
+        drop(execution);
+        AuthorityPendingSettlement {
+            failure,
+            aftermath: AuthorityComputeAftermath {
+                origin,
+                cache_update: None,
+            },
+        }
+    }
+}
+
+impl ComputeGate {
     fn available_permits(&self) -> usize {
         self.permits.available_permits()
     }
@@ -193,13 +254,118 @@ impl AuthorityRuntime {
     pub(in crate::authority) fn try_compute_execution_for_foundation(
         &self,
     ) -> Option<AuthorityComputeExecutionPermit> {
-        self.transient_compute
-            .try_acquire()
-            .map(AuthorityComputeExecutionPermit::new)
+        self.transient_compute.try_acquire()
     }
 
     pub(in crate::authority) fn available_compute_permits_for_foundation(&self) -> usize {
         self.transient_compute.available_permits()
+    }
+
+    /// Canonical one-member runtime fold retained only for differential tests.
+    /// Production compute uses the bounded coordinator exchange.
+    pub(in crate::authority) fn try_checkout(
+        &self,
+        permit: WorkPermit,
+        execution: AuthorityComputeExecutionPermit,
+    ) -> Result<
+        ControlFlow<AuthorityPendingSettlement, AuthorityComputeCheckout>,
+        AuthorityComputeError,
+    > {
+        let (result, checkout_retirement, settlement_retirement, released_execution) = {
+            let mut store = self.store.write();
+            let plan = store
+                .authority
+                .plan_checkout_next(permit)
+                .map_err(AuthorityComputeError::from_checkout_plan)?;
+            let Some(plan) = plan else {
+                return Ok(ControlFlow::Continue(Err(execution)));
+            };
+            let (work, checkout) = plan.apply().into_parts();
+            let snapshot = Arc::clone(&store.snapshot);
+            let captured = match work {
+                CheckedOutWork::Resolve(work) => {
+                    ResolutionJob::capture_resolve(&store.authority, snapshot, work)
+                        .map(AuthorityComputeKind::Resolution)
+                }
+                CheckedOutWork::ContinuousResolve(work) => {
+                    ResolutionJob::capture_continuous(&store.authority, snapshot, work)
+                        .map(AuthorityComputeKind::Resolution)
+                }
+                CheckedOutWork::Verify(work) => VerificationJob::from_checkout(work, snapshot)
+                    .map(AuthorityComputeKind::Verification),
+            };
+            match captured {
+                Ok(inner) => (
+                    Ok(ControlFlow::Continue(Ok(AuthorityComputeJob {
+                        inner,
+                        execution,
+                    }))),
+                    checkout,
+                    None,
+                    None,
+                ),
+                Err(failure) => {
+                    let kind = failure.kind();
+                    match store.authority.apply_settlement(failure.into_settlement()) {
+                        Ok(settlement) => (
+                            Err(AuthorityComputeError::Resolution(kind)),
+                            checkout,
+                            Some(settlement),
+                            Some(execution),
+                        ),
+                        Err(failure) => (
+                            Ok(ControlFlow::Break(PendingSettlementWithExecution {
+                                failure,
+                                origin: SettlementOrigin::Capture(kind),
+                                execution,
+                            })),
+                            checkout,
+                            None,
+                            None,
+                        ),
+                    }
+                }
+            }
+        };
+        drop(released_execution);
+        self.publish_committed(checkout_retirement);
+        if let Some(settlement_retirement) = settlement_retirement {
+            self.publish_committed(settlement_retirement);
+        }
+        result.map(|flow| match flow {
+            ControlFlow::Continue(checkout) => ControlFlow::Continue(checkout),
+            ControlFlow::Break(pending) => ControlFlow::Break(pending.finish_execution()),
+        })
+    }
+
+    pub(in crate::authority) fn settle_compute(
+        &self,
+        retained: AuthorityComputeSettlement,
+        origin: SettlementOrigin,
+    ) -> ControlFlow<AuthorityPendingSettlement> {
+        let AuthorityComputeSettlement {
+            settlement,
+            execution,
+        } = retained;
+        let completion = AuthorityComputeCompletion {
+            settlement,
+            execution,
+            aftermath: AuthorityComputeAftermath {
+                origin,
+                cache_update: None,
+            },
+        };
+        match self.settle_completion(completion) {
+            ControlFlow::Continue(_) => ControlFlow::Continue(()),
+            ControlFlow::Break(pending) => ControlFlow::Break(pending),
+        }
+    }
+
+    pub(in crate::authority) fn settle_completion(
+        &self,
+        completion: AuthorityComputeCompletion,
+    ) -> ControlFlow<AuthorityPendingSettlement, AuthorityComputeAftermath> {
+        self.settle_finished(completion.finish_execution())
     }
 
     pub(in crate::authority) fn try_checkout_for_foundation(
@@ -214,10 +380,8 @@ impl AuthorityRuntime {
             .ok_or(FoundationCheckoutError::ComputeCapacity)?;
         match self.try_checkout(permit, execution)? {
             ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
-            ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
-                Ok(ControlFlow::Continue(Some(job)))
-            }
-            ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+            ControlFlow::Continue(Ok(job)) => Ok(ControlFlow::Continue(Some(job))),
+            ControlFlow::Continue(Err(execution)) => {
                 drop(execution);
                 Ok(ControlFlow::Continue(None))
             }
@@ -329,55 +493,22 @@ impl AuthorityRuntime {
         AuthorityComputeError,
     > {
         loop {
-            // Register every level accepted by the permit before observing the
-            // authority. In particular, an Any verifier shares the Small
-            // signal and receives the distinct Any signal only when the two
-            // scheduler heads differ.
-            let resolve_notified = self.resolve_signal().notified();
-            let verify_small_notified = self.verify_small_signal().notified();
-            let verify_any_notified = self.verify_any_signal().notified();
+            let compute_notified = self.compute_signal().notified();
             let Some(execution) = self.acquire_compute_execution(cancel).await else {
                 return Ok(ControlFlow::Continue(None));
             };
             match self.try_checkout(permit, execution)? {
                 ControlFlow::Break(pending) => return Ok(ControlFlow::Break(pending)),
-                ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
+                ControlFlow::Continue(Ok(job)) => {
                     return Ok(ControlFlow::Continue(Some(job)));
                 }
-                ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => {
+                ControlFlow::Continue(Err(execution)) => {
                     drop(execution);
                 }
             }
-            let work = async {
-                match permit {
-                    WorkPermit::ResolveOnly => resolve_notified.await,
-                    WorkPermit::ResolveThenVerify(VerifyCapability::SmallCycleOnly) => {
-                        tokio::select! {
-                            _ = resolve_notified => {}
-                            _ = verify_small_notified => {}
-                        }
-                    }
-                    WorkPermit::ResolveThenVerify(VerifyCapability::Any) => {
-                        tokio::select! {
-                            _ = resolve_notified => {}
-                            _ = verify_small_notified => {}
-                            _ = verify_any_notified => {}
-                        }
-                    }
-                    WorkPermit::VerifyOnly(VerifyCapability::SmallCycleOnly) => {
-                        verify_small_notified.await
-                    }
-                    WorkPermit::VerifyOnly(VerifyCapability::Any) => {
-                        tokio::select! {
-                            _ = verify_small_notified => {}
-                            _ = verify_any_notified => {}
-                        }
-                    }
-                }
-            };
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(ControlFlow::Continue(None)),
-                _ = work => {}
+                _ = compute_notified => {}
             }
         }
     }

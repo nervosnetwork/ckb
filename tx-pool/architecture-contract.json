@@ -130,6 +130,11 @@
         "invariants": ["T2", "T5", "T6", "T8", "T10", "T14", "T15", "T16"],
         "behavior_ids": ["TP-COMMIT-001", "TP-WORKER-001", "TP-PERF-001"],
         "falsifier_tests": [
+          "authority::tests::compute_coordinator::uak_closed_assignment_transport_returns_the_exact_checked_out_capability",
+          "authority::tests::compute_coordinator::uak_compute_coordinator_probes_every_role_with_one_available_fair_permit",
+          "authority::tests::compute_coordinator::uak_effect_blocked_completion_observes_a_later_fair_permit_release",
+          "authority::tests::compute_exchange::uak_compute_exchange_refines_the_named_no_interleave_settle_refill_fold",
+          "authority::tests::compute_exchange::uak_initial_compute_exchange_checks_out_one_available_worker_wave_with_one_stamp",
           "mathematical_model::composition_properties::model_compute_exchange_is_invariant_to_worker_completion_order",
           "mathematical_model::composition_properties::model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply",
           "mathematical_model::composition_properties::model_finished_result_holds_its_worker_slot_until_the_exchange_settles_it",
@@ -139,21 +144,33 @@
           "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets"
         ],
         "target_owner": {
-          "path": "tx-pool/src/authority/exchange.rs",
-          "symbols": ["ComputeExchange", "ComputeWorkerSlot"]
+          "path": "tx-pool/src/authority/plan/compute_exchange.rs",
+          "symbols": ["ComputeExchangeDelta", "apply_compute_exchange"]
         },
         "current_owners": [
           {
-            "path": "tx-pool/src/authority/worker.rs",
-            "symbols": ["ComputeWorker"]
+            "path": "tx-pool/src/authority/plan/compute_exchange.rs",
+            "symbols": ["ComputeExchangeDelta", "apply_compute_exchange"]
+          },
+          {
+            "path": "tx-pool/src/authority/compute_coordinator.rs",
+            "symbols": ["ComputeCoordinator", "spawn_compute_exchange"]
+          },
+          {
+            "path": "tx-pool/src/authority/exchange.rs",
+            "symbols": ["ComputeWorkerGrant", "ComputeWorkerSlot"]
+          },
+          {
+            "path": "tx-pool/src/authority/scheduler.rs",
+            "symbols": ["FairFrontier", "SchedulerExchangeWave"]
           },
           {
             "path": "tx-pool/src/authority/runtime.rs",
-            "symbols": ["try_checkout", "settle_compute", "execute_compute"]
+            "symbols": ["exchange_compute", "execute_compute"]
           },
           {
-            "path": "tx-pool/src/authority/topology.rs",
-            "symbols": ["AuthorityTaskTopology"]
+            "path": "tx-pool/src/authority/worker.rs",
+            "symbols": ["spawn_workers"]
           }
         ],
         "cost": {
@@ -419,11 +436,14 @@
       {
         "id": "I3-COMPUTE-EXCHANGE",
         "sequence": 3,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": ["compute_exchange"],
         "production_paths": [
+          "tx-pool/src/authority/compute_coordinator.rs",
           "tx-pool/src/authority/exchange.rs",
+          "tx-pool/src/authority/plan/compute_exchange.rs",
           "tx-pool/src/authority/runtime.rs",
+          "tx-pool/src/authority/scheduler.rs",
           "tx-pool/src/authority/topology.rs",
           "tx-pool/src/authority/worker.rs"
         ],
@@ -639,12 +659,14 @@
     "production_roots": {
       "tx-pool/src/authority/ban.rs::PeerBanRegistry": "peer_ban_fence",
       "tx-pool/src/authority/chain_boundary.rs::ChainUpdateRequest": "ordered_chain_preparation",
+      "tx-pool/src/authority/compute_coordinator.rs::ComputeCoordinator": "compute_worker_protocol",
       "tx-pool/src/authority/dependency.rs::DependencyFrontier": "dependency_level_authority",
       "tx-pool/src/authority/effect.rs::CommittedEffect": "committed_effect_value",
       "tx-pool/src/authority/effect.rs::EffectLog": "committed_effect_authority",
       "tx-pool/src/authority/effect.rs::EffectReceipt": "effect_delivery_capability",
       "tx-pool/src/authority/effect.rs::EffectSettlement": "effect_settlement_capability",
       "tx-pool/src/authority/effect.rs::EffectWork": "effect_claim_view",
+      "tx-pool/src/authority/exchange.rs::ComputeWorkerGrant": "permit_work_exchange",
       "tx-pool/src/authority/ingress.rs::DirectCommand": "direct_ingress_handoff",
       "tx-pool/src/authority/ingress.rs::RetainedIngress": "retained_ingress_handoff",
       "tx-pool/src/authority/ingress.rs::RetainedIngressError": "retained_ingress_outcome",
@@ -659,6 +681,8 @@
       "tx-pool/src/authority/plan.rs::StalePlan": "stale_plan_outcome",
       "tx-pool/src/authority/plan.rs::TxPoolAuthority": "transaction_authority",
       "tx-pool/src/authority/plan/chain_transition.rs::PreacceptedCapability": "chain_reconciliation_capability",
+      "tx-pool/src/authority/plan/compute_exchange.rs::ComputeExchangeDelta": "completion_exchange",
+      "tx-pool/src/authority/plan/compute_exchange.rs::ComputeExchangePlanFailure": "completion_exchange_failure",
       "tx-pool/src/authority/plan/membership/eviction.rs::VirtualProjection": "coupled_membership_plan",
       "tx-pool/src/authority/plan/membership/independent.rs::IndependentMembershipOutcome": "commutative_membership",
       "tx-pool/src/authority/plan/membership/independent.rs::IndependentMembershipChange": "commutative_membership_change",
@@ -673,6 +697,7 @@
       "tx-pool/src/authority/resolver.rs::ResolutionAttempt": "retained_resolution_outcome",
       "tx-pool/src/authority/resolver.rs::ResolveAgainstCutError": "resolution_cut_outcome",
       "tx-pool/src/authority/runtime.rs::AuthorityRuntime": "runtime_transition_boundary",
+      "tx-pool/src/authority/runtime.rs::AuthorityComputeExchangeFailure": "permit_work_exchange_failure",
       "tx-pool/src/authority/runtime.rs::AuthorityStore": "coherent_store_cut",
       "tx-pool/src/authority/runtime.rs::RuntimeConfigError": "runtime_configuration_outcome",
       "tx-pool/src/authority/service.rs::AuthorityGeneration": "generation_lifecycle",
@@ -698,8 +723,7 @@
       "tx-pool/src/authority/work.rs::CheckedOutWork": "compute_capability",
       "tx-pool/src/authority/work.rs::ComputeSettlement": "compute_completion",
       "tx-pool/src/authority/work.rs::ResolvedPayloadBuild": "resolved_payload_outcome",
-      "tx-pool/src/authority/worker.rs::ComputeWorker": "compute_worker_protocol",
-      "tx-pool/src/authority/worker.rs::WorkerStep": "compute_worker_outcome",
+      "tx-pool/src/authority/worker.rs::AuthorityWorkerFault": "compute_worker_outcome",
       "tx-pool/src/persisted.rs::PersistenceLease": "persistence_write_capability",
       "tx-pool/src/persisted.rs::PersistenceSnapshot": "persistence_payload",
       "tx-pool/src/persisted.rs::PersistenceWriter": "persistence_serialization",
@@ -783,11 +807,15 @@
           "retained_permit_protocol"
         ],
         "production_roles": [
+          "completion_exchange",
+          "completion_exchange_failure",
           "compute_capability",
           "compute_completion",
           "compute_settlement_outcome",
           "compute_worker_outcome",
           "compute_worker_protocol",
+          "permit_work_exchange",
+          "permit_work_exchange_failure",
           "scheduler_authority"
         ],
         "behavior_ids": [

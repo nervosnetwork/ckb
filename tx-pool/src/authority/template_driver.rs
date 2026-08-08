@@ -33,7 +33,7 @@ use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::{EpochExt, UncleBlockView};
 use ckb_util::Mutex;
-use std::{cmp, sync::Arc, time::Duration};
+use std::{cmp, pin::Pin, sync::Arc, time::Duration};
 use tokio::sync::Notify;
 
 const TEMPLATE_ALLOCATION_RETRY: Duration = Duration::from_millis(1);
@@ -328,13 +328,17 @@ impl AuthorityBlockAssembler {
             let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
+            tokio::pin!(authority_notified);
+            tokio::pin!(local_notified);
+            let _ = authority_notified.as_mut().enable();
+            let _ = local_notified.as_mut().enable();
             match self.drive_replacement_once().await {
                 Ok(AuthorityTemplateStep::Idle) => {
                     failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
-                        _ = authority_notified => {},
-                        _ = local_notified => {},
+                        _ = authority_notified.as_mut() => {},
+                        _ = local_notified.as_mut() => {},
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
@@ -343,7 +347,12 @@ impl AuthorityBlockAssembler {
                 }
                 Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
                     failed_source = None;
-                    if wait_template_retry(&cancel, authority_notified, local_notified).await
+                    if wait_template_retry(
+                        &cancel,
+                        authority_notified.as_mut(),
+                        local_notified.as_mut(),
+                    )
+                    .await
                         == TemplateRetryWake::Cancelled
                     {
                         return Ok(());
@@ -384,13 +393,17 @@ impl AuthorityBlockAssembler {
             let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
+            tokio::pin!(authority_notified);
+            tokio::pin!(local_notified);
+            let _ = authority_notified.as_mut().enable();
+            let _ = local_notified.as_mut().enable();
             match self.drive_component_once(component).await {
                 Ok(AuthorityTemplateStep::Idle) => {
                     failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
-                        _ = authority_notified => {},
-                        _ = local_notified => {},
+                        _ = authority_notified.as_mut() => {},
+                        _ = local_notified.as_mut() => {},
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
@@ -399,7 +412,12 @@ impl AuthorityBlockAssembler {
                 }
                 Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
                     failed_source = None;
-                    if wait_template_retry(&cancel, authority_notified, local_notified).await
+                    if wait_template_retry(
+                        &cancel,
+                        authority_notified.as_mut(),
+                        local_notified.as_mut(),
+                    )
+                    .await
                         == TemplateRetryWake::Cancelled
                     {
                         return Ok(());
@@ -531,14 +549,18 @@ impl AuthorityBlockAssembler {
             let authority_signal = self.runtime.template_signal();
             let authority_notified = authority_signal.notified();
             let local_notified = self.wake.notified();
+            tokio::pin!(authority_notified);
+            tokio::pin!(local_notified);
+            let _ = authority_notified.as_mut().enable();
+            let _ = local_notified.as_mut().enable();
             let current = self.retry_source_cut().await;
             if current != failed {
                 return Some(current);
             }
             tokio::select! {
                 _ = cancel.cancelled() => return None,
-                _ = authority_notified => {}
-                _ = local_notified => {}
+                _ = authority_notified.as_mut() => {}
+                _ = local_notified.as_mut() => {}
             }
         }
     }
@@ -965,13 +987,13 @@ impl AuthorityBlockAssembler {
 
 async fn wait_template_retry(
     cancel: &CancellationToken,
-    authority_notified: tokio::sync::futures::Notified<'_>,
-    local_notified: tokio::sync::futures::Notified<'_>,
+    mut authority_notified: Pin<&mut tokio::sync::futures::Notified<'_>>,
+    mut local_notified: Pin<&mut tokio::sync::futures::Notified<'_>>,
 ) -> TemplateRetryWake {
     tokio::select! {
         _ = cancel.cancelled() => TemplateRetryWake::Cancelled,
-        _ = authority_notified => TemplateRetryWake::Retry,
-        _ = local_notified => TemplateRetryWake::Retry,
+        _ = authority_notified.as_mut() => TemplateRetryWake::Retry,
+        _ = local_notified.as_mut() => TemplateRetryWake::Retry,
         _ = tokio::time::sleep(TEMPLATE_ALLOCATION_RETRY) => TemplateRetryWake::Retry,
     }
 }

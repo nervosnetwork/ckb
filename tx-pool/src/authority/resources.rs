@@ -813,18 +813,6 @@ impl ResourceLedger {
         }
     }
 
-    pub(super) fn active_work_availability(
-        &self,
-        attribution: ComputeAttribution,
-    ) -> Result<ActiveWorkAvailability, ResourceError> {
-        active_work_availability(
-            self.preaccepted,
-            self.remote,
-            attribution.peer().map(|peer| (peer, self.peer(peer))),
-            self.limits,
-        )
-    }
-
     pub(super) fn plan_replace(
         &mut self,
         key: RawTxHash,

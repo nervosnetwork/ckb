@@ -1,8 +1,9 @@
 use super::super::service::{
     AuthorityDerivedError, AuthorityIntegrityFault, AuthorityProjectionFault, AuthorityRelayDrain,
     AuthorityService, AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
-    AuthorityShutdownOutcome, authority_failure_boundary, derived_failure_boundary,
-    map_chain_integrity, map_recent_reject_read_error, record_candidate_uncle_observation,
+    AuthorityShutdownOutcome, AuthorityVerificationControl, authority_failure_boundary,
+    derived_failure_boundary, map_chain_integrity, map_recent_reject_read_error,
+    record_candidate_uncle_observation,
 };
 use super::super::{
     chain_boundary::ChainBoundaryError,
@@ -35,7 +36,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc};
 
 #[test]
 fn uak_operational_failure_classes_follow_ownership_boundaries() {
@@ -140,7 +141,8 @@ async fn service_assembly_with_config_and_recent_reject(
     let snapshot = genesis_snapshot();
     let (bootstrap, relay) = AuthorityService::prepare(config, Arc::clone(&snapshot))
         .expect("the production relay handoff is constructed before service startup");
-    let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (verification_control, _command_tx) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
@@ -156,7 +158,7 @@ async fn service_assembly_with_config_and_recent_reject(
             recent_reject,
             fee_estimator: FeeEstimator::new_dummy(),
             chain_control_receiver,
-            chunk_rx,
+            verification_control,
             cancel,
         },
     )
@@ -288,7 +290,8 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     let snapshot = genesis_snapshot();
     let (bootstrap, _relay) = AuthorityService::prepare(config, snapshot)
         .expect("the relay handoff is constructed before service startup");
-    let (_command_tx, chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (verification_control, _command_tx) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
@@ -303,7 +306,7 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
             recent_reject: None,
             fee_estimator: FeeEstimator::new_dummy(),
             chain_control_receiver,
-            chunk_rx,
+            verification_control,
             cancel: CancellationToken::new(),
         },
     )

@@ -10,8 +10,8 @@ use crate::{
             ComputeWorkerSlot,
         },
         plan::{
-            CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeRecovery,
-            PlanError, TxPoolAuthority,
+            CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeDeferred,
+            PlanError, TxPoolAuthority, test_support::ComputeExchangeRecovery,
         },
         state::{ApplySequence, OwnedTx, PreAcceptedPhase, VerifyCapability, WorkPermit},
         work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
@@ -21,7 +21,7 @@ use crate::{
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 
 fn any_verifier(worker_id: usize) -> ComputeWorkerSlot {
     ComputeVerifierSlot::new(worker_id, VerifyCapability::Any).into()
@@ -31,7 +31,10 @@ fn grant(slot: ComputeWorkerSlot) -> ComputeWorkerGrant {
     let permit = Arc::new(Semaphore::new(1))
         .try_acquire_owned()
         .expect("fixture owns its one execution permit");
-    ComputeWorkerGrant::new(slot, AuthorityComputeExecutionPermit::new(permit))
+    ComputeWorkerGrant::new(
+        slot,
+        AuthorityComputeExecutionPermit::new(permit, Arc::new(Notify::new())),
+    )
 }
 
 fn assignment_hash(work: &CheckedOutWork) -> crate::authority::state::RawTxHash {
@@ -623,7 +626,7 @@ fn uak_effectful_completion_deferral_uses_monotonic_capability_rank() {
         committed
             .deferred
             .iter()
-            .map(ComputeExchangeCompletion::version)
+            .map(ComputeExchangeDeferred::version)
             .collect::<Vec<_>>(),
         expected
     );

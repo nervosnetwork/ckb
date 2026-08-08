@@ -1,4 +1,3 @@
-use super::exchange::ComputeWorkerSlot;
 use super::state::{
     Arrival, EntryVersion, OwnedTx, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
     RawTxHash, VerifyCapability, VerifyCycleClass,
@@ -564,47 +563,6 @@ impl FairLane {
         Some((owner, key))
     }
 
-    fn next_after_excluding(
-        &self,
-        lane: QueueLane,
-        capability: VerifyCapability,
-        cursor: Option<WorkOwner>,
-        excluded_versions: &[EntryVersion],
-    ) -> Option<(WorkOwner, &QueueKey)> {
-        let mut cursor = cursor;
-        for _ in 0..self.owner_count(lane, capability) {
-            let owner = self.next_owner(lane, capability, cursor)?;
-            if let Some(key) = self
-                .by_owner
-                .get(&owner)
-                .and_then(|entries| entries.head_excluding(lane, capability, excluded_versions))
-            {
-                return Some((owner, key));
-            }
-            cursor = Some(owner);
-        }
-        None
-    }
-
-    fn next_excluding(
-        &self,
-        lane: QueueLane,
-        capability: VerifyCapability,
-        cursor: Option<WorkOwner>,
-        excluded_versions: &[EntryVersion],
-    ) -> Option<(WorkOwner, &QueueKey)> {
-        if cursor.is_none()
-            && self.owner_is_eligible(lane, capability, WorkOwner::Trusted)
-            && let Some(key) = self
-                .by_owner
-                .get(&WorkOwner::Trusted)
-                .and_then(|entries| entries.head_excluding(lane, capability, excluded_versions))
-        {
-            return Some((WorkOwner::Trusted, key));
-        }
-        self.next_after_excluding(lane, capability, cursor, excluded_versions)
-    }
-
     fn overlay_owner_is_eligible(
         &self,
         overlay: &Self,
@@ -759,38 +717,6 @@ pub(super) struct SchedulerWaveCursor {
     verify_cursor: Option<WorkOwner>,
 }
 
-/// One worker-slot assignment selected from a virtual scheduler wave. The
-/// ticket remains move-only and is later consumed by the authoritative batch
-/// compiler; observing this value alone cannot advance a fairness cursor.
-pub(super) struct SchedulerWaveAssignment {
-    slot: ComputeWorkerSlot,
-    permit: super::state::WorkPermit,
-    ticket: CheckoutTicket,
-}
-
-impl SchedulerWaveAssignment {
-    pub(super) fn slot(&self) -> ComputeWorkerSlot {
-        self.slot
-    }
-
-    pub(super) fn permit(&self) -> super::state::WorkPermit {
-        self.permit
-    }
-
-    pub(super) fn ticket(&self) -> &CheckoutTicket {
-        &self.ticket
-    }
-}
-
-/// Read-only role-aware scheduler plan. It owns only bounded transient
-/// tickets and a virtual cursor; dropping it leaves the authority unchanged.
-#[must_use = "a scheduler wave must be compiled into an Apply or dropped unchanged"]
-pub(super) struct SchedulerWavePlan {
-    cursor: SchedulerWaveCursor,
-    assignments: Vec<SchedulerWaveAssignment>,
-    idle: Vec<ComputeWorkerSlot>,
-}
-
 /// Mutable Plan-only view of the committed scheduler plus a bounded set of
 /// owner-local settlement additions. Candidate probes do not advance
 /// fairness; only consuming a selected ticket does. This lets the exchange
@@ -800,18 +726,6 @@ pub(super) struct SchedulerExchangeWave<'frontier> {
     frontier: &'frontier FairFrontier,
     overlay: SchedulerWaveOverlay,
     cursor: SchedulerWaveCursor,
-}
-
-impl SchedulerWavePlan {
-    pub(super) fn into_parts(
-        self,
-    ) -> (
-        SchedulerWaveCursor,
-        Vec<SchedulerWaveAssignment>,
-        Vec<ComputeWorkerSlot>,
-    ) {
-        (self.cursor, self.assignments, self.idle)
-    }
 }
 
 impl SchedulerExchangeWave<'_> {
@@ -1049,24 +963,6 @@ impl FairFrontier {
         })
     }
 
-    /// Select one bounded role-bearing worker wave against a virtual removal
-    /// overlay. This is the exact scheduler quotient of canonical sequential
-    /// checkout: every accepted ticket advances its lane cursor before the
-    /// next slot is considered, while no authoritative state is mutated.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "I3a production scheduler refinement is consumed by the I3c exchange compiler before the I3 topology cutover"
-        )
-    )]
-    pub(super) fn plan_worker_wave(
-        &self,
-        slots: &[ComputeWorkerSlot],
-    ) -> Result<SchedulerWavePlan, SchedulerError> {
-        self.plan_worker_wave_with_overlay(slots, &SchedulerWaveOverlay::default())
-    }
-
     pub(super) fn exchange_wave_after<'entry>(
         &self,
         settled: impl IntoIterator<Item = &'entry OwnedTx>,
@@ -1092,65 +988,6 @@ impl FairFrontier {
             frontier: self,
             overlay,
             cursor: self.checkout_wave(selection_bound)?,
-        })
-    }
-
-    fn plan_worker_wave_with_overlay(
-        &self,
-        slots: &[ComputeWorkerSlot],
-        overlay: &SchedulerWaveOverlay,
-    ) -> Result<SchedulerWavePlan, SchedulerError> {
-        if slots.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES {
-            return Err(SchedulerError::Projection);
-        }
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(slots.len())
-            .map_err(|_| SchedulerError::Allocation)?;
-        ordered.extend_from_slice(slots);
-        ordered.sort_unstable_by_key(|slot| slot.id());
-        if ordered
-            .windows(2)
-            .any(|pair| matches!(pair, [left, right] if left.id() == right.id()))
-        {
-            return Err(SchedulerError::Projection);
-        }
-        ordered.sort_unstable_by_key(|slot| slot.canonical_key());
-
-        let mut assignments = Vec::new();
-        assignments
-            .try_reserve(ordered.len())
-            .map_err(|_| SchedulerError::Allocation)?;
-        let mut idle = Vec::new();
-        idle.try_reserve(ordered.len())
-            .map_err(|_| SchedulerError::Allocation)?;
-        let mut cursor = self.checkout_wave(ordered.len())?;
-        for slot in ordered {
-            let primary = slot.primary_permit();
-            let selected = self
-                .next_queued_in_wave_with_overlay(&cursor, primary, overlay)
-                .map(|ticket| (primary, ticket))
-                .or_else(|| {
-                    slot.fallback_permit().and_then(|fallback| {
-                        self.next_queued_in_wave_with_overlay(&cursor, fallback, overlay)
-                            .map(|ticket| (fallback, ticket))
-                    })
-                });
-            let Some((permit, ticket)) = selected else {
-                idle.push(slot);
-                continue;
-            };
-            cursor.select(&ticket)?;
-            assignments.push(SchedulerWaveAssignment {
-                slot,
-                permit,
-                ticket,
-            });
-        }
-        Ok(SchedulerWavePlan {
-            cursor,
-            assignments,
-            idle,
         })
     }
 
@@ -1207,61 +1044,6 @@ impl FairFrontier {
                 owner,
                 key: key.clone(),
             })
-    }
-
-    pub(super) fn next_queued_in_wave(
-        &self,
-        wave: &SchedulerWaveCursor,
-        permit: super::state::WorkPermit,
-    ) -> Option<CheckoutTicket> {
-        let lane = QueueLane::for_permit(permit);
-        let capability = QueueLane::capability(permit);
-        let frontier = match lane {
-            QueueLane::Resolve => &self.resolve,
-            QueueLane::Verify => &self.verify,
-        };
-        frontier
-            .next_excluding(
-                lane,
-                capability,
-                wave.lane_cursor(lane),
-                &wave.selected_versions,
-            )
-            .map(|(owner, key)| CheckoutTicket {
-                lane,
-                owner,
-                key: key.clone(),
-            })
-    }
-
-    pub(super) fn next_queued_after_in_wave(
-        &self,
-        wave: &SchedulerWaveCursor,
-        permit: super::state::WorkPermit,
-        cursor: WorkOwner,
-    ) -> Option<CheckoutTicket> {
-        let lane = QueueLane::for_permit(permit);
-        let capability = QueueLane::capability(permit);
-        let frontier = match lane {
-            QueueLane::Resolve => &self.resolve,
-            QueueLane::Verify => &self.verify,
-        };
-        frontier
-            .next_after_excluding(lane, capability, Some(cursor), &wave.selected_versions)
-            .map(|(owner, key)| CheckoutTicket {
-                lane,
-                owner,
-                key: key.clone(),
-            })
-    }
-
-    pub(super) fn owner_count(&self, permit: super::state::WorkPermit) -> usize {
-        let lane = QueueLane::for_permit(permit);
-        let capability = QueueLane::capability(permit);
-        match lane {
-            QueueLane::Resolve => self.resolve.owner_count(lane, capability),
-            QueueLane::Verify => self.verify.owner_count(lane, capability),
-        }
     }
 
     pub(super) fn wake_projection(&self) -> SchedulerWakeProjection {

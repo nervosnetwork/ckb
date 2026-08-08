@@ -45,6 +45,23 @@ impl ResourceVector {
     }
 }
 
+impl ResourceLedger {
+    /// Sequential-checkout resource probe retained only for refinement tests.
+    /// Production compute plans against `OrderedResourceProjection` so a
+    /// bounded wave observes earlier members of the same exchange.
+    pub(in crate::authority) fn active_work_availability_for_reference(
+        &self,
+        attribution: ComputeAttribution,
+    ) -> Result<ActiveWorkAvailability, ResourceError> {
+        active_work_availability(
+            self.preaccepted,
+            self.remote,
+            attribution.peer().map(|peer| (peer, self.peer(peer))),
+            self.limits,
+        )
+    }
+}
+
 impl ComputeLimits {
     fn checked_compute_capacity(self, active_work: usize) -> Option<(usize, usize)> {
         Some((

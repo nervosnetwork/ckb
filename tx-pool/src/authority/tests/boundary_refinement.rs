@@ -9,6 +9,7 @@ use super::super::{
     publisher::{AuthorityEffectEndpoints, EndpointDisposition, compile_committed_effect},
     relay::{AuthorityRelaySink, authority_relay_mailbox},
     runtime::AuthorityRuntime,
+    service::AuthorityVerificationControl,
     topology::AuthorityTaskTopology,
 };
 use super::foundation::{genesis_snapshot, runtime_config};
@@ -35,7 +36,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
-use tokio::sync::{RwLock, mpsc, watch};
+use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 const SYMBOLIC_TX: BoundaryTxId = BoundaryTxId(1);
@@ -54,11 +55,12 @@ fn boundary_key(source: BoundarySource) -> BoundaryKey {
 
 fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
     let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
-    let (chunk_tx, _chunk_rx) = watch::channel(ChunkCommand::Resume);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     TxPoolController {
         sender,
         chain_control_sender,
-        chunk_tx: Arc::new(chunk_tx),
+        verification_command,
         handle: Handle::new(tokio::runtime::Handle::current(), None),
         started: Arc::new(AtomicBool::new(true)),
         signal: CancellationToken::new(),
@@ -348,12 +350,13 @@ async fn uak_topology_lifecycle_refines_running_and_stopped_cuts() {
     let runtime = runtime();
     let (relay, _relay_receiver) = authority_relay_mailbox(2, 1024 * 1024, 1_024)
         .expect("the lifecycle relay mailbox is valid");
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
+    let (verification_control, _command_tx) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let topology = AuthorityTaskTopology::start(
         &Handle::new(tokio::runtime::Handle::current(), None),
         runtime.clone(),
         Arc::new(RwLock::new(init_cache())),
-        command_rx,
+        verification_control,
         endpoints(relay),
         None,
         CancellationToken::new(),

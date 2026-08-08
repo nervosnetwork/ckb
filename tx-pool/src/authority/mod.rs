@@ -8,6 +8,7 @@
 mod ban;
 mod chain;
 mod chain_boundary;
+mod compute_coordinator;
 mod dependency;
 mod effect;
 mod exchange;

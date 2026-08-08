@@ -5,9 +5,9 @@ is not public architecture or implementation history. Delete it when P10 and
 the final completion review close.
 
 The active architecture replan is `tx-pool/.independent-execution-plan`.
-Benchmarking, profiling and local performance patches are frozen until that
-plan reaches D3 and the selected end-to-end independent execution model is
-implemented and correctness-gated.
+Benchmarking, profiling and local performance patches are frozen until the
+selected I1-I6 end-to-end independent execution model is implemented and
+correctness-gated.
 
 ## Fixed route
 
@@ -26,8 +26,8 @@ implemented and correctness-gated.
 7. ACTIVE - implement the M4-frozen bounded semantic exchange in six ordered
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
-   core and I2 retained-ingress batching are complete, and I3 bounded compute
-   exchange is active.
+   core, I2 retained-ingress batching and I3 bounded compute exchange are
+   complete. I4 prepared full query is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
@@ -3917,3 +3917,97 @@ matching authoritative settlement. Send failure returns the exact job to the
 ordinary cancellation transition, and shutdown joins the coordinator only
 after every worker capability is drained. Profiling and benchmark work remain
 frozen.
+
+## I3d coordinator cutover review
+
+The current working tree has completed the production topology cutover. One
+coordinator owns bounded transport and move-only slot capabilities; the
+authority remains the only scheduler and lifecycle owner. Stable resolver and
+verifier tasks execute only assigned jobs, Ready and maintenance remain
+concurrent, and the old per-worker checkout/retry/wake loops are deleted.
+Shutdown publishes an absorbing verification Stop before cancellation, closes
+assignment senders, joins workers before the coordinator, then closes and
+drains the still-running effect publisher.
+
+Static lost-wake review found that merely constructing a Tokio `Notified`
+future before a level read is insufficient for `notify_waiters`; it must be
+registered. Service, Ready, maintenance and template waits now pin and enable
+their exact waiter before the authoritative read. The coordinator keeps one
+enabled effect waiter across the whole run because it multiplexes completion,
+permit, command and effect events. After that root correction and removal of
+temporary diagnostics, the 59-test concurrent selector passed once and then
+ten consecutive repetitions (590/590), all through `cargo nextest run`.
+
+Strict Clippy now exposes the exact I3e deletion ledger rather than a local
+warning list: the legacy single-checkout Plan/runtime protocol and standalone
+scheduler-wave prototype still compile in production even though only tests
+consume them. They must move into the already separate test-support files;
+lint suppression is not an acceptable closure. Four new mechanical issues
+also remain: one panic-capable eligible-slot index, two unchecked retry
+deadlines, one large linear recovery carrier and one large capture result.
+They will be removed by iterator ownership, checked time arithmetic and typed
+visitor/output routing without weakening capability conservation or adding
+hot-path allocation.
+
+The exact next action is I3e deletion and convergence as frozen in
+`.independent-execution-plan` section 18. The user-owned `.gitignore` remains
+out of scope and must not be staged. All Rust tests use Nextest; profiling and
+benchmark work remain frozen.
+
+## I3e deletion and convergence closure
+
+I3 now has one production retained-compute protocol. The legacy per-owner
+checkout and settlement adapter plus the standalone scheduler-wave oracle live
+only under `authority/tests/support`; strict Clippy finds no production
+consumer that requires them. One `ComputeCoordinator` owns stable worker
+transport, while `TxPoolAuthority` remains the sole transaction, scheduler,
+resource and effect authority. Compute stays lock-external and Ready,
+maintenance and template lanes remain independent.
+
+For `P = verify_workers + 1`, the final topology has `P` stable lanes, `P`
+capacity-one assignment channels and one capacity-`P` completion channel. At
+every stable cut, `Idle + Assigned + Finished = P`; a Finished lane's exact
+completion is in one coordinator buffer or is synchronously owned by the
+current no-`await` exchange. A separate fair `ComputeWorkerGrant`, never lane
+phase alone, is required for refill. This closes capability conservation
+without a second authority, nested undo, transfer shortcut, fill timer or
+worker-side policy.
+
+The wait-for and shutdown review is finite: assignment is non-blocking; the
+completion channel can hold all `P` final worker returns; no completion waits
+for a permit; cache publication is non-blocking; one registered effect waiter
+waits only on the effect publisher's monotonic capacity level. Shutdown closes
+assignments, permits at most one final completion per Assigned lane, joins
+workers before the coordinator and keeps the effect publisher alive through
+that drain. No lock crosses an await.
+
+The implementation equation is now `A + (W + 1) + 2R`: one initial checkout,
+one completion exchange per immediately available compute wave, and one Ready
+plus effect Apply per non-empty immutable slice. The initial-wave and
+settle/refill production tests bind the formula to Apply stamps; the executable
+model fixes its named no-interleave serialization. It remains an operation
+count, not a benchmark conclusion.
+
+I3e gates at this working checkpoint:
+
+- complete internal library Nextest run
+  `5b6c82d2-79a8-47ba-8a09-16bd636190a3`: 687/687 passed, zero skipped;
+- focused concurrency falsification: 59/59 once and 590/590 across ten
+  repetitions;
+- strict all-target internal-feature Clippy, formatting, compilation, test
+  layout and all nine complete generated/formal contracts: passed. The formal
+  gate explored 1,098 generated / 318 distinct positive states and reproduced
+  the required four-state negative handoff witness;
+- review inventory: 357 exact tx-pool tests / 1,420 invariant references, 11
+  cross-crate tests / 32 references, 19 integration anchors and 150 managed
+  specs.
+
+The phase review found no duplicate authority or new legal-input fail-stop.
+The four mechanical defects found during I3d were removed at their producer:
+eligible-slot iteration is ownership-driven, retry arithmetic is checked,
+capture output is routed directly and recovery uses a bounded visitor. The
+user-owned `.gitignore` is unchanged and excluded from staging.
+
+The next exact action is I4 `PREPARED-FULL-QUERY`. Full integration,
+profiling and fixed-binary A/B remain frozen until I1-I6 and correctness
+acceptance close.

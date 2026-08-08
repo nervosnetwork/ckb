@@ -5,7 +5,9 @@ mod membership;
 mod settlement;
 
 pub(in crate::authority) use self::compute_exchange::{
-    CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeRecovery,
+    CommittedComputeExchange, ComputeExchangeAssignment, ComputeExchangeCompletion,
+    ComputeExchangeDeferred, ComputeExchangeDeferredRoute, ComputeExchangePlanFailure,
+    ComputeExchangeRecoveries, ComputeExchangeRecoverySink, ComputeExchangeSettled,
 };
 pub(in crate::authority) use self::ingress::CommittedRetainedAdmissionBatch;
 
@@ -41,26 +43,25 @@ use super::rejection::{
     CommittedPublicReject, DirectRejectionValidity, DirectTransactionRejection,
 };
 use super::resources::{
-    ActiveWorkAvailability, ChargeRecord, ChargedAdmission, ComputeGrant, ComputeReleaseError,
-    ResourceBatchPlan, ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
+    ChargeRecord, ChargedAdmission, ComputeGrant, ComputeReleaseError, ResourceBatchPlan,
+    ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
 };
 use super::scheduler::{
-    CheckoutTicket, FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
+    FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerWakeProjection, VerifyOrder,
 };
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
-    AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, ComputeAttribution,
-    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
-    MissingDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedEntry,
-    PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
-    ReplacementHistoryEntry, ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission,
+    AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, DependencyCut, DependencyKey,
+    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
+    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
+    QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError,
+    ResolvedFacts, TxRecord, ValidatedAdmission,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
-    CheckedOutWork, ComputeSettlement, LeaseToken, MissingResolution, SettlementNext,
-    SettlementRejection, SettlementToken,
+    ComputeSettlement, MissingResolution, SettlementNext, SettlementRejection, SettlementToken,
 };
 use crate::error::Reject;
 use ckb_types::{
@@ -525,31 +526,6 @@ pub(super) struct AuthorityWakeTransition {
     after: AuthorityWakeProjection,
 }
 
-/// Capability-compatible compute levels derived from one committed scheduler
-/// and resource transition. These bits carry no owner identity and cannot
-/// select work; they only prevent publishing the same head to several
-/// disjoint waiter sets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ComputeWakeTransition {
-    resolve: bool,
-    verify_small: bool,
-    verify_any: bool,
-}
-
-impl ComputeWakeTransition {
-    pub(super) const fn resolve(self) -> bool {
-        self.resolve
-    }
-
-    pub(super) const fn verify_small(self) -> bool {
-        self.verify_small
-    }
-
-    pub(super) const fn verify_any(self) -> bool {
-        self.verify_any
-    }
-}
-
 impl AuthorityWakeTransition {
     fn head_advanced(before: Option<EntryVersion>, after: Option<EntryVersion>) -> bool {
         after.is_some() && before != after
@@ -573,34 +549,19 @@ impl AuthorityWakeTransition {
         )
     }
 
-    /// Route each potentially executable compute head to one compatible
-    /// waiter class.
-    ///
-    /// Every compute worker can resolve, every verifier can execute a small
-    /// verification, and only an Any verifier can execute the remaining Any
-    /// head. When the Small and Any projections name the same globally unique
-    /// entry version, one shared Small hint is sufficient. A later successful
-    /// checkout advances the committed head and republishes the baton. A
-    /// released active-work slot also republishes every retained head because
-    /// per-source and per-peer charging can make a stable scheduler head
-    /// temporarily ineligible without removing it.
-    pub(super) fn compute(self) -> ComputeWakeTransition {
+    /// Publish one compute level when any compatible scheduler head changes or
+    /// an active-work release may make a stable head newly eligible. The
+    /// coordinator derives exact role assignments from the authoritative
+    /// scheduler; this boolean is deliberately not a second routing policy.
+    pub(super) fn compute_advanced(self) -> bool {
         let compute_slot_released = self.after.active_work < self.before.active_work;
-        let resolve = self.resolve_advanced();
-        let verify_small_advanced = self.verify_small_advanced();
-        let verify_any_advanced = self.verify_any_advanced();
-        let shared_verify_head = self.after.scheduler.verify_small.is_some()
-            && self.after.scheduler.verify_small == self.after.scheduler.verify_any;
-        ComputeWakeTransition {
-            resolve: resolve || (compute_slot_released && self.after.scheduler.resolve.is_some()),
-            verify_small: verify_small_advanced
-                || (shared_verify_head && verify_any_advanced)
-                || (compute_slot_released && self.after.scheduler.verify_small.is_some()),
-            verify_any: (verify_any_advanced && !shared_verify_head)
-                || (compute_slot_released
-                    && self.after.scheduler.verify_any.is_some()
-                    && !shared_verify_head),
-        }
+        self.resolve_advanced()
+            || self.verify_small_advanced()
+            || self.verify_any_advanced()
+            || (compute_slot_released
+                && (self.after.scheduler.resolve.is_some()
+                    || self.after.scheduler.verify_small.is_some()
+                    || self.after.scheduler.verify_any.is_some()))
     }
 
     pub(super) fn ready_advanced(self) -> bool {
@@ -625,13 +586,6 @@ impl AuthorityWakeTransition {
 
     pub(super) fn template_source_advanced(self) -> bool {
         self.before.template != self.after.template
-    }
-
-    pub(super) fn then(self, next: Self) -> Self {
-        Self {
-            before: self.before,
-            after: next.after,
-        }
     }
 }
 
@@ -793,42 +747,12 @@ enum EntryReplacementRetirement {
     OutsideGuard,
 }
 
-/// State-only checkout evidence consumed while planning the queued-to-active
-/// transition. The worker payload stays in `PreparedCheckout`, outside the
-/// generic state delta.
-struct CheckoutControl {
-    ticket: CheckoutTicket,
-    reservation: CheckoutReservation,
-}
-
-struct CheckoutReservation {
-    resources: ResourcePlan,
-    grant: ComputeGrant,
-    after_charge: ResourceVector,
-}
-
-#[expect(
-    clippy::large_enum_variant,
-    reason = "boxing the move-only reservation would add a hot-path checkout allocation"
-)]
-enum CheckoutResource {
-    Reserved(CheckoutReservation),
-    SkipOwner,
-    Stop,
-}
-
 enum CheckoutEligibility {
     Ready {
         grant: ComputeGrant,
         after_charge: ResourceVector,
     },
     StaleDependency,
-}
-
-struct CheckoutSearch {
-    selected: Option<(CheckoutTicket, CheckoutReservation)>,
-    #[cfg(test)]
-    probes: usize,
 }
 
 struct DependencyLossKeys {
@@ -1110,38 +1034,6 @@ impl From<PlanError> for PrepareSettlementError {
 pub(super) struct PreparedApply<'authority> {
     authority: &'authority mut TxPoolAuthority,
     delta: AuthorityDelta,
-}
-
-/// A prepared compute checkout pairs the generic state plan with its exact
-/// worker capability before mutation. Generic Apply plans and their committed
-/// deltas cannot carry work, so neither missing nor accidental work handoff is
-/// representable after a successful transition.
-#[must_use = "a prepared checkout must be applied exactly once"]
-pub(super) struct PreparedCheckout<'authority> {
-    plan: PreparedApply<'authority>,
-    work: CheckedOutWork,
-}
-
-#[must_use = "checked-out work and its retirement carrier must leave the authority guard together"]
-pub(super) struct CommittedCheckout {
-    work: CheckedOutWork,
-    retirement: CommittedDelta,
-}
-
-impl PreparedCheckout<'_> {
-    pub(super) fn apply(self) -> CommittedCheckout {
-        let Self { plan, work } = self;
-        let retirement = plan.apply();
-        CommittedCheckout { work, retirement }
-    }
-}
-
-impl CommittedCheckout {
-    /// The runtime must keep `retirement` alive until after the authority guard
-    /// opens; the compute job itself may then cross the worker boundary.
-    pub(in crate::authority) fn into_parts(self) -> (CheckedOutWork, CommittedDelta) {
-        (self.work, self.retirement)
-    }
 }
 
 #[must_use = "candidate disposition must be applied exactly once"]
@@ -2269,7 +2161,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
         )
     }
 
@@ -2402,7 +2293,7 @@ impl TxPoolAuthority {
             after: Some(OwnedTx::PreAccepted(promoted)),
         };
         if same_witness {
-            self.prepare_entry_delta(transition, clocks, sequence, None)
+            self.prepare_entry_delta(transition, clocks, sequence)
         } else {
             // The trusted payload replaces the exact owner atomically. A
             // checked-out worker still holds the old EntryVersion and can
@@ -2480,7 +2371,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
         )
     }
 
@@ -3259,7 +3149,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
             TransitionControls {
                 dependency: dependency_control,
                 effect,
@@ -3887,148 +3776,6 @@ impl TxPoolAuthority {
         .map(Some)
     }
 
-    /// Select and reserve one exact scheduler head. Saturated peer/source
-    /// owners are skipped without publishing a second blocked-owner state.
-    pub(super) fn plan_checkout_next(
-        &mut self,
-        permit: super::state::WorkPermit,
-    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
-        let search = self.search_checkout(permit)?;
-        self.prepare_checkout_search(search, permit)
-    }
-
-    fn search_checkout(
-        &mut self,
-        permit: super::state::WorkPermit,
-    ) -> Result<CheckoutSearch, PlanError> {
-        match self
-            .resources
-            .active_work_availability(ComputeAttribution::Trusted)?
-        {
-            ActiveWorkAvailability::Available => {}
-            ActiveWorkAvailability::PreAcceptedExhausted => {
-                return Ok(CheckoutSearch {
-                    selected: None,
-                    #[cfg(test)]
-                    probes: 0,
-                });
-            }
-            ActiveWorkAvailability::RemoteExhausted | ActiveWorkAvailability::PeerExhausted(_) => {
-                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
-            }
-        }
-        let owner_count = self.scheduler.owner_count(permit);
-        let mut wave = self.scheduler.checkout_wave(1)?;
-        let mut cursor = None;
-        let mut selected = None;
-        #[cfg(test)]
-        let mut probes = 0usize;
-        for _ in 0..owner_count {
-            let ticket = match cursor {
-                Some(owner) => self
-                    .scheduler
-                    .next_queued_after_in_wave(&wave, permit, owner),
-                None => self.scheduler.next_queued_in_wave(&wave, permit),
-            };
-            let Some(ticket) = ticket else {
-                break;
-            };
-            #[cfg(test)]
-            {
-                probes = probes
-                    .checked_add(1)
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-            }
-            cursor = Some(ticket.owner());
-            match self.plan_checkout_resources(ticket.hash(), ticket.version(), permit)? {
-                CheckoutResource::Reserved(reservation) => {
-                    wave.select(&ticket)?;
-                    selected = Some((ticket, reservation));
-                    break;
-                }
-                CheckoutResource::SkipOwner => {}
-                CheckoutResource::Stop => break,
-            }
-        }
-        Ok(CheckoutSearch {
-            selected,
-            #[cfg(test)]
-            probes,
-        })
-    }
-
-    fn prepare_checkout_search(
-        &mut self,
-        search: CheckoutSearch,
-        permit: super::state::WorkPermit,
-    ) -> Result<Option<PreparedCheckout<'_>>, PlanError> {
-        let Some((ticket, reservation)) = search.selected else {
-            return Ok(None);
-        };
-        let key = ticket.hash().clone();
-        let version = ticket.version();
-        self.plan_selected_checkout(&key, version, permit, ticket, reservation)
-            .map(Some)
-    }
-
-    fn plan_checkout_resources(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        permit: super::state::WorkPermit,
-    ) -> Result<CheckoutResource, PlanError> {
-        let existing = self
-            .entries
-            .get(key)
-            .ok_or(PlanError::Stale(StalePlan::Missing))?;
-        if existing.record().version != expected {
-            return Err(PlanError::Stale(StalePlan::Version));
-        }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
-            return Err(PlanError::Stale(StalePlan::Phase));
-        };
-        let attribution = preaccepted.source.compute_attribution();
-        match self.resources.active_work_availability(attribution)? {
-            ActiveWorkAvailability::Available => {}
-            ActiveWorkAvailability::PeerExhausted(_) => {
-                return Ok(CheckoutResource::SkipOwner);
-            }
-            ActiveWorkAvailability::PreAcceptedExhausted
-            | ActiveWorkAvailability::RemoteExhausted => {
-                return Ok(CheckoutResource::Stop);
-            }
-        }
-        let (grant, after_charge) = match self.checkout_eligibility(preaccepted, permit)? {
-            CheckoutEligibility::Ready {
-                grant,
-                after_charge,
-            } => (grant, after_charge),
-            CheckoutEligibility::StaleDependency => return Ok(CheckoutResource::SkipOwner),
-        };
-        let expected_charge = existing.charge_record();
-        let after_record = ChargeRecord::PreAccepted {
-            resources: after_charge,
-            residency_peer: preaccepted.source.ingress_peer(),
-            compute_peer: attribution.peer(),
-        };
-        let resources = self
-            .resources
-            .plan_replace(key.clone(), Some(expected_charge), Some(after_record))
-            .map_err(|error| match error {
-                ResourceError::PreAcceptedLimit
-                | ResourceError::PeerLimit(_)
-                | ResourceError::RemoteLimit => {
-                    PlanError::Fault(AuthorityFault::ResourceProjection)
-                }
-                error => error.into(),
-            })?;
-        Ok(CheckoutResource::Reserved(CheckoutReservation {
-            resources,
-            grant,
-            after_charge,
-        }))
-    }
-
     fn checkout_eligibility(
         &self,
         preaccepted: &PreAcceptedEntry,
@@ -4082,99 +3829,6 @@ impl TxPoolAuthority {
             grant,
             after_charge: charge,
         })
-    }
-
-    fn plan_selected_checkout(
-        &mut self,
-        key: &RawTxHash,
-        expected: EntryVersion,
-        permit: super::state::WorkPermit,
-        ticket: CheckoutTicket,
-        reservation: CheckoutReservation,
-    ) -> Result<PreparedCheckout<'_>, PlanError> {
-        let existing = self
-            .entries
-            .get(key)
-            .ok_or(PlanError::Stale(StalePlan::Missing))?;
-        if existing.record().version != expected {
-            return Err(PlanError::Stale(StalePlan::Version));
-        }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
-            return Err(PlanError::Stale(StalePlan::Phase));
-        };
-        let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
-            return Err(PlanError::Stale(StalePlan::Phase));
-        };
-        let queued_lane = match queued {
-            QueuedWork::Resolve => QueueLane::Resolve,
-            QueuedWork::Verify(_) => QueueLane::Verify,
-        };
-        if QueueLane::for_permit(permit) != queued_lane {
-            return Err(PlanError::Stale(StalePlan::Phase));
-        }
-
-        let grant = reservation.grant;
-        let charge = reservation.after_charge;
-        let version = self.clocks.next_version;
-        let sequence = self.clocks.next_sequence;
-        let dependency_cut = match queued {
-            QueuedWork::Resolve => DependencyCut(sequence),
-            QueuedWork::Verify(resolved) => resolved.dependency_cut(),
-        };
-        let token = LeaseToken {
-            settlement: SettlementToken {
-                hash: key.clone(),
-                version,
-            },
-            chain_view: self.chain_view.clone(),
-            dependency_cut,
-            permit,
-            grant,
-            payload_policy: preaccepted.source.payload_policy(),
-        };
-        let work = CheckedOutWork::new(
-            token,
-            Arc::clone(&preaccepted.record.tx),
-            preaccepted.basis.dependencies().clone(),
-            queued.clone(),
-        )
-        .map_err(|_| PlanError::Stale(StalePlan::Phase))?;
-        let active_dependencies = preaccepted.dependencies().clone();
-        let attribution = preaccepted.source.compute_attribution();
-        let after = existing
-            .with_preaccepted_phase(
-                PreAcceptedPhase::Computing(super::state::ActiveWork {
-                    chain_view: self.chain_view.clone(),
-                    permit,
-                    grant,
-                    attribution,
-                    payload_policy: preaccepted.source.payload_policy(),
-                    dependency_cut,
-                    dependencies: active_dependencies,
-                }),
-                version,
-                charge,
-            )
-            .map_err(PlanError::Stale)?;
-        let clocks = AuthorityClocks {
-            next_version: next_version(version)?,
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
-        let plan = self.prepare_entry_delta(
-            EntryTransition {
-                key: key.clone(),
-                before: Some(existing.clone()),
-                after: Some(after),
-            },
-            clocks,
-            sequence,
-            Some(CheckoutControl {
-                ticket,
-                reservation,
-            }),
-        )?;
-        Ok(PreparedCheckout { plan, work })
     }
 
     /// Consume a move-only compute completion in one atomic command. A
@@ -4706,7 +4360,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
             TransitionControls {
                 effect,
                 ..TransitionControls::default()
@@ -4767,7 +4420,6 @@ impl TxPoolAuthority {
             },
             clocks,
             sequence,
-            None,
             TransitionControls {
                 dependency,
                 effect,
@@ -4782,13 +4434,11 @@ impl TxPoolAuthority {
         transition: EntryTransition,
         clocks: AuthorityClocks,
         sequence: ApplySequence,
-        checkout: Option<CheckoutControl>,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.prepare_entry_delta_with_controls(
             transition,
             clocks,
             sequence,
-            checkout,
             TransitionControls::default(),
             None,
         )
@@ -4805,7 +4455,6 @@ impl TxPoolAuthority {
             transition,
             clocks,
             sequence,
-            None,
             TransitionControls {
                 dependency: dependency_control,
                 effect: EffectDelta::default(),
@@ -4826,7 +4475,6 @@ impl TxPoolAuthority {
             transition,
             clocks,
             sequence,
-            None,
             TransitionControls {
                 replacement_retirement,
                 ..TransitionControls::default()
@@ -4840,7 +4488,6 @@ impl TxPoolAuthority {
         transition: EntryTransition,
         clocks: AuthorityClocks,
         sequence: ApplySequence,
-        checkout_control: Option<CheckoutControl>,
         controls: TransitionControls,
         explicit_resources: Option<ResourcePlan>,
     ) -> Result<PreparedApply<'_>, PlanError> {
@@ -4855,20 +4502,6 @@ impl TxPoolAuthority {
             effect,
             replacement_retirement,
         } = controls;
-        let (checkout, checkout_resources) = match checkout_control {
-            Some(CheckoutControl {
-                ticket,
-                reservation,
-            }) => (Some(ticket), Some(reservation.resources)),
-            None => (None, None),
-        };
-        let preplanned_resources = match (checkout_resources, explicit_resources) {
-            (Some(_), Some(_)) => {
-                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
-            }
-            (Some(resources), None) | (None, Some(resources)) => Some(resources),
-            (None, None) => None,
-        };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);
         let retirement = match (expected.is_some(), after.is_none(), replacement_retirement) {
@@ -4880,7 +4513,7 @@ impl TxPoolAuthority {
             }
         };
         self.reserve_primary_owner_insertions(usize::from(after.is_some() && expected.is_none()))?;
-        let resource = match preplanned_resources {
+        let resource = match explicit_resources {
             Some(resources) => resources,
             None => self
                 .resources
@@ -4888,7 +4521,7 @@ impl TxPoolAuthority {
         };
         let scheduler = self
             .scheduler
-            .plan_replace(expected.as_ref(), after.as_ref(), checkout)?;
+            .plan_replace(expected.as_ref(), after.as_ref(), None)?;
         let dependency = self
             .dependencies
             .plan_replace(expected.as_ref(), after.as_ref())?
