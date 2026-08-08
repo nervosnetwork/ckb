@@ -420,6 +420,13 @@ impl ResourceLimits {
     pub(super) fn max_owner_entries(self) -> Option<usize> {
         self.preaccepted.entries.checked_add(self.accepted.entries)
     }
+
+    /// Maximum number of simultaneously checked-out retained capabilities.
+    /// This is also the configured cardinality of the compute-worker topology;
+    /// it is not the unrelated membership/RBF mutation-component bound.
+    pub(super) const fn active_work_limit(self) -> usize {
+        self.preaccepted.active_work
+    }
 }
 
 /// Per-lease upper bounds reserved before attacker-shaped resolve/verify

@@ -1,4 +1,7 @@
-use super::foundation::{admit_remote, limits, owner_version, take_resolve_work};
+use super::foundation::{
+    admit_remote, checkout_remote_for_verify_with_claim, limits, owner_version, take_resolve_work,
+    tx,
+};
 use crate::{
     authority::{
         effect::{
@@ -13,7 +16,11 @@ use crate::{
             CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeDeferred,
             PlanError, TxPoolAuthority, test_support::ComputeExchangeRecovery,
         },
-        state::{ApplySequence, OwnedTx, PreAcceptedPhase, VerifyCapability, WorkPermit},
+        resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+        state::{
+            ApplySequence, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, VerifyCapability,
+            WorkPermit,
+        },
         work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
     },
     error::Reject,
@@ -106,6 +113,111 @@ fn fill_total_effect_capacity(authority: &mut TxPoolAuthority) {
             .expect("the sole total effect slot is initially empty")
             .apply(),
     );
+}
+
+fn limits_with_active_work(active_work: usize) -> ResourceLimits {
+    let bytes = active_work * 8 * 1024;
+    let edges = active_work * 16;
+    ResourceLimits::new(
+        ResourceVector::new(active_work, bytes, edges, active_work),
+        ResourceVector::new(active_work, bytes, edges, active_work),
+        ResourceVector::new(active_work, bytes, edges, active_work),
+        AcceptedResources::new(active_work, bytes, bytes, u64::MAX),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .expect("the fixture active-work partition is internally consistent")
+}
+
+fn stale_completion(worker: usize) -> ComputeExchangeCompletion {
+    ComputeExchangeCompletion::new(
+        any_verifier(worker),
+        ComputeSettlement {
+            token: SettlementToken {
+                hash: RawTxHash(Byte32::new([worker as u8; 32])),
+                version: EntryVersion(worker as u128 + 1),
+            },
+            next: SettlementNext::Retry,
+        },
+    )
+}
+
+#[test]
+fn uak_compute_exchange_uses_the_configured_active_work_bound() {
+    let active_work = crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1;
+    let mut authority = TxPoolAuthority::for_foundation(limits_with_active_work(active_work));
+    let grants = (0..active_work)
+        .map(|worker| grant(any_verifier(worker)))
+        .collect::<Vec<_>>();
+
+    let committed = authority
+        .apply_compute_exchange(Vec::new(), grants)
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!(
+                "the configured worker topology, not the membership bound, limits a wave: {error:?}"
+            );
+        });
+    assert!(committed.retirement.is_none());
+    assert!(committed.assignments.is_empty());
+    assert_eq!(committed.unused_grants.len(), active_work);
+    drop(committed);
+
+    let completions = (0..active_work).map(stale_completion).collect::<Vec<_>>();
+    let committed = authority
+        .apply_compute_exchange(completions, Vec::new())
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("the configured completion partition is also valid: {error:?}");
+        });
+    assert_eq!(committed.obsolete.len(), active_work);
+    assert!(committed.assignments.is_empty());
+}
+
+#[test]
+fn uak_compute_exchange_rejects_a_capability_partition_larger_than_the_worker_topology() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let before = authority.normalized_snapshot();
+    let active_work = authority.resources().limits().active_work_limit();
+    let grants = (0..=active_work)
+        .map(|worker| grant(any_verifier(worker)))
+        .collect::<Vec<_>>();
+
+    let failure = authority
+        .apply_compute_exchange(Vec::new(), grants)
+        .err()
+        .expect("a capability partition cannot exceed the configured worker topology");
+    let (error, recoveries) = failure.into_parts();
+    assert_eq!(
+        error,
+        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
+    );
+    assert_eq!(
+        recoveries
+            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Grant(_)))
+            .count(),
+        active_work + 1
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+
+    let completions = (0..=active_work).map(stale_completion).collect::<Vec<_>>();
+    let failure = authority
+        .apply_compute_exchange(completions, Vec::new())
+        .err()
+        .expect("a completion partition cannot exceed the configured worker topology");
+    let (error, recoveries) = failure.into_parts();
+    assert_eq!(
+        error,
+        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
+    );
+    assert_eq!(
+        recoveries
+            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Settlement(_)))
+            .count(),
+        active_work + 1
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
 }
 
 #[test]
@@ -488,6 +600,73 @@ fn uak_malformed_remote_completion_gives_peer_revocation_exclusive_precedence() 
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
     assert!(authority.peer_is_banned_for_reference(PeerIndex::from(peer)));
+}
+
+#[test]
+fn uak_malformed_verify_completion_revokes_its_remote_peer_cohort() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let peer = PeerIndex::from(31usize);
+    let transaction = tx(80_057);
+    let (culprit, verify) =
+        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, 0);
+    let cohort = admit_remote(&mut authority, 80_060, 31);
+
+    let committed = authority
+        .apply_compute_exchange(
+            vec![ComputeExchangeCompletion::new(
+                any_verifier(0),
+                verify.rejected(Reject::Malformed(
+                    "fixture".to_owned(),
+                    "malformed verification payload".to_owned(),
+                )),
+            )],
+            Vec::new(),
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("malformed verification revokes its attributed peer: {error:?}");
+        });
+
+    assert_eq!(committed.settled, vec![any_verifier(0)]);
+    assert!(committed.deferred.is_empty());
+    assert!(authority.entry(&culprit).is_none());
+    assert!(authority.entry(&cohort).is_none());
+    assert!(authority.peer_is_banned_for_reference(peer));
+}
+
+#[test]
+fn uak_nonmalformed_verify_completion_never_revokes_its_remote_peer() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let peer = PeerIndex::from(32usize);
+    let transaction = tx(80_062);
+    let (hash, verify) =
+        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, 0);
+
+    let committed = authority
+        .apply_compute_exchange(
+            vec![ComputeExchangeCompletion::new(
+                any_verifier(0),
+                verify.rejected(Reject::Invalidated(
+                    "nonmalformed verification rejection".to_owned(),
+                )),
+            )],
+            Vec::new(),
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("ordinary verification rejection remains exact settlement work: {error:?}");
+        });
+
+    assert!(committed.settled.is_empty());
+    assert_eq!(committed.deferred.len(), 1);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    assert!(!authority.peer_is_banned_for_reference(peer));
 }
 
 #[test]

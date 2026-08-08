@@ -584,18 +584,13 @@ impl TxPoolAuthority {
                 return Err(exchange_failure(error, Vec::new(), completions, grants));
             }
         };
-        let member_count = match completions.len().checked_add(grants.len()) {
-            Some(count) => count,
-            None => {
-                return Err(exchange_failure(
-                    PlanError::Fault(AuthorityFault::CounterExhausted),
-                    Vec::new(),
-                    completions,
-                    grants,
-                ));
-            }
-        };
-        if member_count > crate::constants::MAX_POOL_MUTATION_CANDIDATES {
+        // Completions and refill grants are distinct linear partitions. A
+        // finished slot may contribute one of each in the same settle/refill
+        // exchange, so their valid aggregate bound is `2 * P`, not the
+        // unrelated membership-component limit. Validate each partition
+        // directly against the configured `P` active-work slots.
+        let active_work_limit = self.resources.limits().active_work_limit();
+        if completions.len() > active_work_limit || grants.len() > active_work_limit {
             return Err(exchange_failure(
                 PlanError::Fault(AuthorityFault::SchedulerProjection),
                 Vec::new(),

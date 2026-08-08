@@ -279,7 +279,7 @@ fn queue_remote_for_verify(
     hash
 }
 
-fn checkout_remote_for_verify_with_claim(
+pub(super) fn checkout_remote_for_verify_with_claim(
     authority: &mut TxPoolAuthority,
     transaction: &TransactionView,
     peer: PeerIndex,

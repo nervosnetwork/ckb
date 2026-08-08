@@ -4198,3 +4198,26 @@ forcing the current-owner/version guard true, and forcing the malformed
 unstarted. Section 27 of `.independent-execution-plan` owns their exact
 classification and restart order. No production source was modified; the
 user-owned `.gitignore` remains excluded.
+
+The fixed roadmap now includes a post-V1 constructive-simplification gate
+before release reconciliation and performance work. A rough path-based diff
+against `develop` shows about 39,810 net added production-like Rust lines, so
+minimality is not assumed. Section 28 requires a machine-derived compile-role
+census and bidirectional semantic ownership audit before any deletion. Cleanup
+cannot weaken the model, typed capabilities, concurrency or adversarial bounds,
+and code size is evidence rather than a correctness substitute.
+
+V1 is frozen at the compute-exchange mutation checkpoint based on
+`86bb108b2`. Mutation review found and corrected a real topology-bound defect:
+completion capabilities and refill grants are independent partitions, each
+bounded by configured active work `P`; their legal aggregate `2P` must not be
+compared with the unrelated fixed membership/RBF bound. Four exact regression
+boundaries were added and focused Nextest run
+`19fb2cd1-848b-4c78-bee4-66bd90e8c603` passed 17/17.
+
+The second 28-mutant run was stopped cleanly after 22 outcomes: 16 caught, four
+compile-unviable, two missed, zero timed out and six unstarted. The durable
+classification, exact command and exact restart action are in section 29 of
+`.independent-execution-plan`. No complete post-change V1 gate is claimed. The
+mutation process is stopped, and the user-owned root `.gitignore` remains
+unstaged and excluded.

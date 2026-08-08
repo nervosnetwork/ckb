@@ -3567,6 +3567,10 @@ I3e closes the bounded compute exchange as one production protocol:
    lanes, `P` capacity-one assignment channels and one capacity-`P`
    completion channel. The coordinator adds no mutable transaction authority,
    lock or timing batch window;
+   one exchange may own both the completion and refill capability for a
+   finished lane, so its two independently checked partitions are each at most
+   `P` and their valid aggregate is at most `2P`; the membership/RBF component
+   bound is not a compute-topology limit;
 3. at every stable observation cut, `Idle + Assigned + Finished = P`. An
    `Assigned` lane has exactly one worker-owned job. A `Finished` lane has
    exactly one move-only completion in a coordinator buffer or in the current
@@ -3867,3 +3871,97 @@ survivors and do not patch production to satisfy the mutation tool. Continue
 with the remaining selected authority/resource/dependency/scheduler slice only
 after this cohort closes, then execute deterministic pool smoke and the final
 complete V1 rerun. The user-owned root `.gitignore` remains excluded.
+
+## 28. Post-V1 constructive-simplification gate
+
+V1 freezes correctness evidence before structural cleanup. Immediately after
+V1 and before release-surface reconciliation or performance claims, run one
+separate constructive-simplification phase. The initial path-based diff against
+`develop` reports roughly 39,810 net added production-like Rust lines, dominated
+by the new authority implementation, but that estimate still mixes the default
+production graph with internal-feature code. It is evidence that minimization
+has not yet been proved, not a line-count verdict.
+
+The phase starts by generating the exact default-production, internal-feature,
+test-only and documentation source-role census from Cargo features and the Rust
+module graph. Hand-maintained path classification is forbidden. It then binds
+every production state, field, transition, lock, task, effect, projection and
+adapter bidirectionally to one business, compatibility, concurrency or attack
+rule and exact regression evidence. A historical rule with no model owner
+reopens the model; implementation with no semantic owner is a deletion or
+fusion candidate.
+
+Review candidates in this order: duplicate authority or policy, repeated
+Plan/Apply and projection/index compiler scaffolding, compatibility adapters
+and facades, test-support surfaces that widened production, then file/module
+layout and naming. A shared abstraction is accepted only when it preserves the
+closed domain error, move-only capability and atomic resource/effect proof; a
+shorter generic mechanism with a wider illegal-state surface is a rejection.
+Mechanical moves stay separate from semantic consolidation.
+
+Each accepted slice must preserve the mathematical transition relation,
+external observations, task/lock topology, concurrency and static adversarial
+cost bounds, and must rerun its exact model/Nextest/integration evidence. Any
+semantic change returns to the mathematical model instead of being disguised
+as cleanup. Production-only net size, owner/type/transition counts, authority
+guard work and clone/allocation counts are recorded before and after each
+slice. These measurements are complexity evidence rather than a hard target:
+correctness and constructive safety remain primary, but retained code must have
+one named semantic owner. Only the converged result proceeds to release docs
+and reproducible profiling/fixed-binary A/B.
+
+## 29. V1 compute-exchange mutation checkpoint
+
+The recovery source base is `86bb108b2`; the Git commit containing this
+section is the next recoverable checkpoint. Work stopped on request without a
+running mutation process. The user-owned root `.gitignore` remains modified,
+unstaged and outside this checkpoint.
+
+The first mutation survivors exposed one production-invalid bound rather than
+only missing tests. A settle/refill exchange owns two distinct linear
+partitions: at most `P` completion capabilities and at most `P` refill grants.
+The previous code compared their valid combined cardinality, which may be
+`2P`, with the unrelated fixed RBF/membership component bound of 100. A legal
+worker topology could therefore raise `SchedulerProjection` and stop the
+service. The root correction exposes the configured active-work limit from
+`ResourceLimits` and checks each partition independently against `P`. It adds
+no state, lock, task, retry or repair path. The architecture cost table and I3
+math now state the same bound.
+
+Four exact regression boundaries were added: `P > 100` refill grants are
+accepted, `P > 100` stale completions are accepted, either partition of
+`P + 1` is rejected without authority mutation and malformed/nonmalformed
+verify rejection has exact peer-revocation behavior. Focused Nextest run
+`19fb2cd1-848b-4c78-bee4-66bd90e8c603` passed all 17 compute-exchange tests;
+formatting and `git diff --check` are clean. Complete V1 gates have not been
+rerun and are not inherited as post-change evidence.
+
+The second selected mutation run used the following exact command from this
+tree:
+
+```text
+cargo mutants -p ckb-tx-pool --features internal --test-tool nextest --baseline run -j 1 --minimum-test-timeout 120 --timeout-multiplier 3 --build-timeout-multiplier 3 --no-shuffle -f 'tx-pool/src/authority/plan/compute_exchange.rs' -F 'prepare_compute_exchange|compile_compute_exchange_state|apply_compute_exchange|PreparedComputeExchange.*apply' -o /private/tmp/ckb-tx-pool-v1-mutants-compute-r2 -- --lib
+```
+
+It discovered 28 mutants and completed 22 before the requested stop: 16
+caught, four compile-unviable, two missed and zero timed out. The two exact
+missed mutants are forcing the current-owner/version match guard to `true` in
+`prepare_compute_exchange`, and deleting `!` from the
+`blocked_revocation_peers` membership test. Six mutants were not started: the
+five remaining nonempty/`Some` return replacements for
+`compile_compute_exchange_state`, plus its zero-count equality negation. The
+temporary outcome directory is diagnostic only; this paragraph is the durable
+result.
+
+The version-guard survivor has a partially completed construction proof: every
+known transition that changes `EntryVersion` also moves the owner out of
+`PreAcceptedPhase::Computing`, while source-only transitions that preserve the
+phase also preserve the version. Do not add an invalid-state fixture merely to
+kill the mutant. The next exact action is to finish the producer/transition
+census for that sealed invariant, classify the blocked-revocation survivor
+against a legal multi-peer deferred exchange, then execute the six unstarted
+mutants and rerun the complete selected slice from this clean checkpoint.
+After this cohort closes, continue the remaining selected authority/resource/
+dependency/scheduler mutation slice, deterministic fixed-binary pool smoke and
+the final complete V1 gate. Constructive simplification, release reconciliation
+and profiling/A/B remain later fixed-roadmap phases.
