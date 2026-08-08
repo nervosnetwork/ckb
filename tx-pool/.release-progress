@@ -4314,3 +4314,66 @@ is intentionally left to the destination environment; only project-specific
 tools remain in the bootstrap. Rust-analyzer is recorded as a recommended
 semantic navigation/refactoring aid, never correctness evidence. No product
 state, test result, blocker or roadmap status changed.
+
+## Destination recovery-equivalence checkpoint
+
+The destination reconstructed the fixed task from repository authorities at
+portable migration commit `9496efb4b155ee2b8ac00491f7e16afff6a8b276` on
+`zhangsoledad/txpool-pipeline`; no conversation state was used as product
+authority. The same public GitHub ref resolves to that hash over HTTPS. The
+configured SSH transport is unavailable on this host because its connection is
+closed by the local network path, so HTTPS was used only for the read-only
+identity predicate. Both recursive submodules match the registered commits,
+root `AGENTS.md` is ignored with SHA-256
+`e1fbb7e8636bfd34d2fe833005465ad2eac37467bbe2af3cec1f8b73f8a03998`,
+all recovery authorities exist, and the portable worktree is clean.
+
+The destination environment is macOS 26.6.1 build 25G76 on arm64 with 18
+logical CPUs. The repository toolchain is Rust/Cargo 1.95.0 with LLVM 22.1.2;
+rust-analyzer is 1.95.0, Python is 3.14.6, Node is 26.7.0 and OpenJDK is
+21.0.12. The installed evidence tools are Git 2.55.0, ripgrep 15.2.0, GNU Make
+3.81, Go 1.26.5, jq 1.8.2, cargo-nextest 0.9.143, cargo-hack 0.6.45,
+cargo-mutants 27.1.0, cargo-llvm-cov 0.8.7, cargo-deny 0.20.2,
+cargo-machete 0.9.2, cargo-semver-checks 0.50.0, cargo-audit 0.22.2,
+cargo-geiger 0.13.0, cargo-expand 1.0.124, cargo-llvm-lines 0.4.46,
+cargo-bloat 0.12.1, cargo-show-asm 0.2.62, cargo-instruments 0.4.17, Kani
+0.67.0, Samply 0.13.1, Tokio Console 0.1.14, hyperfine 1.20.0,
+Difftastic 0.70.0, ast-grep 0.45.1, ShellCheck 0.11.0 and actionlint 1.7.12.
+Version differences from the source-device snapshot are recorded evidence, not
+changed repository requirements.
+
+The installed TLA+ stable artifact is TLC 2.19 with registered SHA-256
+`936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`.
+The handoff's rolling `v1.8.0` asset URL now serves a different prerelease jar,
+so that mismatched download was rejected and the hash-matching stable v1.7.4
+artifact was installed without changing the expected value. Full Xcode is
+present at `/Applications/Xcode.app`; the system-selected developer directory
+still names CommandLineTools, but an explicit `DEVELOPER_DIR` invocation
+validated xctrace 16.0 build 17F113 and its complete Instruments template list.
+
+The complete destination recovery gates pass:
+
+- `check_all.py --light` validated seven discovered contracts, the 18-row
+  behavior graph with 374 Rust tests and 1,481 invariant references, 19
+  integration anchors and the 150-spec managed universe;
+- the registered positive TLC run closed 1,098 generated / 318 distinct states
+  and the negative run reproduced the required
+  `NoEffectBlockedDirectHandoff` witness;
+- final pre-cleanup Nextest run `d9b94eeb-c5f0-4804-a3b8-ad0ed0fd00f5` passed all 17 focused
+  compute-exchange tests with 680 tests intentionally filtered out;
+- repository-wide formatting and `git diff --check` pass.
+
+The semantic reconstruction covered the authority hierarchy, UAK and bounded
+exchange necessity, complete system and kernel state, T1-T16 laws,
+independent/canonical/coupled cuts, fixed phase status, historical report
+dispositions, durable versus pre-correction evidence, exact two missed and six
+unstarted mutants, three release blockers, R2-R8 and whole-phase persistence
+discipline. `recovery_rank` is therefore zero. This checkpoint advances only
+the device-recovery operational gate: no production source, machine registry,
+product status, mutation disposition or release decision changed.
+
+The next exact action is the section 30 zero-behavior cleanup that deletes only
+the temporary `.device-handoff` and replaces its freeze body with a pointer to
+this checkpoint. After that independent commit, product work resumes section
+29 with the sealed Computing/version census, the legal multi-peer
+blocked-revocation adjudication and the six unstarted compute-exchange mutants.
