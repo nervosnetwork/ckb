@@ -16,6 +16,7 @@ from check_review_guide import (
     load_registry,
     repo_path,
     target_invariant_ids,
+    validate_interruption_contract,
     validate_registry,
 )
 
@@ -660,10 +661,11 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 11:
-        errors.append("architecture contract schema_version must be 11")
+    if contract.get("schema_version") != 12:
+        errors.append("architecture contract schema_version must be 12")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
+    errors.extend(validate_interruption_contract(contract, registry))
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):

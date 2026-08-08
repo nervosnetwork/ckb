@@ -1,7 +1,7 @@
 # Transaction-Semantic Architecture Replan
 
 Status: I6 convergence complete; V1 correctness acceptance active
-Checkpoint: I6 commit containing this record
+Checkpoint: `c91d5fe21` (`tx-pool: converge production execution topology`)
 Active slice: V1 static, model and correctness acceptance
 Restart authority: `tx-pool/.release-progress`
 
@@ -3786,3 +3786,51 @@ Nextest run `72536d5b-d090-43a5-9271-39d8e09a0edd` executed 693 tests: 693
 passed, zero skipped. I1-I6 are now implemented; the next exact action is V1
 complete related-crate and managed-integration correctness acceptance. Profiling
 and fixed-binary A/B remain frozen.
+
+## 25. V1 correctness-acceptance startup
+
+Recovery starts from I6 checkpoint `c91d5fe21`. No earlier integration result
+is inherited across the I1-I6 production changes. V1 first runs the complete
+related-crate Rust universe through Nextest, including the serial sync fixture
+gate, then builds and executes the generated 150-spec managed integration
+universe from its beginning with concurrency one. The selection is derived from
+`integration-impact.json`; neither the nearest directory nor a remainder run is
+accepted as evidence.
+
+The same phase closes the static/model/fault boundary: all generated contracts,
+strict feature-aware linting, adversarial operation-count properties, the
+selected task/capability kill-point matrix, mutation-strength review and a
+deterministic pool smoke. Each failure is classified as product, obsolete test,
+harness or environment before any edit. A product defect reopens its model
+owner; it cannot receive a retry, watchdog, repair scan or test-only exception.
+All Rust tests use `cargo nextest run`. Profiling and A/B remain frozen until V1
+and release-surface reconciliation close.
+
+## 26. V1 integration and interruption evidence
+
+The complete related-crate Rust gate is clean under Nextest. The first combined
+high-concurrency run exposed one post-assertion sync-fixture `SIGABRT`; the
+exact test passed alone and the complete `ckb-sync` package passed 86/86 under
+its required serial isolation. The other five related crates passed 91/91,
+with only their two configured skips. This is classified as fixture teardown
+interference, not a product failure; no production recovery path was added.
+
+The generated managed-integration runner now loads `integration-impact.json`
+and `review-behaviors.json` directly, validates both runner authorities, and
+invokes `make integration` through an argument vector. This replaces the
+unsafe copied 150-name command that had concatenated two adjacent spec names
+before any test executed. The canonical serial run validated and passed all
+150/150 managed specs from the beginning with exit code zero in 829.04 seconds.
+
+The selected topology is now marked implemented. A new machine-owned
+interruption contract covers validation-before-Plan, prepared-Plan drop,
+post-Apply/pre-effect retention, worker compute interruption, publisher I/O
+interruption, maintenance cancellation and generation shutdown. Its generated
+review table binds seven production owner cuts to exact Nextest evidence and
+checks complete invariant coverage. It introduces no production kill switch,
+task, state or branch. The review graph now records 370 tx-pool Rust tests /
+1,461 invariant references, 19 integration anchors and 150 managed specs.
+
+The remaining V1 order is fixed: selected production mutation testing through
+Nextest, deterministic fixed-binary submit/status/template smoke, then the
+complete lint/static/model/Nextest gate rerun. Profiling and A/B remain frozen.

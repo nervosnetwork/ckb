@@ -353,6 +353,8 @@
     {"test": "authority::tests::foundation::uak_direct_local_admission_moves_from_absent_to_accepted_in_one_apply", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T3", "T6", "T7"]},
 
     {"test": "authority::tests::foundation::uak_dropped_prepared_apply_is_semantically_mutation_free", "behavior_id": "TP-COMMIT-001", "invariants": ["T6"]},
+    {"test": "authority::tests::validation::uak_direct_validation_shares_the_final_validator_without_mutation_authority", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T6", "T11"]},
+    {"test": "authority::tests::foundation::uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T3", "T5", "T6"]},
     {"test": "authority::tests::foundation::uak_independent_run_matches_every_canonical_single_prefix", "behavior_id": "TP-COMMIT-001", "invariants": ["T3", "T4", "T5", "T6"]},
     {"test": "authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together", "behavior_id": "TP-COMMIT-001", "invariants": ["T6", "T7"]},
     {"test": "authority::tests::chain::uak_final_admission_receipt_is_stale_after_chain_view_aba", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6", "T9", "T11"]},
@@ -394,6 +396,8 @@
     {"test": "authority::tests::compute_exchange::uak_initial_compute_exchange_checks_out_one_available_worker_wave_with_one_stamp", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10", "T14", "T15", "T16"]},
     {"test": "benchmark::debug_tests::controller_repeated_idle_then_burst_never_loses_compute_wake", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
     {"test": "authority::tests::foundation::uak_resolve_to_verify_continuation_changes_no_authority_state", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T10"]},
+    {"test": "authority::tests::foundation::uak_fair_frontier_is_a_derived_non_owning_projection", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T10"]},
+    {"test": "authority::tests::worker::uak_maintenance_driver_fairly_drains_every_preexisting_level", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "authority::tests::worker::uak_idle_maintenance_driver_waits_instead_of_spinning", "behavior_id": "TP-WORKER-001", "invariants": ["T10"]},
     {"test": "authority::tests::foundation::uak_runner_cancellation_settles_one_exact_work_capability_before_exit", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T10"]},
     {"test": "authority::tests::foundation::uak_fair_frontier_round_robins_owners_only_after_apply", "behavior_id": "TP-WORKER-001", "invariants": ["T5", "T10"]},
@@ -415,6 +419,7 @@
     {"test": "authority::tests::effect::uak_effect_settlement_rejects_forged_source_sequence_and_cursor_without_mutation", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T6", "T7"]},
     {"test": "authority::tests::effect::uak_production_effect_sizing_constructively_covers_non_rebuildable_shapes", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T7", "T8"]},
     {"test": "authority::tests::effect::uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset", "behavior_id": "TP-EFFECT-001", "invariants": ["T7", "T10"]},
+    {"test": "authority::tests::publisher::uak_cancelled_publisher_settles_its_tentative_cursor_to_the_fifo_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},
     {"test": "authority::tests::publisher::uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head", "behavior_id": "TP-EFFECT-001", "invariants": ["T7", "T10"]},
     {"test": "authority::tests::effect::uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply", "behavior_id": "TP-EFFECT-001", "invariants": ["T4", "T7", "T10"]},
 
@@ -431,6 +436,8 @@
 
     {"test": "authority::tests::read::uak_persistence_receipt_is_coherent_and_parent_first", "behavior_id": "TP-PERSIST-001", "invariants": ["T4", "T9", "T12"]},
     {"test": "authority::tests::service::uak_service_persists_one_coherent_authority_receipt_outside_the_guard", "behavior_id": "TP-PERSIST-001", "invariants": ["T9", "T10", "T12"]},
+    {"test": "authority::tests::topology::uak_topology_shutdown_stops_the_paired_verification_generation", "behavior_id": "TP-PERSIST-001", "invariants": ["T2", "T9", "T10"]},
+    {"test": "authority::tests::topology::uak_topology_clean_shutdown_drains_effects_before_persistence", "behavior_id": "TP-PERSIST-001", "invariants": ["T2", "T7", "T9", "T10", "T12"]},
     {"test": "persisted::tests::persistence_loader_rejects_an_unrepresentable_read_bound_before_io", "behavior_id": "TP-PERSIST-001", "invariants": ["T8", "T11"]},
     {"test": "persisted::tests::persistence_v2_rejects_oversized_file_before_reading_payload", "behavior_id": "TP-PERSIST-001", "invariants": ["T8", "T11"]},
     {"test": "persisted::tests::persistence_loader_accepts_legacy_v1_vector", "behavior_id": "TP-PERSIST-001", "invariants": ["T11", "T12"]},

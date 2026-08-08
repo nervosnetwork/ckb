@@ -84,6 +84,7 @@ temporary directory.
 | `python3 tx-pool/scripts/check_review_guide.py` | Validate the behavior registry and generated review-guide region. | No |
 | `python3 tx-pool/scripts/check_test_layout.py` | Enforce test isolation, module wiring, static panic restrictions, reviewed test-only seams, and the explicit dormant-tx-pool retirement boundary used by chain-only sync tests. | No |
 | `python3 tx-pool/scripts/check_security_manifest.py` | Discover nextest tests and validate the architecture, behavior, integration and inventory contracts. | No |
+| `python3 tx-pool/scripts/run_managed_integration.py [--anchors]` | Derive the complete managed impact set, or the focused security anchors, directly from the canonical JSON authorities and invoke `make integration` with concurrency one. `--dry-run` validates and prints the derived invocation without building or running tests. | Release binaries and process-test artifacts through `make integration` |
 | `python3 tx-pool/scripts/benchmark.py` | Produce fingerprinted Criterion records and controlled A/B comparisons. | Only requested benchmark artifacts |
 | `python3 tx-pool/scripts/cross_version_benchmark.py` | Build or reuse two hash-bound one-shot binaries and produce checkpointed balanced cross-version A/B evidence with a strict noise gate. | Isolated Cargo targets and the requested external JSON artifact |
 | `python3 tx-pool/scripts/profile.py capture ...` | Build or reuse one hashed profiling binary, capture a windowed Samply profile plus a separate in-memory span-count run, and emit a strict manifest and deterministic analysis. Artifacts must be outside the source tree. | Only the requested external artifact prefix |
@@ -100,6 +101,16 @@ cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings
 All Rust test execution, including focused regressions, uses `cargo nextest
 run`. Direct `cargo test` execution is not accepted as tx-pool evidence because
 it does not provide the required per-test process isolation.
+
+Run process-level acceptance without copying spec names from generated prose:
+
+```bash
+python3 tx-pool/scripts/run_managed_integration.py
+```
+
+The runner derives its arguments from `integration-impact.json` and
+`review-behaviors.json`, validates that both name the same `make integration`
+boundary, and refuses duplicate, malformed or out-of-universe anchors.
 
 The dedicated lightweight workflow
 `.github/workflows/ci_tx_pool_review.yaml` compiles the scripts and runs the

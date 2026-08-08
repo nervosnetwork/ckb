@@ -29,10 +29,11 @@ correctness-gated.
    core, I2 retained-ingress batching and I3 bounded compute exchange are
    complete. I4 prepared full query and I5 typed ordered control are complete;
    I6 production convergence is complete.
-8. ACTIVE - V1 complete static/model/related-crate Nextest and all managed
-   tx-pool-related integration correctness acceptance.
-9. PENDING - release-facing documentation, generated evidence, scripts, CI,
-   smoke and external-review decision reconciliation.
+8. ACTIVE - V1 complete static/model/related-crate Nextest, all managed
+   tx-pool-related integration, interruption, mutation and fixed-binary smoke
+   correctness acceptance.
+9. PENDING - release-facing documentation, generated evidence, scripts, CI and
+   external-review decision reconciliation.
 10. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 11. PENDING - final production completion review and release handoff.
@@ -4144,3 +4145,35 @@ required negative witness. Nextest run
 `72536d5b-d090-43a5-9271-39d8e09a0edd` passed 693/693 with zero skipped. I1-I6
 are complete. V1 complete correctness acceptance is active; all Rust tests
 remain Nextest-only, and profiling/A/B remain frozen.
+
+## V1 correctness-acceptance startup
+
+Recovery checkpoint is `c91d5fe21`. I1-I6 changed production after the previous
+150-spec run, so V1 inherits no old correctness result. The active sequence is:
+complete related-crate Nextest, serial sync Nextest, generated 150/150 managed
+integration from the beginning, then task/capability interruption, mutation
+strength and deterministic pool-smoke evidence. Failures are classified before
+edits and return to their model owner. Direct `cargo test`, filtered-universe
+claims, profiling and A/B are forbidden in this phase.
+
+## V1 integration and interruption checkpoint
+
+Related Rust packages are clean under their required Nextest isolation: the
+complete `ckb-sync` package passed 86/86 serially, the other five affected
+packages passed 91/91 with two configured skips, and the one combined-run
+post-assertion `SIGABRT` passed both exact isolation and the full serial sync
+gate. No product edit was justified.
+
+The canonical integration runner now derives its complete argument vector from
+the two machine registries and rejects mismatched runner metadata, duplicate or
+unsafe names. Its from-the-beginning serial run passed 150/150 managed specs in
+829.04 seconds with exit code zero. The earlier copied long-command failure is
+therefore removed at its manual-process source.
+
+The architecture topology is marked implemented and its generated seven-row
+task/capability interruption contract is bound to 370 exact tx-pool Nextest
+tests / 1,461 invariant references. It covers validation, Plan drop, committed
+effect retention, compute cancellation, publisher cancellation, maintenance
+and ordered shutdown without adding runtime test state. V1 remains active for
+selected production mutation strength, deterministic pool smoke and the final
+complete gate rerun. Performance work remains frozen.

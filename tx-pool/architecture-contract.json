@@ -1,5 +1,5 @@
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -25,7 +25,7 @@
   "selected_topology": {
     "schema_version": 1,
     "id": "bounded_semantic_exchange",
-    "status": "normative_blueprint",
+    "status": "implemented",
     "authority": "TxPoolAuthority",
     "reference_serialization": "canonical_source_then_strict_ready_order_from_one_authority_cut",
     "components": [
@@ -546,6 +546,106 @@
           "tx-pool/src/authority/template_driver.rs"
         ],
         "exit_gate": "old per-owner ceremony is deleted, retained concurrency boundaries remain exact and no duplicate authority or manual publication point survives"
+      }
+    ]
+  },
+  "interruption_contract": {
+    "schema_version": 1,
+    "points": [
+      {
+        "id": "validation_before_plan",
+        "task_role": "direct_validator",
+        "owner": {
+          "path": "tx-pool/src/authority/validation.rs",
+          "symbols": ["DirectAdmissionValidation", "DirectAdmissionValidationOutcome"]
+        },
+        "capability_disposition": "Validation reads one coherent authority cut and yields sealed evidence without mutation authority; cancellation before planning leaves ownership, charge and effects unchanged.",
+        "invariants": ["T1", "T2", "T6", "T11"],
+        "tests": [
+          "authority::tests::validation::uak_direct_validation_shares_the_final_validator_without_mutation_authority"
+        ]
+      },
+      {
+        "id": "prepared_plan_before_apply",
+        "task_role": "authority_caller",
+        "owner": {
+          "path": "tx-pool/src/authority/plan/settlement.rs",
+          "symbols": ["SettlementPlan", "plan_settlement"]
+        },
+        "capability_disposition": "Dropping a fully prepared bounded membership plan is semantically mutation-free; no owner, charge, scheduler fact, clock or effect has moved.",
+        "invariants": ["T2", "T3", "T5", "T6"],
+        "tests": [
+          "authority::tests::foundation::uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free"
+        ]
+      },
+      {
+        "id": "applied_before_effect_io",
+        "task_role": "effect_publisher",
+        "owner": {
+          "path": "tx-pool/src/authority/effect.rs",
+          "symbols": ["CommittedEffect", "EffectLog"]
+        },
+        "capability_disposition": "Apply commits the terminal owner outcome and immutable effect together; dropping an unprocessed publication receipt retains the exact charged FIFO head.",
+        "invariants": ["T2", "T3", "T6", "T7"],
+        "tests": [
+          "authority::tests::foundation::uak_terminal_outcome_and_effect_commit_together",
+          "authority::tests::effect::uak_effect_receipt_preserves_sequence_and_charge"
+        ]
+      },
+      {
+        "id": "worker_compute_interrupted",
+        "task_role": "compute_worker",
+        "owner": {
+          "path": "tx-pool/src/authority/work.rs",
+          "symbols": ["CheckedOutWork", "ComputeSettlement"]
+        },
+        "capability_disposition": "Cancellation or a closed assignment transport returns or settles the exact checked-out capability once and restores queued work without leaking active-work charge.",
+        "invariants": ["T2", "T6", "T10", "T15"],
+        "tests": [
+          "authority::tests::foundation::uak_runner_cancellation_settles_one_exact_work_capability_before_exit",
+          "authority::tests::compute_coordinator::uak_closed_assignment_transport_returns_the_exact_checked_out_capability"
+        ]
+      },
+      {
+        "id": "publisher_io_interrupted",
+        "task_role": "effect_publisher",
+        "owner": {
+          "path": "tx-pool/src/authority/publisher.rs",
+          "symbols": ["run_claimed_authority_effect_publisher", "publish_committed_effect_batch"]
+        },
+        "capability_disposition": "Cancellation during external I/O leaves tentative progress at the authoritative FIFO head so the sole replacement publisher resumes without loss or duplicate settlement.",
+        "invariants": ["T2", "T7", "T10"],
+        "tests": [
+          "authority::tests::publisher::uak_cancelled_publisher_settles_its_tentative_cursor_to_the_fifo_head"
+        ]
+      },
+      {
+        "id": "maintenance_interrupted",
+        "task_role": "maintenance_worker",
+        "owner": {
+          "path": "tx-pool/src/authority/worker.rs",
+          "symbols": ["run_maintenance_driver", "run_maintenance_round"]
+        },
+        "capability_disposition": "Maintenance owns no transaction outside each bounded Apply; cancellation exits cleanly, while every preexisting expiry and dependency level drains fairly before quiescence.",
+        "invariants": ["T4", "T8", "T10"],
+        "tests": [
+          "authority::tests::worker::uak_maintenance_driver_fairly_drains_every_preexisting_level",
+          "authority::tests::worker::uak_idle_maintenance_driver_waits_instead_of_spinning"
+        ]
+      },
+      {
+        "id": "generation_shutdown",
+        "task_role": "topology_owner",
+        "owner": {
+          "path": "tx-pool/src/authority/topology.rs",
+          "symbols": ["AuthorityTaskTopology", "shutdown"]
+        },
+        "capability_disposition": "Shutdown publishes the absorbing verification stop, joins authority workers, closes and drains committed effects, and only then exposes persistence eligibility.",
+        "invariants": ["T2", "T7", "T9", "T10", "T12"],
+        "tests": [
+          "authority::tests::topology::uak_topology_shutdown_stops_the_paired_verification_generation",
+          "authority::tests::topology::uak_topology_clean_shutdown_drains_effects_before_persistence"
+        ]
       }
     ]
   },

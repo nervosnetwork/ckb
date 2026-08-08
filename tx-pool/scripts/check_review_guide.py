@@ -26,6 +26,15 @@ BEHAVIOR_ID = re.compile(r"^TP-[A-Z]+-[0-9]{3}$")
 INTEGRATION_SPEC = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 RUST_PACKAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 WORKSPACE_EVIDENCE_KINDS = {"conformance", "counterexample"}
+EXPECTED_INTERRUPTION_POINTS = {
+    "validation_before_plan": "direct_validator",
+    "prepared_plan_before_apply": "authority_caller",
+    "applied_before_effect_io": "effect_publisher",
+    "worker_compute_interrupted": "compute_worker",
+    "publisher_io_interrupted": "effect_publisher",
+    "maintenance_interrupted": "maintenance_worker",
+    "generation_shutdown": "topology_owner",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -525,6 +534,109 @@ def validate_registry(
     return errors
 
 
+def validate_interruption_contract(contract: dict, registry: dict) -> list[str]:
+    """Bind every selected interruption point to production owners and tests."""
+
+    errors: list[str] = []
+    interruption = contract.get("interruption_contract")
+    if not isinstance(interruption, dict) or interruption.get("schema_version") != 1:
+        return ["architecture interruption_contract schema_version must be 1"]
+    points = interruption.get("points")
+    if not isinstance(points, list):
+        return ["architecture interruption_contract points must be a list"]
+
+    unit_evidence = {
+        entry.get("test"): entry
+        for entry in registry.get("unit_evidence", [])
+        if isinstance(entry, dict) and isinstance(entry.get("test"), str)
+    }
+    known_invariants = target_invariant_ids(contract)
+    observed: dict[str, str] = {}
+    for point in points:
+        if not isinstance(point, dict):
+            errors.append(f"invalid interruption point: {point!r}")
+            continue
+        point_id = point.get("id")
+        task_role = point.get("task_role")
+        if not isinstance(point_id, str) or not point_id.strip():
+            errors.append(f"interruption point has no ID: {point!r}")
+            continue
+        if point_id in observed:
+            errors.append(f"duplicate interruption point: {point_id}")
+        if not isinstance(task_role, str) or not task_role.strip():
+            errors.append(f"interruption point {point_id!r} has no task role")
+            task_role = ""
+        observed[point_id] = task_role
+
+        owner = point.get("owner")
+        if not isinstance(owner, dict):
+            errors.append(f"interruption point {point_id!r} has no owner")
+        else:
+            path_value = owner.get("path")
+            symbols = owner.get("symbols")
+            if not isinstance(path_value, str) or not _nonempty_strings(symbols):
+                errors.append(
+                    f"interruption point {point_id!r} has an invalid owner anchor"
+                )
+            else:
+                try:
+                    source = repo_path(path_value).read_text()
+                except (ValueError, OSError) as error:
+                    errors.append(
+                        f"interruption point {point_id!r} cannot read owner "
+                        f"{path_value}: {error}"
+                    )
+                else:
+                    for symbol in symbols:
+                        if symbol not in source:
+                            errors.append(
+                                f"interruption point {point_id!r} owner symbol "
+                                f"{symbol!r} is absent from {path_value}"
+                            )
+
+        disposition = point.get("capability_disposition")
+        if not isinstance(disposition, str) or not disposition.strip():
+            errors.append(
+                f"interruption point {point_id!r} has no capability disposition"
+            )
+        invariants = point.get("invariants")
+        if not _nonempty_strings(invariants) or len(invariants) != len(set(invariants)):
+            errors.append(f"interruption point {point_id!r} has invalid invariants")
+            invariants = []
+        unknown = set(invariants).difference(known_invariants)
+        if unknown:
+            errors.append(
+                f"interruption point {point_id!r} has unknown invariants: "
+                f"{sorted(unknown)}"
+            )
+        tests = point.get("tests")
+        if not _nonempty_strings(tests) or len(tests) != len(set(tests)):
+            errors.append(f"interruption point {point_id!r} has invalid tests")
+            tests = []
+        covered: set[str] = set()
+        for test in tests:
+            evidence = unit_evidence.get(test)
+            if evidence is None:
+                errors.append(
+                    f"interruption point {point_id!r} uses unknown test {test!r}"
+                )
+                continue
+            covered.update(evidence.get("invariants", []))
+        uncovered = set(invariants).difference(covered)
+        if uncovered:
+            errors.append(
+                f"interruption point {point_id!r} lacks exact evidence for "
+                f"{sorted(uncovered)}"
+            )
+
+    if observed != EXPECTED_INTERRUPTION_POINTS:
+        errors.append(
+            "architecture interruption points differ from the required V1 matrix: "
+            f"expected={EXPECTED_INTERRUPTION_POINTS}, observed={observed}"
+        )
+    return errors
+
+
 def behavior_ids(registry: dict) -> set[str]:
     return {entry["id"] for entry in registry["behaviors"]}
 
@@ -578,7 +690,7 @@ def workspace_command(package: str, tests: list[str]) -> str:
     return f"cargo nextest run -p {package} -E '{selector}'"
 
 
-def render_generated(registry: dict, impact: dict) -> str:
+def render_generated(registry: dict, impact: dict, contract: dict) -> str:
     units: dict[str, list[dict]] = defaultdict(list)
     workspace: dict[str, list[dict]] = defaultdict(list)
     workspace_counterexamples: dict[str, list[dict]] = defaultdict(list)
@@ -603,11 +715,11 @@ def render_generated(registry: dict, impact: dict) -> str:
         "",
         f"The {len(registry['integration_evidence'])} focused security anchors are the minimum process gate for the mapped behavior rows:",
         "",
-        f"`{integration_command(registry, [entry['anchor'] for entry in registry['integration_evidence']])}`",
+        "`python3 tx-pool/scripts/run_managed_integration.py --anchors`",
         "",
         f"The complete tx-pool impact universe contains {len(all_impact_specs)} specs. Integration and release CI run the exact inventory through:",
         "",
-        f"`{integration_command(registry, all_impact_specs)}`",
+        "`python3 tx-pool/scripts/run_managed_integration.py`",
         "",
         "The security validator checks the same `[integration]` inventory against the executable `ckb-test --list-specs` output in integration CI. The universe deliberately includes mining, RPC, relay, fork/reorg, DAO and hardfork transaction-ingress boundaries instead of treating `test/src/specs/tx_pool` as complete.",
         "",
@@ -617,6 +729,36 @@ def render_generated(registry: dict, impact: dict) -> str:
     for path_value, names in impact["groups"].items():
         lines.append(
             f"| `{path_value}` | " + ", ".join(f"`{name}`" for name in names) + " |"
+        )
+    lines.extend([
+        "",
+        "### Generated task and capability interruption matrix",
+        "",
+        "The architecture contract owns the selected interruption points. Each row binds one production owner and exact Nextest evidence; cancellation introduces no test-only production state. The complete matrix runs with `cargo nextest run -p ckb-tx-pool --features internal`.",
+        "",
+        "| Interruption point | Task role | Production owner | Required capability disposition | Invariants | Exact Nextest evidence |",
+        "|---|---|---|---|---|---|",
+    ])
+    for point in contract["interruption_contract"]["points"]:
+        owner = point["owner"]
+        owner_anchor = (
+            f"`{_markdown(owner['path'])}`: "
+            + ", ".join(f"`{_markdown(symbol)}`" for symbol in owner["symbols"])
+        )
+        tests = "<br>".join(f"`{test}`" for test in point["tests"])
+        lines.append(
+            "| "
+            + " | ".join(
+                (
+                    f"`{point['id']}`",
+                    f"`{point['task_role']}`",
+                    owner_anchor,
+                    _markdown(point["capability_disposition"]),
+                    ", ".join(sorted(point["invariants"], key=_invariant_key)),
+                    tests,
+                )
+            )
+            + " |"
         )
     lines.extend([
         "",
@@ -747,8 +889,12 @@ def generated_region(guide: str) -> tuple[int, int, str] | None:
 def main() -> int:
     args = parse_args()
     registry = load_registry(args.registry)
+    contract = load_architecture_contract()
     impact = load_integration_impact(registry)
-    errors = validate_registry(registry, impact)
+    errors = [
+        *validate_registry(registry, impact),
+        *validate_interruption_contract(contract, registry),
+    ]
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
@@ -765,7 +911,7 @@ def main() -> int:
         print("error: review guide must contain exactly one ordered generated region", file=sys.stderr)
         return 1
     start, end, actual = region
-    expected = render_generated(registry, impact)
+    expected = render_generated(registry, impact, contract)
     if args.write:
         rewritten = guide[:start] + "\n\n" + expected + "\n\n" + guide[end:]
         guide_path.write_text(rewritten)
