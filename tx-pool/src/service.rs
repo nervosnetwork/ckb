@@ -38,6 +38,69 @@ pub(crate) const DEFAULT_CHANNEL_SIZE: usize = 512;
 /// queued command beyond the generation-owned consumer.
 pub(crate) const CHAIN_CONTROL_CHANNEL_SIZE: usize = 1;
 
+mod administration {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    /// Shared public-administration gate across every cloneable controller.
+    #[derive(Clone)]
+    pub(crate) struct AdministrationGate {
+        occupied: Arc<AtomicBool>,
+    }
+
+    impl AdministrationGate {
+        pub(crate) fn new() -> Self {
+            Self {
+                occupied: Arc::new(AtomicBool::new(false)),
+            }
+        }
+
+        pub(in crate::service) fn try_acquire(&self) -> Option<AdminAdmission> {
+            self.occupied
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .ok()
+                .map(|_| AdminAdmission { gate: self.clone() })
+        }
+    }
+
+    /// Unique public-administration admission across every cloneable controller.
+    ///
+    /// The capability is moved into the ordered command and held through its
+    /// execution. Its sealed representation prevents a clear from entering the
+    /// reliable lane without first reserving the sole public payload slot.
+    #[must_use = "an admitted administration must be sent or released"]
+    pub(crate) struct AdminAdmission {
+        gate: AdministrationGate,
+    }
+
+    impl Drop for AdminAdmission {
+        fn drop(&mut self) {
+            self.gate.occupied.store(false, Ordering::Release);
+        }
+    }
+
+    /// An ordered public command that owns the sole admission capability.
+    #[must_use = "an admitted administration must be consumed by the ordered driver"]
+    pub(crate) struct AdmittedAdministration<R> {
+        admission: AdminAdmission,
+        request: R,
+    }
+
+    impl<R> AdmittedAdministration<R> {
+        pub(in crate::service) fn new(admission: AdminAdmission, request: R) -> Self {
+            Self { admission, request }
+        }
+
+        pub(crate) fn into_parts(self) -> (AdminAdmission, R) {
+            (self.admission, self.request)
+        }
+    }
+}
+
+pub(crate) use administration::{AdministrationGate, AdmittedAdministration};
+
 pub(crate) trait OneshotSender<R: fmt::Debug> {
     fn send(self, value: R) -> Result<(), R>;
 }

@@ -5730,7 +5730,7 @@ fn model_query_cost_keeps_concurrency_scan_sort_and_output_terms_explicit() {
 }
 
 #[test]
-fn model_service_ingress_residency_exposes_waiting_ordered_senders() {
+fn model_service_ingress_residency_bounds_typed_ordered_senders() {
     use super::resource::{ServiceIngressResidencyBound, ServiceIngressResidencyInputs};
 
     let handler_multiplier = u32::try_from(crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER)
@@ -5749,7 +5749,8 @@ fn model_service_ingress_residency_exposes_waiting_ordered_senders() {
             handler_multiplier,
             ordinary_queue,
             ordered_queue,
-            ordered_waiting_senders: 0,
+            trusted_reorg_waiting_senders: 0,
+            admitted_admin_waiting_senders: 0,
         }
         .compile(),
         Some(ServiceIngressResidencyBound {
@@ -5764,15 +5765,44 @@ fn model_service_ingress_residency_exposes_waiting_ordered_senders() {
             handler_multiplier,
             ordinary_queue: 0,
             ordered_queue: 0,
-            ordered_waiting_senders: 3,
+            trusted_reorg_waiting_senders: 1,
+            admitted_admin_waiting_senders: 1,
         }
         .compile(),
         Some(ServiceIngressResidencyBound {
             ordinary_handlers: handler_multiplier,
             ordinary_owned_requests: handler_multiplier,
-            ordered_owned_requests: 4,
+            ordered_owned_requests: 3,
         }),
-        "waiting reliable senders remain caller-owned outside the channel bound"
+        "the trusted reorg and unique public admission are the complete waiting term"
+    );
+    for (trusted_reorg_waiting_senders, admitted_admin_waiting_senders) in [(2, 0), (0, 2)] {
+        assert_eq!(
+            ServiceIngressResidencyInputs {
+                verify_workers: 0,
+                handler_multiplier,
+                ordinary_queue: 0,
+                ordered_queue: 0,
+                trusted_reorg_waiting_senders,
+                admitted_admin_waiting_senders,
+            }
+            .compile(),
+            None,
+            "the typed producer boundary rejects an unbounded waiting population"
+        );
+    }
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers: 0,
+            handler_multiplier,
+            ordinary_queue: 0,
+            ordered_queue: u32::MAX,
+            trusted_reorg_waiting_senders: 1,
+            admitted_admin_waiting_senders: 1,
+        }
+        .compile(),
+        None,
+        "the complete ordered residency sum is checked"
     );
     assert_eq!(
         ServiceIngressResidencyInputs {
@@ -5780,7 +5810,8 @@ fn model_service_ingress_residency_exposes_waiting_ordered_senders() {
             handler_multiplier: 2,
             ordinary_queue: 0,
             ordered_queue: 0,
-            ordered_waiting_senders: 0,
+            trusted_reorg_waiting_senders: 0,
+            admitted_admin_waiting_senders: 0,
         }
         .compile(),
         None

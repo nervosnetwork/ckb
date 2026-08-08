@@ -1,6 +1,6 @@
 //! Tx-pool service message definitions.
 
-use crate::service::{ChainReorgArgs, Notify, Request};
+use crate::service::{AdmittedAdministration, ChainReorgArgs, Notify, Request};
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -202,10 +202,10 @@ pub(crate) enum ChainControl {
     Reconcile(ChainReorgArgs),
     /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
     /// every pre-pool location as one generation.
-    ClearPool(SyncRequest<Arc<Snapshot>, ()>),
+    ClearPool(AdmittedAdministration<SyncRequest<Arc<Snapshot>, ()>>),
     /// Retire every pre-pool location as one generation without touching the
     /// accepted pool.
-    ClearPipeline(SyncRequest<(), ()>),
+    ClearPipeline(AdmittedAdministration<SyncRequest<(), ()>>),
 }
 
 /// Synchronous request using the `ckb_channel` oneshot responder.

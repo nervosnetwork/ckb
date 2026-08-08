@@ -15,8 +15,9 @@ use crate::{
     },
     network::{TxPoolNetwork, TxPoolNetworkHandle},
     service::{
-        CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE, Message, Notify,
-        RemoteTxSubmission, Request, TxPoolController, TxVerificationResultReceiver, process,
+        AdministrationGate, CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE,
+        Message, Notify, RemoteTxSubmission, Request, TxPoolController,
+        TxVerificationResultReceiver, process,
     },
 };
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -283,12 +284,14 @@ impl TxPoolServiceBuilder {
         let (verification_control, verification_command) =
             AuthorityVerificationControl::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
+        let administration_gate = AdministrationGate::new();
         let controller = TxPoolController {
             sender,
             chain_control_sender,
             handle: handle.clone(),
             verification_command,
             started: Arc::clone(&started),
+            administration_gate,
             signal: signal_receiver.clone(),
         };
 

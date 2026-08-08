@@ -323,12 +323,12 @@
       "id": "TP-HANDOFF-001",
       "title": "Bounded controller and relay handoff conservation",
       "implementation_owners": [
-        {"path": "tx-pool/src/service.rs", "symbols": ["DEFAULT_CHANNEL_SIZE", "CHAIN_CONTROL_CHANNEL_SIZE", "struct Request", "fn respond"]},
+        {"path": "tx-pool/src/service.rs", "symbols": ["DEFAULT_CHANNEL_SIZE", "CHAIN_CONTROL_CHANNEL_SIZE", "struct AdministrationGate", "struct AdminAdmission", "struct AdmittedAdministration", "struct Request", "fn respond"]},
         {"path": "tx-pool/src/service/builder.rs", "symbols": ["enum RetainedIngressBatch", "fn run_dispatcher", "handler_limit", "JoinSet"]},
-        {"path": "tx-pool/src/service/controller.rs", "symbols": ["struct TxPoolController", "send_message", "send_chain_control"]},
+        {"path": "tx-pool/src/service/controller.rs", "symbols": ["struct TxPoolController", "send_message", "send_admitted_chain_control"]},
         {"path": "tx-pool/src/service/dispatch.rs", "symbols": ["pub(crate) async fn process", "fn process_retained_ingress_batch", "fn settle_remote_responder_prefix", "fn respond_outer"]},
         {"path": "tx-pool/src/authority/plan/ingress.rs", "symbols": ["struct PreparedRetainedAdmissionBatch", "enum CommittedRetainedAdmissionBatch", "fn plan_retained_admission_batch"]},
-        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn submit_remote_batch", "fn submit_proposal_batch"]},
+        {"path": "tx-pool/src/authority/service.rs", "symbols": ["fn submit_remote_batch", "fn submit_proposal_batch", "fn run_ordered_chain_control_driver"]},
         {"path": "sync/src/relayer/transactions_process.rs", "symbols": ["struct TransactionsProcess"]},
         {"path": "sync/src/relayer/block_proposal_process.rs", "symbols": ["struct BlockProposalProcess"]},
         {"path": "sync/src/types/mod.rs", "symbols": ["fn mark_as_known_txs", "fn remove_inflight_proposals", "fn record_accepted_tx"]}
@@ -424,6 +424,8 @@
     {"test": "service::controller::tests::authoritative_reorg_delivery_is_independent_of_rpc_readiness", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
     {"test": "service::controller::tests::closed_reorg_consumer_fails_without_waiting", "behavior_id": "TP-REORG-001", "invariants": ["T9", "T10"]},
     {"test": "service::controller::tests::generation_clear_cannot_overtake_a_prior_chain_transition", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T9", "T10"]},
+    {"test": "service::controller::tests::closed_administration_lane_releases_the_unique_admission", "behavior_id": "TP-HANDOFF-001", "invariants": ["T3", "T10"]},
+    {"test": "service::controller::tests::public_administration_is_linear_across_controller_clones", "behavior_id": "TP-HANDOFF-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "authority::tests::chain::uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors", "behavior_id": "TP-REORG-001", "invariants": ["T6", "T9", "T10"]},
     {"test": "authority::tests::chain::uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T9", "T10"]},
 
@@ -716,7 +718,7 @@
     {"test": "mathematical_model::adversarial_properties::model_ready_composition_cost_is_consumed_without_a_hand_copied_projection", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T4", "T5", "T6", "T8"]},
     {"test": "mathematical_model::composition_properties::model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys", "behavior_id": "TP-PERF-001", "invariants": ["T4", "T8"]},
     {"test": "mathematical_model::composition_properties::model_remote_source_is_a_footprint_policy_term_not_a_second_authority", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T8"]},
-    {"test": "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10"]},
+    {"test": "mathematical_model::properties::model_service_ingress_residency_bounds_typed_ordered_senders", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T8", "T10"]},
     {"test": "mathematical_model::topology_properties::model_bounded_cache_writer_retains_worker_isolation_with_one_named_cost", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T8", "T10", "T11"]},
     {"test": "mathematical_model::topology_properties::model_bounded_exchange_is_wave_amortization_not_asymptotic_magic", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T8", "T10", "T12", "T14", "T15", "T16"]},

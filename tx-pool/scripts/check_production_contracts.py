@@ -1265,15 +1265,11 @@ def validate_execution_topology_contract() -> list[str]:
         errors.append("template topology must retain five independently joined lanes")
     if "mpsc::channel(VERIFY_CACHE_CHANNEL_SIZE)" not in topology:
         errors.append("verification-cache updates must retain their named bounded channel")
-    for fragment in (
-        ".send(ChainControl::$command(request))",
-        "self.chain_control_sender.send(command)",
-    ):
-        if fragment not in controller:
-            errors.append(
-                "service-residency model lost its producer-owned reliable-send "
-                f"source {fragment!r}"
-            )
+    if controller.count("chain_control_sender.send(command)") != 2:
+        errors.append(
+            "service-residency model requires exactly one trusted reorg send and one "
+            "typed public-administration send"
+        )
     for owner in ("EffectReceipt", "EffectSettlement"):
         declaration = re.search(
             rf"struct\s+{owner}\s*\{{(?P<body>.*?)\n\}}", effect, re.S
@@ -1352,14 +1348,79 @@ def validate_chain_transition_publication() -> list[str]:
 
 def validate_startup_backpressure() -> list[str]:
     errors: list[str] = []
-    service = TX_POOL_SERVICE.read_text()
-    controller = TX_POOL_CONTROLLER.read_text()
-    builder = TX_POOL_BUILDER.read_text()
-    message = TX_POOL_MESSAGE.read_text()
-    authority_service = TX_POOL_AUTHORITY_SERVICE.read_text()
+    try:
+        service = TX_POOL_SERVICE.read_text()
+        controller = TX_POOL_CONTROLLER.read_text()
+        builder = TX_POOL_BUILDER.read_text()
+        message = TX_POOL_MESSAGE.read_text()
+        authority_service = TX_POOL_AUTHORITY_SERVICE.read_text()
+    except OSError as error:
+        return [f"cannot inspect startup backpressure protocol: {error}"]
 
     if "const CHAIN_CONTROL_CHANNEL_SIZE: usize = 1;" not in service:
         errors.append("the ordered chain-control boundary must retain capacity one")
+
+    compact_service = " ".join(mask_rust_non_code(service).split())
+    if "mod administration {" not in compact_service:
+        errors.append("public administration capabilities must have a sealed module")
+    if service.count("pub(crate) struct AdministrationGate") != 1:
+        errors.append("the ordered boundary must own one shared AdministrationGate")
+    if service.count("pub(crate) struct AdminAdmission") != 1:
+        errors.append("the ordered boundary must own one AdminAdmission capability")
+    if service.count("pub(crate) struct AdmittedAdministration") != 1:
+        errors.append("the ordered boundary must own one admitted command wrapper")
+    if re.search(
+        r"#\s*\[\s*derive\s*\([^]]*\b(?:Clone|Copy)\b[^]]*\)\s*\]\s*"
+        r"pub\s*\(crate\)\s+struct\s+AdminAdmission",
+        service,
+        re.S,
+    ):
+        errors.append("AdminAdmission must remain a unique move-only capability")
+    for fragment in (
+        "compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)",
+        "self.gate.occupied.store(false, Ordering::Release)",
+        "pub(crate) use administration::{AdministrationGate, AdmittedAdministration};",
+    ):
+        if fragment not in compact_service:
+            errors.append(f"sealed administration capability lost {fragment!r}")
+
+    dense_controller = "".join(mask_rust_non_code(controller).split())
+    if dense_controller.count("administration_gate:AdministrationGate") != 1:
+        errors.append("every cloneable controller must share one administration gate")
+    if dense_controller.count("administration_gate.try_acquire()") != 1:
+        errors.append("public administration must have one production acquisition point")
+    if controller.count("AdmittedAdministration::new(") != 1:
+        errors.append("public administration must have one admitted-command constructor")
+    admitted_macro = re.search(
+        r"macro_rules!\s+send_admitted_chain_control\s*\{(?P<body>.*?)\n\}\n\n"
+        r"macro_rules!\s+reject_callback_mutation",
+        controller,
+        re.S,
+    )
+    if admitted_macro is None:
+        errors.append("the admitted ordered-control producer disappeared")
+    else:
+        macro_body = "".join(mask_rust_non_code(admitted_macro.group("body")).split())
+        ordered_fragments = (
+            "$self.administration_gate.try_acquire()",
+            "let(responder,response)=oneshot::channel();",
+            "letrequest=Request::call($args,responder);",
+            "AdmittedAdministration::new(admission,request)",
+            ".send(command)",
+        )
+        positions = [macro_body.find(fragment) for fragment in ordered_fragments]
+        if any(position < 0 for position in positions) or positions != sorted(positions):
+            errors.append(
+                "public administration must acquire before request construction and reliable send"
+            )
+        if "try_send" in macro_body:
+            errors.append("an admitted administration must retain reliable ordered send")
+
+    if builder.count("let administration_gate = AdministrationGate::new();") != 1:
+        errors.append("service assembly must construct one shared administration gate")
+    if builder.count("administration_gate,") != 1:
+        errors.append("service assembly must move the shared administration gate into the controller")
+
     update = function_body(controller, "update_tx_pool_for_reorg")
     if update is None:
         errors.append("TxPoolController::update_tx_pool_for_reorg disappeared")
@@ -1385,9 +1446,18 @@ def validate_startup_backpressure() -> list[str]:
                 )
             if command not in control_enum.group("body"):
                 errors.append(f"{command} disappeared from the ordered chain-control lane")
+        compact_control = " ".join(control_enum.group("body").split())
+        for command, request in (
+            ("ClearPool", "SyncRequest<Arc<Snapshot>, ()>"),
+            ("ClearPipeline", "SyncRequest<(), ()>"),
+        ):
+            if f"{command}(AdmittedAdministration<{request}>)" not in compact_control:
+                errors.append(
+                    f"{command} must carry the unique administration capability with its request"
+                )
     for method, fragment in (
-        ("clear_pool", "send_chain_control!(self, ClearPool"),
-        ("clear_verify_queue", "send_chain_control!(self, ClearPipeline"),
+        ("clear_pool", "send_admitted_chain_control!(self, ClearPool"),
+        ("clear_verify_queue", "send_admitted_chain_control!(self, ClearPipeline"),
     ):
         body = function_body(controller, method)
         if body is None or fragment not in body:
@@ -1404,6 +1474,35 @@ def validate_startup_backpressure() -> list[str]:
     assembly = function_body(authority_service, "assemble")
     if assembly is None or "run_ordered_chain_control_driver" not in assembly:
         errors.append("AuthorityService::assemble must own the ordered control consumer")
+
+    driver = function_body(authority_service, "run_ordered_chain_control_driver")
+    if driver is None:
+        errors.append("the ordered control driver disappeared")
+    else:
+        compact_driver = " ".join(mask_rust_non_code(driver).split())
+        for command, operation in (
+            ("ClearPool", "clear_pool(arguments)"),
+            ("ClearPipeline", "clear_pipeline()"),
+        ):
+            fragments = (
+                f"ChainControl::{command}(command)",
+                "command.into_parts()",
+                f"service.{operation}.await",
+                "drop(admission)",
+                "settle_ordered_administration(responder, result",
+            )
+            cursor = 0
+            for fragment in fragments:
+                position = compact_driver.find(fragment, cursor)
+                if position < 0:
+                    errors.append(
+                        f"{command} must consume, execute, release and only then respond; "
+                        f"missing ordered fragment {fragment!r}"
+                    )
+                    break
+                cursor = position + len(fragment)
+        if compact_driver.count("command.into_parts()") != 2:
+            errors.append("the ordered driver must consume exactly two admitted clear commands")
     return errors
 
 

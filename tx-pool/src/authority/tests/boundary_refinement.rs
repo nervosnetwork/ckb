@@ -24,7 +24,8 @@ use crate::{
     },
     network::DummyTxPoolNetwork,
     service::{
-        AsyncRequest, Message, Notify, RemoteTxSubmission, TxPoolController, TxVerificationResult,
+        AdministrationGate, AsyncRequest, Message, Notify, RemoteTxSubmission, TxPoolController,
+        TxVerificationResult,
     },
 };
 use ckb_async_runtime::Handle;
@@ -63,6 +64,7 @@ fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
         verification_command,
         handle: Handle::new(tokio::runtime::Handle::current(), None),
         started: Arc::new(AtomicBool::new(true)),
+        administration_gate: AdministrationGate::new(),
         signal: CancellationToken::new(),
     }
 }

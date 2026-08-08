@@ -83,7 +83,7 @@
         "falsifier_tests": [
           "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
           "mathematical_model::topology_properties::model_existing_dispatcher_is_the_zero_topology_cost_ingress_combiner",
-          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders",
+          "mathematical_model::properties::model_service_ingress_residency_bounds_typed_ordered_senders",
           "mathematical_model::adversarial_properties::model_i2_retained_path_separates_ingress_and_ready_batches_from_per_item_compute",
           "authority::tests::ingress_batch::uak_retained_ingress_batch_refines_the_canonical_proposal_fold"
         ],
@@ -317,20 +317,30 @@
         "behavior_ids": ["TP-ADMIN-001", "TP-HANDOFF-001", "TP-PERF-001", "TP-REORG-001"],
         "falsifier_tests": [
           "mathematical_model::topology_properties::model_typed_ordered_boundary_bounds_external_admin_residency_without_dropping_reorg",
-          "mathematical_model::properties::model_service_ingress_residency_exposes_waiting_ordered_senders"
+          "mathematical_model::properties::model_service_ingress_residency_bounds_typed_ordered_senders",
+          "service::controller::tests::closed_administration_lane_releases_the_unique_admission",
+          "service::controller::tests::public_administration_is_linear_across_controller_clones"
         ],
         "target_owner": {
-          "path": "tx-pool/src/service/controller.rs",
-          "symbols": ["AdminAdmission", "TxPoolController"]
+          "path": "tx-pool/src/service.rs",
+          "symbols": ["AdministrationGate", "AdminAdmission", "AdmittedAdministration"]
         },
         "current_owners": [
           {
+            "path": "tx-pool/src/service.rs",
+            "symbols": ["AdministrationGate", "AdminAdmission", "AdmittedAdministration"]
+          },
+          {
             "path": "tx-pool/src/service/controller.rs",
-            "symbols": ["TxPoolController"]
+            "symbols": ["TxPoolController", "send_admitted_chain_control"]
           },
           {
             "path": "tx-pool/src/service/message.rs",
             "symbols": ["ChainControl"]
+          },
+          {
+            "path": "tx-pool/src/authority/service.rs",
+            "symbols": ["run_ordered_chain_control_driver"]
           }
         ],
         "cost": {
@@ -509,12 +519,14 @@
       {
         "id": "I5-TYPED-ORDERED-CONTROL",
         "sequence": 5,
-        "status": "blueprint",
+        "status": "implemented",
         "component_ids": ["typed_ordered_control"],
         "production_paths": [
+          "tx-pool/src/service.rs",
           "tx-pool/src/service/controller.rs",
           "tx-pool/src/service/message.rs",
-          "tx-pool/src/service/builder.rs"
+          "tx-pool/src/service/builder.rs",
+          "tx-pool/src/authority/service.rs"
         ],
         "exit_gate": "trusted reorg remains lossless and ordered while at most one public clear retains a payload"
       },

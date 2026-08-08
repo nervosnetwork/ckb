@@ -1888,22 +1888,23 @@ async fn run_ordered_chain_control_driver(
                     }
                 }
             }
-            ChainControl::ClearPool(Request {
-                responder,
-                arguments,
-            }) => {
-                settle_ordered_administration(
-                    responder,
-                    service.clear_pool(arguments).await,
-                    "clear_pool",
-                )?;
+            ChainControl::ClearPool(command) => {
+                let (
+                    admission,
+                    Request {
+                        responder,
+                        arguments,
+                    },
+                ) = command.into_parts();
+                let result = service.clear_pool(arguments).await;
+                drop(admission);
+                settle_ordered_administration(responder, result, "clear_pool")?;
             }
-            ChainControl::ClearPipeline(Request { responder, .. }) => {
-                settle_ordered_administration(
-                    responder,
-                    service.clear_pipeline().await,
-                    "clear_pipeline",
-                )?;
+            ChainControl::ClearPipeline(command) => {
+                let (admission, Request { responder, .. }) = command.into_parts();
+                let result = service.clear_pipeline().await;
+                drop(admission);
+                settle_ordered_administration(responder, result, "clear_pipeline")?;
             }
         }
     }

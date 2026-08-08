@@ -125,8 +125,12 @@ pub(super) struct ServiceIngressResidencyInputs {
     pub(super) handler_multiplier: u32,
     pub(super) ordinary_queue: u32,
     pub(super) ordered_queue: u32,
-    /// Producer-owned ordered payloads suspended before channel admission.
-    pub(super) ordered_waiting_senders: u32,
+    /// The chain actor's lossless producer-owned payload suspended before
+    /// channel admission. Production has exactly one chain publisher.
+    pub(super) trusted_reorg_waiting_senders: u32,
+    /// Public administrative payloads owning the unique admission capability
+    /// while suspended before channel admission.
+    pub(super) admitted_admin_waiting_senders: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,10 +142,13 @@ pub(super) struct ServiceIngressResidencyBound {
 
 impl ServiceIngressResidencyInputs {
     /// Compile the exact count-only service terms. Payload bytes remain a
-    /// separate protocol term, and a reliable bounded channel does not bound
-    /// producer-owned payloads waiting to send.
+    /// separate protocol term. Reliable send alone does not bound producer-
+    /// owned payloads, so the typed producer protocol is part of this bound.
     pub(super) fn compile(self) -> Option<ServiceIngressResidencyBound> {
-        if self.handler_multiplier == 0 {
+        if self.handler_multiplier == 0
+            || self.trusted_reorg_waiting_senders > 1
+            || self.admitted_admin_waiting_senders > 1
+        {
             return None;
         }
         let ordinary_handlers = self
@@ -152,7 +159,8 @@ impl ServiceIngressResidencyInputs {
         let ordered_owned_requests = self
             .ordered_queue
             .checked_add(1)?
-            .checked_add(self.ordered_waiting_senders)?;
+            .checked_add(self.trusted_reorg_waiting_senders)?
+            .checked_add(self.admitted_admin_waiting_senders)?;
         Some(ServiceIngressResidencyBound {
             ordinary_handlers,
             ordinary_owned_requests,

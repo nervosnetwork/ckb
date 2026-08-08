@@ -27,8 +27,8 @@ correctness-gated.
    slices. The normative model, T14-T16, cost/deletion ledger, release surfaces
    and status-aware anti-drift contract are complete; I1 one-stamp atomic batch
    core, I2 retained-ingress batching and I3 bounded compute exchange are
-   complete. I4 prepared full query is complete and I5 typed ordered control
-   is active.
+   complete. I4 prepared full query and I5 typed ordered control are complete;
+   I6 convergence is active.
 8. PENDING - reproducible fixed-binary A/B against both `develop` and the
    frozen pre-performance UAK checkpoint.
 9. PENDING - final production completion review and release handoff.
@@ -4068,3 +4068,41 @@ references, 19 integration anchors and 150 managed specs. The user-owned root
 `.gitignore` remains untouched and excluded from staging. The next exact action
 is I5 `TYPED-ORDERED-CONTROL`; full integration, profiling and fixed-binary A/B
 remain frozen until I1-I6 and correctness acceptance close.
+
+## I5 typed ordered-control startup
+
+Recovery starts from I4 checkpoint `104260d80`. The source audit confirms one
+production reorg publisher in `chain/src/verify.rs` and a cloneable public
+controller whose reliable clear sends have no producer-owned waiting bound.
+I5 retains the one ordered channel and its driver. One shared atomic admission
+bit issues a unique move-only `AdminAdmission`; the capability travels with an
+admitted clear command, is held through execution, and is released before the
+response. A concurrent excess clear fails before request construction or
+reliable send. Reorg remains lossless and does not consume this gate.
+
+The exact cuts are typed capability/command, acquisition and
+release-before-response wiring, then Nextest/static/whole-architecture
+convergence. No new task, channel, actor, retry, timer, authority or template
+serialization is allowed. Every Rust test uses `cargo nextest run`; profiling
+and A/B remain frozen.
+
+## I5 typed ordered-control closure
+
+The implementation seals the complete public protocol as
+`AdministrationGate -> AdminAdmission -> AdmittedAdministration<Request>`.
+The gate is shared across controller clones, the admission is move-only, and
+the command variants require the capability by type. The driver releases the
+capability after the administrative operation and before its response. A
+concurrent clear fails before request construction; failed send, receiver
+closure and cancellation release through ownership. The trusted reorg send is
+unchanged and remains outside the fail-fast gate.
+
+No authority, lock, task, channel, timer, retry or template serialization was
+added. Strict internal Clippy and compilation pass. Nextest run
+`6c915227-d6de-415e-9a51-b729ac055a3f` passed 693/693 with zero skipped. All
+nine complete contracts pass, including the positive TLC state space and the
+required negative witness. The review graph now has 363 exact tx-pool tests /
+1,435 invariant references, 19 integration anchors and 150 managed specs. The
+affected `RpcTruncate` scenario passed through `make integration`.
+The next exact action is I6 `CONVERGENCE`; complete managed integration and
+performance evidence remain later fixed-route gates.

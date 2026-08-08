@@ -2,9 +2,10 @@
 
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::service::{
-    AsyncRequest, BlockTemplateResult, ChainControl, FeeEstimatesResult, FetchTxsWithCyclesResult,
-    GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify, NotifyTxBatch,
-    RemoteTxSubmission, Request, SubmitTxResult, TestAcceptTxResult,
+    AdministrationGate, AdmittedAdministration, AsyncRequest, BlockTemplateResult, ChainControl,
+    FeeEstimatesResult, FetchTxsWithCyclesResult, GetTransactionWithStatusResult,
+    GetTxStatusResult, Message, Notify, NotifyTxBatch, RemoteTxSubmission, Request, SubmitTxResult,
+    TestAcceptTxResult,
 };
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
@@ -42,6 +43,7 @@ pub struct TxPoolController {
     pub(crate) verification_command: crate::authority::service::AuthorityVerificationCommand,
     pub(crate) handle: Handle,
     pub(crate) started: Arc<AtomicBool>,
+    pub(crate) administration_gate: AdministrationGate,
     pub(crate) signal: CancellationToken,
 }
 
@@ -75,16 +77,24 @@ macro_rules! send_notify {
     }};
 }
 
-macro_rules! send_chain_control {
+macro_rules! send_admitted_chain_control {
     ($self:ident, $command:ident, $args:expr) => {{
+        let admission = $self
+            .administration_gate
+            .try_acquire()
+            .ok_or_else(|| -> AnyError {
+                ckb_error::OtherError::new(
+                    "another tx-pool administration is already admitted".to_owned(),
+                )
+                .into()
+            })?;
         let (responder, response) = oneshot::channel();
         let request = Request::call($args, responder);
+        let command = ChainControl::$command(AdmittedAdministration::new(admission, request));
         block_in_place(|| {
-            $self.handle.block_on(
-                $self
-                    .chain_control_sender
-                    .send(ChainControl::$command(request)),
-            )
+            $self
+                .handle
+                .block_on($self.chain_control_sender.send(command))
         })
         .map_err(|error| {
             ckb_error::OtherError::new(format!("send ordered chain control fails: {error}"))
@@ -314,7 +324,7 @@ impl TxPoolController {
     /// Clears the tx-pool, removing all txs, update snapshot.
     pub fn clear_pool(&self, new_snapshot: Arc<Snapshot>) -> Result<(), AnyError> {
         reject_callback_mutation!("clear_pool");
-        send_chain_control!(self, ClearPool, new_snapshot)
+        send_admitted_chain_control!(self, ClearPool, new_snapshot)
     }
 
     /// Clears every kernel-owned pre-pool lifecycle entry without
@@ -322,7 +332,7 @@ impl TxPoolController {
     /// controller API compatibility.
     pub fn clear_verify_queue(&self) -> Result<(), AnyError> {
         reject_callback_mutation!("clear_verify_queue");
-        send_chain_control!(self, ClearPipeline, ())
+        send_admitted_chain_control!(self, ClearPipeline, ())
     }
 
     /// Returns information about all transactions in the pool.

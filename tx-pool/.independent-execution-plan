@@ -1,8 +1,8 @@
 # Transaction-Semantic Architecture Replan
 
-Status: I4 prepared full query complete; I5 typed ordered control active
-Checkpoint: I4 commit containing this record
-Active slice: I5 typed ordered control
+Status: I5 typed ordered control complete; I6 convergence active
+Checkpoint: I5 commit containing this record
+Active slice: I6 convergence
 Restart authority: `tx-pool/.release-progress`
 
 This is a temporary design and execution authority. It is deliberately not a
@@ -3463,8 +3463,11 @@ experiments:
     row scratch. Response construction is lock-external, while point/template
     reads remain concurrent. No resident projection or second read authority
     exists.
-12. **I5 active:** implement typed admission for the existing ordered control
-    lane without serializing admission or optimistic template work.
+12. **I5 complete:** a sealed shared gate issues one move-only public
+    administration capability; the existing ordered driver consumes it and
+    releases it before responding. Reorg remains a distinct reliable source.
+13. **I6 active:** delete obsolete ceremony and prove the final production,
+    refinement, concurrency and publication topology has converged.
 
 I3 is executed through five ordered refinement cuts. They are checkpoints of
 one design, not optional alternative paths, and the old and new protocols may
@@ -3654,3 +3657,75 @@ references, 19 integration anchors and 150 managed specs. Whole-architecture
 review found one accidental O(pool) scratch growth on fixed-output detail and
 removed it before closure. The next exact action is I5
 `TYPED-ORDERED-CONTROL`; benchmark and profiling remain frozen.
+
+## 21. I5 typed ordered-control freeze
+
+I5 changes only the producer-residency boundary of the existing capacity-one
+ordered lane. The production reorg publisher remains the single source already
+bound to `chain/src/verify.rs`; it keeps reliable asynchronous send and never
+shares a fail-fast policy with public administration. The public
+administrative state is:
+
+```text
+AdminGate = Free | Held(AdminAdmission)
+try_admin(Free) = Held(unique move-only capability)
+try_admin(Held) = ordinary fail-fast rejection
+```
+
+One `Arc<AtomicBool>` is shared by every cloneable controller handle, but the
+successful `AdminAdmission` is neither Clone nor Copy. The capability moves
+with `ClearPool` or `ClearPipeline` through the existing channel and remains
+owned by the ordered driver through the complete administrative operation. The
+driver releases it after the operation settles and before publishing the
+response, so a sequential follow-up cannot observe a stale busy gate. Channel
+close, send failure, driver cancellation and operation failure all drop the
+same capability exactly once.
+
+The complete external producer term is therefore at most one trusted reorg
+publisher plus one admitted public administration. Channel queue/consumer
+ownership remains separately bounded by `CHAIN_CONTROL_CHANNEL_SIZE + 1`.
+Excess clear calls fail before constructing a request or entering reliable
+send; the caller already owns its argument, but the tx-pool boundary retains
+no extra payload. No new channel, task, actor, retry, timer, lock or authority
+is admissible. Ordinary ingress, reads, Direct work and all five template lanes
+remain outside this protocol.
+
+I5 executes as three cuts: (a) sealed capability and admitted command type,
+(b) controller acquisition plus driver release-before-response wiring, and
+(c) exact concurrency/closure regressions, generated sole-constructor/source
+checks and whole-architecture convergence. Existing allocation retry inside an
+already admitted administration remains the separately registered
+`D1-ALLOCATION-LIVENESS` obligation; I5 neither hides nor expands it.
+
+## 22. I5 typed ordered-control result
+
+I5 closes the reliable ordered producer bound without splitting the lane or
+changing its ordering semantics. One sealed `AdministrationGate` owns the
+shared atomic bit. It alone can issue a non-Clone, non-Copy `AdminAdmission`,
+and only that capability can construct an `AdmittedAdministration<Request>`.
+`ChainControl` therefore cannot represent an unadmitted public clear. The
+driver consumes the wrapper, holds the capability across the complete clear,
+then releases it before publishing the response.
+
+For channel capacity `Q = 1`, trusted waiting reorg term `T <= 1` and public
+waiting administration term `A <= 1`, ordered request residency is bounded by
+`Q + active + T + A`. The executable resource model rejects `T > 1`, `A > 1`
+and checked-sum overflow. A concurrent public clear fails before request and
+oneshot construction; channel close and command cancellation drop the unique
+capability by ownership. The reliable reorg path is unchanged and remains
+bound to the single reviewed chain publisher.
+
+No authority, lock, task, channel, timer, retry, scan or template serialization
+was added. Production cost is one shared `Arc<AtomicBool>`, one compare-
+exchange per public clear and one Arc reference inside the admitted command.
+Ordinary ingress, Direct work, queries, Ready/effect overlap and all five
+template lanes are unchanged.
+
+Strict internal-feature Clippy and compilation pass. Nextest run
+`6c915227-d6de-415e-9a51-b729ac055a3f` executed 693 tests: 693 passed, zero
+skipped. All nine generated/formal contracts pass; TLC explored 1,098
+generated / 318 distinct positive states and reproduced the required
+four-state negative witness. The registry records 363 exact tx-pool tests /
+1,435 invariant references, 19 integration anchors and 150 managed specs. The
+affected `make integration CKB_TEST_ARGS='-c 1 RpcTruncate'` boundary passed.
+The next exact action is I6 `CONVERGENCE`; profiling and A/B remain frozen.

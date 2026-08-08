@@ -32,6 +32,7 @@ fn full_controller() -> TxPoolController {
         verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
+        administration_gate: AdministrationGate::new(),
         signal: CancellationToken::new(),
     }
 }
@@ -48,6 +49,7 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
         verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
+        administration_gate: AdministrationGate::new(),
         signal: CancellationToken::new(),
     };
     let snapshot = genesis_snapshot();
@@ -87,6 +89,7 @@ fn closed_reorg_consumer_fails_without_waiting() {
         verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
+        administration_gate: AdministrationGate::new(),
         signal: CancellationToken::new(),
     };
 
@@ -113,6 +116,7 @@ async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
         verification_command,
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
+        administration_gate: AdministrationGate::new(),
         signal: CancellationToken::new(),
     };
     let snapshot = genesis_snapshot();
@@ -134,11 +138,11 @@ async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
         chain_control_receiver.recv().await,
         Some(ChainControl::Reconcile(_))
     ));
-    let Some(ChainControl::ClearPool(Request { responder, .. })) =
-        chain_control_receiver.recv().await
-    else {
+    let Some(ChainControl::ClearPool(command)) = chain_control_receiver.recv().await else {
         panic!("clear_pool must follow the already-enqueued chain transition");
     };
+    let (admission, Request { responder, .. }) = command.into_parts();
+    drop(admission);
     responder
         .send(())
         .expect("the synchronous clear caller retains its response");
@@ -146,6 +150,104 @@ async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
         .await
         .expect("the clear caller task does not panic")
         .expect("the ordered clear receives its response");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_administration_is_linear_across_controller_clones() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let (chain_control_sender, mut chain_control_receiver) = mpsc::channel(1);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
+    let controller = TxPoolController {
+        sender,
+        chain_control_sender,
+        verification_command,
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(true)),
+        administration_gate: AdministrationGate::new(),
+        signal: CancellationToken::new(),
+    };
+
+    let first_controller = controller.clone();
+    let first =
+        tokio::task::spawn_blocking(move || first_controller.clear_pool(genesis_snapshot()));
+    let Some(ChainControl::ClearPool(first_command)) = chain_control_receiver.recv().await else {
+        panic!("the first public administration must enter the ordered lane");
+    };
+    let (first_admission, Request { responder, .. }) = first_command.into_parts();
+
+    let concurrent_controller = controller.clone();
+    let concurrent = tokio::time::timeout(
+        Duration::from_millis(100),
+        tokio::task::spawn_blocking(move || concurrent_controller.clear_verify_queue()),
+    )
+    .await
+    .expect("a concurrent public administration must fail without waiting")
+    .expect("the concurrent caller task does not panic")
+    .expect_err("the unique admission is already held");
+    assert!(
+        concurrent
+            .to_string()
+            .contains("another tx-pool administration is already admitted")
+    );
+    assert!(matches!(
+        chain_control_receiver.try_recv(),
+        Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+    ));
+
+    drop(first_admission);
+    responder
+        .send(())
+        .expect("the first synchronous caller retains its response");
+    first
+        .await
+        .expect("the first caller task does not panic")
+        .expect("the first public administration receives its response");
+
+    let sequential_controller = controller.clone();
+    let sequential =
+        tokio::task::spawn_blocking(move || sequential_controller.clear_verify_queue());
+    let Some(ChainControl::ClearPipeline(sequential_command)) = chain_control_receiver.recv().await
+    else {
+        panic!("a sequential public administration must reuse the released admission");
+    };
+    let (sequential_admission, Request { responder, .. }) = sequential_command.into_parts();
+    drop(sequential_admission);
+    responder
+        .send(())
+        .expect("the sequential synchronous caller retains its response");
+    sequential
+        .await
+        .expect("the sequential caller task does not panic")
+        .expect("the sequential public administration receives its response");
+}
+
+#[test]
+fn closed_administration_lane_releases_the_unique_admission() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let (chain_control_sender, chain_control_receiver) = mpsc::channel(1);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
+    drop(chain_control_receiver);
+    let administration_gate = AdministrationGate::new();
+    let controller = TxPoolController {
+        sender,
+        chain_control_sender,
+        verification_command,
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(true)),
+        administration_gate: administration_gate.clone(),
+        signal: CancellationToken::new(),
+    };
+
+    let error = controller
+        .clear_pool(genesis_snapshot())
+        .expect_err("a closed ordered lane cannot consume the administration");
+    assert!(error.to_string().contains("channel closed"));
+    let admission = administration_gate
+        .try_acquire()
+        .expect("failed delivery must release the exact admission capability");
+    drop(admission);
 }
 
 async fn assert_fast_error<F, T>(future: F)
@@ -185,6 +287,7 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
             verification_command,
             handle: new_background_runtime(),
             started: Arc::new(AtomicBool::new(true)),
+            administration_gate: AdministrationGate::new(),
             signal: CancellationToken::new(),
         };
         let transaction = ckb_types::core::TransactionBuilder::default().build();
