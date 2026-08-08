@@ -4,10 +4,10 @@ Status: temporary tracked recovery index; not a product, architecture or
 engineering-method authority.
 Source branch: `zhangsoledad/txpool-pipeline`.
 Source checkpoint before this handoff: `5bc9c326e0cc9a3cfdc8e14388ca372b473fa679`.
-Final migration checkpoint: the final source-side branch-tip commit with subject
-`tx-pool: finalize device recovery contract`. A commit cannot contain its own
-hash, so record the exact value printed by `git rev-parse HEAD` after that
-commit and verify the remote ref before leaving the source device.
+Final migration checkpoint: the final source-side branch tip after all recovery
+review supplements. A commit cannot contain its own hash, so record the exact
+value printed by `git rev-parse HEAD` after the last commit and verify the remote
+ref before leaving the source device. Commit subjects are not identity evidence.
 
 This document makes recovery independent of the Codex conversation, local
 temporary files and build artifacts. It is deliberately detailed. Delete it
@@ -173,6 +173,18 @@ Before the handoff commit:
   not evidence authorities or recovery inputs. Do not transfer their Git
   metadata and do not prune the source checkout until destination recovery is
   verified.
+- four short revisions cited by the chronological performance ledger are
+  intentionally nonportable experiment heads rather than product ancestors:
+  `a65e6cc02`, `bed532ea6`, `c2e726ffc` and `da9bf9935`. They add only
+  cross-version harness registration/adaptation over product commits that are
+  reachable from this branch. The latest `a65e6cc02` and `c2e726ffc` harness
+  blob is byte-identical to `HEAD:tx-pool/benches/profile_one_shot.rs` (Git blob
+  `cd15d9ab1f384dbc5340b38a43a9ba2c71c25848`, SHA-256
+  `ddcbd4128324219918974eb123d314217408099c026feab4fa062ed2a4799ee2`).
+  Earlier measurements are exploratory history, not accepted release evidence;
+  `PERFORMANCE-ACCEPTANCE` requires a new controlled fixed-binary run. An
+  unresolved one of these four short revisions after a fresh clone is therefore
+  not missing product or release evidence.
 
 Cloning the old upstream before the migration commit is pushed is not a
 recovery. The destination must resolve the final migration hash on the remote
@@ -506,7 +518,7 @@ Current primary environment:
 
 - macOS 15.7.7 arm64, eight logical CPUs;
 - Rust/Cargo 1.95.0; LLVM 22.1.2;
-- installed Rust components include Clippy, rustfmt, rust-src,
+- installed Rust components include Clippy, rustfmt, rust-src, rust-analyzer,
   `llvm-tools-preview` and `wasm32-unknown-unknown` std;
 - nightly Miri is available;
 - Python 3.14.6 and Node 26.5.0;
@@ -523,6 +535,7 @@ Exact tools used or registered by the current evidence program:
 | GNU Make | 3.81 | repository-managed test/integration entry points |
 | Go | 1.26.5 | managed integration support |
 | jq | 1.7.1 | repository/CI JSON support |
+| rust-analyzer | 1.95.0 | semantic navigation, reference discovery and review-safe rename assistance; not a correctness authority |
 | cargo-nextest | 0.9.140 | mandatory isolated Rust tests |
 | cargo-hack | 0.6.45 | feature-matrix discovery |
 | cargo-mutants | 27.1.0 | selected premise-removal strength |
@@ -557,28 +570,27 @@ prerequisites. Add them only if a later residual claim justifies them.
 
 ### 9.2 Destination bootstrap
 
-The commands below assume a new macOS destination. On Linux or Windows, use the
-current repository CI workflow for that OS as the system-dependency authority,
-then preserve the same Rust/Cargo/formal tool capabilities and record the OS
-difference. Install Xcode Command Line Tools and Homebrew first, then:
+The commands below assume a macOS destination with its normal Git, Rust,
+Xcode Command Line Tools and Homebrew setup already complete. Basic Git/Rust
+installation is intentionally outside this handoff. On Linux or Windows, use
+the current repository CI workflow for that OS as the system-dependency
+authority, preserve the same Cargo/formal tool capabilities and record the OS
+difference. Install the additional project tools with:
 
 ```text
-xcode-select --install
 brew install \
-  rustup-init cargo-binstall cargo-nextest \
-  git ripgrep jq go tor grep gnu-sed bash python-yq \
+  cargo-binstall cargo-nextest \
+  ripgrep jq go tor grep gnu-sed bash python-yq \
   python@3.14 node openjdk@21 z3 \
   hyperfine actionlint ast-grep difftastic shellcheck
-rustup-init -y
-rustup toolchain install 1.95.0
-rustup default 1.95.0
-rustup component add rustfmt clippy rust-src llvm-tools-preview
-rustup target add wasm32-unknown-unknown
-rustup toolchain install nightly --component miri
 export PATH="$(brew --prefix openjdk@21)/bin:$PATH"
 ```
 
-The repository pin in `rust-toolchain.toml`, not this prose, owns Rust 1.95.0.
+The repository pin in `rust-toolchain.toml`, not this prose, owns Rust 1.95.0;
+install its named components and optional nightly Miri through the user's normal
+Rust setup when those registered checks are selected. Keep rust-analyzer with
+the project toolchain for code navigation and refactoring support, but do not
+treat an editor diagnostic as test or proof evidence.
 The macOS integration CI installs `tor` and `go`; quick-check CI additionally
 uses GNU grep/sed/bash and Python yq. The source workstation did not have every
 CI convenience command on `PATH`, so install from the current workflows rather
@@ -630,10 +642,14 @@ chmod +x "$HOME/.local/bin/tlc"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Verify, do not merely assume, the installation:
+The table above is the complete source-device tool inventory. Verify the active
+recovery tools and non-obvious command bindings below now; verify an optional
+phase-owned tool before that later phase starts rather than treating its
+presence in the table as proof that it works on the destination:
 
 ```text
 rustc -Vv
+rust-analyzer --version
 cargo nextest --version
 cargo mutants --version
 cargo llvm-cov --version
@@ -669,7 +685,7 @@ On the destination:
 ```text
 git clone --recurse-submodules git@github.com:nervosnetwork/ckb.git
 cd ckb
-git fetch origin zhangsoledad/txpool-pipeline
+git fetch origin refs/heads/zhangsoledad/txpool-pipeline:refs/remotes/origin/zhangsoledad/txpool-pipeline
 git switch --track origin/zhangsoledad/txpool-pipeline
 git submodule update --init --recursive
 git rev-parse HEAD

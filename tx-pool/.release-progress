@@ -4303,3 +4303,14 @@ review graph, 19 integration anchors and 150 managed specs. Repository-wide
 format checking and `git diff --check` also pass. These are migration/evidence
 checks only; the three declared release blockers and active V1 continuation are
 unchanged.
+
+A final semantic-recovery review separated four historical `/private/tmp`
+performance heads from portable product evidence. They contain only benchmark
+harness registration/adaptation; the latest cross-version harness is
+byte-identical to the tracked `HEAD` version, while release performance remains
+explicitly unaccepted and must be rerun. The handoff now records that boundary
+and preserves the established SSH clone workflow. Basic Git/Rust installation
+is intentionally left to the destination environment; only project-specific
+tools remain in the bootstrap. Rust-analyzer is recorded as a recommended
+semantic navigation/refactoring aid, never correctness evidence. No product
+state, test result, blocker or roadmap status changed.
