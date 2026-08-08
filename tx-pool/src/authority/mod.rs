@@ -10,6 +10,7 @@ mod chain;
 mod chain_boundary;
 mod dependency;
 mod effect;
+mod exchange;
 mod indexes;
 mod ingress;
 #[cfg(any(test, feature = "internal"))]

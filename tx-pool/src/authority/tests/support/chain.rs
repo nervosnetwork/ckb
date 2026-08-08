@@ -76,6 +76,20 @@ impl AcceptedProof {
             sensitivity: AcceptedChainSensitivity::Stable,
         }
     }
+
+    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.sensitivity == other.sensitivity
+            && self.verified.equivalent_after_atomic_stamp_compaction(
+                &other.verified,
+                batch,
+                canonical_next,
+            )
+    }
 }
 
 impl MembershipValidationWork {

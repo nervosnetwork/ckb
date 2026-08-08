@@ -3842,3 +3842,78 @@ All Rust tests ran through `cargo nextest run`; direct `cargo test` was not
 used. The standalone integration runner already provides one node/spec process
 boundary and remains `make integration`. I3 bounded compute exchange is the
 next exact action; profiling and A/B remain frozen.
+
+## I3 bounded compute exchange startup
+
+The I2 checkpoint is `d38d1eced`. Startup recovery confirmed that the only
+working-tree change outside this program is the user-owned `.gitignore`, which
+must not be staged or altered. The production scheduler and executable model
+were re-read before implementation. The model already owns the role-bearing
+worker grants, fair scheduler wave, completion rank, virtual post-settlement
+cut and linear return-on-failure laws. Production owns the same per-owner fair
+cursors and batch projection compilers, but still performs one checkout and
+one settlement authority mutation per worker job.
+
+I3 therefore has five fixed refinement cuts: I3a domain-owned scheduler wave;
+I3b lock-external linear completion; I3c one atomic completion/refill exchange
+delta; I3d coordinator topology cutover; and I3e deletion plus whole-system
+convergence. The detailed theorems, falsifiers and forbidden shortcuts are in
+`.independent-execution-plan` section 17. No cut may add a second authority,
+generic batch framework, timer/minimum fill, direct permit transfer, nested
+undo or worker-side policy decision. The old and new worker mutation protocols
+must not coexist after I3e.
+
+I3a is complete in the current working tree. The production scheduler owns a
+bounded virtual wave over the committed frontier plus owner-local settlement
+additions, and publishes its Resolve/Verify cursors only through the same
+batch Apply. The focused scheduler refinement gate passes 3/3 through
+`cargo nextest run`.
+
+I3b is complete in the current working tree. Resolve/verify execution now
+finishes into a move-only lock-external result and releases the shared fair
+execution permit before any settlement attempt. A finished owner may remain
+`Computing` behind effect capacity, but it cannot retain a CPU permit or
+bypass an older Direct waiter. The focused runtime/worker gate passes 20/20
+through `cargo nextest run`.
+
+I3c is complete in the current working tree. The domain-specific
+`ComputeExchangeDelta` compiles owner-local completions, a virtual
+post-settlement resource/scheduler cut and compatible replacement checkouts
+with one `BatchClockReservation`. It preserves canonical capability rank,
+gives a fitting malformed-Remote peer revocation exclusive precedence,
+freezes only that peer when Critical effect capacity is full, and lets
+unrelated no-effect work settle and refill. Duplicate completion identities,
+duplicate worker grants, allocation failure and every Plan failure return the
+exact move-only capabilities without mutation. The production differential
+test refines the named no-interleave settlement/refill fold modulo the one
+atomic stamp, and completion/grant arrival order is observationally irrelevant.
+
+The phase review rejected an unsafe shortcut: a finished worker slot is not
+itself checkout authority because I3b has already returned its semaphore
+token. Production keeps three linear facts separate: finished settlement
+evidence, stable worker role, and an immediately acquired fair execution
+permit. Only a sealed `ComputeWorkerGrant` containing the latter two may
+authorize checkout; completion without such a grant may settle but cannot
+create `Computing` work. It also replaced a large three-way candidate enum,
+panic-capable slice indexing and an anonymous compile tuple with direct typed
+results; no lint suppression was added for those defects.
+
+The focused compute/scheduler/model gate passes 20/20, the complete default
+library gate passes 680/680, and the complete `internal` library gate passes
+684/684, all through `cargo nextest run`. Formatting and `git diff --check`
+pass. Clippy with only the transitional `dead_code` and `unused_imports`
+categories disabled passes under `-D warnings`; strict clippy now reports only
+the I3c exchange surface that has no production consumer before I3d. Those
+warnings are not hidden in source and must disappear through coordinator
+consumption or I3e deletion before the strict gate can close.
+
+The next exact action is I3d coordinator cutover. First seal a stable-slot
+assignment/completion transport so raw slot identities cannot be mismatched.
+Then install one worker-bounded completion channel and one capacity-one
+assignment channel per slot, wire the coordinator to drain only immediately
+available completions, and give it at most one fair semaphore waiter only when
+no completion is pending. Cache updates leave the coordinator only after the
+matching authoritative settlement. Send failure returns the exact job to the
+ordinary cancellation transition, and shutdown joins the coordinator only
+after every worker capability is drained. Profiling and benchmark work remain
+frozen.

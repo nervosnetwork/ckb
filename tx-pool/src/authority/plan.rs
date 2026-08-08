@@ -1,8 +1,12 @@
 mod chain_transition;
+mod compute_exchange;
 mod ingress;
 mod membership;
 mod settlement;
 
+pub(in crate::authority) use self::compute_exchange::{
+    CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeRecovery,
+};
 pub(in crate::authority) use self::ingress::CommittedRetainedAdmissionBatch;
 
 #[cfg(test)]
@@ -51,12 +55,12 @@ use super::state::{
     DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
     MissingDependencies, OwnedTx, PayloadPolicy, PoolGeneration, PreAcceptedEntry,
     PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash, RemoteDeadline,
-    ReplacementHistoryEntry, ReplacementHistoryError, TxRecord, ValidatedAdmission,
+    ReplacementHistoryEntry, ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
-    CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementRejection,
-    SettlementToken,
+    CheckedOutWork, ComputeSettlement, LeaseToken, MissingResolution, SettlementNext,
+    SettlementRejection, SettlementToken,
 };
 use crate::error::Reject;
 use ckb_types::{
@@ -448,8 +452,13 @@ impl From<IndexError> for PlanError {
 }
 
 impl From<SchedulerError> for PlanError {
-    fn from(_: SchedulerError) -> Self {
-        Self::Fault(AuthorityFault::SchedulerProjection)
+    fn from(error: SchedulerError) -> Self {
+        match error {
+            SchedulerError::Allocation => Self::Backpressure(Backpressure::Allocation),
+            SchedulerError::Projection | SchedulerError::Arithmetic => {
+                Self::Fault(AuthorityFault::SchedulerProjection)
+            }
+        }
     }
 }
 
@@ -1033,6 +1042,7 @@ struct ChainDelta {
 
 enum AuthorityDelta {
     Entry(EntryDelta),
+    ComputeExchange(compute_exchange::ComputeExchangeDelta),
     RetainedIngress(ingress::RetainedIngressDelta),
     Membership(MembershipDelta),
     Independent(IndependentDelta),
@@ -1061,6 +1071,25 @@ enum SettlementDisposition {
         publication: EffectPublication,
     },
     Terminal(SettlementRejection),
+}
+
+struct OwnerLocalSettlement {
+    phase: PreAcceptedPhase,
+    charge: ResourceVector,
+}
+
+enum SettlementClassification {
+    OwnerLocal(OwnerLocalSettlement),
+    NonLocal(NonLocalSettlement),
+}
+
+enum NonLocalSettlement {
+    Waiting(MissingResolution),
+    Rejected(SettlementRejection),
+    VerificationRejected {
+        rejection: CommittedPublicReject,
+        resolved: ResolvedFacts,
+    },
 }
 
 enum PrepareSettlementError {
@@ -1237,6 +1266,9 @@ impl PreparedApply<'_> {
         let before = authority.wake_projection();
         let retirement = match delta {
             AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, delta),
+            AuthorityDelta::ComputeExchange(delta) => {
+                compute_exchange::apply_compute_exchange(&mut *authority, delta)
+            }
             AuthorityDelta::RetainedIngress(delta) => {
                 ingress::apply_retained_ingress(&mut *authority, delta)
             }
@@ -3312,6 +3344,23 @@ impl TxPoolAuthority {
         hashes: Vec<RawTxHash>,
         plan: AdminPlan,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        let delta = self.compile_administrative_removal(hashes, plan)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Admin(delta),
+        })
+    }
+
+    /// Compile the complete administrative transition into an owned delta.
+    /// The authority borrow becomes linear only when the caller wraps this
+    /// delta in `PreparedApply`; domain planners may therefore adjudicate a
+    /// bounded alternative without creating a nested transaction or keeping
+    /// an earlier mutable borrow alive.
+    fn compile_administrative_removal(
+        &mut self,
+        hashes: Vec<RawTxHash>,
+        plan: AdminPlan,
+    ) -> Result<AdminDelta, PlanError> {
         self.effects.ensure_open()?;
         let mut hashes = OwnerRemovalKeys::new(hashes)?;
         for hash in hashes.iter() {
@@ -3481,14 +3530,11 @@ impl TxPoolAuthority {
         };
 
         let removal = self.plan_owner_removal_batch(hashes, sequence)?;
-        Ok(PreparedApply {
-            authority: self,
-            delta: AuthorityDelta::Admin(AdminDelta {
-                control,
-                removal,
-                effect,
-                clocks,
-            }),
+        Ok(AdminDelta {
+            control,
+            removal,
+            effect,
+            clocks,
         })
     }
 
@@ -3578,6 +3624,19 @@ impl TxPoolAuthority {
         tx_hash: RawTxHash,
         reason: CommittedPublicReject,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        let delta = self.compile_peer_revocation(peer, tx_hash, reason)?;
+        Ok(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Admin(delta),
+        })
+    }
+
+    fn compile_peer_revocation(
+        &mut self,
+        peer: ckb_network::PeerIndex,
+        tx_hash: RawTxHash,
+        reason: CommittedPublicReject,
+    ) -> Result<AdminDelta, PlanError> {
         let mut hashes = Vec::new();
         if let Some(indexed) = self.indexes.preaccepted_for_peer(peer) {
             hashes
@@ -3589,7 +3648,10 @@ impl TxPoolAuthority {
         let marker = self.peer_bans.plan_record(peer, Instant::now())?;
         let revocation = CommittedPeerCohortRevocation::malformed(marker.lease(), tx_hash, reason)
             .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
-        self.plan_administrative_removal(hashes, AdminPlan::PeerRevocation { marker, revocation })
+        self.compile_administrative_removal(
+            hashes,
+            AdminPlan::PeerRevocation { marker, revocation },
+        )
     }
 
     /// Remove one explicit owner. Accepted roots include their complete
@@ -3856,14 +3918,17 @@ impl TxPoolAuthority {
             }
         }
         let owner_count = self.scheduler.owner_count(permit);
+        let mut wave = self.scheduler.checkout_wave(1)?;
         let mut cursor = None;
         let mut selected = None;
         #[cfg(test)]
         let mut probes = 0usize;
         for _ in 0..owner_count {
             let ticket = match cursor {
-                Some(owner) => self.scheduler.next_queued_after(permit, Some(owner)),
-                None => self.scheduler.next_queued(permit),
+                Some(owner) => self
+                    .scheduler
+                    .next_queued_after_in_wave(&wave, permit, owner),
+                None => self.scheduler.next_queued_in_wave(&wave, permit),
             };
             let Some(ticket) = ticket else {
                 break;
@@ -3877,6 +3942,7 @@ impl TxPoolAuthority {
             cursor = Some(ticket.owner());
             match self.plan_checkout_resources(ticket.hash(), ticket.version(), permit)? {
                 CheckoutResource::Reserved(reservation) => {
+                    wave.select(&ticket)?;
                     selected = Some((ticket, reservation));
                     break;
                 }
@@ -4269,6 +4335,207 @@ impl TxPoolAuthority {
             })
     }
 
+    /// Classify one finished compute result against a coherent authority cut.
+    ///
+    /// `OwnerLocal` results change only the named owner and its derived
+    /// projections. They are the closed commutative domain consumed by the
+    /// compute exchange. Results which may publish an effect, revoke a peer,
+    /// or terminalize dependency owners remain `NonLocal` and retain their
+    /// exact move-only evidence for the existing cohort planner.
+    fn classify_settlement(
+        &self,
+        preaccepted: &PreAcceptedEntry,
+        active: &super::state::ActiveWork,
+        next: SettlementNext,
+    ) -> Result<SettlementClassification, PlanError> {
+        let raw_charge = preaccepted.original_charge();
+        let dependency_cut = active.dependency_cut;
+        if !self
+            .dependencies
+            .proof_is_current(preaccepted.dependencies(), dependency_cut)
+        {
+            return Ok(SettlementClassification::OwnerLocal(OwnerLocalSettlement {
+                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                charge: raw_charge,
+            }));
+        }
+
+        let chain_state_is_current = self.chain_view.has_same_chain_state(&active.chain_view);
+        let local = |phase, charge| {
+            SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, charge })
+        };
+        match next {
+            SettlementNext::QueuedVerify(resolved) => {
+                if resolved.payload().identity() != &preaccepted.record.identity
+                    || resolved.chain_view() != &active.chain_view
+                {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                if resolved.dependency_cut() != dependency_cut {
+                    return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                }
+                if !chain_state_is_current {
+                    return Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        raw_charge,
+                    ));
+                }
+                let dependencies = resolved.payload().dependencies().clone();
+                let retained_charge = active
+                    .grant
+                    .retained_charge(
+                        resolved.payload().resolved_resident_bytes(),
+                        dependencies.len(),
+                    )
+                    .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                if self.dependencies.resolution_is_current(
+                    preaccepted.dependencies(),
+                    &dependencies,
+                    dependency_cut,
+                ) {
+                    Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+                        retained_charge,
+                    ))
+                } else {
+                    Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        raw_charge,
+                    ))
+                }
+            }
+            SettlementNext::Waiting(missing) => {
+                let dependencies = missing.dependencies().clone();
+                if chain_state_is_current
+                    && self.dependencies.missing_result_is_current(
+                        preaccepted.dependencies(),
+                        &dependencies,
+                        missing.missing(),
+                        dependency_cut,
+                    )
+                {
+                    Ok(SettlementClassification::NonLocal(
+                        NonLocalSettlement::Waiting(missing),
+                    ))
+                } else {
+                    Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        raw_charge,
+                    ))
+                }
+            }
+            SettlementNext::Ready(verified) => {
+                if verified.witness() != &preaccepted.record.identity.witness
+                    || verified.payload().identity() != &preaccepted.record.identity
+                    || verified.chain_view() != &active.chain_view
+                {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                if verified.dependency_cut() != dependency_cut {
+                    return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                }
+                let dependencies = verified.payload().dependencies().clone();
+                let retained_charge = active
+                    .grant
+                    .retained_charge(verified.metrics().cost.resident_bytes, dependencies.len())
+                    .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                if self.dependencies.resolution_is_current(
+                    preaccepted.dependencies(),
+                    &dependencies,
+                    dependency_cut,
+                ) {
+                    Ok(local(PreAcceptedPhase::Ready(verified), retained_charge))
+                } else {
+                    Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        raw_charge,
+                    ))
+                }
+            }
+            SettlementNext::Rejected(rejection) => {
+                if chain_state_is_current || rejection.remains_valid_after_chain_change() {
+                    Ok(SettlementClassification::NonLocal(
+                        NonLocalSettlement::Rejected(rejection),
+                    ))
+                } else {
+                    Ok(local(
+                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        raw_charge,
+                    ))
+                }
+            }
+            SettlementNext::VerificationRejected {
+                rejection,
+                resolved,
+            } => {
+                if resolved.payload().identity() != &preaccepted.record.identity
+                    || resolved.chain_view() != &active.chain_view
+                {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                if resolved.dependency_cut() != dependency_cut {
+                    return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
+                }
+                let current_policy = preaccepted.source.payload_policy();
+                if current_policy == active.payload_policy {
+                    if chain_state_is_current {
+                        Ok(SettlementClassification::NonLocal(
+                            NonLocalSettlement::VerificationRejected {
+                                rejection,
+                                resolved,
+                            },
+                        ))
+                    } else {
+                        Ok(local(
+                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                            raw_charge,
+                        ))
+                    }
+                } else if matches!(
+                    active.payload_policy,
+                    PayloadPolicy::RemoteDeclaredCycles(_)
+                ) && current_policy == PayloadPolicy::Trusted
+                {
+                    if !chain_state_is_current {
+                        return Ok(local(
+                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                            raw_charge,
+                        ));
+                    }
+                    let dependencies = resolved.payload().dependencies().clone();
+                    let retained_charge = active
+                        .grant
+                        .retained_charge(
+                            resolved.payload().resolved_resident_bytes(),
+                            dependencies.len(),
+                        )
+                        .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                    if self.dependencies.resolution_is_current(
+                        preaccepted.dependencies(),
+                        &dependencies,
+                        dependency_cut,
+                    ) {
+                        Ok(local(
+                            PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+                            retained_charge,
+                        ))
+                    } else {
+                        Ok(local(
+                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                            raw_charge,
+                        ))
+                    }
+                } else {
+                    Err(PlanError::Fault(AuthorityFault::MembershipProjection))
+                }
+            }
+            SettlementNext::Retry => Ok(local(
+                PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                raw_charge,
+            )),
+        }
+    }
+
     #[expect(
         clippy::result_large_err,
         reason = "the error owns the exact linear SettlementNext capability; boxing would allocate on ordinary stale/backpressure recovery"
@@ -4299,239 +4566,72 @@ impl TxPoolAuthority {
         // decides only whether the resulting proof may be retained: a tip
         // change cannot invalidate the sole capability able to release this
         // Computing owner and its active charge.
-        let chain_state_is_current = self.chain_view.has_same_chain_state(&active.chain_view);
-        let dependency_cut = active.dependency_cut;
-        let raw_charge = preaccepted.original_charge();
         if preaccepted.charge.active_work != 1 {
             return Err(PlanError::Fault(AuthorityFault::ResourceProjection).into());
         }
-        let base_proof_is_current = self
-            .dependencies
-            .proof_is_current(preaccepted.dependencies(), dependency_cut);
-        let disposition = if !base_proof_is_current {
-            SettlementDisposition::Retain {
-                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                charge: raw_charge,
+        let disposition = match self.classify_settlement(preaccepted, active, next)? {
+            SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, charge }) => {
+                SettlementDisposition::Retain { phase, charge }
             }
-        } else {
-            match next {
-                SettlementNext::QueuedVerify(resolved) => {
-                    if resolved.payload().identity() != &preaccepted.record.identity {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
+            SettlementClassification::NonLocal(NonLocalSettlement::Waiting(missing)) => {
+                let dependencies = missing.dependencies().clone();
+                match self.missing_resolution_disposition(preaccepted.source, missing.missing()) {
+                    MissingResolutionDisposition::Reject(rejection) => {
+                        SettlementDisposition::Terminal(rejection)
                     }
-                    if resolved.chain_view() != &active.chain_view {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
-                    }
-                    if resolved.dependency_cut() != dependency_cut {
-                        return Err(PlanError::Fault(AuthorityFault::DependencyProjection).into());
-                    }
-                    if !chain_state_is_current {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            charge: raw_charge,
-                        }
-                    } else {
-                        let dependencies = resolved.payload().dependencies().clone();
+                    MissingResolutionDisposition::Wait => {
                         let retained_charge = active
                             .grant
-                            .retained_charge(
-                                resolved.payload().resolved_resident_bytes(),
-                                dependencies.len(),
-                            )
+                            .retained_base_charge(dependencies.len())
                             .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                        if self.dependencies.resolution_is_current(
-                            preaccepted.dependencies(),
-                            &dependencies,
-                            dependency_cut,
-                        ) {
-                            SettlementDisposition::Retain {
-                                phase: PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                                charge: retained_charge,
-                            }
-                        } else {
-                            SettlementDisposition::Retain {
-                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                charge: raw_charge,
-                            }
-                        }
-                    }
-                }
-                SettlementNext::Waiting(missing) => {
-                    let dependencies = missing.dependencies().clone();
-                    if chain_state_is_current
-                        && self.dependencies.missing_result_is_current(
-                            preaccepted.dependencies(),
-                            &dependencies,
+                        let observed = self.dependencies.observe_missing(
                             missing.missing(),
-                            dependency_cut,
-                        )
-                    {
-                        match self
-                            .missing_resolution_disposition(preaccepted.source, missing.missing())
-                        {
-                            MissingResolutionDisposition::Reject(rejection) => {
-                                SettlementDisposition::Terminal(rejection)
-                            }
-                            MissingResolutionDisposition::Wait => {
-                                let retained_charge = active
-                                    .grant
-                                    .retained_base_charge(dependencies.len())
-                                    .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                                let observed = self.dependencies.observe_missing(
-                                    missing.missing(),
-                                    dependencies,
-                                    dependency_cut,
-                                );
-                                let publication = match preaccepted.source {
-                                    PreAcceptedSource::Remote(remote) => {
-                                        ParentTransactionRequest::new(
-                                            remote.residency.peer,
-                                            Arc::clone(missing.parent_transactions()),
-                                        )
-                                        .map(|request| {
-                                            self.effects.build_publication(
-                                                EffectPolicy::Remote,
-                                                vec![CommittedEffect::ParentTransactionsRequested(
-                                                    request,
-                                                )],
-                                            )
-                                        })
-                                        .transpose()
-                                        .map_err(|_| {
-                                            PlanError::Fault(AuthorityFault::EffectProjection)
-                                        })?
-                                    }
-                                    PreAcceptedSource::Proposal { .. }
-                                    | PreAcceptedSource::Recovery(_) => None,
-                                };
-                                match publication {
-                                    Some(publication) => SettlementDisposition::RetainAndPublish {
-                                        phase: PreAcceptedPhase::Waiting(observed),
-                                        charge: retained_charge,
-                                        publication,
-                                    },
-                                    None => SettlementDisposition::Retain {
-                                        phase: PreAcceptedPhase::Waiting(observed),
-                                        charge: retained_charge,
-                                    },
-                                }
-                            }
-                        }
-                    } else {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            charge: raw_charge,
-                        }
-                    }
-                }
-                SettlementNext::Ready(verified) => {
-                    if verified.witness() != &preaccepted.record.identity.witness
-                        || verified.payload().identity() != &preaccepted.record.identity
-                    {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
-                    }
-                    if verified.chain_view() != &active.chain_view {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
-                    }
-                    if verified.dependency_cut() != dependency_cut {
-                        return Err(PlanError::Fault(AuthorityFault::DependencyProjection).into());
-                    }
-                    let dependencies = verified.payload().dependencies().clone();
-                    let retained_charge = active
-                        .grant
-                        .retained_charge(verified.metrics().cost.resident_bytes, dependencies.len())
-                        .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                    if self.dependencies.resolution_is_current(
-                        preaccepted.dependencies(),
-                        &dependencies,
-                        dependency_cut,
-                    ) {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Ready(verified),
-                            charge: retained_charge,
-                        }
-                    } else {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            charge: raw_charge,
-                        }
-                    }
-                }
-                SettlementNext::Rejected(rejection) => {
-                    if chain_state_is_current || rejection.remains_valid_after_chain_change() {
-                        SettlementDisposition::Terminal(rejection)
-                    } else {
-                        SettlementDisposition::Retain {
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            charge: raw_charge,
-                        }
-                    }
-                }
-                SettlementNext::VerificationRejected {
-                    rejection,
-                    resolved,
-                } => {
-                    if resolved.payload().identity() != &preaccepted.record.identity
-                        || resolved.chain_view() != &active.chain_view
-                        || resolved.dependency_cut() != dependency_cut
-                    {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
-                    }
-                    let current_policy = preaccepted.source.payload_policy();
-                    if current_policy == active.payload_policy {
-                        if chain_state_is_current {
-                            SettlementDisposition::Terminal(SettlementRejection::ChainBound(
-                                rejection,
-                            ))
-                        } else {
-                            SettlementDisposition::Retain {
-                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                charge: raw_charge,
-                            }
-                        }
-                    } else if matches!(
-                        active.payload_policy,
-                        PayloadPolicy::RemoteDeclaredCycles(_)
-                    ) && current_policy == PayloadPolicy::Trusted
-                    {
-                        if !chain_state_is_current {
-                            SettlementDisposition::Retain {
-                                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                charge: raw_charge,
-                            }
-                        } else {
-                            let dependencies = resolved.payload().dependencies().clone();
-                            let retained_charge = active
-                                .grant
-                                .retained_charge(
-                                    resolved.payload().resolved_resident_bytes(),
-                                    dependencies.len(),
+                            dependencies,
+                            active.dependency_cut,
+                        );
+                        let publication = match preaccepted.source {
+                            PreAcceptedSource::Remote(remote) => ParentTransactionRequest::new(
+                                remote.residency.peer,
+                                Arc::clone(missing.parent_transactions()),
+                            )
+                            .map(|request| {
+                                self.effects.build_publication(
+                                    EffectPolicy::Remote,
+                                    vec![CommittedEffect::ParentTransactionsRequested(request)],
                                 )
-                                .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                            if self.dependencies.resolution_is_current(
-                                preaccepted.dependencies(),
-                                &dependencies,
-                                dependency_cut,
-                            ) {
-                                SettlementDisposition::Retain {
-                                    phase: PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                                    charge: retained_charge,
-                                }
-                            } else {
-                                SettlementDisposition::Retain {
-                                    phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                    charge: raw_charge,
-                                }
+                            })
+                            .transpose()
+                            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?,
+                            PreAcceptedSource::Proposal { .. } | PreAcceptedSource::Recovery(_) => {
+                                None
                             }
+                        };
+                        match publication {
+                            Some(publication) => SettlementDisposition::RetainAndPublish {
+                                phase: PreAcceptedPhase::Waiting(observed),
+                                charge: retained_charge,
+                                publication,
+                            },
+                            None => SettlementDisposition::Retain {
+                                phase: PreAcceptedPhase::Waiting(observed),
+                                charge: retained_charge,
+                            },
                         }
-                    } else {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection).into());
                     }
                 }
-                SettlementNext::Retry => SettlementDisposition::Retain {
-                    phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                    charge: raw_charge,
-                },
+            }
+            SettlementClassification::NonLocal(NonLocalSettlement::Rejected(rejection)) => {
+                SettlementDisposition::Terminal(rejection)
+            }
+            SettlementClassification::NonLocal(NonLocalSettlement::VerificationRejected {
+                rejection,
+                resolved,
+            }) => {
+                // The single-result path has already validated the exact
+                // resolved receipt. Once the outcome becomes a committed
+                // public rejection, that payload is no longer retry evidence.
+                drop(resolved);
+                SettlementDisposition::Terminal(SettlementRejection::ChainBound(rejection))
             }
         };
         let (phase, retained_charge, publication) = match disposition {

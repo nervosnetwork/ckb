@@ -10,6 +10,18 @@ pub(in crate::authority) struct SchedulerSnapshot {
     verify_small_owners: BTreeSet<WorkOwner>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(in crate::authority) struct SchedulerWaveObservation {
+    pub(in crate::authority) assignments: Vec<(
+        super::super::exchange::ComputeWorkerSlot,
+        super::super::state::WorkPermit,
+        RawTxHash,
+        EntryVersion,
+    )>,
+    pub(in crate::authority) idle: Vec<super::super::exchange::ComputeWorkerSlot>,
+    pub(in crate::authority) cursors: (Option<WorkOwner>, Option<WorkOwner>),
+}
+
 impl FairLane {
     fn secondary_index_consistent(&self) -> bool {
         self.small_owners
@@ -37,6 +49,29 @@ impl FairFrontier {
             resolve_small_owners: self.resolve.small_owners.clone(),
             verify_small_owners: self.verify.small_owners.clone(),
         }
+    }
+
+    pub(in crate::authority) fn worker_wave_observation(
+        &self,
+        slots: &[super::super::exchange::ComputeWorkerSlot],
+    ) -> Result<SchedulerWaveObservation, SchedulerError> {
+        let wave = self.plan_worker_wave(slots)?;
+        let (cursor, assignments, idle) = wave.into_parts();
+        Ok(SchedulerWaveObservation {
+            assignments: assignments
+                .into_iter()
+                .map(|assignment| {
+                    (
+                        assignment.slot(),
+                        assignment.permit(),
+                        assignment.ticket().hash().clone(),
+                        assignment.ticket().version(),
+                    )
+                })
+                .collect(),
+            idle,
+            cursors: (cursor.resolve_cursor, cursor.verify_cursor),
+        })
     }
 
     fn slots(&self) -> BTreeSet<SchedulerSlot> {

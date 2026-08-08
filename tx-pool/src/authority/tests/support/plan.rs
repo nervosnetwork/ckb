@@ -236,7 +236,16 @@ impl AuthoritySnapshot {
                 );
         self.generation == other.generation
             && self.chain_view == other.chain_view
-            && self.entries == other.entries
+            && self.entries.len() == other.entries.len()
+            && self.entries.iter().all(|(hash, owner)| {
+                other.entries.get(hash).is_some_and(|other_owner| {
+                    owner.equivalent_after_atomic_stamp_compaction(
+                        other_owner,
+                        batch_sequence,
+                        canonical_next_sequence,
+                    )
+                })
+            })
             && self.indexes == other.indexes
             && source_versions_equivalent
             && self.resources == other.resources
@@ -251,6 +260,99 @@ impl AuthoritySnapshot {
             && self.peer_bans == other.peer_bans
             && self.clocks.next_version == other.clocks.next_version
             && self.clocks.next_arrival == other.clocks.next_arrival
+    }
+}
+
+impl OwnerSnapshot {
+    fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.identity == other.identity
+            && self.source == other.source
+            && self.version == other.version
+            && self.arrival == other.arrival
+            && self.charge == other.charge
+            && match (&self.phase, &other.phase) {
+                (
+                    OwnerPhaseSnapshot::PreAccepted {
+                        phase,
+                        dependencies,
+                        original_charge,
+                    },
+                    OwnerPhaseSnapshot::PreAccepted {
+                        phase: other_phase,
+                        dependencies: other_dependencies,
+                        original_charge: other_original_charge,
+                    },
+                ) => {
+                    phase.equivalent_after_atomic_stamp_compaction(
+                        other_phase,
+                        batch,
+                        canonical_next,
+                    ) && dependencies == other_dependencies
+                        && original_charge == other_original_charge
+                }
+                (
+                    OwnerPhaseSnapshot::Accepted {
+                        status,
+                        proof,
+                        dependencies,
+                        accepted_at,
+                    },
+                    OwnerPhaseSnapshot::Accepted {
+                        status: other_status,
+                        proof: other_proof,
+                        dependencies: other_dependencies,
+                        accepted_at: other_accepted_at,
+                    },
+                ) => {
+                    status == other_status
+                        && proof.equivalent_after_atomic_stamp_compaction(
+                            other_proof,
+                            batch,
+                            canonical_next,
+                        )
+                        && dependencies == other_dependencies
+                        && accepted_at == other_accepted_at
+                }
+                (
+                    OwnerPhaseSnapshot::ReplacementHistory {
+                        dependencies,
+                        observation,
+                    },
+                    OwnerPhaseSnapshot::ReplacementHistory {
+                        dependencies: other_dependencies,
+                        observation: other_observation,
+                    },
+                ) => {
+                    dependencies == other_dependencies
+                        && *observation
+                            == compact_dependency_cut(*other_observation, batch, canonical_next)
+                }
+                (
+                    OwnerPhaseSnapshot::PreAccepted { .. }
+                    | OwnerPhaseSnapshot::Accepted { .. }
+                    | OwnerPhaseSnapshot::ReplacementHistory { .. },
+                    OwnerPhaseSnapshot::PreAccepted { .. }
+                    | OwnerPhaseSnapshot::Accepted { .. }
+                    | OwnerPhaseSnapshot::ReplacementHistory { .. },
+                ) => false,
+            }
+    }
+}
+
+fn compact_dependency_cut(
+    cut: DependencyCut,
+    batch: ApplySequence,
+    canonical_next: ApplySequence,
+) -> DependencyCut {
+    if cut.0 >= batch && cut.0 < canonical_next {
+        DependencyCut(batch)
+    } else {
+        cut
     }
 }
 
@@ -430,6 +532,15 @@ impl TxPoolAuthority {
         Option<super::super::scheduler::WorkOwner>,
     ) {
         self.scheduler.cursors_for_refinement()
+    }
+
+    pub(in crate::authority) fn scheduler_worker_wave_for_refinement(
+        &self,
+        slots: &[super::super::exchange::ComputeWorkerSlot],
+    ) -> Result<super::super::scheduler::test_support::SchedulerWaveObservation, PlanError> {
+        self.scheduler
+            .worker_wave_observation(slots)
+            .map_err(PlanError::from)
     }
 
     pub(in crate::authority) fn owner_count(&self) -> usize {

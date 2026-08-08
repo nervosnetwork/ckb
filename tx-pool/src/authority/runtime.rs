@@ -22,6 +22,7 @@ use super::{
         EffectConfigError, EffectLimits, EffectProgressError, EffectReceipt, EffectSettlement,
         EffectWork,
     },
+    exchange::AuthorityComputeExecutionPermit,
     ingress::{
         DirectCommand, DirectTransaction, RetainedAdmissionBatch, RetainedIngressAttempt, direct,
     },
@@ -918,16 +919,6 @@ impl ComputeGate {
     }
 }
 
-/// One slot in the tx-pool-only transient compute partition. It carries no
-/// transaction identity or membership right. The move-only value is acquired
-/// before authority checkout or direct capture and retained until the exact
-/// computation has settled or become stale.
-#[derive(Debug)]
-#[must_use = "a transient compute permit must guard one complete execution"]
-pub(in crate::authority) struct AuthorityComputeExecutionPermit {
-    _permit: OwnedSemaphorePermit,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[must_use = "maintenance progress determines whether another bounded step is useful"]
 pub(super) enum AuthorityMaintenanceOutcome {
@@ -1103,10 +1094,87 @@ enum AuthorityComputeKind {
 }
 
 #[derive(Debug)]
-#[must_use = "a retained compute settlement must preserve its execution permit"]
+#[must_use = "an executing retained settlement must preserve its execution permit"]
 pub(in crate::authority) struct AuthorityComputeSettlement {
     settlement: ComputeSettlement,
     execution: AuthorityComputeExecutionPermit,
+}
+
+/// Lock-external retained-compute result. It owns the exact settlement,
+/// execution permit and post-commit cache consequence until execution is
+/// explicitly finished. Finishing returns the permit to the shared fair gate
+/// before any authority settlement attempt. No execution path can mutate
+/// authority by constructing this value.
+#[derive(Debug)]
+#[must_use = "a completed retained computation must be settled exactly once"]
+pub(in crate::authority) struct AuthorityComputeCompletion {
+    retained: AuthorityComputeSettlement,
+    aftermath: AuthorityComputeAftermath,
+}
+
+/// Finished retained work after its fair execution token has been returned.
+/// The authority owner may still be `Computing`, but this capability consumes
+/// no CPU slot and can wait behind effect capacity without starving Direct.
+#[derive(Debug)]
+#[must_use = "finished retained work must be settled or discharged exactly once"]
+pub(in crate::authority) struct AuthorityFinishedCompute {
+    settlement: ComputeSettlement,
+    aftermath: AuthorityComputeAftermath,
+}
+
+#[derive(Debug)]
+#[must_use = "post-commit compute consequences must be classified"]
+pub(in crate::authority) struct AuthorityComputeAftermath {
+    origin: SettlementOrigin,
+    cache_update: Option<VerificationCacheUpdate>,
+}
+
+impl AuthorityComputeCompletion {
+    fn new(
+        settlement: ComputeSettlement,
+        execution: AuthorityComputeExecutionPermit,
+        origin: SettlementOrigin,
+        cache_update: Option<VerificationCacheUpdate>,
+    ) -> Self {
+        Self {
+            retained: AuthorityComputeSettlement {
+                settlement,
+                execution,
+            },
+            aftermath: AuthorityComputeAftermath {
+                origin,
+                cache_update,
+            },
+        }
+    }
+
+    pub(in crate::authority) fn finish_execution(self) -> AuthorityFinishedCompute {
+        let Self {
+            retained:
+                AuthorityComputeSettlement {
+                    settlement,
+                    execution,
+                },
+            aftermath,
+        } = self;
+        drop(execution);
+        AuthorityFinishedCompute {
+            settlement,
+            aftermath,
+        }
+    }
+}
+
+impl AuthorityComputeAftermath {
+    pub(in crate::authority) fn origin(&self) -> SettlementOrigin {
+        self.origin
+    }
+
+    pub(in crate::authority) fn into_parts(
+        self,
+    ) -> (SettlementOrigin, Option<VerificationCacheUpdate>) {
+        (self.origin, self.cache_update)
+    }
 }
 
 #[derive(Debug)]
@@ -1134,11 +1202,13 @@ impl AuthorityVerificationRequest {
         }
     }
 
-    fn retry(self) -> AuthorityComputeSettlement {
-        AuthorityComputeSettlement {
-            settlement: self.request.retry(),
-            execution: self.execution,
-        }
+    fn retry(self) -> AuthorityComputeCompletion {
+        AuthorityComputeCompletion::new(
+            self.request.retry(),
+            self.execution,
+            SettlementOrigin::Completion,
+            None,
+        )
     }
 }
 
@@ -1188,31 +1258,48 @@ pub(in crate::authority) enum SettlementOrigin {
 #[must_use = "an interrupted settlement still owns its active compute capability"]
 pub(in crate::authority) struct AuthorityPendingSettlement {
     failure: ComputeSettlementFailure,
+    aftermath: AuthorityComputeAftermath,
+}
+
+/// A capture failure is discovered while the authority guard is held. This
+/// short-lived seed carries the execution permit out of that guard so its fair
+/// semaphore wake cannot contend with the same critical section.
+struct PendingSettlementWithExecution {
+    failure: ComputeSettlementFailure,
     origin: SettlementOrigin,
     execution: AuthorityComputeExecutionPermit,
 }
 
-impl AuthorityPendingSettlement {
-    pub(in crate::authority) fn new(
-        failure: ComputeSettlementFailure,
-        origin: SettlementOrigin,
-        execution: AuthorityComputeExecutionPermit,
-    ) -> Self {
-        Self {
+impl PendingSettlementWithExecution {
+    fn finish_execution(self) -> AuthorityPendingSettlement {
+        let Self {
             failure,
             origin,
             execution,
+        } = self;
+        drop(execution);
+        AuthorityPendingSettlement {
+            failure,
+            aftermath: AuthorityComputeAftermath {
+                origin,
+                cache_update: None,
+            },
         }
+    }
+}
+
+impl AuthorityPendingSettlement {
+    pub(in crate::authority) fn from_completion_failure(
+        failure: ComputeSettlementFailure,
+        aftermath: AuthorityComputeAftermath,
+    ) -> Self {
+        Self { failure, aftermath }
     }
 
     pub(in crate::authority) fn into_parts(
         self,
-    ) -> (
-        ComputeSettlementFailure,
-        SettlementOrigin,
-        AuthorityComputeExecutionPermit,
-    ) {
-        (self.failure, self.origin, self.execution)
+    ) -> (ComputeSettlementFailure, AuthorityComputeAftermath) {
+        (self.failure, self.aftermath)
     }
 }
 
@@ -1224,12 +1311,8 @@ pub(in crate::authority) enum ReadyValidationError {
 
 #[derive(Debug)]
 #[must_use = "resolved authority work either settled or still owns verification"]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "boxing would allocate on every verification handoff; the enum is consumed immediately by the sealed worker"
-)]
 pub(in crate::authority) enum AuthorityComputeOutcome {
-    Settled,
+    Completion(AuthorityComputeCompletion),
     Verification(AuthorityVerificationRequest),
 }
 
@@ -1465,12 +1548,6 @@ impl AuthorityLocalAdmissionExecution {
     ) {
         (self.outcome, self.cache_update)
     }
-}
-
-#[derive(Debug)]
-#[must_use = "verification cache evidence is a best-effort post-settlement effect"]
-pub(in crate::authority) struct AuthorityVerificationOutcome {
-    pub(in crate::authority) cache_update: Option<VerificationCacheUpdate>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -2059,7 +2136,7 @@ impl AuthorityRuntime {
         self.transient_compute
             .acquire(cancel)
             .await
-            .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
+            .map(AuthorityComputeExecutionPermit::new)
     }
 
     /// Capture the immutable consensus paired with the authority snapshot.
@@ -2658,11 +2735,11 @@ impl AuthorityRuntime {
                             Some(settlement),
                         ),
                         Err(failure) => (
-                            Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
+                            Ok(ControlFlow::Break(PendingSettlementWithExecution {
                                 failure,
-                                SettlementOrigin::Capture(kind),
+                                origin: SettlementOrigin::Capture(kind),
                                 execution,
-                            ))),
+                            })),
                             checkout,
                             None,
                         ),
@@ -2674,7 +2751,10 @@ impl AuthorityRuntime {
         let settlement_post_commit = settlement_retirement.map(CommittedDelta::into_post_commit);
         self.signals
             .publish_post_commit_pair(checkout_post_commit, settlement_post_commit);
-        result
+        result.map(|flow| match flow {
+            ControlFlow::Continue(checkout) => ControlFlow::Continue(checkout),
+            ControlFlow::Break(pending) => ControlFlow::Break(pending.finish_execution()),
+        })
     }
 
     pub(in crate::authority) fn settle_compute(
@@ -2682,18 +2762,39 @@ impl AuthorityRuntime {
         retained: AuthorityComputeSettlement,
         origin: SettlementOrigin,
     ) -> ControlFlow<AuthorityPendingSettlement> {
-        let AuthorityComputeSettlement {
+        let completion = AuthorityComputeCompletion {
+            retained,
+            aftermath: AuthorityComputeAftermath {
+                origin,
+                cache_update: None,
+            },
+        };
+        match self.settle_completion(completion) {
+            ControlFlow::Continue(_) => ControlFlow::Continue(()),
+            ControlFlow::Break(pending) => ControlFlow::Break(pending),
+        }
+    }
+
+    pub(in crate::authority) fn settle_completion(
+        &self,
+        completion: AuthorityComputeCompletion,
+    ) -> ControlFlow<AuthorityPendingSettlement, AuthorityComputeAftermath> {
+        self.settle_finished(completion.finish_execution())
+    }
+
+    pub(in crate::authority) fn settle_finished(
+        &self,
+        finished: AuthorityFinishedCompute,
+    ) -> ControlFlow<AuthorityPendingSettlement, AuthorityComputeAftermath> {
+        let AuthorityFinishedCompute {
             settlement,
-            execution,
-        } = retained;
+            aftermath,
+        } = finished;
         match self.settle(settlement) {
-            Ok(()) => {
-                drop(execution);
-                ControlFlow::Continue(())
-            }
-            Err(failure) => {
-                ControlFlow::Break(AuthorityPendingSettlement::new(failure, origin, execution))
-            }
+            Ok(()) => ControlFlow::Continue(aftermath),
+            Err(failure) => ControlFlow::Break(
+                AuthorityPendingSettlement::from_completion_failure(failure, aftermath),
+            ),
         }
     }
 
@@ -2701,7 +2802,10 @@ impl AuthorityRuntime {
         &self,
         request: AuthorityVerificationRequest,
     ) -> ControlFlow<AuthorityPendingSettlement> {
-        self.settle_compute(request.retry(), SettlementOrigin::Completion)
+        match self.settle_completion(request.retry()) {
+            ControlFlow::Continue(_) => ControlFlow::Continue(()),
+            ControlFlow::Break(pending) => ControlFlow::Break(pending),
+        }
     }
 
     #[expect(
@@ -2734,29 +2838,27 @@ impl AuthorityRuntime {
 
     /// Execute one resolve capability entirely outside the authority guard.
     /// A bounded dep-group miss may take allocation-free Accepted read cuts;
-    /// every terminal or retry result is settled before this method returns.
+    /// every terminal or retry result is returned as one linear completion.
+    /// This method performs no authoritative mutation.
     pub(in crate::authority) fn execute_compute(
         &self,
         job: AuthorityComputeJob,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityComputeError,
-    > {
+    ) -> Result<AuthorityComputeOutcome, AuthorityComputeError> {
         let AuthorityComputeJob { inner, execution } = job;
         match inner {
             AuthorityComputeKind::Resolution(job) => self.execute_resolution(job, execution),
-            AuthorityComputeKind::Verification(job) => Ok(ControlFlow::Continue(
-                AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
+            AuthorityComputeKind::Verification(job) => Ok(AuthorityComputeOutcome::Verification(
+                AuthorityVerificationRequest {
                     request: job.prepare(),
                     execution,
-                }),
+                },
             )),
         }
     }
 
     #[expect(
         clippy::result_large_err,
-        reason = "the offloaded closure returns the exact unboxed compute settlement capability; allocation would penalize missing and hostile resolution paths"
+        reason = "the offloaded resolver closure returns exact allocation-free failure evidence to the linear completion"
     )]
     #[cfg_attr(
         feature = "profiling",
@@ -2771,10 +2873,7 @@ impl AuthorityRuntime {
         &self,
         mut job: ResolutionJob,
         execution: AuthorityComputeExecutionPermit,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityComputeError,
-    > {
+    ) -> Result<AuthorityComputeOutcome, AuthorityComputeError> {
         loop {
             let policy = self.resolution_policy;
             let evaluated = crate::util::block_offload(|| {
@@ -2782,35 +2881,32 @@ impl AuthorityRuntime {
             });
             let evaluation = match evaluated {
                 Ok(evaluation) => evaluation,
-                Err(failure) => return self.settle_resolution_failure(failure, execution),
+                Err(failure) => return Ok(Self::resolution_failure(failure, execution)),
             };
             match evaluation {
-                ResolutionEvaluation::Settle(settlement) => match self.settle(settlement) {
-                    Ok(()) => {
-                        drop(execution);
-                        return Ok(ControlFlow::Continue(AuthorityComputeOutcome::Settled));
-                    }
-                    Err(failure) => {
-                        return Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
-                            failure,
-                            SettlementOrigin::Completion,
+                ResolutionEvaluation::Settle(settlement) => {
+                    return Ok(AuthorityComputeOutcome::Completion(
+                        AuthorityComputeCompletion::new(
+                            settlement,
                             execution,
-                        )));
-                    }
-                },
+                            SettlementOrigin::Completion,
+                            None,
+                        ),
+                    ));
+                }
                 ResolutionEvaluation::Verify(verification) => {
-                    return Ok(ControlFlow::Continue(
-                        AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
+                    return Ok(AuthorityComputeOutcome::Verification(
+                        AuthorityVerificationRequest {
                             request: verification.prepare(),
                             execution,
-                        }),
+                        },
                     ));
                 }
                 ResolutionEvaluation::Enrich(probe) => {
                     let prepared = match probe.prepare_enrichment() {
                         Ok(prepared) => prepared,
                         Err(failure) => {
-                            return self.settle_resolution_failure(failure, execution);
+                            return Ok(Self::resolution_failure(failure, execution));
                         }
                     };
                     let observed = {
@@ -2823,26 +2919,17 @@ impl AuthorityRuntime {
                             let settlement = match probe.settle_missing() {
                                 Ok(settlement) => settlement,
                                 Err(failure) => {
-                                    return self.settle_resolution_failure(failure, execution);
+                                    return Ok(Self::resolution_failure(failure, execution));
                                 }
                             };
-                            match self.settle(settlement) {
-                                Ok(()) => {
-                                    drop(execution);
-                                    return Ok(ControlFlow::Continue(
-                                        AuthorityComputeOutcome::Settled,
-                                    ));
-                                }
-                                Err(failure) => {
-                                    return Ok(ControlFlow::Break(
-                                        AuthorityPendingSettlement::new(
-                                            failure,
-                                            SettlementOrigin::Completion,
-                                            execution,
-                                        ),
-                                    ));
-                                }
-                            }
+                            return Ok(AuthorityComputeOutcome::Completion(
+                                AuthorityComputeCompletion::new(
+                                    settlement,
+                                    execution,
+                                    SettlementOrigin::Completion,
+                                    None,
+                                ),
+                            ));
                         }
                     }
                 }
@@ -2850,32 +2937,24 @@ impl AuthorityRuntime {
         }
     }
 
-    fn settle_resolution_failure(
-        &self,
+    fn resolution_failure(
         failure: super::resolver::ResolutionExecutionFailure,
         execution: AuthorityComputeExecutionPermit,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, AuthorityComputeOutcome>,
-        AuthorityComputeError,
-    > {
+    ) -> AuthorityComputeOutcome {
         let kind = failure.kind();
-        match self.settle(failure.into_settlement()) {
-            Ok(()) => {
-                drop(execution);
-                Err(AuthorityComputeError::Resolution(kind))
-            }
-            Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
-                failure,
-                SettlementOrigin::Resolution(kind),
-                execution,
-            ))),
-        }
+        AuthorityComputeOutcome::Completion(AuthorityComputeCompletion::new(
+            failure.into_settlement(),
+            execution,
+            SettlementOrigin::Resolution(kind),
+            None,
+        ))
     }
 
-    /// Execute one snapshot-bound tx-pool verification request and settle its
-    /// exact capability before returning. The request already owns the result
-    /// of its exact cache-key lookup, so callers cannot provide nearby cached
-    /// evidence while the cache guard remains open across no await.
+    /// Execute one snapshot-bound tx-pool verification request and return its
+    /// exact linear completion without mutating authority. The request already
+    /// owns the result of its exact cache-key lookup, so callers cannot provide
+    /// nearby cached evidence while the cache guard remains open across no
+    /// await.
     #[cfg_attr(
         feature = "profiling",
         tracing::instrument(
@@ -2889,30 +2968,18 @@ impl AuthorityRuntime {
         &self,
         request: AuthorityCacheBoundVerification,
         command_rx: Option<&mut watch::Receiver<ckb_script::ChunkCommand>>,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, AuthorityVerificationOutcome>,
-        AuthorityComputeError,
-    > {
+    ) -> AuthorityComputeCompletion {
         let AuthorityCacheBoundVerification {
             request,
             execution: compute_execution,
         } = request;
         let verification = request.execute(command_rx).await;
-        let cache_update = verification.cache_update;
-        let result = self.settle(verification.settlement);
-        match result {
-            Ok(()) => {
-                drop(compute_execution);
-                Ok(ControlFlow::Continue(AuthorityVerificationOutcome {
-                    cache_update,
-                }))
-            }
-            Err(failure) => Ok(ControlFlow::Break(AuthorityPendingSettlement::new(
-                failure,
-                SettlementOrigin::Completion,
-                compute_execution,
-            ))),
-        }
+        AuthorityComputeCompletion::new(
+            verification.settlement,
+            compute_execution,
+            SettlementOrigin::Completion,
+            verification.cache_update,
+        )
     }
 
     /// Capture, validate and commit one bounded strongest-first Ready slice.

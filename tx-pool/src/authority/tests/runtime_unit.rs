@@ -1,7 +1,7 @@
 use super::{
-    AuthorityAdministrationError, AuthorityComputeCheckout, AuthorityComputeError,
-    AuthorityComputeJob, AuthorityComputeOutcome, AuthorityComputeSettlement,
-    AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
+    AuthorityAdministrationError, AuthorityComputeCheckout, AuthorityComputeCompletion,
+    AuthorityComputeError, AuthorityComputeJob, AuthorityComputeOutcome,
+    AuthorityComputeSettlement, AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
     AuthorityDirectResolutionOutcome, AuthorityDriverError, AuthorityReadyOutcome,
     AuthorityRuntime, AuthorityRuntimeConfig, FinalAdmissionCaptureError, PREACCEPTED_ENTRY_BYTES,
     PlanError, ReadyValidationError, RuntimeConfigError, SettlementOrigin,
@@ -169,6 +169,13 @@ fn continued<T>(flow: ControlFlow<super::AuthorityPendingSettlement, T>) -> T {
     }
 }
 
+fn completion(outcome: AuthorityComputeOutcome) -> AuthorityComputeCompletion {
+    let AuthorityComputeOutcome::Completion(completion) = outcome else {
+        panic!("the fixture produces a terminal compute completion")
+    };
+    completion
+}
+
 #[test]
 fn runtime_checkout_observes_preexisting_level_without_a_wake_hint() {
     let runtime = runtime();
@@ -260,7 +267,7 @@ fn runtime_stale_plan_disposition_depends_on_the_producer_boundary() {
 }
 
 #[test]
-fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
+fn runtime_resolution_uses_assembled_policy_and_returns_linear_completion() {
     let runtime = runtime();
     let admission = admission(904, 94);
     let key = admission.identity.raw.clone();
@@ -271,14 +278,23 @@ fn runtime_resolution_uses_assembled_policy_and_settles_before_returning() {
             .expect("checkout remains healthy"),
     )
     .expect("resolve work is ready");
-    assert!(matches!(
-        continued(
-            runtime
-                .execute_compute(job)
-                .expect("the assembled zero-fee policy accepts this fixture")
-        ),
-        AuthorityComputeOutcome::Settled
-    ));
+    let completion = completion(
+        runtime
+            .execute_compute(job)
+            .expect("the assembled zero-fee policy accepts this fixture"),
+    );
+    {
+        let store = runtime.store.read();
+        assert!(matches!(
+            store.authority.entry(&key),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+        ));
+    }
+    let aftermath = continued(runtime.settle_completion(completion));
+    let (origin, cache_update) = aftermath.into_parts();
+    assert!(matches!(origin, SettlementOrigin::Completion));
+    assert!(cache_update.is_none());
     let store = runtime.store.read();
     assert!(matches!(
         store.authority.entry(&key),
@@ -316,14 +332,12 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
             .expect("small-cycle resolution checkout remains healthy"),
     )
     .expect("small-cycle resolution is ready");
-    assert!(matches!(
-        continued(
-            runtime
-                .execute_compute(small)
-                .expect("small-cycle resolution settles")
-        ),
-        AuthorityComputeOutcome::Settled
-    ));
+    let small = completion(
+        runtime
+            .execute_compute(small)
+            .expect("small-cycle resolution completes"),
+    );
+    drop(continued(runtime.settle_completion(small)));
     expect_signal(
         runtime.verify_small_signal(),
         "a shared Small/Any head must publish exactly the Small signal",
@@ -353,14 +367,12 @@ async fn runtime_compute_wakes_route_each_head_to_one_compatible_waiter_class() 
             .expect("large-cycle resolution checkout remains healthy"),
     )
     .expect("large-cycle resolution is ready");
-    assert!(matches!(
-        continued(
-            runtime
-                .execute_compute(large)
-                .expect("large-cycle resolution settles")
-        ),
-        AuthorityComputeOutcome::Settled
-    ));
+    let large = completion(
+        runtime
+            .execute_compute(large)
+            .expect("large-cycle resolution completes"),
+    );
+    drop(continued(runtime.settle_completion(large)));
     expect_signal(
         runtime.verify_any_signal(),
         "a distinct large head must publish the Any-only signal",
@@ -385,21 +397,25 @@ async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() 
             .expect("checkout remains healthy"),
     )
     .expect("resolve work is ready");
-    let AuthorityComputeOutcome::Verification(request) = continued(
-        runtime
-            .execute_compute(job)
-            .expect("resolution continues under the same worker capability"),
-    ) else {
+    let AuthorityComputeOutcome::Verification(request) = runtime
+        .execute_compute(job)
+        .expect("resolution continues under the same worker capability")
+    else {
         panic!("the empty-script fixture fits continuous verification")
     };
     let cache = ckb_verification::cache::init_cache();
-    let verification = continued(
-        runtime
-            .execute_verification(request.bind_cache(&cache), None)
-            .await
-            .expect("verification settles Ready ownership"),
-    );
-    assert!(verification.cache_update.is_some());
+    let completion = runtime
+        .execute_verification(request.bind_cache(&cache), None)
+        .await;
+    let store = runtime.store.read();
+    assert!(matches!(
+        store.authority.entry(&key),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    drop(store);
+    let verification = continued(runtime.settle_completion(completion));
+    assert!(verification.into_parts().1.is_some());
     assert_eq!(
         runtime
             .try_drive_ready()
@@ -681,14 +697,12 @@ async fn runtime_single_any_verifier_settles_mixed_frontier_after_batons_are_con
                 .expect("every resolution checkout remains healthy"),
         )
         .expect("the just-admitted resolution is ready");
-        assert!(matches!(
-            continued(
-                runtime
-                    .execute_compute(job)
-                    .expect("every mixed resolution settles")
-            ),
-            AuthorityComputeOutcome::Settled
-        ));
+        let completion = completion(
+            runtime
+                .execute_compute(job)
+                .expect("every mixed resolution completes"),
+        );
+        drop(continued(runtime.settle_completion(completion)));
     }
 
     // Consume every coalesced hint without doing work. The sealed topology
@@ -771,6 +785,7 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
     const EFFECT_BYTES: usize = 1024 * 1024;
     let mut config = runtime_config();
     config.min_fee_rate = FeeRate::from_u64(1_000);
+    config.max_tx_verify_workers = 1;
     let snapshot = genesis_snapshot();
     let effects = EffectLimits::partitioned(
         EffectCapacity::new(1, EFFECT_BYTES),
@@ -813,6 +828,16 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
     })
     .await
     .expect("the rejected settlement remains Computing while publication is full");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if runtime.available_compute_permits_for_foundation() == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("an effect-blocked completion returns its fair compute permit");
 
     let occupied_lease = runtime
         .wait_effect_publication_for_foundation()

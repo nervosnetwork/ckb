@@ -186,6 +186,18 @@ impl ResolvedFacts {
             verify_class,
         }
     }
+
+    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
+            && self.content == other.content
+            && self.location == other.location
+            && self.verify_class == other.verify_class
+    }
 }
 
 impl VerifiedFacts {
@@ -221,6 +233,21 @@ impl VerifiedFacts {
             async_process_start: None,
         }
     }
+
+    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
+            && self.content == other.content
+            && self.context == other.context
+            && self.script == other.script
+            && self.verify_class == other.verify_class
+            && self.metrics == other.metrics
+            && self.async_process_start == other.async_process_start
+    }
 }
 
 impl ObservedDependencies {
@@ -240,6 +267,76 @@ impl ObservedDependencies {
 
     pub(in crate::authority) fn len(&self) -> usize {
         self.observed.len()
+    }
+
+    fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
+            && self.observed == other.observed
+            && self.retained == other.retained
+    }
+}
+
+impl ActiveWork {
+    fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        self.chain_view == other.chain_view
+            && self.permit == other.permit
+            && self.grant == other.grant
+            && self.attribution == other.attribution
+            && self.payload_policy == other.payload_policy
+            && self.dependency_cut
+                == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
+            && self.dependencies == other.dependencies
+    }
+}
+
+impl PreAcceptedPhase {
+    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
+        &self,
+        other: &Self,
+        batch: ApplySequence,
+        canonical_next: ApplySequence,
+    ) -> bool {
+        match (self, other) {
+            (Self::Queued(QueuedWork::Resolve), Self::Queued(QueuedWork::Resolve)) => true,
+            (Self::Queued(QueuedWork::Verify(left)), Self::Queued(QueuedWork::Verify(right))) => {
+                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
+            }
+            (Self::Computing(left), Self::Computing(right)) => {
+                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
+            }
+            (Self::Waiting(left), Self::Waiting(right)) => {
+                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
+            }
+            (Self::Ready(left), Self::Ready(right)) => {
+                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
+            }
+            (
+                Self::Queued(_) | Self::Computing(_) | Self::Waiting(_) | Self::Ready(_),
+                Self::Queued(_) | Self::Computing(_) | Self::Waiting(_) | Self::Ready(_),
+            ) => false,
+        }
+    }
+}
+
+fn compact_dependency_cut(
+    cut: DependencyCut,
+    batch: ApplySequence,
+    canonical_next: ApplySequence,
+) -> DependencyCut {
+    if cut.0 >= batch && cut.0 < canonical_next {
+        DependencyCut(batch)
+    } else {
+        cut
     }
 }
 

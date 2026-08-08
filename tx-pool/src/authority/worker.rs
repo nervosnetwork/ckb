@@ -7,12 +7,13 @@
 //! capability reaches supervision.
 
 use super::{
+    exchange::{AuthorityComputeExecutionPermit, ComputeVerifierSlot, ComputeWorkerSlot},
     plan::{AuthorityFault, ComputeCancellationError, ComputeSettlementRecovery},
     resolver::{ResolutionExecutionKind, ResolutionReceiptDefect, VerificationCacheUpdate},
     runtime::{
-        AuthorityComputeCheckout, AuthorityComputeError, AuthorityComputeExecutionPermit,
-        AuthorityComputeOutcome, AuthorityDriverError, AuthorityPendingSettlement,
-        AuthorityReadyOutcome, AuthorityRuntime, SettlementOrigin,
+        AuthorityComputeAftermath, AuthorityComputeCheckout, AuthorityComputeCompletion,
+        AuthorityComputeError, AuthorityComputeOutcome, AuthorityDriverError,
+        AuthorityPendingSettlement, AuthorityReadyOutcome, AuthorityRuntime, SettlementOrigin,
     },
     state::{InputEvidenceError, VerifyCapability, WorkPermit},
 };
@@ -103,12 +104,23 @@ pub(crate) enum AuthorityWorkerSpawnError {
 }
 
 enum WorkerRole {
-    OrderedResolve,
+    OrderedResolve {
+        slot: ComputeWorkerSlot,
+    },
     Verifier {
-        capability: VerifyCapability,
+        slot: ComputeVerifierSlot,
         cache: Arc<RwLock<TxVerificationCache>>,
         cache_updates: mpsc::Sender<VerificationCacheUpdate>,
     },
+}
+
+impl WorkerRole {
+    fn slot(&self) -> ComputeWorkerSlot {
+        match self {
+            Self::OrderedResolve { slot } => *slot,
+            Self::Verifier { slot, .. } => (*slot).into(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,7 +174,9 @@ impl AuthorityRuntime {
             handle: handle.spawn(
                 ComputeWorker {
                     runtime: self.clone(),
-                    role: WorkerRole::OrderedResolve,
+                    role: WorkerRole::OrderedResolve {
+                        slot: ComputeWorkerSlot::ordered_resolve(),
+                    },
                 }
                 .run(command_rx.clone(), cancel.child_token()),
             ),
@@ -173,13 +187,14 @@ impl AuthorityRuntime {
             } else {
                 VerifyCapability::Any
             };
+            let slot = ComputeVerifierSlot::new(worker_id, capability);
             tasks.push(AuthorityWorkerTask {
-                role: AuthorityWorkerRole::Verifier(worker_id),
+                role: AuthorityWorkerRole::Verifier(slot.worker_id()),
                 handle: handle.spawn(
                     ComputeWorker {
                         runtime: self.clone(),
                         role: WorkerRole::Verifier {
-                            capability,
+                            slot,
                             cache: Arc::clone(&cache),
                             cache_updates: cache_updates.clone(),
                         },
@@ -248,24 +263,21 @@ impl ComputeWorker {
                 WorkerStep::WaitForRunnable => {
                     let work = async {
                         match &self.role {
-                            WorkerRole::OrderedResolve => {
+                            WorkerRole::OrderedResolve { .. } => {
                                 resolve_notified.await;
                                 CheckoutIntent::Resolve
                             }
-                            WorkerRole::Verifier {
-                                capability: VerifyCapability::SmallCycleOnly,
-                                ..
-                            } => {
+                            WorkerRole::Verifier { slot, .. }
+                                if ComputeWorkerSlot::from(*slot).verify_capability()
+                                    == Some(VerifyCapability::SmallCycleOnly) =>
+                            {
                                 tokio::select! {
                                     biased;
                                     _ = verify_small_notified => CheckoutIntent::VerifySmall,
                                     _ = resolve_notified => CheckoutIntent::Resolve,
                                 }
                             }
-                            WorkerRole::Verifier {
-                                capability: VerifyCapability::Any,
-                                ..
-                            } => {
+                            WorkerRole::Verifier { .. } => {
                                 tokio::select! {
                                     biased;
                                     _ = verify_any_notified => CheckoutIntent::VerifyAny,
@@ -325,15 +337,13 @@ impl ComputeWorker {
             Err(error) => return self.handle_runtime_error(error).await,
         };
         match self.runtime.execute_compute(job) {
-            Ok(ControlFlow::Continue(AuthorityComputeOutcome::Settled)) => Ok(WorkerStep::Progress),
-            Ok(ControlFlow::Continue(AuthorityComputeOutcome::Verification(request))) => {
-                let (cache, cache_updates) = match &self.role {
-                    WorkerRole::Verifier {
-                        cache,
-                        cache_updates,
-                        ..
-                    } => (cache, cache_updates),
-                    WorkerRole::OrderedResolve => {
+            Ok(AuthorityComputeOutcome::Completion(completion)) => {
+                self.commit_completion(completion).await
+            }
+            Ok(AuthorityComputeOutcome::Verification(request)) => {
+                let cache = match &self.role {
+                    WorkerRole::Verifier { cache, .. } => cache,
+                    WorkerRole::OrderedResolve { .. } => {
                         if let ControlFlow::Break(pending) =
                             self.runtime.retry_unexpected_verification(request)
                         {
@@ -352,28 +362,44 @@ impl ComputeWorker {
                     let guard = cache.read().await;
                     request.bind_cache(&guard)
                 };
-                match self
+                let completion = self
                     .runtime
                     .execute_verification(request, Some(command_rx))
-                    .await
-                {
-                    Ok(ControlFlow::Continue(outcome)) => {
-                        if let Some(update) = outcome.cache_update {
-                            // Cache publication is deliberately best effort
-                            // and happens only after authoritative settlement.
-                            // Dropping a full/closed update cannot change pool
-                            // ownership or validation semantics.
-                            let _ = cache_updates.try_send(update);
-                        }
-                        Ok(WorkerStep::Progress)
-                    }
-                    Ok(ControlFlow::Break(pending)) => self.recover_settlement(pending).await,
-                    Err(error) => self.handle_runtime_error(error).await,
-                }
+                    .await;
+                self.commit_completion(completion).await
             }
-            Ok(ControlFlow::Break(pending)) => self.recover_settlement(pending).await,
             Err(error) => self.handle_runtime_error(error).await,
         }
+    }
+
+    async fn commit_completion(
+        &self,
+        completion: AuthorityComputeCompletion,
+    ) -> Result<WorkerStep, AuthorityWorkerFault> {
+        let finished = completion.finish_execution();
+        match self.runtime.settle_finished(finished) {
+            ControlFlow::Continue(aftermath) => self.classify_aftermath(aftermath),
+            ControlFlow::Break(pending) => self.recover_settlement(pending).await,
+        }
+    }
+
+    fn classify_aftermath(
+        &self,
+        aftermath: AuthorityComputeAftermath,
+    ) -> Result<WorkerStep, AuthorityWorkerFault> {
+        let (origin, cache_update) = aftermath.into_parts();
+        if let Some(update) = cache_update {
+            let WorkerRole::Verifier { cache_updates, .. } = &self.role else {
+                return Err(AuthorityWorkerFault::authority(
+                    AuthorityFault::SchedulerProjection,
+                ));
+            };
+            // Cache publication is deliberately best effort and happens only
+            // after authoritative settlement. Dropping a full/closed update
+            // cannot change ownership or validation semantics.
+            let _ = cache_updates.try_send(update);
+        }
+        classify_settled_origin(origin)
     }
 
     fn checkout(
@@ -384,24 +410,40 @@ impl ComputeWorker {
         ControlFlow<AuthorityPendingSettlement, Option<super::runtime::AuthorityComputeJob>>,
         AuthorityComputeError,
     > {
+        let slot = self.role.slot();
         match &self.role {
-            WorkerRole::OrderedResolve => self.checkout_exact(WorkPermit::ResolveOnly, execution),
-            WorkerRole::Verifier { capability, .. } => {
+            WorkerRole::OrderedResolve { .. } => {
+                self.checkout_exact(slot.primary_permit(), execution)
+            }
+            WorkerRole::Verifier { .. } => {
+                let Some(capability) = slot.verify_capability() else {
+                    return Err(AuthorityComputeError::Fault(
+                        AuthorityFault::SchedulerProjection,
+                    ));
+                };
                 match intent {
                     CheckoutIntent::Probe => match self
                         .runtime
-                        .try_checkout(WorkPermit::VerifyOnly(*capability), execution)?
+                        .try_checkout(slot.primary_permit(), execution)?
                     {
                         ControlFlow::Break(pending) => Ok(ControlFlow::Break(pending)),
                         ControlFlow::Continue(AuthorityComputeCheckout::Job(job)) => {
                             Ok(ControlFlow::Continue(Some(job)))
                         }
                         ControlFlow::Continue(AuthorityComputeCheckout::Idle(execution)) => self
-                            .checkout_exact(WorkPermit::ResolveThenVerify(*capability), execution),
+                            .checkout_exact(
+                                slot.fallback_permit().ok_or(AuthorityComputeError::Fault(
+                                    AuthorityFault::SchedulerProjection,
+                                ))?,
+                                execution,
+                            ),
                     },
-                    CheckoutIntent::Resolve => {
-                        self.checkout_exact(WorkPermit::ResolveThenVerify(*capability), execution)
-                    }
+                    CheckoutIntent::Resolve => self.checkout_exact(
+                        slot.fallback_permit().ok_or(AuthorityComputeError::Fault(
+                            AuthorityFault::SchedulerProjection,
+                        ))?,
+                        execution,
+                    ),
                     CheckoutIntent::VerifySmall => self.checkout_exact(
                         WorkPermit::VerifyOnly(VerifyCapability::SmallCycleOnly),
                         execution,
@@ -411,7 +453,7 @@ impl ComputeWorker {
                         // a future topology violates that constructor rule,
                         // retain the worker's narrower capability rather than
                         // allowing it to execute large work.
-                        self.checkout_exact(WorkPermit::VerifyOnly(*capability), execution)
+                        self.checkout_exact(WorkPermit::VerifyOnly(capability), execution)
                     }
                 }
             }
@@ -455,26 +497,25 @@ impl ComputeWorker {
         &self,
         pending: AuthorityPendingSettlement,
     ) -> Result<WorkerStep, AuthorityWorkerFault> {
-        let (mut failure, origin, execution) = pending.into_parts();
+        let (mut failure, aftermath) = pending.into_parts();
+        let origin = aftermath.origin();
         loop {
             match failure.recovery() {
                 ComputeSettlementRecovery::Obsolete(_) => {
                     // Exact entry-version or phase mismatch proves this
                     // capability no longer names an active Computing owner.
                     drop(failure);
-                    drop(execution);
                     return classify_settled_origin(origin);
                 }
                 ComputeSettlementRecovery::CancelAfterAllocation => {
                     let cancellation = failure.discard_result_for_cancellation();
                     let cancelled = self.runtime.cancel_compute_after_allocation(cancellation);
-                    drop(execution);
                     return classify_compute_cancellation(cancelled, origin);
                 }
                 ComputeSettlementRecovery::WaitEffectCapacity => {}
                 ComputeSettlementRecovery::Structural(_) => {
                     return Err(AuthorityWorkerFault::settlement(
-                        AuthorityPendingSettlement::new(failure, origin, execution),
+                        AuthorityPendingSettlement::from_completion_failure(failure, aftermath),
                     ));
                 }
             }
@@ -483,8 +524,7 @@ impl ComputeWorker {
             let settlement = failure.into_settlement();
             match self.runtime.settle(settlement) {
                 Ok(()) => {
-                    drop(execution);
-                    return classify_settled_origin(origin);
+                    return self.classify_aftermath(aftermath);
                 }
                 Err(next) => failure = next,
             }

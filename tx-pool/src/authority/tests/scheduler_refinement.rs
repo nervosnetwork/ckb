@@ -10,6 +10,7 @@ use super::foundation::{
 };
 use crate::{
     authority::{
+        exchange::{ComputeVerifierSlot, ComputeWorkerSlot, ComputeWorkerSlotId},
         plan::TxPoolAuthority,
         scheduler::{VerifyOrder, WorkOwner},
         state::{
@@ -189,6 +190,51 @@ fn production_wave(
     }
 }
 
+fn refinement_slot(slot: ComputeWorkerSlot) -> u8 {
+    match slot.id() {
+        ComputeWorkerSlotId::OrderedResolve => 0,
+        ComputeWorkerSlotId::Verifier(worker_id) => u8::try_from(
+            worker_id
+                .checked_add(1)
+                .expect("the finite worker id has a successor"),
+        )
+        .expect("the finite worker id fits u8"),
+    }
+}
+
+fn virtual_production_wave(
+    authority: &TxPoolAuthority,
+    symbols: &HashMap<RawTxHash, Symbol>,
+    slots: &[ComputeWorkerSlot],
+) -> SchedulerRefinementObservation {
+    let wave = authority
+        .scheduler_worker_wave_for_refinement(slots)
+        .expect("the production scheduler wave plans");
+    let assignments = wave
+        .assignments
+        .into_iter()
+        .map(|(slot, permit, hash, _)| {
+            let symbol = symbols
+                .get(&hash)
+                .expect("every virtual assignment has a symbolic identity");
+            SchedulerRefinementAssignment {
+                slot: refinement_slot(slot),
+                transaction: symbol.transaction,
+                owner: symbol.owner,
+                permit: refinement_permit(permit),
+            }
+        })
+        .collect();
+    SchedulerRefinementObservation {
+        assignments,
+        idle_slots: wave.idle.into_iter().map(refinement_slot).collect(),
+        cursors: SchedulerRefinementCursors {
+            resolve: wave.cursors.0.map(refinement_owner),
+            verify: wave.cursors.1.map(refinement_owner),
+        },
+    }
+}
+
 fn admit(
     authority: &mut TxPoolAuthority,
     admission: ValidatedAdmission,
@@ -287,7 +333,7 @@ fn uak_multi_owner_resolve_wave_refines_the_scheduler_quotient_pointwise() {
             role: SchedulerRefinementWorkerRole::VerifyAny,
         },
         SchedulerRefinementWorker {
-            slot: 3,
+            slot: 0,
             role: SchedulerRefinementWorkerRole::OrderedResolve,
         },
         SchedulerRefinementWorker {
@@ -302,11 +348,23 @@ fn uak_multi_owner_resolve_wave_refines_the_scheduler_quotient_pointwise() {
         SchedulerRefinementVerifyOrder::Arrival,
     )
     .expect("the finite scheduler input is valid");
+    let before = authority.normalized_snapshot();
+    let virtual_wave = virtual_production_wave(
+        &authority,
+        &symbols,
+        &[
+            ComputeVerifierSlot::new(7, VerifyCapability::Any).into(),
+            ComputeWorkerSlot::ordered_resolve(),
+            ComputeVerifierSlot::new(4, VerifyCapability::SmallCycleOnly).into(),
+        ],
+    );
+    assert_eq!(virtual_wave, expected);
+    assert_eq!(authority.normalized_snapshot(), before);
     let actual = production_wave(
         &mut authority,
         &symbols,
         &[
-            (3, WorkPermit::ResolveOnly),
+            (0, WorkPermit::ResolveOnly),
             (
                 5,
                 WorkPermit::ResolveThenVerify(VerifyCapability::SmallCycleOnly),
@@ -356,6 +414,17 @@ fn uak_verify_capability_wave_refines_the_scheduler_quotient_pointwise() {
         SchedulerRefinementVerifyOrder::Arrival,
     )
     .expect("the finite scheduler input is valid");
+    let before = authority.normalized_snapshot();
+    let virtual_wave = virtual_production_wave(
+        &authority,
+        &symbols,
+        &[
+            ComputeVerifierSlot::new(1, VerifyCapability::Any).into(),
+            ComputeVerifierSlot::new(0, VerifyCapability::SmallCycleOnly).into(),
+        ],
+    );
+    assert_eq!(virtual_wave, expected);
+    assert_eq!(authority.normalized_snapshot(), before);
     let actual = production_wave(
         &mut authority,
         &symbols,
@@ -401,6 +470,14 @@ fn uak_verify_order_modes_refine_the_scheduler_quotient_pointwise() {
             refinement_order(order),
         )
         .expect("the finite scheduler input is valid");
+        let before = authority.normalized_snapshot();
+        let virtual_wave = virtual_production_wave(
+            &authority,
+            &symbols,
+            &[ComputeVerifierSlot::new(0, VerifyCapability::Any).into()],
+        );
+        assert_eq!(virtual_wave, expected, "virtual verify order {order:?}");
+        assert_eq!(authority.normalized_snapshot(), before);
         let actual = production_wave(
             &mut authority,
             &symbols,

@@ -1362,8 +1362,11 @@ settlement caller. It owns no transaction map and no policy. It owns only:
 Workers execute resolve and verification only. They never acquire the
 authority write lock and never decide settlement. Pool-produced dependency
 enrichment may still consume the existing bounded coherent read receipt; this
-does not create mutation authority. A worker returns its exact completion,
-execution permit and optional cache update to the coordinator.
+does not create mutation authority. When execution finishes, the worker turns
+the executing value into exact slot-bound settlement evidence, returns the
+count permit to the shared fair semaphore, and sends the finished evidence
+plus its optional cache update to the coordinator. A later checkout is
+authorized only by a distinct immediately reacquired permit.
 The coordinator drains all completions already available at the first wake,
 forms one exchange, and immediately returns assignments. There is no batch
 timer, sleep or minimum fill level.
@@ -1380,16 +1383,15 @@ bound for one candidate plus its bounded mutation cohort. These are
 resource/proof limits, not timing knobs.
 
 The existing count-only semaphore remains because synchronous Local work and
-retained work share the configured transient compute envelope. Idle worker
-slots hold no semaphore permit. A completion retains its permit until the
-coordinator classifies its exact settlement. The permit must never transfer
+retained work share the configured transient compute envelope. Idle and
+finished worker slots hold no semaphore permit. The permit must never transfer
 directly from one completed execution to a later execution: that bypasses an
 older synchronous Local waiter in Tokio's fair semaphore and can starve Local
-under a continuous retained wave. After classification, every completion
-consumes its execution capability into a finished-work capability, returns the
-count token to the fair semaphore, and may use only a token that the
-coordinator subsequently reacquires. If a queued Local caller wins that token,
-the exchange settles the completion without a replacement checkout. The
+under a continuous retained wave. Finishing execution returns the count token
+before the completion can wait for settlement, and replacement checkout may
+use only a token that the coordinator subsequently reacquires. If a queued
+Local caller wins that token, the exchange settles the completion without a
+replacement checkout. The
 derived law `executing + finished <= active_work_slots` prevents publisher
 backpressure from accumulating more completed results or checking out new
 retained work into an occupied slot. Therefore an effect-capacity-blocked
@@ -1433,11 +1435,11 @@ available worker roles. Its canonical order is:
 2. give a fitting cohort-wide peer revocation exclusive precedence for one
    bounded Apply, because it may invalidate other completions from that peer;
    if its Critical region is full, retain that exact capability and exclude
-   same-peer work without blocking unrelated no-effect progress; partition
-   remaining owner-local publications by effect class and, among classes that
-   currently fit, choose the class containing the earliest retained `Arrival`
-   rather than a static trust-class priority, then include compatible
-   same-class effects;
+   same-peer work without blocking unrelated no-effect progress; retain every
+   other non-local effect/dependency outcome in monotonic capability rank
+   (`SettlementToken::version`) for the exact single/cohort planner, so newer
+   trust-class work cannot overtake an older blocked capability while unrelated
+   owner-local no-effect progress remains batchable;
 3. construct the virtual post-completion scheduler and resource view;
 4. select compatible queued work for available permits in fair order;
 5. compose a same-owner Resolve-to-Verify handoff when the virtual result and
@@ -3453,6 +3455,49 @@ experiments:
     compute exchange. Preserve compute outside the guard, Direct fairness,
     exact move-only capability conservation and the one-authority fallback for
     non-composable work.
+
+I3 is executed through five ordered refinement cuts. They are checkpoints of
+one design, not optional alternative paths, and the old and new protocols may
+not remain as two normal production paths after I3e:
+
+1. **I3a scheduler wave:** add the domain-owned, bounded virtual scheduler
+   compiler. Given a unique role-bearing idle-slot set, it selects the same
+   assignments and final lane cursors as the named no-interleave sequence of
+   current checkouts. Dropping or rejecting the plan is mutation-free. Exact
+   falsifiers cover role compatibility, Small-before-Any preservation,
+   per-owner fairness, duplicate slots and a changed scheduler cut.
+2. **I3b linear completion:** separate lock-external resolve/verify execution
+   from authoritative settlement. A worker returns one sealed completion that
+   owns the exact settlement evidence and worker slot; execution cannot mutate
+   authority. Every completion releases its fair count permit before any
+   replacement acquisition, while stale/cancelled work remains a typed bounded
+   discharge rather than a service fault.
+3. **I3c atomic exchange delta:** compile an immediately available bounded
+   completion prefix, virtual post-settlement scheduler/resource state and
+   compatible replacement assignments into one domain-specific Plan/Apply.
+   Canonical settlement rank, effect-region fit, peer-revocation precedence,
+   one Apply stamp, distinct versions and exact capability conservation are
+   proved against the executable model. Non-composable work uses the existing
+   one-authority cohort planner; no generic transaction or nested undo is
+   introduced.
+4. **I3d coordinator cutover:** install one `ComputeCoordinator`, one bounded
+   completion channel and one capacity-one assignment channel per stable
+   worker slot. It drains only completions already available at the first wake,
+   never waits to fill a batch, never waits for a permit while a completion is
+   pending and has exactly one fair permit waiter only when all pending
+   completions are settled. Assignment send failure returns the move-only job
+   and runs ordinary cancellation/requeue.
+5. **I3e deletion and convergence:** delete per-worker authority checkout,
+   settlement retry and role-specific wake loops plus obsolete publication
+   branches. Prove the final task/channel/lock/state census, `A + (W + 1) +
+   2R` operation-count target, wait-for graph, shutdown capability closure and
+   all historical security regressions. Only then mark I3 implemented.
+
+At every I3 cut, run focused model/production tests with `cargo nextest run`,
+then review authority count, linear-capability conservation, lock scope,
+Direct fairness, effect pressure, cancellation, hostile bounds and deletion
+progress from the whole architecture. Direct `cargo test`, profiling and A/B
+remain forbidden during I3.
 
 The I2 checkpoint is the commit containing this record. Performance claims
 remain forbidden until I1-I6 and the complete correctness gate close. A newly

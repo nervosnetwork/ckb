@@ -208,6 +208,14 @@ impl SettlementRejection {
         matches!(self, Self::ResourceBound(_))
     }
 
+    pub(super) const fn is_malformed(&self) -> bool {
+        match self {
+            Self::ChainBound(rejection) | Self::ResourceBound(rejection) => {
+                rejection.is_malformed()
+            }
+        }
+    }
+
     pub(super) fn into_public(self) -> CommittedPublicReject {
         match self {
             Self::ChainBound(rejection) | Self::ResourceBound(rejection) => rejection,

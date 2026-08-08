@@ -195,7 +195,7 @@ impl AuthorityRuntime {
     ) -> Option<AuthorityComputeExecutionPermit> {
         self.transient_compute
             .try_acquire()
-            .map(|permit| AuthorityComputeExecutionPermit { _permit: permit })
+            .map(AuthorityComputeExecutionPermit::new)
     }
 
     pub(in crate::authority) fn available_compute_permits_for_foundation(&self) -> usize {

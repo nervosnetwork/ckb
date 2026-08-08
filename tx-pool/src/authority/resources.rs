@@ -817,30 +817,12 @@ impl ResourceLedger {
         &self,
         attribution: ComputeAttribution,
     ) -> Result<ActiveWorkAvailability, ResourceError> {
-        let available = |used: usize, limit: usize| match used.cmp(&limit) {
-            std::cmp::Ordering::Less => Ok(true),
-            std::cmp::Ordering::Equal => Ok(false),
-            std::cmp::Ordering::Greater => Err(ResourceError::Arithmetic),
-        };
-        if !available(
-            self.preaccepted.active_work,
-            self.limits.preaccepted.active_work,
-        )? {
-            return Ok(ActiveWorkAvailability::PreAcceptedExhausted);
-        }
-        let Some(peer) = attribution.peer() else {
-            return Ok(ActiveWorkAvailability::Available);
-        };
-        if !available(self.remote.active_work, self.limits.remote.active_work)? {
-            return Ok(ActiveWorkAvailability::RemoteExhausted);
-        }
-        if !available(
-            self.peer(peer).active_work,
-            self.limits.per_peer.active_work,
-        )? {
-            return Ok(ActiveWorkAvailability::PeerExhausted(peer));
-        }
-        Ok(ActiveWorkAvailability::Available)
+        active_work_availability(
+            self.preaccepted,
+            self.remote,
+            attribution.peer().map(|peer| (peer, self.peer(peer))),
+            self.limits,
+        )
     }
 
     pub(super) fn plan_replace(
@@ -1263,7 +1245,54 @@ impl ResourceLedger {
     }
 }
 
+fn active_work_availability(
+    preaccepted: ResourceVector,
+    remote: ResourceVector,
+    peer: Option<(PeerIndex, ResourceVector)>,
+    limits: ResourceLimits,
+) -> Result<ActiveWorkAvailability, ResourceError> {
+    let available = |used: usize, limit: usize| match used.cmp(&limit) {
+        std::cmp::Ordering::Less => Ok(true),
+        std::cmp::Ordering::Equal => Ok(false),
+        std::cmp::Ordering::Greater => Err(ResourceError::Arithmetic),
+    };
+    if !available(preaccepted.active_work, limits.preaccepted.active_work)? {
+        return Ok(ActiveWorkAvailability::PreAcceptedExhausted);
+    }
+    let Some((peer, usage)) = peer else {
+        return Ok(ActiveWorkAvailability::Available);
+    };
+    if !available(remote.active_work, limits.remote.active_work)? {
+        return Ok(ActiveWorkAvailability::RemoteExhausted);
+    }
+    if !available(usage.active_work, limits.per_peer.active_work)? {
+        return Ok(ActiveWorkAvailability::PeerExhausted(peer));
+    }
+    Ok(ActiveWorkAvailability::Available)
+}
+
 impl OrderedResourceProjection {
+    pub(super) fn active_work_availability(
+        &self,
+        ledger: &ResourceLedger,
+        attribution: ComputeAttribution,
+    ) -> Result<ActiveWorkAvailability, ResourceError> {
+        active_work_availability(
+            self.preaccepted,
+            self.remote,
+            attribution.peer().map(|peer| {
+                (
+                    peer,
+                    self.peers
+                        .get(&peer)
+                        .copied()
+                        .unwrap_or_else(|| ledger.peer(peer)),
+                )
+            }),
+            self.limits,
+        )
+    }
+
     /// Evaluate one canonical owner replacement against the virtual result of
     /// all prior replacements. The caller owns raw-hash identity; this method
     /// owns only aggregate accounting and therefore cannot become a second
