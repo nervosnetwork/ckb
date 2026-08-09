@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate and verify the V1 semantic mutation-acceptance matrix."""
+"""Validate, rediscover and reconcile the V1 mutation evidence universe."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 
 from check_review_guide import load_registry, target_invariant_ids
 from check_security_manifest import (
@@ -28,13 +27,26 @@ from check_security_manifest import (
 
 
 DEFAULT_LOCK = REPO_ROOT / "tx-pool" / "mutation-acceptance-lock.json"
-GENERATOR_PATH = "tx-pool/scripts/generate_mutation_matrix.py"
+DEFAULT_RESULT_LOCK = REPO_ROOT / "tx-pool" / "mutation-result-lock.json"
+GENERATOR_PATH = "tx-pool/scripts/check_mutation_matrix.py"
+MUTANT_OUTCOME_SUMMARIES = {
+    "CaughtMutant",
+    "MissedMutant",
+    "Timeout",
+    "Unviable",
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK)
+    parser.add_argument("--result-lock", type=Path, default=DEFAULT_RESULT_LOCK)
+    parser.add_argument(
+        "--rediscover",
+        action="store_true",
+        help="run cargo-mutants discovery instead of validating checked-in locks",
+    )
     parser.add_argument(
         "--write-lock",
         action="store_true",
@@ -46,9 +58,28 @@ def parse_args() -> argparse.Namespace:
         help="write an exact cargo-mutants config for the locked rows",
     )
     parser.add_argument(
+        "--resume-outcomes",
+        type=Path,
+        action="append",
+        default=[],
+        help="exclude exact rows already present in a prior outcome file",
+    )
+    parser.add_argument(
         "--verify-outcomes",
         type=Path,
-        help="reconcile cargo-mutants outcomes with every locked row",
+        action="append",
+        default=[],
+        help="merge and reconcile one cargo-mutants outcome set",
+    )
+    parser.add_argument(
+        "--write-result-lock",
+        action="store_true",
+        help="write the portable complete result projection",
+    )
+    parser.add_argument(
+        "--require-accepted",
+        action="store_true",
+        help="fail unless every result is caught or compile-unviable",
     )
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
@@ -201,16 +232,34 @@ def obligation_matches(candidate: dict, obligation: dict) -> bool:
             function_name.startswith(f"{symbol}::")
             and candidate.get("genre") == "StructField"
         )
+    if selector["kind"] == "remaining_path":
+        return False
     fail(f"unhandled mutation selector: {selector!r}")
 
 
 def select_candidates(candidates: list[dict], obligations: list[dict]) -> list[tuple[dict, dict]]:
     selected: list[tuple[dict, dict]] = []
     matched_obligations: set[str] = set()
+    primary = [
+        obligation
+        for obligation in obligations
+        if obligation["selector"]["kind"] != "remaining_path"
+    ]
+    remainders: dict[str, dict] = {}
+    for obligation in obligations:
+        if obligation["selector"]["kind"] != "remaining_path":
+            continue
+        path = obligation["owner"]["path"]
+        if path in remainders:
+            fail(
+                f"duplicate remaining-path mutation obligations for {path}: "
+                f"{remainders[path]['id']!r}, {obligation['id']!r}"
+            )
+        remainders[path] = obligation
     for candidate in candidates:
         matches = [
             obligation
-            for obligation in obligations
+            for obligation in primary
             if candidate["file"] == obligation["owner"]["path"]
             and obligation_matches(candidate, obligation)
         ]
@@ -219,6 +268,8 @@ def select_candidates(candidates: list[dict], obligations: list[dict]) -> list[t
                 f"ambiguous mutation row {candidate['name']!r}: "
                 f"{[entry['id'] for entry in matches]}"
             )
+        if not matches and candidate["file"] in remainders:
+            matches = [remainders[candidate["file"]]]
         if matches:
             selected.append((candidate, matches[0]))
             matched_obligations.add(matches[0]["id"])
@@ -229,6 +280,14 @@ def select_candidates(candidates: list[dict], obligations: list[dict]) -> list[t
     )
     if zero_match:
         fail(f"zero-match mutation obligations: {zero_match}")
+    selected_names = {row[0]["name"] for row in selected}
+    unowned = sorted(
+        candidate["name"]
+        for candidate in candidates
+        if candidate["name"] not in selected_names
+    )
+    if unowned:
+        fail(f"complete mutation universe contains unowned rows: {unowned}")
     return sorted(selected, key=lambda entry: entry[0]["name"])
 
 
@@ -260,6 +319,23 @@ def run_selection_canaries() -> None:
             raise
     else:
         fail("mutation selector zero-match canary did not fail")
+    remainder = {
+        "id": "V1-MUT-CANARY-REMAINDER",
+        "owner": owner,
+        "selector": {"kind": "remaining_path"},
+    }
+    if select_candidates([candidate], [remainder])[0][1]["id"] != remainder["id"]:
+        fail("mutation selector remaining-path canary did not own the unmatched row")
+    other = {
+        **candidate,
+        "name": "canary.rs:2:1: replace Owner::other",
+        "function": {"function_name": "Owner::other"},
+    }
+    exact = {**obligation, "selector": {"kind": "method", "name": "method"}}
+    selected = select_candidates([candidate, other], [exact, remainder])
+    selected_by_name = {row[0]["name"]: row[1]["id"] for row in selected}
+    if selected_by_name[candidate["name"]] != exact["id"]:
+        fail("mutation selector primary owner did not precede the path remainder")
 
 
 def config_text(
@@ -267,7 +343,7 @@ def config_text(
 ) -> str:
     selected_names = {candidate["name"] for candidate, _ in selected}
     lines = [
-        "# Generated by tx-pool/scripts/generate_mutation_matrix.py.",
+        "# Generated by tx-pool/scripts/check_mutation_matrix.py.",
         "# Do not edit candidate expressions by hand.",
         "examine_re = [",
     ]
@@ -472,13 +548,20 @@ def build_lock(
                 "obligation_id": obligation["id"],
             }
         )
+    universe_rows = [
+        {
+            **candidate_core(candidate),
+            "obligation_id": obligation["id"],
+        }
+        for candidate, obligation in selected
+    ]
     command = command_template(
         manifest["package"], manifest["features"], paths, acceptance["test_target"]
     )
     contract_path = REPO_ROOT / manifest["architecture_contract"]
     behavior_path = registry_path(manifest)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generator": GENERATOR_PATH,
         "cargo_mutants_version": version,
         "inputs": {
@@ -513,6 +596,12 @@ def build_lock(
                 f"--{acceptance['test_target']}",
             ],
         },
+        "candidate_universe": {
+            "count": len(universe_rows),
+            "sha256": digest(universe_rows),
+            "excluded_count": 0,
+            "rows": universe_rows,
+        },
         "execution": {
             "candidate_count": len(rows),
             "candidate_sha256": digest([candidate_core(row) for row, _ in selected]),
@@ -543,6 +632,82 @@ def reconcile_lock(path: Path, generated: dict, write_lock: bool) -> None:
         fail(f"generated mutation lock is stale: {path}; review then use --write-lock")
 
 
+def read_json_object(path: Path, label: str) -> dict:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot load {label} {path}: {error}")
+    if not isinstance(value, dict):
+        fail(f"{label} must be a JSON object: {path}")
+    return value
+
+
+def candidate_from_universe_row(row: dict) -> dict:
+    required = {
+        "name",
+        "file",
+        "function",
+        "function_span",
+        "mutation_span",
+        "genre",
+        "replacement",
+        "obligation_id",
+    }
+    if set(row) != required:
+        fail(f"invalid candidate-universe row fields: {row!r}")
+    return {
+        "name": row["name"],
+        "file": row["file"],
+        "function": {
+            "function_name": row["function"],
+            "span": row["function_span"],
+        },
+        "span": row["mutation_span"],
+        "genre": row["genre"],
+        "replacement": row["replacement"],
+    }
+
+
+def validate_lock_without_discovery(
+    manifest_path: Path,
+    lock_path: Path,
+    manifest: dict,
+    contract: dict,
+    registry: dict,
+    acceptance: dict,
+) -> tuple[dict, list[dict], list[tuple[dict, dict]], str]:
+    observed = read_json_object(lock_path, "generated mutation lock")
+    if observed.get("schema_version") != 2:
+        fail(f"generated mutation lock has unsupported schema: {lock_path}")
+    universe = observed.get("candidate_universe")
+    rows = universe.get("rows") if isinstance(universe, dict) else None
+    if not isinstance(rows, list) or not rows:
+        fail("generated mutation lock has no complete candidate universe")
+    candidates = [candidate_from_universe_row(row) for row in rows]
+    obligations = resolve_obligations(acceptance, contract, registry)
+    selected = select_candidates(candidates, obligations)
+    exact_config = config_text(selected, candidates)
+    version = observed.get("cargo_mutants_version")
+    if not isinstance(version, str):
+        fail("generated mutation lock lacks the cargo-mutants version")
+    regenerated = build_lock(
+        manifest_path,
+        manifest,
+        contract,
+        registry,
+        acceptance,
+        selected,
+        version,
+        exact_config,
+    )
+    if observed != regenerated:
+        fail(
+            f"generated mutation lock is stale or internally inconsistent: {lock_path}; "
+            "review then run --rediscover --write-lock from a clean checkpoint"
+        )
+    return observed, candidates, selected, exact_config
+
+
 def outcome_path(path: Path) -> Path:
     if path.name == "outcomes.json":
         return path
@@ -555,106 +720,289 @@ def outcome_path(path: Path) -> Path:
     fail(f"cannot find cargo-mutants outcomes.json under {path}")
 
 
-def verify_outcomes(path: Path, lock: dict) -> dict[str, int]:
-    try:
-        outcomes = json.loads(outcome_path(path).read_text())
-    except (OSError, json.JSONDecodeError) as error:
-        fail(f"cannot load mutation outcomes: {error}")
-    records = outcomes.get("outcomes")
-    if not isinstance(records, list) or not records:
-        fail("mutation outcomes contain no baseline or mutant records")
-    baseline = records[0]
-    if baseline.get("scenario") != "Baseline" or baseline.get("summary") != "Success":
-        fail("mutation baseline did not pass under the locked Nextest universe")
-    observed: dict[str, str] = {}
-    for record in records[1:]:
-        scenario = record.get("scenario")
-        mutant = scenario.get("Mutant") if isinstance(scenario, dict) else None
-        name = mutant.get("name") if isinstance(mutant, dict) else None
-        summary = record.get("summary")
-        if not isinstance(name, str) or not isinstance(summary, str):
-            fail(f"invalid mutant outcome record: {record!r}")
-        if name in observed:
-            fail(f"duplicate mutant outcome: {name}")
-        observed[name] = summary
+def read_outcome_sets(
+    paths: list[Path], lock: dict
+) -> tuple[list[dict], dict[str, str]]:
     expected = {row["candidate"] for row in lock["rows"]}
-    unstarted = sorted(expected.difference(observed))
-    unexpected = sorted(set(observed).difference(expected))
-    if unstarted or unexpected:
-        fail(f"mutation outcome closure failed: unstarted={unstarted}, unexpected={unexpected}")
+    locked_version = lock["cargo_mutants_version"].removeprefix("cargo-mutants ")
+    inputs: list[dict] = []
+    observed: dict[str, str] = {}
+    for requested in paths:
+        path = outcome_path(requested)
+        outcomes = read_json_object(path, "cargo-mutants outcomes")
+        records = outcomes.get("outcomes")
+        if not isinstance(records, list) or not records:
+            fail(f"mutation outcomes contain no baseline or mutant records: {path}")
+        baseline = records[0]
+        if baseline.get("scenario") != "Baseline" or baseline.get("summary") != "Success":
+            fail(f"mutation baseline did not pass under the locked Nextest universe: {path}")
+        version = outcomes.get("cargo_mutants_version")
+        if version != locked_version:
+            fail(
+                f"mutation outcome tool version {version!r} differs from locked "
+                f"version {locked_version!r}: {path}"
+            )
+        local_count = 0
+        for record in records[1:]:
+            scenario = record.get("scenario")
+            mutant = scenario.get("Mutant") if isinstance(scenario, dict) else None
+            name = mutant.get("name") if isinstance(mutant, dict) else None
+            summary = record.get("summary")
+            if not isinstance(name, str) or not isinstance(summary, str):
+                fail(f"invalid mutant outcome record: {record!r}")
+            if summary not in MUTANT_OUTCOME_SUMMARIES:
+                fail(f"unknown mutant outcome summary {summary!r}: {name}")
+            if name not in expected:
+                fail(f"unexpected mutant outcome outside the locked universe: {name}")
+            if name in observed:
+                fail(f"duplicate mutant outcome across result sets: {name}")
+            observed[name] = summary
+            local_count += 1
+        declared_total = outcomes.get("total_mutants")
+        if declared_total != local_count:
+            fail(
+                f"mutation outcome count mismatch: declared={declared_total!r}, "
+                f"observed={local_count}: {path}"
+            )
+        inputs.append(
+            {
+                "sha256": file_digest(path),
+                "cargo_mutants_version": version,
+                "start_time": outcomes.get("start_time"),
+                "end_time": outcomes.get("end_time"),
+                "candidate_count": local_count,
+            }
+        )
+    return inputs, observed
+
+
+def outcome_counts(observed: dict[str, str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for summary in observed.values():
         counts[summary] = counts.get(summary, 0) + 1
-    unacceptable = sorted(
-        name
-        for name, summary in observed.items()
-        if summary not in {"CaughtMutant", "Unviable"}
+    return dict(sorted(counts.items()))
+
+
+def build_result_lock(
+    mutation_lock_path: Path,
+    mutation_lock: dict,
+    inputs: list[dict],
+    observed: dict[str, str],
+) -> dict:
+    expected = {row["candidate"] for row in mutation_lock["rows"]}
+    unstarted = sorted(expected.difference(observed))
+    if unstarted:
+        fail(f"mutation result projection is incomplete; unstarted={unstarted}")
+    accepted = all(
+        summary in {"CaughtMutant", "Unviable"}
+        for summary in observed.values()
     )
-    if unacceptable:
+    return {
+        "schema_version": 1,
+        "mutation_lock": input_record(mutation_lock_path),
+        "candidate_count": len(expected),
+        "outcome_inputs": inputs,
+        "counts": outcome_counts(observed),
+        "accepted": accepted,
+        "rows": [
+            {"candidate": name, "summary": observed[name]}
+            for name in sorted(observed)
+        ],
+    }
+
+
+def validate_result_lock(
+    path: Path, mutation_lock_path: Path, mutation_lock: dict, require_accepted: bool
+) -> dict:
+    result = read_json_object(path, "mutation result lock")
+    if result.get("schema_version") != 1:
+        fail(f"mutation result lock has unsupported schema: {path}")
+    if result.get("mutation_lock") != input_record(mutation_lock_path):
+        fail("mutation result lock is not bound to the current candidate lock")
+    rows = result.get("rows")
+    if not isinstance(rows, list):
+        fail("mutation result lock rows must be a list")
+    observed: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"candidate", "summary"}:
+            fail(f"invalid mutation result row: {row!r}")
+        name = row.get("candidate")
+        summary = row.get("summary")
+        if (
+            not isinstance(name, str)
+            or summary not in MUTANT_OUTCOME_SUMMARIES
+            or name in observed
+        ):
+            fail(f"invalid or duplicate mutation result row: {row!r}")
+        observed[name] = summary
+    expected = {row["candidate"] for row in mutation_lock["rows"]}
+    if set(observed) != expected or list(observed) != sorted(observed):
+        fail("mutation result lock does not close the sorted candidate universe")
+    counts = outcome_counts(observed)
+    accepted = all(
+        summary in {"CaughtMutant", "Unviable"}
+        for summary in observed.values()
+    )
+    if result.get("candidate_count") != len(expected):
+        fail("mutation result lock candidate count is stale")
+    if result.get("counts") != counts or result.get("accepted") is not accepted:
+        fail("mutation result lock summary is stale")
+    inputs = result.get("outcome_inputs")
+    input_fields = {
+        "sha256",
+        "cargo_mutants_version",
+        "start_time",
+        "end_time",
+        "candidate_count",
+    }
+    if not isinstance(inputs, list) or not inputs:
+        fail("mutation result lock outcome-input partition is invalid")
+    input_count = 0
+    input_hashes: set[str] = set()
+    for entry in inputs:
+        if not isinstance(entry, dict) or set(entry) != input_fields:
+            fail(f"invalid mutation result input: {entry!r}")
+        count = entry.get("candidate_count")
+        sha256 = entry.get("sha256")
+        if not isinstance(count, int) or count <= 0:
+            fail(f"invalid mutation result input count: {entry!r}")
+        if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            fail(f"invalid mutation result input digest: {entry!r}")
+        if sha256 in input_hashes:
+            fail(f"duplicate mutation result input digest: {sha256}")
+        if entry.get("cargo_mutants_version") != mutation_lock[
+            "cargo_mutants_version"
+        ].removeprefix("cargo-mutants "):
+            fail(f"mutation result input tool version is stale: {entry!r}")
+        if not isinstance(entry.get("start_time"), str) or not isinstance(
+            entry.get("end_time"), str
+        ):
+            fail(f"mutation result input timestamps are invalid: {entry!r}")
+        input_hashes.add(sha256)
+        input_count += count
+    if input_count != len(expected):
+        fail("mutation result lock outcome-input partition is invalid")
+    if require_accepted and not accepted:
+        unacceptable = sorted(
+            name
+            for name, summary in observed.items()
+            if summary not in {"CaughtMutant", "Unviable"}
+        )
         fail(f"mutation survivors/timeouts require semantic adjudication: {unacceptable}")
-    return counts
+    return result
 
 
 def main() -> int:
     args = parse_args()
+    if args.write_lock and not args.rediscover:
+        fail("--write-lock requires explicit --rediscover")
+    if args.resume_outcomes and args.write_config is None:
+        fail("--resume-outcomes requires --write-config")
+    if args.write_result_lock and not args.verify_outcomes:
+        fail("--write-result-lock requires one or more --verify-outcomes inputs")
     if args.write_lock:
         require_clean_worktree()
     run_selection_canaries()
     manifest, contract, registry, acceptance = load_inputs(args.manifest)
-    obligations = resolve_obligations(acceptance, contract, registry)
-    paths = sorted({obligation["owner"]["path"] for obligation in obligations})
-    candidates = list_candidates(
-        manifest["package"], manifest["features"], paths
-    )
-    selected = select_candidates(candidates, obligations)
-    exact_config = config_text(selected, candidates)
+    if args.rediscover:
+        obligations = resolve_obligations(acceptance, contract, registry)
+        paths = sorted({obligation["owner"]["path"] for obligation in obligations})
+        candidates = list_candidates(
+            manifest["package"], manifest["features"], paths
+        )
+        selected = select_candidates(candidates, obligations)
+        exact_config = config_text(selected, candidates)
+        lock = build_lock(
+            args.manifest,
+            manifest,
+            contract,
+            registry,
+            acceptance,
+            selected,
+            cargo_mutants_version(),
+            exact_config,
+        )
+        reconcile_lock(args.lock, lock, args.write_lock)
+    else:
+        lock, candidates, selected, exact_config = validate_lock_without_discovery(
+            args.manifest,
+            args.lock,
+            manifest,
+            contract,
+            registry,
+            acceptance,
+        )
+
     if args.write_config is not None:
-        write_text(args.write_config, exact_config)
+        run_selected = selected
+        if args.resume_outcomes:
+            _, completed = read_outcome_sets(args.resume_outcomes, lock)
+            run_selected = [
+                row for row in selected if row[0]["name"] not in completed
+            ]
+            if not run_selected:
+                fail("resume outcome sets already close every locked candidate")
+        run_config = config_text(run_selected, candidates)
+        write_text(args.write_config, run_config)
         config_path = args.write_config
         verify_exact_config(
             config_path,
-            selected,
+            run_selected,
             manifest["package"],
             manifest["features"],
-            paths,
+            sorted({candidate["file"] for candidate in candidates}),
         )
-    else:
-        with tempfile.TemporaryDirectory(prefix="ckb-mutation-matrix-") as directory:
-            config_path = Path(directory) / "mutants.toml"
-            write_text(config_path, exact_config)
-            verify_exact_config(
-                config_path,
-                selected,
-                manifest["package"],
-                manifest["features"],
-                paths,
+
+    result = None
+    if args.verify_outcomes:
+        inputs, observed = read_outcome_sets(args.verify_outcomes, lock)
+        result = build_result_lock(args.lock, lock, inputs, observed)
+        if args.write_result_lock:
+            write_text(
+                args.result_lock,
+                json.dumps(result, indent=2, sort_keys=True) + "\n",
             )
-    lock = build_lock(
-        args.manifest,
-        manifest,
-        contract,
-        registry,
-        acceptance,
-        selected,
-        cargo_mutants_version(),
-        exact_config,
-    )
-    reconcile_lock(args.lock, lock, args.write_lock)
-    outcome_counts = None
-    if args.verify_outcomes is not None:
-        outcome_counts = verify_outcomes(args.verify_outcomes, lock)
+        else:
+            checked = read_json_object(args.result_lock, "mutation result lock")
+            if checked != result:
+                fail(
+                    f"mutation result lock is stale: {args.result_lock}; "
+                    "review then use --write-result-lock"
+                )
+        if args.require_accepted and not result["accepted"]:
+            unacceptable = [
+                row["candidate"]
+                for row in result["rows"]
+                if row["summary"] not in {"CaughtMutant", "Unviable"}
+            ]
+            fail(f"mutation survivors/timeouts require semantic adjudication: {unacceptable}")
+    elif args.result_lock.is_file():
+        result = validate_result_lock(
+            args.result_lock, args.lock, lock, args.require_accepted
+        )
+    elif args.require_accepted:
+        fail(f"mutation result lock does not exist: {args.result_lock}")
+
     if args.print_json:
         print(json.dumps(lock, indent=2, sort_keys=True))
     else:
         execution = lock["execution"]
         print(
-            f"validated {execution['candidate_count']} exact mutation rows "
+            f"validated {execution['candidate_count']} complete mutation rows "
             f"({execution['candidate_sha256']}) against "
             f"{lock['test_universe']['count']} library tests"
         )
         print(f"command: {shlex.join(execution['command_template'])}")
-        if outcome_counts is not None:
-            print(f"outcomes: {json.dumps(outcome_counts, sort_keys=True)}")
+        if args.write_config is not None:
+            print(
+                f"config: {args.write_config} selects {len(run_selected)} "
+                "unstarted rows"
+            )
+        if result is not None:
+            print(
+                f"outcomes: {json.dumps(result['counts'], sort_keys=True)}; "
+                f"accepted={str(result['accepted']).lower()}"
+            )
     return 0
 
 

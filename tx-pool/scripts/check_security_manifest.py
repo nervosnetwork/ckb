@@ -76,7 +76,13 @@ REQUIRED_MODEL_CROSS_CUTTING_PROTOCOLS = {
     "ordered_chain_request_conservation",
 }
 MODEL_TEST_PREFIX = "mathematical_model::"
-MUTATION_SELECTOR_KINDS = {"all_methods", "method", "function", "struct_fields"}
+MUTATION_SELECTOR_KINDS = {
+    "all_methods",
+    "method",
+    "function",
+    "struct_fields",
+    "remaining_path",
+}
 
 
 def parse_args() -> argparse.Namespace:

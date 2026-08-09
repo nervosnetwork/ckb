@@ -139,6 +139,49 @@
           "symbol": "struct SchedulerWaveCursor"
         },
         "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+        "semantic_binding": "authority_and_atomic_apply",
+        "component_id": "atomic_batch_apply",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-OWN-001",
+          "symbol": "struct TxPoolAuthority"
+        },
+        "selector": {"kind": "remaining_path"}
+      },
+      {
+        "id": "V1-MUT-RESOURCE-PATH-REMAINDER",
+        "semantic_binding": "bounded_hostility_and_resources",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-BUDGET-001",
+          "symbol": "struct ResourceLedger"
+        },
+        "selector": {"kind": "remaining_path"}
+      },
+      {
+        "id": "V1-MUT-DEPENDENCY-PATH-REMAINDER",
+        "semantic_binding": "chain_and_dependency",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-DEP-001",
+          "symbol": "struct DependencyFrontier"
+        },
+        "selector": {"kind": "remaining_path"}
+      },
+      {
+        "id": "V1-MUT-SCHEDULER-PATH-REMAINDER",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-WORKER-001",
+          "symbol": "struct FairFrontier"
+        },
+        "selector": {"kind": "remaining_path"}
       }
     ]
   },
