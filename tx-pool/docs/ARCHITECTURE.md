@@ -535,6 +535,14 @@ another transaction's dependency proof.
 separately supplied view. Resolver, final-validation, direct and internal
 construction therefore cannot express a location/view mismatch.
 
+Final and direct admission receipts likewise own one sealed proof rather than
+independent key and view copies. Their public-to-Plan raw key is derived from
+the proof's full identity, and their view is the proof context view. Final Plan
+revalidates that view, the current Ready owner's full identity/version and the
+owner-bound dependency cut. Direct Plan has no resident owner and revalidates
+the same view plus the owner-free dependency cut. It does not reconstruct a
+tautological key or second proof-view predicate.
+
 The `pre_resolve_tip`, cell metadata and script-rule generation must originate
 from the same captured `Arc<Snapshot>`. No caller may infer provenance from an
 ingress source or a nearby hash.
@@ -782,8 +790,9 @@ Positive, owner-free, resolved and missing evidence all consume the same sparse
 frontier relation. Key-specific definitive loss fences resident owners;
 unindexed loss additionally fences owner-free or newly expanded evidence, and
 unindexed change fences a newly observed missing dependency. Final and direct
-admission receipts revalidate these cuts together with their exact chain view,
-identity and owner/source version before Plan can commit them.
+admission receipts derive raw identity and view from one sealed proof. Final
+Plan also revalidates the Ready full identity/version and owner-bound cut;
+Direct Plan revalidates the owner-free cut before either can commit.
 
 Positive cell evidence has two layers: an attached block may make an output
 chain-live, but that output is not finally available while the post-Apply

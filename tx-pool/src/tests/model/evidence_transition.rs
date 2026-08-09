@@ -330,9 +330,17 @@ pub(crate) struct ModelEvidenceProof {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ModelAdmissionReceipt {
-    pub(crate) view: ModelEvidenceView,
-    pub(crate) key: ModelRawTransaction,
     pub(crate) proof: ModelEvidenceProof,
+}
+
+impl ModelAdmissionReceipt {
+    pub(crate) fn view(&self) -> ModelEvidenceView {
+        self.proof.view
+    }
+
+    pub(crate) fn key(&self) -> ModelRawTransaction {
+        self.proof.identity.raw
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,13 +357,10 @@ pub(crate) fn validate_final_acceptance(
     frontier: &ModelEvidenceFrontier,
     receipt: &ModelAdmissionReceipt,
 ) -> ModelEvidenceValidation {
-    if receipt.view != authority_view {
+    if receipt.view() != authority_view {
         return ModelEvidenceValidation::StaleChain;
     }
-    if receipt.key != owner_identity.raw
-        || receipt.proof.identity != owner_identity
-        || receipt.proof.view != authority_view
-    {
+    if receipt.proof.identity != owner_identity {
         return ModelEvidenceValidation::StructuralFault;
     }
     if !frontier.proof_is_current(&receipt.proof.dependencies, receipt.proof.dependency_cut) {
@@ -369,11 +374,8 @@ pub(crate) fn validate_direct_acceptance(
     frontier: &ModelEvidenceFrontier,
     receipt: &ModelAdmissionReceipt,
 ) -> ModelEvidenceValidation {
-    if receipt.view != authority_view {
+    if receipt.view() != authority_view {
         return ModelEvidenceValidation::StaleChain;
-    }
-    if receipt.key != receipt.proof.identity.raw || receipt.proof.view != authority_view {
-        return ModelEvidenceValidation::StructuralFault;
     }
     if !frontier
         .owner_free_proof_is_current(&receipt.proof.dependencies, receipt.proof.dependency_cut)

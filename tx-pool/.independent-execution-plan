@@ -5785,3 +5785,178 @@ The next exact action is the five-row acceptance-currentness root from section
 consumer, currentness cut and externally observable consequence from the frozen
 candidate/result join. No production or proof-family change is allowed before
 that root adjudication. Cleanup and remote push remain unauthorized.
+
+## 53. Acceptance currentness root adjudication and model freeze
+
+The third section-46 root contains five unaccepted rows in the final and direct
+acceptance validators: two final-path timeouts that invert the authority view
+predicate or the dependency-currentness predicate, two missed disjunction
+changes in the final structural check, and one missed disjunction change in the
+direct structural check. The same-premise audit reopens all 14 current
+candidates in those two functions, including previously caught comparisons;
+a caught inverse predicate does not prove that the original duplicate predicate
+owns a distinct semantic fact.
+
+Both timed-out perturbations have a legal observation difference. Inverting
+the view predicate rejects every current final receipt as stale. Deleting the
+negation on dependency currentness rejects current proof and admits a stale
+proof past that boundary. The original raw logs show multiple chain and runtime
+tests failing in 30-850 milliseconds for each perturbation. cargo-mutants still
+recorded `Timeout` because Nextest cancellation left three long-running runtime
+tests alive until the 120-second command limit. This is a harness outcome, not
+equivalence and not permission to relabel the historical result. A focused
+isolated cohort must reach a normal caught terminal state after the semantic
+evidence is frozen.
+
+The three missed disjunctions expose duplicated facts rather than three legal
+input gaps. The sealed production relation is:
+
+```text
+receipt.view = receipt.proof.admission_view = receipt.proof.context.view
+receipt.key = receipt.proof.identity.raw
+
+FinalCurrent(A, O, R) =
+    if R.proof.view != A                  then StaleChain
+    else if R.proof.identity != O         then StructuralFault
+    else if !OwnerProofCurrent(R.proof)   then StaleDependency
+    else Current
+
+DirectCurrent(A, R) =
+    if R.proof.view != A                  then StaleChain
+    else if !OwnerFreeProofCurrent(R.proof) then StaleDependency
+    else Current
+```
+
+`MembershipReceipt::view` and `AcceptedProof::is_for` both read the same
+`VerifiedFacts.context.view`; checking both cannot distinguish a legal state.
+`DirectAdmissionReceipt::key` already returns its proof identity's raw hash, so
+comparing those two expressions is a tautology. Final receipt currently stores
+an extra key even though its sole sealed constructor receives proof and key
+from one `FinalAdmissionWork`; every production consumer then looks up the
+owner by that receipt key, checks its unique version and Ready phase, and the
+settlement producer has already checked Ready proof identity against the owner.
+The remaining full-identity comparison is the one explicit structural fault
+boundary; the duplicate raw-key and proof-view comparisons own no additional
+fact.
+
+Four topology candidates were compared:
+
+1. Add one fixture per survivor and leave the duplicated fields and predicates.
+   This is rejected as candidate-shaped patching and would require forging
+   states the sealed constructors cannot produce.
+2. Keep the duplicates and register three observational-equivalence selectors.
+   This can prove the current source but preserves accidental state, hot-path
+   comparisons and future boolean mutation surface with no semantic owner.
+3. Introduce one generic final/direct validator capability. This obscures the
+   real difference between owner-bound and owner-free dependency currentness
+   and adds abstraction without removing a state.
+4. Remove the duplicated facts at their owner. Final receipt no longer stores
+   a raw key and derives it from the sealed proof identity, matching Direct.
+   The model receipt likewise contains one proof rather than independent key
+   and view copies. Final validation retains exactly authority view, full owner
+   identity and owner-bound dependency currentness. Direct validation retains
+   exactly authority view and owner-free dependency currentness. This is the
+   selected smallest mechanism.
+
+The selected delta reduces both runtime state and proof state. It adds no
+authority, mutable field, lock, task, queue, capability, allocation, failure
+domain or compatibility path. It removes one `RawTxHash` from each final
+receipt and three impossible comparisons. Validation stays outside the
+authority cut; Plan still revalidates the current view and dependency relation
+under the sole owner. A static theorem must bind the two sealed constructors,
+derived key/view accessors, Ready identity producer, unique version/phase
+consumer order and complete validator caller set. Deleting that theorem would
+allow a future independent key or view field to recreate the same ambiguity.
+
+The fixed implementation order is: make the executable receipt type contain
+one proof and prove the finite final/direct observation relations; update the
+production refinement; remove Final receipt's duplicate key and redundant
+checks; extend the sealed-producer/caller theorem; regenerate architecture and
+review evidence; run focused and complete Nextest/static gates; perform the
+section-11 and snowball review; then run the exact two-validator mutation
+cohort with a focused isolated test expression so the historical cancellation
+noise cannot mask a prompt failure. Mutation family/result locks remain
+unchanged until the final-universe rerun required by section 50. Cleanup and
+remote push remain unauthorized.
+
+## 54. Acceptance currentness proof root closed
+
+The section-53 relation is now the only executable and production receipt
+relation. `ModelAdmissionReceipt` contains one proof and derives both view and
+raw key. Its finite Cartesian falsifier covers both authority views, both proof
+views, exact/raw-mismatched/witness-mismatched owners and current/stale
+dependency frontiers, including the distinct Final error priority and Direct
+owner-free relation. The production refinement reaches the real sealed Final
+and Direct protocols. `FinalAdmissionReceipt` no longer stores a raw key,
+`AcceptedProof::is_for` and the three duplicate comparisons are absent, and
+Plan retains only the independent predicates frozen in section 53.
+
+The production theorem now closes the complete construction and consumption
+surface rather than checking only the current local shape. It requires the
+exact private field sets of Membership, Final and Direct receipts; one sealed
+Final constructor and one sealed Direct constructor; proof-derived key/view
+projections; Final Ready lookup, version, phase and full-identity ordering;
+the Ready settlement identity producer; and the exact five validator callers.
+It scans the complete non-test authority source tree and rejects an escaped
+call, an extra name occurrence, a changed caller or an independent receipt
+field. Deleting this theorem would permit the split evidence authority to
+return while the local validators and model remain green.
+
+Exact cargo-mutants 27.1.0 no-config discovery reduced the old 14 same-function
+rows to seven independent validator rows: two whole-function replacements,
+two view inversions, one Final full-identity inversion and two dependency
+negation deletions. The three existing `TransitionControls` struct-field rows
+are inseparable from the selected source file, so the isolated cohort contains
+ten rows. Its focused four-test baseline passed 4/4 and every row was caught;
+there are zero missed, timed-out or unviable rows. In particular, both
+historical timeout perturbations now reach prompt normal caught outcomes rather
+than inheriting unrelated cancellation noise. The preserved artifact is
+`/private/tmp/ckb-tx-pool-v1-mutants-acceptance-currentness-r1/mutants.out`:
+
+- `lock.json` SHA-256
+  `b6122dcf4415d99eb3553ad913d140cc7723405ef3641c35852b4e138cb27f5a`;
+- `mutants.json` SHA-256
+  `2e2ae1bfd5a840db2c6be2a8d09e29b8717c15021ef1e8e0aa2925f69acf8d6b`;
+- `outcomes.json` SHA-256
+  `236eec0879b1cddb81e904257dae5170af48cfc35384e877932c8c4ec18e467b`;
+- `caught.txt` SHA-256
+  `66275268b3a397c7085bc7216009ad084d137bbe2c2bb22ee20fc96a35f19aef`;
+- each empty missed/timeout/unviable projection SHA-256
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+Focused model/production refinement passed 2/2. Complete library Nextest run
+`05a41383-dab4-468f-876c-6fcfc77cfedc` passed 783/783, and strict all-target
+internal Clippy passes with warnings denied. Formatting and diff whitespace
+pass. The complete non-mutation gate set passes: ASCII 228 files; immutable
+develop refinement 8/8; documentation 6 documents/16 tools; TLC 1,098
+generated/318 distinct positive states plus the required four-state negative
+witness; generated model/production frontier 317/671 reachable roots with no
+expanded-production constructorless root; production contracts; 18 behaviors
+with 460 Rust tests and 1,912 invariant references; 783 discovered Nextest
+tests; and test layout. Three pre-existing explicit release blockers remain.
+The historical aggregate mutation gates remain deliberately red only at the
+section-50 current-universe boundaries: zero current atomic-construction
+candidate and zero-match `V1-MUT-ATOMIC-CLOCK-BRANCH`. They are not rewritten
+or relabeled during a root slice.
+
+The section-11 review finds no trusted-boundary, authority, lifecycle,
+publication, wait-for, configuration, wire, storage or compatibility change.
+The receipt remains immutable validation evidence outside the authority cut;
+Plan revalidates the same current authority and dependency facts before one
+Apply. No lock, task, queue, retry, cache, capability, allocation, I/O or scan
+was added, and independent validation concurrency is unchanged. Production
+Rust is constructively smaller by 14 net lines across `chain.rs`, `plan.rs` and
+`validation.rs`; each Final receipt removes one `RawTxHash` and the hot path
+removes three comparisons. The larger finite model and static theorem have
+separate falsifiers, run only in tests or validation, derive their source facts
+mechanically and add no runtime topology. The stricter theorem prevents rather
+than accumulates future aliases. No duplicate authority, risk transfer,
+invariant growth, concurrency loss or snowball runtime complexity remains in
+this root.
+
+The next exact action is the seven-row membership/history/released-input and
+transition-control root from section 46. Reconstruct its complete producers,
+consumers, ownership/accounting effects, publication observations and legal
+counterexamples before changing production or proof-family ownership. The
+five remaining roots retain their frozen order, followed by the one complete
+final-universe mutation rerun. Cleanup and remote push remain unauthorized.

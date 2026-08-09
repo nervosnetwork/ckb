@@ -313,8 +313,6 @@ fn valid_receipt() -> (ModelEvidenceIdentity, ModelAdmissionReceipt) {
         witness: 2,
     };
     let receipt = ModelAdmissionReceipt {
-        view: ModelEvidenceView(1),
-        key: identity.raw,
         proof: ModelEvidenceProof {
             view: ModelEvidenceView(1),
             identity,
@@ -329,45 +327,60 @@ fn valid_receipt() -> (ModelEvidenceIdentity, ModelAdmissionReceipt) {
 fn model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut() {
     let (identity, receipt) = valid_receipt();
     let current = frontier(&[(1, level(1, None))], unindexed(Some(1), None));
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &receipt),
-        ModelEvidenceValidation::Current
-    );
-
-    let mut changed = receipt.clone();
-    changed.view = ModelEvidenceView(2);
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
-        ModelEvidenceValidation::StaleChain
-    );
-    changed = receipt.clone();
-    changed.key = ModelRawTransaction(2);
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
-        ModelEvidenceValidation::StructuralFault
-    );
-    changed = receipt.clone();
-    changed.proof.identity.witness = 3;
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
-        ModelEvidenceValidation::StructuralFault
-    );
-    changed = receipt.clone();
-    changed.proof.view = ModelEvidenceView(2);
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
-        ModelEvidenceValidation::StructuralFault
-    );
-
     let stale = frontier(&[(1, level(2, Some(2)))], unindexed(Some(2), Some(2)));
-    assert_eq!(
-        validate_final_acceptance(ModelEvidenceView(1), identity, &stale, &receipt),
-        ModelEvidenceValidation::StaleDependency
-    );
-    assert_eq!(
-        validate_direct_acceptance(ModelEvidenceView(1), &stale, &receipt),
-        ModelEvidenceValidation::StaleDependency
-    );
+    assert_eq!(receipt.view(), receipt.proof.view);
+    assert_eq!(receipt.key(), receipt.proof.identity.raw);
+
+    for authority_view in [ModelEvidenceView(1), ModelEvidenceView(2)] {
+        for proof_view in [ModelEvidenceView(1), ModelEvidenceView(2)] {
+            for owner_identity in [
+                identity,
+                ModelEvidenceIdentity {
+                    raw: ModelRawTransaction(2),
+                    ..identity
+                },
+                ModelEvidenceIdentity {
+                    witness: 3,
+                    ..identity
+                },
+            ] {
+                for (frontier, dependency_is_current) in [(&current, true), (&stale, false)] {
+                    let mut candidate = receipt.clone();
+                    candidate.proof.view = proof_view;
+                    let expected_final = if proof_view != authority_view {
+                        ModelEvidenceValidation::StaleChain
+                    } else if candidate.proof.identity != owner_identity {
+                        ModelEvidenceValidation::StructuralFault
+                    } else if !dependency_is_current {
+                        ModelEvidenceValidation::StaleDependency
+                    } else {
+                        ModelEvidenceValidation::Current
+                    };
+                    assert_eq!(
+                        validate_final_acceptance(
+                            authority_view,
+                            owner_identity,
+                            frontier,
+                            &candidate,
+                        ),
+                        expected_final
+                    );
+
+                    let expected_direct = if proof_view != authority_view {
+                        ModelEvidenceValidation::StaleChain
+                    } else if !dependency_is_current {
+                        ModelEvidenceValidation::StaleDependency
+                    } else {
+                        ModelEvidenceValidation::Current
+                    };
+                    assert_eq!(
+                        validate_direct_acceptance(authority_view, frontier, &candidate),
+                        expected_direct
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]

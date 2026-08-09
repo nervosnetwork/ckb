@@ -276,10 +276,6 @@ impl AcceptedProof {
         self.verified.is_chain_dependency(dependency)
     }
 
-    pub(super) fn is_for(&self, view: &ChainViewId) -> bool {
-        self.verified.context_is_for(view)
-    }
-
     pub(super) fn sensitivity(&self) -> AcceptedChainSensitivity {
         self.sensitivity
     }
@@ -490,7 +486,6 @@ impl MembershipReceipt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[must_use = "final admission evidence must be applied or discarded as stale"]
 pub(super) struct FinalAdmissionReceipt {
-    key: RawTxHash,
     expected: EntryVersion,
     membership: MembershipReceipt,
     payload_relation: ReadyPayloadRelation,
@@ -581,13 +576,11 @@ impl FinalAdmissionRetry {
 impl FinalAdmissionReceipt {
     pub(super) fn from_validation(
         _seal: super::validation::AdmissionValidationSeal,
-        key: RawTxHash,
         expected: EntryVersion,
         membership: MembershipReceipt,
         payload_relation: ReadyPayloadRelation,
     ) -> Self {
         Self {
-            key,
             expected,
             membership,
             payload_relation,
@@ -595,7 +588,7 @@ impl FinalAdmissionReceipt {
     }
 
     pub(super) fn key(&self) -> &RawTxHash {
-        &self.key
+        &self.membership.proof().payload().identity().raw
     }
 
     pub(super) fn expected(&self) -> EntryVersion {

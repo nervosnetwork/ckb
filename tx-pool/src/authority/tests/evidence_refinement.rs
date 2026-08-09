@@ -334,8 +334,6 @@ fn abstract_receipt() -> (ModelEvidenceIdentity, ModelAdmissionReceipt) {
     (
         identity,
         ModelAdmissionReceipt {
-            view: ModelEvidenceView(0),
-            key: identity.raw,
             proof: ModelEvidenceProof {
                 view: ModelEvidenceView(0),
                 identity,

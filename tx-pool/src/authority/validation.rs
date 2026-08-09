@@ -336,7 +336,6 @@ impl FinalAdmissionValidation {
             } => Ok(FinalAdmissionValidationOutcome::Candidate(
                 FinalAdmissionReceipt::from_validation(
                     seal,
-                    key,
                     expected,
                     membership,
                     payload_relation,

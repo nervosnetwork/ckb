@@ -215,11 +215,11 @@
             "function_pattern": "^TxPoolAuthority::(direct_rejection_is_current|final_admission_subject_owner|missing_resolution_disposition|validate_acceptance_evidence|validate_direct_acceptance_evidence|validate_direct_rejection_validity)$"
           }
         ],
-        "semantic_fact": "Admission and rejection observations bind the exact chain view, raw/full identity, ready owner version, proof view and dependency/source cut.",
-        "falsifier": "Dropping one equality accepts a nearby transaction, view, owner phase or source generation as the committed subject.",
+        "semantic_fact": "One sealed admission proof owns the receipt view and raw identity projection. Final acceptance revalidates that view, the exact ready-owner full identity/version and the owner-bound dependency cut; direct acceptance revalidates the same view and the owner-free dependency cut.",
+        "falsifier": "Dropping one independent view, full-identity, version or dependency/source predicate accepts a nearby subject, while duplicating a proof-derived key or view creates an unowned boolean state and ambiguous mutation surface.",
         "parallelism": "Validation stays outside the authority mutation cut and returns one immutable receipt for Plan revalidation.",
-        "added_cost": "The model adds zero runtime fields; refinement may only seal facts already present in the receipt and owner.",
-        "deletion_counterexample": "Without a single receipt relation, green validators cannot prove that every production caller checks the same subject.",
+        "added_cost": "The model adds zero runtime fields; FinalAdmissionReceipt removes one duplicated RawTxHash and Plan evaluates only independent predicates already present in the proof and owner.",
+        "deletion_counterexample": "Without the single-proof receipt relation and complete caller theorem, a second key/view fact or a caller that omits one currentness predicate can silently recreate split evidence authority.",
         "production_refinement": "implemented"
       },
       {

@@ -286,18 +286,18 @@
       "title": "Exact transaction and evidence identity",
       "implementation_owners": [
         {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct TxIdentity", "struct RawTxHash", "struct WitnessTxHash", "struct ProposalId"]},
-        {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt"]},
+        {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt", "struct FinalAdmissionReceipt", "struct DirectAdmissionReceipt"]},
         {"path": "verification/src/cache.rs", "symbols": ["struct TxVerificationCacheKey", "enum ScriptVerificationRules"]},
         {"path": "tx-pool/src/authority/validation.rs", "symbols": ["struct FinalAdmissionValidation", "fn validate_membership"]}
       ],
-      "required_behavior": "Ownership uses raw hash, script-cache reuse uses inline witness hash plus script rules, proposal short ID is collision-aware protocol indexing, and chain evidence is bound to an exact snapshot/view and per-cell provenance.",
+      "required_behavior": "Ownership uses raw hash, script-cache reuse uses inline witness hash plus script rules, proposal short ID is collision-aware protocol indexing, chain evidence is bound to an exact snapshot/view and per-cell provenance, and each admission receipt derives raw key and view from one sealed proof before independent Plan currentness checks.",
       "hostile_case": "Witness variant, short-ID collision, nearby cache request, hardfork rule change, mixed snapshot, same-tip unproven cell or chain-view ABA must not reuse another transaction or context's proof.",
       "reviewer_questions": [
         "Can a cache caller omit either witness identity or script-rule generation?",
         "Can a short ID decide ownership or duplicate identity?",
         "Is every positive evidence reuse per-input and tx-pool-only?"
       ],
-      "performance_bound": "The cache key is a copy-cheap fixed array plus small enum; exact evidence reuse avoids redundant same-tip chain reads without a new cache."
+      "performance_bound": "The cache key is a copy-cheap fixed array plus small enum; exact evidence reuse avoids redundant same-tip chain reads, and Final admission stores no second raw key or duplicate view predicate."
     },
     {
       "id": "TP-PERF-001",

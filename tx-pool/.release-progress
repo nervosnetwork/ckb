@@ -5365,3 +5365,47 @@ section 50 still requires one regenerated final lock and complete rerun after
 all remaining roots. The next exact action is full producer/consumer and legal
 counterexample adjudication of the five-row acceptance-currentness root,
 including its two timeouts. Cleanup and remote push remain unauthorized.
+
+## B3-R5 acceptance currentness root adjudicated, model active
+
+Section 53 traces the five unaccepted rows and reopens all 14 same-function
+candidates. The two timeouts are confirmed observable predicate inversions;
+their raw logs contain prompt legal test failures, while three concurrently
+cancelling runtime tests kept the whole Nextest command alive to 120 seconds.
+The three misses instead share one accidental-duplication root: receipt view
+and proof view are the same sealed field, Direct key is derived from proof
+identity, and Final stores a second raw key even though its sole constructor
+and every consumer bind one proof/owner incarnation.
+
+The selected correction removes those duplicate facts rather than adding
+candidate fixtures or equivalence allowlists. One proof owns receipt view and
+raw key; final currentness retains view, full owner identity and owner-bound
+dependency checks, while direct currentness retains view and owner-free
+dependency checks. The executable model and static sealed-producer/caller
+theorem must pass before production cutover. No runtime owner, lock, task,
+queue, compatibility path or mutation lock changes are allowed. The next exact
+action is the finite model relation and production refinement. Cleanup and
+remote push remain unauthorized.
+
+## B3-R5 acceptance currentness proof root closed
+
+Section 54 records the root correction and its complete checkpoint. Final and
+Direct receipts derive key/view from one sealed proof; Final's duplicated raw
+key, `AcceptedProof::is_for` and all three tautological comparisons are gone.
+The finite model relation, real-protocol refinement and complete constructor,
+field-topology, Ready-producer and caller theorem pass.
+
+The exact no-config cohort contains seven independent validator candidates and
+three inseparable existing structural controls. All ten are caught, with zero
+missed, timeout or unviable outcomes; `outcomes.json` SHA-256 is
+`236eec0879b1cddb81e904257dae5170af48cfc35384e877932c8c4ec18e467b`.
+Complete Nextest run `05a41383-dab4-468f-876c-6fcfc77cfedc` passes 783/783,
+strict Clippy and every non-mutation gate pass, and the two aggregate mutation
+failures remain exactly the section-50 stale-universe boundaries.
+
+Section-11 and snowball review finds a 14-line net production reduction, one
+less `RawTxHash` per Final receipt, three fewer hot-path comparisons and no new
+authority, state, lock, task, queue, failure domain, configuration or
+compatibility path. The next exact action is the seven-row
+membership/history/released-input and transition-control root. Cleanup and
+remote push remain unauthorized.

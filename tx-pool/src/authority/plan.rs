@@ -1827,10 +1827,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
         let proof = receipt.proof();
-        if receipt.key() != &preaccepted.record.identity.raw
-            || proof.payload().identity() != &preaccepted.record.identity
-            || !proof.is_for(&self.chain_view)
-        {
+        if proof.payload().identity() != &preaccepted.record.identity {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
         let dependencies = proof.payload().dependencies();
@@ -3046,9 +3043,6 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::ChainRevision));
         }
         let proof = receipt.proof();
-        if receipt.key() != &proof.payload().identity().raw || !proof.is_for(&self.chain_view) {
-            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-        }
         if !self
             .dependencies
             .owner_free_proof_is_current(proof.payload().dependencies(), proof.dependency_cut())

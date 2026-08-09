@@ -166,7 +166,6 @@ impl FinalAdmissionWork {
         accepted_at: AcceptedAtMillis,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         Ok(FinalAdmissionReceipt {
-            key: self.key,
             expected: self.expected,
             membership: self.validation.validate_at_for_foundation(
                 status,
@@ -197,7 +196,6 @@ impl FinalAdmissionWork {
         sensitivity: AcceptedChainSensitivity,
     ) -> Result<FinalAdmissionReceipt, FinalAdmissionError> {
         Ok(FinalAdmissionReceipt {
-            key: self.key,
             expected: self.expected,
             membership: self
                 .validation

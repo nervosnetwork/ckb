@@ -2289,6 +2289,11 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         direct_evidence = required_function_body(
             plan, "validate_direct_acceptance_evidence"
         )
+        membership_view = impl_method_body(chain, "MembershipReceipt", "view")
+        final_receipt_key = impl_method_body(chain, "FinalAdmissionReceipt", "key")
+        final_receipt_view = impl_method_body(chain, "FinalAdmissionReceipt", "view")
+        direct_receipt_key = impl_method_body(chain, "DirectAdmissionReceipt", "key")
+        direct_receipt_view = impl_method_body(chain, "DirectAdmissionReceipt", "view")
         subject = required_function_body(plan, "final_admission_subject_owner")
         classifier = required_function_body(plan, "classify_settlement")
     except (OSError, ValueError) as error:
@@ -2300,7 +2305,7 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         errors.append("final and direct validation must be the two seal construction cuts")
     for constructor in (
         "FinalAdmissionSubject::new(seal,key.clone(),expected,view.clone(),dependency_cut)",
-        "FinalAdmissionReceipt::from_validation(",
+        "FinalAdmissionReceipt::from_validation(seal,expected,membership,payload_relation,",
         "DirectAdmissionReceipt::from_validation(seal,tx,membership)",
     ):
         if compact_validation.count(constructor) != 1:
@@ -2312,7 +2317,13 @@ def validate_evidence_and_settlement_construction() -> list[str]:
     )
     if seal is None:
         errors.append("AdmissionValidationSeal must retain a private tuple field")
-    for receipt in ("FinalAdmissionReceipt", "FinalAdmissionSubject", "DirectAdmissionReceipt"):
+    receipt_declarations: dict[str, re.Match[str]] = {}
+    for receipt in (
+        "MembershipReceipt",
+        "FinalAdmissionReceipt",
+        "FinalAdmissionSubject",
+        "DirectAdmissionReceipt",
+    ):
         declaration = re.search(
             rf"pub\s*\(super\)\s+struct\s+{receipt}\s*\{{(?P<body>.*?)\n\}}",
             mask_rust_non_code(chain),
@@ -2320,9 +2331,50 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         )
         if declaration is None or re.search(r"\bpub\b", declaration.group("body")):
             errors.append(f"{receipt} must retain private fields behind sealed constructors")
+        elif declaration is not None:
+            receipt_declarations[receipt] = declaration
+
+    expected_receipt_fields = {
+        "MembershipReceipt": {"proof", "proposal", "accepted_at", "async_process_start"},
+        "FinalAdmissionReceipt": {"expected", "membership", "payload_relation"},
+        "DirectAdmissionReceipt": {"tx", "membership"},
+    }
+    for receipt, expected_fields in expected_receipt_fields.items():
+        declaration = receipt_declarations.get(receipt)
+        if declaration is None:
+            continue
+        actual_fields = set(
+            re.findall(r"^\s*([a-z_][A-Za-z0-9_]*)\s*:", declaration.group("body"), re.M)
+        )
+        if actual_fields != expected_fields:
+            errors.append(
+                f"{receipt} field topology changed: expected {sorted(expected_fields)}, "
+                f"found {sorted(actual_fields)}"
+            )
+
+    derived_receipt_fragments = {
+        "MembershipReceipt::view": (
+            membership_view,
+            "self.proof.admission_view()",
+        ),
+        "FinalAdmissionReceipt::key": (
+            final_receipt_key,
+            "&self.membership.proof().payload().identity().raw",
+        ),
+        "FinalAdmissionReceipt::view": (final_receipt_view, "self.membership.view()"),
+        "DirectAdmissionReceipt::key": (
+            direct_receipt_key,
+            "&self.membership.proof().payload().identity().raw",
+        ),
+        "DirectAdmissionReceipt::view": (direct_receipt_view, "self.membership.view()"),
+    }
+    for owner, (body, fragment) in derived_receipt_fragments.items():
+        if fragment.replace(" ", "") not in "".join(mask_rust_non_code(body or "").split()):
+            errors.append(f"sealed receipt projection {owner} lost {fragment!r}")
 
     compact_final_work = "".join(mask_rust_non_code(final_work).split())
     for fragment in (
+        ".get(key)",
         "existing.record().version!=expected",
         "letOwnedTx::PreAccepted(preaccepted)=existingelse",
         "letPreAcceptedPhase::Ready(verified)=&preaccepted.phaseelse",
@@ -2333,20 +2385,89 @@ def validate_evidence_and_settlement_construction() -> list[str]:
     compact_final = "".join(mask_rust_non_code(final_evidence).split())
     final_order = (
         "receipt.view()!=&self.chain_view",
-        "receipt.key()!=&preaccepted.record.identity.raw",
+        "proof.payload().identity()!=&preaccepted.record.identity",
         ".proof_is_current(dependencies,proof.dependency_cut())",
     )
     positions = [compact_final.find(fragment) for fragment in final_order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         errors.append("final acceptance must check view, sealed identity and dependency cut in order")
+    if "receipt.key()!=" in compact_final or "proof.is_for(" in compact_final or "||" in compact_final:
+        errors.append("final acceptance reconstructed a duplicated key/view predicate")
 
     compact_direct = "".join(mask_rust_non_code(direct_evidence).split())
+    direct_order = (
+        "receipt.view()!=&self.chain_view",
+        ".owner_free_proof_is_current(",
+    )
+    positions = [compact_direct.find(fragment) for fragment in direct_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append("direct acceptance must check view before owner-free dependency currentness")
     if compact_direct.count(".owner_free_proof_is_current(") != 1:
         errors.append("direct acceptance must retain the global owner-free loss fence")
     if ".proof_is_current(" in compact_direct.replace(
         ".owner_free_proof_is_current(", ""
     ):
         errors.append("direct acceptance must not bypass the owner-free evidence relation")
+    if "receipt.key()!=" in compact_direct or "proof.is_for(" in compact_direct or "||" in compact_direct:
+        errors.append("direct acceptance reconstructed a duplicated key/view predicate")
+
+    production_callers: dict[str, set[str]] = {
+        "validate_acceptance_evidence": set(),
+        "validate_direct_acceptance_evidence": set(),
+    }
+    production_occurrences = {validator: 0 for validator in production_callers}
+    authority_root = TX_POOL_AUTHORITY_PLAN.parent
+    for path in sorted(authority_root.rglob("*.rs")):
+        if "tests" in path.relative_to(authority_root).parts:
+            continue
+        try:
+            source = path.read_text()
+            masked = mask_rust_non_code(source)
+        except OSError as error:
+            errors.append(f"cannot inspect acceptance caller source {path}: {error}")
+            continue
+        for validator in production_callers:
+            token_pattern = re.compile(rf"\b{re.escape(validator)}\b")
+            production_occurrences[validator] += len(token_pattern.findall(masked))
+            call_pattern = re.compile(rf"(?:\.|::)\s*{re.escape(validator)}\s*\(")
+            source_call_count = len(call_pattern.findall(masked))
+            if source_call_count == 0:
+                continue
+            methods = rust_impl_methods(source, "TxPoolAuthority", allow_multiple=True)
+            method_call_count = sum(len(call_pattern.findall(body)) for _, body, _ in methods)
+            if method_call_count != source_call_count:
+                errors.append(
+                    f"{validator} call escaped a TxPoolAuthority method in "
+                    f"{path.relative_to(REPO_ROOT)}"
+                )
+            for method, body, _line in methods:
+                if call_pattern.search(body) is not None:
+                    production_callers[validator].add(
+                        f"{path.relative_to(REPO_ROOT)}::{method}"
+                    )
+    expected_callers = {
+        "validate_acceptance_evidence": {
+            "tx-pool/src/authority/plan.rs::prepare_accept_delta",
+            "tx-pool/src/authority/plan/settlement.rs::plan_settlement",
+        },
+        "validate_direct_acceptance_evidence": {
+            "tx-pool/src/authority/plan.rs::evaluate_direct_admission",
+            "tx-pool/src/authority/plan.rs::plan_direct_admission",
+            "tx-pool/src/authority/plan.rs::plan_internal_plug",
+        },
+    }
+    for validator, expected in expected_callers.items():
+        expected_occurrences = len(expected) + 1
+        if production_occurrences[validator] != expected_occurrences:
+            errors.append(
+                f"{validator} complete production occurrence count changed: expected "
+                f"{expected_occurrences}, found {production_occurrences[validator]}"
+            )
+        if production_callers[validator] != expected:
+            errors.append(
+                f"{validator} caller set changed: expected {sorted(expected)}, "
+                f"found {sorted(production_callers[validator])}"
+            )
 
     compact_subject = "".join(mask_rust_non_code(subject).split())
     subject_order = (
@@ -2372,6 +2493,10 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         "self.dependencies.proof_is_current(preaccepted.dependencies(),dependency_cut)"
     ) != 1:
         errors.append("the settlement baseline-currentness premise must have one owner")
+    if compact_classifier.count(
+        "verified.payload().identity()!=&preaccepted.record.identity"
+    ) != 1:
+        errors.append("Ready settlement must seal the proof identity to its exact owner")
 
     settlement = re.search(
         r"enum\s+SettlementNext\s*\{(?P<body>.*?)\n\}",
