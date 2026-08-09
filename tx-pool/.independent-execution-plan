@@ -5249,3 +5249,56 @@ The next exact action is to freeze this semantic checkpoint in one local
 commit, verify a clean tree, mechanically rediscover and review the complete
 schema-3 candidate lock, then commit that generated lock before starting the
 complete isolated mutation execution.
+
+## 45. B3-R5 atomic-field mutation-owner re-adjudication
+
+Current rediscovery from clean semantic checkpoint
+`e28d8f1fd77a1cb6564371482dc1586ba6f27344` stopped before writing a lock:
+`V1-MUT-ATOMIC-TRANSITION-FIELDS` matched zero candidates. This is not a tool
+upgrade or missing discovery. The current and historical locks both use
+cargo-mutants 27.1.0. Complete current `plan.rs` discovery contains no
+`StructField` candidate under `TxPoolAuthority::*`; it contains exactly three
+such candidates, all under the closed `TransitionControls::{dependency,
+effect,replacement_retirement}` constructors.
+
+The producer history explains the delta. B3-R1 deliberately removed raw
+`AuthorityClocks` assembly and defaultable transition control from every
+authority planner. Required clock fields are now enforced by
+`ClockPlanReservation` and `ApplyClockReservation`, so deleting one cannot
+produce compilable Rust and cargo-mutants correctly has no field candidate.
+The remaining update-syntax deletions are the real atomic projection-control
+surface: each asks whether a closed dependency, effect or replacement control
+can be replaced by the `none` value.
+
+Four responses were adjudicated. Restoring optional/default clock fields is
+rejected because it recreates the invalid partially initialized Apply state.
+Deleting the zero-match obligation is rejected because the three remaining
+control fields still have legal observable consequences. Letting the generic
+path remainder absorb them is rejected because it loses their exact atomic
+commit owner and proof family. Treating `TxPoolAuthority` as their owner is
+rejected because the candidate functions and construction policy belong to
+`TransitionControls`, not to arbitrary authority methods. The selected root
+correction adds `TransitionControls` to the existing `atomic_batch_apply`
+target owner, resolves the unchanged obligation through that topology target
+and narrows its adjudication selector to `TransitionControls::*`.
+
+This is an evidence-graph ownership correction, not a production semantic
+change. It adds no state, field, constructor, branch, lock, task, queue,
+capability, retry, I/O or runtime work. The falsifier is mechanical: removing
+or misnaming the new owner leaves the obligation at zero matches; overlapping
+it with another owner makes selection ambiguous; restoring a broad selector
+admits unrelated authority mutations. After the architecture, security and
+generated review projections agree, complete rediscovery must close every
+obligation and each expiry equivalence proof must resolve exactly one current
+structured candidate before any lock is accepted.
+
+The machine-owner correction now passes security-manifest, production,
+documentation and review-guide validation. A read-only complete rediscovery
+advances through candidate discovery and exact ownership with no zero-match,
+unowned or ambiguous obligation, then stops only because the checked-in schema-2
+lock differs from the regenerated schema-3 value. That is the required dirty
+tree boundary: no candidate row has been written or copied. The section-11
+delta remains empty for authority, state, transitions, capabilities,
+compatibility, concurrency and runtime cost. The next exact action is one local
+owner-correction commit, followed by clean generated-lock creation and proof
+selector validation.

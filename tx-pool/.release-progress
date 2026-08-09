@@ -5170,3 +5170,28 @@ The next exact action is a local semantic commit, followed from a clean tree by
 mechanical schema-3 candidate rediscovery, review and a separate generated-lock
 commit. Only then may the complete isolated mutation run start. Cleanup and
 remote push remain unauthorized.
+
+## B3-R5 mutation-owner re-adjudication active
+
+Clean rediscovery at `e28d8f1fd77a1cb6564371482dc1586ba6f27344`
+mechanically failed before writing a lock because the historical
+`TxPoolAuthority::*` struct-field selector has zero current candidates. The
+tool remains cargo-mutants 27.1.0. B3-R1 made all clock fields required through
+the two sealed reservation capabilities; current `plan.rs` has exactly three
+deletable struct fields and all belong to the closed
+`TransitionControls::{dependency,effect,replacement_retirement}` constructors.
+
+Section 45 records the root adjudication. The atomic-field obligation is not
+deleted, weakened into the path remainder or made representable again. Its
+owner moves to the existing `atomic_batch_apply` topology target
+`TransitionControls`, and its proof-family selector follows that exact owner.
+No production Rust or runtime topology changes. The next action is to update
+the machine owners and generated review projection, pass their static gates,
+freeze a local correction commit, and retry clean complete discovery.
+
+The architecture target, manifest owner, proof-family selector and public Plan
+contract now agree on `TransitionControls`. Security, production, docs and
+review gates pass. Read-only complete rediscovery no longer reports a zero,
+unowned or ambiguous candidate; it reaches only the expected stale-lock
+boundary without writing a row. The next action is a local correction commit,
+then clean schema-3 lock generation and exact equivalence-selector validation.

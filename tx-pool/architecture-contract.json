@@ -128,7 +128,7 @@
         "mutation_selectors": [
           {
             "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
-            "function_pattern": "^TxPoolAuthority::.*$"
+            "function_pattern": "^TransitionControls::.*$"
           },
           {
             "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
@@ -425,7 +425,7 @@
         ],
         "target_owner": {
           "path": "tx-pool/src/authority/plan.rs",
-          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "AuthorityDelta", "PreparedApply"]
+          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "TransitionControls", "AuthorityDelta", "PreparedApply"]
         },
         "current_owners": [
           {
@@ -434,7 +434,7 @@
           },
           {
             "path": "tx-pool/src/authority/plan.rs",
-            "symbols": ["AuthorityDelta", "IndependentDelta", "PreparedApply"]
+            "symbols": ["TransitionControls", "AuthorityDelta", "IndependentDelta", "PreparedApply"]
           }
         ],
         "cost": {

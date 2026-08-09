@@ -655,6 +655,14 @@ builds a private closed delta containing:
 - retirement carriers and, only for specialized compute checkout plans, the
   exact move-only worker capability.
 
+Clock fields are constructible only through the discardable
+`ClockPlanReservation` and nonempty-Apply `ApplyClockReservation` capabilities;
+they are never optional or defaulted in an authority planner. The closed
+`TransitionControls` constructors are the sole owner of the legal dependency,
+effect and replacement-retirement combinations. Their three fields remain an
+atomic-commit mutation surface even though required clock-field deletion is
+now compile-unrepresentable.
+
 Ordinary outcomes such as rejection, backpressure, duplicate, stale evidence
 and cancellation are decided before Apply and represented by closed enums. A
 prepared plan borrows the authority mutably and is `must_use`; it cannot be

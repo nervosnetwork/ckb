@@ -48,9 +48,9 @@
         "semantic_binding": "authority_and_atomic_apply",
         "component_id": "atomic_batch_apply",
         "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-OWN-001",
-          "symbol": "struct TxPoolAuthority"
+          "kind": "topology_target",
+          "component_id": "atomic_batch_apply",
+          "symbol": "TransitionControls"
         },
         "selector": {"kind": "struct_fields"}
       },
