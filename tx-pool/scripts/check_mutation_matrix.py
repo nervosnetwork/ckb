@@ -127,12 +127,20 @@ def run(argv: list[str]) -> str:
     return completed.stdout
 
 
-def require_clean_worktree() -> None:
+def require_clean_worktree(allowed_generated: set[str] | None = None) -> None:
     status = run(["git", "status", "--porcelain=v1", "--untracked-files=all"])
-    if status.strip():
+    allowed_generated = allowed_generated or set()
+    unexpected = []
+    for line in status.splitlines():
+        path = line[3:]
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if path not in allowed_generated:
+            unexpected.append(line)
+    if unexpected:
         fail(
             "--write-lock requires a clean recoverable Git checkpoint; "
-            f"current changes:\n{status.rstrip()}"
+            f"current changes:\n{chr(10).join(unexpected)}"
         )
 
 
@@ -463,18 +471,6 @@ def evidence_set(
     }
 
 
-def candidate_core(candidate: dict) -> dict:
-    return {
-        "name": candidate["name"],
-        "file": candidate["file"],
-        "function": candidate["function"]["function_name"],
-        "function_span": candidate["function"].get("span"),
-        "mutation_span": candidate.get("span"),
-        "genre": candidate.get("genre"),
-        "replacement": candidate.get("replacement"),
-    }
-
-
 def input_record(path: Path) -> dict:
     return {"path": repo_relative(path), "sha256": file_digest(path)}
 
@@ -543,18 +539,12 @@ def build_lock(
         rows.append(
             {
                 "candidate": candidate["name"],
+                "file": candidate["file"],
                 "function": candidate["function"]["function_name"],
                 "genre": candidate.get("genre"),
                 "obligation_id": obligation["id"],
             }
         )
-    universe_rows = [
-        {
-            **candidate_core(candidate),
-            "obligation_id": obligation["id"],
-        }
-        for candidate, obligation in selected
-    ]
     command = command_template(
         manifest["package"], manifest["features"], paths, acceptance["test_target"]
     )
@@ -597,14 +587,13 @@ def build_lock(
             ],
         },
         "candidate_universe": {
-            "count": len(universe_rows),
-            "sha256": digest(universe_rows),
+            "count": len(rows),
+            "sha256": digest(rows),
             "excluded_count": 0,
-            "rows": universe_rows,
         },
         "execution": {
             "candidate_count": len(rows),
-            "candidate_sha256": digest([candidate_core(row) for row, _ in selected]),
+            "candidate_sha256": digest(rows),
             "config_sha256": hashlib.sha256(exact_config.encode()).hexdigest(),
             "command_template": command,
             "command_sha256": digest(command),
@@ -642,29 +631,21 @@ def read_json_object(path: Path, label: str) -> dict:
     return value
 
 
-def candidate_from_universe_row(row: dict) -> dict:
+def candidate_from_lock_row(row: dict) -> dict:
     required = {
-        "name",
+        "candidate",
         "file",
         "function",
-        "function_span",
-        "mutation_span",
         "genre",
-        "replacement",
         "obligation_id",
     }
     if set(row) != required:
-        fail(f"invalid candidate-universe row fields: {row!r}")
+        fail(f"invalid candidate row fields: {row!r}")
     return {
-        "name": row["name"],
+        "name": row["candidate"],
         "file": row["file"],
-        "function": {
-            "function_name": row["function"],
-            "span": row["function_span"],
-        },
-        "span": row["mutation_span"],
+        "function": {"function_name": row["function"]},
         "genre": row["genre"],
-        "replacement": row["replacement"],
     }
 
 
@@ -680,10 +661,10 @@ def validate_lock_without_discovery(
     if observed.get("schema_version") != 2:
         fail(f"generated mutation lock has unsupported schema: {lock_path}")
     universe = observed.get("candidate_universe")
-    rows = universe.get("rows") if isinstance(universe, dict) else None
-    if not isinstance(rows, list) or not rows:
+    rows = observed.get("rows")
+    if not isinstance(universe, dict) or not isinstance(rows, list) or not rows:
         fail("generated mutation lock has no complete candidate universe")
-    candidates = [candidate_from_universe_row(row) for row in rows]
+    candidates = [candidate_from_lock_row(row) for row in rows]
     obligations = resolve_obligations(acceptance, contract, registry)
     selected = select_candidates(candidates, obligations)
     exact_config = config_text(selected, candidates)
@@ -901,7 +882,7 @@ def main() -> int:
     if args.write_result_lock and not args.verify_outcomes:
         fail("--write-result-lock requires one or more --verify-outcomes inputs")
     if args.write_lock:
-        require_clean_worktree()
+        require_clean_worktree({repo_relative(args.lock)})
     run_selection_canaries()
     manifest, contract, registry, acceptance = load_inputs(args.manifest)
     if args.rediscover:
