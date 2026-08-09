@@ -1,7 +1,8 @@
 use super::dependency_progress::{
     DependencyEventDisposition, DependencyMaintenanceState, DependencyMaintenanceStep,
-    ModelDependencyCut, ModelDependencyEdges, ModelDependencyKey, ModelDependencyOwner,
-    ModelDirtyDependencyEpoch, ModelDirtyScope, ModelPendingDependencyEpoch,
+    DependencyOwnerProgress, DependencyProgressError, ModelDependencyCut, ModelDependencyEdges,
+    ModelDependencyKey, ModelDependencyOwner, ModelDirtyDependencyEpoch, ModelDirtyScope,
+    ModelPendingDependencyEpoch,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -62,7 +63,7 @@ fn model_dependency_maintenance_consumes_one_finite_obligation_per_apply() {
 }
 
 #[test]
-fn model_dependency_rank_is_the_exact_stable_epoch_drain_bound() {
+fn model_dependency_rank_is_the_exact_static_edge_drain_bound() {
     let consumers = edges(&[(1, &[1, 2, 3]), (2, &[4, 5])]);
     let waiters = edges(&[(1, &[1, 3]), (2, &[4])]);
     let dirty = BTreeMap::from([
@@ -104,6 +105,76 @@ fn model_dependency_rank_is_the_exact_stable_epoch_drain_bound() {
     }
     assert_eq!(steps, initial_rank);
     assert_eq!(state.rank(), Ok(0));
+}
+
+#[test]
+fn model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch() {
+    let key = ModelDependencyKey(1);
+    let dirty = BTreeMap::from([(
+        key,
+        ModelDirtyDependencyEpoch::new(
+            ModelDependencyCut(3),
+            ModelDirtyScope::ExistingWaiters,
+            None,
+            Some(ModelPendingDependencyEpoch {
+                target: ModelDependencyCut(5),
+                scope: ModelDirtyScope::ExistingWaiters,
+            }),
+        )
+        .expect("the pending waiter epoch is newer"),
+    )]);
+    let mut state =
+        DependencyMaintenanceState::new(edges(&[(1, &[1])]), edges(&[(1, &[1])]), dirty, None)
+            .expect("the coalesced waiter frontier is legal");
+    let initial_rank = state.rank().expect("the finite rank is representable");
+    assert_eq!(initial_rank, 4);
+
+    let first = state
+        .apply_next_with_owner_progress(DependencyOwnerProgress::Requeued)
+        .expect("one owner requeue is a legal maintenance successor")
+        .expect("the current epoch has one waiter edge");
+    assert_eq!(first.before_rank, 4);
+    assert_eq!(first.after_rank, 2);
+    assert!(first.after_rank < first.before_rank);
+    state = first.after;
+
+    let mut steps = 1usize;
+    while let Some(transition) = state
+        .apply_next()
+        .expect("the remaining completion markers are total")
+    {
+        assert!(transition.after_rank < transition.before_rank);
+        state = transition.after;
+        steps += 1;
+    }
+    assert_eq!(steps, 3);
+    assert!(steps <= initial_rank);
+    assert_eq!(state.rank(), Ok(0));
+}
+
+#[test]
+fn model_dependency_completion_cannot_claim_owner_progress() {
+    let key = ModelDependencyKey(1);
+    let state = DependencyMaintenanceState::new(
+        edges(&[(1, &[1])]),
+        ModelDependencyEdges::new(),
+        BTreeMap::from([(
+            key,
+            ModelDirtyDependencyEpoch::new(
+                ModelDependencyCut(1),
+                ModelDirtyScope::ExistingWaiters,
+                None,
+                None,
+            )
+            .expect("the completion-only epoch is legal"),
+        )]),
+        None,
+    )
+    .expect("the completion-only frontier is legal");
+    assert!(matches!(
+        state.apply_next_with_owner_progress(DependencyOwnerProgress::Requeued),
+        Err(DependencyProgressError::OwnerProgressWithoutOwner)
+    ));
 }
 
 #[test]

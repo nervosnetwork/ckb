@@ -96,6 +96,7 @@ enum DependencyMaintenanceStep {
     },
 }
 
+#[must_use = "a dependency maintenance successor must be carried by one authority Apply"]
 pub(super) struct DependencyMaintenancePlan(DependencyMaintenanceStep);
 
 #[derive(Clone, Debug)]
@@ -255,6 +256,12 @@ impl DependencyMaintenanceTicket {
                 })
             }
         }
+    }
+}
+
+impl DependencyMaintenancePlan {
+    pub(super) fn into_control(self) -> DependencyControlDelta {
+        DependencyControlDelta::Maintenance(self)
     }
 }
 
@@ -521,7 +528,7 @@ impl DependencyFrontier {
     pub(super) fn plan_maintenance(
         &self,
         ticket: DependencyMaintenanceTicket,
-    ) -> Result<DependencyControlDelta, DependencyError> {
+    ) -> Result<DependencyMaintenancePlan, DependencyError> {
         if self.dirty.get(&ticket.key) != Some(&ticket.expected)
             || self.next_dirty_key() != Some(&ticket.key)
         {
@@ -538,9 +545,7 @@ impl DependencyFrontier {
                 expected: ticket.expected,
             },
         };
-        Ok(DependencyControlDelta::Maintenance(
-            DependencyMaintenancePlan(step),
-        ))
+        Ok(DependencyMaintenancePlan(step))
     }
 
     pub(super) fn apply_control(&mut self, control: DependencyControlDelta) {

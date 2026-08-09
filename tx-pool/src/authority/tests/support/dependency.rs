@@ -1,5 +1,23 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::authority) struct DependencyMaintenanceRank(usize);
+
+impl DependencyMaintenanceRank {
+    pub(in crate::authority) const fn value(self) -> usize {
+        self.0
+    }
+
+    pub(in crate::authority) const fn strictly_decreases_to(self, after: Self) -> bool {
+        after.0 < self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum DependencyMaintenanceRankError {
+    Arithmetic,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct DependencySnapshot {
     consumers: BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
@@ -88,6 +106,42 @@ impl DependencyFrontier {
         Ok(self
             .next_maintenance()?
             .map(|ticket| (ticket.key, ticket.hash)))
+    }
+
+    /// Exact edge/marker count for a fixed projection and a finite upper bound
+    /// when one owner requeue also retires waiter edges from pending epochs.
+    /// This is a test-only ghost projection and never runs under a production
+    /// authority guard.
+    pub(in crate::authority) fn maintenance_rank(
+        &self,
+    ) -> Result<DependencyMaintenanceRank, DependencyMaintenanceRankError> {
+        let edges = |key: &DependencyKey, scope: DirtyScope| match scope {
+            DirtyScope::ExistingWaiters => self.waiters.get(key),
+            DirtyScope::AllConsumers => self.consumers.get(key),
+        };
+        let rank = self.dirty.iter().try_fold(0usize, |total, (key, dirty)| {
+            let remaining = edges(key, dirty.scope).map_or(0, |owners| {
+                owners
+                    .iter()
+                    .filter(|owner| dirty.cursor.as_ref().is_none_or(|cursor| *owner > cursor))
+                    .count()
+            });
+            let current = remaining
+                .checked_add(1)
+                .ok_or(DependencyMaintenanceRankError::Arithmetic)?;
+            let pending = match dirty.pending {
+                Some(pending) => edges(key, pending.scope)
+                    .map_or(0, BTreeSet::len)
+                    .checked_add(1)
+                    .ok_or(DependencyMaintenanceRankError::Arithmetic)?,
+                None => 0,
+            };
+            total
+                .checked_add(current)
+                .and_then(|rank| rank.checked_add(pending))
+                .ok_or(DependencyMaintenanceRankError::Arithmetic)
+        })?;
+        Ok(DependencyMaintenanceRank(rank))
     }
 
     pub(in crate::authority) fn semantically_matches(

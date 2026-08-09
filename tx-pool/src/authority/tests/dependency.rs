@@ -183,36 +183,12 @@ fn accept_remote(
 }
 
 fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
-    let mut primary_requeues = 0;
-    for _ in 0..64 {
-        let observed_owner = authority
-            .dependency_maintenance_observation_for_foundation()
-            .expect("dependency maintenance observation is valid")
-            .and_then(|(_, hash)| hash)
-            .and_then(|hash| {
-                authority
-                    .entry(&hash)
-                    .map(|owner| (hash, owner.record().version))
-            });
-        let Some(plan) = authority
-            .plan_dependency_maintenance()
-            .expect("dependency maintenance planning is valid")
-        else {
-            return primary_requeues;
-        };
-        drop(plan.apply());
-        if observed_owner.is_some_and(|(hash, version)| {
-            matches!(
-                authority.entry(&hash),
-                Some(OwnedTx::PreAccepted(entry))
-                    if entry.record.version != version
-                        && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-            )
-        }) {
-            primary_requeues += 1;
-        }
-    }
-    panic!("dependency maintenance did not converge within the fixture bound");
+    authority
+        .drain_dependency_maintenance_for_foundation()
+        .expect("the stable dependency rank strictly decreases to zero")
+        .iter()
+        .filter(|step| step.owner_requeued())
+        .count()
 }
 
 #[test]
@@ -351,7 +327,18 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
         );
     }
 
-    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    let maintenance = authority
+        .drain_dependency_maintenance_for_foundation()
+        .expect("coalesced levels strictly decrease the stable dependency rank");
+    assert_eq!(
+        maintenance
+            .iter()
+            .filter(|step| step.owner_requeued())
+            .count(),
+        1
+    );
+    assert_eq!(maintenance[0].before_rank().value(), 4);
+    assert_eq!(maintenance[0].after_rank().value(), 2);
     assert_eq!(
         owner_version(&authority, &hash),
         EntryVersion(waiting_version.0 + 1),
@@ -1263,22 +1250,12 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
             .plan_terminalize_for_foundation(&parent, parent_version)
             .expect("parent terminalization publishes every exact origin key"),
     );
-    let mut observed = BTreeSet::new();
-    for _ in 0..16 {
-        let Some((key, _)) = authority
-            .dependency_maintenance_observation_for_foundation()
-            .expect("maintenance observation is valid")
-        else {
-            break;
-        };
-        observed.insert(key);
-        apply_plan(
-            authority
-                .plan_dependency_maintenance()
-                .expect("maintenance planning is valid")
-                .expect("the observed step remains current"),
-        );
-    }
+    let observed: BTreeSet<DependencyKey> = authority
+        .drain_dependency_maintenance_for_foundation()
+        .expect("loss-key maintenance consumes its rank-derived bound")
+        .into_iter()
+        .map(|step| step.key().clone())
+        .collect();
     assert_eq!(
         observed,
         BTreeSet::from([
@@ -1286,12 +1263,12 @@ fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
             DependencyKey::Cell(invalid_index),
         ])
     );
-    assert!(
+    assert_eq!(
         authority
-            .dependency_maintenance_observation_for_foundation()
-            .expect("drained maintenance observation is valid")
-            .is_none(),
-        "loss-key maintenance converges inside its charged-edge bound"
+            .dependency_maintenance_rank_for_foundation()
+            .expect("the drained rank is representable")
+            .value(),
+        0
     );
     assert!(authority.primary_projection_consistent());
 }
@@ -1339,18 +1316,15 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
         );
     }
 
+    let maintenance = authority
+        .drain_dependency_maintenance_for_foundation()
+        .expect("popular-key maintenance consumes its rank-derived bound");
     let mut order = Vec::new();
     let mut work_by_key = BTreeMap::<DependencyKey, (usize, usize)>::new();
-    for _ in 0..32 {
-        let Some((key, hash)) = authority
-            .dependency_maintenance_observation_for_foundation()
-            .expect("maintenance observation is valid")
-        else {
-            break;
-        };
-        order.push((key.clone(), hash.is_some()));
-        let work = work_by_key.entry(key).or_default();
-        if hash.is_some() {
+    for step in maintenance {
+        order.push((step.key().clone(), step.hash().is_some()));
+        let work = work_by_key.entry(step.key().clone()).or_default();
+        if step.hash().is_some() {
             work.0 = work.0.checked_add(1).expect("fixture edge count fits");
         } else {
             work.1 = work
@@ -1358,19 +1332,13 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
                 .checked_add(1)
                 .expect("fixture completion count fits");
         }
-        apply_plan(
-            authority
-                .plan_dependency_maintenance()
-                .expect("maintenance planning is valid")
-                .expect("the observed step remains current"),
-        );
     }
-    assert!(
+    assert_eq!(
         authority
-            .dependency_maintenance_observation_for_foundation()
-            .expect("drained maintenance observation is valid")
-            .is_none(),
-        "popular-key maintenance converges inside edges plus dirty keys"
+            .dependency_maintenance_rank_for_foundation()
+            .expect("the drained rank is representable")
+            .value(),
+        0
     );
     assert!(order.len() >= 2);
     assert!(order[0].1 && order[1].1);

@@ -18,6 +18,7 @@ use crate::authority::state::{
     ValidatedAdmission, VerifyCapability, WorkPermit, test_support::RejectionKind,
 };
 use crate::authority::validation::FinalAdmissionValidationError;
+use crate::authority::worker::test_support::AuthorityTestWorkerOwner;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -33,7 +34,7 @@ use ckb_types::{
 };
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use tokio::sync::{RwLock as TokioRwLock, mpsc, watch};
+use tokio::sync::{RwLock as TokioRwLock, mpsc};
 
 fn runtime_config() -> TxPoolConfig {
     TxPoolConfig {
@@ -72,25 +73,6 @@ fn runtime() -> AuthorityRuntime {
     let snapshot = genesis_snapshot();
     AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
         .expect("the production authority runtime fixture is valid")
-}
-
-async fn stop_worker_set(
-    command_tx: &watch::Sender<ChunkCommand>,
-    cancel: &CancellationToken,
-    handles: crate::authority::worker::AuthorityWorkerHandles,
-) {
-    command_tx
-        .send(ChunkCommand::Stop)
-        .expect("the test owns the live verification control");
-    cancel.cancel();
-    for task in handles.tasks.into_iter().rev() {
-        let role = task.role;
-        tokio::time::timeout(std::time::Duration::from_secs(5), task.handle)
-            .await
-            .unwrap_or_else(|_| panic!("the {role:?} task must stop within the test bound"))
-            .expect("authority worker task remains healthy")
-            .expect("authority worker exits without a structural fault");
-    }
 }
 
 fn runtime_with_effect_limits(
@@ -527,22 +509,15 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, mut cache_rx) = mpsc::channel(4);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Suspend);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the validated worker topology reserves its handle vector");
-    assert_eq!(
-        handles
-            .tasks
-            .iter()
-            .filter(|task| matches!(
-                task.role,
-                crate::authority::worker::AuthorityWorkerRole::Verifier(_)
-            ))
-            .count(),
-        4
-    );
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Suspend,
+    )
+    .expect("the validated worker topology reserves its handle vector");
+    assert_eq!(workers.verifier_count(), 4);
 
     let admission = admission(906, 96);
     let key = admission.identity.raw.clone();
@@ -561,7 +536,7 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
         "a suspended topology must not check out a linear capability"
     );
 
-    command_tx
+    workers
         .send(ChunkCommand::Resume)
         .expect("the worker command authority remains live");
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -588,7 +563,10 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
         .unpack();
     assert_eq!(update.key.witness_hash(), &expected_witness);
 
-    stop_worker_set(&command_tx, &cancel, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
     assert_eq!(
         runtime
             .store
@@ -624,11 +602,14 @@ async fn runtime_compute_coordinator_drains_a_coalesced_preexisting_frontier() {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the validated topology reserves its handle vector");
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the validated topology reserves its handle vector");
 
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
@@ -647,7 +628,10 @@ async fn runtime_compute_coordinator_drains_a_coalesced_preexisting_frontier() {
     .await
     .expect("the bounded coordinator probe must drain every preexisting head");
 
-    stop_worker_set(&command_tx, &cancel, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -704,11 +688,14 @@ async fn runtime_single_any_verifier_settles_mixed_preexisting_frontier() {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(TRANSACTIONS);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the single-verifier worker set starts");
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the single-verifier worker set starts");
 
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
@@ -744,7 +731,10 @@ async fn runtime_single_any_verifier_settles_mixed_preexisting_frontier() {
     assert_eq!(accepted, TRANSACTIONS / 2);
     assert_eq!(rejected, TRANSACTIONS / 2);
 
-    stop_worker_set(&command_tx, &cancel, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -772,11 +762,14 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(TokioRwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(1);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the validated topology reserves its handle vector");
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the validated topology reserves its handle vector");
 
     let admission = admission(908, 98);
     let key = admission.identity.raw.clone();
@@ -835,7 +828,10 @@ async fn runtime_worker_retains_rejected_settlement_until_effect_capacity_return
         0
     );
 
-    stop_worker_set(&command_tx, &cancel, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
 }
 
 #[tokio::test]

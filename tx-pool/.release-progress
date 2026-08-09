@@ -4923,3 +4923,59 @@ The exact next action is B3-R2: implement the modeled nonempty dependency
 maintenance successor and exact stable-epoch rank, then replace the complete
 raw test worker-spawn class with one structured cancellation/join owner. No
 remote push is authorized.
+
+## B3-R2 model-delta and ownership startup
+
+B3-R2 starts from clean local checkpoint `8df6d7e98`. The source census
+confirms a defaultable maintenance-control type gap and corrects the rank
+refinement before production edits: exact one-unit decrease holds with a fixed
+edge projection, while a legal owner requeue may atomically remove waiter
+obligations from both current and pending epochs. The complete rank is thus a
+strictly decreasing finite upper bound for production, not an instruction to
+emit redundant Applies until an incomplete model count is met. Section 36 of
+the fixed plan records the re-adjudicated theorem and implementation order.
+
+The same-class task census contains eight worker-generation test starts: six
+complete worker sets and two long-running maintenance drivers. One test-only
+owner will hold command, cancellation and join capabilities for all eight;
+normal exit joins every role and unwind aborts every still-owned task. Other
+effect, template and one-shot task classes remain with their distinct semantic
+owners. No production retry, watchdog, task, queue, rank scan or timeout patch
+is authorized.
+
+## B3-R2 dependency-progress and test-task closure
+
+B3-R2 is complete in the local checkpoint containing this record. The
+dependency frontier now produces a sealed nonempty `DependencyMaintenancePlan`
+and the atomic authority compiler is its sole conversion into the existing
+control sum. The executable model distinguishes the exact fixed-edge decrement
+from legal requeue pruning: every stable-epoch Apply strictly decreases the
+complete current-plus-pending rank, while the initial rank is a finite upper
+bound rather than an instruction to emit redundant Applies.
+
+All authority-test maintenance drains use one rank-derived owner and reject a
+missing or nondecreasing successor immediately. The complete worker-generation
+test class uses one structured owner that reserves before spawning, joins
+normal and aborted shutdown, and aborts every still-owned task on unwind. The
+production construction and test-layout bypass surfaces have separate
+mechanical checkers; no copied test-name or spawn-site registry was added.
+
+Final focused Nextest run `18cc12a5-7caf-401e-8357-4faa67b5297e` passes 53/53.
+Final complete run `255af5cb-ab42-4bd7-b33a-2b22b87d2850` passes 744/744 with
+zero skipped. Strict production and test-target Clippy, formatting, diff,
+production, test-layout, review, security, model-refinement, TLC and
+documentation owners pass. The aggregate gate remains intentionally red only
+because the historical mutation lock has zero current matches for B3-R1 clock
+obligations; B3-R5 owns its regeneration and current complete execution.
+
+The section-11 review finds no new production authority, state, lock, task,
+queue, channel, scan, allocation, retry, watchdog, timer, cache, I/O or
+compatibility branch. The rank is test-only, product concurrency and
+publication are unchanged, legacy configuration remains supported and node
+binary/database downgrade remains unsupported. Checker ownership was split by
+semantic fact during the snowball audit, and unrelated task classes were not
+absorbed into a generic supervisor.
+
+The next exact action is B3-R3 resource and scheduler refinement. Production
+changes remain forbidden unless finite differential evidence constructs an
+invalid state through a real producer. No remote push is authorized.

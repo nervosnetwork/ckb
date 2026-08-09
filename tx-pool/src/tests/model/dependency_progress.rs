@@ -87,6 +87,7 @@ pub(crate) enum DependencyProgressError {
     NonMonotonicEpoch,
     Arithmetic,
     StaleStep,
+    OwnerProgressWithoutOwner,
     NondecreasingStep,
 }
 
@@ -99,6 +100,12 @@ pub(crate) enum DependencyMaintenanceStep {
     Complete {
         key: ModelDependencyKey,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DependencyOwnerProgress {
+    Unchanged,
+    Requeued,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,6 +243,13 @@ impl DependencyMaintenanceState {
     pub(crate) fn apply_next(
         &self,
     ) -> Result<Option<DependencyMaintenanceTransition>, DependencyProgressError> {
+        self.apply_next_with_owner_progress(DependencyOwnerProgress::Unchanged)
+    }
+
+    pub(crate) fn apply_next_with_owner_progress(
+        &self,
+        owner_progress: DependencyOwnerProgress,
+    ) -> Result<Option<DependencyMaintenanceTransition>, DependencyProgressError> {
         let Some(step) = self.next_step() else {
             return Ok(None);
         };
@@ -243,6 +257,15 @@ impl DependencyMaintenanceState {
         let mut after = self.clone();
         match step {
             DependencyMaintenanceStep::Advance { key, owner } => {
+                if owner_progress == DependencyOwnerProgress::Requeued {
+                    let remove_waiter_key = after.waiters.get_mut(&key).is_some_and(|waiters| {
+                        waiters.remove(&owner);
+                        waiters.is_empty()
+                    });
+                    if remove_waiter_key {
+                        after.waiters.remove(&key);
+                    }
+                }
                 let epoch = after
                     .dirty
                     .get_mut(&key)
@@ -251,6 +274,9 @@ impl DependencyMaintenanceState {
                 after.dirty_cursor = Some(key);
             }
             DependencyMaintenanceStep::Complete { key } => {
+                if owner_progress != DependencyOwnerProgress::Unchanged {
+                    return Err(DependencyProgressError::OwnerProgressWithoutOwner);
+                }
                 let epoch = after
                     .dirty
                     .remove(&key)

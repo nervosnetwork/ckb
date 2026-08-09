@@ -10,35 +10,16 @@ use crate::authority::{
         OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission, WorkPermit,
         test_support::RejectionKind,
     },
-    worker::{AuthorityWorkerFaultKind, AuthorityWorkerRole},
+    worker::{
+        AuthorityWorkerFaultKind, AuthorityWorkerRole, test_support::AuthorityTestWorkerOwner,
+    },
 };
 use ckb_async_runtime::Handle;
 use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
-use ckb_stop_handler::CancellationToken;
 use ckb_types::core::{FeeRate, TransactionBuilder};
 use std::{ops::ControlFlow, sync::Arc, time::Duration};
-use tokio::sync::{RwLock, mpsc, watch};
-
-async fn join_workers(
-    runtime: &AuthorityRuntime,
-    handles: crate::authority::worker::AuthorityWorkerHandles,
-) {
-    for task in handles.tasks.into_iter().rev() {
-        let role = task.role;
-        tokio::time::timeout(Duration::from_secs(5), task.handle)
-            .await
-            .unwrap_or_else(|_| {
-                panic!(
-                    "the {role:?} task must stop within the test bound; permits={}, effects={:?}",
-                    runtime.available_compute_permits_for_foundation(),
-                    runtime.effect_observation_for_foundation(),
-                )
-            })
-            .expect("the retained task does not panic")
-            .expect("the retained task closes cleanly");
-    }
-}
+use tokio::sync::{RwLock, mpsc};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_compute_coordinator_probes_every_role_with_one_available_fair_permit() {
@@ -75,17 +56,16 @@ async fn uak_compute_coordinator_probes_every_role_with_one_available_fair_permi
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, mut cache_rx) = mpsc::channel(4);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the compute exchange topology starts");
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the compute exchange topology starts");
     assert_eq!(
-        handles
-            .tasks
-            .iter()
-            .filter(|task| task.role == AuthorityWorkerRole::ComputeCoordinator)
-            .count(),
+        workers.role_count(AuthorityWorkerRole::ComputeCoordinator),
         1
     );
 
@@ -106,11 +86,10 @@ async fn uak_compute_coordinator_probes_every_role_with_one_available_fair_permi
         )
     }));
 
-    command_tx
-        .send(ChunkCommand::Stop)
-        .expect("the test owns the live verification control");
-    cancel.cancel();
-    join_workers(&runtime, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
     drop(held);
 }
 
@@ -204,11 +183,14 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
     let (cache_tx, _cache_rx) = mpsc::channel(4);
-    let (command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let cancel = CancellationToken::new();
-    let handles = runtime
-        .spawn_workers(&handle, cache, cache_tx, command_rx, cancel.clone())
-        .expect("the compute exchange topology starts");
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the compute exchange topology starts");
 
     let blocked = ValidatedAdmission::remote(tx(90_003), PeerIndex::from(2usize))
         .expect("the blocked rejection fixture is valid");
@@ -236,7 +218,7 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
     // this cut, the coordinator may fairly reacquire a permit between the
     // availability read and the fixture's two try-acquires, making the test a
     // scheduler race rather than a wake-protocol falsifier.
-    command_tx
+    workers
         .send(ChunkCommand::Suspend)
         .expect("the fixture suspends new verification checkout");
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -269,7 +251,7 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
     // finished capability. Releasing a Direct-equivalent permit must still
     // publish a level that triggers an immediate acquisition and bounded role
     // probe for the unrelated owner.
-    command_tx
+    workers
         .send(ChunkCommand::Resume)
         .expect("the fixture resumes the coordinator before publishing capacity");
     drop(first_held);
@@ -311,9 +293,8 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
             .settle_effect_for_foundation(rejection.complete_for_foundation().published())
             .expect("each rejection publication releases the next waiter");
     }
-    command_tx
-        .send(ChunkCommand::Stop)
-        .expect("the test owns the live verification control");
-    cancel.cancel();
-    join_workers(&runtime, handles).await;
+    workers
+        .shutdown()
+        .await
+        .expect("the structured worker generation closes cleanly");
 }

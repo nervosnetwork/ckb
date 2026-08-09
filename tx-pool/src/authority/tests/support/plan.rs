@@ -3,7 +3,9 @@ use super::super::{
         AcceptedProof, DirectAdmissionError, DirectAdmissionWork,
         test_support::{AdmissionEvidenceError, ChainTransitionFacts},
     },
-    dependency::test_support::DependencySnapshot,
+    dependency::test_support::{
+        DependencyMaintenanceRank, DependencyMaintenanceRankError, DependencySnapshot,
+    },
     effect::test_support::{EffectObservation, EffectSnapshot, EffectTraceBatch},
     indexes::test_support::IndexSnapshot,
     resources::{ActiveWorkAvailability, test_support::ResourceSnapshot},
@@ -15,6 +17,89 @@ use super::*;
 use crate::authority::ingress::RetainedIngress;
 use ckb_types::core::TransactionView;
 use ckb_verification::cache::ScriptVerificationRules;
+
+#[derive(Debug)]
+pub(in crate::authority) enum DependencyMaintenanceDrainError {
+    Rank(DependencyMaintenanceRankError),
+    Plan(PlanError),
+    Allocation,
+    MissingObservation,
+    MissingSuccessor(DependencyMaintenanceRank),
+    Nondecreasing {
+        before: DependencyMaintenanceRank,
+        after: DependencyMaintenanceRank,
+    },
+    ResidualSuccessor,
+}
+
+impl std::fmt::Display for DependencyMaintenanceDrainError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rank(error) => write!(formatter, "dependency rank failure: {error:?}"),
+            Self::Plan(error) => write!(formatter, "dependency Plan failure: {error:?}"),
+            Self::Allocation => formatter.write_str("dependency drain observation allocation"),
+            Self::MissingObservation => {
+                formatter.write_str("positive dependency rank has no next observation")
+            }
+            Self::MissingSuccessor(rank) => {
+                write!(
+                    formatter,
+                    "dependency rank {rank:?} has no sealed successor"
+                )
+            }
+            Self::Nondecreasing { before, after } => write!(
+                formatter,
+                "dependency maintenance rank did not decrease: {before:?} -> {after:?}"
+            ),
+            Self::ResidualSuccessor => {
+                formatter.write_str("zero dependency rank still has a successor")
+            }
+        }
+    }
+}
+
+impl From<DependencyMaintenanceRankError> for DependencyMaintenanceDrainError {
+    fn from(error: DependencyMaintenanceRankError) -> Self {
+        Self::Rank(error)
+    }
+}
+
+impl From<PlanError> for DependencyMaintenanceDrainError {
+    fn from(error: PlanError) -> Self {
+        Self::Plan(error)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) struct DependencyMaintenanceObservation {
+    key: DependencyKey,
+    hash: Option<RawTxHash>,
+    owner_requeued: bool,
+    before_rank: DependencyMaintenanceRank,
+    after_rank: DependencyMaintenanceRank,
+}
+
+impl DependencyMaintenanceObservation {
+    pub(in crate::authority) fn key(&self) -> &DependencyKey {
+        &self.key
+    }
+
+    pub(in crate::authority) fn hash(&self) -> Option<&RawTxHash> {
+        self.hash.as_ref()
+    }
+
+    pub(in crate::authority) const fn owner_requeued(&self) -> bool {
+        self.owner_requeued
+    }
+
+    pub(in crate::authority) const fn before_rank(&self) -> DependencyMaintenanceRank {
+        self.before_rank
+    }
+
+    pub(in crate::authority) const fn after_rank(&self) -> DependencyMaintenanceRank {
+        self.after_rank
+    }
+}
 
 pub(in crate::authority) use super::super::rejection::ComponentLimitKind;
 pub(in crate::authority) use super::compute_exchange::test_support::ComputeExchangeRecovery;
@@ -1110,6 +1195,69 @@ impl TxPoolAuthority {
         &self,
     ) -> Result<Option<(DependencyKey, Option<RawTxHash>)>, PlanError> {
         Ok(self.dependencies.next_maintenance_observation()?)
+    }
+
+    pub(in crate::authority) fn dependency_maintenance_rank_for_foundation(
+        &self,
+    ) -> Result<DependencyMaintenanceRank, DependencyMaintenanceRankError> {
+        self.dependencies.maintenance_rank()
+    }
+
+    /// Drain one stable dependency epoch using its mechanically derived ghost
+    /// rank. Every Apply must be a sealed successor and strictly decrease the
+    /// rank; owner requeue may safely discharge more than one waiter
+    /// obligation from current and pending epochs.
+    pub(in crate::authority) fn drain_dependency_maintenance_for_foundation(
+        &mut self,
+    ) -> Result<Vec<DependencyMaintenanceObservation>, DependencyMaintenanceDrainError> {
+        let mut before_rank = self.dependencies.maintenance_rank()?;
+        let mut observations = Vec::new();
+        observations
+            .try_reserve(before_rank.value())
+            .map_err(|_| DependencyMaintenanceDrainError::Allocation)?;
+        while before_rank.value() != 0 {
+            let (key, hash) = self
+                .dependencies
+                .next_maintenance_observation()
+                .map_err(PlanError::from)?
+                .ok_or(DependencyMaintenanceDrainError::MissingObservation)?;
+            let observed_owner = hash.as_ref().and_then(|hash| {
+                self.entries
+                    .get(hash)
+                    .map(|owner| (hash.clone(), owner.record().version))
+            });
+            let plan = self.plan_dependency_maintenance()?.ok_or(
+                DependencyMaintenanceDrainError::MissingSuccessor(before_rank),
+            )?;
+            drop(plan.apply());
+            let after_rank = self.dependencies.maintenance_rank()?;
+            if !before_rank.strictly_decreases_to(after_rank) {
+                return Err(DependencyMaintenanceDrainError::Nondecreasing {
+                    before: before_rank,
+                    after: after_rank,
+                });
+            }
+            let owner_requeued = observed_owner.is_some_and(|(hash, version)| {
+                matches!(
+                    self.entries.get(&hash),
+                    Some(OwnedTx::PreAccepted(entry))
+                        if entry.record.version != version
+                            && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+                )
+            });
+            observations.push(DependencyMaintenanceObservation {
+                key,
+                hash,
+                owner_requeued,
+                before_rank,
+                after_rank,
+            });
+            before_rank = after_rank;
+        }
+        if self.plan_dependency_maintenance()?.is_some() {
+            return Err(DependencyMaintenanceDrainError::ResidualSuccessor);
+        }
+        Ok(observations)
     }
 
     /// Canonical one-member reference transition used by scheduler and trace

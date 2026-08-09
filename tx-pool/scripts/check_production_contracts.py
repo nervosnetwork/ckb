@@ -48,6 +48,9 @@ TX_POOL_AUTHORITY_WORKER = (
 )
 TX_POOL_BENCHMARK = REPO_ROOT / "tx-pool" / "src" / "benchmark.rs"
 TX_POOL_AUTHORITY_PLAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "plan.rs"
+TX_POOL_AUTHORITY_DEPENDENCY = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "dependency.rs"
+)
 TX_POOL_AUTHORITY_SETTLEMENT = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "settlement.rs"
 )
@@ -1040,6 +1043,39 @@ def validate_atomic_apply_construction() -> list[str]:
     return errors
 
 
+def validate_dependency_maintenance_successor() -> list[str]:
+    """Keep maintenance Apply construction behind one nonempty Plan value."""
+
+    try:
+        dependency = TX_POOL_AUTHORITY_DEPENDENCY.read_text()
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        maintenance = function_body(dependency, "plan_maintenance")
+        compile_maintenance = function_body(plan, "plan_dependency_maintenance")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect dependency maintenance construction: {error}"]
+    if maintenance is None or compile_maintenance is None:
+        return ["dependency maintenance producer or atomic compiler disappeared"]
+
+    errors: list[str] = []
+    signature = re.search(
+        r"\bfn\s+plan_maintenance\s*\([^;{]*\)\s*"
+        r"->\s*Result\s*<\s*DependencyMaintenancePlan\s*,\s*DependencyError\s*>",
+        mask_rust_non_code(dependency),
+        re.S,
+    )
+    if signature is None:
+        errors.append("dependency maintenance must produce a concrete nonempty Plan")
+    compact_maintenance = "".join(mask_rust_non_code(maintenance).split())
+    if "Ok(DependencyMaintenancePlan(step))" not in compact_maintenance:
+        errors.append("dependency maintenance lost its sealed successor construction")
+    if "DependencyControlDelta::None" in compact_maintenance:
+        errors.append("dependency maintenance may not construct an empty control successor")
+    compact_compile = "".join(mask_rust_non_code(compile_maintenance).split())
+    if ".plan_maintenance(ticket)?.into_control()" not in compact_compile:
+        errors.append("the atomic compiler must consume the sealed successor directly")
+    return errors
+
+
 def validate_compute_capability_identity() -> list[str]:
     """Keep EntryVersion as the sole numeric identity for active computation."""
 
@@ -1755,6 +1791,7 @@ def main() -> int:
         *validate_transaction_query_failure_domains(),
         *validate_prepared_full_query(),
         *validate_atomic_apply_construction(),
+        *validate_dependency_maintenance_successor(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -1771,7 +1808,7 @@ def main() -> int:
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
-        "sealed one-stamp atomic Apply construction and "
+        "sealed one-stamp atomic Apply and nonempty dependency-maintenance construction plus "
         "a closed Rust module graph plus current production vocabulary and "
         "execution-topology cost and shutdown order"
     )

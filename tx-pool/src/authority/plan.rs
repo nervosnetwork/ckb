@@ -3815,7 +3815,7 @@ impl TxPoolAuthority {
             &self.dependencies,
             hash.as_ref().and_then(|hash| self.entries.get(hash)),
         )?;
-        let control = self.dependencies.plan_maintenance(ticket)?;
+        let control = self.dependencies.plan_maintenance(ticket)?.into_control();
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         match action {

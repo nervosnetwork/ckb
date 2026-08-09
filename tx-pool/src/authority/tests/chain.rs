@@ -312,12 +312,11 @@ fn park_missing(authority: &mut TxPoolAuthority, hash: &RawTxHash, dependency: D
 }
 
 fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) {
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("dependency maintenance remains coherent")
-    {
-        apply_plan(plan);
-    }
+    drop(
+        authority
+            .drain_dependency_maintenance_for_foundation()
+            .expect("dependency maintenance strictly decreases its rank to zero"),
+    );
 }
 
 #[test]

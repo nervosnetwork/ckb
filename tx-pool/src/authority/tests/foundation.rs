@@ -382,6 +382,14 @@ fn drain_fixture_effects(authority: &mut TxPoolAuthority) {
     }
 }
 
+fn drain_fixture_dependency(authority: &mut TxPoolAuthority) {
+    drop(
+        authority
+            .drain_dependency_maintenance_for_foundation()
+            .expect("fixture dependency maintenance strictly decreases its rank to zero"),
+    );
+}
+
 pub(super) fn take_resolve_work(committed: CommittedCheckout) -> (RawTxHash, ResolveWork) {
     let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only checkout returns resolve work");
@@ -5249,12 +5257,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
         Some(OwnedTx::ReplacementHistory(_))
     ));
     assert_eq!(authority.resources().replacement_history().edges, 3);
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("continuous reservation makes wakeup capacity-invariant")
-    {
-        apply_plan(plan);
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(matches!(
         authority.entry(&oldest),
         Some(OwnedTx::PreAccepted(entry))
@@ -5335,12 +5338,7 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
     {
         apply_plan(unrelated);
     }
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("unrelated maintenance remains bounded")
-    {
-        apply_plan(plan);
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(matches!(
         authority.entry(&victim),
         Some(OwnedTx::ReplacementHistory(_))
@@ -5351,12 +5349,7 @@ fn uak_replacement_history_observes_only_finally_unavailable_dependencies() {
         .expect("the conflicting input availability plans")
         .expect("the exact history trigger has an indexed waiter");
     apply_plan(released);
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("the exact history trigger remains coherent")
-    {
-        apply_plan(plan);
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(matches!(
         authority.entry(&victim),
         Some(OwnedTx::PreAccepted(entry))
@@ -5421,12 +5414,7 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .expect("the first exact blocker has a coherent availability plan")
         .expect("the first exact blocker has an indexed history waiter");
     apply_plan(first_release);
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("partial availability maintenance remains coherent")
-    {
-        apply_plan(plan);
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(
         matches!(
             authority.entry(&victim),
@@ -5440,12 +5428,7 @@ fn uak_replacement_history_waits_for_every_observed_blocker() {
         .expect("the second exact blocker has a coherent availability plan")
         .expect("the second exact blocker has an indexed history waiter");
     apply_plan(second_release);
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("complete availability maintenance remains coherent")
-    {
-        apply_plan(plan);
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(matches!(
         authority.entry(&victim),
         Some(OwnedTx::PreAccepted(entry))
@@ -5561,18 +5544,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
         Some(OwnedTx::ReplacementHistory(_))
     ));
 
-    let mut rounds = 0usize;
-    while let Some(plan) = authority
-        .plan_dependency_maintenance()
-        .expect("dependency maintenance remains coherent")
-    {
-        apply_plan(plan);
-        rounds += 1;
-        assert!(
-            rounds <= 3,
-            "one key with two waiters has bounded maintenance"
-        );
-    }
+    drain_fixture_dependency(&mut authority);
     assert!(matches!(
         authority.entry(&oldest),
         Some(OwnedTx::PreAccepted(entry))

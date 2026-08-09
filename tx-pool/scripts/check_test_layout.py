@@ -13,10 +13,14 @@ from check_review_guide import (
     load_registry,
     validate_registry,
 )
+from check_production_contracts import function_body, mask_rust_non_code, matching_brace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
+AUTHORITY_TEST_ROOT = SOURCE_ROOT / "authority" / "tests"
+AUTHORITY_TEST_SUPPORT_PLAN = AUTHORITY_TEST_ROOT / "support" / "plan.rs"
+AUTHORITY_TEST_SUPPORT_WORKER = AUTHORITY_TEST_ROOT / "support" / "worker.rs"
 SYNC_TEST_ROOT = REPO_ROOT / "sync" / "src" / "tests"
 SYNC_CHAIN_ONLY_FIXTURE = SYNC_TEST_ROOT / "util.rs"
 MANIFEST_PATH = REPO_ROOT / "tx-pool" / "test-layout-manifest.json"
@@ -94,6 +98,146 @@ def expected_module_target(source: Path, module: str, module_path: str | None) -
     if direct.exists():
         return direct.resolve()
     return nested.resolve()
+
+
+def require_compact_fragments(
+    body: str, owner: str, fragments: tuple[str, ...]
+) -> list[str]:
+    compact = "".join(mask_rust_non_code(body).split())
+    return [
+        f"{owner} lost required proof fragment {fragment!r}"
+        for fragment in fragments
+        if fragment not in compact
+    ]
+
+
+def validate_dependency_progress_layout() -> list[str]:
+    """Keep every maintenance drain bound to the complete test-only rank."""
+
+    try:
+        support_plan = AUTHORITY_TEST_SUPPORT_PLAN.read_text()
+        drain = function_body(support_plan, "drain_dependency_maintenance_for_foundation")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect dependency progress evidence: {error}"]
+    if drain is None:
+        return ["the rank-derived dependency drain disappeared"]
+
+    errors = require_compact_fragments(
+        drain,
+        "rank-derived dependency drain",
+        (
+            "whilebefore_rank.value()!=0",
+            "MissingSuccessor(before_rank)",
+            "before_rank.strictly_decreases_to(after_rank)",
+            "DependencyMaintenanceDrainError::Nondecreasing",
+            "DependencyMaintenanceDrainError::ResidualSuccessor",
+        ),
+    )
+    for path in sorted(AUTHORITY_TEST_ROOT.rglob("*.rs")):
+        try:
+            masked = mask_rust_non_code(path.read_text())
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot inspect authority test source {relative(path)}: {error}")
+            continue
+        for loop in re.finditer(r"\b(?:while|for|loop)\b[^;{]*\{", masked, re.S):
+            opening = masked.find("{", loop.start(), loop.end())
+            closing = matching_brace(masked, opening)
+            if closing is None:
+                errors.append(f"cannot inspect loop ownership in {relative(path)}")
+                continue
+            body = masked[opening + 1 : closing]
+            if (
+                path != AUTHORITY_TEST_SUPPORT_PLAN
+                and ".plan_dependency_maintenance(" in "".join(body.split())
+            ):
+                errors.append(
+                    "dependency maintenance loop bypasses the rank-derived drain in "
+                    f"{relative(path)}"
+                )
+    return errors
+
+
+def validate_test_worker_ownership() -> list[str]:
+    """Keep long-running authority test tasks under one structured owner."""
+
+    try:
+        source = AUTHORITY_TEST_SUPPORT_WORKER.read_text()
+        spawn_maintenance = function_body(source, "spawn_maintenance")
+        spawn_observed = function_body(source, "spawn_observed_maintenance")
+        shutdown = function_body(source, "shutdown")
+        request_stop = function_body(source, "request_stop")
+        drop_owner = function_body(source, "drop")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect structured test-worker ownership: {error}"]
+    bodies = (spawn_maintenance, spawn_observed, shutdown, request_stop, drop_owner)
+    if any(body is None for body in bodies):
+        return ["the structured test-worker construction or teardown surface disappeared"]
+
+    errors: list[str] = []
+    for method, body in (
+        ("spawn_maintenance", spawn_maintenance),
+        ("spawn_observed_maintenance", spawn_observed),
+    ):
+        compact = "".join(mask_rust_non_code(body).split())
+        reserve = compact.find(".try_reserve(1)")
+        spawn = compact.find("handle.spawn(")
+        if min(reserve, spawn) < 0 or reserve >= spawn:
+            errors.append(f"{method} must reserve task ownership before spawning")
+    errors.extend(
+        require_compact_fragments(
+            shutdown,
+            "structured test-worker shutdown",
+            (
+                "self.request_stop()",
+                "self.tasks.iter_mut().rev()",
+                "tokio::time::timeout(TEST_WORKER_SHUTDOWN_TIMEOUT,&muttask.handle).await",
+                "task.handle.abort()",
+                "drop((&muttask.handle).await)",
+                "self.tasks.clear()",
+            ),
+        )
+    )
+    errors.extend(
+        require_compact_fragments(
+            request_stop,
+            "structured test-worker cancellation",
+            ("ChunkCommand::Stop", "self.cancel.cancel()"),
+        )
+    )
+    errors.extend(
+        require_compact_fragments(
+            drop_owner,
+            "structured test-worker Drop",
+            ("self.request_stop()", "task.handle.abort()"),
+        )
+    )
+
+    spawn_worker_sites: list[Path] = []
+    for path in sorted(AUTHORITY_TEST_ROOT.rglob("*.rs")):
+        try:
+            masked = mask_rust_non_code(path.read_text())
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot inspect authority test source {relative(path)}: {error}")
+            continue
+        sites = list(re.finditer(r"\.\s*spawn_workers\s*\(", masked))
+        spawn_worker_sites.extend(path for _site in sites)
+        if path == AUTHORITY_TEST_SUPPORT_WORKER:
+            continue
+        if sites:
+            errors.append(
+                f"raw authority worker-generation spawn remains in {relative(path)}"
+            )
+        if re.search(r"\brun_maintenance_driver(?:_for_foundation)?\s*\(", masked):
+            errors.append(f"raw maintenance-driver spawn remains in {relative(path)}")
+        for retired in ("stop_worker_set", "join_workers", "AuthorityWorkerHandles"):
+            if retired in masked:
+                errors.append(
+                    f"retired manual test-worker ownership {retired} remains in {relative(path)}"
+                )
+    if spawn_worker_sites != [AUTHORITY_TEST_SUPPORT_WORKER]:
+        sites = [relative(path) for path in spawn_worker_sites]
+        errors.append(f"expected one structured worker-generation constructor, found {sites}")
+    return errors
 
 
 def validate() -> list[str]:
@@ -274,6 +418,8 @@ def validate() -> list[str]:
                 f"become a named irreducible seam: {file}:{line}"
             )
 
+    errors.extend(validate_dependency_progress_layout())
+    errors.extend(validate_test_worker_ownership())
     return errors
 
 
@@ -294,7 +440,8 @@ def main() -> int:
     print(
         "validated tx-pool test isolation and production static safety: "
         f"{module_wires} discovered module wires, "
-        f"{sum(len(entry['symbols']) for entry in manifest['seams'])} named seams"
+        f"{sum(len(entry['symbols']) for entry in manifest['seams'])} named seams, "
+        "rank-derived dependency drains and structured worker ownership"
     )
     return 0
 

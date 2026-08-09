@@ -99,12 +99,12 @@
             "function_pattern": "^DependencyFrontier::(apply_maintenance|maintenance_pending|plan_maintenance)$"
           }
         ],
-        "semantic_fact": "At a stable dependency epoch every maintenance Apply consumes one finite edge or completion-marker obligation, with fair key rotation.",
-        "falsifier": "A prepared no-progress step leaves the stable rank unchanged and can keep a maintenance drain live forever.",
+        "semantic_fact": "At a stable dependency epoch every maintenance Apply consumes a sealed nonempty successor and strictly decreases a finite edge-plus-completion-marker rank; a fixed projection decreases by exactly one, while an owner requeue may atomically retire additional waiter obligations from current and pending epochs.",
+        "falsifier": "A defaultable or prepared no-progress successor leaves the stable rank unchanged, while an incomplete rank can reject a legal requeue that removes multiple obligations in one atomic Apply.",
         "parallelism": "External events may publish a strictly newer pending epoch; they do not serialize unrelated keys or worker computation.",
         "added_cost": "The global rank is proof-only; production may carry one sealed local successor witness and no full-frontier scan.",
         "deletion_counterexample": "Without the stable-epoch rank, arbitrary loop limits and unbounded drains are the only remaining termination arguments.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-ATOMIC-CONSTRUCTION",
@@ -1169,7 +1169,7 @@
       "tx-pool/src/authority/chain.rs::DirectAdmissionReceipt": "direct_acceptance_evidence",
       "tx-pool/src/authority/chain.rs::FinalAdmissionReceipt": "final_acceptance_evidence",
       "tx-pool/src/authority/dependency.rs::DependencyFrontier": "dependency_level_authority",
-      "tx-pool/src/authority/dependency.rs::DependencyMaintenanceTicket": "dependency_maintenance_successor",
+      "tx-pool/src/authority/dependency.rs::DependencyMaintenancePlan": "dependency_maintenance_successor",
       "tx-pool/src/authority/effect.rs::CommittedEffect": "committed_effect_value",
       "tx-pool/src/authority/effect.rs::EffectLog": "committed_effect_authority",
       "tx-pool/src/authority/effect.rs::EffectReceipt": "effect_delivery_capability",

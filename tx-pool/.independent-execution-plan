@@ -4421,9 +4421,11 @@ replaced by survivor-specific fixes.
    paths rather than layering another clock. Prove exact sequence,
    version/arrival ranges, overflow behavior and unchanged lock/I/O topology.
 2. **B3-R2 dependency progress and structured test ownership.** Make a
-   maintenance Plan carry a nonempty maintenance step rather than generic
-   `None`; add a test-only exact stable-epoch rank and require every focused
-   drain to consume one obligation per Apply. Replace every raw worker-set test
+    maintenance Plan carry a nonempty maintenance step rather than generic
+   `None`; add a test-only complete stable-epoch rank and require every focused
+   drain to consume a sealed successor that strictly decreases it. A fixed
+   edge projection decreases by exactly one, while an owner requeue may retire
+   additional waiter obligations atomically. Replace every raw worker-set test
    spawn in the same class with one cancellation/join owner whose failure path
    cannot leak tasks. Do not add a runtime frontier scan, retry or watchdog.
 3. **B3-R3 resource and scheduler refinement.** Bind the existing sparse
@@ -4600,3 +4602,152 @@ maintenance successor and exact stable-epoch rank, then replace the complete
 same-class raw test worker-spawn surface with one structured cancellation/join
 owner. It must not add a runtime frontier scan, retry, watchdog or local
 timeout patch.
+
+## 36. B3-R2 startup model delta and task-owner census
+
+Recovery starts from clean local B3-R1 checkpoint
+`8df6d7e9856f4adf4f951ecfaddefb24f9f52d47`. The complete dependency producer
+and test-drain audit confirms the historical type gap: the private
+`DependencyMaintenancePlan` already contains `Advance | Complete`, but
+`DependencyFrontier::plan_maintenance` erases it back to the defaultable
+`DependencyControlDelta`. A prepared Apply can therefore be mutated into
+generic `None`, and the driver still classifies that Apply as progress. The
+selected production correction returns the sealed nonempty plan from the
+frontier and performs the generic control conversion only at the atomic owner
+compiler. No runtime rank, scan, queue, retry, watchdog or timer is added.
+
+The implementation audit also exposes one refinement correction before code
+changes. The existing reference relation proves an exact one-unit rank
+decrease while dependency edge sets are fixed. Production requeue is an atomic
+owner transition: a Waiting or history owner can leave the waiter projection
+in the same Apply. If a newer pending epoch covers that waiter, the one owner
+transition may eliminate both the selected current obligation and a now-
+irrelevant pending obligation. Requiring exactly one unit in production would
+add redundant Applies and change sequence, wake and cost observations merely
+to fit an incomplete submodel.
+
+The re-adjudicated theorem is:
+
+1. with a fixed owner/edge projection, every nonempty maintenance successor
+   consumes exactly one edge or completion marker;
+2. a legal requeue may additionally prune waiter obligations already
+   satisfied by the same owner transition, but the full stable-epoch rank must
+   still decrease strictly;
+3. the rank at the observation cut is therefore an exact static-edge count and
+   a finite upper bound on production Applies, not an unconditional equality
+   with the optimized production step count; and
+4. only a strictly newer external dependency cut may create or supersede an
+   epoch and increase the future obligation set.
+
+The model will make owner requeue an explicit transition input and mechanically
+prove both the exact static-edge relation and strict-decrease upper-bound
+refinement. Test support will derive the complete production rank from every
+dirty key, remaining waiter/consumer edge, completion marker and pending epoch.
+One shared drain will reject a missing plan or nondecreasing Apply immediately
+and terminate only at rank zero. All copied `16`, `32`, `64`, `<= 3` and
+unbounded `while let Some(plan)` maintenance drains are retired. This is proof-
+only work outside production and adds no authority-guard scan.
+
+The structured-task census finds one worker-generation failure class with
+eight test startup sites: six direct `spawn_workers` calls in
+`runtime_unit.rs` and `compute_coordinator.rs`, plus two long-running
+maintenance-driver `tokio::spawn` calls in `worker.rs`. Each can detach the
+generation if an assertion or bounded wait panics before manual teardown.
+Effect-publisher, template-driver and bounded one-shot waiter tasks have
+different owners and failure policies; they are not silently folded into a
+generic supervisor in this slice.
+
+One test-only `AuthorityTestWorkerOwner` is selected for the complete eight-
+site class. It exclusively owns the command sender when present, cancellation
+root and every join handle. Normal shutdown sends Stop, cancels and joins every
+task with a typed role-specific outcome. Unwind/drop sends Stop, cancels and
+aborts every still-owned task, so dropping a join handle can never detach a
+worker generation. A caught-unwind regression observes every abort handle
+reaching completion. This introduces no production task, state, branch or
+failure policy.
+
+The exact implementation order is model relation and falsifier, sealed
+maintenance-plan return type, shared rank-derived drain and complete drain
+census, structured test worker owner and complete startup census, then focused
+and aggregate evidence followed by the section-11 checkpoint.
+
+## 37. B3-R2 closure and section-11 checkpoint
+
+B3-R2 closes in the local checkpoint containing this record. Production now
+keeps `DependencyMaintenancePlan` as the move-only nonempty successor produced
+by `DependencyFrontier`; only the atomic authority compiler can consume it into
+the existing dependency control sum. The historical default `None` shape is
+therefore unavailable at the producer, and the production contract checker
+rejects either an empty successor or a bypass of the sealed conversion.
+
+The executable relation and production-derived test ghost use the corrected
+rank theorem from section 36. With fixed edges, each Apply consumes exactly one
+edge or completion marker. A legal owner requeue can also retire waiter
+obligations from the current and pending epochs, but every production Apply
+must strictly decrease the complete rank and the initial rank remains a finite
+upper bound. Completion cannot claim owner progress. The shared test drain
+fails immediately on a missing observation, missing successor, nondecreasing
+Apply or residual successor at zero. Every former arbitrary numeric or
+unbounded maintenance drain now delegates to that one proof owner.
+
+The complete same-class test task surface is owned by
+`AuthorityTestWorkerOwner`. Its constructors reserve handle storage before the
+first single-driver spawn; full worker-set construction retains the existing
+production preallocation guarantee. Normal shutdown sends Stop, cancels and
+joins every role in reverse order. A timed-out task is aborted and then joined
+before its handle is released. Early return or unwind runs `Drop`, which sends
+Stop, cancels and aborts every still-owned task; the unwind regression observes
+all abort handles reach completion. Raw worker-set and maintenance-driver test
+starts, duplicated teardown helpers and detached handle ownership are absent.
+
+Evidence on the exact final worktree includes:
+
+- model correction run `30bb54d0-5a06-4c46-bd02-b5c210f8b60c`;
+- final focused dependency/runtime/worker run
+  `18cc12a5-7caf-401e-8357-4faa67b5297e`, 53 passed;
+- final complete internal-feature run
+  `255af5cb-ab42-4bd7-b33a-2b22b87d2850`, 744 passed and zero skipped;
+- production and test-target Clippy with warnings denied, formatting, diff
+  whitespace, production construction, test-layout ownership, review,
+  security, model-refinement, TLC positive/negative and documentation gates.
+
+The aggregate checker remains intentionally red only at the historical
+mutation lock: its B3-R1 clock obligations have zero current matches. That lock
+is bound to the earlier product revision and cannot be relabeled as current
+evidence. B3-R5 still owns regeneration and complete isolated mutation
+execution; every other discovered contract passed either in the aggregate
+prefix or through its exact standalone owner.
+
+The section-11 whole-system review closes as follows:
+
+- The trusted CKB basis, legal inputs, sole `TxPoolAuthority`, owner/resource
+  state, Apply sequence, publication graph and external observations are
+  unchanged. `DependencyMaintenancePlan` is a stack-owned Plan value, not a
+  mutable fact, capability registry or second authority.
+- Transition totality improves: a positive maintenance frontier cannot compile
+  a no-progress Apply. A stable epoch has a finite well-founded rank, and a
+  newer external cut remains the only source of a new or superseding epoch.
+- The rank and complete-frontier traversal exist only in model/test code. The
+  production path adds no scan, allocation, lock, task, queue, channel, timer,
+  retry, watchdog, rollback, cache or I/O. Its existing one-edge Apply and fair
+  key rotation remain unchanged.
+- Production capability/resource conservation, lock scope, validation and
+  compute concurrency, wake behavior, effect publication and failure domains
+  are unchanged. Test-only task ownership removes a harness leak; it does not
+  introduce a product supervisor or alter production cancellation policy.
+- Legacy configuration behavior is unchanged. Node binary/database downgrade
+  remains outside the supported boundary, and no remote push is authorized.
+- The snowball audit rejected phase-shaped checker coupling. Production
+  construction is owned by the production contract checker; rank-derived
+  drains and worker teardown are owned by the test-layout checker. Generated
+  inventory and root-proof projection remain the only test-name authorities.
+  Effect, template and one-shot tasks retain their distinct owners rather than
+  being folded into a generic test supervisor.
+
+The static-performance report remains globally routed rather than locally
+implemented: dependency batching would change the proven sequence and wake
+observations and remains a later measurement-gated P hypothesis. The exact
+next action is B3-R3: bind the existing sparse resource ledger and scheduler
+ring to their finite reference relations with complete small-domain
+differential evidence. Production remains frozen unless that evidence
+constructs an invalid state through a real producer.

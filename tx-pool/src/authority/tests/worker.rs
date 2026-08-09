@@ -5,9 +5,9 @@ use super::{
 use crate::authority::{
     runtime::AuthorityRuntime,
     state::{AcceptedAtMillis, OwnedTx, PreAcceptedPhase, QueuedWork},
-    worker::{run_maintenance_driver, test_support::run_maintenance_driver_for_foundation},
+    worker::test_support::AuthorityTestWorkerOwner,
 };
-use ckb_stop_handler::CancellationToken;
+use ckb_async_runtime::Handle;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -28,8 +28,9 @@ async fn uak_maintenance_driver_fairly_drains_every_preexisting_level() {
     });
     let dependency = seed_runtime_dependency_maintenance(&runtime);
 
-    let cancel = CancellationToken::new();
-    let task = tokio::spawn(run_maintenance_driver(runtime.clone(), cancel.clone()));
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let workers = AuthorityTestWorkerOwner::spawn_maintenance(runtime.clone(), &handle)
+        .expect("the test owns the maintenance worker generation");
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
             let converged = runtime.with_authority_for_foundation(|authority| {
@@ -56,10 +57,10 @@ async fn uak_maintenance_driver_fairly_drains_every_preexisting_level() {
     .await
     .expect("every maintenance lane progresses despite the other two being non-empty");
 
-    cancel.cancel();
-    task.await
-        .expect("the maintenance task remains healthy")
-        .expect("cancellation is a clean driver outcome");
+    workers
+        .shutdown()
+        .await
+        .expect("the maintenance worker generation closes cleanly");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -71,13 +72,11 @@ async fn uak_idle_maintenance_driver_waits_instead_of_spinning() {
         Arc::clone(&snapshot),
     )
     .expect("the authority runtime fixture is valid");
-    let cancel = CancellationToken::new();
     let rounds = Arc::new(AtomicUsize::new(0));
-    let task = tokio::spawn(run_maintenance_driver_for_foundation(
-        runtime,
-        cancel.clone(),
-        Arc::clone(&rounds),
-    ));
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let workers =
+        AuthorityTestWorkerOwner::spawn_observed_maintenance(runtime, &handle, Arc::clone(&rounds))
+            .expect("the test owns the observed maintenance worker generation");
 
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         while rounds.load(Ordering::Relaxed) == 0 {
@@ -93,8 +92,38 @@ async fn uak_idle_maintenance_driver_waits_instead_of_spinning() {
         "an idle authority must suspend until maintenance work or a wall-clock tick"
     );
 
-    cancel.cancel();
-    task.await
-        .expect("the maintenance task remains healthy")
-        .expect("idle cancellation is a clean driver outcome");
+    workers
+        .shutdown()
+        .await
+        .expect("the observed maintenance worker generation closes cleanly");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_test_worker_owner_aborts_every_task_on_unwind() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let workers = AuthorityTestWorkerOwner::spawn_maintenance(runtime, &handle)
+        .expect("the test owns the maintenance worker generation");
+    let aborts = workers
+        .abort_handles()
+        .expect("the bounded worker generation exposes its abort observations");
+
+    let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _workers = workers;
+        panic!("exercise structured worker-owner unwind");
+    }));
+    assert!(unwind.is_err());
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while aborts.iter().any(|handle| !handle.is_finished()) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("unwind aborts every still-owned worker task");
 }

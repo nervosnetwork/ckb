@@ -62,10 +62,10 @@
       "id": "TP-DEP-001",
       "title": "Exact dependency and level-triggered progress",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/dependency.rs", "symbols": ["struct DependencyFrontier", "struct DependencyMaintenanceTicket", "enum DependencyMaintenanceStep"]},
+        {"path": "tx-pool/src/authority/dependency.rs", "symbols": ["struct DependencyFrontier", "struct DependencyMaintenanceTicket", "struct DependencyMaintenancePlan", "enum DependencyMaintenanceStep"]},
         {"path": "tx-pool/src/authority/resolver.rs", "symbols": ["collect_missing_against_cut", "resolve_candidate"]}
       ],
-      "required_behavior": "Canonical input, cell-dep, header and expanded dep-group evidence drives one DependencyFrontier. Missing observations carry an exact cut; availability and definitive loss advance the same level in the owner-changing Apply.",
+      "required_behavior": "Canonical input, cell-dep, header and expanded dep-group evidence drives one DependencyFrontier. Missing observations carry an exact cut; availability and definitive loss advance the same level in the owner-changing Apply. Every stable-epoch maintenance Apply carries a sealed nonempty successor and strictly decreases the finite edge-plus-marker rank.",
       "hostile_case": "Parent death, repeated availability, source promotion, high fanout, late dep-group discovery or coalesced wakes must not strand a child, accept stale evidence or spin indefinitely.",
       "reviewer_questions": [
         "Does every producer loss reach every surviving indexed consumer exactly once?",
@@ -346,6 +346,7 @@
     }
   ],
   "unit_evidence": [
+
 
 
 
@@ -787,11 +788,13 @@
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_discardable_clock_plan_does_not_require_apply_sequence_capacity", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_transition_controls_make_every_required_projection_structural", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_completion_cannot_claim_owner_progress", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_cursor_gives_key_fairness_without_a_second_queue", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_event_only_supersedes_with_a_newer_cut", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_event_without_an_affected_edge_creates_no_drain_work", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
-    {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_is_the_exact_stable_epoch_drain_bound", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_is_the_exact_static_edge_drain_bound", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::evidence_transition_properties::model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_dependency_proof_currentness_is_the_exact_loss_cut_order", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_final_subject_and_direct_rejection_have_closed_currentness_outcomes", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
