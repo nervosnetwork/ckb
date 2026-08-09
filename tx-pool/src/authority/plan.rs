@@ -31,8 +31,8 @@ use super::effect::{
     CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
     CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease, EffectBatch,
     EffectBuildError, EffectClosePlanError, EffectConfigError, EffectDelta, EffectError,
-    EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectReceipt, EffectSettlement,
-    EffectSettlementPlan, EffectSettlementPlanError, EffectWakeProjection,
+    EffectLimits, EffectLog, EffectPolicy, EffectPublication, EffectPublicationObservation,
+    EffectSettlement, EffectSettlementPlan, EffectSettlementPlanError, EffectWakeProjection,
     ParentTransactionRequest, PendingRecentReject, RejectionAudience,
 };
 use super::indexes::{AuthorityIndexes, IndexDelta, IndexError, StableIndexError};
@@ -66,6 +66,7 @@ use super::work::{
 use crate::error::Reject;
 use ckb_types::{
     core::{EntryCompleted, error::OutPointError, tx_pool::get_transaction_weight},
+    packed::OutPoint,
     prelude::Unpack,
 };
 pub(in crate::authority) use membership::MembershipConfig;
@@ -1012,6 +1013,42 @@ enum MissingResolutionDisposition {
     Reject(SettlementRejection),
 }
 
+#[derive(Clone, Copy)]
+enum ProjectedRemovalSet<'set> {
+    Replacement(&'set HashSet<RawTxHash>),
+    Administrative(&'set BTreeSet<RawTxHash>),
+}
+
+impl ProjectedRemovalSet<'_> {
+    fn contains(self, hash: &RawTxHash) -> bool {
+        match self {
+            Self::Replacement(removed) => removed.contains(hash),
+            Self::Administrative(removed) => removed.contains(hash),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ProjectedFinalOwnerSet<'set> {
+    removed: ProjectedRemovalSet<'set>,
+}
+
+impl ProjectedFinalOwnerSet<'_> {
+    fn contains_removed(self, hash: &RawTxHash) -> bool {
+        self.removed.contains(hash)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReleasedInputContext<'input> {
+    Replacement {
+        candidate_inputs: &'input HashSet<OutPoint>,
+    },
+    Administrative {
+        victim: &'input RawTxHash,
+    },
+}
+
 enum SettlementDisposition {
     Retain {
         phase: PreAcceptedPhase,
@@ -1888,6 +1925,9 @@ impl TxPoolAuthority {
             .try_reserve(candidate_footprint.inputs().len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         candidate_inputs.extend(candidate_footprint.inputs().iter().cloned());
+        let final_owners = ProjectedFinalOwnerSet {
+            removed: ProjectedRemovalSet::Replacement(&removed),
+        };
 
         let capacity = removals.iter().try_fold(0usize, |total, removal| {
             let victim = match self.entries.get(&removal.hash) {
@@ -1913,33 +1953,14 @@ impl TxPoolAuthority {
                 }
             };
             for input in victim.proof.payload().footprint.inputs() {
-                if candidate_inputs.contains(input) {
-                    continue;
-                }
-                let Some(spender) = self.membership.spender(input) else {
-                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                };
-                if !removed.contains(spender) {
-                    continue;
-                }
-                let chain_backed = victim.proof.is_chain_input(input);
-                let parent = RawTxHash(input.tx_hash());
-                let surviving_pool_parent = if removed.contains(&parent) {
-                    false
-                } else {
-                    match self.entries.get(&parent) {
-                        Some(OwnedTx::Accepted(entry)) => {
-                            let index: u32 = input.index().unpack();
-                            usize::try_from(index)
-                                .ok()
-                                .is_some_and(|index| index < entry.record.tx.outputs().len())
-                        }
-                        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
-                            false
-                        }
-                    }
-                };
-                if chain_backed || surviving_pool_parent {
+                if self.released_input_survives_final_owner_set(
+                    victim,
+                    input,
+                    final_owners,
+                    ReleasedInputContext::Replacement {
+                        candidate_inputs: &candidate_inputs,
+                    },
+                )? {
                     available.push(DependencyKey::Cell(input.clone()));
                 }
             }
@@ -1970,6 +1991,9 @@ impl TxPoolAuthority {
         available
             .try_reserve(capacity)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let final_owners = ProjectedFinalOwnerSet {
+            removed: ProjectedRemovalSet::Administrative(removals),
+        };
         for hash in removals {
             let entry = match self.entries.get(hash) {
                 Some(OwnedTx::Accepted(entry)) => entry,
@@ -1978,32 +2002,62 @@ impl TxPoolAuthority {
                 }
             };
             for input in entry.proof.payload().footprint.inputs() {
-                if self.membership.spender(input) != Some(hash) {
-                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                }
-                let chain_backed = entry.proof.is_chain_input(input);
-                let parent = RawTxHash(input.tx_hash());
-                let surviving_parent = if removals.contains(&parent) {
-                    false
-                } else {
-                    match self.entries.get(&parent) {
-                        Some(OwnedTx::Accepted(parent)) => {
-                            let index: u32 = input.index().unpack();
-                            usize::try_from(index)
-                                .ok()
-                                .is_some_and(|index| index < parent.record.tx.outputs().len())
-                        }
-                        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
-                            false
-                        }
-                    }
-                };
-                if chain_backed || surviving_parent {
+                if self.released_input_survives_final_owner_set(
+                    entry,
+                    input,
+                    final_owners,
+                    ReleasedInputContext::Administrative { victim: hash },
+                )? {
                     available.push(DependencyKey::Cell(input.clone()));
                 }
             }
         }
         Ok(available)
+    }
+
+    /// Decide one removed input from the projected final membership set. The
+    /// context owns only the distinct spender premise; backing-cell survival
+    /// has one implementation for replacement and administrative cohorts.
+    fn released_input_survives_final_owner_set(
+        &self,
+        removed_entry: &AcceptedEntry,
+        input: &OutPoint,
+        final_owners: ProjectedFinalOwnerSet<'_>,
+        context: ReleasedInputContext<'_>,
+    ) -> Result<bool, PlanError> {
+        match context {
+            ReleasedInputContext::Replacement { candidate_inputs } => {
+                if candidate_inputs.contains(input) {
+                    return Ok(false);
+                }
+                let spender = self
+                    .membership
+                    .spender(input)
+                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                if !final_owners.contains_removed(spender) {
+                    return Ok(false);
+                }
+            }
+            ReleasedInputContext::Administrative { victim } => {
+                if self.membership.spender(input) != Some(victim) {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+            }
+        }
+        if removed_entry.proof.is_chain_input(input) {
+            return Ok(true);
+        }
+        let parent = RawTxHash(input.tx_hash());
+        if final_owners.contains_removed(&parent) {
+            return Ok(false);
+        }
+        let Some(OwnedTx::Accepted(parent)) = self.entries.get(&parent) else {
+            return Ok(false);
+        };
+        let index: u32 = input.index().unpack();
+        Ok(usize::try_from(index)
+            .ok()
+            .is_some_and(|index| index < parent.record.tx.outputs().len()))
     }
 
     fn plan_membership_owner_derivations(
@@ -3732,8 +3786,8 @@ impl TxPoolAuthority {
             .map(Some)
     }
 
-    pub(super) fn effect_publication_receipt(&self) -> Option<EffectReceipt> {
-        self.effects.publication_receipt()
+    pub(super) fn effect_publication_observation(&self) -> EffectPublicationObservation {
+        self.effects.publication_observation()
     }
 
     pub(super) fn apply_effect_settlement(

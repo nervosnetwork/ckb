@@ -10,7 +10,7 @@ fn empty_cut() -> AuthorityProgressCut {
         active_work: 0,
         dependency_maintenance: false,
         effects: EffectLogCut::default(),
-        template_sources: [0; 5],
+        template_sources: [0; 3],
     }
 }
 
@@ -186,7 +186,7 @@ fn model_wake_relation_separates_suppression_from_spurious_cost() {
         sequence: 2,
         ordinal: 0,
     });
-    after.template_sources[3] = 1;
+    after.template_sources[2] = 1;
     let three = WakeObservation::between(before, after);
     assert!(three.dependency_maintenance);
     assert!(three.effect_publisher);

@@ -1153,6 +1153,16 @@ pub(super) struct EffectReceipt {
     processed: EffectProgress,
 }
 
+/// Complete observation consumed by the sole effect publisher from one
+/// coherent journal cut. `Idle` is temporary absence; only
+/// `ClosedAndDrained` is terminal.
+#[must_use = "the sole publisher must publish, wait, or terminate from this observation"]
+pub(super) enum EffectPublicationObservation {
+    Receipt(EffectReceipt),
+    Idle,
+    ClosedAndDrained,
+}
+
 impl EffectReceipt {
     /// The first not-yet-processed endpoint in this immutable batch receipt.
     /// Progress is tentative and local while endpoint I/O runs; only
@@ -1477,15 +1487,8 @@ impl EffectLog {
     }
 
     pub(super) fn wake_projection(&self) -> EffectWakeProjection {
-        let publisher = if self.is_closed_and_drained() {
-            EffectPublisherLevel::ClosedAndDrained
-        } else if !self.queued.is_empty() || self.latest_generation_reset.is_some() {
-            EffectPublisherLevel::Available
-        } else {
-            EffectPublisherLevel::Idle
-        };
         EffectWakeProjection {
-            publisher,
+            publisher: self.publication_level(),
             usage: self.usage,
         }
     }
@@ -1584,21 +1587,44 @@ impl EffectLog {
     }
 
     /// Borrow the minimum committed publication record without moving it out
-    /// of the authority. Production can call this only through the linear sole
-    /// publisher claim; producer transitions cannot remove a queued head and a
-    /// newer reset semantically subsumes an older reset receipt.
-    pub(super) fn publication_receipt(&self) -> Option<EffectReceipt> {
+    /// of the authority. Producer transitions cannot remove a queued head and
+    /// a newer reset semantically subsumes an older reset receipt.
+    fn publication_record(&self) -> Option<(EffectLeaseSource, &EffectRecord)> {
         let queued = self.queued.front();
         let reset = self.latest_generation_reset.as_ref();
-        let (source, record) = match (queued, reset) {
+        match (queued, reset) {
             (Some(queued), Some(reset)) if reset.sequence < queued.record.sequence => {
-                (EffectLeaseSource::GenerationReset, reset)
+                Some((EffectLeaseSource::GenerationReset, reset))
             }
-            (Some(queued), _) => (EffectLeaseSource::Queued, &queued.record),
-            (None, Some(reset)) => (EffectLeaseSource::GenerationReset, reset),
-            (None, None) => return None,
+            (Some(queued), _) => Some((EffectLeaseSource::Queued, &queued.record)),
+            (None, Some(reset)) => Some((EffectLeaseSource::GenerationReset, reset)),
+            (None, None) => None,
+        }
+    }
+
+    fn publication_level(&self) -> EffectPublisherLevel {
+        if self.publication_record().is_some() {
+            EffectPublisherLevel::Available
+        } else if self.is_closed_and_drained() {
+            EffectPublisherLevel::ClosedAndDrained
+        } else {
+            EffectPublisherLevel::Idle
+        }
+    }
+
+    /// Derive the publisher's total state from the same journal cut that owns
+    /// head ordering and terminal drain. Only the Receipt arm clones the
+    /// immutable batch pointer, and this method is not used by Apply wake
+    /// projection.
+    pub(super) fn publication_observation(&self) -> EffectPublicationObservation {
+        let Some((source, record)) = self.publication_record() else {
+            return if self.is_closed_and_drained() {
+                EffectPublicationObservation::ClosedAndDrained
+            } else {
+                EffectPublicationObservation::Idle
+            };
         };
-        Some(EffectReceipt {
+        EffectPublicationObservation::Receipt(EffectReceipt {
             token: EffectToken {
                 source,
                 sequence: record.sequence,

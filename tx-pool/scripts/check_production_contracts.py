@@ -61,6 +61,10 @@ TX_POOL_AUTHORITY_RESOURCES = (
 )
 TX_POOL_AUTHORITY_STATE = REPO_ROOT / "tx-pool" / "src" / "authority" / "state.rs"
 TX_POOL_AUTHORITY_WORK = REPO_ROOT / "tx-pool" / "src" / "authority" / "work.rs"
+TX_POOL_AUTHORITY_CHAIN = REPO_ROOT / "tx-pool" / "src" / "authority" / "chain.rs"
+TX_POOL_AUTHORITY_VALIDATION = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "validation.rs"
+)
 RUST_CHAR_LITERAL = re.compile(
     r"'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}))'"
 )
@@ -228,6 +232,13 @@ def function_body(source: str, name: str) -> str | None:
         return None
     closing = matching_brace(masked, opening)
     return None if closing is None else source[opening + 1 : closing]
+
+
+def required_function_body(source: str, name: str) -> str:
+    body = function_body(source, name)
+    if body is None:
+        raise ValueError(f"required function {name} has no body")
+    return body
 
 
 def impl_method_body(source: str, impl_name: str, method: str) -> str:
@@ -1337,7 +1348,7 @@ def validate_effect_publication_authority() -> list[str]:
     required_runtime = (
         "struct AuthorityEffectPublicationLease<'runtime, 'claim>",
         "_claim: &'claim mut AuthorityEffectPublisherClaim",
-        "fn try_effect_publication(&self) -> EffectPublicationState",
+        "fn try_effect_publication(&self) -> EffectPublicationObservation",
         "runtime: self,",
         "receipt: Some(receipt),",
     )
@@ -1360,6 +1371,361 @@ def validate_effect_publication_authority() -> list[str]:
     ):
         if retired in runtime or retired in publisher or retired in effect:
             errors.append(f"retired effect checkout protocol resurfaced as {retired!r}")
+    return errors
+
+
+def validate_effect_publication_observation() -> list[str]:
+    """Keep publisher head, idle and terminal state under the sole effect log."""
+
+    try:
+        effect = TX_POOL_AUTHORITY_EFFECT.read_text()
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        observation = impl_method_body(
+            effect, "EffectLog", "publication_observation"
+        )
+        level = impl_method_body(effect, "EffectLog", "publication_level")
+        wake = impl_method_body(effect, "EffectLog", "wake_projection")
+        acquire = impl_method_body(
+            runtime, "AuthorityRuntime", "try_effect_publication"
+        )
+        wait = impl_method_body(
+            runtime, "AuthorityRuntime", "wait_effect_publication"
+        )
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect total effect publication observation: {error}"]
+
+    errors: list[str] = []
+    declaration = re.search(
+        r"enum\s+EffectPublicationObservation\s*\{(?P<body>.*?)\n\}",
+        mask_rust_non_code(effect),
+        re.S,
+    )
+    if declaration is None:
+        errors.append("the log-owned effect publication observation disappeared")
+    else:
+        variants = re.findall(
+            r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\b", declaration.group("body")
+        )
+        if variants != ["Receipt", "Idle", "ClosedAndDrained"]:
+            errors.append(
+                "effect publication must remain the closed Receipt | Idle | "
+                f"ClosedAndDrained observation, found {variants}"
+            )
+
+    compact_observation = "".join(mask_rust_non_code(observation).split())
+    for fragment in (
+        "self.publication_record()",
+        "EffectPublicationObservation::Receipt(EffectReceipt{",
+        "EffectPublicationObservation::ClosedAndDrained",
+        "EffectPublicationObservation::Idle",
+    ):
+        if compact_observation.count(fragment) != 1:
+            errors.append(
+                f"EffectLog::publication_observation lost one total-state fragment {fragment!r}"
+            )
+    if compact_observation.count("self.is_closed_and_drained()") != 1:
+        errors.append(
+            "EffectLog must decide terminal drain exactly once after finding no publication head"
+        )
+
+    compact_level = "".join(mask_rust_non_code(level).split())
+    if compact_level.count("self.publication_record().is_some()") != 1:
+        errors.append("effect wake level must derive availability from the same head selector")
+    if compact_level.count("self.is_closed_and_drained()") != 1:
+        errors.append("effect wake level must derive terminality from the log")
+
+    compact_wake = "".join(mask_rust_non_code(wake).split())
+    if compact_wake.count("publisher:self.publication_level()") != 1:
+        errors.append("Apply wake projection must consume the non-cloning publication level")
+    if "publication_observation" in compact_wake or "EffectReceipt" in compact_wake:
+        errors.append("Apply wake projection must not clone a publisher receipt")
+
+    compact_acquire = "".join(mask_rust_non_code(acquire).split())
+    if compact_acquire.count("self.store.read().authority.effect_publication_observation()") != 1:
+        errors.append("the publisher must acquire exactly one coherent log-owned observation")
+    if "effects_closed_and_drained" in compact_acquire or "effect_publication_receipt" in compact_acquire:
+        errors.append("the runtime must not reassemble publisher state from split reads")
+
+    compact_wait = "".join(mask_rust_non_code(wait).split())
+    for variant in ("Idle", "Receipt", "ClosedAndDrained"):
+        if compact_wait.count(f"EffectPublicationObservation::{variant}") != 1:
+            errors.append(
+                f"the sole publisher wait loop must consume {variant} exactly once"
+            )
+    if "EffectPublicationState" in runtime or "publication_receipt(" in effect:
+        errors.append("retired split effect-publication state resurfaced")
+    return errors
+
+
+def validate_post_commit_wake_wiring() -> list[str]:
+    """Bind every atomic Apply arm to one before/after cut and six Notify edges."""
+
+    try:
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        apply = impl_method_body(plan, "PreparedApply", "apply")
+        publish = impl_method_body(runtime, "AuthoritySignals", "publish_wake")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect post-commit wake wiring: {error}"]
+
+    errors: list[str] = []
+    compact_apply = "".join(mask_rust_non_code(apply).split())
+    before = compact_apply.find("letbefore=authority.wake_projection();")
+    transition = compact_apply.find("letretirement=matchdelta{")
+    after = compact_apply.find("letafter=authority.wake_projection();")
+    if min(before, transition, after) < 0 or not before < transition < after:
+        errors.append(
+            "PreparedApply::apply must capture one wake cut before and one after the complete delta match"
+        )
+    if compact_apply.count("authority.wake_projection()") != 2:
+        errors.append("PreparedApply::apply must own exactly two wake projection reads")
+    if compact_apply.count("wake:AuthorityWakeTransition{before,after}") != 1:
+        errors.append("CommittedDelta must carry the exact Apply before/after wake transition")
+
+    delta = re.search(
+        r"enum\s+AuthorityDelta\s*\{(?P<body>.*?)\n\}",
+        mask_rust_non_code(plan),
+        re.S,
+    )
+    if delta is None:
+        errors.append("the closed AuthorityDelta enum disappeared")
+    else:
+        variants = re.findall(
+            r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\b", delta.group("body")
+        )
+        for variant in variants:
+            if compact_apply.count(f"AuthorityDelta::{variant}(") != 1:
+                errors.append(
+                    f"PreparedApply::apply must observe AuthorityDelta::{variant} exactly once"
+                )
+        match_end = compact_apply.find(";letafter=authority.wake_projection();")
+        match_body = compact_apply[transition:match_end] if match_end >= 0 else ""
+        if "_=>" in match_body:
+            errors.append("AuthorityDelta wake coverage must remain exhaustive without a wildcard")
+
+    compact_publish = "".join(mask_rust_non_code(publish).split())
+    mappings = (
+        ("compute_advanced", "compute", "notify_one"),
+        ("ready_advanced", "ready", "notify_one"),
+        ("dependency_maintenance_activated", "maintenance", "notify_one"),
+        ("effect_publisher_advanced", "effect_publisher", "notify_one"),
+        ("effect_capacity_released", "effect_capacity", "notify_waiters"),
+        ("template_source_advanced", "template", "notify_waiters"),
+    )
+    for predicate, signal, notify in mappings:
+        fragment = f"ifwake.{predicate}(){{self.{signal}.{notify}();}}"
+        if compact_publish.count(fragment) != 1:
+            errors.append(
+                f"wake edge {predicate} must map exactly once to {signal}.{notify}"
+            )
+    if compact_publish.count(".notify_one()") != 4 or compact_publish.count(
+        ".notify_waiters()"
+    ) != 2:
+        errors.append("AuthoritySignals must retain exactly four wake-one and two wake-all edges")
+    return errors
+
+
+def validate_released_input_projection() -> list[str]:
+    """Keep replacement and administration on one projected-final-owner law."""
+
+    try:
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        replacement = required_function_body(
+            plan, "collect_released_replacement_inputs"
+        )
+        administrative = required_function_body(
+            plan, "collect_released_administrative_inputs"
+        )
+        shared = required_function_body(
+            plan, "released_input_survives_final_owner_set"
+        )
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect projected released-input relation: {error}"]
+
+    errors: list[str] = []
+    compact_replacement = "".join(mask_rust_non_code(replacement).split())
+    compact_administrative = "".join(mask_rust_non_code(administrative).split())
+    compact_shared = "".join(mask_rust_non_code(shared).split())
+    for name, body, removal, context in (
+        (
+            "replacement",
+            compact_replacement,
+            "ProjectedRemovalSet::Replacement(&removed)",
+            "ReleasedInputContext::Replacement{candidate_inputs:&candidate_inputs,}",
+        ),
+        (
+            "administrative",
+            compact_administrative,
+            "ProjectedRemovalSet::Administrative(removals)",
+            "ReleasedInputContext::Administrative{victim:hash}",
+        ),
+    ):
+        if body.count("self.released_input_survives_final_owner_set(") != 1:
+            errors.append(f"the {name} collector must consume the shared input law once")
+        if body.count(removal) != 1 or body.count(context) != 1:
+            errors.append(f"the {name} collector lost its distinct closed context")
+        for duplicate in (
+            ".proof.is_chain_input(input)",
+            "RawTxHash(input.tx_hash())",
+            ".record.tx.outputs().len()",
+            ".membership.spender(input)",
+        ):
+            if duplicate in body:
+                errors.append(
+                    f"the {name} collector duplicated shared final-owner policy {duplicate!r}"
+                )
+
+    if compact_shared.count("self.membership.spender(input)") != 2:
+        errors.append(
+            "the shared input law must own exactly the replacement and administrative spender premises"
+        )
+    for fragment in (
+        "candidate_inputs.contains(input)",
+        "final_owners.contains_removed(spender)",
+        "self.membership.spender(input)!=Some(victim)",
+        "removed_entry.proof.is_chain_input(input)",
+        "final_owners.contains_removed(&parent)",
+        "Some(OwnedTx::Accepted(parent))=self.entries.get(&parent)",
+        "index<parent.record.tx.outputs().len()",
+    ):
+        if compact_shared.count(fragment) != 1:
+            errors.append(
+                f"the shared released-input relation lost exact semantic fragment {fragment!r}"
+            )
+    return errors
+
+
+def validate_evidence_and_settlement_construction() -> list[str]:
+    """Bind legal evidence to sealed producers and one total settlement classifier."""
+
+    try:
+        chain = TX_POOL_AUTHORITY_CHAIN.read_text()
+        validation = TX_POOL_AUTHORITY_VALIDATION.read_text()
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        work = TX_POOL_AUTHORITY_WORK.read_text()
+        final_work = required_function_body(plan, "final_admission_work")
+        final_evidence = required_function_body(plan, "validate_acceptance_evidence")
+        direct_evidence = required_function_body(
+            plan, "validate_direct_acceptance_evidence"
+        )
+        subject = required_function_body(plan, "final_admission_subject_owner")
+        classifier = required_function_body(plan, "classify_settlement")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect sealed evidence and settlement construction: {error}"]
+
+    errors: list[str] = []
+    compact_validation = "".join(mask_rust_non_code(validation).split())
+    if validation.count("let seal = AdmissionValidationSeal(());") != 2:
+        errors.append("final and direct validation must be the two seal construction cuts")
+    for constructor in (
+        "FinalAdmissionSubject::new(seal,key.clone(),expected,view.clone(),dependency_cut)",
+        "FinalAdmissionReceipt::from_validation(",
+        "DirectAdmissionReceipt::from_validation(seal,tx,membership)",
+    ):
+        if compact_validation.count(constructor) != 1:
+            errors.append(f"sealed validation lost its sole constructor {constructor!r}")
+
+    seal = re.search(
+        r"pub\s*\(super\)\s+struct\s+AdmissionValidationSeal\s*\(\s*\(\s*\)\s*\)\s*;",
+        mask_rust_non_code(validation),
+    )
+    if seal is None:
+        errors.append("AdmissionValidationSeal must retain a private tuple field")
+    for receipt in ("FinalAdmissionReceipt", "FinalAdmissionSubject", "DirectAdmissionReceipt"):
+        declaration = re.search(
+            rf"pub\s*\(super\)\s+struct\s+{receipt}\s*\{{(?P<body>.*?)\n\}}",
+            mask_rust_non_code(chain),
+            re.S,
+        )
+        if declaration is None or re.search(r"\bpub\b", declaration.group("body")):
+            errors.append(f"{receipt} must retain private fields behind sealed constructors")
+
+    compact_final_work = "".join(mask_rust_non_code(final_work).split())
+    for fragment in (
+        "existing.record().version!=expected",
+        "letOwnedTx::PreAccepted(preaccepted)=existingelse",
+        "letPreAcceptedPhase::Ready(verified)=&preaccepted.phaseelse",
+    ):
+        if compact_final_work.count(fragment) != 1:
+            errors.append(f"FinalAdmissionWork lost reachable Ready-owner premise {fragment!r}")
+
+    compact_final = "".join(mask_rust_non_code(final_evidence).split())
+    final_order = (
+        "receipt.view()!=&self.chain_view",
+        "receipt.key()!=&preaccepted.record.identity.raw",
+        ".proof_is_current(dependencies,proof.dependency_cut())",
+    )
+    positions = [compact_final.find(fragment) for fragment in final_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append("final acceptance must check view, sealed identity and dependency cut in order")
+
+    compact_direct = "".join(mask_rust_non_code(direct_evidence).split())
+    if compact_direct.count(".owner_free_proof_is_current(") != 1:
+        errors.append("direct acceptance must retain the global owner-free loss fence")
+    if ".proof_is_current(" in compact_direct.replace(
+        ".owner_free_proof_is_current(", ""
+    ):
+        errors.append("direct acceptance must not bypass the owner-free evidence relation")
+
+    compact_subject = "".join(mask_rust_non_code(subject).split())
+    subject_order = (
+        "subject.view()!=&self.chain_view",
+        ".get(subject.key())",
+        "existing.record().version!=subject.expected()",
+        "letOwnedTx::PreAccepted(preaccepted)=existingelse",
+        "letPreAcceptedPhase::Ready(verified)=&preaccepted.phaseelse",
+        ".proof_is_current(verified.payload().dependencies(),subject.dependency_cut())",
+    )
+    positions = [compact_subject.find(fragment) for fragment in subject_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append("final subject lost its closed view/owner/version/Ready/dependency order")
+
+    compact_classifier = "".join(mask_rust_non_code(classifier).split())
+    baseline = compact_classifier.find(
+        "self.dependencies.proof_is_current(preaccepted.dependencies(),dependency_cut)"
+    )
+    result_match = compact_classifier.find("matchnext{")
+    if baseline < 0 or result_match < 0 or baseline > result_match:
+        errors.append("every settlement result must pass the common baseline-currentness gate")
+    if compact_classifier.count(
+        "self.dependencies.proof_is_current(preaccepted.dependencies(),dependency_cut)"
+    ) != 1:
+        errors.append("the settlement baseline-currentness premise must have one owner")
+
+    settlement = re.search(
+        r"enum\s+SettlementNext\s*\{(?P<body>.*?)\n\}",
+        mask_rust_non_code(work),
+        re.S,
+    )
+    if settlement is None:
+        errors.append("the closed SettlementNext result enum disappeared")
+    else:
+        variants = re.findall(
+            r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\b", settlement.group("body")
+        )
+        for variant in variants:
+            if compact_classifier.count(f"SettlementNext::{variant}") != 1:
+                errors.append(
+                    f"the total settlement classifier must consume {variant} exactly once"
+                )
+        if "_=>" in compact_classifier[result_match:]:
+            errors.append("the settlement classifier must remain exhaustive without a wildcard")
+
+    production_outside_authority = "\n".join(
+        path.read_text()
+        for path in production_rust_sources()
+        if not path.is_relative_to(TX_POOL_SRC / "authority")
+    )
+    if "ComputeSettlement {" in production_outside_authority:
+        errors.append("move-only compute settlements must not be assembled outside the authority")
+    production_without_work = "\n".join(
+        path.read_text()
+        for path in production_rust_sources()
+        if path != TX_POOL_AUTHORITY_WORK
+    )
+    for constructor in ("ResolvedFacts::from_resolution(", "VerifiedFacts::from_verification("):
+        if constructor in production_without_work:
+            errors.append(f"sealed settlement evidence escaped authority work via {constructor!r}")
     return errors
 
 
@@ -1905,6 +2271,10 @@ def main() -> int:
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
         *validate_effect_publication_authority(),
+        *validate_effect_publication_observation(),
+        *validate_post_commit_wake_wiring(),
+        *validate_released_input_projection(),
+        *validate_evidence_and_settlement_construction(),
         *validate_execution_topology_contract(),
     ]
     if errors:
@@ -1918,7 +2288,9 @@ def main() -> int:
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
         "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction, sparse "
-        "resource set transitions and finite scheduler owner rings plus "
+        "resource set transitions and finite scheduler owner rings, total log-owned effect "
+        "observation, exhaustive post-commit wake wiring, one projected released-input law, "
+        "sealed evidence and total settlement classification plus "
         "a closed Rust module graph plus current production vocabulary and "
         "execution-topology cost and shutdown order"
     )

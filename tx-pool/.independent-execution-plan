@@ -4950,3 +4950,166 @@ exact next action is B3-R4: close coherent effect observation, complete wake
 publication, projected released-input derivation and total evidence/settlement
 refinement without moving validation under Apply or adding a second effect
 owner.
+
+## 41. B3-R4 producer census and model-delta adjudication
+
+B3-R4 starts from clean local checkpoint
+`6ab7dadbdf8adcd2d4ab5fe3470c749d21639283`. The production census finds one
+effect journal, one post-commit wake compiler, one sparse dependency frontier
+and one compute-settlement classifier under `TxPoolAuthority`. Endpoint I/O,
+resolution, verification and final admission validation remain outside Apply.
+No report candidate justifies moving compute capture, specializing wake by
+delta class or changing lock topology.
+
+The publisher currently assembles its total state in `AuthorityRuntime` by
+calling `effect_publication_receipt` and `effects_closed_and_drained` under one
+read guard. The cut is coherent, but the three-way policy has no single log
+owner. The selected correction makes `EffectLog` produce one
+`Receipt | Idle | ClosedAndDrained` observation and makes the publisher consume
+only that value. The separately used shutdown terminal read remains a derived
+query. Head selection and terminal classification must share the existing log
+facts without cloning a receipt during every before/after wake projection.
+
+Wake publication already captures one complete projection immediately before
+and after every `PreparedApply::apply`. B3-R4 will compare the six production
+booleans with the executable relation and mechanically require every Apply arm
+to remain between those captures and every boolean to retain its one runtime
+Notify consumer. The model's five-element `template_sources` vector has no
+production refinement: five template tasks consume three authoritative pool
+source versions, rather than owning five independent source facts. The model
+must therefore use the three-source basis. This removes accidental proof state;
+it does not fuse template lanes or change their wake fanout.
+
+Replacement and administrative removal duplicate the same final-parent
+survival calculation but have different spender premises. The selected root
+correction introduces one stack-only projected-final-owner view over the
+already bounded removal set and one closed removal context: replacement may
+ignore a candidate-consumed input and requires the current spender to be in
+the removal cohort, while administration requires the exact victim to be the
+current spender. Both contexts then use the same chain-backed or surviving
+Accepted-parent relation. The collectors retain their distinct capacity and
+cohort construction; no index, scan, cache, owner or allocation is added.
+
+The evidence and settlement audit identifies one candidate model gap that must
+be reproduced before correction. Production first requires the active owner's
+baseline dependency proof to remain current. If a definitive baseline loss
+occurred after checkout, every completion, including a resource-bound
+rejection, retires into Resolve. The reference classifier currently applies no
+global baseline prerequisite and can classify that resource-bound case as
+terminal. A real parent-loss producer plus an active child capability will be
+used as the falsifier. If confirmed, the reference table gains the missing
+first premise; production is not weakened. Structurally forged identity, view
+or dependency-cut combinations remain outside the sealed constructor domain
+and are covered by a mechanical construction audit rather than impossible
+fixtures.
+
+The fixed B3-R4 implementation order is: reproduce and adjudicate the
+settlement/model difference; correct the existing reference relations; make
+the effect observation one log-owned value; unify released-input projection;
+add finite production differentials and constructor/wiring checks for wake,
+dependency evidence, acceptance and settlement; then regenerate the declared
+proof graph and run the complete gates plus the section-11 checkpoint. No
+runtime authority, lock, task, queue, channel, retry, timer, watchdog, cache,
+I/O path or compatibility branch may be added. Legacy configuration remains
+supported, node binary/database downgrade remains unsupported and remote push
+is not authorized.
+
+## 42. B3-R4 settlement baseline-currentness re-adjudication
+
+Focused Nextest run `690693b0-9ff5-4b02-9a92-a50f7b52a4ec` constructs the open
+section-41 counterexample through the real lifecycle. A Proposal parent and
+Remote child enter the authority, the child checks out its unique Resolve
+capability, parent terminalization commits definitive loss, and that exact
+capability returns a resource-bound rejection. Production consumes it into
+queued Resolve. The reference classifier instead returns terminal Rejected.
+
+The mismatch confirms a reference-model gap, not a production defect and not
+a resource-rejection special case. `TxPoolAuthority::classify_settlement`
+checks the active owner's complete baseline dependency proof before inspecting
+`SettlementNext`; therefore every result variant shares the same first
+currentness premise. The model applied only branch-local resolution/missing
+checks and allowed the chain-independent validity domain of a resource
+rejection to bypass dependency invalidation. Resource independence means the
+reason itself survives a chain change; it does not authorize terminalizing an
+owner whose checked-out dependency basis has since been definitively lost.
+
+The selected root correction adds exactly that common baseline-currentness
+premise at the top of the existing reference classifier. It precedes even
+structural result checks, matching the production observation order at a
+coherent owner cut. All settlement truth-table conclusions that depended on
+the missing premise are reopened and will be rerun under both current and
+stale baseline frontiers. No production branch, retry, flag or special-case
+guard is added.
+
+## 43. B3-R4 evidence/publication/settlement refinement closure
+
+B3-R4 is complete in the local checkpoint containing this record. The
+reference settlement relation now applies the active owner's baseline
+dependency-currentness premise before all seven legal result classes. The
+production effect log owns one total `Receipt | Idle | ClosedAndDrained`
+observation, while Apply wake projection reads only its non-cloning level.
+Every atomic delta remains between one before/after wake cut and the six
+derived observations retain their exact four wake-one and two wake-all
+consumers. Replacement and administrative removal now share one stack-only
+projected-final-owner relation after their distinct spender premises.
+
+Finite production/model differentials cover the complete two-key dependency
+frontier, real sealed final/direct admission evidence, every reachable final
+subject outcome, direct-rejection validity, missing-source policy, the six
+wake laws, the three-way effect observation, both released-input contexts and
+all seven settlement results under current, stale-chain and stale-baseline
+cuts. Structurally forged receipts remain outside the legal-input domain; a
+source construction gate proves their private fields, sole validation seals,
+producer order and exhaustive settlement consumption instead of inventing
+impossible fixtures.
+
+The slow construction-flow gate reopened one conclusion sharing the B3-R3
+proof premise. `cargo expand` places the lint-only
+`non_exhaustive_omitted_patterns` attribute directly on expressions, which
+made ast-grep recover with a whole-file error tree and misclassify later
+constructors as patterns. The checker now removes only that non-semantic
+marker, rejects every remaining syntax-error tree and has a canary proving
+that `impl Trait` arguments cannot rebind `Self` as an impl item. After that
+root correction the sole real gap was the pure scheduler model's absent
+`Large` verify-class producer. The existing finite Ready property now also
+proves that a small verifier skips Large and an any verifier consumes it.
+The slow gate reports zero constructorless model variants, expanded-production
+variants, model root structs and production root structs; 23 production
+variants remain correctly classified as macro-only producers.
+
+Final exact-worktree Nextest run
+`836dd7e2-c509-43b0-b0c7-1e3a887e039c` passes all 762 internal-feature library
+tests with zero skipped and no leak classification. Focused B3-R4 runs include
+`fa5ece46-6bd5-4032-b21d-9572bf09efee` (29/29),
+`3227774e-ff87-4d29-a3f9-6b4699c5bfb4` (5/5),
+`f9559f14-579a-4dd3-8796-eb406c2f7db0` (2/2) and the reopened scheduler
+falsifier `05ef926f-aa4f-46b1-a6f3-9adb7796c5c7` (1/1). Strict all-target
+internal Clippy, formatting and diff whitespace pass. TLC retains 1,098
+generated / 318 distinct positive states and the required negative
+`NoEffectBlockedDirectHandoff` witness. The generated behavior graph contains
+438 unique Rust tests, 1,806 invariant references, 19 integration anchors and
+150 managed specs over the discovered 762-test universe.
+
+The aggregate gate is intentionally red only at the two B3-R5-owned mutation
+projections: generated adjudication evidence is stale and the historical
+candidate lock has zero current matches for the two atomic-clock obligations.
+Neither lock is relabelled or hand-edited as current evidence.
+
+The section-11 checkpoint confirms one mutable authority and unchanged
+linear-capability/resource conservation, validation boundary, lock/task
+topology, wait-for graph, external effect ownership and compute/template
+concurrency. Production Rust adds net 67 lines but no mutable field, lock,
+task, queue, channel, retry, timer, watchdog, cache, scan, external I/O or
+compatibility path; the added work is constant-time head/currentness testing
+over already-owned bounded sets. Larger model, test and checker growth is
+separated by semantic proof owner and is not runtime state. It may be fused or
+deleted only by the later constructive-simplification gate after mutation and
+final verification prove the same evidence graph, so cleanup cannot silently
+erase a falsifier. Legacy configuration remains supported, node
+binary/database downgrade remains unsupported and remote push is not
+authorized.
+
+The next exact action is to freeze this B3-R4 checkpoint in a local commit,
+verify a clean tree, then begin B3-R5 by closing contractual fallible/bounded
+observations and mechanically regenerating the mutation evidence and complete
+candidate lock before any current isolated mutation execution.

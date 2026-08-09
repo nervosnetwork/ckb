@@ -36,10 +36,12 @@
         "model_roles": ["progress_observation_cut", "wake_observation"],
         "production_roles": ["wake_observation_compiler"],
         "evidence_test_patterns": [
-          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$"
+          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$",
+          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$"
+          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$",
+          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$"
         ],
         "mutation_selectors": [
           {
@@ -50,9 +52,9 @@
         "semantic_fact": "Notify publication is the exact finite before/after truth relation and is never scheduling authority.",
         "falsifier": "Suppressing a true edge can strand its waiter; publishing a false edge adds bounded but observable notify, probe and guard work.",
         "parallelism": "Resolve, verify, Ready, dependency, effect and template waiters retain independent levels and releasers.",
-        "added_cost": "The reference relation adds zero runtime state; the pending refinement may only seal already-computed post-commit observations.",
+        "added_cost": "The reference relation and production differential add zero runtime state; one stack-owned before/after observation is already carried post-commit.",
         "deletion_counterexample": "Without the relation, both lost progress and unbounded spurious prompt cost can pass as equivalent signal behavior.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-EFFECT-TERMINAL",
@@ -62,23 +64,25 @@
         "model_roles": ["effect_publication_observation"],
         "production_roles": ["committed_effect_authority", "effect_delivery_capability"],
         "evidence_test_patterns": [
-          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$"
+          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$",
+          "^authority::tests::progress_refinement::uak_effect_publication_is_one_log_owned_three_way_observation$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$"
+          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$",
+          "^authority::tests::progress_refinement::uak_effect_publication_is_one_log_owned_three_way_observation$"
         ],
         "mutation_selectors": [
           {
             "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
-            "function_pattern": "^TxPoolAuthority::(effect_publication_receipt|effects_closed_and_drained)$"
+            "function_pattern": "^(EffectLog::publication_observation|TxPoolAuthority::effect_publication_observation)$"
           }
         ],
         "semantic_fact": "One coherent effect-log cut has exactly one Receipt, Idle or ClosedAndDrained observation and one named next releaser.",
         "falsifier": "Collapsing Idle with terminal drain either terminates before committed effects settle or waits forever after close.",
         "parallelism": "The sole publisher performs endpoint I/O outside the authority guard while effect producers remain independently concurrent.",
-        "added_cost": "The model adds zero runtime state, retry or watchdog; production already owns the log facts and monotonic publication level.",
+        "added_cost": "The model and production observation add zero runtime state, retry or watchdog; receipt cloning occurs only when the publisher acquires an available head, never in Apply wake projection.",
         "deletion_counterexample": "Without the three-way observation, None cannot distinguish temporary absence from an absorbing closed-and-drained cut.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-DEPENDENCY-RANK",
@@ -146,10 +150,12 @@
         "model_roles": ["evidence_dependency_frontier"],
         "production_roles": ["dependency_level_authority", "dependency_maintenance_successor"],
         "evidence_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$"
+          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$",
+          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$"
+          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$",
+          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$"
         ],
         "mutation_selectors": [
           {
@@ -158,7 +164,7 @@
           },
           {
             "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
-            "function_pattern": "^DependencyFrontier::(all_observed_dependencies_available|contains|has_new_dependencies|plan_replacements_with_additions|plan_stable_replace)$"
+            "function_pattern": "^DependencyFrontier::(all_observed_dependencies_available|contains|has_new_dependencies|missing_observation_is_current|missing_result_is_current|owner_free_proof_is_current|plan_replacements_with_additions|plan_stable_replace|proof_is_current|resolution_is_current)$"
           }
         ],
         "semantic_fact": "Positive, missing and owner-free dependency evidence are current exactly when no relevant key or unindexed loss/change follows the sealed cut.",
@@ -166,7 +172,7 @@
         "parallelism": "Evidence producers read immutable snapshots outside Apply; only level publication and owner changes are atomically ordered.",
         "added_cost": "The reference frontier is proof-only and production retains its existing sparse indexed levels.",
         "deletion_counterexample": "Without one currentness relation, each caller can invent a different loss boundary and create split proof authority.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-ACCEPTANCE-EVIDENCE",
@@ -176,10 +182,12 @@
         "model_roles": ["acceptance_evidence_cut", "evidence_dependency_frontier"],
         "production_roles": ["direct_acceptance_evidence", "final_acceptance_evidence", "transaction_authority"],
         "evidence_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$"
+          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$",
+          "^authority::tests::evidence_refinement::uak_(direct_rejection_refines_the_closed_view_and_source_truth_table|final_and_direct_acceptance_refine_current_chain_and_dependency_cuts|final_subject_refines_every_reachable_currentness_outcome|missing_dependency_policy_refines_source_and_parent_ownership)$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$"
+          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$",
+          "^authority::tests::evidence_refinement::uak_(direct_rejection_refines_the_closed_view_and_source_truth_table|final_and_direct_acceptance_refine_current_chain_and_dependency_cuts|final_subject_refines_every_reachable_currentness_outcome|missing_dependency_policy_refines_source_and_parent_ownership)$"
         ],
         "mutation_selectors": [
           {
@@ -192,7 +200,7 @@
         "parallelism": "Validation stays outside the authority mutation cut and returns one immutable receipt for Plan revalidation.",
         "added_cost": "The model adds zero runtime fields; refinement may only seal facts already present in the receipt and owner.",
         "deletion_counterexample": "Without a single receipt relation, green validators cannot prove that every production caller checks the same subject.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-RELEASED-INPUT",
@@ -202,15 +210,17 @@
         "model_roles": ["released_input_projection", "replacement_history_trigger"],
         "production_roles": ["dependency_level_authority", "membership_projection"],
         "evidence_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$"
+          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
+          "^authority::tests::released_input_refinement::.*$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$"
+          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
+          "^authority::tests::released_input_refinement::.*$"
         ],
         "mutation_selectors": [
           {
             "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
-            "function_pattern": "^TxPoolAuthority::(collect_released_administrative_inputs|collect_released_replacement_inputs|compile_membership_delta|retain_replacement_history)$"
+            "function_pattern": "^TxPoolAuthority::(collect_released_administrative_inputs|collect_released_replacement_inputs|compile_membership_delta|released_input_survives_final_owner_set|retain_replacement_history)$"
           }
         ],
         "semantic_fact": "Input availability and history triggers are derived only from the projected final spender/parent set and exact chain-backed provenance.",
@@ -218,7 +228,7 @@
         "parallelism": "The finite membership cohort is canonically planned once; unrelated transactions and validation remain parallel.",
         "added_cost": "The relation reuses the bounded membership cohort and adds no index, scan, cache or second owner.",
         "deletion_counterexample": "Without the final-set relation, administrative removal, RBF and history retention can publish contradictory availability.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-RESOURCE-CONSERVATION",
@@ -298,10 +308,12 @@
         "model_roles": ["evidence_dependency_frontier", "settlement_classification"],
         "production_roles": ["compute_completion", "compute_settlement_outcome"],
         "evidence_test_patterns": [
-          "^mathematical_model::settlement_transition_properties::.*$"
+          "^mathematical_model::settlement_transition_properties::.*$",
+          "^authority::tests::settlement_refinement::.*$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::settlement_transition_properties::.*$"
+          "^mathematical_model::settlement_transition_properties::.*$",
+          "^authority::tests::settlement_refinement::.*$"
         ],
         "mutation_selectors": [
           {
@@ -314,7 +326,7 @@
         "parallelism": "Workers compute independently; only the returned capability's owner/resource/effect disposition is ordered in Apply.",
         "added_cost": "The model is pure; production already carries every premise in the completion capability and owner cut.",
         "deletion_counterexample": "Without the total table, each settlement variant can silently use a different currentness or source-policy boundary.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-CONTRACT-OBSERVATION",

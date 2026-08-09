@@ -24,6 +24,22 @@ impl FinalAdmissionRejection {
     }
 }
 
+impl FinalAdmissionSubject {
+    pub(in crate::authority) fn for_foundation(
+        key: RawTxHash,
+        expected: EntryVersion,
+        view: ChainViewId,
+        dependency_cut: DependencyCut,
+    ) -> Self {
+        Self {
+            key,
+            expected,
+            view,
+            dependency_cut,
+        }
+    }
+}
+
 impl DirectAdmissionReceipt {
     pub(in crate::authority) fn transaction(&self) -> &Arc<TransactionView> {
         &self.tx

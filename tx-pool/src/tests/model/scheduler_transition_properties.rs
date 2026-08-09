@@ -79,26 +79,42 @@ fn model_scheduler_ready_is_in_the_set_projection_and_outside_the_worker_ring() 
         stage: SchedulerRefinementStage::Ready,
         ..entry(2, SchedulerRefinementSource::Recovery)
     };
+    let large = SchedulerRefinementEntry {
+        stage: SchedulerRefinementStage::Verify(SchedulerRefinementVerifyClass::Large),
+        ..entry(3, SchedulerRefinementSource::Remote(1))
+    };
     let projection = SchedulerSetProjection::new(
-        [ready, resolve],
+        [ready, resolve, large],
         SchedulerRefinementVerifyOrder::Arrival,
         SchedulerRefinementCursors::default(),
     )
-    .expect("Ready and Resolve are distinct scheduler-set members");
-    assert_eq!(projection.entries().len(), 2);
+    .expect("Ready, Resolve and large Verify are distinct scheduler-set members");
+    assert_eq!(projection.entries().len(), 3);
 
     let wave = scheduler_wave_observation(
-        &[ready, resolve],
-        &[SchedulerRefinementWorker {
-            slot: 0,
-            role: SchedulerRefinementWorkerRole::OrderedResolve,
-        }],
+        &[ready, resolve, large],
+        &[
+            SchedulerRefinementWorker {
+                slot: 0,
+                role: SchedulerRefinementWorkerRole::OrderedResolve,
+            },
+            SchedulerRefinementWorker {
+                slot: 1,
+                role: SchedulerRefinementWorkerRole::VerifySmall,
+            },
+            SchedulerRefinementWorker {
+                slot: 2,
+                role: SchedulerRefinementWorkerRole::VerifyAny,
+            },
+        ],
         SchedulerRefinementCursors::default(),
         SchedulerRefinementVerifyOrder::Arrival,
     )
-    .expect("Ready is a legal scheduler set member");
-    assert_eq!(wave.assignments.len(), 1);
+    .expect("Ready and large Verify are legal scheduler set members");
+    assert_eq!(wave.assignments.len(), 2);
     assert_eq!(wave.assignments[0].transaction, resolve.transaction);
+    assert_eq!(wave.assignments[1].transaction, large.transaction);
+    assert_eq!(wave.idle_slots, vec![1]);
 }
 
 #[test]

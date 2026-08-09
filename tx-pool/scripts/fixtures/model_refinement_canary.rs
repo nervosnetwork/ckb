@@ -16,7 +16,10 @@ pub(crate) struct CanaryBoundary {
 pub(crate) struct CanaryUnconstructedCapability;
 
 impl CanaryBoundary {
-    pub(crate) fn new(event: CanaryEvent) -> Self {
+    pub(crate) fn new(
+        event: CanaryEvent,
+        _additional: impl IntoIterator<Item = CanaryEvent>,
+    ) -> Self {
         Self { event }
     }
 }

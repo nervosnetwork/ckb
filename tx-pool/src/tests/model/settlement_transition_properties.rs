@@ -177,6 +177,34 @@ fn model_rejection_validity_is_chain_or_resource_bound() {
 }
 
 #[test]
+fn model_every_settlement_result_requires_the_active_baseline_to_remain_current() {
+    let stale = ModelSettlementCut {
+        frontier: frontier(Some(2)),
+        ..settlement_cut()
+    };
+    let evidence = evidence();
+    let outcomes = [
+        ModelSettlementNext::QueuedVerify(evidence.clone()),
+        ModelSettlementNext::Waiting(ModelMissingSettlement {
+            dependencies: dependencies(&[1]),
+            missing: dependencies(&[1]),
+        }),
+        ModelSettlementNext::Ready(evidence.clone()),
+        ModelSettlementNext::Rejected(ModelSettlementRejection::ChainBound),
+        ModelSettlementNext::Rejected(ModelSettlementRejection::ResourceBound),
+        ModelSettlementNext::VerificationRejected(evidence),
+        ModelSettlementNext::Retry,
+    ];
+    for outcome in outcomes {
+        assert_eq!(
+            stale.classify(&outcome),
+            ModelSettlementObservation::QueuedResolve,
+            "a completion cannot retain facts after its baseline dependency loss: {outcome:?}"
+        );
+    }
+}
+
+#[test]
 fn model_verification_rejection_policy_transition_is_a_closed_truth_table() {
     let resolved = evidence();
     for active_policy in [

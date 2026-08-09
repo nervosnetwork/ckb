@@ -530,9 +530,9 @@ impl AuthorityRuntime {
         loop {
             let notified = self.effect_publisher_signal().notified();
             match self.try_effect_publication() {
-                EffectPublicationState::Idle => notified.await,
-                EffectPublicationState::Receipt(receipt) => return Some(receipt),
-                EffectPublicationState::ClosedAndDrained => return None,
+                EffectPublicationObservation::Idle => notified.await,
+                EffectPublicationObservation::Receipt(receipt) => return Some(receipt),
+                EffectPublicationObservation::ClosedAndDrained => return None,
             }
         }
     }

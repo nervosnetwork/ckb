@@ -103,6 +103,12 @@ impl ModelSettlementCut {
     }
 
     pub(crate) fn classify(&self, next: &ModelSettlementNext) -> ModelSettlementObservation {
+        if !self
+            .frontier
+            .proof_is_current(&self.baseline_dependencies, self.active_dependency_cut)
+        {
+            return ModelSettlementObservation::QueuedResolve;
+        }
         match next {
             ModelSettlementNext::QueuedVerify(resolved) => {
                 if let Some(fault) = self.evidence_fault(resolved, false) {

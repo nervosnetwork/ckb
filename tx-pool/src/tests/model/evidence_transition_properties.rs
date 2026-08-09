@@ -5,12 +5,11 @@ use super::{
         ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity,
         ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject,
         ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
-        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputCut,
-        ModelReleasedInputDisposition, ModelReplacementReference, ModelSubjectValidation,
-        ModelUnindexedDependencyLevel, administrative_input_disposition,
-        missing_resolution_disposition, replacement_history_trigger, replacement_input_disposition,
-        validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
-        validate_final_subject,
+        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext,
+        ModelReleasedInputCut, ModelReleasedInputDisposition, ModelReplacementReference,
+        ModelSubjectValidation, ModelUnindexedDependencyLevel, missing_resolution_disposition,
+        released_input_disposition, replacement_history_trigger, validate_direct_acceptance,
+        validate_direct_rejection, validate_final_acceptance, validate_final_subject,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -287,10 +286,11 @@ fn model_released_input_is_derived_from_the_projected_final_owner_set() {
                     ModelPoolParent::SurvivingAccepted { output_count: 2 },
                 ] {
                     let cut = ModelReleasedInputCut {
-                        victim,
+                        context: ModelReleasedInputContext::Replacement {
+                            candidate_uses_input,
+                        },
                         current_spender,
                         removed: removed.clone(),
-                        candidate_uses_input,
                         chain_backed,
                         parent,
                         output_index: 1,
@@ -311,34 +311,33 @@ fn model_released_input_is_derived_from_the_projected_final_owner_set() {
                     } else {
                         ModelReleasedInputDisposition::Retained
                     };
-                    assert_eq!(replacement_input_disposition(&cut), expected);
+                    assert_eq!(released_input_disposition(&cut), expected);
                 }
             }
         }
     }
 
     let administrative = ModelReleasedInputCut {
-        victim,
+        context: ModelReleasedInputContext::Administrative { victim },
         current_spender: Some(victim),
         removed,
-        candidate_uses_input: false,
         chain_backed: false,
         parent: ModelPoolParent::SurvivingAccepted { output_count: 1 },
         output_index: 1,
     };
     assert_eq!(
-        administrative_input_disposition(&administrative),
+        released_input_disposition(&administrative),
         ModelReleasedInputDisposition::Retained
     );
     assert_eq!(
-        administrative_input_disposition(&ModelReleasedInputCut {
+        released_input_disposition(&ModelReleasedInputCut {
             parent: ModelPoolParent::SurvivingAccepted { output_count: 2 },
             ..administrative.clone()
         }),
         ModelReleasedInputDisposition::Released
     );
     assert_eq!(
-        administrative_input_disposition(&ModelReleasedInputCut {
+        released_input_disposition(&ModelReleasedInputCut {
             current_spender: Some(retained_spender),
             ..administrative
         }),

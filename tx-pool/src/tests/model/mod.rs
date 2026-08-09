@@ -51,9 +51,24 @@ pub(crate) use boundary_trace::{
     reference_controller_success_boundary_trace, reference_failed_enqueue_boundary_trace,
     reference_remote_rejection_boundary_trace_with_relay,
 };
+pub(crate) use dependency_progress::{ModelDependencyCut, ModelDependencyKey};
 pub(crate) use eviction_quotient::{
     EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementObservation,
     EvictionRefinementStatus, eviction_observation,
+};
+pub(crate) use evidence_transition::{
+    ModelAdmissionReceipt, ModelDependencyLevel, ModelDirectRejectionObservation,
+    ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity, ModelEvidenceProof,
+    ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject, ModelKnownDependencies,
+    ModelMissingDisposition, ModelMissingFact, ModelPoolParent, ModelPreAcceptedSource,
+    ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext, ModelReleasedInputCut,
+    ModelReleasedInputDisposition, ModelSubjectValidation, ModelUnindexedDependencyLevel,
+    missing_resolution_disposition, released_input_disposition, validate_direct_acceptance,
+    validate_direct_rejection, validate_final_acceptance, validate_final_subject,
+};
+pub(crate) use progress::{
+    AuthorityProgressCut, EffectHead, EffectLogCut, EffectPublicationObservation,
+    EffectReceiptSource, EffectUsageCut, ProgressVersion, SchedulerProgressCut, WakeObservation,
 };
 pub(crate) use refinement::{
     CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
@@ -76,6 +91,11 @@ pub(crate) use scheduler_quotient::{
 };
 pub(crate) use scheduler_transition::{
     SchedulerOwnerPopulation, SchedulerOwnerRing, SchedulerProjectionChange, SchedulerSetProjection,
+};
+pub(crate) use settlement_transition::{
+    ModelMissingSettlement, ModelPayloadPolicy, ModelSettlementCut, ModelSettlementEvidence,
+    ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
+    ModelSettlementRejection,
 };
 pub(crate) use trace::{
     TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,

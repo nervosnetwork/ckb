@@ -5044,3 +5044,84 @@ remote push is authorized.
 The static performance report remains a useful globally routed input rather
 than authority for a local fast path. The next exact action is B3-R4 coherent
 effect/wake/publication, released-input and evidence/settlement refinement.
+
+## B3-R4 evidence/publication/settlement refinement startup
+
+B3-R4 starts from clean local checkpoint
+`6ab7dadbdf8adcd2d4ab5fe3470c749d21639283`. Section 41 of the fixed plan
+records the complete producer census and implementation order. The publisher's
+current two-call read is coherent but leaves its total three-way observation
+assembled outside the sole effect log; replacement and administrative removal
+duplicate one final-parent survival relation; and the wake model carries five
+template source facts although production owns three source versions consumed
+by five independent lanes.
+
+One settlement hypothesis remains open pending an exact real-producer
+falsifier: production globally invalidates every active completion after a
+post-checkout definitive loss of its baseline dependency, while the reference
+table can retain a resource-bound rejection in that state. The model will be
+corrected only after reproduction. Structurally forged receipt fields will not
+be manufactured merely to kill mutations; sealed-constructor reachability will
+be checked mechanically and legal outcomes will use real lifecycle values.
+
+No static-performance candidate is authorized as a local optimization in this
+slice. Compute capture, lock scope, wake cost, template topology and external
+I/O remain unchanged. No new owner, lock, task, queue, channel, retry, timer,
+watchdog, cache, scan or compatibility path is permitted, and no remote push is
+authorized.
+
+The settlement hypothesis is now confirmed by focused Nextest run
+`690693b0-9ff5-4b02-9a92-a50f7b52a4ec`. A real parent-loss transition followed
+by the child's exact active resource-bound settlement produces queued Resolve
+in production but terminal Rejected in the model. Section 42 records the root
+re-adjudication: the model omitted the one baseline-currentness premise shared
+by every result variant. The whole classifier table is reopened; production is
+unchanged and no branch-local repair is permitted.
+
+## B3-R4 evidence/publication/settlement refinement closure
+
+B3-R4 is complete in the local checkpoint containing this record. The model's
+settlement classifier now shares production's baseline-currentness premise for
+all seven result classes. The production effect log owns one coherent
+`Receipt | Idle | ClosedAndDrained` observation, all six post-Apply wake edges
+are bound to the finite before/after relation, and replacement plus
+administrative removal share one projected-final-owner law after their
+different spender premises. Acceptance and dependency evidence use sealed
+real-lifecycle values; impossible receipt states are construction-audited
+rather than forged.
+
+The slow source/expanded construction gate exposed an inherited proof-harness
+root defect rather than a production constructor gap: rustc's expanded
+lint-only `non_exhaustive_omitted_patterns` attributes made ast-grep build an
+error tree, and a raw `impl` regex confused `impl Trait` with an impl item.
+The extractor now normalizes only that lint marker, rejects all remaining
+parse-error trees and carries a permanent `impl Trait` canary. Re-running the
+same-class B3-R3 surface then found one genuine pure-model omission, so the
+existing scheduler property now constructs Large Verify and proves Small
+skips it while Any consumes it. The final slow gate has zero constructorless
+rooted variants or root structs and retains 23 genuine macro-only producers.
+
+Final exact-worktree Nextest run
+`836dd7e2-c509-43b0-b0c7-1e3a887e039c` passes 762/762 with zero skipped and no
+leak classification. Strict all-target internal Clippy, formatting, diff,
+production contracts, test layout, review/security registries, basic and slow
+model refinement, documentation and TLC positive/negative evidence pass. TLC
+closes 1,098 generated / 318 distinct positive states and reproduces the
+required negative witness. The aggregate remains honestly red only at the two
+B3-R5 mutation projections: stale generated adjudication evidence and zero
+current matches for the historical atomic-clock rows.
+
+The section-11 and snowball review finds one authority, unchanged capability
+and resource conservation, unchanged concurrency/lock/task/wait/publication
+topology, no risk transfer and no compatibility change. Production Rust grows
+by net 67 lines and adds no mutable field, lock, task, queue, channel, retry,
+timer, watchdog, cache, scan or I/O. Proof infrastructure is isolated by
+semantic owner and can be simplified only after the later constructive cleanup
+proves that no falsifier or evidence edge is lost. Legacy configuration remains
+supported, node binary/database downgrade remains unsupported and no remote
+push is authorized.
+
+The next exact action is a local B3-R4 commit followed by a clean-tree B3-R5
+start: close contractual observations, regenerate every machine projection,
+create the current complete mutation lock and execute its isolated Nextest
+universe before any later release or cleanup gate.

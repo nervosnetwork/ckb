@@ -29,6 +29,10 @@ METHOD_DECLARATION = re.compile(
     r"(?:async\s+)?(?:const\s+)?(?:unsafe\s+)?"
     r"fn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
 )
+IMPL_DECLARATION = re.compile(r"(?m)^[ \t]*(?:unsafe\s+)?impl\b")
+EXPANDED_LINT_ATTRIBUTE = re.compile(
+    r"#\s*\[\s*allow\s*\(\s*non_exhaustive_omitted_patterns\s*\)\s*\]"
+)
 SYNC_PRIMITIVES = (
     "CancellationToken",
     "JoinHandle",
@@ -251,7 +255,10 @@ def type_impls(path: Path) -> list[tuple[str, str, int]]:
     source = path.read_text()
     masked = mask_rust_non_code(source)
     impls: list[tuple[str, str, int]] = []
-    for declaration in re.finditer(r"\bimpl\b", masked):
+    # An `impl Trait` argument is not an impl item and must not rebind `Self`.
+    # Repository Rust is formatted before this gate, so a real impl item starts
+    # at the beginning of a logical line (with optional indentation/`unsafe`).
+    for declaration in IMPL_DECLARATION.finditer(masked):
         opening = masked.find("{", declaration.end())
         if opening < 0:
             continue
@@ -295,7 +302,7 @@ def impl_ranges(path: Path) -> list[tuple[int, int, str]]:
     source = path.read_text()
     masked = mask_rust_non_code(source)
     ranges: list[tuple[int, int, str]] = []
-    for declaration in re.finditer(r"\bimpl\b", masked):
+    for declaration in IMPL_DECLARATION.finditer(masked):
         opening = masked.find("{", declaration.end())
         if opening < 0:
             continue
@@ -330,6 +337,39 @@ def ast_grep_ranges(paths: list[Path]) -> tuple[dict[Path, list[tuple[int, int]]
         return {}, ["--variant-flow requires ast-grep on PATH"]
     ranges: dict[Path, list[tuple[int, int]]] = {path.resolve(): [] for path in paths}
     errors: list[str] = []
+    command = [
+        executable,
+        "run",
+        "--lang",
+        "rust",
+        "--kind",
+        "ERROR",
+        "--json=stream",
+        *[str(path) for path in paths],
+    ]
+    result = subprocess.run(
+        command,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in (0, 1) or (result.returncode == 1 and result.stderr):
+        errors.append(
+            f"ast-grep parser-health query failed ({result.returncode}): "
+            f"{result.stderr.strip()}"
+        )
+    elif result.stdout:
+        sites = []
+        for line in result.stdout.splitlines()[:8]:
+            item = json.loads(line)
+            start = item["range"]["start"]
+            sites.append(f"{item['file']}:{start['line'] + 1}:{start['column'] + 1}")
+        errors.append(
+            "ast-grep cannot classify refinement flow over a syntax-error tree: "
+            f"{sites}"
+        )
+        return ranges, errors
     for kind in ("match_pattern", "tuple_struct_pattern", "struct_pattern"):
         command = [
             executable,
@@ -1158,11 +1198,17 @@ def derive(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
                         f"{result.stderr.strip()}"
                     )
                 else:
+                    # rustc's pretty-printed expansion attaches this lint-only
+                    # attribute directly to expressions. That output is valid
+                    # compiler AST but not round-trippable Rust for tree-sitter;
+                    # removing the non-semantic lint marker restores an exact
+                    # parse without changing any constructor or pattern.
+                    expanded_source = EXPANDED_LINT_ATTRIBUTE.sub("", result.stdout)
                     temporary = tempfile.NamedTemporaryFile(
                         mode="w", suffix=".rs", delete=False
                     )
                     with temporary:
-                        temporary.write(result.stdout)
+                        temporary.write(expanded_source)
                     generated_expansion = Path(temporary.name)
                     expanded_argument = generated_expansion
         if expanded_argument is not None:

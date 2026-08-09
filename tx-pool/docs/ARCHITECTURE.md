@@ -660,6 +660,13 @@ and cancellation are decided before Apply and represented by closed enums. A
 prepared plan borrows the authority mutably and is `must_use`; it cannot be
 applied twice or against another authority.
 
+Every move-only compute completion is classified by one total relation. The
+active owner's baseline dependency proof is the common first premise for every
+result variant; a post-checkout definitive loss therefore returns every result
+to Resolve before chain, payload-policy or rejection-validity distinctions are
+considered. Identity, view and dependency evidence remain sealed by the work
+constructors rather than being reconstructed in Plan.
+
 ### 7.3 Apply
 
 `PreparedApply::apply(self) -> CommittedDelta` is total. It captures the
@@ -668,6 +675,12 @@ short authority critical section, advances the clocks and returns one derived
 wake transition plus outside-guard retirement. Large retired payloads and
 generations are carried out of the guard before destruction. Apply performs no
 external I/O and has no rollback path.
+
+The wake transition has exactly six derived observations: compute, Ready,
+dependency maintenance, effect publisher, effect capacity and template source.
+Every `AuthorityDelta` arm lies between the same two projection reads. Runtime
+maps the first four homogeneous levels to wake-one and the two heterogeneous
+levels to wake-all; the booleans carry no routing or ownership decision.
 
 Consuming `CommittedDelta` first destroys retirement storage and produces a
 move-only post-commit receipt. One runtime router then publishes timing evidence
@@ -738,12 +751,26 @@ partition cannot retain the complete optional set, the set is terminalized and
 the winner is retried without history; partial history and winner failure are
 not legal saturation outcomes.
 
+Replacement and administrative removal share one projected-final-owner law for
+released inputs. Their only distinct premise is the spender context: a
+replacement suppresses candidate-consumed inputs and requires the current
+spender to be in its removal cohort, while administration requires the exact
+victim. Chain-backed provenance or a surviving non-removed Accepted parent with
+an in-range output then decides availability once for both paths.
+
 ### 8.4 Dependency progress
 
 Every owner carries one canonical `KnownDependencies` basis. Missing work owns
 a non-empty `ObservedDependencies` with an exact `DependencyCut`. Reverse keys
 are derived in `DependencyFrontier`. Availability and definitive loss advance
 authority levels in the same Apply that changes the producer or spender.
+
+Positive, owner-free, resolved and missing evidence all consume the same sparse
+frontier relation. Key-specific definitive loss fences resident owners;
+unindexed loss additionally fences owner-free or newly expanded evidence, and
+unindexed change fences a newly observed missing dependency. Final and direct
+admission receipts revalidate these cuts together with their exact chain view,
+identity and owner/source version before Plan can commit them.
 
 Positive cell evidence has two layers: an attached block may make an output
 chain-live, but that output is not finally available while the post-Apply
@@ -802,8 +829,11 @@ generation reset. A pending-recent-reject index is a charged lookup into the
 same resident batches.
 
 One synchronously claimed publisher task is the sole consumer. A mutable borrow
-of that claim yields a read-only receipt for the minimum sequence; the resident
-record never moves to an in-flight authority location. Endpoint progress is
+of that claim consumes one log-owned `Receipt | Idle | ClosedAndDrained`
+observation. Head ordering and terminal drain are decided from the same
+coherent log cut; Apply wake projection reads only the non-cloning publication
+level. A read-only receipt names the minimum sequence, and the resident record
+never moves to an in-flight authority location. Endpoint progress is
 tentative until one exact settlement Apply advances or removes that record. A
 newer coalesced reset subsumes an older reset receipt without mutation, while a
 queued FIFO head cannot be displaced by append, reset or close. The claim

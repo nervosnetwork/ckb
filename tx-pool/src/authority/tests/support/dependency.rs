@@ -1,5 +1,18 @@
 use super::*;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) struct DependencyEvidenceLevelInput {
+    pub(in crate::authority) key: DependencyKey,
+    pub(in crate::authority) last_change: DependencyCut,
+    pub(in crate::authority) last_definitive_loss: Option<DependencyCut>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct UnindexedDependencyLevelInput {
+    pub(in crate::authority) last_change: Option<DependencyCut>,
+    pub(in crate::authority) last_definitive_loss: Option<DependencyCut>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::authority) struct DependencyMaintenanceRank(usize);
 
@@ -88,6 +101,47 @@ impl DirtyScope {
 }
 
 impl DependencyFrontier {
+    /// Build only the immutable level cut consumed by currentness methods.
+    /// Producer/owner reachability is covered by the real authority lifecycle
+    /// tests; this adapter does not exercise mutation or maintenance.
+    pub(in crate::authority) fn from_evidence_cut_for_foundation(
+        levels: impl IntoIterator<Item = DependencyEvidenceLevelInput>,
+        unindexed: UnindexedDependencyLevelInput,
+    ) -> Option<Self> {
+        if unindexed
+            .last_definitive_loss
+            .is_some_and(|loss| unindexed.last_change.is_none_or(|change| loss > change))
+        {
+            return None;
+        }
+        let mut collected = BTreeMap::new();
+        for input in levels {
+            if input
+                .last_definitive_loss
+                .is_some_and(|loss| loss > input.last_change)
+                || collected
+                    .insert(
+                        input.key,
+                        DependencyLevel {
+                            last_change: input.last_change,
+                            last_definitive_loss: input.last_definitive_loss,
+                        },
+                    )
+                    .is_some()
+            {
+                return None;
+            }
+        }
+        Some(Self {
+            levels: collected,
+            unindexed: UnindexedDependencyLevel {
+                last_change: unindexed.last_change,
+                last_definitive_loss: unindexed.last_definitive_loss,
+            },
+            ..Self::default()
+        })
+    }
+
     pub(in crate::authority) fn snapshot(&self) -> DependencySnapshot {
         DependencySnapshot {
             consumers: self.consumers.clone(),

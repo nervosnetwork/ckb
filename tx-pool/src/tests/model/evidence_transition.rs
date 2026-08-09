@@ -377,13 +377,18 @@ impl ModelPoolParent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ModelReleasedInputCut {
-    pub(crate) victim: ModelRawTransaction,
+    pub(crate) context: ModelReleasedInputContext,
     pub(crate) current_spender: Option<ModelRawTransaction>,
     pub(crate) removed: BTreeSet<ModelRawTransaction>,
-    pub(crate) candidate_uses_input: bool,
     pub(crate) chain_backed: bool,
     pub(crate) parent: ModelPoolParent,
     pub(crate) output_index: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelReleasedInputContext {
+    Replacement { candidate_uses_input: bool },
+    Administrative { victim: ModelRawTransaction },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -393,30 +398,31 @@ pub(crate) enum ModelReleasedInputDisposition {
     StructuralFault,
 }
 
-pub(crate) fn replacement_input_disposition(
+pub(crate) fn released_input_disposition(
     cut: &ModelReleasedInputCut,
 ) -> ModelReleasedInputDisposition {
-    if cut.candidate_uses_input {
+    if matches!(
+        cut.context,
+        ModelReleasedInputContext::Replacement {
+            candidate_uses_input: true
+        }
+    ) {
         return ModelReleasedInputDisposition::Retained;
     }
     let Some(spender) = cut.current_spender else {
         return ModelReleasedInputDisposition::StructuralFault;
     };
-    if !cut.removed.contains(&spender) {
-        return ModelReleasedInputDisposition::Retained;
-    }
-    if cut.chain_backed || cut.parent.preserves(cut.output_index) {
-        ModelReleasedInputDisposition::Released
-    } else {
-        ModelReleasedInputDisposition::Retained
-    }
-}
-
-pub(crate) fn administrative_input_disposition(
-    cut: &ModelReleasedInputCut,
-) -> ModelReleasedInputDisposition {
-    if cut.current_spender != Some(cut.victim) {
-        return ModelReleasedInputDisposition::StructuralFault;
+    match cut.context {
+        ModelReleasedInputContext::Replacement { .. } => {
+            if !cut.removed.contains(&spender) {
+                return ModelReleasedInputDisposition::Retained;
+            }
+        }
+        ModelReleasedInputContext::Administrative { victim } => {
+            if spender != victim {
+                return ModelReleasedInputDisposition::StructuralFault;
+            }
+        }
     }
     if cut.chain_backed || cut.parent.preserves(cut.output_index) {
         ModelReleasedInputDisposition::Released

@@ -19,8 +19,8 @@ use super::{
         ChainBoundaryError, ChainUpdateCommand, ChainUpdateFailure, CommittedChainUpdate,
     },
     effect::{
-        EffectConfigError, EffectLimits, EffectProgressError, EffectReceipt, EffectSettlement,
-        EffectWork,
+        EffectConfigError, EffectLimits, EffectProgressError, EffectPublicationObservation,
+        EffectReceipt, EffectSettlement, EffectWork,
     },
     exchange::{AuthorityComputeExecutionPermit, ComputeWorkerGrant, ComputeWorkerSlot},
     ingress::{
@@ -1573,12 +1573,6 @@ pub(in crate::authority) enum AuthorityReadyOutcome {
     Applied,
 }
 
-enum EffectPublicationState {
-    Idle,
-    Receipt(EffectReceipt),
-    ClosedAndDrained,
-}
-
 #[derive(Debug)]
 #[must_use = "an exchanged assignment must reach its exact stable worker or be requeued"]
 pub(in crate::authority) struct AuthorityComputeAssignment {
@@ -2660,15 +2654,8 @@ impl AuthorityRuntime {
             })
     }
 
-    fn try_effect_publication(&self) -> EffectPublicationState {
-        let store = self.store.read();
-        match store.authority.effect_publication_receipt() {
-            Some(receipt) => EffectPublicationState::Receipt(receipt),
-            None if store.authority.effects_closed_and_drained() => {
-                EffectPublicationState::ClosedAndDrained
-            }
-            None => EffectPublicationState::Idle,
-        }
+    fn try_effect_publication(&self) -> EffectPublicationObservation {
+        self.store.read().authority.effect_publication_observation()
     }
 
     /// Wait for the next committed effect receipt. `None` means the log is
@@ -2682,15 +2669,15 @@ impl AuthorityRuntime {
         loop {
             let notified = self.effect_publisher_signal().notified();
             match self.try_effect_publication() {
-                EffectPublicationState::Idle => notified.await,
-                EffectPublicationState::Receipt(receipt) => {
+                EffectPublicationObservation::Idle => notified.await,
+                EffectPublicationObservation::Receipt(receipt) => {
                     return Some(AuthorityEffectPublicationLease {
                         runtime: self,
                         receipt: Some(receipt),
                         _claim: claim,
                     });
                 }
-                EffectPublicationState::ClosedAndDrained => return None,
+                EffectPublicationObservation::ClosedAndDrained => return None,
             }
         }
     }

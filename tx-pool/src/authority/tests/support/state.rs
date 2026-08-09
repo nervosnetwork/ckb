@@ -374,3 +374,20 @@ impl ValidatedAdmission {
         )
     }
 }
+impl KnownDependencies {
+    pub(in crate::authority) fn from_keys_for_foundation(
+        keys: Vec<DependencyKey>,
+    ) -> Result<Self, DependencySetError> {
+        let max = keys.len();
+        Self::canonicalize(keys, max)
+    }
+}
+
+impl MissingDependencies {
+    pub(in crate::authority) fn from_keys_for_foundation(
+        keys: Vec<DependencyKey>,
+    ) -> Result<Self, DependencySetError> {
+        let max = keys.len();
+        Self::new(keys, max)
+    }
+}

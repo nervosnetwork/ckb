@@ -57,25 +57,13 @@ pub(crate) enum EffectReceiptSource {
     GenerationReset,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct EffectLogCut {
     pub(crate) queued: Option<EffectHead>,
     pub(crate) generation_reset: Option<EffectHead>,
     pub(crate) closed: bool,
     pub(crate) pending_recent_rejects: usize,
     pub(crate) usage: EffectUsageCut,
-}
-
-impl Default for EffectLogCut {
-    fn default() -> Self {
-        Self {
-            queued: None,
-            generation_reset: None,
-            closed: false,
-            pending_recent_rejects: 0,
-            usage: EffectUsageCut::default(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,7 +145,7 @@ pub(crate) struct AuthorityProgressCut {
     pub(crate) active_work: usize,
     pub(crate) dependency_maintenance: bool,
     pub(crate) effects: EffectLogCut,
-    pub(crate) template_sources: [u128; 5],
+    pub(crate) template_sources: [u128; 3],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

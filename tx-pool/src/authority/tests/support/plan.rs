@@ -6,7 +6,11 @@ use super::super::{
     dependency::test_support::{
         DependencyMaintenanceRank, DependencyMaintenanceRankError, DependencySnapshot,
     },
-    effect::test_support::{EffectObservation, EffectSnapshot, EffectTraceBatch},
+    effect::EffectReceipt,
+    effect::test_support::{
+        EffectObservation, EffectPublicationObservationSnapshot, EffectSnapshot, EffectTraceBatch,
+        EffectWakeProjectionInput,
+    },
     indexes::test_support::IndexSnapshot,
     resources::{ActiveWorkAvailability, test_support::ResourceSnapshot},
     scheduler::{CheckoutTicket, test_support::SchedulerSnapshot},
@@ -106,6 +110,93 @@ pub(in crate::authority) use super::compute_exchange::test_support::ComputeExcha
 pub(in crate::authority) use super::membership::StatusCounts;
 pub(in crate::authority) use super::membership::test_support::MembershipSnapshot;
 pub(in crate::authority) use super::settlement::test_support::CandidateBatchError;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum ReleasedInputContextForFoundation {
+    Replacement { candidate_uses_input: bool },
+    Administrative,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum MissingResolutionObservationForFoundation {
+    Wait,
+    RejectUnknownCell(OutPoint),
+    RejectInvalidHeader(ckb_types::packed::Byte32),
+    UnexpectedReject(CommittedPublicReject),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum SettlementClassificationObservationForFoundation {
+    QueuedResolve,
+    QueuedVerify,
+    Waiting,
+    Ready,
+    Rejected,
+    UnexpectedOwnerLocalWaiting,
+    UnexpectedOwnerLocalComputing,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) struct WakeProjectionInput {
+    pub(in crate::authority) scheduler: [Option<u128>; 4],
+    pub(in crate::authority) active_work: usize,
+    pub(in crate::authority) dependency_maintenance: bool,
+    pub(in crate::authority) effects: EffectWakeProjectionInput,
+    pub(in crate::authority) template_sources: [u128; 3],
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct WakeObservation {
+    pub(in crate::authority) compute: bool,
+    pub(in crate::authority) ready: bool,
+    pub(in crate::authority) dependency_maintenance: bool,
+    pub(in crate::authority) effect_publisher: bool,
+    pub(in crate::authority) effect_capacity: bool,
+    pub(in crate::authority) template: bool,
+}
+
+impl WakeProjectionInput {
+    fn into_production(self) -> AuthorityWakeProjection {
+        let [resolve, verify_small, verify_any, ready] = self.scheduler;
+        let [proposals, transactions, chain] = self.template_sources;
+        AuthorityWakeProjection {
+            scheduler: SchedulerWakeProjection {
+                resolve: resolve.map(EntryVersion),
+                verify_small: verify_small.map(EntryVersion),
+                verify_any: verify_any.map(EntryVersion),
+                ready: ready.map(EntryVersion),
+            },
+            active_work: self.active_work,
+            dependency_maintenance: self.dependency_maintenance,
+            effects: EffectWakeProjection::from_input(self.effects),
+            template: PoolTemplateVersions {
+                proposals: ApplySequence(proposals),
+                transactions: ApplySequence(transactions),
+                chain: ApplySequence(chain),
+            },
+        }
+    }
+}
+
+impl AuthorityWakeTransition {
+    pub(in crate::authority) fn observe_for_foundation(
+        before: WakeProjectionInput,
+        after: WakeProjectionInput,
+    ) -> WakeObservation {
+        let transition = Self {
+            before: before.into_production(),
+            after: after.into_production(),
+        };
+        WakeObservation {
+            compute: transition.compute_advanced(),
+            ready: transition.ready_advanced(),
+            dependency_maintenance: transition.dependency_maintenance_activated(),
+            effect_publisher: transition.effect_publisher_advanced(),
+            effect_capacity: transition.effect_capacity_released(),
+            template: transition.template_source_advanced(),
+        }
+    }
+}
 
 /// Test-only sequential checkout oracle. Production checkout is owned solely
 /// by the bounded compute exchange; keeping this oracle in test support makes
@@ -710,6 +801,56 @@ impl TxPoolAuthority {
         self.membership.children(hash)
     }
 
+    pub(in crate::authority) fn released_input_for_foundation(
+        &self,
+        removed_entry: &RawTxHash,
+        input: &OutPoint,
+        removed: &[RawTxHash],
+        context: ReleasedInputContextForFoundation,
+    ) -> Result<bool, PlanError> {
+        let entry = match self.entries.get(removed_entry) {
+            Some(OwnedTx::Accepted(entry)) => entry,
+            Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            }
+        };
+        match context {
+            ReleasedInputContextForFoundation::Replacement {
+                candidate_uses_input,
+            } => {
+                let removed = removed.iter().cloned().collect::<HashSet<_>>();
+                let candidate_inputs = if candidate_uses_input {
+                    [input.clone()].into_iter().collect::<HashSet<_>>()
+                } else {
+                    HashSet::new()
+                };
+                self.released_input_survives_final_owner_set(
+                    entry,
+                    input,
+                    ProjectedFinalOwnerSet {
+                        removed: ProjectedRemovalSet::Replacement(&removed),
+                    },
+                    ReleasedInputContext::Replacement {
+                        candidate_inputs: &candidate_inputs,
+                    },
+                )
+            }
+            ReleasedInputContextForFoundation::Administrative => {
+                let removed = removed.iter().cloned().collect::<BTreeSet<_>>();
+                self.released_input_survives_final_owner_set(
+                    entry,
+                    input,
+                    ProjectedFinalOwnerSet {
+                        removed: ProjectedRemovalSet::Administrative(&removed),
+                    },
+                    ReleasedInputContext::Administrative {
+                        victim: removed_entry,
+                    },
+                )
+            }
+        }
+    }
+
     pub(in crate::authority) fn generation(&self) -> PoolGeneration {
         self.generation
     }
@@ -932,6 +1073,110 @@ impl TxPoolAuthority {
         self.plan_accept_for_foundation_receipt(receipt)
     }
 
+    pub(in crate::authority) fn validate_final_acceptance_for_foundation(
+        &self,
+        key: &RawTxHash,
+        receipt: &FinalAdmissionReceipt,
+    ) -> Result<(), PlanError> {
+        let existing = self
+            .entries
+            .get(key)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        let OwnedTx::PreAccepted(preaccepted) = existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        self.validate_acceptance_evidence(preaccepted, receipt)
+    }
+
+    pub(in crate::authority) fn validate_final_subject_for_foundation(
+        &self,
+        subject: &FinalAdmissionSubject,
+    ) -> Result<(), PlanError> {
+        self.final_admission_subject_owner(subject).map(|_| ())
+    }
+
+    pub(in crate::authority) fn validate_direct_acceptance_for_foundation(
+        &self,
+        receipt: &DirectAdmissionReceipt,
+    ) -> Result<(), PlanError> {
+        self.validate_direct_acceptance_evidence(receipt)
+    }
+
+    pub(in crate::authority) fn missing_resolution_observation_for_foundation(
+        &self,
+        source: PreAcceptedSource,
+        missing: &MissingDependencies,
+    ) -> MissingResolutionObservationForFoundation {
+        match self.missing_resolution_disposition(source, missing) {
+            MissingResolutionDisposition::Wait => MissingResolutionObservationForFoundation::Wait,
+            MissingResolutionDisposition::Reject(rejection) => {
+                let rejection = rejection.into_public();
+                match rejection.reject() {
+                    Reject::Resolve(OutPointError::Unknown(out_point)) => {
+                        MissingResolutionObservationForFoundation::RejectUnknownCell(
+                            out_point.clone(),
+                        )
+                    }
+                    Reject::Resolve(OutPointError::InvalidHeader(header)) => {
+                        MissingResolutionObservationForFoundation::RejectInvalidHeader(
+                            header.clone(),
+                        )
+                    }
+                    _ => MissingResolutionObservationForFoundation::UnexpectedReject(rejection),
+                }
+            }
+        }
+    }
+
+    pub(in crate::authority) fn classify_settlement_for_foundation(
+        &self,
+        settlement: ComputeSettlement,
+    ) -> Result<SettlementClassificationObservationForFoundation, PlanError> {
+        let ComputeSettlement { token, next } = settlement;
+        let existing = self
+            .entries
+            .get(&token.hash)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != token.version {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        if preaccepted.charge.active_work != 1 {
+            return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
+        }
+        Ok(match self.classify_settlement(preaccepted, active, next)? {
+            SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, .. }) => match phase
+            {
+                PreAcceptedPhase::Queued(QueuedWork::Resolve) => {
+                    SettlementClassificationObservationForFoundation::QueuedResolve
+                }
+                PreAcceptedPhase::Queued(QueuedWork::Verify(_)) => {
+                    SettlementClassificationObservationForFoundation::QueuedVerify
+                }
+                PreAcceptedPhase::Waiting(_) => {
+                    SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalWaiting
+                }
+                PreAcceptedPhase::Computing(_) => {
+                    SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalComputing
+                }
+                PreAcceptedPhase::Ready(_) => {
+                    SettlementClassificationObservationForFoundation::Ready
+                }
+            },
+            SettlementClassification::NonLocal(NonLocalSettlement::Waiting(_)) => {
+                SettlementClassificationObservationForFoundation::Waiting
+            }
+            SettlementClassification::NonLocal(
+                NonLocalSettlement::Rejected(_) | NonLocalSettlement::VerificationRejected { .. },
+            ) => SettlementClassificationObservationForFoundation::Rejected,
+        })
+    }
+
     pub(in crate::authority) fn plan_direct_admission_for_foundation(
         &mut self,
         tx: Arc<TransactionView>,
@@ -1128,7 +1373,18 @@ impl TxPoolAuthority {
     pub(in crate::authority) fn effect_publication_receipt_for_foundation(
         &self,
     ) -> Option<EffectReceipt> {
-        self.effect_publication_receipt()
+        match self.effect_publication_observation() {
+            EffectPublicationObservation::Receipt(receipt) => Some(receipt),
+            EffectPublicationObservation::Idle | EffectPublicationObservation::ClosedAndDrained => {
+                None
+            }
+        }
+    }
+
+    pub(in crate::authority) fn effect_publication_observation_for_foundation(
+        &self,
+    ) -> EffectPublicationObservationSnapshot {
+        self.effect_publication_observation().snapshot()
     }
 
     pub(in crate::authority) fn apply_effect_settlement_for_foundation(
@@ -1178,6 +1434,28 @@ impl TxPoolAuthority {
         let Some(control) =
             self.dependencies
                 .plan_events(keys, Vec::new(), DependencyCut(sequence))?
+        else {
+            return Ok(None);
+        };
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        Ok(Some(PreparedApply {
+            authority: self,
+            delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
+                control,
+                clocks: clocks.finish(),
+            }),
+        }))
+    }
+
+    pub(in crate::authority) fn plan_dependency_loss_for_foundation(
+        &mut self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<Option<PreparedApply<'_>>, PlanError> {
+        self.effects.ensure_open()?;
+        let sequence = self.clocks.next_sequence;
+        let Some(control) =
+            self.dependencies
+                .plan_events(Vec::new(), keys, DependencyCut(sequence))?
         else {
             return Ok(None);
         };

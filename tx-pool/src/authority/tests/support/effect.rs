@@ -27,6 +27,92 @@ pub(in crate::authority) enum EffectTraceClass {
     Critical,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum EffectReceiptSourceObservation {
+    Queued,
+    GenerationReset,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum EffectPublicationObservationSnapshot {
+    Receipt {
+        source: EffectReceiptSourceObservation,
+        sequence: ApplySequence,
+        processed_steps: usize,
+    },
+    Idle,
+    ClosedAndDrained,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) enum EffectPublisherLevelInput {
+    #[default]
+    Idle,
+    Available,
+    ClosedAndDrained,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct EffectWakeProjectionInput {
+    pub(in crate::authority) publisher: EffectPublisherLevelInput,
+    pub(in crate::authority) usage: [usize; 6],
+}
+
+impl EffectPublicationObservation {
+    pub(in crate::authority) fn snapshot(self) -> EffectPublicationObservationSnapshot {
+        match self {
+            Self::Receipt(receipt) => EffectPublicationObservationSnapshot::Receipt {
+                source: match receipt.token.source {
+                    EffectLeaseSource::Queued => EffectReceiptSourceObservation::Queued,
+                    EffectLeaseSource::GenerationReset => {
+                        EffectReceiptSourceObservation::GenerationReset
+                    }
+                },
+                sequence: receipt.token.sequence,
+                processed_steps: receipt.processed.0,
+            },
+            Self::Idle => EffectPublicationObservationSnapshot::Idle,
+            Self::ClosedAndDrained => EffectPublicationObservationSnapshot::ClosedAndDrained,
+        }
+    }
+}
+
+impl EffectWakeProjection {
+    pub(in crate::authority) fn from_input(input: EffectWakeProjectionInput) -> Self {
+        let [
+            remote_batches,
+            remote_bytes,
+            ordinary_batches,
+            ordinary_bytes,
+            total_batches,
+            total_bytes,
+        ] = input.usage;
+        Self {
+            publisher: match input.publisher {
+                EffectPublisherLevelInput::Idle => EffectPublisherLevel::Idle,
+                EffectPublisherLevelInput::Available => EffectPublisherLevel::Available,
+                EffectPublisherLevelInput::ClosedAndDrained => {
+                    EffectPublisherLevel::ClosedAndDrained
+                }
+            },
+            usage: EffectRegionUsage {
+                remote: EffectUsage {
+                    batches: remote_batches,
+                    bytes: remote_bytes,
+                },
+                ordinary: EffectUsage {
+                    batches: ordinary_batches,
+                    bytes: ordinary_bytes,
+                },
+                total: EffectUsage {
+                    batches: total_batches,
+                    bytes: total_bytes,
+                },
+            },
+        }
+    }
+}
+
 impl From<EffectClass> for EffectTraceClass {
     fn from(class: EffectClass) -> Self {
         match class {
