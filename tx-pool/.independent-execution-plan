@@ -5322,3 +5322,52 @@ rebound nor migrated. The next exact action is to commit the reviewed generated
 candidate lock together with this checkpoint record, verify a clean tree,
 generate the exact run config and start the complete isolated Nextest mutation
 execution.
+
+## 46. B3-R5 complete current mutation result and root audit freeze
+
+The complete isolated run against candidate lock
+`4529eb462e7a40eeba46c7eab4746b1d48263ee5162447d21a4055b4db50cf47`
+finished normally with all 795 candidates started exactly once. Its portable
+outcome input is
+`207d2ef5830a0ee740d4cd9e680fd8bb7a62b7bb196fe1f701d34a4252e2b7b4`,
+recorded from 2026-08-09T13:38:38.270096Z through
+2026-08-09T15:14:17.159245Z. The raw tool result is 508 caught, 226
+compile-unviable, 59 missed and 2 timed out. The result projector preserves
+those values, derives the two pre-registered expiry misses as exact
+architecture-proved equivalences, and leaves 57 missed plus both timeouts as
+59 unaccepted rows. The current result is therefore `accepted=false` and does
+not release a V1 gate.
+
+A mechanical candidate/result join partitions the 59 unaccepted rows into
+eight investigation roots without copying rows into this plan:
+
+1. dependency decision, currentness and level publication: 22 rows across the
+   maintenance ticket, availability/containment reads, maintenance planning
+   and stable/addition replacement planning;
+2. discardable/nonempty clock owner-checkpoint restoration: 2 symmetric rows;
+3. final/direct acceptance evidence currentness: 5 rows, including both 120s
+   timeouts in the final path;
+4. membership/history/released-input/transition-control closure: 7 rows;
+5. settlement classification evidence composition: 5 rows;
+6. resource configuration and derived compute-envelope construction: 5 rows;
+7. resource-ledger replace, compute-release and batch conservation: 10 rows;
+8. scheduler overlay/replacement eligibility: 3 rows.
+
+These are hypotheses, not findings by mutation authority. The two timeout
+rows cannot use an equivalence disposition and cannot be repeated until a
+desired result. Each root must now reproduce one legal constructible
+observation difference or prove its producer premise makes the perturbation
+unconstructible; trace all producers, consumers, Apply/resource/publication
+effects and external consequences; then reopen every conclusion sharing that
+premise. Only after that adjudication may the architecture family selectors be
+changed. The current family checker correctly remains red: its first exact
+failure is the new clock-checkpoint row having no root-family owner. Adding
+regexes merely to partition all 59 rows is explicitly forbidden.
+
+No production or model source changed during the run. The candidate commit
+remains clean and the raw artifacts remain outside the repository; the
+schema-3 result lock is their portable, hash-bound projection. The next exact
+action after freezing this diagnostic checkpoint is the complete producer and
+consumer audit of the dependency root, followed by the same adjudication for
+the other seven roots before any production implementation. Cleanup and
+remote push remain unauthorized.

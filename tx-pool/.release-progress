@@ -5211,3 +5211,24 @@ The old schema-2 result lock remains deliberately unchanged and is stale
 against the current universe. The next action is a local generated-lock commit,
 then exact config generation and the complete isolated mutation run. No remote
 push or cleanup is authorized.
+
+## B3-R5 complete mutation result captured, root audit active
+
+The clean candidate run started and classified all 795 rows exactly once. Raw
+outcomes are 508 caught, 226 unviable, 59 missed and 2 timeouts; the two named
+expiry misses derive exact equivalence proof IDs, leaving 59 unaccepted
+dispositions. Outcome input SHA-256 is
+`207d2ef5830a0ee740d4cd9e680fd8bb7a62b7bb196fe1f701d34a4252e2b7b4`.
+The generated schema-3 result lock is intentionally `accepted=false` and does
+not release B3-R5 or V1.
+
+Section 46 records the mechanically derived eight-root investigation
+partition: dependency progress (22), clock checkpoints (2), acceptance
+currentness including two timeouts (5), membership/history/release controls
+(7), settlement evidence (5), resource configuration (5), resource ledger
+transitions (10) and scheduler eligibility (3). These counts remain derived
+from the candidate/result join; no survivor row is copied into an allowlist.
+The current adjudication gate correctly fails because the new clock root has no
+architecture family owner. The next action is full dependency producer,
+consumer, transition, publication and legal-counterexample adjudication before
+changing any family selector or production code.
