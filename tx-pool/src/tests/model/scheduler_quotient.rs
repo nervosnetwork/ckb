@@ -401,7 +401,7 @@ pub(crate) struct SchedulerRefinementWorker {
     pub(crate) role: SchedulerRefinementWorkerRole,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum SchedulerRefinementOwner {
     Remote(u8),
     Trusted,

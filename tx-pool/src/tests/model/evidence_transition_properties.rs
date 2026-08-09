@@ -1,0 +1,375 @@
+use super::{
+    dependency_progress::{ModelDependencyCut, ModelDependencyKey},
+    evidence_transition::{
+        ModelAdmissionReceipt, ModelDependencyLevel, ModelDirectRejectionObservation,
+        ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity,
+        ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject,
+        ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
+        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputCut,
+        ModelReleasedInputDisposition, ModelReplacementReference, ModelSubjectValidation,
+        ModelUnindexedDependencyLevel, administrative_input_disposition,
+        missing_resolution_disposition, replacement_history_trigger, replacement_input_disposition,
+        validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
+        validate_final_subject,
+    },
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+fn key(value: u8) -> ModelDependencyKey {
+    ModelDependencyKey(value)
+}
+
+fn dependencies(values: &[u8]) -> ModelKnownDependencies {
+    values.iter().copied().map(key).collect()
+}
+
+fn level(change: u16, loss: Option<u16>) -> ModelDependencyLevel {
+    ModelDependencyLevel::new(ModelDependencyCut(change), loss.map(ModelDependencyCut))
+        .expect("the definitive loss cannot follow its level change")
+}
+
+fn unindexed(change: Option<u16>, loss: Option<u16>) -> ModelUnindexedDependencyLevel {
+    ModelUnindexedDependencyLevel::new(change.map(ModelDependencyCut), loss.map(ModelDependencyCut))
+        .expect("the unindexed loss cannot follow its level change")
+}
+
+fn frontier(
+    levels: &[(u8, ModelDependencyLevel)],
+    unindexed: ModelUnindexedDependencyLevel,
+) -> ModelEvidenceFrontier {
+    ModelEvidenceFrontier::new(
+        levels
+            .iter()
+            .map(|(key, level)| (ModelDependencyKey(*key), *level)),
+        unindexed,
+    )
+    .expect("the dependency level keys are unique")
+}
+
+#[test]
+fn model_dependency_proof_currentness_is_the_exact_loss_cut_order() {
+    let observed = dependencies(&[1]);
+    for cut in 0..=3 {
+        for loss in [None, Some(0), Some(1), Some(2), Some(3)] {
+            let model = frontier(&[(1, level(3, loss))], unindexed(None, None));
+            assert_eq!(
+                model.proof_is_current(&observed, ModelDependencyCut(cut)),
+                loss.is_none_or(|loss| loss <= cut),
+                "cut={cut}, loss={loss:?}"
+            );
+        }
+    }
+    let absent_level = frontier(&[], unindexed(None, None));
+    assert!(absent_level.proof_is_current(&observed, ModelDependencyCut(0)));
+}
+
+#[test]
+fn model_owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once() {
+    let baseline = dependencies(&[1]);
+    let same = dependencies(&[1]);
+    let expanded = dependencies(&[1, 2]);
+    let cut = ModelDependencyCut(1);
+    let stale_global_loss = frontier(
+        &[(1, level(2, None)), (2, level(2, None))],
+        unindexed(Some(2), Some(2)),
+    );
+    assert!(stale_global_loss.proof_is_current(&baseline, cut));
+    assert!(!stale_global_loss.owner_free_proof_is_current(&baseline, cut));
+    assert!(stale_global_loss.resolution_is_current(&baseline, &same, cut));
+    assert!(!stale_global_loss.resolution_is_current(&baseline, &expanded, cut));
+
+    let stale_new_missing_change = frontier(
+        &[(1, level(1, None)), (2, level(2, None))],
+        unindexed(Some(2), None),
+    );
+    assert!(!stale_new_missing_change.missing_result_is_current(
+        &baseline,
+        &same,
+        &dependencies(&[2]),
+        cut,
+    ));
+    let current = frontier(
+        &[(1, level(1, None)), (2, level(1, None))],
+        unindexed(Some(1), None),
+    );
+    assert!(current.missing_result_is_current(&baseline, &expanded, &dependencies(&[2]), cut,));
+}
+
+fn valid_receipt() -> (ModelEvidenceIdentity, ModelAdmissionReceipt) {
+    let identity = ModelEvidenceIdentity {
+        raw: ModelRawTransaction(1),
+        witness: 2,
+    };
+    let receipt = ModelAdmissionReceipt {
+        view: ModelEvidenceView(1),
+        key: identity.raw,
+        proof: ModelEvidenceProof {
+            view: ModelEvidenceView(1),
+            identity,
+            dependencies: dependencies(&[1]),
+            dependency_cut: ModelDependencyCut(1),
+        },
+    };
+    (identity, receipt)
+}
+
+#[test]
+fn model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut() {
+    let (identity, receipt) = valid_receipt();
+    let current = frontier(&[(1, level(1, None))], unindexed(Some(1), None));
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &receipt),
+        ModelEvidenceValidation::Current
+    );
+
+    let mut changed = receipt.clone();
+    changed.view = ModelEvidenceView(2);
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
+        ModelEvidenceValidation::StaleChain
+    );
+    changed = receipt.clone();
+    changed.key = ModelRawTransaction(2);
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
+        ModelEvidenceValidation::StructuralFault
+    );
+    changed = receipt.clone();
+    changed.proof.identity.witness = 3;
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
+        ModelEvidenceValidation::StructuralFault
+    );
+    changed = receipt.clone();
+    changed.proof.view = ModelEvidenceView(2);
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &current, &changed),
+        ModelEvidenceValidation::StructuralFault
+    );
+
+    let stale = frontier(&[(1, level(2, Some(2)))], unindexed(Some(2), Some(2)));
+    assert_eq!(
+        validate_final_acceptance(ModelEvidenceView(1), identity, &stale, &receipt),
+        ModelEvidenceValidation::StaleDependency
+    );
+    assert_eq!(
+        validate_direct_acceptance(ModelEvidenceView(1), &stale, &receipt),
+        ModelEvidenceValidation::StaleDependency
+    );
+}
+
+#[test]
+fn model_final_subject_and_direct_rejection_have_closed_currentness_outcomes() {
+    let current = frontier(&[(1, level(1, None))], unindexed(Some(1), None));
+    let owner = ModelReadyOwner {
+        version: 4,
+        ready: true,
+        dependencies: dependencies(&[1]),
+        dependency_cut: ModelDependencyCut(1),
+    };
+    let owners = BTreeMap::from([(ModelRawTransaction(1), owner.clone())]);
+    let subject = ModelFinalAdmissionSubject {
+        view: ModelEvidenceView(1),
+        key: ModelRawTransaction(1),
+        version: 4,
+        dependency_cut: ModelDependencyCut(1),
+    };
+    assert_eq!(
+        validate_final_subject(ModelEvidenceView(1), &owners, &current, subject),
+        ModelSubjectValidation::Current
+    );
+    assert_eq!(
+        validate_final_subject(
+            ModelEvidenceView(1),
+            &owners,
+            &current,
+            ModelFinalAdmissionSubject {
+                dependency_cut: ModelDependencyCut(0),
+                ..subject
+            },
+        ),
+        ModelSubjectValidation::StaleDependency
+    );
+    let not_ready = BTreeMap::from([(
+        ModelRawTransaction(1),
+        ModelReadyOwner {
+            ready: false,
+            ..owner
+        },
+    )]);
+    assert_eq!(
+        validate_final_subject(ModelEvidenceView(1), &not_ready, &current, subject),
+        ModelSubjectValidation::StalePhase
+    );
+
+    assert_eq!(
+        validate_direct_rejection(
+            ModelEvidenceView(1),
+            7,
+            ModelDirectRejectionValidity::Stable,
+        ),
+        ModelDirectRejectionObservation::Current
+    );
+    for (view, source, expected) in [
+        (1, 7, ModelDirectRejectionObservation::Current),
+        (2, 7, ModelDirectRejectionObservation::StaleChain),
+        (1, 8, ModelDirectRejectionObservation::StaleSource),
+    ] {
+        assert_eq!(
+            validate_direct_rejection(
+                ModelEvidenceView(1),
+                7,
+                ModelDirectRejectionValidity::AcceptedCut {
+                    view: ModelEvidenceView(view),
+                    accepted_source: source,
+                },
+            ),
+            expected
+        );
+    }
+}
+
+#[test]
+fn model_missing_source_policy_is_remote_wait_or_trusted_definitive_rejection() {
+    let known_cell = ModelMissingFact::Cell {
+        key: key(1),
+        parent_is_preaccepted: true,
+    };
+    let unknown_cell = ModelMissingFact::Cell {
+        key: key(2),
+        parent_is_preaccepted: false,
+    };
+    let header = ModelMissingFact::Header { key: key(3) };
+    for facts in [
+        BTreeSet::from([known_cell]),
+        BTreeSet::from([unknown_cell]),
+        BTreeSet::from([header]),
+        BTreeSet::from([known_cell, unknown_cell, header]),
+    ] {
+        assert_eq!(
+            missing_resolution_disposition(ModelPreAcceptedSource::Remote, &facts),
+            ModelMissingDisposition::Wait
+        );
+    }
+    assert_eq!(
+        missing_resolution_disposition(
+            ModelPreAcceptedSource::Proposal,
+            &BTreeSet::from([known_cell]),
+        ),
+        ModelMissingDisposition::Wait
+    );
+    assert_eq!(
+        missing_resolution_disposition(
+            ModelPreAcceptedSource::Recovery,
+            &BTreeSet::from([unknown_cell]),
+        ),
+        ModelMissingDisposition::RejectUnknownCell(key(2))
+    );
+    assert_eq!(
+        missing_resolution_disposition(ModelPreAcceptedSource::Proposal, &BTreeSet::from([header]),),
+        ModelMissingDisposition::RejectInvalidHeader(key(3))
+    );
+}
+
+#[test]
+fn model_released_input_is_derived_from_the_projected_final_owner_set() {
+    let victim = ModelRawTransaction(1);
+    let removed_spender = ModelRawTransaction(2);
+    let retained_spender = ModelRawTransaction(3);
+    let removed = BTreeSet::from([victim, removed_spender]);
+    for candidate_uses_input in [false, true] {
+        for current_spender in [None, Some(removed_spender), Some(retained_spender)] {
+            for chain_backed in [false, true] {
+                for parent in [
+                    ModelPoolParent::Removed,
+                    ModelPoolParent::Other,
+                    ModelPoolParent::SurvivingAccepted { output_count: 1 },
+                    ModelPoolParent::SurvivingAccepted { output_count: 2 },
+                ] {
+                    let cut = ModelReleasedInputCut {
+                        victim,
+                        current_spender,
+                        removed: removed.clone(),
+                        candidate_uses_input,
+                        chain_backed,
+                        parent,
+                        output_index: 1,
+                    };
+                    let expected = if candidate_uses_input {
+                        ModelReleasedInputDisposition::Retained
+                    } else if current_spender.is_none() {
+                        ModelReleasedInputDisposition::StructuralFault
+                    } else if current_spender.is_none_or(|spender| !removed.contains(&spender)) {
+                        ModelReleasedInputDisposition::Retained
+                    } else if chain_backed
+                        || matches!(
+                            parent,
+                            ModelPoolParent::SurvivingAccepted { output_count } if 1 < output_count
+                        )
+                    {
+                        ModelReleasedInputDisposition::Released
+                    } else {
+                        ModelReleasedInputDisposition::Retained
+                    };
+                    assert_eq!(replacement_input_disposition(&cut), expected);
+                }
+            }
+        }
+    }
+
+    let administrative = ModelReleasedInputCut {
+        victim,
+        current_spender: Some(victim),
+        removed,
+        candidate_uses_input: false,
+        chain_backed: false,
+        parent: ModelPoolParent::SurvivingAccepted { output_count: 1 },
+        output_index: 1,
+    };
+    assert_eq!(
+        administrative_input_disposition(&administrative),
+        ModelReleasedInputDisposition::Retained
+    );
+    assert_eq!(
+        administrative_input_disposition(&ModelReleasedInputCut {
+            parent: ModelPoolParent::SurvivingAccepted { output_count: 2 },
+            ..administrative.clone()
+        }),
+        ModelReleasedInputDisposition::Released
+    );
+    assert_eq!(
+        administrative_input_disposition(&ModelReleasedInputCut {
+            current_spender: Some(retained_spender),
+            ..administrative
+        }),
+        ModelReleasedInputDisposition::StructuralFault
+    );
+}
+
+#[test]
+fn model_replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer() {
+    for producer_removed in [false, true] {
+        for chain_backed in [false, true] {
+            for candidate_uses_input in [false, true] {
+                assert_eq!(
+                    replacement_history_trigger(
+                        ModelReplacementReference::Input {
+                            candidate_uses_input,
+                        },
+                        producer_removed,
+                        chain_backed,
+                    ),
+                    candidate_uses_input || (producer_removed && !chain_backed)
+                );
+            }
+            assert_eq!(
+                replacement_history_trigger(
+                    ModelReplacementReference::CellDependency,
+                    producer_removed,
+                    chain_backed,
+                ),
+                producer_removed && !chain_backed
+            );
+        }
+    }
+}

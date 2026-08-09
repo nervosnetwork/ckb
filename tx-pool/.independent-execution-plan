@@ -4342,3 +4342,119 @@ publication and settlement refinement; then portable disposition closure and
 complete mutation rediscovery. Production remains frozen until the model
 relations, necessity ledger, coverage matrix and implementation slices are
 checked and persisted.
+
+## 33. V1-B3 root-proof freeze and fixed production refinement
+
+The complete unacceptable-result partition is now owned by
+`architecture-contract.json#mutation_adjudication` and checked by
+`scripts/check_mutation_adjudication.py`. The checker derives candidate rows
+from the historical candidate and result locks, derives tests from the
+generated inventory, assigns every row to exactly one semantic family and
+rejects copied candidate identities, test names, counts or digests. The
+directional model/production frontier, behavior registry, security manifest,
+review guide and documentation contracts all validate. The combined focused
+Nextest run for the new executable relations passes.
+
+The old mutation candidate/result locks are intentionally historical after
+this proof freeze. They remain immutable evidence for the result that caused
+the adjudication, but their source/test/registry inputs no longer describe the
+current revision. `check_mutation_matrix.py` must therefore remain red until a
+clean post-refinement checkpoint regenerates the active candidate lock and
+reruns the complete current universe. Rebinding the historical outcomes to the
+new revision, copying the new inventory into an allowlist or weakening the
+checker is forbidden.
+
+### Topology adjudication and necessity ledger
+
+The rejected patch topology adds one assertion, fixture limit or guard per
+survivor. It leaves the missing semantic owners intact and makes correctness
+depend on the order in which reports arrived. Its falsifier is any same-law
+mutation outside the listed rows. Its proof and maintenance cost grows with
+the mutation surface.
+
+The rejected generic-progress topology gives every waiter one runtime counter
+or strict-decrease check. Wake edges, monotonic effect levels, dependency
+obligations and task teardown have different state bases and releasers. A
+single counter either becomes a second authority or turns a structural fault
+into policy `Idle`; its falsifier is a legal newer dependency epoch or a
+terminal effect drain.
+
+The selected topology keeps one transaction authority and adds no runtime
+owner, lock, task, queue, channel, cache, retry, rollback or watchdog. It uses:
+
+- one stack-owned clock/control capability for facts that must be constructed
+  atomically with an Apply;
+- one sealed nonempty dependency-maintenance successor, with a full-frontier
+  rank only in model/test code and one local witness on the production path;
+- one total effect publication observation derived from the existing log;
+- the existing before/after wake observation as a non-authoritative value;
+- one projected-final-owner relation for released inputs; and
+- finite differential refinement tests for existing resource, scheduler,
+  evidence, settlement and contractual owners.
+
+Deleting any of those mechanisms respectively permits a partial Apply, removes
+the maintenance termination argument, conflates temporary effect absence with
+terminal drain, loses observable wake cost/liveness, duplicates membership
+publication policy, or leaves a model term without a production refinement.
+All validation and compute work remains outside the atomic Apply cut; no
+previously independent lane is serialized.
+
+The proof-source snowball audit is closed for this checkpoint. Resource terms
+extend the existing continuous-resource model; scheduler terms reuse the
+existing quotient; settlement reuses the evidence frontier; clock/control,
+stable-epoch rank and wake/effect observations each own a distinct fact that
+the prior kernel did not express. The adjudication checker is the sole join
+from historical results to generated proof evidence. No production source has
+changed, and no second hand-maintained candidate, test or coverage registry was
+introduced. Constructive simplification remains after the final V1 gate, not
+during proof closure.
+
+### Fixed production slices
+
+The following order is frozen before production cutover. A slice may gain a
+mechanically derived substep, but it may not be reordered, silently narrowed or
+replaced by survivor-specific fixes.
+
+1. **B3-R1 atomic construction.** Replace manual/defaultable Apply clock and
+   dependency/effect control assembly with one sealed reservation and closed
+   constructors across the complete producer surface. Remove superseded helper
+   paths rather than layering another clock. Prove exact sequence,
+   version/arrival ranges, overflow behavior and unchanged lock/I/O topology.
+2. **B3-R2 dependency progress and structured test ownership.** Make a
+   maintenance Plan carry a nonempty maintenance step rather than generic
+   `None`; add a test-only exact stable-epoch rank and require every focused
+   drain to consume one obligation per Apply. Replace every raw worker-set test
+   spawn in the same class with one cancellation/join owner whose failure path
+   cannot leak tasks. Do not add a runtime frontier scan, retry or watchdog.
+3. **B3-R3 resource and scheduler refinement.** Bind the existing sparse
+   resource ledger and Trusted-first owner ring to the finite reference
+   relations with exhaustive small-domain differential tests. Production
+   changes are allowed only if a test constructs an invalid state through a
+   real producer; no recount, mirror, scheduler queue or serialization may be
+   added.
+4. **B3-R4 evidence, publication and settlement refinement.** Consolidate
+   effect `Receipt | Idle | ClosedAndDrained` into one coherent log
+   observation, bind every wake edge to the before/after relation, and unify
+   administrative and replacement released-input derivation around the
+   projected final owner set. Bind acceptance/currentness and settlement
+   classification to their total reference tables. Preserve immutable
+   validation outside Apply and sole post-commit effect ownership.
+5. **B3-R5 contractual observations and portable closure.** Close fallible
+   allocation, bounded expiry/removal, metrics and private trait-law evidence;
+   regenerate every machine projection; then create a clean current candidate
+   lock, execute the complete isolated Nextest mutation universe and adjudicate
+   any new result by semantic family. Only an accepted current result may
+   release the remaining V1 gates.
+
+At every slice boundary the section-11 whole-system checkpoint is mandatory:
+review authority count, state basis, transition totality, capability/resource
+conservation, wait-for and publication graphs, compatibility, concurrency,
+static cost and snowball complexity before continuing. Legacy configuration
+files remain supported; node binary/database downgrade remains intentionally
+unsupported. Remote publication is not authorized: checkpoints are local
+commits unless the user later grants an explicit push.
+
+The exact next action is to freeze this proof checkpoint in a local commit,
+verify a clean tree, then begin B3-R1 from the sealed clock/control producer
+census. No production cleanup, smoke, release reconciliation or performance
+claim may advance ahead of the current mutation closure.

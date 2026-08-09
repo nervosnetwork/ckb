@@ -22,6 +22,321 @@
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
   },
+  "mutation_adjudication": {
+    "schema_version": 1,
+    "candidate_lock": "tx-pool/mutation-acceptance-lock.json",
+    "result_lock": "tx-pool/mutation-result-lock.json",
+    "unacceptable_outcomes": ["MissedMutant", "Timeout"],
+    "families": [
+      {
+        "id": "V1-B3-WAKE-OBSERVATION",
+        "primary_behavior_id": "TP-WORKER-001",
+        "behavior_ids": ["TP-DEP-001", "TP-EFFECT-001", "TP-TEMPLATE-001", "TP-WORKER-001"],
+        "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"],
+        "model_roles": ["progress_observation_cut", "wake_observation"],
+        "production_roles": ["wake_observation_compiler"],
+        "evidence_test_patterns": [
+          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-WAKE",
+            "function_pattern": "^AuthorityWakeTransition::.*$"
+          }
+        ],
+        "semantic_fact": "Notify publication is the exact finite before/after truth relation and is never scheduling authority.",
+        "falsifier": "Suppressing a true edge can strand its waiter; publishing a false edge adds bounded but observable notify, probe and guard work.",
+        "parallelism": "Resolve, verify, Ready, dependency, effect and template waiters retain independent levels and releasers.",
+        "added_cost": "The reference relation adds zero runtime state; the pending refinement may only seal already-computed post-commit observations.",
+        "deletion_counterexample": "Without the relation, both lost progress and unbounded spurious prompt cost can pass as equivalent signal behavior.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-EFFECT-TERMINAL",
+        "primary_behavior_id": "TP-EFFECT-001",
+        "behavior_ids": ["TP-EFFECT-001", "TP-WORKER-001"],
+        "invariants": ["T2", "T7", "T10"],
+        "model_roles": ["effect_publication_observation"],
+        "production_roles": ["committed_effect_authority", "effect_delivery_capability"],
+        "evidence_test_patterns": [
+          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::progress_properties::model_effect_(publication_observation_is_one_total_three_way_cut|wait_names_the_only_releaser_and_terminal_observation)$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::(effect_publication_receipt|effects_closed_and_drained)$"
+          }
+        ],
+        "semantic_fact": "One coherent effect-log cut has exactly one Receipt, Idle or ClosedAndDrained observation and one named next releaser.",
+        "falsifier": "Collapsing Idle with terminal drain either terminates before committed effects settle or waits forever after close.",
+        "parallelism": "The sole publisher performs endpoint I/O outside the authority guard while effect producers remain independently concurrent.",
+        "added_cost": "The model adds zero runtime state, retry or watchdog; production already owns the log facts and monotonic publication level.",
+        "deletion_counterexample": "Without the three-way observation, None cannot distinguish temporary absence from an absorbing closed-and-drained cut.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-DEPENDENCY-RANK",
+        "primary_behavior_id": "TP-DEP-001",
+        "behavior_ids": ["TP-DEP-001", "TP-WORKER-001"],
+        "invariants": ["T4", "T8", "T10"],
+        "model_roles": ["dependency_maintenance_rank", "dependency_maintenance_successor"],
+        "production_roles": ["dependency_level_authority", "dependency_maintenance_successor"],
+        "evidence_test_patterns": [
+          "^mathematical_model::dependency_progress_properties::.*$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::dependency_progress_properties::.*$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::(apply_maintenance|maintenance_pending|plan_maintenance)$"
+          }
+        ],
+        "semantic_fact": "At a stable dependency epoch every maintenance Apply consumes one finite edge or completion-marker obligation, with fair key rotation.",
+        "falsifier": "A prepared no-progress step leaves the stable rank unchanged and can keep a maintenance drain live forever.",
+        "parallelism": "External events may publish a strictly newer pending epoch; they do not serialize unrelated keys or worker computation.",
+        "added_cost": "The global rank is proof-only; production may carry one sealed local successor witness and no full-frontier scan.",
+        "deletion_counterexample": "Without the stable-epoch rank, arbitrary loop limits and unbounded drains are the only remaining termination arguments.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-ATOMIC-CONSTRUCTION",
+        "primary_behavior_id": "TP-COMMIT-001",
+        "behavior_ids": ["TP-COMMIT-001", "TP-OWN-001"],
+        "invariants": ["T1", "T2", "T3", "T6", "T7"],
+        "model_roles": ["atomic_clock_commit", "atomic_transition_controls"],
+        "production_roles": ["atomic_apply_capability", "atomic_clock_commit", "atomic_transition_controls"],
+        "evidence_test_patterns": [
+          "^mathematical_model::atomic_transition_properties::.*$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::atomic_transition_properties::.*$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
+            "function_pattern": "^TxPoolAuthority::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::prepare_entry_delta_with_controls$"
+          }
+        ],
+        "semantic_fact": "Each nonempty authority Apply consumes one sequence, exact version/arrival ranges and exactly the dependency/effect controls its owner changes require.",
+        "falsifier": "A defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
+        "parallelism": "Plan remains lock-local and effect I/O remains post-commit; one sealed commit does not move compute under the authority guard.",
+        "added_cost": "Sealed stack-owned capabilities replace optional/default construction and add no owner, task, queue or retry state.",
+        "deletion_counterexample": "Without the sealed commit, structural field deletion silently creates representable partial transitions.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-DEPENDENCY-EVIDENCE",
+        "primary_behavior_id": "TP-DEP-001",
+        "behavior_ids": ["TP-DEP-001", "TP-IDENTITY-001", "TP-WORKER-001"],
+        "invariants": ["T2", "T4", "T6", "T10", "T11"],
+        "model_roles": ["evidence_dependency_frontier"],
+        "production_roles": ["dependency_level_authority", "dependency_maintenance_successor"],
+        "evidence_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::(all_observed_dependencies_available|contains|has_new_dependencies|plan_replacements_with_additions|plan_stable_replace)$"
+          }
+        ],
+        "semantic_fact": "Positive, missing and owner-free dependency evidence are current exactly when no relevant key or unindexed loss/change follows the sealed cut.",
+        "falsifier": "Weakening any cut comparison can retain proof across a definitive loss or miss a newly discovered unindexed dependency.",
+        "parallelism": "Evidence producers read immutable snapshots outside Apply; only level publication and owner changes are atomically ordered.",
+        "added_cost": "The reference frontier is proof-only and production retains its existing sparse indexed levels.",
+        "deletion_counterexample": "Without one currentness relation, each caller can invent a different loss boundary and create split proof authority.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-ACCEPTANCE-EVIDENCE",
+        "primary_behavior_id": "TP-IDENTITY-001",
+        "behavior_ids": ["TP-DEP-001", "TP-IDENTITY-001", "TP-WORKER-001"],
+        "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"],
+        "model_roles": ["acceptance_evidence_cut", "evidence_dependency_frontier"],
+        "production_roles": ["direct_acceptance_evidence", "final_acceptance_evidence", "transaction_authority"],
+        "evidence_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut|final_subject_and_direct_rejection_have_closed_currentness_outcomes|missing_source_policy_is_remote_wait_or_trusted_definitive_rejection)$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::(direct_rejection_is_current|final_admission_subject_owner|missing_resolution_disposition|validate_acceptance_evidence|validate_direct_acceptance_evidence|validate_direct_rejection_validity)$"
+          }
+        ],
+        "semantic_fact": "Admission and rejection observations bind the exact chain view, raw/full identity, ready owner version, proof view and dependency/source cut.",
+        "falsifier": "Dropping one equality accepts a nearby transaction, view, owner phase or source generation as the committed subject.",
+        "parallelism": "Validation stays outside the authority mutation cut and returns one immutable receipt for Plan revalidation.",
+        "added_cost": "The model adds zero runtime fields; refinement may only seal facts already present in the receipt and owner.",
+        "deletion_counterexample": "Without a single receipt relation, green validators cannot prove that every production caller checks the same subject.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-RELEASED-INPUT",
+        "primary_behavior_id": "TP-RBF-001",
+        "behavior_ids": ["TP-CACHE-001", "TP-DEP-001", "TP-RBF-001"],
+        "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"],
+        "model_roles": ["released_input_projection", "replacement_history_trigger"],
+        "production_roles": ["dependency_level_authority", "membership_projection"],
+        "evidence_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::(collect_released_administrative_inputs|collect_released_replacement_inputs|compile_membership_delta|retain_replacement_history)$"
+          }
+        ],
+        "semantic_fact": "Input availability and history triggers are derived only from the projected final spender/parent set and exact chain-backed provenance.",
+        "falsifier": "Publishing an input at output_count equality or while a spender/parent survives can wake a false recovery and corrupt conflict ownership.",
+        "parallelism": "The finite membership cohort is canonically planned once; unrelated transactions and validation remain parallel.",
+        "added_cost": "The relation reuses the bounded membership cohort and adds no index, scan, cache or second owner.",
+        "deletion_counterexample": "Without the final-set relation, administrative removal, RBF and history retention can publish contradictory availability.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-RESOURCE-CONSERVATION",
+        "primary_behavior_id": "TP-BUDGET-001",
+        "behavior_ids": ["TP-BUDGET-001", "TP-OWN-001"],
+        "invariants": ["T1", "T3", "T6", "T8"],
+        "model_roles": ["continuous_charge", "continuous_resource_authority", "continuous_resource_configuration", "continuous_resource_vector"],
+        "production_roles": ["resource_authority", "resource_charge", "resource_configuration", "resource_vector"],
+        "evidence_test_patterns": [
+          "^mathematical_model::resource_transition_properties::.*$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::resource_transition_properties::.*$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-RESOURCE-VECTOR",
+            "function_pattern": "^ResourceVector::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-RESOURCE-LEDGER",
+            "function_pattern": "^ResourceLedger::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-RESOURCE-PATH-REMAINDER",
+            "function_pattern": "^(ChargeRecord|ComputeLimits|ResourceLimits)::.*$"
+          }
+        ],
+        "semantic_fact": "All six resource dimensions, compute reservation and peer attribution are constructed and changed as one exact set transition.",
+        "falsifier": "A partial reservation, invalid limit hierarchy, wrong peer release or caller-order-dependent batch leaks or double-charges hostile work.",
+        "parallelism": "Sparse per-owner accounting stays transition-local and does not serialize compute or introduce a global recount.",
+        "added_cost": "The reference ledger is test-only; sealed production constructors may remove checks but cannot add runtime owners or scans.",
+        "deletion_counterexample": "Without the continuous equation, phase-local counters can each appear valid while aggregate residency escapes its bound.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-SCHEDULER-QUOTIENT",
+        "primary_behavior_id": "TP-WORKER-001",
+        "behavior_ids": ["TP-PERF-001", "TP-WORKER-001"],
+        "invariants": ["T2", "T5", "T6", "T8", "T10"],
+        "model_roles": ["scheduler_owner_ring", "scheduler_set_transition"],
+        "production_roles": ["scheduler_authority", "scheduler_owner_ring"],
+        "evidence_test_patterns": [
+          "^mathematical_model::scheduler_transition_properties::.*$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::scheduler_transition_properties::.*$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-FAIR-FRONTIER",
+            "function_pattern": "^FairFrontier::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-SCHEDULER-PATH-REMAINDER",
+            "function_pattern": "^.*$"
+          }
+        ],
+        "semantic_fact": "Scheduler membership is an order-independent set transition; committed plus Plan overlay eligibility forms one bounded Trusted-first owner ring.",
+        "falsifier": "Intersection eligibility, lost verify order/cursor or absent next-after traversal can starve an eligible owner or change deterministic order.",
+        "parallelism": "Only cursor selection is canonically committed; resolve and verify execution remain outside the authority guard and parallel by worker role.",
+        "added_cost": "The model adds zero runtime structure; the existing committed and overlay populations bound every probe.",
+        "deletion_counterexample": "Without the ring quotient, overlay work can become a second scheduler authority or be invisible to a complete wave.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-SETTLEMENT-CLASSIFICATION",
+        "primary_behavior_id": "TP-OWN-001",
+        "behavior_ids": ["TP-DEP-001", "TP-IDENTITY-001", "TP-OWN-001", "TP-WORKER-001"],
+        "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"],
+        "model_roles": ["evidence_dependency_frontier", "settlement_classification"],
+        "production_roles": ["compute_completion", "compute_settlement_outcome"],
+        "evidence_test_patterns": [
+          "^mathematical_model::settlement_transition_properties::.*$"
+        ],
+        "generated_test_patterns": [
+          "^mathematical_model::settlement_transition_properties::.*$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
+            "function_pattern": "^TxPoolAuthority::classify_settlement$"
+          }
+        ],
+        "semantic_fact": "One move-only completion is totally classified from its sealed view, identity, dependency cut, payload policy and rejection validity domain.",
+        "falsifier": "Weakening an identity/policy conjunction retains stale proof, blames the wrong source or terminalizes work that must re-resolve.",
+        "parallelism": "Workers compute independently; only the returned capability's owner/resource/effect disposition is ordered in Apply.",
+        "added_cost": "The model is pure; production already carries every premise in the completion capability and owner cut.",
+        "deletion_counterexample": "Without the total table, each settlement variant can silently use a different currentness or source-policy boundary.",
+        "production_refinement": "pending"
+      },
+      {
+        "id": "V1-B3-CONTRACT-OBSERVATION",
+        "primary_behavior_id": "TP-DEFECT-001",
+        "behavior_ids": ["TP-ADMIN-001", "TP-DEFECT-001", "TP-WORKER-001"],
+        "invariants": ["T3", "T6", "T8", "T10"],
+        "model_roles": ["fallible_scratch_outcome", "integrity_fault"],
+        "production_roles": ["kernel_backpressure_outcome", "transaction_authority"],
+        "evidence_test_patterns": [
+          "^authority::tests::foundation::uak_(accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure|allocation_failure_discards_result_without_retaining_compute_capability)$",
+          "^mathematical_model::properties::model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry$"
+        ],
+        "generated_test_patterns": [
+          "^authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability$"
+        ],
+        "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^(OwnerRemovalKeys::truncate|TxPoolAuthority::(compile_administrative_removal|operational_metrics|plan_accepted_expiry|reserve_primary_owner_insertions)|retired_buffer)$"
+          }
+        ],
+        "semantic_fact": "Fallible allocation, bounded administrative selection, stable expiry and operational metrics remain explicit contractual observations rather than policy authority.",
+        "falsifier": "Erasing allocation or truncation can make a legal bounded operation infallible, unbounded or silently incomplete; erasing metrics changes an operational read.",
+        "parallelism": "Allocation remains in Plan, retirement outside the guard and metrics read-only; no observation serializes mutation paths.",
+        "added_cost": "No new model or runtime layer is introduced; exact production boundary regressions remain pending where observation is currently weak.",
+        "deletion_counterexample": "Without the contract family, non-semantic survivors disappear from closure despite externally visible failure, bound and metrics behavior.",
+        "production_refinement": "pending"
+      }
+    ]
+  },
   "selected_topology": {
     "schema_version": 1,
     "id": "bounded_semantic_exchange",
@@ -759,6 +1074,8 @@
       "tx-pool/src/tests/model/adversarial.rs::CurrentRetainedPathCost": "current_retained_path_cost",
       "tx-pool/src/tests/model/adversarial.rs::CurrentRetainedPathInput": "current_retained_path_input",
       "tx-pool/src/tests/model/adversarial.rs::WorkAmplificationAudit": "hostile_work_bound",
+      "tx-pool/src/tests/model/atomic_transition.rs::ClockCommit": "atomic_clock_commit",
+      "tx-pool/src/tests/model/atomic_transition.rs::TransitionControlCommit": "atomic_transition_controls",
       "tx-pool/src/tests/model/boundaries.rs::CallbackAccess": "callback_capability",
       "tx-pool/src/tests/model/boundaries.rs::CallbackDisposition": "callback_boundary",
       "tx-pool/src/tests/model/boundaries.rs::CandidateUncle": "candidate_uncle_boundary",
@@ -777,6 +1094,12 @@
       "tx-pool/src/tests/model/composition.rs::ReadyComposition": "commutative_membership",
       "tx-pool/src/tests/model/composition.rs::RetainedAcquireDisposition": "retained_permit_outcome",
       "tx-pool/src/tests/model/composition.rs::RetainedPermitAcquirer": "retained_permit_protocol",
+      "tx-pool/src/tests/model/dependency_progress.rs::DependencyMaintenanceState": "dependency_maintenance_rank",
+      "tx-pool/src/tests/model/dependency_progress.rs::DependencyMaintenanceTransition": "dependency_maintenance_successor",
+      "tx-pool/src/tests/model/evidence_transition.rs::ModelAdmissionReceipt": "acceptance_evidence_cut",
+      "tx-pool/src/tests/model/evidence_transition.rs::ModelEvidenceFrontier": "evidence_dependency_frontier",
+      "tx-pool/src/tests/model/evidence_transition.rs::ModelReleasedInputCut": "released_input_projection",
+      "tx-pool/src/tests/model/evidence_transition.rs::ModelReplacementReference": "replacement_history_trigger",
       "tx-pool/src/tests/model/handoff.rs::CapabilityTransport": "capability_handoff",
       "tx-pool/src/tests/model/handoff.rs::EndpointCircuit": "effect_endpoint_circuit",
       "tx-pool/src/tests/model/handoff.rs::EndpointEvent": "effect_endpoint_boundary",
@@ -785,6 +1108,9 @@
       "tx-pool/src/tests/model/kernel.rs::KernelDisposition": "kernel_outcome",
       "tx-pool/src/tests/model/kernel.rs::KernelStep": "total_apply",
       "tx-pool/src/tests/model/permit.rs::FairPermitScheduler": "fair_permit_protocol",
+      "tx-pool/src/tests/model/progress.rs::AuthorityProgressCut": "progress_observation_cut",
+      "tx-pool/src/tests/model/progress.rs::EffectPublicationObservation": "effect_publication_observation",
+      "tx-pool/src/tests/model/progress.rs::WakeObservation": "wake_observation",
       "tx-pool/src/tests/model/kernel.rs::ChainRemovalCause": "chain_removal_cause",
       "tx-pool/src/tests/model/protocol.rs::ControllerProtocol": "boundary_request_protocol",
       "tx-pool/src/tests/model/protocol.rs::Lifecycle": "generation_lifecycle",
@@ -802,7 +1128,14 @@
       "tx-pool/src/tests/model/resource.rs::QueryCostInputs": "query_cost_input",
       "tx-pool/src/tests/model/resource.rs::QueryCostUpperBound": "query_cost_bound",
       "tx-pool/src/tests/model/resource.rs::RetainedChargeInputs": "retained_resource_equation",
+      "tx-pool/src/tests/model/resource.rs::ContinuousChargeRecord": "continuous_charge",
+      "tx-pool/src/tests/model/resource.rs::ContinuousResourceLedger": "continuous_resource_authority",
+      "tx-pool/src/tests/model/resource.rs::ContinuousResourceLimits": "continuous_resource_configuration",
+      "tx-pool/src/tests/model/resource.rs::ContinuousResourceVector": "continuous_resource_vector",
       "tx-pool/src/tests/model/resource.rs::ScratchDisposition": "fallible_scratch_outcome",
+      "tx-pool/src/tests/model/scheduler_transition.rs::SchedulerOwnerRing": "scheduler_owner_ring",
+      "tx-pool/src/tests/model/scheduler_transition.rs::SchedulerSetProjection": "scheduler_set_transition",
+      "tx-pool/src/tests/model/settlement_transition.rs::ModelSettlementCut": "settlement_classification",
       "tx-pool/src/tests/model/state.rs::DirectCapability": "direct_compute_capability",
       "tx-pool/src/tests/model/state.rs::EffectClaim": "effect_claim",
       "tx-pool/src/tests/model/state.rs::FinishedWorkCapability": "compute_completion",
@@ -829,7 +1162,10 @@
       "tx-pool/src/authority/ban.rs::PeerBanRegistry": "peer_ban_fence",
       "tx-pool/src/authority/chain_boundary.rs::ChainUpdateRequest": "ordered_chain_preparation",
       "tx-pool/src/authority/compute_coordinator.rs::ComputeCoordinator": "compute_worker_protocol",
+      "tx-pool/src/authority/chain.rs::DirectAdmissionReceipt": "direct_acceptance_evidence",
+      "tx-pool/src/authority/chain.rs::FinalAdmissionReceipt": "final_acceptance_evidence",
       "tx-pool/src/authority/dependency.rs::DependencyFrontier": "dependency_level_authority",
+      "tx-pool/src/authority/dependency.rs::DependencyMaintenanceTicket": "dependency_maintenance_successor",
       "tx-pool/src/authority/effect.rs::CommittedEffect": "committed_effect_value",
       "tx-pool/src/authority/effect.rs::EffectLog": "committed_effect_authority",
       "tx-pool/src/authority/effect.rs::EffectReceipt": "effect_delivery_capability",
@@ -842,13 +1178,16 @@
       "tx-pool/src/authority/indexes.rs::AuthorityIndexes": "identity_index_projection",
       "tx-pool/src/authority/packing.rs::PackageAggregate": "template_packing_algorithm",
       "tx-pool/src/authority/plan.rs::AuthorityPostCommit": "post_commit_handoff",
+      "tx-pool/src/authority/plan.rs::AuthorityWakeTransition": "wake_observation_compiler",
       "tx-pool/src/authority/plan.rs::AuthorityFault": "authority_integrity_fault",
+      "tx-pool/src/authority/plan.rs::BatchClockReservation": "atomic_clock_commit",
       "tx-pool/src/authority/plan.rs::Backpressure": "kernel_backpressure_outcome",
       "tx-pool/src/authority/plan.rs::PlanError": "kernel_plan_outcome",
       "tx-pool/src/authority/plan.rs::PreparedApply": "atomic_apply_capability",
       "tx-pool/src/authority/plan.rs::SettlementDisposition": "compute_settlement_outcome",
       "tx-pool/src/authority/plan.rs::StalePlan": "stale_plan_outcome",
       "tx-pool/src/authority/plan.rs::TxPoolAuthority": "transaction_authority",
+      "tx-pool/src/authority/plan.rs::TransitionControls": "atomic_transition_controls",
       "tx-pool/src/authority/plan/chain_transition.rs::PreacceptedCapability": "chain_reconciliation_capability",
       "tx-pool/src/authority/plan/compute_exchange.rs::ComputeExchangeDelta": "completion_exchange",
       "tx-pool/src/authority/plan/compute_exchange.rs::ComputeExchangePlanFailure": "completion_exchange_failure",
@@ -862,6 +1201,9 @@
       "tx-pool/src/authority/relay.rs::RelayMailboxConfigError": "relay_boundary_configuration",
       "tx-pool/src/authority/relay.rs::AuthorityRelaySink": "relay_mailbox_handoff",
       "tx-pool/src/authority/resources.rs::ResourceLedger": "resource_authority",
+      "tx-pool/src/authority/resources.rs::ChargeRecord": "resource_charge",
+      "tx-pool/src/authority/resources.rs::ResourceLimits": "resource_configuration",
+      "tx-pool/src/authority/resources.rs::ResourceVector": "resource_vector",
       "tx-pool/src/authority/resolver.rs::DirectResolutionPreparation": "direct_resolution_outcome",
       "tx-pool/src/authority/resolver.rs::ResolutionAttempt": "retained_resolution_outcome",
       "tx-pool/src/authority/resolver.rs::ResolveAgainstCutError": "resolution_cut_outcome",
@@ -878,6 +1220,7 @@
       "tx-pool/src/authority/service.rs::DirectErrorDisposition": "direct_boundary_outcome",
       "tx-pool/src/authority/service.rs::GenerationBoundaryEvent": "generation_boundary_event",
       "tx-pool/src/authority/scheduler.rs::FairFrontier": "scheduler_authority",
+      "tx-pool/src/authority/scheduler.rs::SchedulerExchangeWave": "scheduler_owner_ring",
       "tx-pool/src/authority/source.rs::AuthoritySourceVersions": "projection_source_versions",
       "tx-pool/src/authority/template.rs::TemplateConvergence": "template_publication_authority",
       "tx-pool/src/authority/template_driver.rs::AuthorityBlockAssembler": "template_convergence",
@@ -902,6 +1245,8 @@
     "semantic_bindings": {
       "authority_and_atomic_apply": {
         "model_roles": [
+          "atomic_clock_commit",
+          "atomic_transition_controls",
           "kernel_command",
           "kernel_outcome",
           "owner_lifecycle",
@@ -910,6 +1255,8 @@
         ],
         "production_roles": [
           "atomic_apply_capability",
+          "atomic_clock_commit",
+          "atomic_transition_controls",
           "coherent_store_cut",
           "kernel_plan_outcome",
           "post_commit_handoff",
@@ -929,6 +1276,10 @@
           "candidate_topology_surface",
           "compute_resource_admission",
           "compute_resource_grant",
+          "continuous_charge",
+          "continuous_resource_authority",
+          "continuous_resource_configuration",
+          "continuous_resource_vector",
           "current_retained_path_cost",
           "current_retained_path_input",
           "hostile_work_bound",
@@ -937,7 +1288,10 @@
           "retained_resource_equation"
         ],
         "production_roles": [
-          "resource_authority"
+          "resource_authority",
+          "resource_charge",
+          "resource_configuration",
+          "resource_vector"
         ],
         "behavior_ids": [
           "TP-BUDGET-001",
@@ -947,11 +1301,15 @@
       "chain_and_dependency": {
         "model_roles": [
           "chain_removal_cause",
-          "dependency_level_authority"
+          "dependency_level_authority",
+          "dependency_maintenance_rank",
+          "dependency_maintenance_successor",
+          "evidence_dependency_frontier"
         ],
         "production_roles": [
           "chain_reconciliation_capability",
           "dependency_level_authority",
+          "dependency_maintenance_successor",
           "ordered_chain_handoff",
           "ordered_chain_preparation"
         ],
@@ -972,8 +1330,13 @@
           "fair_permit_protocol",
           "permit_work_exchange",
           "permit_work_exchange_failure",
+          "progress_observation_cut",
           "retained_permit_outcome",
-          "retained_permit_protocol"
+          "retained_permit_protocol",
+          "scheduler_owner_ring",
+          "scheduler_set_transition",
+          "settlement_classification",
+          "wake_observation"
         ],
         "production_roles": [
           "completion_exchange",
@@ -985,7 +1348,9 @@
           "compute_worker_protocol",
           "permit_work_exchange",
           "permit_work_exchange_failure",
-          "scheduler_authority"
+          "scheduler_authority",
+          "scheduler_owner_ring",
+          "wake_observation_compiler"
         ],
         "behavior_ids": [
           "TP-COMMIT-001",
@@ -1000,7 +1365,8 @@
           "committed_effect_value",
           "effect_claim",
           "effect_endpoint_boundary",
-          "effect_endpoint_circuit"
+          "effect_endpoint_circuit",
+          "effect_publication_observation"
         ],
         "production_roles": [
           "committed_effect_authority",
@@ -1016,16 +1382,19 @@
       },
       "ingress_identity_and_validation": {
         "model_roles": [
+          "acceptance_evidence_cut",
           "ingress_source",
           "verification_control_boundary",
           "verification_identity"
         ],
         "production_roles": [
           "candidate_validation_outcome",
+          "direct_acceptance_evidence",
           "direct_boundary_outcome",
           "direct_ingress_handoff",
           "direct_resolution_outcome",
           "direct_validation_evidence",
+          "final_acceptance_evidence",
           "resolution_cut_outcome",
           "resolved_cell_role",
           "resolved_payload_outcome",
@@ -1063,7 +1432,9 @@
         "model_roles": [
           "canonical_ordered_batch",
           "commutative_membership",
-          "ordered_batch_family"
+          "ordered_batch_family",
+          "released_input_projection",
+          "replacement_history_trigger"
         ],
         "production_roles": [
           "commutative_membership",

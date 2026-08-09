@@ -4800,3 +4800,55 @@ registries and result lock; and freeze the smallest typed production
 refinement slices before changing production code. The new result lock is now
 also a documented machine contract. Cleanup, smoke, release reconciliation and
 performance remain blocked in their original order.
+
+## V1-B3 root-proof and production-slice freeze
+
+Work resumed from local checkpoint `5ae43b211` with the expected proof-only
+working tree and no production Rust changes. The historical result was joined
+mechanically to eleven semantic families. The new adjudication checker derives
+all candidate assignments from the candidate/result locks and all proof tests
+from the generated inventory; it rejects zero-match evidence, duplicate family
+ownership and copied derived facts. The architecture, model-refinement,
+security-manifest, review-guide and documentation contracts pass.
+
+The executable relation set now owns exact wake/effect observations,
+stable-epoch dependency rank and successor, complete clock/control
+construction, dependency and admission currentness, projected released inputs
+and replacement-history triggers, continuous resource conservation, scheduler
+set/ring behavior and total settlement classification. One combined focused
+Nextest run passed every newly registered relation test. The model-only growth
+was audited by semantic owner: resource extends the existing resource model,
+scheduler extends the existing quotient, settlement reuses the evidence
+frontier and the remaining modules own previously absent cross-cutting facts.
+No duplicate runtime specification, authority, lock, task, queue, channel,
+retry, capability, compatibility path or hot-path operation was added.
+
+The two historical acceptance-evidence timeouts were reclassified with exact
+logs. Their semantic mutations are promptly caught, but several tests start a
+worker set and panic before their teardown call; the leaked task generation
+keeps the isolated process alive until the mutation timeout. This is one
+shared structured test-task ownership defect, not a transaction-policy retry
+or dependency-rank defect. The fixed plan therefore replaces the complete raw
+test-spawn class with one cancellation/join owner instead of patching each
+timeout.
+
+Section 33 of `.independent-execution-plan` freezes the selected topology and
+five ordered production slices. The selected correction introduces only
+sealed stack-owned Plan values and test/refinement projections. It preserves
+the one authority, validation/compute concurrency, Plan/Apply/effect split,
+forward configuration compatibility and the explicit no-downgrade policy.
+The user has also withdrawn automatic remote-publication authority, so every
+checkpoint remains local and no push will occur without a new explicit grant.
+
+The mutation checker is expected to reject the historical lock as stale after
+the proof files, registries and tests changed. That red gate is retained as an
+honest phase blocker; the old raw outcomes and result lock are not rebound to a
+new revision. The active candidate lock is regenerated only after the frozen
+production refinement slices close on a clean checkpoint.
+
+The exact next action is a local proof-checkpoint commit followed by B3-R1:
+replace the complete manual/defaultable Apply clock and projection-control
+producer surface with the sealed atomic construction, run its focused model
+and production refinement evidence, and apply the whole-system checkpoint
+before B3-R2. Cleanup, smoke, release work and performance measurement remain
+blocked in their original order.

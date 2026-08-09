@@ -346,6 +346,8 @@
     }
   ],
   "unit_evidence": [
+
+
     {"test": "authority::tests::foundation::uak_all_four_preaccepted_phases_are_closed_variants", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T5"]},
     {"test": "authority::tests::foundation::uak_duplicate_and_promotion_never_create_second_owner", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3"]},
     {"test": "authority::tests::foundation::uak_stale_compute_version_is_mutation_free_across_aba", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6"]},
@@ -769,7 +771,45 @@
     {"test": "mathematical_model::develop_refinement::develop_edge_triggered_orphan_wake_can_lose_parent_progress", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T10"]},
     {"test": "mathematical_model::develop_refinement::develop_gap_and_detached_uncle_can_jointly_censor_reproposal", "behavior_id": "TP-REORG-001", "invariants": ["T5", "T9", "T12", "T13"]},
     {"test": "mathematical_model::develop_refinement::develop_concurrent_clear_can_be_overtaken_by_detached_recovery", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T6", "T9", "T10"]},
-    {"test": "mathematical_model::develop_refinement::develop_detached_cache_lookup_can_substitute_raw_for_witness_identity", "behavior_id": "TP-IDENTITY-001", "invariants": ["T11"]}
+    {"test": "mathematical_model::develop_refinement::develop_detached_cache_lookup_can_substitute_raw_for_witness_identity", "behavior_id": "TP-IDENTITY-001", "invariants": ["T11"]},
+
+    {"test": "authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_batch_clock_commit_uses_one_apply_sequence_for_every_member", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_advances_one_sequence_and_the_exact_identity_ranges", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_transition_controls_make_every_required_projection_structural", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_cursor_gives_key_fairness_without_a_second_queue", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_event_only_supersedes_with_a_newer_cut", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_event_without_an_affected_edge_creates_no_drain_work", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_is_the_exact_stable_epoch_drain_bound", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_dependency_proof_currentness_is_the_exact_loss_cut_order", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_final_subject_and_direct_rejection_have_closed_currentness_outcomes", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_missing_source_policy_is_remote_wait_or_trusted_definitive_rejection", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_released_input_is_derived_from_the_projected_final_owner_set", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::progress_properties::model_compute_wake_is_exact_over_the_finite_head_and_release_algebra", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
+    {"test": "mathematical_model::progress_properties::model_effect_capacity_wake_observes_any_release_but_not_stable_or_growth", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
+    {"test": "mathematical_model::progress_properties::model_effect_publication_observation_is_one_total_three_way_cut", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},
+    {"test": "mathematical_model::progress_properties::model_effect_wait_names_the_only_releaser_and_terminal_observation", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},
+    {"test": "mathematical_model::progress_properties::model_wake_relation_separates_suppression_from_spurious_cost", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
+    {"test": "mathematical_model::resource_transition_properties::model_charge_validation_exhausts_partial_compute_reservations", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "mathematical_model::resource_transition_properties::model_compute_release_consumes_the_exact_reservation_and_peer_attribution", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "mathematical_model::resource_transition_properties::model_compute_reservation_is_all_or_nothing_and_preserves_edge_units", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "mathematical_model::resource_transition_properties::model_resource_batch_is_one_order_independent_set_transition", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "mathematical_model::resource_transition_properties::model_resource_configuration_rejects_each_independent_invalid_premise", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
+    {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_batch_is_one_order_independent_set_transition", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_duplicate_overlay_owner_is_a_bounded_probe_not_a_second_owner", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_overlay_eligibility_is_union_not_intersection_or_constant", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_owner_bound_and_next_after_skip_each_ineligible_owner_once", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_replace_rejects_stale_duplicate_and_identity_ambiguous_changes", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_queued_verify_requires_exact_identity_view_cut_chain_and_dependencies", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_ready_requires_both_payload_identity_and_sealed_witness", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_rejection_validity_is_chain_or_resource_bound", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_verification_rejection_policy_transition_is_a_closed_truth_table", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_waiting_is_retained_only_at_the_same_chain_and_current_missing_cut", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]}
   ],
   "workspace_evidence": [
     {
