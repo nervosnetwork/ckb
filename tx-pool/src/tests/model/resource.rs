@@ -174,17 +174,17 @@ impl ServiceIngressResidencyInputs {
 // production refinement converts only representable usize/u64 inputs.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct ContinuousResourceVector {
-    pub(super) entries: u16,
-    pub(super) bytes: u16,
-    pub(super) edges: u16,
-    pub(super) active_work: u16,
-    pub(super) compute_bytes: u16,
-    pub(super) compute_edges: u16,
+pub(crate) struct ContinuousResourceVector {
+    pub(crate) entries: u16,
+    pub(crate) bytes: u16,
+    pub(crate) edges: u16,
+    pub(crate) active_work: u16,
+    pub(crate) compute_bytes: u16,
+    pub(crate) compute_edges: u16,
 }
 
 impl ContinuousResourceVector {
-    pub(super) const fn retained(entries: u16, bytes: u16, edges: u16) -> Self {
+    pub(crate) const fn retained(entries: u16, bytes: u16, edges: u16) -> Self {
         Self {
             entries,
             bytes,
@@ -195,7 +195,7 @@ impl ContinuousResourceVector {
         }
     }
 
-    pub(super) fn reserve_compute(
+    pub(crate) fn reserve_compute(
         self,
         grant: ModelComputeGrant,
     ) -> Option<ContinuousResourceVector> {
@@ -210,7 +210,7 @@ impl ContinuousResourceVector {
         })
     }
 
-    pub(super) const fn without_compute(self) -> Self {
+    pub(crate) const fn without_compute(self) -> Self {
         Self {
             active_work: 0,
             compute_bytes: 0,
@@ -219,19 +219,19 @@ impl ContinuousResourceVector {
         }
     }
 
-    pub(super) const fn has_compute_reservation(self) -> bool {
+    pub(crate) const fn has_compute_reservation(self) -> bool {
         self.active_work != 0 || self.compute_bytes != 0 || self.compute_edges != 0
     }
 
-    pub(super) fn total_bytes(self) -> Option<u16> {
+    pub(crate) fn total_bytes(self) -> Option<u16> {
         self.bytes.checked_add(self.compute_bytes)
     }
 
-    pub(super) fn total_edges(self) -> Option<u16> {
+    pub(crate) fn total_edges(self) -> Option<u16> {
         self.edges.checked_add(self.compute_edges)
     }
 
-    fn checked_add(self, other: Self) -> Option<Self> {
+    pub(crate) fn checked_add(self, other: Self) -> Option<Self> {
         Some(Self {
             entries: self.entries.checked_add(other.entries)?,
             bytes: self.bytes.checked_add(other.bytes)?,
@@ -242,7 +242,18 @@ impl ContinuousResourceVector {
         })
     }
 
-    fn fits(self, limit: Self) -> bool {
+    pub(crate) fn checked_sub(self, other: Self) -> Option<Self> {
+        Some(Self {
+            entries: self.entries.checked_sub(other.entries)?,
+            bytes: self.bytes.checked_sub(other.bytes)?,
+            edges: self.edges.checked_sub(other.edges)?,
+            active_work: self.active_work.checked_sub(other.active_work)?,
+            compute_bytes: self.compute_bytes.checked_sub(other.compute_bytes)?,
+            compute_edges: self.compute_edges.checked_sub(other.compute_edges)?,
+        })
+    }
+
+    pub(crate) fn fits(self, limit: Self) -> bool {
         self.entries <= limit.entries
             && self.bytes <= limit.bytes
             && self.edges <= limit.edges
@@ -253,20 +264,20 @@ impl ContinuousResourceVector {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ModelComputeGrant {
-    pub(super) total_retained_bytes: u16,
-    pub(super) edges: u16,
+pub(crate) struct ModelComputeGrant {
+    pub(crate) total_retained_bytes: u16,
+    pub(crate) edges: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ContinuousComputeLimits {
-    pub(super) resolved_total_retained_bytes: u16,
-    pub(super) accepted_total_retained_bytes: u16,
-    pub(super) expanded_edges: u16,
+pub(crate) struct ContinuousComputeLimits {
+    pub(crate) resolved_total_retained_bytes: u16,
+    pub(crate) accepted_total_retained_bytes: u16,
+    pub(crate) expanded_edges: u16,
 }
 
 impl ContinuousComputeLimits {
-    pub(super) const fn max_total_retained_bytes(self) -> u16 {
+    pub(crate) const fn max_total_retained_bytes(self) -> u16 {
         if self.resolved_total_retained_bytes > self.accepted_total_retained_bytes {
             self.resolved_total_retained_bytes
         } else {
@@ -274,7 +285,7 @@ impl ContinuousComputeLimits {
         }
     }
 
-    pub(super) const fn admits(self, resources: ContinuousResourceVector) -> bool {
+    pub(crate) const fn admits(self, resources: ContinuousResourceVector) -> bool {
         resources.entries == 1
             && !resources.has_compute_reservation()
             && resources.bytes <= self.resolved_total_retained_bytes
@@ -284,15 +295,15 @@ impl ContinuousComputeLimits {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct ContinuousAcceptedResources {
-    pub(super) entries: u16,
-    pub(super) serialized_bytes: u16,
-    pub(super) resident_bytes: u16,
-    pub(super) cycles: u16,
+pub(crate) struct ContinuousAcceptedResources {
+    pub(crate) entries: u16,
+    pub(crate) serialized_bytes: u16,
+    pub(crate) resident_bytes: u16,
+    pub(crate) cycles: u16,
 }
 
 impl ContinuousAcceptedResources {
-    fn checked_add(self, other: Self) -> Option<Self> {
+    pub(crate) fn checked_add(self, other: Self) -> Option<Self> {
         Some(Self {
             entries: self.entries.checked_add(other.entries)?,
             serialized_bytes: self.serialized_bytes.checked_add(other.serialized_bytes)?,
@@ -301,7 +312,16 @@ impl ContinuousAcceptedResources {
         })
     }
 
-    fn fits(self, limit: Self) -> bool {
+    pub(crate) fn checked_sub(self, other: Self) -> Option<Self> {
+        Some(Self {
+            entries: self.entries.checked_sub(other.entries)?,
+            serialized_bytes: self.serialized_bytes.checked_sub(other.serialized_bytes)?,
+            resident_bytes: self.resident_bytes.checked_sub(other.resident_bytes)?,
+            cycles: self.cycles.checked_sub(other.cycles)?,
+        })
+    }
+
+    pub(crate) fn fits(self, limit: Self) -> bool {
         self.entries <= limit.entries
             && self.serialized_bytes <= limit.serialized_bytes
             && self.resident_bytes <= limit.resident_bytes
@@ -310,17 +330,17 @@ impl ContinuousAcceptedResources {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ContinuousResourceLimits {
-    pub(super) preaccepted: ContinuousResourceVector,
-    pub(super) remote: ContinuousResourceVector,
-    pub(super) per_peer: ContinuousResourceVector,
-    pub(super) replacement_history: ContinuousResourceVector,
-    pub(super) accepted: ContinuousAcceptedResources,
-    pub(super) compute: ContinuousComputeLimits,
+pub(crate) struct ContinuousResourceLimits {
+    pub(crate) preaccepted: ContinuousResourceVector,
+    pub(crate) remote: ContinuousResourceVector,
+    pub(crate) per_peer: ContinuousResourceVector,
+    pub(crate) replacement_history: ContinuousResourceVector,
+    pub(crate) accepted: ContinuousAcceptedResources,
+    pub(crate) compute: ContinuousComputeLimits,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ContinuousResourceConfigError {
+pub(crate) enum ContinuousResourceConfigError {
     LimitHierarchy,
     MissingComputeCapacity,
     NonMonotonicComputeEnvelope,
@@ -328,7 +348,7 @@ pub(super) enum ContinuousResourceConfigError {
 }
 
 impl ContinuousResourceLimits {
-    pub(super) fn validate(
+    pub(crate) fn validate(
         preaccepted: ContinuousResourceVector,
         remote: ContinuousResourceVector,
         per_peer: ContinuousResourceVector,
@@ -378,7 +398,7 @@ impl ContinuousResourceLimits {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ContinuousChargeRecord {
+pub(crate) enum ContinuousChargeRecord {
     PreAccepted {
         resources: ContinuousResourceVector,
         residency_peer: Option<u8>,
@@ -389,7 +409,7 @@ pub(super) enum ContinuousChargeRecord {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ContinuousChargeError {
+pub(crate) enum ContinuousChargeError {
     ComputeEnvelope,
     AttributionMismatch,
     Arithmetic,
@@ -400,7 +420,7 @@ pub(super) enum ContinuousChargeError {
 }
 
 impl ContinuousChargeRecord {
-    pub(super) fn validate(self) -> Result<Self, ContinuousChargeError> {
+    pub(crate) fn validate(self) -> Result<Self, ContinuousChargeError> {
         match self {
             Self::PreAccepted {
                 resources,
@@ -481,29 +501,29 @@ impl ContinuousChargeRecord {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ContinuousResourceChange {
-    pub(super) key: u8,
-    pub(super) expected: Option<ContinuousChargeRecord>,
-    pub(super) after: Option<ContinuousChargeRecord>,
+pub(crate) struct ContinuousResourceChange {
+    pub(crate) key: u8,
+    pub(crate) expected: Option<ContinuousChargeRecord>,
+    pub(crate) after: Option<ContinuousChargeRecord>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct ContinuousResourceUsage {
-    pub(super) preaccepted: ContinuousResourceVector,
-    pub(super) remote: ContinuousResourceVector,
-    pub(super) per_peer: std::collections::BTreeMap<u8, ContinuousResourceVector>,
-    pub(super) replacement_history: ContinuousResourceVector,
-    pub(super) accepted: ContinuousAcceptedResources,
+pub(crate) struct ContinuousResourceUsage {
+    pub(crate) preaccepted: ContinuousResourceVector,
+    pub(crate) remote: ContinuousResourceVector,
+    pub(crate) per_peer: std::collections::BTreeMap<u8, ContinuousResourceVector>,
+    pub(crate) replacement_history: ContinuousResourceVector,
+    pub(crate) accepted: ContinuousAcceptedResources,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ContinuousResourceLedger {
+pub(crate) struct ContinuousResourceLedger {
     limits: ContinuousResourceLimits,
     charges: std::collections::BTreeMap<u8, ContinuousChargeRecord>,
 }
 
 impl ContinuousResourceLedger {
-    pub(super) fn new(
+    pub(crate) fn new(
         limits: ContinuousResourceLimits,
         charges: std::collections::BTreeMap<u8, ContinuousChargeRecord>,
     ) -> Result<Self, ContinuousChargeError> {
@@ -512,11 +532,11 @@ impl ContinuousResourceLedger {
         Ok(ledger)
     }
 
-    pub(super) fn charges(&self) -> &std::collections::BTreeMap<u8, ContinuousChargeRecord> {
+    pub(crate) fn charges(&self) -> &std::collections::BTreeMap<u8, ContinuousChargeRecord> {
         &self.charges
     }
 
-    pub(super) fn usage(&self) -> Result<ContinuousResourceUsage, ContinuousChargeError> {
+    pub(crate) fn usage(&self) -> Result<ContinuousResourceUsage, ContinuousChargeError> {
         let mut usage = ContinuousResourceUsage::default();
         for charge in self.charges.values().copied() {
             let charge = charge.validate()?;
@@ -565,7 +585,7 @@ impl ContinuousResourceLedger {
         Ok(usage)
     }
 
-    pub(super) fn plan_changes(
+    pub(crate) fn plan_changes(
         &self,
         changes: &[ContinuousResourceChange],
     ) -> Result<Self, ContinuousChargeError> {
@@ -600,7 +620,7 @@ impl ContinuousResourceLedger {
         Self::new(self.limits, charges)
     }
 
-    pub(super) fn plan_compute_release(
+    pub(crate) fn plan_compute_release(
         &self,
         key: u8,
         expected: ContinuousChargeRecord,

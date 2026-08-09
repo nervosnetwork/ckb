@@ -4979,3 +4979,68 @@ absorbed into a generic supervisor.
 The next exact action is B3-R3 resource and scheduler refinement. Production
 changes remain forbidden unless finite differential evidence constructs an
 invalid state through a real producer. No remote push is authorized.
+
+## B3-R3 resource/scheduler refinement startup
+
+B3-R3 starts from clean local checkpoint `7cf9a4eeb`. The complete plan and
+Apply census confirms one sparse resource ledger, one derived scheduler and no
+alternate constructor or commit authority. The only newly confirmed semantic
+gap is in the executable relation: its scheduler set omits the production
+Ready projection. Section 38 of `.independent-execution-plan` records the
+selected correction, the real-producer differential domains and the static
+owner-probe bound before implementation.
+
+The slice will extend the existing scheduler model rather than add a layer,
+and will add only test/model adapters unless a real producer falsifies the
+production transition. Resource configuration is compared at its stable
+runtime observation, while every successful ledger transition must match the
+reference charge map and all aggregate rows exactly. Scheduler tests will
+cover the complete visible/empty projection partition and every finite
+committed/overlay owner-ring population. No recount, mirror, scheduler queue,
+serialization, runtime scan, compatibility branch or remote push is
+authorized.
+
+## B3-R3 resource and scheduler refinement closure
+
+B3-R3 is complete in the local checkpoint containing this record. The
+continuous resource relation is bound exhaustively to the real sparse ledger,
+including six-dimensional arithmetic, configuration, charge validation,
+two-key set transitions, all aggregate rows and exact compute release. The
+existing scheduler quotient now includes Ready in its set relation while
+excluding it from retained-worker assignment, and real lifecycle fixtures bind
+every visible/empty state product plus the finite Trusted-first committed and
+overlay owner union.
+
+Whole-diff review found and removed a proof-boundary flaw before closure: the
+first scheduler set assertion reconstructed its expectation through the same
+production slot compiler. The replacement observes identities, versions,
+owner classes and stages directly from stored scheduler structures, and a
+mechanical test-layout gate prevents that observation from calling the slot
+compiler. No runtime bug was constructed and no production runtime Rust
+changed.
+
+Final focused runs are `a02a3920-a5cd-4a35-bf61-1cee0bbee91e` (19/19) and
+`f7a3179f-6c28-4496-a5a9-1dfa926ec4d7` (1/1). Final complete internal-feature
+run `2209ea93-9849-4149-ac16-7b5276fa3fbb` passes 750/750 with zero skipped.
+Strict production and test-target Clippy, formatting, diff whitespace, ASCII,
+develop-refinement, documentation, both TLC runs, model-refinement,
+production, review, security and test-layout contracts pass.
+
+The aggregate gate remains red only at the two B3-R5-owned mutation
+projections: generated proof evidence is newer than the historical
+adjudication projection, and the old lock has zero current matches for the two
+B3-R1 clock obligations. The historical locks remain unchanged and cannot be
+relabelled as current evidence.
+
+The section-11 review confirms one authority, unchanged resource and linear
+capability conservation, unchanged publication/wait graphs, unchanged
+validation and compute concurrency, finite scheduler/resource work and no new
+runtime state, lock, task, queue, channel, retry, cache, scan, I/O or
+compatibility path. Test/model source growth is separated by resource and
+scheduler proof owner and adds zero production code. Legacy configuration
+remains supported, node binary/database downgrade remains unsupported and no
+remote push is authorized.
+
+The static performance report remains a useful globally routed input rather
+than authority for a local fast path. The next exact action is B3-R4 coherent
+effect/wake/publication, released-input and evidence/settlement refinement.

@@ -32,12 +32,12 @@ use ckb_types::core::Capacity;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy)]
-struct Symbol {
-    transaction: u8,
-    owner: SchedulerRefinementOwner,
+pub(super) struct Symbol {
+    pub(super) transaction: u8,
+    pub(super) owner: SchedulerRefinementOwner,
 }
 
-fn refinement_owner(owner: WorkOwner) -> SchedulerRefinementOwner {
+pub(super) fn refinement_owner(owner: WorkOwner) -> SchedulerRefinementOwner {
     match owner {
         WorkOwner::Remote(peer) => SchedulerRefinementOwner::Remote(
             u8::try_from(peer.value()).expect("the finite fixture peer fits u8"),
@@ -92,6 +92,50 @@ fn refinement_order(order: VerifyOrder) -> SchedulerRefinementVerifyOrder {
     }
 }
 
+/// Normalize the complete production scheduler projection. Owner states that
+/// do not occupy a scheduler slot deliberately map to `None`; Ready remains a
+/// set member even though the compute-worker quotient cannot select it.
+pub(super) fn refinement_projection_entry(
+    owner: &OwnedTx,
+    symbol: Symbol,
+) -> Option<SchedulerRefinementEntry> {
+    let OwnedTx::PreAccepted(entry) = owner else {
+        return None;
+    };
+    let (stage, fee, bytes) = match &entry.phase {
+        PreAcceptedPhase::Queued(QueuedWork::Resolve) => (
+            SchedulerRefinementStage::Resolve,
+            0,
+            u32::try_from(entry.record.tx.data().total_size())
+                .expect("the finite fixture transaction size fits u32"),
+        ),
+        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => (
+            SchedulerRefinementStage::Verify(refinement_class(resolved.verify_class())),
+            resolved.payload().fee().as_u64(),
+            u32::try_from(resolved.payload().serialized_bytes())
+                .expect("the finite fixture serialized size fits u32"),
+        ),
+        PreAcceptedPhase::Ready(verified) => (
+            SchedulerRefinementStage::Ready,
+            verified.metrics().fee.as_u64(),
+            u32::try_from(verified.payload().serialized_bytes())
+                .expect("the finite Ready size fits u32"),
+        ),
+        PreAcceptedPhase::Computing(_) | PreAcceptedPhase::Waiting(_) => return None,
+    };
+    Some(SchedulerRefinementEntry {
+        transaction: symbol.transaction,
+        version: u16::try_from(entry.record.version.0)
+            .expect("the finite fixture version fits u16"),
+        arrival: u16::try_from(entry.record.arrival.0)
+            .expect("the finite fixture arrival fits u16"),
+        source: refinement_source(entry.source),
+        stage,
+        fee,
+        bytes,
+    })
+}
+
 fn refinement_entries(
     authority: &TxPoolAuthority,
     symbols: &HashMap<RawTxHash, Symbol>,
@@ -99,43 +143,12 @@ fn refinement_entries(
     let mut entries = symbols
         .iter()
         .map(|(hash, symbol)| {
-            let OwnedTx::PreAccepted(entry) = authority
+            let owner = authority
                 .entries_for_reference()
                 .get(hash)
-                .expect("the symbolic transaction remains owned")
-            else {
-                panic!("the scheduler fixture contains only PreAccepted owners");
-            };
-            let (stage, fee, bytes) = match &entry.phase {
-                PreAcceptedPhase::Queued(QueuedWork::Resolve) => (
-                    SchedulerRefinementStage::Resolve,
-                    0,
-                    u32::try_from(entry.record.tx.data().total_size())
-                        .expect("the fixture transaction size fits u32"),
-                ),
-                PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => (
-                    SchedulerRefinementStage::Verify(refinement_class(resolved.verify_class())),
-                    resolved.payload().fee().as_u64(),
-                    u32::try_from(resolved.payload().serialized_bytes())
-                        .expect("the fixture serialized size fits u32"),
-                ),
-                PreAcceptedPhase::Computing(_)
-                | PreAcceptedPhase::Waiting(_)
-                | PreAcceptedPhase::Ready(_) => {
-                    panic!("the scheduler refinement cut contains only queued owners")
-                }
-            };
-            SchedulerRefinementEntry {
-                transaction: symbol.transaction,
-                version: u16::try_from(entry.record.version.0)
-                    .expect("the finite fixture version fits u16"),
-                arrival: u16::try_from(entry.record.arrival.0)
-                    .expect("the finite fixture arrival fits u16"),
-                source: refinement_source(entry.source),
-                stage,
-                fee,
-                bytes,
-            }
+                .expect("the symbolic transaction remains owned");
+            refinement_projection_entry(owner, *symbol)
+                .expect("the scheduler wave fixture contains only runnable owners")
         })
         .collect::<Vec<_>>();
     entries.sort_unstable_by_key(|entry| entry.transaction);

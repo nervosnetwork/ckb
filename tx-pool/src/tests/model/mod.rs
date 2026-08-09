@@ -62,12 +62,20 @@ pub(crate) use refinement::{
     evidence_origin_observation, positioned_role_observation, ready_order_observation,
     shared_header_observation, source_observation, source_pressure_observation, stale_observation,
 };
+pub(crate) use resource::{
+    ContinuousAcceptedResources, ContinuousChargeRecord, ContinuousComputeLimits,
+    ContinuousResourceChange, ContinuousResourceConfigError, ContinuousResourceLedger,
+    ContinuousResourceLimits, ContinuousResourceUsage, ContinuousResourceVector, ModelComputeGrant,
+};
 pub(crate) use scheduler_quotient::{
     SchedulerRefinementAssignment, SchedulerRefinementCapability, SchedulerRefinementCursors,
     SchedulerRefinementEntry, SchedulerRefinementObservation, SchedulerRefinementOwner,
     SchedulerRefinementPermit, SchedulerRefinementSource, SchedulerRefinementStage,
     SchedulerRefinementVerifyClass, SchedulerRefinementVerifyOrder, SchedulerRefinementWorker,
     SchedulerRefinementWorkerRole, scheduler_wave_observation,
+};
+pub(crate) use scheduler_transition::{
+    SchedulerOwnerPopulation, SchedulerOwnerRing, SchedulerProjectionChange, SchedulerSetProjection,
 };
 pub(crate) use trace::{
     TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,

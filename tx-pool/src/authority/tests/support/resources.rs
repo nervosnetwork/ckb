@@ -12,7 +12,7 @@ pub(in crate::authority) struct ResourceSnapshot {
 }
 
 impl ResidencyPolicy {
-    const fn foundation() -> Self {
+    pub(in crate::authority) const fn foundation() -> Self {
         Self {
             entry_metadata_bytes: 0,
             edge_metadata_bytes: 0,

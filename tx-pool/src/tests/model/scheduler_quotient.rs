@@ -363,6 +363,9 @@ pub(crate) enum SchedulerRefinementSource {
 pub(crate) enum SchedulerRefinementStage {
     Resolve,
     Verify(SchedulerRefinementVerifyClass),
+    /// Ready remains part of the derived scheduler set, but it is not
+    /// eligible for a retained-compute worker assignment.
+    Ready,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -463,18 +466,20 @@ pub(crate) fn scheduler_wave_observation(
             ));
         }
         let source = refinement_source(entry.source);
+        let stage = match entry.stage {
+            SchedulerRefinementStage::Resolve => SchedulerEntryStage::Resolve,
+            SchedulerRefinementStage::Verify(class) => {
+                SchedulerEntryStage::Verify(model_verify_class(class))
+            }
+            SchedulerRefinementStage::Ready => continue,
+        };
         entries.push(SchedulerEntry {
             transaction: TxId(entry.transaction),
             version: EntryVersion(entry.version),
             arrival: Arrival(entry.arrival),
             source,
             owner: scheduler_owner(source),
-            stage: match entry.stage {
-                SchedulerRefinementStage::Resolve => SchedulerEntryStage::Resolve,
-                SchedulerRefinementStage::Verify(class) => {
-                    SchedulerEntryStage::Verify(model_verify_class(class))
-                }
-            },
+            stage,
             fee: entry.fee,
             bytes: entry.bytes,
         });

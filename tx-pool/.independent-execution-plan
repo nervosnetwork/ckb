@@ -4751,3 +4751,202 @@ next action is B3-R3: bind the existing sparse resource ledger and scheduler
 ring to their finite reference relations with complete small-domain
 differential evidence. Production remains frozen unless that evidence
 constructs an invalid state through a real producer.
+
+## 38. B3-R3 producer census and model-delta adjudication
+
+B3-R3 starts from clean local checkpoint `7cf9a4eeb`. The complete producer
+census finds no second resource or scheduler authority. `ResourcePlan` and
+`ResourceBatchPlan` are constructible only inside `resources.rs`; production
+charges originate from the three `OwnedTx` variants plus the sealed compute
+settlement/checkout transitions, and every commit is consumed by an existing
+top-level authority delta. `SchedulerDelta` and `SchedulerBatchDelta` are
+constructible only inside `scheduler.rs`; ingress, chain, settlement,
+administrative removal and compute exchange supply owner transitions while
+the owner map and atomic compiler retain raw-transaction identity authority.
+The sparse aggregate rows and fairness cursors therefore remain derived state,
+not independent decision owners.
+
+The audit does expose one missing mathematical case. The finite
+`SchedulerSetProjection` names Resolve and Verify queue entries but cannot
+represent the production `FairFrontier` Ready set. Ready has a distinct
+ordering and external consumer, so omitting it makes a green set-transition
+test unable to prove the complete production projection. The selected model
+delta adds Ready to the existing scheduler refinement stage and makes the
+worker quotient erase it explicitly. It does not add another model module,
+runtime queue or Ready policy. Computing, Waiting, Accepted and replacement
+history remain the scheduler quotient's explicit empty projection.
+
+Resource configuration has a two-step production constructor because the
+optional replacement-history partition is enabled after the base hierarchy.
+The reference relation validates the combined input. Their stable observation
+is `Valid | InvalidConfiguration | ArithmeticOverflow`, which is exactly the
+runtime assembly boundary; internal invalid-premise precedence is not an
+external policy. Differential evidence will enumerate the complete finite
+premise mask and compare that observation, then compare all six vector
+dimensions, all partial compute reservations, compute admission/release, peer
+attribution and two-key batch set transitions under both peer-local and global
+limits. Successful production results must equal the reference charge map and
+every aggregate row; rejected plans must leave the production snapshot
+unchanged.
+
+Scheduler refinement will enumerate real-producer owner variants across the
+empty, Resolve, Computing, Verify and Ready projections, every initial/final
+three-transaction set and both caller orders. A second finite domain enumerates
+all committed/overlay Trusted and Remote owner populations, every legal small
+subset, stale or live cursor, capability class and blocked-owner subset. The
+production ring must equal the reference Trusted-first union relation and its
+probe count must not exceed the committed-plus-overlay population bound.
+Identity-mismatched or duplicate owner changes remain rejected by the sole
+owner compiler before this derived projection; they are not made into a
+second scheduler identity check.
+
+The static cost equation is retained rather than hidden behind timing. Let
+`P` be the configured retained slot count, `C` the committed eligible-owner
+count, `O <= P` the Plan overlay-owner count and `N = C + O`. One ring call is
+bounded by `N` owner probes; an exhausted owner requires at least one of the
+at-most-`P` selected versions. The current resource-eligibility search is thus
+finite with a conservative per-wave bound proportional to
+`P * N * (P + 1)` owner/head probes, with at most one fallback search per
+verifier slot. No timing or improvement claim follows from that bound. The P
+phase may reopen the topology only if operation counts or profiles identify it
+as a registered high-value gap and a candidate preserves the same owner union,
+cursor and exclusion relation without a scheduler queue, cache or second
+authority.
+
+The fixed implementation order is: extend the existing model relation and
+falsifier, add test-only production adapters, run exhaustive resource and
+scheduler differentials, bind their exact tests and the finite production loop
+shape into generated/static contracts, then run the focused and aggregate
+gates and apply the section-11 checkpoint. Production runtime code remains
+frozen unless a differential constructs a counterexample from the real
+producer bank.
+
+## 39. B3-R3 scheduler observation-boundary re-adjudication
+
+Whole-diff review rejects the first scheduler set assertion as a sufficient
+production refinement. It constructs every state through the real owner
+lifecycle, but `FairFrontier::semantically_matches` derives its expected slots
+by calling the same production `slot` projection that compiled the frontier.
+A same-class projection error can therefore remain internally self-consistent
+and pass. The static contract independently pins the Ready and empty-state
+arms, but a source fragment is topology evidence, not an observational
+differential and cannot close the model-to-production edge by itself.
+
+This is an evidence-boundary gap, not a demonstrated runtime counterexample.
+The selected root correction adds one test-only observation of the identities,
+versions and semantic stages actually resident in the scheduler's derived
+sets. The observation reads the stored queue and Ready structures directly and
+must not call `FairFrontier::slot` or reconstruct a slot from `OwnedTx`. The
+finite differential will compare that stored observation with the normalized
+reference set after every initial/final state product and both caller orders.
+Existing pointwise scheduler-quotient evidence continues to own Resolve/Verify
+ordering and the existing Ready refinement continues to own economic order;
+those policies are not duplicated in the new set observation.
+
+No production state, owner, constructor, scan, lock, task, queue, cache,
+capability or hot-path operation is added. Deleting this observation would
+again permit the producer and checker to share the same erroneous projection,
+so its distinct proof role is necessary. After this correction, the complete
+B3-R3 focused and aggregate gates must be rerun before the section-11 closure.
+
+## 40. B3-R3 resource and scheduler closure
+
+B3-R3 closes against product checkpoint `7cf9a4eeb12bb915e65d1f055643829e046d191f`
+and the local checkpoint containing this record. No production runtime Rust
+changed. The producer census found one sparse `ResourceLedger`, one derived
+`FairFrontier` and no alternate charge, scheduler or commit authority. Finite
+differential execution constructed no production counterexample. The only
+product-model delta was the missing Ready member in the scheduler reference
+set; Ready is now retained by the set relation and deliberately erased only at
+the worker-assignment quotient.
+
+Resource refinement uses the existing continuous reference ledger. It
+exhausts all 729 ternary six-dimensional vectors pairwise, all 81 accepted
+vectors pairwise, 8,192 configuration-premise masks, partial compute and peer
+attribution shapes, 13,122 two-key initial/final set transitions across the
+peer-local and global limits in both caller orders, and every finite exact
+compute-release pair. Successful production snapshots equal the reference
+charge map and every aggregate row; rejected plans are mutation-free. Runtime
+configuration comparison is intentionally at the stable
+`Valid | InvalidConfiguration | ArithmeticOverflow` observation, so the
+two-stage legacy-compatible production constructor does not become a second
+configuration policy.
+
+Scheduler fixtures are produced through real admission, Resolve checkout and
+settlement, Verify checkout and settlement. The set differential exhausts
+31,250 three-transaction initial/final projection products across Arrival and
+FeeRate modes and both caller orders. The initial assertion was rejected in
+section 39 because it reused the production slot compiler. Its replacement
+compares the reference set with identities, versions, owner classes and stages
+read directly from the stored production queue and Ready sets; the test-layout
+checker rejects a return to self-derived expectations. Existing quotient and
+Ready-order refinements continue to own key ordering. The owner-ring
+differential exhausts 46,656 committed/overlay population, small-capability,
+cursor and blocked-owner combinations and matches the reference Trusted-first
+union with no probe count above the committed-plus-overlay bound.
+
+The static source gate preserves the set-transition and cost premises without
+copying generated test names. Resource changes remove the complete old set,
+add the complete new set, use checked change-local allocation bounds and never
+recount the charge population. Scheduler projection keeps Ready and the
+explicit Computing/Waiting empty arm; overlay eligibility is a union; both the
+ring and resource-eligibility search are finite checked owner-count loops. Let
+`P` be retained slots and `N = C + O` the checked committed-plus-overlay owner
+count. The conservative current wave bound remains proportional to
+`P * N * (P + 1)` owner/head probes plus at most one verifier fallback. This is
+a static exposure bound, not a performance acceptance or an optimization
+authorization.
+
+Exact final evidence is:
+
+- focused resource/scheduler relation run
+  `a02a3920-a5cd-4a35-bf61-1cee0bbee91e`, 19 passed;
+- independent stored-observation correction run
+  `f7a3179f-6c28-4496-a5a9-1dfa926ec4d7`, one passed;
+- complete internal-feature run
+  `2209ea93-9849-4149-ac16-7b5276fa3fbb`, 750 passed and zero skipped;
+- strict production and test-target Clippy, formatting and diff whitespace;
+- ASCII, develop-refinement, documentation, both TLC runs, model-refinement,
+  production, review, security and test-layout contracts.
+
+The aggregate entry point remains honestly red at its two B3-R5-owned
+mutation projections. The new generated proof evidence makes the historical
+adjudication projection stale, and the old candidate lock has zero current
+matches for `V1-MUT-ATOMIC-BATCH-CLOCK` and
+`V1-MUT-ATOMIC-CLOCK-PLAN`. Neither historical lock is rewritten or treated
+as current-revision evidence. B3-R5 remains the sole owner of regeneration and
+complete isolated mutation execution.
+
+The section-11 review closes as follows:
+
+- The trusted protocol basis, sole `TxPoolAuthority`, ownership and resource
+  conservation, Apply/effect split, publication graph and failure domains are
+  unchanged. Ready is model state for an already existing production set, not
+  a new product state or authority.
+- All model and production transitions remain total on the tested domain.
+  Resource rejection is mutation-free; scheduler populations and cursor
+  traversal are finite; no stale capability or external consumer can decide a
+  committed transition retroactively.
+- No production lock, task, queue, channel, retry, timer, cache, allocation,
+  scan, I/O, wake edge or wait-for edge was added. Validation and compute
+  concurrency remain outside the sole atomic Apply cut.
+- Legacy configuration files remain supported. Node binary/database downgrade
+  remains outside the supported boundary. No remote push is authorized.
+- Proof source grew materially: 815 lines own the six-dimensional resource
+  algebra and sparse set transition, while 619 lines own real-lifecycle
+  scheduler sets and the finite owner union. They share neither state basis nor
+  oracle, so a generic merger would hide rather than remove proof obligations.
+  The scheduler stored observation and the resource/scheduler static gates
+  have separate semantic owners. There is no production code growth. Final
+  constructive simplification must still regenerate source roles and remove
+  only genuine duplication after the complete V1 gate; this proof evidence is
+  not preemptively deleted to reduce a line count.
+
+The static performance report is therefore accepted as useful source and cost
+evidence but not as a local optimization plan. Projection fusion, dependency
+batching, lock-topology change, late compute capture and wake specialization
+all remain behind their already recorded model or P-phase falsifiers. The
+exact next action is B3-R4: close coherent effect observation, complete wake
+publication, projected released-input derivation and total evidence/settlement
+refinement without moving validation under Apply or adding a second effect
+owner.

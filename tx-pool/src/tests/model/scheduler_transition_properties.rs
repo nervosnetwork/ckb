@@ -2,7 +2,8 @@ use super::{
     scheduler_quotient::{
         SchedulerRefinementCursors, SchedulerRefinementEntry, SchedulerRefinementOwner,
         SchedulerRefinementSource, SchedulerRefinementStage, SchedulerRefinementVerifyClass,
-        SchedulerRefinementVerifyOrder,
+        SchedulerRefinementVerifyOrder, SchedulerRefinementWorker, SchedulerRefinementWorkerRole,
+        scheduler_wave_observation,
     },
     scheduler_transition::{
         SchedulerOwnerPopulation, SchedulerOwnerRing, SchedulerProjectionChange,
@@ -66,6 +67,38 @@ fn model_scheduler_batch_is_one_order_independent_set_transition() {
     assert_eq!(left.verify_order(), SchedulerRefinementVerifyOrder::FeeRate);
     assert_eq!(left.cursors(), after_cursors);
     assert_eq!(left.entries().get(&2), Some(&replacement));
+}
+
+#[test]
+fn model_scheduler_ready_is_in_the_set_projection_and_outside_the_worker_ring() {
+    let resolve = SchedulerRefinementEntry {
+        stage: SchedulerRefinementStage::Resolve,
+        ..entry(1, SchedulerRefinementSource::Proposal)
+    };
+    let ready = SchedulerRefinementEntry {
+        stage: SchedulerRefinementStage::Ready,
+        ..entry(2, SchedulerRefinementSource::Recovery)
+    };
+    let projection = SchedulerSetProjection::new(
+        [ready, resolve],
+        SchedulerRefinementVerifyOrder::Arrival,
+        SchedulerRefinementCursors::default(),
+    )
+    .expect("Ready and Resolve are distinct scheduler-set members");
+    assert_eq!(projection.entries().len(), 2);
+
+    let wave = scheduler_wave_observation(
+        &[ready, resolve],
+        &[SchedulerRefinementWorker {
+            slot: 0,
+            role: SchedulerRefinementWorkerRole::OrderedResolve,
+        }],
+        SchedulerRefinementCursors::default(),
+        SchedulerRefinementVerifyOrder::Arrival,
+    )
+    .expect("Ready is a legal scheduler set member");
+    assert_eq!(wave.assignments.len(), 1);
+    assert_eq!(wave.assignments[0].transaction, resolve.transaction);
 }
 
 #[test]

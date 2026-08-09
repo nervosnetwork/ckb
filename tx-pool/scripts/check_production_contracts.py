@@ -1076,6 +1076,113 @@ def validate_dependency_maintenance_successor() -> list[str]:
     return errors
 
 
+def validate_sparse_resource_set_transition() -> list[str]:
+    """Bind resource updates to change-local work without a ledger recount."""
+
+    try:
+        resources = TX_POOL_AUTHORITY_RESOURCES.read_text()
+        resource_batch = impl_method_body(
+            resources, "ResourceLedger", "plan_batch"
+        )
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect sparse resource set transition: {error}"]
+
+    errors: list[str] = []
+    compact_resource = "".join(mask_rust_non_code(resource_batch).split())
+    remove = compact_resource.find("for(_,expected,_)in&changes")
+    add = compact_resource.find("for(_,_,after)in&changes")
+    limits = compact_resource.find("if!preaccepted.fits(self.limits.preaccepted)")
+    if min(remove, add, limits) < 0 or not remove < add < limits:
+        errors.append(
+            "ResourceLedger::plan_batch must remove the complete old set, add the complete "
+            "new set and only then validate aggregate limits"
+        )
+    for required in (
+        "letpeer_capacity=changes.len().checked_mul(2)",
+        "keys.try_reserve(changes.len())",
+        "peer_updates.try_reserve(peer_capacity)",
+    ):
+        if required not in compact_resource:
+            errors.append(
+                f"sparse resource batch lost checked change-local bound {required!r}"
+            )
+    if "self.charges.values()" in compact_resource:
+        errors.append("ordinary resource batches must not regain a full-ledger recount")
+    return errors
+
+
+def validate_finite_scheduler_owner_ring() -> list[str]:
+    """Bind scheduler projection and search to one finite owner union."""
+
+    try:
+        scheduler = TX_POOL_AUTHORITY_SCHEDULER.read_text()
+        compute_exchange = (
+            TX_POOL_AUTHORITY_PLAN.parent / "plan" / "compute_exchange.rs"
+        ).read_text()
+        scheduler_slot = impl_method_body(scheduler, "FairFrontier", "slot")
+        ring_next = impl_method_body(
+            scheduler, "FairLane", "next_excluding_with_overlay"
+        )
+        ring_eligibility = impl_method_body(
+            scheduler, "FairLane", "overlay_owner_is_eligible"
+        )
+        wave_owner_count = impl_method_body(
+            scheduler, "SchedulerExchangeWave", "owner_count"
+        )
+        search = function_body(compute_exchange, "search_exchange_permit")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect finite scheduler owner ring: {error}"]
+
+    errors: list[str] = []
+    if search is None:
+        return ["TxPoolAuthority::search_exchange_permit disappeared"]
+
+    compact_slot = "".join(mask_rust_non_code(scheduler_slot).split())
+    for required in (
+        "PreAcceptedPhase::Ready(_)=>SchedulerSlot::Ready",
+        "PreAcceptedPhase::Computing(_)|PreAcceptedPhase::Waiting(_)=>returnOk(None)",
+    ):
+        if required not in compact_slot:
+            errors.append(
+                f"the complete scheduler set projection lost production arm {required!r}"
+            )
+
+    compact_eligibility = "".join(mask_rust_non_code(ring_eligibility).split())
+    if "self.owner_is_eligible(lane,capability,owner)||overlay.owner_is_eligible(lane,capability,owner)" not in compact_eligibility:
+        errors.append("scheduler overlay eligibility must remain the owner union")
+
+    compact_ring = "".join(mask_rust_non_code(ring_next).split())
+    for required in (
+        "self.owner_count(lane,capability).checked_add(overlay.owner_count(lane,capability))?",
+        "for_in0..owner_count",
+    ):
+        if required not in compact_ring:
+            errors.append(f"scheduler ring lost finite probe fragment {required!r}")
+    if "while" in compact_ring or "loop{" in compact_ring:
+        errors.append("scheduler ring traversal must remain a finite owner-count loop")
+
+    compact_owner_count = "".join(mask_rust_non_code(wave_owner_count).split())
+    if "frontier.owner_count(lane,capability).checked_add(overlay.owner_count(lane,capability)).ok_or(SchedulerError::Arithmetic)" not in compact_owner_count:
+        errors.append(
+            "SchedulerExchangeWave::owner_count must remain the checked committed-plus-overlay sum"
+        )
+
+    compact_search = "".join(mask_rust_non_code(search).split())
+    for required in (
+        "for_in0..wave.owner_count(permit)?",
+        "Some(owner)=>wave.next_after(permit,owner)",
+        "None=>wave.next(permit)",
+        "cursor=Some(ticket.owner())",
+    ):
+        if required not in compact_search:
+            errors.append(
+                f"compute resource-eligibility search lost finite ring fragment {required!r}"
+            )
+    if "while" in compact_search or "loop{" in compact_search:
+        errors.append("compute resource-eligibility search must remain a finite owner-count loop")
+    return errors
+
+
 def validate_compute_capability_identity() -> list[str]:
     """Keep EntryVersion as the sole numeric identity for active computation."""
 
@@ -1792,6 +1899,8 @@ def main() -> int:
         *validate_prepared_full_query(),
         *validate_atomic_apply_construction(),
         *validate_dependency_maintenance_successor(),
+        *validate_sparse_resource_set_transition(),
+        *validate_finite_scheduler_owner_ring(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -1808,7 +1917,8 @@ def main() -> int:
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
-        "sealed one-stamp atomic Apply and nonempty dependency-maintenance construction plus "
+        "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction, sparse "
+        "resource set transitions and finite scheduler owner rings plus "
         "a closed Rust module graph plus current production vocabulary and "
         "execution-topology cost and shutdown order"
     )

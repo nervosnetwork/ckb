@@ -228,10 +228,12 @@
         "model_roles": ["continuous_charge", "continuous_resource_authority", "continuous_resource_configuration", "continuous_resource_vector"],
         "production_roles": ["resource_authority", "resource_charge", "resource_configuration", "resource_vector"],
         "evidence_test_patterns": [
-          "^mathematical_model::resource_transition_properties::.*$"
+          "^mathematical_model::resource_transition_properties::.*$",
+          "^authority::tests::resource_refinement::.*$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::resource_transition_properties::.*$"
+          "^mathematical_model::resource_transition_properties::.*$",
+          "^authority::tests::resource_refinement::.*$"
         ],
         "mutation_selectors": [
           {
@@ -252,7 +254,7 @@
         "parallelism": "Sparse per-owner accounting stays transition-local and does not serialize compute or introduce a global recount.",
         "added_cost": "The reference ledger is test-only; sealed production constructors may remove checks but cannot add runtime owners or scans.",
         "deletion_counterexample": "Without the continuous equation, phase-local counters can each appear valid while aggregate residency escapes its bound.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-SCHEDULER-QUOTIENT",
@@ -262,10 +264,14 @@
         "model_roles": ["scheduler_owner_ring", "scheduler_set_transition"],
         "production_roles": ["scheduler_authority", "scheduler_owner_ring"],
         "evidence_test_patterns": [
-          "^mathematical_model::scheduler_transition_properties::.*$"
+          "^mathematical_model::scheduler_transition_properties::.*$",
+          "^authority::tests::scheduler_refinement::.*$",
+          "^authority::tests::scheduler_transition_refinement::.*$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::scheduler_transition_properties::.*$"
+          "^mathematical_model::scheduler_transition_properties::.*$",
+          "^authority::tests::scheduler_refinement::.*$",
+          "^authority::tests::scheduler_transition_refinement::.*$"
         ],
         "mutation_selectors": [
           {
@@ -282,7 +288,7 @@
         "parallelism": "Only cursor selection is canonically committed; resolve and verify execution remain outside the authority guard and parallel by worker role.",
         "added_cost": "The model adds zero runtime structure; the existing committed and overlay populations bound every probe.",
         "deletion_counterexample": "Without the ring quotient, overlay work can become a second scheduler authority or be invisible to a complete wave.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-SETTLEMENT-CLASSIFICATION",

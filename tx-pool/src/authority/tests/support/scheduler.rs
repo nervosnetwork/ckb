@@ -11,6 +11,20 @@ pub(in crate::authority) struct SchedulerSnapshot {
     verify_small_owners: BTreeSet<WorkOwner>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::authority) enum SchedulerSetStageObservation {
+    Resolve(WorkOwner),
+    Verify(WorkOwner, VerifyCycleClass),
+    Ready,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::authority) struct SchedulerSetMemberObservation {
+    pub(in crate::authority) hash: RawTxHash,
+    pub(in crate::authority) version: EntryVersion,
+    pub(in crate::authority) stage: SchedulerSetStageObservation,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::authority) struct SchedulerWaveObservation {
     pub(in crate::authority) assignments: Vec<(
@@ -254,6 +268,41 @@ impl FairFrontier {
             resolve_small_owners: self.resolve.small_owners.clone(),
             verify_small_owners: self.verify.small_owners.clone(),
         }
+    }
+
+    /// Observe the identities and stages resident in the derived scheduler
+    /// sets without re-running the production owner-to-slot projection.
+    pub(in crate::authority) fn stored_set_observation(
+        &self,
+    ) -> BTreeSet<SchedulerSetMemberObservation> {
+        self.slots()
+            .into_iter()
+            .map(|slot| match slot {
+                SchedulerSlot::Queue {
+                    owner,
+                    key: QueueKey::Resolve(key),
+                    ..
+                } => SchedulerSetMemberObservation {
+                    hash: key.hash,
+                    version: key.version,
+                    stage: SchedulerSetStageObservation::Resolve(owner),
+                },
+                SchedulerSlot::Queue {
+                    owner,
+                    key: QueueKey::Verify(key),
+                    ..
+                } => SchedulerSetMemberObservation {
+                    hash: key.hash,
+                    version: key.version,
+                    stage: SchedulerSetStageObservation::Verify(owner, key.class),
+                },
+                SchedulerSlot::Ready(key) => SchedulerSetMemberObservation {
+                    hash: key.hash,
+                    version: key.version,
+                    stage: SchedulerSetStageObservation::Ready,
+                },
+            })
+            .collect()
     }
 
     pub(in crate::authority) fn worker_wave_observation(

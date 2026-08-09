@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "tx-pool" / "src"
 AUTHORITY_TEST_ROOT = SOURCE_ROOT / "authority" / "tests"
 AUTHORITY_TEST_SUPPORT_PLAN = AUTHORITY_TEST_ROOT / "support" / "plan.rs"
+AUTHORITY_TEST_SUPPORT_SCHEDULER = AUTHORITY_TEST_ROOT / "support" / "scheduler.rs"
 AUTHORITY_TEST_SUPPORT_WORKER = AUTHORITY_TEST_ROOT / "support" / "worker.rs"
 SYNC_TEST_ROOT = REPO_ROOT / "sync" / "src" / "tests"
 SYNC_CHAIN_ONLY_FIXTURE = SYNC_TEST_ROOT / "util.rs"
@@ -240,6 +241,46 @@ def validate_test_worker_ownership() -> list[str]:
     return errors
 
 
+def validate_scheduler_set_observation() -> list[str]:
+    """Keep scheduler refinement independent of the production slot compiler."""
+
+    try:
+        source = AUTHORITY_TEST_SUPPORT_SCHEDULER.read_text()
+        stored = function_body(source, "stored_set_observation")
+        slots = function_body(source, "slots")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect scheduler set observation: {error}"]
+    if stored is None or slots is None:
+        return ["the stored scheduler set observation disappeared"]
+
+    errors = require_compact_fragments(
+        stored,
+        "stored scheduler set observation",
+        (
+            "self.slots().into_iter()",
+            "QueueKey::Resolve(key)",
+            "QueueKey::Verify(key)",
+            "SchedulerSlot::Ready(key)",
+        ),
+    )
+    errors.extend(
+        require_compact_fragments(
+            slots,
+            "stored scheduler set traversal",
+            (
+                "for(owner,entries)in&self.resolve.by_owner",
+                "for(owner,entries)in&self.verify.by_owner",
+                "self.ready.iter()",
+            ),
+        )
+    )
+    if "self.slot(" in "".join(mask_rust_non_code(stored + slots).split()):
+        errors.append(
+            "stored scheduler set observation must not reuse the production slot compiler"
+        )
+    return errors
+
+
 def validate() -> list[str]:
     manifest = load_manifest()
     errors: list[str] = []
@@ -420,6 +461,7 @@ def validate() -> list[str]:
 
     errors.extend(validate_dependency_progress_layout())
     errors.extend(validate_test_worker_ownership())
+    errors.extend(validate_scheduler_set_observation())
     return errors
 
 
@@ -441,7 +483,8 @@ def main() -> int:
         "validated tx-pool test isolation and production static safety: "
         f"{module_wires} discovered module wires, "
         f"{sum(len(entry['symbols']) for entry in manifest['seams'])} named seams, "
-        "rank-derived dependency drains and structured worker ownership"
+        "rank-derived dependency drains, structured worker ownership and an independent "
+        "stored scheduler observation"
     )
     return 0
 
