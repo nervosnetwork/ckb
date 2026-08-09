@@ -4733,3 +4733,29 @@ exact action is to commit this candidate-lock checkpoint, verify a clean tree,
 generate an exact external config while subtracting the completed selected
 outcome SHA recorded above, verify that cargo-mutants relists only the remaining
 partition, and execute it without modifying tracked files.
+
+## V1-B3a resume-filter adjudication
+
+Checkpoint `3669e4972` froze the complete candidate lock and passed all ten
+aggregate contracts. The first resume-config attempt then failed before
+execution: cargo-mutants 27.1.0 relisted every missing candidate but also
+regenerated the already-completed `StructField` class from `plan.rs`. This is
+the same generation-order limitation identified before B1; exact row filters
+are applied before those candidates receive their final function-attributed
+names. The proposed duplicate-free partition is therefore not constructible
+with the locked tool and is superseded rather than weakened silently.
+
+The root correction retains unique candidate closure while admitting only a
+mechanically derived replay set. Config validation must prove that every
+missing identity is present and every extra relisted identity already exists
+in the supplied prior outcomes. Result assembly may merge a repeated identity
+only when all runs give it the same outcome; disagreement is a deterministic-
+harness blocker. The portable result owns unique candidate count, total
+execution count and derived replay count. No result uses last-writer wins, and
+no hand-maintained exception or cargo-mutants name enters the manifest.
+
+No mutant from the new config started and tracked product state remains
+unchanged. The next exact action is to commit this resume-protocol correction,
+regenerate the candidate lock because its tool hash changed, regenerate and
+relist the external config, then execute every missing row plus only the
+tool-required replay set without tracked edits.

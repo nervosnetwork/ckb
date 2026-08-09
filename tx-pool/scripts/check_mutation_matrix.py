@@ -375,17 +375,22 @@ def verify_exact_config(
     package: str,
     features: list[str],
     paths: list[str],
-) -> None:
+    permitted_replays: set[str] | None = None,
+) -> list[dict]:
     relisted = list_candidates(package, features, paths, config)
     expected = [candidate["name"] for candidate, _ in selected]
     observed = sorted(candidate["name"] for candidate in relisted)
-    if observed != expected:
-        missing = sorted(set(expected).difference(observed))
-        unowned = sorted(set(observed).difference(expected))
+    missing = sorted(set(expected).difference(observed))
+    replayed = sorted(set(observed).difference(expected))
+    forbidden_replays = sorted(
+        set(replayed).difference(permitted_replays or set())
+    )
+    if missing or forbidden_replays:
         fail(
             "exact cargo-mutants config did not close: "
-            f"missing={missing}, unowned={unowned}"
+            f"missing={missing}, forbidden_replays={forbidden_replays}"
         )
+    return sorted(relisted, key=lambda candidate: candidate["name"])
 
 
 def read_unit_universe(path: Path) -> list[str]:
@@ -724,6 +729,7 @@ def read_outcome_sets(
                 f"version {locked_version!r}: {path}"
             )
         local_count = 0
+        local_names: set[str] = set()
         for record in records[1:]:
             scenario = record.get("scenario")
             mutant = scenario.get("Mutant") if isinstance(scenario, dict) else None
@@ -735,9 +741,15 @@ def read_outcome_sets(
                 fail(f"unknown mutant outcome summary {summary!r}: {name}")
             if name not in expected:
                 fail(f"unexpected mutant outcome outside the locked universe: {name}")
-            if name in observed:
-                fail(f"duplicate mutant outcome across result sets: {name}")
+            if name in local_names:
+                fail(f"duplicate mutant outcome inside one result set: {name}")
+            if name in observed and observed[name] != summary:
+                fail(
+                    f"replayed mutant outcome changed from {observed[name]} "
+                    f"to {summary}: {name}"
+                )
             observed[name] = summary
+            local_names.add(name)
             local_count += 1
         declared_total = outcomes.get("total_mutants")
         if declared_total != local_count:
@@ -778,10 +790,13 @@ def build_result_lock(
         summary in {"CaughtMutant", "Unviable"}
         for summary in observed.values()
     )
+    execution_count = sum(entry["candidate_count"] for entry in inputs)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mutation_lock": input_record(mutation_lock_path),
         "candidate_count": len(expected),
+        "execution_count": execution_count,
+        "replayed_count": execution_count - len(expected),
         "outcome_inputs": inputs,
         "counts": outcome_counts(observed),
         "accepted": accepted,
@@ -796,7 +811,7 @@ def validate_result_lock(
     path: Path, mutation_lock_path: Path, mutation_lock: dict, require_accepted: bool
 ) -> dict:
     result = read_json_object(path, "mutation result lock")
-    if result.get("schema_version") != 1:
+    if result.get("schema_version") != 2:
         fail(f"mutation result lock has unsupported schema: {path}")
     if result.get("mutation_lock") != input_record(mutation_lock_path):
         fail("mutation result lock is not bound to the current candidate lock")
@@ -861,8 +876,12 @@ def validate_result_lock(
             fail(f"mutation result input timestamps are invalid: {entry!r}")
         input_hashes.add(sha256)
         input_count += count
-    if input_count != len(expected):
+    if input_count < len(expected):
         fail("mutation result lock outcome-input partition is invalid")
+    if result.get("execution_count") != input_count:
+        fail("mutation result lock execution count is stale")
+    if result.get("replayed_count") != input_count - len(expected):
+        fail("mutation result lock replay count is stale")
     if require_accepted and not accepted:
         unacceptable = sorted(
             name
@@ -916,6 +935,7 @@ def main() -> int:
 
     if args.write_config is not None:
         run_selected = selected
+        completed: dict[str, str] = {}
         if args.resume_outcomes:
             _, completed = read_outcome_sets(args.resume_outcomes, lock)
             run_selected = [
@@ -926,12 +946,13 @@ def main() -> int:
         run_config = config_text(run_selected, candidates)
         write_text(args.write_config, run_config)
         config_path = args.write_config
-        verify_exact_config(
+        relisted_for_run = verify_exact_config(
             config_path,
             run_selected,
             manifest["package"],
             manifest["features"],
             sorted({candidate["file"] for candidate in candidates}),
+            set(completed),
         )
 
     result = None
@@ -977,7 +998,7 @@ def main() -> int:
         if args.write_config is not None:
             print(
                 f"config: {args.write_config} selects {len(run_selected)} "
-                "unstarted rows"
+                f"unstarted rows and relists {len(relisted_for_run)} executions"
             )
         if result is not None:
             print(

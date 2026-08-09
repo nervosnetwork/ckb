@@ -82,7 +82,7 @@ temporary directory.
 | `python3 tx-pool/scripts/check_develop_refinement.py` | Require the full immutable develop baseline commit/tree, extract every registered historical function directly from Git, verify the semantic call-order facts, cover F1-F8 and bind each negative witness to current behavior evidence. | No |
 | `python3 tx-pool/scripts/check_docs.py` | Validate links, root index coverage, script/contract documentation, retired names and CI path coverage derived from every registered implementation/workspace/integration evidence root. | No |
 | `python3 tx-pool/scripts/check_formal_models.py` | Discover every registered TLA module/config pair, reject registry drift, run each expected verdict, and require the named negative reachability witness. | Only temporary TLC metadata outside the source tree |
-| `python3 tx-pool/scripts/check_mutation_matrix.py` | Fast-default aggregate validation of the checked-in complete candidate lock and optional result projection. Explicit `--rediscover` joins semantic owners to structured cargo-mutants discovery; `--write-config` can subtract exact prior outcome partitions, and repeated `--verify-outcomes` inputs assemble one closed result. | Only explicitly requested locks/configs; default validation is read-only and does not invoke cargo-mutants |
+| `python3 tx-pool/scripts/check_mutation_matrix.py` | Fast-default aggregate validation of the checked-in complete candidate lock and optional result projection. Explicit `--rediscover` joins semantic owners to structured cargo-mutants discovery; `--write-config` subtracts prior outcomes, and repeated `--verify-outcomes` inputs assemble one identity-closed result while rejecting inconsistent tool-required replays. | Only explicitly requested locks/configs; default validation is read-only and does not invoke cargo-mutants |
 | `python3 tx-pool/scripts/check_model_refinement.py` | Starting only from semantic roots in `architecture-contract.json`, derive the reachable model and production Rust types, enum members, implementation methods, reference counts and synchronization primitives. Every run executes permanent parser, deliberately-unbound semantic-root and deliberately-unconstructed-capability canaries in `scripts/fixtures/model_refinement_canary.rs`. `--json` emits the complete read-only M3 frontier; no generated observation is an allowlist. | No |
 | `python3 tx-pool/scripts/check_model_refinement.py --variant-flow --cargo-expand-production` | Run the slower M3 route gate with `ast-grep` and current `cargo expand` output. It distinguishes source producers/consumers from macro-expanded evidence, rejects a rooted model or expanded-production enum variant with no producer, and requires an explicit construction witness for every registered model and expanded-production root struct, including task owners and move-only capabilities. Expanded derive matches never replace source-level consumer evidence. | Only Cargo build cache and temporary expansion outside the source tree |
 | `python3 tx-pool/scripts/check_production_contracts.py` | Enforce a closed Rust module graph with no uncompiled source residue; enforce the cross-crate best-tip/startup boundary; keep reorg and generation clears on one capacity-one ordered control lane; structurally prove that each direct `AuthorityRuntime` mutation consumes one post-commit wake receipt (with only the closed mutation-free superseded-reset disposition); keep retained proposal ingress batched; keep effect publication read-only and claim-bound until private settlement; keep profiling acquisition/stage/effect seams centralized and feature-gated; keep status RPC wiring outside optional detail arithmetic; and keep generation invalidation behind the sole typed `AuthorityIntegrityFault` settlement boundary and closed chain error algebra. | No |
@@ -153,11 +153,13 @@ python3 tx-pool/scripts/check_mutation_matrix.py \
 
 The generated lock owns the complete candidate and test-universe digests. The
 temporary config contains only mechanically derived anchored expressions.
-`--resume-outcomes` subtracts an exact prior result partition and relisting
-proves the complement; no row is copied by hand. Execute the printed command
+`--resume-outcomes` subtracts exact prior results. Cargo-mutants may still
+regenerate an inseparable structural class; relisting must prove that every
+extra row is an already completed replay, and result assembly rejects any
+changed replay outcome. No row is copied by hand. Execute the printed command
 only from the frozen clean checkpoint, replacing `<CONFIG>` and `<OUTPUT>`
-with those exact external paths. After all partitions complete, merge them and
-write the portable result projection:
+with those exact external paths. After all runs complete, merge them and write
+the portable result projection:
 
 ```bash
 python3 tx-pool/scripts/check_mutation_matrix.py \

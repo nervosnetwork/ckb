@@ -4203,9 +4203,13 @@ The selected B3 continuation is fixed as follows:
    candidate lock, exact outcome files and every caught, unviable, missed,
    timed-out or unstarted row; interrupted or complementary runs merge only
    when candidate identity and source inputs match.
-3. On the unchanged product checkpoint, execute the mechanically derived
-   complement of the completed selected run. Do not edit production or tests
-   while it runs. Merge both runs to one complete current-revision result.
+3. On the unchanged product checkpoint, execute every candidate absent from
+   the completed selected run. If cargo-mutants cannot isolate a structural
+   generation class, its mechanically relisted already-completed rows may run
+   again; every replay must produce the identical outcome or the harness is
+   nondeterministic and blocks acceptance. Do not edit production or tests
+   while it runs. Merge the unique identities to one complete current-revision
+   result and retain the derived replay count.
 4. Cluster the complete result by violated law and semantic owner. Classify
    each survivor as a legal observable gap, constructor/transition equivalent,
    harness failure or blocker. Equivalent outcomes require an executable
