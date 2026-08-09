@@ -565,7 +565,7 @@
     "tools": [
       {
         "path": "tx-pool/scripts/check_mutation_matrix.py",
-        "sha256": "01278f4450e673da188bad2007e03479230e2c9ded575dd6b2e1dcde00acb952"
+        "sha256": "0f626df627b3caf72608646f539e8bda658ffebf46a3fc24d4df4c1d5cb8facb"
       },
       {
         "path": "tx-pool/scripts/check_security_manifest.py",
