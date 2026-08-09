@@ -5313,3 +5313,55 @@ than a wasteful full rerun after every new falsifier. Raw artifacts and the
 dependency 25 caught / 7 missed / 1 unviable focused outcome remain preserved.
 The next exact action is the two-row clock-checkpoint root audit. Production
 behavior, compatibility, cleanup authority and remote state remain unchanged.
+
+## B3-R5 clock speculation root adjudicated, executable model active
+
+Section 51 of the fixed plan closes the producer/consumer audit for the two
+checkpoint-restoration survivors. Both are confirmed: a rejected speculative
+owner reservation consumes no identity, while a no-op restoration burns the
+last available version or arrival and can turn the next legal successful item
+into `CounterExhausted`. Retained-ingress resource pressure and optional
+ReplacementHistory fallback are the two real production protocols; the
+generation-prefix adoption path is monotonic and is not a rollback consumer.
+
+Keeping manual restore plus survivor tests, two specialized precomputation
+pipelines and a detached clone/adopt protocol were rejected. The selected root
+correction is one borrowed stack-owned owner-clock branch. It mutates only its
+private prospective pair; explicit adoption writes the parent, while discard
+cannot require repair because the parent was never mutated. This deletes the
+invalid interim state and all checkpoint/restoration code without adding
+runtime authority, allocation, lock, task, queue, retry or compatibility
+surface.
+
+The next exact action is to extend the existing executable atomic-clock model
+with the finite adopt/discard relation and counter-boundary falsifier, then
+refine it through the sealed production types before changing production
+callers. The remaining root order, final complete mutation rerun, cleanup ban
+and no-remote-push rule are unchanged.
+
+## B3-R5 clock speculation proof root closed
+
+Section 52 records the completed root correction. The pure model, sealed
+production refinement, borrowed `OwnerClockBranch`, retained-ingress and
+membership cutovers are active; the checkpoint type, both restoration APIs and
+all restoration callers are absent. Production Rust is 17 net lines smaller
+across the two changed files and adds no persistent state, authority, lock,
+task, queue, allocation, I/O or compatibility path.
+
+The exact cargo-mutants 27.1.0 no-config cohort contained 22 target clock rows
+plus three inseparable existing structural controls. Its 25 terminal outcomes
+are four caught, 21 compile-unviable, zero missed and zero timeout. The raw
+`outcomes.json` SHA-256 is
+`1dd40d7218a37f10cf55a02ec8752b8d04beaffbd87988a72613cb187d18311c`.
+The baseline passed 783/783, `OwnerClockBranch::adopt -> ()` is caught, and the
+old restoration no-ops are no longer discoverable. Strict Clippy and every
+non-mutation aggregate gate pass.
+
+Section-11 and snowball review finds constructive runtime simplification with
+no authority, concurrency, failure-domain, publication, configuration or
+legacy-compatibility drift. The historical mutation locks remain deliberately
+red only for the newly introduced branch obligation and changed test universe;
+section 50 still requires one regenerated final lock and complete rerun after
+all remaining roots. The next exact action is full producer/consumer and legal
+counterexample adjudication of the five-row acceptance-currentness root,
+including its two timeouts. Cleanup and remote push remain unauthorized.

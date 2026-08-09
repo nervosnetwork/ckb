@@ -657,7 +657,12 @@ builds a private closed delta containing:
 
 Clock fields are constructible only through the discardable
 `ClockPlanReservation` and nonempty-Apply `ApplyClockReservation` capabilities;
-they are never optional or defaulted in an authority planner. The closed
+they are never optional or defaulted in an authority planner. Fallible optional
+owner construction uses one `OwnerClockBranch` that exclusively borrows its
+parent reservation. Versions and arrivals change only inside that stack-owned
+branch until explicit adoption; discarding resource- or allocation-rejected
+work therefore leaves the parent clock cut unchanged and needs no checkpoint,
+repair write or rollback path. The closed
 `TransitionControls` constructors are the sole owner of the legal dependency,
 effect and replacement-retirement combinations. Their three fields remain an
 atomic-commit mutation surface even though required clock-field deletion is

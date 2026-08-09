@@ -1,7 +1,7 @@
 use super::atomic_transition::{
-    ClockCommit, ClockCommitError, ClockDemand, ClockPlan, ModelAuthorityClocks,
-    ModelDependencyControl, ModelEffectControl, TransitionControlCommit, TransitionControlDemand,
-    TransitionControlError,
+    ClockBranchDecision, ClockCommit, ClockCommitError, ClockDemand, ClockPlan,
+    ModelAuthorityClocks, ModelDependencyControl, ModelEffectControl, TransitionControlCommit,
+    TransitionControlDemand, TransitionControlError,
 };
 
 #[test]
@@ -119,6 +119,76 @@ fn model_discardable_clock_plan_does_not_require_apply_sequence_capacity() {
         }
     );
     assert_eq!(plan.commit(), Err(ClockCommitError::SequenceOverflow));
+}
+
+#[test]
+fn model_owner_clock_branch_adopts_exact_demand_or_discards_to_its_parent_cut() {
+    for prefix_versions in 0..=3 {
+        for prefix_arrivals in 0..=prefix_versions {
+            for branch_versions in 0..=3 {
+                for branch_arrivals in 0..=branch_versions {
+                    let before = ModelAuthorityClocks {
+                        next_version: 11,
+                        next_arrival: 17,
+                        next_sequence: 23,
+                    };
+                    let prefix = ClockPlan::reserve(
+                        before,
+                        ClockDemand::new(prefix_versions, prefix_arrivals)
+                            .expect("the finite prefix demand is legal"),
+                    )
+                    .expect("the finite prefix fits every owner counter");
+                    let parent = prefix.resolve(ClockBranchDecision::Adopt);
+                    let branch_demand = ClockDemand::new(branch_versions, branch_arrivals)
+                        .expect("the finite branch demand is legal");
+                    let branch = ClockPlan::reserve(parent, branch_demand)
+                        .expect("the finite branch fits every owner counter");
+
+                    assert_eq!(
+                        branch.resolve(ClockBranchDecision::Discard),
+                        parent,
+                        "discard must be the identity transition at every parent cut"
+                    );
+                    assert_eq!(
+                        branch.resolve(ClockBranchDecision::Adopt),
+                        ModelAuthorityClocks {
+                            next_version: parent.next_version + branch_demand.version_count(),
+                            next_arrival: parent.next_arrival + branch_demand.arrival_count(),
+                            next_sequence: parent.next_sequence,
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    let last_available = ModelAuthorityClocks {
+        next_version: u128::MAX - 1,
+        next_arrival: u128::MAX - 1,
+        next_sequence: 31,
+    };
+    let speculative = ClockPlan::reserve(
+        last_available,
+        ClockDemand::new(1, 1).expect("one speculative insertion is legal"),
+    )
+    .expect("the final owner identities remain available");
+    let one_insertion = ClockDemand::new(1, 1).expect("one later insertion is legal");
+
+    assert!(
+        ClockPlan::reserve(
+            speculative.resolve(ClockBranchDecision::Discard),
+            one_insertion,
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        ClockPlan::reserve(
+            speculative.resolve(ClockBranchDecision::Adopt),
+            one_insertion,
+        ),
+        Err(ClockCommitError::VersionOverflow),
+        "burning a rejected branch changes the next legal disposition"
+    );
 }
 
 #[test]

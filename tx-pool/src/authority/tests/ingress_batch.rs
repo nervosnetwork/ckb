@@ -7,7 +7,7 @@ use super::super::{
     plan::{
         AuthorityFault, PlanError, TxPoolAuthority, test_support::RetainedAdmissionDisposition,
     },
-    state::{ApplySequence, EntryVersion, PoolGeneration, RawTxHash, ValidatedAdmission},
+    state::{ApplySequence, Arrival, EntryVersion, PoolGeneration, RawTxHash, ValidatedAdmission},
 };
 use super::foundation::{
     accept_remote_transaction_with_payload, limits, resolved_payload_with_facts,
@@ -193,6 +193,41 @@ fn uak_retained_ingress_batch_applies_resource_pressure_sequentially() {
     drop(committed);
     assert_eq!(authority.owner_count(), 2);
     assert_eq!(authority.preaccepted_for_peer_for_reference(peer).len(), 2);
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_retained_ingress_pressure_discards_every_uncommitted_owner_identity() {
+    let peer = PeerIndex::from(142);
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let before = authority.clocks();
+    let committed = authority
+        .plan_retained_admission_batch(&remote_batch(
+            peer,
+            [ingress_tx(105), ingress_tx(106), ingress_tx(107)],
+        ))
+        .expect("resource pressure remains an ordinary batch item outcome")
+        .apply();
+    assert_eq!(committed.consumed(), 3);
+    drop(committed);
+
+    let after = authority.clocks();
+    assert_eq!(authority.owner_count(), 2);
+    assert_eq!(
+        after.next_version,
+        EntryVersion(before.next_version.0 + 2),
+        "the rejected third item owns no version"
+    );
+    assert_eq!(
+        after.next_arrival,
+        Arrival(before.next_arrival.0 + 2),
+        "the rejected third item owns no arrival"
+    );
+    assert_eq!(
+        after.next_sequence,
+        ApplySequence(before.next_sequence.0 + 1),
+        "the nonempty canonical prefix remains one Apply"
+    );
     assert!(authority.primary_projection_consistent());
 }
 

@@ -3,7 +3,8 @@ use super::super::{
     state::{ApplySequence, Arrival, AuthorityClocks, EntryVersion},
 };
 use crate::mathematical_model::{
-    ClockCommit, ClockCommitError, ClockDemand, ClockPlan, ModelAuthorityClocks,
+    ClockBranchDecision, ClockCommit, ClockCommitError, ClockDemand, ClockPlan,
+    ModelAuthorityClocks,
 };
 use std::num::NonZeroUsize;
 
@@ -165,6 +166,75 @@ fn uak_discardable_clock_plan_refines_owner_demand_before_apply_sealing() {
                     }
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn uak_owner_clock_branch_refines_adopt_and_discard_for_plan_and_apply_parents() {
+    for decision in [ClockBranchDecision::Discard, ClockBranchDecision::Adopt] {
+        for before in [
+            ModelAuthorityClocks {
+                next_version: 7,
+                next_arrival: 11,
+                next_sequence: 13,
+            },
+            ModelAuthorityClocks {
+                next_version: u128::MAX - 2,
+                next_arrival: u128::MAX - 2,
+                next_sequence: u128::MAX - 1,
+            },
+        ] {
+            let prefix_demand = ClockDemand::new(1, 0).expect("the prefix demand is legal");
+            let parent = ClockPlan::reserve(before, prefix_demand)
+                .expect("the prefix fits the finite boundary")
+                .resolve(ClockBranchDecision::Adopt);
+            let branch_demand = ClockDemand::new(1, 1).expect("the branch demand is legal");
+            let expected_owner = ClockPlan::reserve(parent, branch_demand)
+                .expect("the branch fits the finite boundary")
+                .resolve(decision);
+            let expected = ModelAuthorityClocks {
+                next_sequence: before.next_sequence + 1,
+                ..expected_owner
+            };
+
+            let mut plan = ClockPlanReservation::begin(production_clocks(before));
+            let (prefix, next) = plan
+                .replacement()
+                .expect("the model accepted the Plan prefix");
+            assert_eq!(prefix.0, before.next_version);
+            plan = next;
+            let (version, arrival, branch) = plan
+                .owner_branch()
+                .insertion()
+                .expect("the model accepted the Plan branch");
+            assert_eq!(version.0, parent.next_version);
+            assert_eq!(arrival.0, parent.next_arrival);
+            match decision {
+                ClockBranchDecision::Discard => {}
+                ClockBranchDecision::Adopt => branch.adopt(),
+            }
+            let committed = plan.commit().expect("the model accepted the Plan sequence");
+            assert_eq!(model_clocks(committed.finish()), expected);
+
+            let mut apply = ApplyClockReservation::begin(production_clocks(before))
+                .expect("the model accepted the Apply sequence");
+            let (prefix, next) = apply
+                .replacement()
+                .expect("the model accepted the Apply prefix");
+            assert_eq!(prefix.0, before.next_version);
+            apply = next;
+            let (version, arrival, branch) = apply
+                .owner_branch()
+                .insertion()
+                .expect("the model accepted the Apply branch");
+            assert_eq!(version.0, parent.next_version);
+            assert_eq!(arrival.0, parent.next_arrival);
+            match decision {
+                ClockBranchDecision::Discard => {}
+                ClockBranchDecision::Adopt => branch.adopt(),
+            }
+            assert_eq!(model_clocks(apply.finish()), expected);
         }
     }
 }

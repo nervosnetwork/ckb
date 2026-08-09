@@ -192,44 +192,7 @@ impl OwnerOverlay {
 struct BatchScratch {
     owners: OwnerOverlay,
     resources: OrderedResourceProjection,
-    clocks: Option<ClockPlanReservation>,
-}
-
-impl BatchScratch {
-    fn take_clocks(&mut self) -> Result<ClockPlanReservation, PlanError> {
-        self.clocks
-            .take()
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))
-    }
-
-    fn owner_checkpoint(&mut self) -> Result<super::OwnerClockCheckpoint, PlanError> {
-        let clocks = self.take_clocks()?;
-        let checkpoint = clocks.owner_checkpoint();
-        self.clocks = Some(clocks);
-        Ok(checkpoint)
-    }
-
-    fn insertion(
-        &mut self,
-    ) -> Result<
-        (
-            crate::authority::state::EntryVersion,
-            crate::authority::state::Arrival,
-        ),
-        PlanError,
-    > {
-        let clocks = self.take_clocks()?;
-        let (version, arrival, clocks) = clocks.insertion()?;
-        self.clocks = Some(clocks);
-        Ok((version, arrival))
-    }
-
-    fn replacement(&mut self) -> Result<crate::authority::state::EntryVersion, PlanError> {
-        let clocks = self.take_clocks()?;
-        let (version, clocks) = clocks.replacement()?;
-        self.clocks = Some(clocks);
-        Ok(version)
-    }
+    clocks: ClockPlanReservation,
 }
 
 struct ItemDecision {
@@ -283,7 +246,7 @@ impl TxPoolAuthority {
         let mut scratch = BatchScratch {
             owners: OwnerOverlay::new(item_count)?,
             resources: self.resources.ordered_projection(maximum_peers)?,
-            clocks: Some(ClockPlanReservation::begin(self.clocks)),
+            clocks: ClockPlanReservation::begin(self.clocks),
         };
         let mut consumed = 0usize;
 
@@ -321,11 +284,7 @@ impl TxPoolAuthority {
             });
         }
 
-        let clocks = scratch
-            .clocks
-            .take()
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-            .commit()?;
+        let clocks = scratch.clocks.commit()?;
         let sequence = clocks.sequence();
         let effect = match publication {
             Some(publication) => self.effects.plan_publication(&publication, sequence)?,
@@ -514,8 +473,7 @@ impl TxPoolAuthority {
         if let Err(error) = self.resources.validate_admission(charge) {
             return self.retained_resource_pressure(kind, admission, error);
         }
-        let owner_checkpoint = scratch.owner_checkpoint()?;
-        let (version, arrival) = scratch.insertion()?;
+        let (version, arrival, clock_branch) = scratch.clocks.owner_branch().insertion()?;
         let after = OwnedTx::PreAccepted(PreAcceptedEntry {
             record: TxRecord {
                 tx: std::sync::Arc::clone(&admission.tx),
@@ -538,16 +496,12 @@ impl TxPoolAuthority {
                 .resources
                 .replace(&self.resources, None, Some(after.charge_record()))
         {
-            scratch
-                .clocks
-                .as_mut()
-                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-                .restore_owner_checkpoint(owner_checkpoint);
             return self.retained_resource_pressure(kind, admission, error);
         }
         scratch
             .owners
             .replace(self, admission.identity.raw.clone(), after)?;
+        clock_branch.adopt();
         Ok(ItemDecision { effect: None })
     }
 
@@ -571,8 +525,8 @@ impl TxPoolAuthority {
             );
         }
 
-        let owner_checkpoint = scratch.owner_checkpoint()?;
-        let after = match &current {
+        let clock_branch = scratch.clocks.owner_branch();
+        let (after, clock_branch) = match &current {
             OwnedTx::PreAccepted(entry) => {
                 let same_witness = entry.record.identity.witness == admission.identity.witness;
                 let proposal_base = match entry.source {
@@ -591,32 +545,35 @@ impl TxPoolAuthority {
                         promoted.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
                         promoted.charge = promoted.original_charge();
                     }
-                    OwnedTx::PreAccepted(promoted)
+                    (OwnedTx::PreAccepted(promoted), clock_branch)
                 } else {
-                    let version = scratch.replacement()?;
-                    OwnedTx::PreAccepted(PreAcceptedEntry {
-                        record: TxRecord {
-                            tx: std::sync::Arc::clone(&admission.tx),
-                            identity: admission.identity.clone(),
-                            version,
-                            arrival: entry.record.arrival,
-                        },
-                        source: PreAcceptedSource::Proposal {
-                            base: proposal_base,
-                        },
-                        basis: AdmissionBasis::new(
-                            admission.dependencies.clone(),
-                            admission.payload_bytes,
-                            admission.encoded_edges,
+                    let (version, clock_branch) = clock_branch.replacement()?;
+                    (
+                        OwnedTx::PreAccepted(PreAcceptedEntry {
+                            record: TxRecord {
+                                tx: std::sync::Arc::clone(&admission.tx),
+                                identity: admission.identity.clone(),
+                                version,
+                                arrival: entry.record.arrival,
+                            },
+                            source: PreAcceptedSource::Proposal {
+                                base: proposal_base,
+                            },
+                            basis: AdmissionBasis::new(
+                                admission.dependencies.clone(),
+                                admission.payload_bytes,
+                                admission.encoded_edges,
+                                charge,
+                            ),
+                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
                             charge,
-                        ),
-                        phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        charge,
-                    })
+                        }),
+                        clock_branch,
+                    )
                 }
             }
             OwnedTx::ReplacementHistory(history) => {
-                let version = scratch.replacement()?;
+                let (version, clock_branch) = clock_branch.replacement()?;
                 let same_witness = history.record().identity.witness == admission.identity.witness;
                 let promoted = if same_witness {
                     let mut promoted = history.clone().into_recovery(self.generation, version);
@@ -645,7 +602,7 @@ impl TxPoolAuthority {
                         charge,
                     }
                 };
-                OwnedTx::PreAccepted(promoted)
+                (OwnedTx::PreAccepted(promoted), clock_branch)
             }
             OwnedTx::Accepted(_) => {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -656,11 +613,6 @@ impl TxPoolAuthority {
             Some(current.charge_record()),
             Some(after.charge_record()),
         ) {
-            scratch
-                .clocks
-                .as_mut()
-                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
-                .restore_owner_checkpoint(owner_checkpoint);
             return self.retained_resource_pressure(
                 RetainedIngressKind::Proposal,
                 admission,
@@ -670,6 +622,7 @@ impl TxPoolAuthority {
         scratch
             .owners
             .replace(self, admission.identity.raw.clone(), after)?;
+        clock_branch.adopt();
         Ok(ItemDecision { effect: None })
     }
 

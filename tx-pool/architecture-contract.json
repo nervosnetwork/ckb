@@ -117,17 +117,33 @@
         "primary_behavior_id": "TP-COMMIT-001",
         "behavior_ids": ["TP-COMMIT-001", "TP-OWN-001"],
         "invariants": ["T1", "T2", "T3", "T6", "T7"],
-        "model_roles": ["atomic_clock_commit", "atomic_clock_plan", "atomic_transition_controls"],
-        "production_roles": ["atomic_apply_capability", "atomic_clock_commit", "atomic_clock_plan_capability", "atomic_transition_controls"],
+        "model_roles": ["atomic_clock_branch_decision", "atomic_clock_commit", "atomic_clock_plan", "atomic_transition_controls"],
+        "production_roles": ["atomic_apply_capability", "atomic_clock_branch_capability", "atomic_clock_commit", "atomic_clock_plan_capability", "atomic_transition_controls"],
         "evidence_test_patterns": [
           "^mathematical_model::atomic_transition_properties::.*$",
-          "^authority::tests::atomic_refinement::.*$"
+          "^authority::tests::atomic_refinement::.*$",
+          "^authority::tests::foundation::uak_optional_history_resource_fallback_discards_only_its_clock_branch$",
+          "^authority::tests::ingress_batch::uak_retained_ingress_pressure_discards_every_uncommitted_owner_identity$"
         ],
         "generated_test_patterns": [
           "^mathematical_model::atomic_transition_properties::.*$",
-          "^authority::tests::atomic_refinement::.*$"
+          "^authority::tests::atomic_refinement::.*$",
+          "^authority::tests::foundation::uak_optional_history_resource_fallback_discards_only_its_clock_branch$",
+          "^authority::tests::ingress_batch::uak_retained_ingress_pressure_discards_every_uncommitted_owner_identity$"
         ],
         "mutation_selectors": [
+          {
+            "obligation_id": "V1-MUT-ATOMIC-BATCH-CLOCK",
+            "function_pattern": "^ApplyClockReservation::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-ATOMIC-CLOCK-BRANCH",
+            "function_pattern": "^OwnerClockBranch::.*$"
+          },
+          {
+            "obligation_id": "V1-MUT-ATOMIC-CLOCK-PLAN",
+            "function_pattern": "^ClockPlanReservation::.*$"
+          },
           {
             "obligation_id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
             "function_pattern": "^TransitionControls::.*$"
@@ -137,11 +153,11 @@
             "function_pattern": "^TxPoolAuthority::prepare_entry_delta_with_controls$"
           }
         ],
-        "semantic_fact": "A discardable Plan may reserve prospective version/arrival identities without requiring a sequence; each nonempty authority Apply then consumes that sole Plan into one sequence, the exact identity ranges and exactly the dependency/effect controls its owner changes require.",
-        "falsifier": "Reserving sequence before nonemptiness rejects a legal pressure no-op at the counter boundary, while a defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
+        "semantic_fact": "A discardable Plan may reserve prospective version/arrival identities without requiring a sequence. A borrowed owner-clock branch changes only private prospective counters until explicit adoption, so discarded resource or allocation work is the identity transition. Each nonempty authority Apply then consumes the sole parent Plan into one sequence, the exact committed identity ranges and exactly the dependency/effect controls its owner changes require.",
+        "falsifier": "Reserving sequence before nonemptiness rejects a legal pressure no-op at the counter boundary; adopting a discarded branch burns the final identity and changes the next legal success to CounterExhausted; a defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
         "parallelism": "Plan remains lock-local and effect I/O remains post-commit; one sealed commit does not move compute under the authority guard.",
-        "added_cost": "Sealed stack-owned capabilities replace optional/default construction and add no owner, task, queue or retry state.",
-        "deletion_counterexample": "Without the sealed commit, structural field deletion silently creates representable partial transitions.",
+        "added_cost": "Sealed stack-owned capabilities replace optional/default construction and manual rollback. One exclusive borrow plus two prospective counters exists only during local Plan compilation and adds no owner, allocation, task, queue or retry state.",
+        "deletion_counterexample": "Without the sealed commit, structural field deletion silently creates representable partial transitions; without the borrowed branch, rejected speculative identities require manual repair or leak into the committed clock cut.",
         "production_refinement": "implemented"
       },
       {
@@ -566,6 +582,7 @@
         "id": "atomic_batch_apply",
         "disposition": "implement",
         "model_roles": [
+          "atomic_clock_branch_decision",
           "atomic_clock_plan",
           "canonical_ordered_batch",
           "candidate_apply_cost",
@@ -582,7 +599,7 @@
         ],
         "target_owner": {
           "path": "tx-pool/src/authority/plan.rs",
-          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "TransitionControls", "AuthorityDelta", "PreparedApply"]
+          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "OwnerClockBranch", "TransitionControls", "AuthorityDelta", "PreparedApply"]
         },
         "current_owners": [
           {
@@ -599,7 +616,7 @@
           "authority_locks_added": 0,
           "tasks_added": 0,
           "channel_instances_bound": "0",
-          "protocol_state_bound": "one stack-owned clock capability in exactly discardable-Plan or nonempty-Apply phase per prepared batch",
+          "protocol_state_bound": "one stack-owned clock capability in exactly discardable-Plan or nonempty-Apply phase per prepared batch, plus at most one exclusive borrowed owner-clock branch during speculative local compilation",
           "transient_bound": "O(B) prepared owner changes for configured batch bound B",
           "apply_bound": "one Apply sequence and one atomic projection commit per batch"
         }
@@ -1293,6 +1310,7 @@
       "tx-pool/src/tests/model/adversarial.rs::CurrentRetainedPathCost": "current_retained_path_cost",
       "tx-pool/src/tests/model/adversarial.rs::CurrentRetainedPathInput": "current_retained_path_input",
       "tx-pool/src/tests/model/adversarial.rs::WorkAmplificationAudit": "hostile_work_bound",
+      "tx-pool/src/tests/model/atomic_transition.rs::ClockBranchDecision": "atomic_clock_branch_decision",
       "tx-pool/src/tests/model/atomic_transition.rs::ClockCommit": "atomic_clock_commit",
       "tx-pool/src/tests/model/atomic_transition.rs::ClockPlan": "atomic_clock_plan",
       "tx-pool/src/tests/model/atomic_transition.rs::TransitionControlCommit": "atomic_transition_controls",
@@ -1404,6 +1422,7 @@
       "tx-pool/src/authority/plan.rs::AuthorityFault": "authority_integrity_fault",
       "tx-pool/src/authority/plan.rs::ApplyClockReservation": "atomic_clock_commit",
       "tx-pool/src/authority/plan.rs::ClockPlanReservation": "atomic_clock_plan_capability",
+      "tx-pool/src/authority/plan.rs::OwnerClockBranch": "atomic_clock_branch_capability",
       "tx-pool/src/authority/plan.rs::Backpressure": "kernel_backpressure_outcome",
       "tx-pool/src/authority/plan.rs::PlanError": "kernel_plan_outcome",
       "tx-pool/src/authority/plan.rs::PreparedApply": "atomic_apply_capability",
@@ -1468,6 +1487,7 @@
     "semantic_bindings": {
       "authority_and_atomic_apply": {
         "model_roles": [
+          "atomic_clock_branch_decision",
           "atomic_clock_commit",
           "atomic_clock_plan",
           "atomic_transition_controls",
@@ -1479,6 +1499,7 @@
         ],
         "production_roles": [
           "atomic_apply_capability",
+          "atomic_clock_branch_capability",
           "atomic_clock_commit",
           "atomic_clock_plan_capability",
           "atomic_transition_controls",

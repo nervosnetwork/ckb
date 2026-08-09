@@ -33,6 +33,17 @@
         "selector": {"kind": "all_methods"}
       },
       {
+        "id": "V1-MUT-ATOMIC-CLOCK-BRANCH",
+        "semantic_binding": "authority_and_atomic_apply",
+        "component_id": "atomic_batch_apply",
+        "owner_ref": {
+          "kind": "topology_target",
+          "component_id": "atomic_batch_apply",
+          "symbol": "OwnerClockBranch"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
         "id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
         "semantic_binding": "compute_and_fair_permits",
         "component_id": "compute_exchange",

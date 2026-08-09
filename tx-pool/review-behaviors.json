@@ -30,10 +30,10 @@
       "id": "TP-COMMIT-001",
       "title": "Read-only Plan and total Apply",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct PreparedApply", "fn plan_final_admission", "fn apply_membership", "struct IndependentDelta"]},
+        {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct PreparedApply", "fn plan_final_admission", "fn apply_membership", "struct IndependentDelta", "struct OwnerClockBranch"]},
         {"path": "tx-pool/src/authority/runtime.rs", "symbols": ["fn try_drive_ready", "fn complete_ready_batch"]}
       ],
-      "required_behavior": "All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. Apply is total; dropped or stale plans are semantically mutation-free.",
+      "required_behavior": "All policy, stale, resource, membership and effect decisions finish before a single-use PreparedApply commits owner, projection, charge, clocks and effects. A speculative owner-clock branch mutates only its borrowed stack value until explicit adoption. Apply is total; discarded branches and dropped or stale plans are semantically mutation-free.",
       "hostile_case": "Concurrent Ready work, chain-view ABA, RBF rejection, capacity pressure, effect saturation or allocation failure must not expose partial membership or require rollback.",
       "reviewer_questions": [
         "Does Plan change any authoritative semantic fact?",
@@ -522,6 +522,7 @@
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_refines_the_canonical_proposal_fold", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T6", "T14"]},
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_observes_prior_items_in_canonical_order", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T3", "T6", "T14"]},
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_noop_has_no_apply_or_clock_advance", "behavior_id": "TP-COMMIT-001", "invariants": ["T2", "T6"]},
+    {"test": "authority::tests::ingress_batch::uak_retained_ingress_pressure_discards_every_uncommitted_owner_identity", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_applies_resource_pressure_sequentially", "behavior_id": "TP-BUDGET-001", "invariants": ["T1", "T3", "T6", "T8"]},
     {"test": "authority::tests::ingress_batch::uak_malformed_remote_batch_revokes_the_peer_before_any_batch_owner_survives", "behavior_id": "TP-ADMIN-001", "invariants": ["T1", "T3", "T6", "T7"]},
     {"test": "authority::tests::ingress_batch::uak_retained_ingress_batch_commits_only_the_longest_effect_prefix", "behavior_id": "TP-EFFECT-001", "invariants": ["T3", "T6", "T7", "T8"]},
@@ -782,6 +783,8 @@
     {"test": "authority::tests::atomic_refinement::uak_apply_clock_reservation_refines_every_finite_model_demand", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "authority::tests::atomic_refinement::uak_apply_clock_reservation_refines_model_counter_boundaries", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "authority::tests::atomic_refinement::uak_discardable_clock_plan_refines_owner_demand_before_apply_sealing", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::tests::atomic_refinement::uak_owner_clock_branch_refines_adopt_and_discard_for_plan_and_apply_parents", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::tests::foundation::uak_optional_history_resource_fallback_discards_only_its_clock_branch", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "authority::tests::contract_observation_refinement::uak_operational_metrics_are_the_exact_read_only_owned_counter_projection", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "authority::tests::contract_observation_refinement::uak_plan_scratch_reservations_observe_capacity_without_authority_mutation", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "authority::tests::contract_observation_refinement::uak_remote_expiry_removes_exactly_the_effect_bounded_due_prefix", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
@@ -817,6 +820,7 @@
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_discardable_clock_plan_does_not_require_apply_sequence_capacity", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_distinct_nonempty_applies_exclude_an_equal_dependency_event_cut", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_owner_clock_branch_adopts_exact_demand_or_discards_to_its_parent_cut", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_transition_controls_make_every_required_projection_structural", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "mathematical_model::contract_observation_properties::model_operational_metrics_projection_preserves_every_owned_counter", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},

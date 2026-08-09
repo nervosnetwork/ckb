@@ -43,7 +43,8 @@ mod topology_properties;
 mod trace;
 
 pub(crate) use atomic_transition::{
-    ClockCommit, ClockCommitError, ClockDemand, ClockPlan, ModelAuthorityClocks,
+    ClockBranchDecision, ClockCommit, ClockCommitError, ClockDemand, ClockPlan,
+    ModelAuthorityClocks,
 };
 
 pub(crate) use boundary_trace::{

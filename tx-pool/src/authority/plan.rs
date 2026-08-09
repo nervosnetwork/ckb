@@ -1534,12 +1534,6 @@ impl From<ClockReservationError> for PlanError {
     }
 }
 
-#[derive(Clone, Copy)]
-struct OwnerClockCheckpoint {
-    next_version: EntryVersion,
-    next_arrival: Arrival,
-}
-
 /// A discardable Plan capability for prospective owner identities.
 ///
 /// An ordered batch may need versions and arrivals before resource projection
@@ -1548,6 +1542,71 @@ struct OwnerClockCheckpoint {
 /// consumed by [`Self::commit`] before a nonempty transition can be built.
 pub(in crate::authority) struct ClockPlanReservation {
     clocks: AuthorityClocks,
+}
+
+/// One prospective owner-identity branch borrowed from a live clock Plan.
+///
+/// Reservations change only this stack value. Dropping it is a true no-op;
+/// [`Self::adopt`] is the only transition that advances the borrowed parent.
+/// The exclusive borrow prevents stale or cross-parent adoption.
+pub(in crate::authority) struct OwnerClockBranch<'parent> {
+    parent: &'parent mut ClockPlanReservation,
+    next_version: EntryVersion,
+    next_arrival: Arrival,
+}
+
+impl OwnerClockBranch<'_> {
+    pub(in crate::authority) fn replacement(
+        mut self,
+    ) -> Result<(EntryVersion, Self), ClockReservationError> {
+        let version = self.next_version;
+        let next_version = version
+            .0
+            .checked_add(1)
+            .map(EntryVersion)
+            .ok_or(ClockReservationError)?;
+        self.next_version = next_version;
+        Ok((version, self))
+    }
+
+    pub(in crate::authority) fn insertion(
+        mut self,
+    ) -> Result<(EntryVersion, Arrival, Self), ClockReservationError> {
+        let version = self.next_version;
+        let next_version = version
+            .0
+            .checked_add(1)
+            .map(EntryVersion)
+            .ok_or(ClockReservationError)?;
+        let arrival = self.next_arrival;
+        let next_arrival = arrival
+            .0
+            .checked_add(1)
+            .map(Arrival)
+            .ok_or(ClockReservationError)?;
+        self.next_version = next_version;
+        self.next_arrival = next_arrival;
+        Ok((version, arrival, self))
+    }
+
+    pub(in crate::authority) fn replacements(
+        mut self,
+        members: NonZeroUsize,
+    ) -> Result<(impl Iterator<Item = EntryVersion> + use<>, Self), ClockReservationError> {
+        let member_count = u128::try_from(members.get()).map_err(|_| ClockReservationError)?;
+        let first_version = self.next_version.0;
+        let next_version = first_version
+            .checked_add(member_count)
+            .map(EntryVersion)
+            .ok_or(ClockReservationError)?;
+        self.next_version = next_version;
+        Ok(((first_version..next_version.0).map(EntryVersion), self))
+    }
+
+    pub(in crate::authority) fn adopt(self) {
+        self.parent.clocks.next_version = self.next_version;
+        self.parent.clocks.next_arrival = self.next_arrival;
+    }
 }
 
 impl ClockPlanReservation {
@@ -1573,33 +1632,16 @@ impl ClockPlanReservation {
     pub(in crate::authority) fn replacement(
         mut self,
     ) -> Result<(EntryVersion, Self), ClockReservationError> {
-        let version = self.clocks.next_version;
-        let next_version = version
-            .0
-            .checked_add(1)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        self.clocks.next_version = next_version;
+        let (version, branch) = self.owner_branch().replacement()?;
+        branch.adopt();
         Ok((version, self))
     }
 
     pub(in crate::authority) fn insertion(
         mut self,
     ) -> Result<(EntryVersion, Arrival, Self), ClockReservationError> {
-        let version = self.clocks.next_version;
-        let next_version = version
-            .0
-            .checked_add(1)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        let arrival = self.clocks.next_arrival;
-        let next_arrival = arrival
-            .0
-            .checked_add(1)
-            .map(Arrival)
-            .ok_or(ClockReservationError)?;
-        self.clocks.next_version = next_version;
-        self.clocks.next_arrival = next_arrival;
+        let (version, arrival, branch) = self.owner_branch().insertion()?;
+        branch.adopt();
         Ok((version, arrival, self))
     }
 
@@ -1607,26 +1649,17 @@ impl ClockPlanReservation {
         mut self,
         members: NonZeroUsize,
     ) -> Result<(impl Iterator<Item = EntryVersion> + use<>, Self), ClockReservationError> {
-        let member_count = u128::try_from(members.get()).map_err(|_| ClockReservationError)?;
-        let first_version = self.clocks.next_version.0;
-        let next_version = first_version
-            .checked_add(member_count)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        self.clocks.next_version = next_version;
-        Ok(((first_version..next_version.0).map(EntryVersion), self))
+        let (versions, branch) = self.owner_branch().replacements(members)?;
+        branch.adopt();
+        Ok((versions, self))
     }
 
-    fn owner_checkpoint(&self) -> OwnerClockCheckpoint {
-        OwnerClockCheckpoint {
+    pub(in crate::authority) fn owner_branch(&mut self) -> OwnerClockBranch<'_> {
+        OwnerClockBranch {
             next_version: self.clocks.next_version,
             next_arrival: self.clocks.next_arrival,
+            parent: self,
         }
-    }
-
-    fn restore_owner_checkpoint(&mut self, checkpoint: OwnerClockCheckpoint) {
-        self.clocks.next_version = checkpoint.next_version;
-        self.clocks.next_arrival = checkpoint.next_arrival;
     }
 
     pub(in crate::authority) fn adopt_owner_progress(
@@ -1714,12 +1747,8 @@ impl ApplyClockReservation {
         ))
     }
 
-    fn owner_checkpoint(&self) -> OwnerClockCheckpoint {
-        self.plan.owner_checkpoint()
-    }
-
-    fn restore_owner_checkpoint(&mut self, checkpoint: OwnerClockCheckpoint) {
-        self.plan.restore_owner_checkpoint(checkpoint);
+    pub(in crate::authority) fn owner_branch(&mut self) -> OwnerClockBranch<'_> {
+        self.plan.owner_branch()
     }
 
     pub(in crate::authority) fn adopt_owner_progress(
@@ -2104,13 +2133,13 @@ impl TxPoolAuthority {
     /// Build the optional Accepted-victim continuation as one all-or-none
     /// cohort. Allocation pressure drops the optional history before any
     /// authoritative mutation; structural failures remain explicit faults.
-    fn retain_replacement_history(
+    fn retain_replacement_history<'clock>(
         &self,
         candidate: &AcceptedEntry,
         removals: &mut [MembershipRemoval],
         sequence: ApplySequence,
-        mut clocks: ApplyClockReservation,
-    ) -> Result<(bool, ApplyClockReservation), PlanError> {
+        mut clocks: OwnerClockBranch<'clock>,
+    ) -> Result<(bool, OwnerClockBranch<'clock>), PlanError> {
         if !removals
             .iter()
             .any(|removal| removal.cause == RemovalCause::Replacement)
@@ -3103,13 +3132,11 @@ impl TxPoolAuthority {
             projection,
         } = prepared;
         let sequence = clocks.sequence();
-        let owner_checkpoint = clocks.owner_checkpoint();
-        let (retained_history, next_clocks) =
-            self.retain_replacement_history(&accepted, &mut removals, sequence, clocks)?;
-        clocks = next_clocks;
+        let history_clocks = clocks.owner_branch();
+        let (mut retained_history, history_clocks) =
+            self.retain_replacement_history(&accepted, &mut removals, sequence, history_clocks)?;
         if !retained_history {
             removals.iter_mut().for_each(MembershipRemoval::terminalize);
-            clocks.restore_owner_checkpoint(owner_checkpoint);
         }
 
         let effect = match effects {
@@ -3128,12 +3155,15 @@ impl TxPoolAuthority {
                     if has_history =>
                 {
                     removals.iter_mut().for_each(MembershipRemoval::terminalize);
-                    clocks.restore_owner_checkpoint(owner_checkpoint);
+                    retained_history = false;
                     self.plan_membership_resources(&key, existing.as_ref(), &after, &removals)
                         .map_err(Self::membership_resource_error)?
                 }
                 Err(error) => return Err(Self::membership_resource_error(error)),
             };
+        if retained_history {
+            history_clocks.adopt();
+        }
         let changed_retirements = usize::from(
             existing.is_some()
                 && matches!(changed_retirement, ChangedOwnerRetirement::OutsideGuard),

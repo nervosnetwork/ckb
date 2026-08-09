@@ -50,6 +50,15 @@ pub(crate) enum ClockCommitError {
     IndexOutOfBounds,
 }
 
+/// Whether a prospective owner-identity sub-branch becomes part of its
+/// parent Plan. Discard is an identity transition because the branch never
+/// mutates the parent clock cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClockBranchDecision {
+    Discard,
+    Adopt,
+}
+
 /// A discardable Plan's complete prospective owner-identity reservation.
 ///
 /// Planning may need concrete versions and arrivals before another projection
@@ -93,6 +102,13 @@ impl ClockPlan {
 
     pub(crate) const fn owner_after(self) -> ModelAuthorityClocks {
         self.owner_after
+    }
+
+    pub(crate) const fn resolve(self, decision: ClockBranchDecision) -> ModelAuthorityClocks {
+        match decision {
+            ClockBranchDecision::Discard => self.before,
+            ClockBranchDecision::Adopt => self.owner_after,
+        }
     }
 
     pub(crate) fn version(self, index: usize) -> Result<u128, ClockCommitError> {

@@ -944,10 +944,26 @@ def validate_atomic_apply_construction() -> list[str]:
         replacement = impl_method_body(plan, "ClockPlanReservation", "replacement")
         insertion = impl_method_body(plan, "ClockPlanReservation", "insertion")
         replacements = impl_method_body(plan, "ClockPlanReservation", "replacements")
+        plan_owner_branch = impl_method_body(
+            plan, "ClockPlanReservation", "owner_branch"
+        )
+        branch_replacement = impl_method_body(plan, "OwnerClockBranch", "replacement")
+        branch_insertion = impl_method_body(plan, "OwnerClockBranch", "insertion")
+        branch_replacements = impl_method_body(plan, "OwnerClockBranch", "replacements")
+        branch_adopt = impl_method_body(plan, "OwnerClockBranch", "adopt")
+        apply_owner_branch = impl_method_body(
+            plan, "ApplyClockReservation", "owner_branch"
+        )
         adopt_owner_progress = impl_method_body(
             plan, "ClockPlanReservation", "adopt_owner_progress"
         )
         settlement_plan = function_body(settlement, "plan_settlement")
+        ingress_methods = dict(
+            (name, body)
+            for name, body, _line in rust_impl_methods(
+                ingress, "TxPoolAuthority", allow_multiple=True
+            )
+        )
     except (OSError, ValueError) as error:
         return [f"cannot inspect atomic Apply construction: {error}"]
 
@@ -999,25 +1015,69 @@ def validate_atomic_apply_construction() -> list[str]:
         ),
         "replacement": (
             replacement,
-            ("checked_add(1)", "self.clocks.next_version=next_version", "Ok((version,self))"),
+            ("self.owner_branch().replacement()?", "branch.adopt()", "Ok((version,self))"),
         ),
         "insertion": (
             insertion,
             (
-                "version.0.checked_add(1)",
-                "arrival.0.checked_add(1)",
-                "self.clocks.next_version=next_version",
-                "self.clocks.next_arrival=next_arrival",
+                "self.owner_branch().insertion()?",
+                "branch.adopt()",
                 "Ok((version,arrival,self))",
             ),
         ),
         "replacements": (
             replacements,
             (
+                "self.owner_branch().replacements(members)?",
+                "branch.adopt()",
+                "Ok((versions,self))",
+            ),
+        ),
+        "Plan::owner_branch": (
+            plan_owner_branch,
+            (
+                "next_version:self.clocks.next_version",
+                "next_arrival:self.clocks.next_arrival",
+                "parent:self",
+            ),
+        ),
+        "branch::replacement": (
+            branch_replacement,
+            (
+                "self.next_version",
+                "checked_add(1)",
+                "self.next_version=next_version",
+                "Ok((version,self))",
+            ),
+        ),
+        "branch::insertion": (
+            branch_insertion,
+            (
+                "version.0.checked_add(1)",
+                "arrival.0.checked_add(1)",
+                "self.next_version=next_version",
+                "self.next_arrival=next_arrival",
+                "Ok((version,arrival,self))",
+            ),
+        ),
+        "branch::replacements": (
+            branch_replacements,
+            (
                 "checked_add(member_count)",
-                "self.clocks.next_version=next_version",
+                "self.next_version=next_version",
                 "Ok(((first_version..next_version.0).map(EntryVersion),self))",
             ),
+        ),
+        "branch::adopt": (
+            branch_adopt,
+            (
+                "self.parent.clocks.next_version=self.next_version",
+                "self.parent.clocks.next_arrival=self.next_arrival",
+            ),
+        ),
+        "Apply::owner_branch": (
+            apply_owner_branch,
+            ("self.plan.owner_branch()",),
         ),
         "adopt_owner_progress": (
             adopt_owner_progress,
@@ -1036,6 +1096,66 @@ def validate_atomic_apply_construction() -> list[str]:
                 errors.append(
                     f"sealed clock {method} lost fragment {fragment!r}"
                 )
+
+    compact_plan = "".join(mask_rust_non_code(plan).split())
+    for retired in (
+        "OwnerClockCheckpoint",
+        "owner_checkpoint(",
+        "restore_owner_checkpoint(",
+    ):
+        if retired in compact_plan:
+            errors.append(f"manual owner-clock rollback surface {retired!r} remains")
+    branch_declaration = re.search(
+        r"struct\s+OwnerClockBranch\s*<[^{}]*>\s*\{(?P<fields>[^{}]*)\}",
+        mask_rust_non_code(plan),
+    )
+    if branch_declaration is None:
+        errors.append("OwnerClockBranch must remain one private borrowed stack capability")
+    else:
+        fields = "".join(branch_declaration.group("fields").split())
+        required_fields = (
+            "parent:&'parentmutClockPlanReservation",
+            "next_version:EntryVersion",
+            "next_arrival:Arrival",
+        )
+        if any(field not in fields for field in required_fields):
+            errors.append(
+                "OwnerClockBranch lost its exclusive parent borrow or exact owner counters"
+            )
+
+    for method_name in ("plan_new_retained_owner", "plan_proposal_owner"):
+        body = ingress_methods.get(method_name, "")
+        compact_body = "".join(mask_rust_non_code(body).split())
+        fragments = (
+            "scratch.clocks.owner_branch()",
+            "scratch.resources.replace(",
+            "scratch.owners.replace(",
+            "clock_branch.adopt()",
+        )
+        positions = [compact_body.find(fragment) for fragment in fragments]
+        if any(position < 0 for position in positions) or positions != sorted(positions):
+            errors.append(
+                f"retained ingress {method_name} must validate resource and owner projections "
+                "before adopting its borrowed clock branch"
+            )
+
+    membership_compile = function_body(plan, "compile_membership_delta") or ""
+    compact_membership = "".join(mask_rust_non_code(membership_compile).split())
+    membership_fragments = (
+        "lethistory_clocks=clocks.owner_branch()",
+        "self.retain_replacement_history(&accepted,&mutremovals,sequence,history_clocks)?",
+        "self.plan_membership_resources(",
+        "ifretained_history{history_clocks.adopt();}",
+    )
+    membership_positions = [
+        compact_membership.find(fragment) for fragment in membership_fragments
+    ]
+    if any(position < 0 for position in membership_positions) or membership_positions != sorted(
+        membership_positions
+    ):
+        errors.append(
+            "membership must adopt optional-history clocks only after resource fallback closes"
+        )
 
     plan_root = TX_POOL_AUTHORITY_PLAN.parent
     production_plan_sources = [TX_POOL_AUTHORITY_PLAN, *sorted((plan_root / "plan").glob("*.rs"))]
@@ -1366,7 +1486,9 @@ def validate_dependency_maintenance_producers() -> list[str]:
         "TxPoolAuthority::compile_membership_delta",
         (
             "letsequence=clocks.sequence()",
-            "self.retain_replacement_history(&accepted,&mutremovals,sequence,clocks)?",
+            "lethistory_clocks=clocks.owner_branch()",
+            "self.retain_replacement_history(&accepted,&mutremovals,sequence,history_clocks)?",
+            "ifretained_history{history_clocks.adopt();}",
             "self.plan_membership_dependency_delta(existing.as_ref(),&after,&removals,sequence)?",
             "clocks:clocks.finish()",
         ),

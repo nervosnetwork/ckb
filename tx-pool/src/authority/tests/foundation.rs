@@ -5145,6 +5145,76 @@ fn uak_independent_rbf_churn_never_exceeds_replacement_history_budget() {
 }
 
 #[test]
+fn uak_optional_history_resource_fallback_discards_only_its_clock_branch() {
+    let no_history = limits()
+        .with_replacement_history_limit(ResourceVector::new(0, 0, 0, 0))
+        .expect("zero optional history is a valid bounded configuration");
+    let mut authority = TxPoolAuthority::with_replacement(no_history, FeeRate::from_u64(1_000));
+    let input = OutPoint::new(Byte32::new([196; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(196u32)
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        196,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let replacement_tx = TransactionBuilder::default()
+        .version(197u32)
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let replacement = verify_remote_transaction_with_payload(
+        &mut authority,
+        replacement_tx.clone(),
+        197,
+        resolved_payload_with_facts(
+            &replacement_tx,
+            Vec::new(),
+            vec![input],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let before = authority.clocks();
+    let replacement_version = owner_version(&authority, &replacement);
+
+    apply_plan(
+        authority
+            .plan_accept_for_foundation(&replacement, replacement_version, AcceptedStatus::Pending)
+            .expect("optional history pressure cannot reject the funded winner"),
+    );
+
+    let after = authority.clocks();
+    assert_eq!(
+        after.next_version,
+        EntryVersion(before.next_version.0 + 1),
+        "only the mandatory winner replacement owns a version"
+    );
+    assert_eq!(
+        after.next_arrival, before.next_arrival,
+        "terminalized optional history owns no arrival"
+    );
+    assert_eq!(
+        after.next_sequence,
+        ApplySequence(before.next_sequence.0 + 1),
+        "the winning membership transition remains one Apply"
+    );
+    assert!(authority.entry(&victim).is_none());
+    assert!(matches!(
+        authority.entry(&replacement),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_replacement_history_reserves_raw_edges_until_wake() {
     let limits = ResourceLimits::new(
         ResourceVector::new(8, 1024 * 1024, 4, 4),

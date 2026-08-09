@@ -5613,3 +5613,175 @@ new tests each own a distinct phase, closure, later-waiter, final-availability
 or post-commit-wake falsifier; they are not candidate-by-candidate patches.
 Production behavior and legacy configuration remain unchanged, node downgrade
 remains unsupported, and cleanup and remote push remain unauthorized.
+
+## 51. Clock speculation root adjudication and model freeze
+
+The clean dependency-root checkpoint is
+`75244411d17adb7fdbe619c36bcc2c288cd4c333`. The second section-46 root contains
+the two symmetric missed mutations that erase owner-clock checkpoint
+restoration from the discardable retained-ingress Plan and from a sealed
+nonempty membership Apply. They are confirmed legal-input observation gaps,
+not equivalent perturbations.
+
+The complete producer and consumer census has four restoration sites and no
+others. Retained ingress reserves an insertion or replacement identity before
+the ordered resource projection accepts the item; resource pressure rejects
+that item, emits its ordinary disposition and continues the canonical batch.
+Final membership reserves optional ReplacementHistory identities after the
+candidate's required replacement identity and Apply sequence are sealed;
+allocation failure or the optional history resource limits terminalize the
+victims and commit the candidate without history. In both protocols, rejected
+optional work must consume no version or arrival. The separate generation
+scratch path uses monotonic `adopt_owner_progress` after its whole compiled
+prefix succeeds and is not a rollback consumer.
+
+Replacing restoration with a no-op burns identities for work that owns no
+committed owner. Gaps preserve the relative order of already committed owners,
+but they are still observable over the complete legal counter domain. From a
+state with one remaining version or arrival, a resource-rejected speculative
+item consumes that last identity and changes the next otherwise successful
+item from a committed owner into `CounterExhausted`. Repeating legal resource
+pressure reaches the same consequence from every lower finite state. The
+violated law is therefore exact clock conservation:
+
+```text
+P = (next_version, next_arrival, next_sequence)
+D = (versions, arrivals), where arrivals <= versions
+Branch(P, D) = (P, P + (versions, arrivals, 0))
+Discard(Branch(P, D)) = P
+Adopt(Branch(P, D)) = P + (versions, arrivals, 0)
+```
+
+The parent sequence is never part of the branch. An accepted sub-branch must
+advance exactly its finite owner demand; a rejected sub-branch must be
+observationally identical to zero demand. For membership, `P` is already the
+clock cut after the mandatory candidate identity and Apply-sequence seal, so
+discarding optional history cannot rewind either mandatory fact.
+
+Four credible corrections were compared before production code:
+
+1. Keep checkpoint/restore and add direct survivor tests. This is rejected:
+   the production type still represents speculative mutation of its parent,
+   and correctness still depends on every failure arm remembering a manual
+   compensating write.
+2. Reorder resource checks ahead of identity construction separately in
+   ingress and membership. Ingress can precompute a charge, but membership
+   must also construct fallible recovery triggers and optional history values.
+   A complete solution needs a second pending-history representation and two
+   specialized proof paths; it is more state and does not dominate the common
+   mechanism.
+3. Clone a detached clock Plan and later pass its counters to the existing
+   generic adoption method. This removes immediate mutation but permits a
+   detached value to be adopted into a different or advanced parent unless
+   additional runtime provenance checks are added. It weakens compile-time
+   ownership for convenience and is rejected.
+4. Add one private stack-owned owner-clock branch that holds an exclusive
+   mutable borrow of the parent reservation and private prospective version
+   and arrival counters. Reservation mutates only the branch. Explicit
+   `adopt(self)` writes the final pair to the borrowed parent; ordinary drop is
+   a true no-op because the parent was never changed. The borrow makes parent
+   use, stale adoption and cross-parent adoption unrepresentable. This is the
+   selected smallest adequate mechanism.
+
+The selected branch owns one distinct semantic fact: provisional owner-clock
+progress inside an otherwise live Plan. No existing type owns it: the current
+`ClockPlan` model can discard an entire Plan, while the production checkpoint
+methods mutate and repair a parent. The branch adds no authority, state field,
+lock, task, queue, channel, capability residency, retry, timer, allocation,
+I/O or failure domain. Its transient cost is one stack borrow plus two `u128`
+newtype values while the existing checkpoint already stores the same two
+values. Independent validation, resource projection and graph work remain
+unchanged and outside any new serialization boundary. Deleting the branch
+reconstructs the confirmed counter-exhaustion witness.
+
+The model delta extends the existing atomic clock relation rather than adding
+a second clock specification. It must enumerate adopt/discard after arbitrary
+legal prefix demand, prove discard identity at ordinary and boundary cuts,
+prove exact adoption, and refine both production protocols through legal
+resource/allocation fallback. The production delta then deletes
+`OwnerClockCheckpoint`, both checkpoint/restoration method pairs and every
+manual restoration call. `OwnerClockBranch` becomes a named production owner
+under the existing atomic-batch component and gains one generated mutation
+obligation; it is not absorbed by the generic path remainder.
+
+The fixed implementation order is: executable branch decision and boundary
+falsifier; production refinement over the sealed clock types; borrowed branch
+type; ingress and membership cutover with physical deletion of rollback;
+complete producer/caller static census and generated evidence bindings;
+focused and complete Nextest/static gates; section-11 and snowball review;
+then the exact affected mutation cohort. The remaining six roots and final
+complete-universe rerun retain their section-50 order. Legacy configuration is
+unchanged, node downgrade remains unsupported, and cleanup and remote push
+remain unauthorized.
+
+## 52. Clock speculation implementation and proof closure
+
+The section-51 topology is now implemented without a compensating repair path.
+The executable atomic-clock model owns a finite `Discard | Adopt` decision
+after an arbitrary legal prefix and includes the last-identity boundary
+witness. The production refinement exercises both Plan and already-sealed
+Apply parents. `OwnerClockBranch` exclusively borrows its parent, owns only
+prospective version and arrival counters, and writes the parent only through
+`adopt(self)`. Retained ingress adopts after both ordered resource and owner
+projections succeed. Membership adopts optional ReplacementHistory clocks only
+after the history resource decision is final. All checkpoint types, checkpoint
+methods, restoration methods and four restoration call sites are physically
+absent.
+
+The exact no-config mutation discovery selected 22 methods under
+`OwnerClockBranch`, `ClockPlanReservation` and `ApplyClockReservation`.
+cargo-mutants 27.1.0 also emits the three `TransitionControls` struct-field
+mutants as an inseparable structural class, so the executed cohort contained
+25 rows. The isolated artifact is
+`/private/tmp/ckb-tx-pool-v1-mutants-clock-branch-r1/mutants.out`:
+
+- `mutants.json` SHA-256
+  `5638184c4a1c88fa55a4aa18d46cbffc2a6506dae65a14f4e46db097dd7d27d6`;
+- `outcomes.json` SHA-256
+  `1dd40d7218a37f10cf55a02ec8752b8d04beaffbd87988a72613cb187d18311c`;
+- tool lock SHA-256
+  `73fc1511099751e6a5422b9f948a785a2d9e8e1372678d1efb1ee4b966db623a`.
+
+The unmutated Nextest baseline passed 783/783. Every candidate reached exactly
+one terminal outcome: four caught, 21 compile-unviable, zero missed and zero
+timed out. `OwnerClockBranch::adopt -> ()` is caught by the atomic
+model/production refinement; the three inseparable structural controls are
+also caught. Every attempted fake capability/result replacement is rejected by
+the Rust type surface because the borrowed branch and its parents deliberately
+have no synthetic `Default` construction. Compile-unviable rows are not
+survivors. The two historical restoration no-ops no longer exist in discovery,
+so this closes the root by removing the invalid transition rather than by
+adding tests around manual rollback.
+
+Strict Clippy with all internal targets passes. The complete non-mutation gate
+set passes: ASCII 228 files; immutable develop refinement 8/8; documentation
+6 documents/16 tools; TLC 1,098 generated/318 distinct positive states plus
+the required four-state negative witness; generated model/production frontier
+317/671 reachable roots; production contracts; 18 behaviors with 460 Rust
+tests and 1,912 invariant references; 783 discovered Nextest tests; and test
+layout. The old candidate/result locks remain intentionally stale. Their only
+current failures are the zero current candidate for the new atomic-construction
+selector and the zero-match `V1-MUT-ATOMIC-CLOCK-BRANCH` obligation. Section 50
+forbids rebinding or hand-editing those historical rows before all remaining
+root audits freeze the final universe.
+
+The section-11 review finds no authority, trusted-boundary, publication,
+wait-for, configuration or compatibility change. Discard is mutation-free;
+adoption advances exactly the branch demand; overflow remains the existing
+typed counter fault. No persistent field, lock, task, queue, allocation, I/O,
+retry, scan or cancellation edge was added, and independent work remains
+outside the authority cut. The production delta is constructively smaller:
+`plan.rs` is +30 net lines while retained ingress is -47, for -17 net production
+lines, with one optional clock slot, one checkpoint type, four scratch helpers
+and all manual repair sites removed. The larger model, regression and static
+checker surface owns distinct boundary, real-protocol and complete-wiring
+falsifiers. The checker adds no registry or runtime path and is bounded by the
+current source bytes; deleting it would permit a new caller to adopt before its
+resource decision while the local capability tests still pass. No snowball
+topology or transferred runtime risk is present.
+
+The next exact action is the five-row acceptance-currentness root from section
+46, including both timed-out candidates. First reconstruct each legal producer,
+consumer, currentness cut and externally observable consequence from the frozen
+candidate/result join. No production or proof-family change is allowed before
+that root adjudication. Cleanup and remote push remain unauthorized.
