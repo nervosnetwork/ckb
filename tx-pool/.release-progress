@@ -4664,3 +4664,43 @@ the exact external config with
 command with output rooted at
 `/private/tmp/ckb-tx-pool-v1-mutants-remaining`. Every outcome must reconcile
 through `--verify-outcomes` before V1 can advance.
+
+## V1-B3 selected-run completion and scope reopening
+
+The B2 lock committed at `1ca7766288bb91fd058c55559ffa3fdc19a8dc3c` and the
+worktree was clean before execution. The exact locked cargo-mutants command
+completed all selected candidates against the complete library Nextest target;
+the unmutated baseline passed. The raw diagnostic outcome is
+`/private/tmp/ckb-tx-pool-v1-mutants-remaining/mutants.out/outcomes.json` with
+SHA-256 `47f2b12ec28a5e58a030e2478031a933cefe04619b0c1c72eccd955813174e78`.
+The locked verifier correctly rejects the result because missed and timed-out
+rows still require semantic adjudication. No tracked file changed during the
+run.
+
+Both timed-out rows replace dependency maintenance planning or Apply with no
+progress. Multiple focused dependency tests fail promptly, but three chain
+fixtures continue through unbounded maintenance-drain loops until the whole
+Nextest process timeout. This is a harness/liveness-evidence defect: increasing
+the timeout would preserve the missing rank and is rejected. A stable-epoch
+finite maintenance rank must own the drain bound and every step must prove a
+strict decrease or idle.
+
+Review then regenerated the complete structured candidate surface from the
+same source revision and compared it mechanically with the frozen lock. That
+comparison confirmed a strict complement concentrated in the same dependency,
+resource, scheduler and authority source paths, including resource limit,
+charge validation, accepted-capacity and scheduler-lane owners. The lock does
+not retain that complete universe or an exclusion digest, and its generator is
+not discovered by the aggregate `check_all.py` gate. The selected outcome is
+therefore a complete execution of its old lock but not a complete B3 semantic
+closure.
+
+Section 31 of `.independent-execution-plan` owns the resulting plan delta and
+candidate adjudication. Production and test code remain frozen. The next exact
+action is to make one mutation machine owner provide fast aggregate lock
+validation, explicit full rediscovery, complete-universe partitioning and
+resumable result assembly. It then generates and executes only the exact
+unstarted complement on this unchanged product source and merges both outcome
+sets. Root model and production corrections are frozen only after that complete
+result is clustered. Cleanup, deterministic smoke, release reconciliation and
+performance work remain blocked in their original order.

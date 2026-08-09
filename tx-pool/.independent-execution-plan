@@ -4136,3 +4136,90 @@ entry owns the destination environment differences, recovery gates, semantic
 reconstruction and next action. The temporary recovery index was then removed
 in a zero-behavior cleanup; section 29 and the fixed product roadmap remain
 live and own the current V1 continuation.
+
+## 31. V1-B3 complete-candidate closure before root correction
+
+The first generated B3 execution completed from clean product checkpoint
+`1ca7766288bb91fd058c55559ffa3fdc19a8dc3c`. Its portable acceptance lock
+selected exact semantic owners, but current-revision review of the complete
+cargo-mutants discovery surface disproved the stronger claim that the selected
+rows close every same-law production owner in those source paths. In
+particular, configuration/resource predicates and scheduler/dependency helper
+owners were present in the architecture behavior graph but absent from the
+selected row lock. The existing lock also records only selected rows, so it
+cannot mechanically prove the disposition or digest of its complement.
+
+The external review is an investigation input rather than authority. Its
+aggregate-gate and candidate-closure claims are confirmed against this exact
+tree: `check_all.py` discovers `check_*.py`, while the current mutation
+generator is not one of those checks; complete structured cargo-mutants
+discovery contains a strict complement to the frozen selected rows. Its API
+compatibility proposal is already owned by the frozen M0/release route, the
+deterministic smoke proposal is already the next V1-C obligation, and remote
+checkpoint publication remains a continuity action rather than a reason to
+reorder V1.
+
+The completed selected run is diagnostic evidence, not acceptance. Its
+survivors cluster by missing mathematical owner rather than by source line:
+
+- the post-commit wake projection lacks one finite executable before/after
+  relation covering every compute, Ready, dependency, effect and template
+  level;
+- dependency maintenance lacks a complete stable-epoch well-founded rank and
+  an owner-phase/cut transition table, while test drains contain arbitrary or
+  unbounded loops that turn a caught no-progress mutant into a harness timeout;
+- single-owner transitions manually assemble clock fields even though batch
+  transitions already use a sealed reservation, so one Apply stamp is not a
+  compile-time property of every `PreparedApply`;
+- default-filled transition controls allow a dependency/effect obligation to
+  disappear independently from the closed owner transition that requires it;
+- compute release, resource-configuration overflow and allocation-reservation
+  policy lack one complete resource transition/capacity reference relation;
+- scheduler ordering has an executable quotient, but scheduler replacement,
+  checkout consumption, configuration preservation and resource-coupled
+  next-owner search do not yet refine one transition relation;
+- settlement source promotion has an uncovered legal truth-table arm, while
+  several other surviving guards may be equivalent only under sealed
+  capability construction and therefore require a producer proof rather than
+  forged fixtures.
+
+These are provisional root clusters until the complete complement is executed.
+No production correction may begin from the partial result. Three credible
+evidence topologies were adjudicated:
+
+| Candidate | Falsifier and proof cost | Operational/cost envelope | Decision |
+|---|---|---|---|
+| Retain the selected lock and add survivor-specific tests | same-law omitted owners or a new cargo-mutants row remain invisible; every survivor invites a local fixture | smallest immediate run, but transfers scope drift and patch accumulation into review | reject |
+| Hand-classify every excluded row | copied candidates, paths and reasons can drift from Rust and cargo-mutants discovery | large permanent manual ledger with no stronger semantic authority | reject |
+| Mechanically close the complete discovered path universe, then bind each result to an owner-level adjudication | a missing, duplicate, unexpected, unstarted or unclassified row fails the gate | bounded repository-only evidence cost; zero runtime state, lock, task or hot-path work | select |
+
+The selected B3 continuation is fixed as follows:
+
+1. Fuse fast aggregate validation and explicit cargo-mutants rediscovery into
+   one machine owner. The checked-in lock must contain the complete candidate
+   universe and its selected/complement partition, while the aggregate path
+   validates hashes, closure and evidence without requiring cargo-mutants.
+2. Add resumable outcome assembly. One generated result projection binds the
+   candidate lock, exact outcome files and every caught, unviable, missed,
+   timed-out or unstarted row; interrupted or complementary runs merge only
+   when candidate identity and source inputs match.
+3. On the unchanged product checkpoint, execute the mechanically derived
+   complement of the completed selected run. Do not edit production or tests
+   while it runs. Merge both runs to one complete current-revision result.
+4. Cluster the complete result by violated law and semantic owner. Classify
+   each survivor as a legal observable gap, constructor/transition equivalent,
+   harness failure or blocker. Equivalent outcomes require an executable
+   producer/transition proof; legal gaps share one root model correction.
+5. Only then freeze the final model/architecture delta, implementation slices,
+   necessity ledger and exact falsifiers before production cutover. Any new
+   state, task, lock, queue, capability or concurrency topology reopens the
+   topology adjudication.
+6. Regenerate candidate and result locks after the correction and rerun the
+   complete required mutation universe through the same full library Nextest
+   target. V1 advances only when all legal observable gaps are caught and every
+   retained equivalent disposition is mechanically bound to its proof.
+
+This investigation adds no product semantics and does not authorize cleanup.
+The fixed route remains V1-B3 root closure, V1-C deterministic fixed-binary
+smoke and complete whole-system gate, constructive simplification, release
+reconciliation, performance acceptance and final production review.
