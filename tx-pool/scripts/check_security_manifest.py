@@ -924,8 +924,8 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 13:
-        errors.append("architecture contract schema_version must be 13")
+    if contract.get("schema_version") != 14:
+        errors.append("architecture contract schema_version must be 14")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
     errors.extend(validate_interruption_contract(contract, registry))

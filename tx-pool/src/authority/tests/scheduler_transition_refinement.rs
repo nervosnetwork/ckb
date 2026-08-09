@@ -19,7 +19,7 @@ use crate::{
             test_support::{SchedulerSetMemberObservation, SchedulerSetStageObservation},
         },
         state::{
-            EntryVersion, OwnedTx, RawTxHash, ValidatedAdmission, VerifyCapability,
+            EntryVersion, OwnedTx, PoolGeneration, RawTxHash, ValidatedAdmission, VerifyCapability,
             VerifyCycleClass, WorkPermit,
         },
         work::CheckedOutWork,
@@ -86,7 +86,8 @@ fn admission(
             ValidatedAdmission::proposal(transaction).expect("the proposal admission is valid")
         }
         SchedulerRefinementSource::Recovery => {
-            panic!("Recovery is not an ingress constructor in the finite producer bank")
+            ValidatedAdmission::recovery(transaction, PoolGeneration(0))
+                .expect("the recovery admission is valid")
         }
     }
 }
@@ -368,6 +369,50 @@ fn uak_scheduler_set_transition_refines_every_real_projection_state_and_order() 
             }
         }
     }
+}
+
+#[test]
+fn uak_scheduler_private_partial_orders_equal_total_cmp_for_real_keys() {
+    let variants = [
+        build_variants(
+            2_101,
+            1,
+            SchedulerRefinementSource::Proposal,
+            SchedulerRefinementOwner::Trusted,
+            VerifyCycleClass::Small,
+        ),
+        build_variants(
+            2_102,
+            2,
+            SchedulerRefinementSource::Remote(1),
+            SchedulerRefinementOwner::Remote(1),
+            VerifyCycleClass::Large,
+        ),
+        build_variants(
+            2_103,
+            3,
+            SchedulerRefinementSource::Recovery,
+            SchedulerRefinementOwner::Trusted,
+            VerifyCycleClass::Small,
+        ),
+    ];
+    let frontier = frontier_from_states(
+        VerifyOrder::FeeRate,
+        &variants,
+        [
+            ProjectionState::Resolve,
+            ProjectionState::Verify,
+            ProjectionState::Ready,
+        ],
+    );
+    let observation = frontier.partial_order_observation();
+    assert_eq!(observation.source_pairs, 9);
+    assert_eq!(observation.resolve_pairs, 1);
+    assert_eq!(observation.verify_pairs, 1);
+    assert_eq!(observation.queue_pairs, 4);
+    assert_eq!(observation.ready_pairs, 1);
+    assert_eq!(observation.slot_pairs, 9);
+    assert_eq!(observation.violations, 0);
 }
 
 #[derive(Clone)]

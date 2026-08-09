@@ -12,6 +12,10 @@ import shlex
 import subprocess
 import sys
 
+from check_mutation_adjudication import (
+    equivalence_proof_index,
+    run_equivalence_canaries,
+)
 from check_review_guide import load_registry, target_invariant_ids
 from check_security_manifest import (
     DEFAULT_MANIFEST,
@@ -79,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-accepted",
         action="store_true",
-        help="fail unless every result is caught or compile-unviable",
+        help="fail unless every result has a machine-accepted disposition",
     )
     parser.add_argument("--print-json", action="store_true")
     return parser.parse_args()
@@ -214,7 +218,12 @@ def list_candidates(
             fail(f"invalid cargo-mutants candidate: {candidate!r}")
         name = candidate.get("name")
         function = candidate.get("function")
-        if not isinstance(name, str) or not isinstance(function, dict):
+        replacement = candidate.get("replacement")
+        if (
+            not isinstance(name, str)
+            or not isinstance(function, dict)
+            or not isinstance(replacement, str)
+        ):
             fail(f"candidate lacks exact name/function attribution: {candidate!r}")
         function_name = function.get("function_name")
         if not isinstance(function_name, str) or not function_name:
@@ -547,6 +556,7 @@ def build_lock(
                 "file": candidate["file"],
                 "function": candidate["function"]["function_name"],
                 "genre": candidate.get("genre"),
+                "replacement": candidate["replacement"],
                 "obligation_id": obligation["id"],
             }
         )
@@ -556,7 +566,7 @@ def build_lock(
     contract_path = REPO_ROOT / manifest["architecture_contract"]
     behavior_path = registry_path(manifest)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "generator": GENERATOR_PATH,
         "cargo_mutants_version": version,
         "inputs": {
@@ -642,6 +652,7 @@ def candidate_from_lock_row(row: dict) -> dict:
         "file",
         "function",
         "genre",
+        "replacement",
         "obligation_id",
     }
     if set(row) != required:
@@ -651,6 +662,7 @@ def candidate_from_lock_row(row: dict) -> dict:
         "file": row["file"],
         "function": {"function_name": row["function"]},
         "genre": row["genre"],
+        "replacement": row["replacement"],
     }
 
 
@@ -663,7 +675,7 @@ def validate_lock_without_discovery(
     acceptance: dict,
 ) -> tuple[dict, list[dict], list[tuple[dict, dict]], str]:
     observed = read_json_object(lock_path, "generated mutation lock")
-    if observed.get("schema_version") != 2:
+    if observed.get("schema_version") != 3:
         fail(f"generated mutation lock has unsupported schema: {lock_path}")
     universe = observed.get("candidate_universe")
     rows = observed.get("rows")
@@ -776,42 +788,95 @@ def outcome_counts(observed: dict[str, str]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def result_disposition(
+    candidate: str,
+    summary: str,
+    equivalence: dict[str, str],
+) -> dict[str, str]:
+    if summary == "CaughtMutant":
+        return {"kind": "caught"}
+    if summary == "Unviable":
+        return {"kind": "compile_unviable"}
+    if summary == "MissedMutant" and candidate in equivalence:
+        return {"kind": "equivalent", "proof_id": equivalence[candidate]}
+    return {"kind": "unaccepted"}
+
+
+def disposition_counts(dispositions: dict[str, dict[str, str]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for disposition in dispositions.values():
+        kind = disposition["kind"]
+        counts[kind] = counts.get(kind, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def run_result_disposition_canaries() -> None:
+    proof = {"candidate": "V1-EQ-CANARY"}
+    expected = {
+        "CaughtMutant": {"kind": "caught"},
+        "Unviable": {"kind": "compile_unviable"},
+        "MissedMutant": {"kind": "equivalent", "proof_id": "V1-EQ-CANARY"},
+        "Timeout": {"kind": "unaccepted"},
+    }
+    for summary, disposition in expected.items():
+        if result_disposition("candidate", summary, proof) != disposition:
+            fail(f"mutation result disposition canary failed for {summary}")
+    if result_disposition("unproved", "MissedMutant", proof) != {
+        "kind": "unaccepted"
+    }:
+        fail("an unproved missed mutant received an accepted disposition")
+
+
 def build_result_lock(
     mutation_lock_path: Path,
     mutation_lock: dict,
     inputs: list[dict],
     observed: dict[str, str],
+    equivalence: dict[str, str],
 ) -> dict:
     expected = {row["candidate"] for row in mutation_lock["rows"]}
     unstarted = sorted(expected.difference(observed))
     if unstarted:
         fail(f"mutation result projection is incomplete; unstarted={unstarted}")
+    dispositions = {
+        name: result_disposition(name, observed[name], equivalence)
+        for name in observed
+    }
     accepted = all(
-        summary in {"CaughtMutant", "Unviable"}
-        for summary in observed.values()
+        disposition["kind"] != "unaccepted"
+        for disposition in dispositions.values()
     )
     execution_count = sum(entry["candidate_count"] for entry in inputs)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "mutation_lock": input_record(mutation_lock_path),
         "candidate_count": len(expected),
         "execution_count": execution_count,
         "replayed_count": execution_count - len(expected),
         "outcome_inputs": inputs,
         "counts": outcome_counts(observed),
+        "disposition_counts": disposition_counts(dispositions),
         "accepted": accepted,
         "rows": [
-            {"candidate": name, "summary": observed[name]}
+            {
+                "candidate": name,
+                "summary": observed[name],
+                "disposition": dispositions[name],
+            }
             for name in sorted(observed)
         ],
     }
 
 
 def validate_result_lock(
-    path: Path, mutation_lock_path: Path, mutation_lock: dict, require_accepted: bool
+    path: Path,
+    mutation_lock_path: Path,
+    mutation_lock: dict,
+    equivalence: dict[str, str],
+    require_accepted: bool,
 ) -> dict:
     result = read_json_object(path, "mutation result lock")
-    if result.get("schema_version") != 2:
+    if result.get("schema_version") != 3:
         fail(f"mutation result lock has unsupported schema: {path}")
     if result.get("mutation_lock") != input_record(mutation_lock_path):
         fail("mutation result lock is not bound to the current candidate lock")
@@ -819,8 +884,13 @@ def validate_result_lock(
     if not isinstance(rows, list):
         fail("mutation result lock rows must be a list")
     observed: dict[str, str] = {}
+    dispositions: dict[str, dict[str, str]] = {}
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {"candidate", "summary"}:
+        if not isinstance(row, dict) or set(row) != {
+            "candidate",
+            "summary",
+            "disposition",
+        }:
             fail(f"invalid mutation result row: {row!r}")
         name = row.get("candidate")
         summary = row.get("summary")
@@ -831,17 +901,25 @@ def validate_result_lock(
         ):
             fail(f"invalid or duplicate mutation result row: {row!r}")
         observed[name] = summary
+        expected_disposition = result_disposition(name, summary, equivalence)
+        if row.get("disposition") != expected_disposition:
+            fail(f"mutation result disposition is stale: {name}")
+        dispositions[name] = expected_disposition
     expected = {row["candidate"] for row in mutation_lock["rows"]}
     if set(observed) != expected or list(observed) != sorted(observed):
         fail("mutation result lock does not close the sorted candidate universe")
     counts = outcome_counts(observed)
     accepted = all(
-        summary in {"CaughtMutant", "Unviable"}
-        for summary in observed.values()
+        disposition["kind"] != "unaccepted"
+        for disposition in dispositions.values()
     )
     if result.get("candidate_count") != len(expected):
         fail("mutation result lock candidate count is stale")
-    if result.get("counts") != counts or result.get("accepted") is not accepted:
+    if (
+        result.get("counts") != counts
+        or result.get("disposition_counts") != disposition_counts(dispositions)
+        or result.get("accepted") is not accepted
+    ):
         fail("mutation result lock summary is stale")
     inputs = result.get("outcome_inputs")
     input_fields = {
@@ -885,10 +963,10 @@ def validate_result_lock(
     if require_accepted and not accepted:
         unacceptable = sorted(
             name
-            for name, summary in observed.items()
-            if summary not in {"CaughtMutant", "Unviable"}
+            for name, disposition in dispositions.items()
+            if disposition["kind"] == "unaccepted"
         )
-        fail(f"mutation survivors/timeouts require semantic adjudication: {unacceptable}")
+        fail(f"mutation outcomes lack an accepted disposition: {unacceptable}")
     return result
 
 
@@ -903,6 +981,8 @@ def main() -> int:
     if args.write_lock:
         require_clean_worktree({repo_relative(args.lock)})
     run_selection_canaries()
+    run_equivalence_canaries()
+    run_result_disposition_canaries()
     manifest, contract, registry, acceptance = load_inputs(args.manifest)
     if args.rediscover:
         obligations = resolve_obligations(acceptance, contract, registry)
@@ -932,6 +1012,12 @@ def main() -> int:
             registry,
             acceptance,
         )
+    equivalence = equivalence_proof_index(
+        contract,
+        registry,
+        set(read_unit_universe(inventory_path(manifest))),
+        lock["rows"],
+    )
 
     if args.write_config is not None:
         run_selected = selected
@@ -958,7 +1044,7 @@ def main() -> int:
     result = None
     if args.verify_outcomes:
         inputs, observed = read_outcome_sets(args.verify_outcomes, lock)
-        result = build_result_lock(args.lock, lock, inputs, observed)
+        result = build_result_lock(args.lock, lock, inputs, observed, equivalence)
         if args.write_result_lock:
             write_text(
                 args.result_lock,
@@ -975,12 +1061,16 @@ def main() -> int:
             unacceptable = [
                 row["candidate"]
                 for row in result["rows"]
-                if row["summary"] not in {"CaughtMutant", "Unviable"}
+                if row["disposition"]["kind"] == "unaccepted"
             ]
-            fail(f"mutation survivors/timeouts require semantic adjudication: {unacceptable}")
+            fail(f"mutation outcomes lack an accepted disposition: {unacceptable}")
     elif args.result_lock.is_file():
         result = validate_result_lock(
-            args.result_lock, args.lock, lock, args.require_accepted
+            args.result_lock,
+            args.lock,
+            lock,
+            equivalence,
+            args.require_accepted,
         )
     elif args.require_accepted:
         fail(f"mutation result lock does not exist: {args.result_lock}")
@@ -1003,6 +1093,7 @@ def main() -> int:
         if result is not None:
             print(
                 f"outcomes: {json.dumps(result['counts'], sort_keys=True)}; "
+                f"dispositions: {json.dumps(result['disposition_counts'], sort_keys=True)}; "
                 f"accepted={str(result['accepted']).lower()}"
             )
     return 0

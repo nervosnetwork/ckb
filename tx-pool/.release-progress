@@ -5125,3 +5125,48 @@ The next exact action is a local B3-R4 commit followed by a clean-tree B3-R5
 start: close contractual observations, regenerate every machine projection,
 create the current complete mutation lock and execute its isolated Nextest
 universe before any later release or cleanup gate.
+
+## B3-R5 contractual-observation implementation active
+
+The B3-R4 closure is frozen at clean local commit
+`3437f8b02e0984219c3743bdef87e066e7707946`; no remote push occurred. Section
+44 of the fixed plan records the B3-R5 model and topology adjudication before
+production-facing work. Historical survivors are partitioned into legal
+capacity/metrics/bounded-prefix observations, private scheduler trait laws and
+sealed expiry-producer equivalence hypotheses. Candidate-specific fixtures,
+forged corrupt authority state and prose-only equivalence are rejected.
+
+The active slice is to add the independent finite relations and real legal
+producer observations, then make portable mutation results derive one of four
+machine-checked dispositions without changing the raw cargo-mutants outcome.
+No current candidate or historical outcome will be copied by hand. After the
+affected Nextest/static gates and section-11 review pass, the semantic slice
+will be committed locally; only that clean checkpoint may generate the current
+candidate lock and start the complete isolated mutation run. Cleanup and
+remote push remain unauthorized.
+
+## B3-R5 contractual-observation semantic checkpoint ready
+
+The frozen relation, legal production refinements, scheduler trait-law
+observation, sealed expiry producer check and schema-3 raw/disposition proof
+machinery are implemented. An initial metrics falsifier exposed cumulative
+effect-region semantics; the model law was corrected and the exact focused
+Nextest rerun `bdb7e13f-00e5-4580-9867-68c4c857e462` passed 8/8. Final
+exact-worktree Nextest run `b516829b-9ff3-40a6-8e0e-eec4ec88c49e` passed
+770/770 with zero skipped. Strict Clippy, formatting, diff, production,
+review/security/docs, basic and slow construction-flow checks pass; TLC retains
+1,098/318 positive states and the required four-state negative witness.
+
+The section-11 review finds no production semantic source change, no second
+authority or projection owner, no lock/task/wait/publication/concurrency change,
+no compatibility change and no runtime-cost transfer. The larger proof surface
+is centralized in the existing mutation and production-contract validators and
+has permanent negative canaries; it creates no new registry or runner. The
+aggregate contract is intentionally red only because historical schema-2
+mutation locks cannot satisfy the new structured replacement proof selector.
+They will not be edited while this semantic tree is dirty.
+
+The next exact action is a local semantic commit, followed from a clean tree by
+mechanical schema-3 candidate rediscovery, review and a separate generated-lock
+commit. Only then may the complete isolated mutation run start. Cleanup and
+remote push remain unauthorized.

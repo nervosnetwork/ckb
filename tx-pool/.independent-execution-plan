@@ -5113,3 +5113,139 @@ The next exact action is to freeze this B3-R4 checkpoint in a local commit,
 verify a clean tree, then begin B3-R5 by closing contractual fallible/bounded
 observations and mechanically regenerating the mutation evidence and complete
 candidate lock before any current isolated mutation execution.
+
+## 44. B3-R5 contract-observation and portable-result design freeze
+
+The clean B3-R4 checkpoint is
+`3437f8b02e0984219c3743bdef87e066e7707946`. Historical mutation outcomes are
+investigation input only. They expose three different proof classes that must
+not be collapsed into a survivor-specific patch queue:
+
+1. successful scratch reservation, the remote effect-bounded removal prefix
+   and operational metrics have legal externally observable differences but
+   lack exact production observations;
+2. the private scheduler `PartialOrd` implementations have a Rust trait-law
+   obligation, `partial_cmp(a, b) = Some(cmp(a, b))`, that existing set-order
+   tests consume only indirectly; and
+3. forcing the Remote-expiry defensive due guard to `true`, or replacing the
+   Accepted-expiry stale-or-future disjunction with a conjunction, is
+   observationally equivalent only if the unique index producer has already
+   proved owner deadline equals indexed deadline and indexed deadline is at
+   most the cutoff. This is a producer theorem, not permission to forge a
+   corrupt authority fixture.
+
+Three topologies were adjudicated. Adding one fixture or assertion per old
+candidate is rejected because it makes source-line perturbations the semantic
+owner. Deleting defensive integrity checks merely because their premises are
+sealed is rejected because it transfers future compiler misuse into an
+unchecked structural fault. Treating every missed mutant as equivalent by
+prose is rejected because it cannot distinguish a real observation gap from a
+sealed-producer theorem. The selected topology has one independent executable
+contract-observation relation, real production observations over legal
+constructors, and one generated result disposition joined to an exact
+architecture-owned equivalence proof when necessary.
+
+The reference laws are fixed before implementation:
+
+- a successful reservation for `n` elements observes capacity at least `n`;
+  allocation failure remains an ordinary mutation-free outcome;
+- a cleanup Apply removes exactly the canonical prefix
+  `min(due, caller_limit, effect_batch_limit)`, never the unjournaled suffix;
+- operational metrics equal the existing resource-ledger and effect-log
+  counters at one read cut and never become policy input;
+- every private scheduler partial order returns the corresponding total-order
+  comparison for keys constructed by real admission/checkout/settlement
+  producers; and
+- for every finite owner/index/cutoff triple produced by the deadline index,
+  `owner = indexed` and `indexed <= cutoff`. Therefore the Remote compile
+  guard is true and both the Accepted stale-or-future predicate and its
+  conjunctive perturbation are false. Production refinement must additionally
+  prove that `AdminPlan::RemoteExpiry` and Accepted expiry consume only those
+  indexed cuts.
+
+Portable mutation closure will preserve raw tool truth and derive acceptance,
+not rewrite outcomes. The generated candidate lock gains the structured
+replacement already emitted by cargo-mutants; it still omits source diffs,
+spans, logs and hand-copied candidates. A result row has exactly one derived
+disposition: caught observable difference, compile-unviable construction,
+observational equivalence with one architecture/behavior proof ID, or
+unaccepted. Only `MissedMutant` may use an equivalence proof. Timeout,
+unstarted, unexpected, ambiguous, zero-proof and stale-proof rows always
+block. Proof selectors use semantic obligation, function, mutation genre and
+replacement shape and must match exactly one mechanically discovered current
+candidate. Root-family adjudication partitions the actual current
+missed/timeout set; a family is not required to retain a survivor merely to
+keep its model evidence alive.
+
+This slice adds no production field, authority, lock, task, queue, channel,
+capability, retry, timer, watchdog, cache, scan, I/O or compatibility branch.
+The only production-path work under test is work that already exists:
+fallible reserve, bounded prefix selection, read-only counter projection and
+comparison traits. New model, adapter and generator code is proof-only. The
+exact implementation order is: executable finite laws; legal production
+observations and private trait-law refinement; generated behavior/evidence
+projections; mutation-lock/result schema and negative canaries; full affected
+Nextest/static gates; section-11 checkpoint; clean local semantic commit; then
+current rediscovery and the complete isolated mutation run. No cleanup or
+remote push is authorized.
+
+The semantic slice now implements that frozen order. The independent relation
+owns successful reservation capacity, the exact caller/effect-bounded prefix,
+the thirteen-counter operational projection, cumulative effect-region charge,
+the expiry producer premise and the total/partial-order law. Legal production
+adapters observe existing fallible reserve paths, one real Remote expiry Apply,
+one coherent metrics read and all private scheduler key types constructed from
+Proposal, Remote and Recovery admissions. Production semantic Rust is
+unchanged. A static producer gate derives both bounded deadline cuts, validates
+producer-before-compiler ordering and rejects any second constructor of the two
+private expiry plan variants.
+
+The first metrics refinement run falsified the initial independent expectation:
+a Remote effect is cumulatively charged to remote, ordinary and total regions,
+not remote alone. The relation was corrected at the effect-region law rather
+than copying the observed tuple or weakening the test. Focused Nextest run
+`bdb7e13f-00e5-4580-9867-68c4c857e462` then passed all 8 selected model and
+production refinements. Final exact-worktree run
+`b516829b-9ff3-40a6-8e0e-eec4ec88c49e` passed 770/770 internal-feature library
+tests with zero skipped. Formatting, diff whitespace, strict all-target
+internal Clippy, production contracts, review/security/documentation gates and
+basic plus expanded-production model refinement pass. The slow construction
+frontier is 314 reachable model types over 38 files and 671 reachable
+production types over 42 files, with zero constructorless model or expanded
+production variants and zero constructorless rooted structs. TLC again closes
+1,098 generated / 318 distinct positive states and reproduces the required
+four-state `NoEffectBlockedDirectHandoff` negative witness.
+
+The machine registry now discovers 770 tests, 446 unique Rust evidence tests,
+1,841 invariant references, 19 integration anchors and 150 managed specs. Raw
+mutation outcome and derived disposition are separate schema-3 fields. One
+shared proof validator, imported by the existing matrix owner, rejects copied
+candidate facts, missing/ambiguous current selectors, unregistered evidence
+and proof/invariant drift; permanent positive, zero-match, ambiguity and
+timeout canaries prove the failure boundary. The aggregate gate is therefore
+red only because the checked-in candidate/result locks intentionally remain
+historical schema 2 until this dirty semantic slice is reviewed and committed.
+Its exact failure is the zero current structured candidate match for the first
+expiry proof; no second contract failure exists.
+
+The section-11 and snowball checkpoint finds no model-semantic delta beyond the
+declared observation relation, one authoritative owner, unchanged transition
+and capability conservation, and unchanged lock/task/wait/publication graphs.
+The exact changed source roles are test-only model/refinement/adapters, the two
+existing mutation validators, one existing production-contract validator,
+architecture/validation prose and mechanically generated evidence projections.
+There is no production mutable field, state variant, lock, task, queue,
+channel, capability, retry, timer, watchdog, cache, scan, external I/O or hot
+path operation. Proof growth is material but centralized: the matrix imports
+the single equivalence validator, raw tool truth is not duplicated, and no
+second result registry, runner or authority was introduced. Deleting any of
+the new layers respectively loses a legal observation, real private-type
+refinement, exact proof selection or negative checker falsifier; later cleanup
+may fuse implementation only after regenerating the same graph. Legacy
+configuration remains supported, node binary/database downgrade remains out of
+scope, and no remote push or cleanup is authorized.
+
+The next exact action is to freeze this semantic checkpoint in one local
+commit, verify a clean tree, mechanically rediscover and review the complete
+schema-3 candidate lock, then commit that generated lock before starting the
+complete isolated mutation execution.

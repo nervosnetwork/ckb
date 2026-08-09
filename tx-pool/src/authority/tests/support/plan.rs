@@ -111,6 +111,12 @@ pub(in crate::authority) use super::membership::StatusCounts;
 pub(in crate::authority) use super::membership::test_support::MembershipSnapshot;
 pub(in crate::authority) use super::settlement::test_support::CandidateBatchError;
 
+pub(in crate::authority) fn retired_buffer_capacity_for_foundation(
+    requested: usize,
+) -> Result<usize, PlanError> {
+    retired_buffer(requested).map(|buffer| buffer.capacity())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum ReleasedInputContextForFoundation {
     Replacement { candidate_uses_input: bool },
@@ -781,6 +787,14 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn resources(&self) -> &ResourceLedger {
         &self.resources
+    }
+
+    pub(in crate::authority) fn reserve_primary_owner_capacity_for_foundation(
+        &mut self,
+        additional: usize,
+    ) -> Result<usize, PlanError> {
+        self.reserve_primary_owner_insertions(additional)?;
+        Ok(self.entries.capacity())
     }
 
     pub(in crate::authority) fn membership_counts(&self) -> StatusCounts {

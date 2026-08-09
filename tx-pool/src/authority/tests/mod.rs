@@ -4,6 +4,7 @@ mod boundary_refinement;
 mod chain;
 mod compute_coordinator;
 mod compute_exchange;
+mod contract_observation_refinement;
 mod dependency;
 mod effect;
 mod evidence_refinement;

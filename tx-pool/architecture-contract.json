@@ -1,5 +1,5 @@
 {
-  "schema_version": 13,
+  "schema_version": 14,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -23,10 +23,10 @@
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
   },
   "mutation_adjudication": {
-    "schema_version": 1,
+    "schema_version": 2,
     "candidate_lock": "tx-pool/mutation-acceptance-lock.json",
     "result_lock": "tx-pool/mutation-result-lock.json",
-    "unacceptable_outcomes": ["MissedMutant", "Timeout"],
+    "raw_outcomes": ["MissedMutant", "Timeout"],
     "families": [
       {
         "id": "V1-B3-WAKE-OBSERVATION",
@@ -336,11 +336,15 @@
         "model_roles": ["fallible_scratch_outcome", "integrity_fault"],
         "production_roles": ["kernel_backpressure_outcome", "transaction_authority"],
         "evidence_test_patterns": [
-          "^authority::tests::foundation::uak_(accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure|allocation_failure_discards_result_without_retaining_compute_capability)$",
+          "^authority::tests::contract_observation_refinement::.*$",
+          "^authority::tests::foundation::uak_(accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure|allocation_failure_discards_result_without_retaining_compute_capability|remote_expiry_is_a_bounded_derived_transition_and_allows_refetch)$",
+          "^mathematical_model::contract_observation_properties::.*$",
           "^mathematical_model::properties::model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry$"
         ],
         "generated_test_patterns": [
-          "^authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability$"
+          "^authority::tests::contract_observation_refinement::.*$",
+          "^authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability$",
+          "^mathematical_model::contract_observation_properties::.*$"
         ],
         "mutation_selectors": [
           {
@@ -348,12 +352,49 @@
             "function_pattern": "^(OwnerRemovalKeys::truncate|TxPoolAuthority::(compile_administrative_removal|operational_metrics|plan_accepted_expiry|reserve_primary_owner_insertions)|retired_buffer)$"
           }
         ],
-        "semantic_fact": "Fallible allocation, bounded administrative selection, stable expiry and operational metrics remain explicit contractual observations rather than policy authority.",
-        "falsifier": "Erasing allocation or truncation can make a legal bounded operation infallible, unbounded or silently incomplete; erasing metrics changes an operational read.",
+        "semantic_fact": "Fallible reservation, the effect-bounded administrative prefix, exact operational metrics and sealed expiry-index producer premises remain contractual observations rather than policy authority.",
+        "falsifier": "Erasing reservation, prefix truncation or one metrics field changes a legal observation; removing the exact owner/index/cutoff producer premise makes the defensive expiry perturbations observably different.",
         "parallelism": "Allocation remains in Plan, retirement outside the guard and metrics read-only; no observation serializes mutation paths.",
-        "added_cost": "No new model or runtime layer is introduced; exact production boundary regressions remain pending where observation is currently weak.",
-        "deletion_counterexample": "Without the contract family, non-semantic survivors disappear from closure despite externally visible failure, bound and metrics behavior.",
-        "production_refinement": "pending"
+        "added_cost": "Finite model and test-only adapters add no runtime state or hot-path operation; production retains its existing reserve, prefix, counter read and defensive validation work.",
+        "deletion_counterexample": "Without the contract family, legal capacity, bound and metrics differences or a broken expiry producer can disappear behind non-semantic mutation labels.",
+        "production_refinement": "implemented"
+      }
+    ]
+  },
+  "mutation_equivalence": {
+    "schema_version": 1,
+    "proofs": [
+      {
+        "id": "V1-EQ-REMOTE-EXPIRY-DUE-CUT",
+        "behavior_ids": ["TP-ADMIN-001", "TP-DEFECT-001"],
+        "invariants": ["T1", "T3", "T6", "T7", "T8", "T10"],
+        "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+        "function_pattern": "^TxPoolAuthority::compile_administrative_removal$",
+        "genre": "MatchArmGuard",
+        "replacement_pattern": "^true$",
+        "evidence_test_patterns": [
+          "^authority::tests::foundation::uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch$",
+          "^mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise$"
+        ],
+        "semantic_fact": "The legal authority invariant derives the Remote deadline index from the owner, the only RemoteExpiry producer selects an indexed deadline at or before the cutoff, and the planner redundantly rejects any owner/index mismatch before invoking the common removal compiler.",
+        "producer_boundary": "AuthorityIndexes::due_remote -> TxPoolAuthority::plan_remote_expiry -> AdminPlan::RemoteExpiry -> TxPoolAuthority::compile_administrative_removal",
+        "falsifier": "A legal producer cut with owner deadline after the cutoff makes the forced-true guard observably accept a non-due owner."
+      },
+      {
+        "id": "V1-EQ-ACCEPTED-EXPIRY-CURRENT-CUT",
+        "behavior_ids": ["TP-ADMIN-001", "TP-DEFECT-001"],
+        "invariants": ["T3", "T4", "T6", "T8", "T10"],
+        "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+        "function_pattern": "^TxPoolAuthority::plan_accepted_expiry$",
+        "genre": "BinaryOperator",
+        "replacement_pattern": "^&&$",
+        "evidence_test_patterns": [
+          "^authority::tests::foundation::uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure$",
+          "^mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise$"
+        ],
+        "semantic_fact": "The legal authority invariant derives the Accepted deadline index from the immutable owner value, the only Accepted-expiry producer returns a row at or before the cutoff, and the planner redundantly revalidates both facts before compiling removal.",
+        "producer_boundary": "AuthorityIndexes::due_accepted -> TxPoolAuthority::plan_accepted_expiry -> AdminPlan::AcceptedExpiry -> TxPoolAuthority::compile_administrative_removal",
+        "falsifier": "A legal producer cut with exactly one of stale-index or future-owner true distinguishes the disjunction from its conjunctive perturbation."
       }
     ]
   },

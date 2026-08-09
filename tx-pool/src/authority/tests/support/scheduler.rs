@@ -37,6 +37,29 @@ pub(in crate::authority) struct SchedulerWaveObservation {
     pub(in crate::authority) cursors: (Option<WorkOwner>, Option<WorkOwner>),
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::authority) struct SchedulerPartialOrderObservation {
+    pub(in crate::authority) source_pairs: usize,
+    pub(in crate::authority) resolve_pairs: usize,
+    pub(in crate::authority) verify_pairs: usize,
+    pub(in crate::authority) queue_pairs: usize,
+    pub(in crate::authority) ready_pairs: usize,
+    pub(in crate::authority) slot_pairs: usize,
+    pub(in crate::authority) violations: usize,
+}
+
+fn partial_order_counts<T: Ord + PartialOrd>(values: &[&T]) -> (usize, usize) {
+    let mut pairs = 0usize;
+    let mut violations = 0usize;
+    for left in values {
+        for right in values {
+            pairs += 1;
+            violations += usize::from(left.partial_cmp(right) != Some(left.cmp(right)));
+        }
+    }
+    (pairs, violations)
+}
+
 /// Test-only sequential scheduler assignment. Production uses
 /// `SchedulerExchangeWave`, whose selections are compiled directly into the
 /// authoritative compute exchange.
@@ -303,6 +326,63 @@ impl FairFrontier {
                 },
             })
             .collect()
+    }
+
+    pub(in crate::authority) fn partial_order_observation(
+        &self,
+    ) -> SchedulerPartialOrderObservation {
+        let slots = self.slots();
+        let mut sources = Vec::new();
+        let mut resolve = Vec::new();
+        let mut verify = Vec::new();
+        let mut queues = Vec::new();
+        let mut ready = Vec::new();
+        for slot in &slots {
+            match slot {
+                SchedulerSlot::Queue {
+                    key: QueueKey::Resolve(key),
+                    ..
+                } => {
+                    sources.push(&key.source);
+                    resolve.push(key);
+                }
+                SchedulerSlot::Queue {
+                    key: QueueKey::Verify(key),
+                    ..
+                } => {
+                    sources.push(&key.source);
+                    verify.push(key);
+                }
+                SchedulerSlot::Ready(key) => {
+                    sources.push(&key.source);
+                    ready.push(key);
+                }
+            }
+            if let SchedulerSlot::Queue { key, .. } = slot {
+                queues.push(key);
+            }
+        }
+        let slot_values = slots.iter().collect::<Vec<_>>();
+        let (source_pairs, source_violations) = partial_order_counts(&sources);
+        let (resolve_pairs, resolve_violations) = partial_order_counts(&resolve);
+        let (verify_pairs, verify_violations) = partial_order_counts(&verify);
+        let (queue_pairs, queue_violations) = partial_order_counts(&queues);
+        let (ready_pairs, ready_violations) = partial_order_counts(&ready);
+        let (slot_pairs, slot_violations) = partial_order_counts(&slot_values);
+        SchedulerPartialOrderObservation {
+            source_pairs,
+            resolve_pairs,
+            verify_pairs,
+            queue_pairs,
+            ready_pairs,
+            slot_pairs,
+            violations: source_violations
+                + resolve_violations
+                + verify_violations
+                + queue_violations
+                + ready_violations
+                + slot_violations,
+        }
     }
 
     pub(in crate::authority) fn worker_wave_observation(

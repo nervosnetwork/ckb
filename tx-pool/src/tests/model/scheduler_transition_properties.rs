@@ -1,4 +1,5 @@
 use super::{
+    contract_observation::total_partial_order_refines,
     scheduler_quotient::{
         SchedulerRefinementCursors, SchedulerRefinementEntry, SchedulerRefinementOwner,
         SchedulerRefinementSource, SchedulerRefinementStage, SchedulerRefinementVerifyClass,
@@ -10,7 +11,7 @@ use super::{
         SchedulerProjectionError, SchedulerSetProjection,
     },
 };
-use std::collections::BTreeSet;
+use std::{cmp::Ordering, collections::BTreeSet};
 
 fn entry(transaction: u8, source: SchedulerRefinementSource) -> SchedulerRefinementEntry {
     SchedulerRefinementEntry {
@@ -212,4 +213,19 @@ fn model_scheduler_duplicate_overlay_owner_is_a_bounded_probe_not_a_second_owner
     assert_eq!(ring.owner_bound(false), Some(2));
     assert_eq!(ring.first_available(false, &BTreeSet::new()), Some(remote));
     assert_eq!(ring.first_available(false, &BTreeSet::from([remote])), None);
+}
+
+#[test]
+fn model_scheduler_partial_order_is_exactly_some_total_cmp() {
+    let orderings = [Ordering::Less, Ordering::Equal, Ordering::Greater];
+    for total in orderings {
+        assert!(total_partial_order_refines(total, Some(total)));
+        assert!(!total_partial_order_refines(total, None));
+        for observed in orderings {
+            assert_eq!(
+                total_partial_order_refines(total, Some(observed)),
+                observed == total
+            );
+        }
+    }
 }

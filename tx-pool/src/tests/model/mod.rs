@@ -12,6 +12,8 @@ mod boundaries;
 mod boundary_trace;
 mod composition;
 mod composition_properties;
+mod contract_observation;
+mod contract_observation_properties;
 mod dependency_progress;
 mod dependency_progress_properties;
 mod develop_refinement;
@@ -50,6 +52,10 @@ pub(crate) use boundary_trace::{
     BoundaryRequestId, BoundarySource, BoundaryTxId, BoundaryWitnessId,
     reference_controller_success_boundary_trace, reference_failed_enqueue_boundary_trace,
     reference_remote_rejection_boundary_trace_with_relay,
+};
+pub(crate) use contract_observation::{
+    bounded_prefix_len, cumulative_effect_region_projection, exact_operational_projection,
+    reservation_capacity_is_sufficient,
 };
 pub(crate) use dependency_progress::{ModelDependencyCut, ModelDependencyKey};
 pub(crate) use eviction_quotient::{

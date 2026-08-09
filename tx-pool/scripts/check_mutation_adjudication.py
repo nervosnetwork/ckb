@@ -140,15 +140,209 @@ def evidence_map(registry: dict) -> dict[str, dict]:
     return result
 
 
+def equivalence_proof_index(
+    contract: dict,
+    registry: dict,
+    tests: set[str],
+    candidate_rows: list[dict],
+) -> dict[str, str]:
+    """Resolve exact current candidates to architecture-owned equivalence proofs."""
+
+    equivalence = contract.get("mutation_equivalence")
+    if not isinstance(equivalence, dict) or equivalence.get("schema_version") != 1:
+        fail("architecture contract mutation_equivalence schema_version must be 1")
+    copied = contains_derived_fact(equivalence, "mutation_equivalence")
+    if copied is not None:
+        fail(f"mutation equivalence copies a generated fact at {copied}")
+    proofs = equivalence.get("proofs")
+    if not isinstance(proofs, list):
+        fail("mutation equivalence proofs must be a list")
+
+    behavior_ids = {
+        entry.get("id")
+        for entry in registry.get("behaviors", [])
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+    invariant_ids = set(contract.get("target_invariants", {}))
+    registered = evidence_map(registry)
+    required = {
+        "id",
+        "behavior_ids",
+        "invariants",
+        "obligation_id",
+        "function_pattern",
+        "genre",
+        "replacement_pattern",
+        "evidence_test_patterns",
+        "semantic_fact",
+        "producer_boundary",
+        "falsifier",
+    }
+    proof_ids: set[str] = set()
+    candidate_owner: dict[str, str] = {}
+    for proof in proofs:
+        if not isinstance(proof, dict) or set(proof) != required:
+            fail(f"invalid mutation equivalence proof: {proof!r}")
+        proof_id = proof.get("id")
+        if (
+            not isinstance(proof_id, str)
+            or not re.fullmatch(r"V1-EQ-[A-Z0-9-]+", proof_id)
+            or proof_id in proof_ids
+        ):
+            fail(f"invalid or duplicate mutation equivalence proof ID: {proof_id!r}")
+        proof_ids.add(proof_id)
+        for field in ("semantic_fact", "producer_boundary", "falsifier"):
+            if not isinstance(proof.get(field), str) or not proof[field].strip():
+                fail(f"mutation equivalence proof {proof_id} has no {field}")
+        proof_behaviors = string_list(
+            proof.get("behavior_ids"), f"{proof_id}.behavior_ids"
+        )
+        unknown = set(proof_behaviors).difference(behavior_ids)
+        if unknown:
+            fail(f"mutation equivalence proof {proof_id} has unknown behaviors: {sorted(unknown)}")
+        proof_invariants = string_list(
+            proof.get("invariants"), f"{proof_id}.invariants"
+        )
+        unknown = set(proof_invariants).difference(invariant_ids)
+        if unknown:
+            fail(f"mutation equivalence proof {proof_id} has unknown invariants: {sorted(unknown)}")
+        obligation_id = proof.get("obligation_id")
+        genre = proof.get("genre")
+        if not isinstance(obligation_id, str) or not isinstance(genre, str) or not genre:
+            fail(f"mutation equivalence proof {proof_id} has an invalid candidate selector")
+        function = compile_patterns(
+            [proof.get("function_pattern")], f"{proof_id}.function_pattern"
+        )[0]
+        replacement = compile_patterns(
+            [proof.get("replacement_pattern")], f"{proof_id}.replacement_pattern"
+        )[0]
+        evidence = matched_tests(
+            compile_patterns(
+                proof.get("evidence_test_patterns"),
+                f"{proof_id}.evidence_test_patterns",
+            ),
+            tests,
+            f"{proof_id}.evidence_test_patterns",
+        )
+        for test in evidence:
+            entry = registered.get(test)
+            if entry is None:
+                fail(f"mutation equivalence evidence is absent from review registry: {test}")
+            if entry.get("behavior_id") not in proof_behaviors:
+                fail(f"mutation equivalence evidence {test} has the wrong behavior owner")
+            entry_invariants = entry.get("invariants")
+            if (
+                not isinstance(entry_invariants, list)
+                or not entry_invariants
+                or not set(entry_invariants).issubset(proof_invariants)
+            ):
+                fail(f"mutation equivalence evidence {test} exceeds its proof invariants")
+        matches = [
+            row
+            for row in candidate_rows
+            if row.get("obligation_id") == obligation_id
+            and row.get("genre") == genre
+            and function.fullmatch(str(row.get("function", "")))
+            and replacement.fullmatch(str(row.get("replacement", "")))
+        ]
+        if len(matches) != 1:
+            fail(
+                f"mutation equivalence proof {proof_id} must match exactly one current "
+                f"candidate, found {len(matches)}"
+            )
+        candidate = matches[0].get("candidate")
+        if not isinstance(candidate, str):
+            fail(f"mutation equivalence proof {proof_id} matched an invalid candidate row")
+        if candidate in candidate_owner:
+            fail(
+                f"mutation equivalence candidate belongs to both "
+                f"{candidate_owner[candidate]} and {proof_id}"
+            )
+        candidate_owner[candidate] = proof_id
+    return candidate_owner
+
+
+def run_equivalence_canaries() -> None:
+    contract = {
+        "target_invariants": {"T1": "canary"},
+        "mutation_equivalence": {
+            "schema_version": 1,
+            "proofs": [
+                {
+                    "id": "V1-EQ-CANARY",
+                    "behavior_ids": ["TP-CANARY"],
+                    "invariants": ["T1"],
+                    "obligation_id": "V1-MUT-CANARY",
+                    "function_pattern": "^Owner::method$",
+                    "genre": "BinaryOperator",
+                    "replacement_pattern": "^&&$",
+                    "evidence_test_patterns": ["^canary::proof$"],
+                    "semantic_fact": "one sealed producer premise",
+                    "producer_boundary": "one canary constructor",
+                    "falsifier": "remove the producer premise",
+                }
+            ],
+        },
+    }
+    registry = {
+        "behaviors": [{"id": "TP-CANARY"}],
+        "unit_evidence": [
+            {
+                "test": "canary::proof",
+                "behavior_id": "TP-CANARY",
+                "invariants": ["T1"],
+            }
+        ],
+    }
+    row = {
+        "candidate": "canary mutation",
+        "function": "Owner::method",
+        "genre": "BinaryOperator",
+        "replacement": "&&",
+        "obligation_id": "V1-MUT-CANARY",
+    }
+    if equivalence_proof_index(contract, registry, {"canary::proof"}, [row]) != {
+        "canary mutation": "V1-EQ-CANARY"
+    }:
+        fail("mutation equivalence positive canary did not resolve one proof")
+    try:
+        equivalence_proof_index(contract, registry, {"canary::proof"}, [])
+    except SystemExit as error:
+        if "must match exactly one current candidate" not in str(error):
+            raise
+    else:
+        fail("mutation equivalence zero-match canary did not fail")
+    duplicate = {
+        **contract,
+        "mutation_equivalence": {
+            **contract["mutation_equivalence"],
+            "proofs": [
+                *contract["mutation_equivalence"]["proofs"],
+                {
+                    **contract["mutation_equivalence"]["proofs"][0],
+                    "id": "V1-EQ-CANARY-DUPLICATE",
+                },
+            ],
+        },
+    }
+    try:
+        equivalence_proof_index(duplicate, registry, {"canary::proof"}, [row])
+    except SystemExit as error:
+        if "belongs to both" not in str(error):
+            raise
+    else:
+        fail("mutation equivalence ambiguity canary did not fail")
+
+
 def family_inputs(contract: dict, registry: dict, tests: set[str]) -> tuple[list[dict], dict[str, dict]]:
     adjudication = contract.get("mutation_adjudication")
-    if not isinstance(adjudication, dict) or adjudication.get("schema_version") != 1:
-        fail("architecture contract mutation_adjudication schema_version must be 1")
+    if not isinstance(adjudication, dict) or adjudication.get("schema_version") != 2:
+        fail("architecture contract mutation_adjudication schema_version must be 2")
     copied = contains_derived_fact(adjudication)
     if copied is not None:
         fail(f"mutation adjudication copies a generated fact at {copied}")
-    if adjudication.get("unacceptable_outcomes") != ["MissedMutant", "Timeout"]:
-        fail("mutation adjudication must classify exactly MissedMutant and Timeout")
+    if adjudication.get("raw_outcomes") != ["MissedMutant", "Timeout"]:
+        fail("mutation adjudication must classify exactly the raw missed and timeout outcomes")
     families = adjudication.get("families")
     if not isinstance(families, list) or not families:
         fail("mutation adjudication must define nonempty proof families")
@@ -303,49 +497,57 @@ def assign_mutation_rows(contract: dict, families: list[dict]) -> tuple[dict[str
     }
     if len(candidate_by_name) != len(candidates):
         fail("mutation candidate lock contains invalid or duplicate rows")
-    unacceptable = set(adjudication["unacceptable_outcomes"])
+    raw_outcomes = set(adjudication["raw_outcomes"])
     rows: list[dict] = []
     for result in results:
-        if not isinstance(result, dict) or result.get("summary") not in unacceptable:
+        if not isinstance(result, dict) or result.get("summary") not in raw_outcomes:
             continue
         name = result.get("candidate")
         candidate = candidate_by_name.get(name)
         if candidate is None:
             fail(f"mutation result row is absent from candidate lock: {name!r}")
         rows.append({**candidate, "outcome": result["summary"]})
-    if not rows:
-        fail("mutation result contains no rows requiring adjudication")
 
     counts = {family["id"]: 0 for family in families}
     digest_rows: list[str] = []
-    selector_hits: dict[tuple[str, int], int] = {}
+    for family in families:
+        for index, selector in enumerate(family["mutation_selectors"]):
+            scope_hits = [
+                candidate
+                for candidate in candidates
+                if candidate.get("obligation_id") == selector["obligation_id"]
+                and re.fullmatch(
+                    selector["function_pattern"], candidate.get("function", "")
+                )
+            ]
+            if not scope_hits:
+                fail(
+                    f"mutation family selector matches zero current candidates: "
+                    f"{family['id']}[{index}]"
+                )
     for row in rows:
         matches: list[str] = []
         for family in families:
-            for index, selector in enumerate(family["mutation_selectors"]):
+            for selector in family["mutation_selectors"]:
                 if row.get("obligation_id") != selector["obligation_id"]:
                     continue
                 if re.fullmatch(selector["function_pattern"], row.get("function", "")):
                     matches.append(family["id"])
-                    selector_hits[(family["id"], index)] = selector_hits.get((family["id"], index), 0) + 1
         if len(matches) != 1:
             fail(
-                "mutation adjudication must assign each unacceptable row exactly once: "
+                "mutation adjudication must assign each raw missed/timeout row exactly once: "
                 f"candidate={row.get('candidate')!r}, families={matches}"
             )
         family_id = matches[0]
         counts[family_id] += 1
         digest_rows.append(f"{row['candidate']}\t{row['outcome']}\t{family_id}")
-    for family in families:
-        for index, _selector in enumerate(family["mutation_selectors"]):
-            if selector_hits.get((family["id"], index), 0) == 0:
-                fail(f"mutation selector matches zero unacceptable rows: {family['id']}[{index}]")
     digest = hashlib.sha256("\n".join(sorted(digest_rows)).encode()).hexdigest()
     return counts, digest
 
 
 def main() -> int:
     args = parse_args()
+    run_equivalence_canaries()
     contract = load_json(CONTRACT, "architecture contract")
     registry = load_json(REGISTRY, "review behavior registry")
     tests = unit_tests()
@@ -379,12 +581,22 @@ def main() -> int:
         registry = load_json(REGISTRY, "review behavior registry")
 
     families, _generated = family_inputs(contract, registry, tests)
+    adjudication = contract["mutation_adjudication"]
+    candidate_lock = load_json(
+        repo_path(adjudication.get("candidate_lock"), "mutation candidate lock"),
+        "mutation candidate lock",
+    )
+    candidate_rows = candidate_lock.get("rows")
+    if not isinstance(candidate_rows, list):
+        fail("mutation candidate lock has no row list")
+    equivalence = equivalence_proof_index(contract, registry, tests, candidate_rows)
     counts, digest = assign_mutation_rows(contract, families)
     evidence_count = len(set().union(*(family["_evidence_tests"] for family in families)))
     summary = ", ".join(f"{family['id']}={counts[family['id']]}" for family in families)
     print(
         "validated mutation root adjudication: "
         f"families={len(families)}, evidence_tests={evidence_count}, "
+        f"equivalence_proofs={len(set(equivalence.values()))}, "
         f"coverage_sha256={digest}; {summary}"
     )
     return 0

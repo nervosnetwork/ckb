@@ -1338,6 +1338,19 @@ solely to let tests reconstruct the mutation. Tests inspect a sealed Plan
 before Apply and the authority/effect state after Apply; otherwise the test
 receipt becomes a second hand-maintained projection of the transition graph.
 
+Non-authoritative contract observations follow the same rule. A successful
+fallible reservation exposes capacity at least equal to its request; Remote
+expiry removes only the effect-journal prefix it can publish; operational
+metrics copy the resource ledger plus the cumulative effect regions
+(`Remote` is charged to remote, ordinary and total); and private scheduler
+`PartialOrd` implementations equal `Some(Ord::cmp)` for real producer keys.
+These observations never participate in policy or Apply. Mutation outcomes
+retain their raw tool classification. A missed perturbation is accepted as
+observationally equivalent only when its structured current candidate resolves
+to one architecture-owned proof ID and executable producer/transition
+evidence. Timeout, an absent proof or an ambiguous selector remains a blocker;
+an impossible authority fixture is not evidence.
+
 ### Forward-upgrade compatibility policy
 
 CKB does not support node downgrade. The tx-pool therefore has no reverse

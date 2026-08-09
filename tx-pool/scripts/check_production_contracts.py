@@ -31,6 +31,9 @@ TX_POOL_AUTHORITY_PUBLISHER = (
 TX_POOL_AUTHORITY_EFFECT = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "effect.rs"
 )
+TX_POOL_AUTHORITY_INDEXES = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "indexes.rs"
+)
 TX_POOL_AUTHORITY_COMPUTE_COORDINATOR = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "compute_coordinator.rs"
 )
@@ -1194,6 +1197,81 @@ def validate_finite_scheduler_owner_ring() -> list[str]:
     return errors
 
 
+def validate_expiry_index_producers() -> list[str]:
+    """Bind both expiry planners to the sole bounded due-index producers."""
+
+    try:
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        indexes = TX_POOL_AUTHORITY_INDEXES.read_text()
+        remote_index = required_function_body(indexes, "due_remote")
+        accepted_index = required_function_body(indexes, "due_accepted")
+        remote_plan = required_function_body(plan, "plan_remote_expiry")
+        accepted_plan = required_function_body(plan, "plan_accepted_expiry")
+        compiler = required_function_body(plan, "compile_administrative_removal")
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect expiry index producers: {error}"]
+
+    errors: list[str] = []
+    dense_remote_index = "".join(mask_rust_non_code(remote_index).split())
+    dense_accepted_index = "".join(mask_rust_non_code(accepted_index).split())
+    dense_remote_plan = "".join(mask_rust_non_code(remote_plan).split())
+    dense_accepted_plan = "".join(mask_rust_non_code(accepted_plan).split())
+    dense_compiler = "".join(mask_rust_non_code(compiler).split())
+    if ".take_while(|deadline|deadline.expires_at<=now).take(limit)" not in dense_remote_index:
+        errors.append("due_remote must retain the bounded deadline <= cutoff prefix")
+    if (
+        ".take_while(|deadline|deadline.accepted_at<=cutoff).take(limit)"
+        not in dense_accepted_index
+    ):
+        errors.append("due_accepted must retain the bounded accepted-at <= cutoff prefix")
+
+    remote_fragments = (
+        "self.indexes.due_remote(cutoff,limit.get())?",
+        "remote.residency.expires_at!=candidate.expires_at",
+        "hashes.push(candidate.hash)",
+        "self.plan_administrative_removal(hashes,AdminPlan::RemoteExpiry{cutoff})",
+    )
+    positions = [dense_remote_plan.find(fragment) for fragment in remote_fragments]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "plan_remote_expiry must consume the exact bounded due-index cut before "
+            "constructing RemoteExpiry"
+        )
+    accepted_fragments = (
+        "self.indexes.due_accepted(cutoff,1)?.pop()",
+        "entry.accepted_at!=due.accepted_at||entry.accepted_at>cutoff",
+        "self.administrative_descendant_closure(&due.hash)?",
+        "AdminPlan::AcceptedExpiry{root:due.hash,cutoff,}",
+    )
+    positions = [dense_accepted_plan.find(fragment) for fragment in accepted_fragments]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "plan_accepted_expiry must consume one exact current due-index cut before "
+            "constructing AcceptedExpiry"
+        )
+
+    for variant, producer_body in (
+        ("RemoteExpiry", remote_plan),
+        ("AcceptedExpiry", accepted_plan),
+    ):
+        token = f"AdminPlan::{variant}"
+        outside_owned_pair = mask_rust_non_code(plan).count(token) - (
+            mask_rust_non_code(producer_body).count(token)
+            + mask_rust_non_code(compiler).count(token)
+        )
+        if outside_owned_pair != 0:
+            errors.append(
+                f"AdminPlan::{variant} must occur only in its indexed producer and common compiler"
+            )
+        compiler_occurrences = dense_compiler.count(token)
+        compiler_arms = len(
+            re.findall(rf"{re.escape(token)}\{{[^{{}}]*\}}=>", dense_compiler)
+        )
+        if compiler_occurrences != compiler_arms:
+            errors.append(f"the common compiler may only consume AdminPlan::{variant}")
+    return errors
+
+
 def validate_compute_capability_identity() -> list[str]:
     """Keep EntryVersion as the sole numeric identity for active computation."""
 
@@ -2267,6 +2345,7 @@ def main() -> int:
         *validate_dependency_maintenance_successor(),
         *validate_sparse_resource_set_transition(),
         *validate_finite_scheduler_owner_ring(),
+        *validate_expiry_index_producers(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -2288,7 +2367,8 @@ def main() -> int:
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
         "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction, sparse "
-        "resource set transitions and finite scheduler owner rings, total log-owned effect "
+        "resource set transitions, finite scheduler owner rings and sealed bounded expiry "
+        "index producers, total log-owned effect "
         "observation, exhaustive post-commit wake wiring, one projected released-input law, "
         "sealed evidence and total settlement classification plus "
         "a closed Rust module graph plus current production vocabulary and "
