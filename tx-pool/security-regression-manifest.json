@@ -17,7 +17,18 @@
         "owner_ref": {
           "kind": "topology_target",
           "component_id": "atomic_batch_apply",
-          "symbol": "BatchClockReservation"
+          "symbol": "ApplyClockReservation"
+        },
+        "selector": {"kind": "all_methods"}
+      },
+      {
+        "id": "V1-MUT-ATOMIC-CLOCK-PLAN",
+        "semantic_binding": "authority_and_atomic_apply",
+        "component_id": "atomic_batch_apply",
+        "owner_ref": {
+          "kind": "topology_target",
+          "component_id": "atomic_batch_apply",
+          "symbol": "ClockPlanReservation"
         },
         "selector": {"kind": "all_methods"}
       },

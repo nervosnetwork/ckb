@@ -1,5 +1,5 @@
 use super::{
-    ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault, BatchClockReservation,
+    ApplyClockReservation, ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault,
     CheckoutEligibility, DerivedOwnerDelta, OwnerLocalSettlement, PlanError, PreparedApply,
     SettlementClassification, TxPoolAuthority,
 };
@@ -1072,12 +1072,12 @@ impl TxPoolAuthority {
             jobs.resize_with(grant_slots.len(), || None);
             return Ok((None, jobs));
         }
-        let reservation = BatchClockReservation::reserve(
-            self.clocks,
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
+        let (mut versions, clocks) = clocks.replacements(
             NonZeroUsize::new(transition_count)
                 .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
         )?;
-        let (sequence, mut versions, clocks) = reservation.into_parts();
         for _ in 0..local_count {
             let _ = versions.next();
         }
@@ -1205,7 +1205,7 @@ impl TxPoolAuthority {
                     resources,
                     scheduler,
                     dependency,
-                    clocks,
+                    clocks: clocks.finish(),
                     retired,
                 }),
             }),

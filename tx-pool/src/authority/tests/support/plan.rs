@@ -905,13 +905,9 @@ impl TxPoolAuthority {
             return Err(PlanError::Duplicate);
         }
 
-        let version = self.clocks.next_version;
-        let sequence = self.clocks.next_sequence;
-        let clocks = AuthorityClocks {
-            next_version: next_version(version)?,
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
+        let (version, clocks) = clocks.replacement()?;
         let mut after = before.clone();
         after.record.version = version;
         after.proposal = super::super::chain::ProposalContextReceipt::from_validation(status);
@@ -948,7 +944,7 @@ impl TxPoolAuthority {
                 dependency,
                 effect: EffectDelta::default(),
                 retired: Vec::new(),
-                clocks,
+                clocks: clocks.finish(),
                 async_process_start: None,
             }),
         })
@@ -1007,17 +1003,19 @@ impl TxPoolAuthority {
         &mut self,
         publication: &EffectPublication,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let sequence = self.clocks.next_sequence;
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
         let effect = self.effects.plan_publication(publication, sequence)?;
-        self.prepare_effect_only(effect, sequence)
+        Ok(self.prepared_effect_only(effect, clocks))
     }
 
     pub(in crate::authority) fn plan_generation_reset_for_foundation(
         &mut self,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let sequence = self.clocks.next_sequence;
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
-        self.prepare_effect_only(effect, sequence)
+        Ok(self.prepared_effect_only(effect, clocks))
     }
 
     pub(in crate::authority) fn plan_peer_revocation_for_foundation(
@@ -1098,13 +1096,13 @@ impl TxPoolAuthority {
         else {
             return Ok(None);
         };
-        let clocks = AuthorityClocks {
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
         Ok(Some(PreparedApply {
             authority: self,
-            delta: AuthorityDelta::Dependency(DependencyOnlyDelta { control, clocks }),
+            delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
+                control,
+                clocks: clocks.finish(),
+            }),
         }))
     }
 
@@ -1291,8 +1289,9 @@ impl TxPoolAuthority {
             grant,
             after_charge,
         } = reservation;
-        let version = self.clocks.next_version;
-        let sequence = self.clocks.next_sequence;
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
+        let (version, clocks) = clocks.replacement()?;
         let dependency_cut = match queued {
             QueuedWork::Resolve => DependencyCut(sequence),
             QueuedWork::Verify(resolved) => resolved.dependency_cut(),
@@ -1330,11 +1329,6 @@ impl TxPoolAuthority {
                 after_charge,
             )
             .map_err(PlanError::Stale)?;
-        let clocks = AuthorityClocks {
-            next_version: next_version(version)?,
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        };
         let scheduler = self
             .scheduler
             .plan_replace(Some(&existing), Some(&after), Some(ticket))?;
@@ -1358,7 +1352,7 @@ impl TxPoolAuthority {
                 scheduler,
                 dependency,
                 effect: EffectDelta::default(),
-                clocks,
+                clocks: clocks.finish(),
             }),
         };
         Ok(PreparedCheckout { plan, work })

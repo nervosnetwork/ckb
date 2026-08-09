@@ -40,6 +40,10 @@ mod topology;
 mod topology_properties;
 mod trace;
 
+pub(crate) use atomic_transition::{
+    ClockCommit, ClockCommitError, ClockDemand, ClockPlan, ModelAuthorityClocks,
+};
+
 pub(crate) use boundary_trace::{
     BoundaryCheckpoint, BoundaryControllerState, BoundaryEffectState, BoundaryEnqueueFailure,
     BoundaryKey, BoundaryLifecycleState, BoundaryPeerId, BoundaryRelaySettlement,

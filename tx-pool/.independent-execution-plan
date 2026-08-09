@@ -4458,3 +4458,145 @@ The exact next action is to freeze this proof checkpoint in a local commit,
 verify a clean tree, then begin B3-R1 from the sealed clock/control producer
 census. No production cleanup, smoke, release reconciliation or performance
 claim may advance ahead of the current mutation closure.
+
+## 34. B3-R1 model delta and static-performance report adjudication
+
+The 2026-08-09 static-performance report was checked against exact local
+checkpoint `a42c92cc9` plus the uncommitted B3-R1 slice. Its source observations
+are investigation inputs, not authorization for a local fast path. The six
+candidates divide by semantic owner as follows:
+
+| Candidate | Current-revision adjudication | Owning route |
+|---|---|---|
+| Fuse retained-ingress and compute-exchange projection passes | The repeated `OwnerChange` traversals are real, but the claimed 3-5x reduction is not derived from operation counts. A per-item fusion changes the existing whole-resource-before-scheduler error precedence, while an error-preserving fusion needs a new multi-projection compiler and necessity proof. It is not a low-risk zero-semantic-change edit. | B3-R3 and B3-R4 first bind each projection to its reference relation. Only the later constructive-simplification/static-cost gate may decide whether one generated derivation can remove traversal without duplicating policy; timing acceptance remains P-owned. |
+| Plan under an upgradable read | Seventeen production `store.write()` acquisitions exist, but the chain path does not compile its authoritative Plan under the upgradable read. It validates immutable chain evidence there, upgrades, and only then builds and applies the Plan. Generalizing it would require a versioned Plan capability or a longer writer-excluding cut; one upgradable reader also serializes competing writers. The count alone proves no bottleneck or safe topology. | Suppressed for V1. Reopen in P only if lock wait/hold evidence identifies read exclusion as a bounded high-value gap and a model proves lock order, starvation, stale disposal and observational equivalence. |
+| Batch dependency-maintenance edges | One edge or completion marker is deliberately one Apply and one stable-epoch rank decrement. A batch changes ApplySequence cuts, legal interleavings, pending-epoch merge points and wake observations; it is not zero-semantic-change. | B3-R2 owns the nonempty successor and exact rank. A later bounded composition is only a P candidate after a model proves equivalence to one named sequential execution and measurement identifies the Apply count as material. |
+| Move compute-assignment capture outside the exchange write guard | `AcceptedOverlay::capture` allocation and probes currently occur after checkout Apply while the same coherent store guard still binds snapshot, chain view, dependency cut and checked-out owner. A later read cut is not justified by `proof_is_current` alone: it can combine an old snapshot/token with a newer authority or an owner already invalidated by a chain transition. | B3-R4 may construct an exact legal counterexample or prove a typed later-cut capture protocol. No lock move is allowed without a sealed snapshot/view/dependency/token relation and total stale settlement. |
+| Specialize wake projection by delta class | Every Apply currently captures complete before/after wake projections. Effect-only and dependency-only Applies cannot move scheduler heads, but the report's Admin premise is false: administrative removal applies a scheduler batch and can change every head. A handwritten delta-impact table would duplicate publication policy and reopen the same totality gap exposed by mutation. | B3-R4 owns the complete wake relation. P may consider a mechanically derived specialization only after that relation is exhaustive and profiles identify projection cost; no flags, cache or manual table is allowed. |
+| Share membership parent rows through `Arc<HashSet<_>>` COW | Template capture does allocate and copy one parent vector per Accepted entry under its coherent read cut. The authoritative relation is a mutable `HashSet`, while the consumed template relation is a sorted deterministic slice. `Arc<HashSet<_>>` does not remove canonicalization and moves allocation/COW to admission and edge updates; adding both forms would duplicate a derived fact. | Measurement-only P question after V1. The admission-to-rebuild ratio, lock-hold allocation profile and a single-representation design are required before adjudication. |
+
+The global root partition is therefore not six optimizations. Projection
+derivation and wake observation are B3-R3/R4 refinement ownership; dependency
+Apply count is B3-R2 progress semantics; upgradable planning and late compute
+capture are coherent-cut/evidence-binding topology; template parent copying is
+a read-projection ownership tradeoff. The sequential journal writer remains
+outside the authority guard and is P-owned. The scheduler wave's bounded
+slot-by-owner scan belongs to the B3-R3 quotient and adversarial cost proof
+before any timing hypothesis. None of these findings reorders or enlarges the
+five frozen production slices.
+
+While checking the report against the in-flight B3-R1 producer surface, an
+exact counterexample exposed a missing clock-construction case. A retained
+Proposal item may construct a prospective owner and then be excluded by the
+ordered resource projection. If the batch has no earlier owner or effect, its
+observable result is a consumed no-op: it has no Apply and must not require or
+advance `ApplySequence`. The first B3-R1 implementation reserved the sequence
+before projected resource acceptance, so the legal state
+`next_sequence = u128::MAX` changed that no-op into `CounterExhausted`.
+Nextest run `2171b2df-1a2c-4822-a3f8-478e5a4f059f` reproduces the difference
+with
+`uak_retained_ingress_batch_pressure_noop_does_not_require_an_apply_sequence`.
+
+This is a model gap, not an ingress special case. The selected root correction
+refines the clock relation into two linear Plan phases:
+
+1. a pure discardable clock Plan reserves only prospective owner version and
+   arrival demand and therefore remains valid when sequence capacity is
+   exhausted;
+2. only proof of a nonempty Apply consumes that Plan and seals the one
+   `ClockCommit`, which preflights and advances exactly one sequence.
+
+`ClockCommit::reserve` remains the single mathematical commit relation and is
+factored through the pure Plan, rather than copied. Production uses the same
+one move-only typestate protocol; there is never more than one clock
+capability, and neither phase is authoritative state. The protocol adds no
+owner, lock, task, queue, retry, rollback, cache, I/O or publication point.
+Deleting the draft phase recreates the no-op counterexample. A local
+sequence-exhaustion bypass, a restored raw ingress cursor, an optional
+finish-time sequence flag, or duplicated pre-owner charge policy are rejected
+because each makes the invariant depend on a branch, permits an unsealed
+Apply, or creates a second construction rule.
+
+This substantiates a B3-R1 substep without changing the roadmap order. The
+exact continuation is: make the two-phase relation executable, bind the
+production typestate pointwise to it, turn the reproduced counterexample
+green, rerun the complete B3-R1 affected universe and aggregate gates, then
+perform the section-11 checkpoint before B3-R2.
+
+## 35. B3-R1 closure and section-11 checkpoint
+
+B3-R1 closes against product base `a42c92cc9f44dcc89a3139781b079b722dba0d2e`
+and the local checkpoint containing this record. The complete production
+producer census now constructs Apply clocks only through
+`ApplyClockReservation`; retained ingress constructs prospective owner
+identity only through `ClockPlanReservation` and cannot obtain or advance an
+Apply sequence until its projected owner/effect set is nonempty. Raw
+`AuthorityClocks` assembly, `IngressClockCursor`, `BatchClockReservation` and
+defaultable `TransitionControls` are absent from production. Closed control
+constructors preserve the same dependency/effect combinations without a
+partially initialized policy value.
+
+The executable model owns the same two phases. `ClockPlan::reserve` proves the
+version/arrival prefix independently of sequence capacity, while
+`ClockPlan::commit` is the sole route into the existing `ClockCommit` relation.
+The production differential exhausts finite mixed insertion/replacement
+demands and counter boundaries. The legal pressure no-op regression proves
+that discarding a prospective owner neither requires nor changes an Apply
+sequence. The decisive evidence is:
+
+- failing reproduction `2171b2df-1a2c-4822-a3f8-478e5a4f059f` before the
+  model correction;
+- model run `7319de6d-1046-4f54-b18a-951fbc231f62`;
+- focused production/refinement run
+  `b091031b-b6b8-4ce1-b077-334613150d14`;
+- broader atomic/model/ingress run `e273a59a-50a7-4982-bf75-882eaaf85215`;
+- final exact internal-feature universe
+  `530d2679-a752-4021-9d74-d27986b88e84`: 741 passed, zero skipped.
+
+Formatting, diff whitespace, the production-contract checker and production
+Clippy with `-D warnings` pass. The all-target Clippy command reaches one
+pre-existing `derivable_impls` warning in unchanged
+`src/tests/model/progress.rs`; the B3-R1 diff does not touch that file and the
+production target is clean. This is classified as baseline test-source
+simplification, not evidence against the clock transition and not permission
+for an unrelated pre-V1 cleanup. The aggregate repository checker passes its
+ASCII, develop-refinement, documentation, TLC positive/negative,
+model-refinement, mutation-adjudication, production, review, security and test
+layout owners. It remains intentionally red only where the historical mutation
+lock has zero current matches; B3-R5 owns regeneration and complete current
+mutation execution.
+
+The section-11 whole-system review closes as follows:
+
+- Trusted inputs, external observations and the sole `TxPoolAuthority` owner
+  are unchanged. Both clock reservations are discardable stack-owned Plan
+  capabilities and never become a second mutable authority or projection.
+- The state basis is now more exact: prospective owner identities and a
+  committed Apply sequence are distinct phases. Every nonempty Apply consumes
+  exactly one sequence; an empty consumed batch consumes none. Version and
+  arrival demand remains contiguous, checked and coupled to the same linear
+  capability.
+- Transition totality improves at the reproduced counter boundary. Overflow is
+  a typed ordinary failure before mutation, while the pressure no-op remains a
+  successful unchanged disposition. No panic-like production path was added.
+- Resource/capability conservation, owner membership, publication order,
+  wake observations, post-commit effects and externally visible error
+  precedence are unchanged. No lock, task, queue, channel, cache, retry,
+  rollback, scan, I/O edge or wait-for edge was added or moved.
+- Validation and compute concurrency remain outside the authority Apply cut.
+  Legacy configuration behavior is unchanged, and the explicit unsupported
+  node binary/database downgrade boundary is unaffected.
+- The production delta is 457 added and 398 removed lines, net 59. The increase
+  owns compile-time phase separation and closed producer delegation; all
+  counter arithmetic remains in one implementation. A generic abstraction
+  would reduce surface text but increase proof and checker indirection, while
+  deleting the draft phase recreates the exact no-op counterexample. The
+  current cost is therefore necessary rather than snowball growth. It adds no
+  per-item asymptotic work and no runtime topology.
+
+No candidate from the static-performance report changes this conclusion or
+the frozen route. The next exact action is B3-R2: derive a nonempty dependency
+maintenance successor and exact stable-epoch rank, then replace the complete
+same-class raw test worker-spawn surface with one structured cancellation/join
+owner. It must not add a runtime frontier scan, retry, watchdog or local
+timeout patch.

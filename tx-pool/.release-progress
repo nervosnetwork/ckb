@@ -4852,3 +4852,74 @@ producer surface with the sealed atomic construction, run its focused model
 and production refinement evidence, and apply the whole-system checkpoint
 before B3-R2. Cleanup, smoke, release work and performance measurement remain
 blocked in their original order.
+
+## B3-R1 static-performance report and clock-plan correction
+
+The attached 2026-08-09 static-performance review was reproduced against
+`a42c92cc9` and the current B3-R1 diff. Its source observations have value, but
+none authorizes a local optimization. Projection-pass fusion changes error
+precedence unless a single necessary compiler is first derived; generic
+upgradable planning is not what the chain path currently does and would add a
+new OCC or writer-excluding protocol; dependency batching changes sequence,
+interleaving and pending-epoch semantics; late compute capture lacks a sealed
+coherent-cut relation; handwritten wake specialization duplicates publication
+policy and incorrectly assumes Admin removal cannot move scheduler heads; and
+`Arc<HashSet>` parent sharing moves cost to authoritative graph mutation while
+still requiring deterministic canonicalization. The candidates are routed to
+B3-R2, B3-R3, B3-R4, constructive simplification or P by semantic owner. The
+fixed five-slice order is unchanged.
+
+The review also triggered a complete current producer audit, which found a
+more fundamental B3-R1 counterexample. A projected-resource-excluded Proposal
+batch with no owner or effect is a consumed no-op, but the first sealed-clock
+implementation attempted to reserve its Apply sequence while constructing a
+prospective owner. With `next_sequence = u128::MAX`, focused Nextest run
+`2171b2df-1a2c-4822-a3f8-478e5a4f059f` fails
+`uak_retained_ingress_batch_pressure_noop_does_not_require_an_apply_sequence`
+with `Fault(CounterExhausted)`. The pre-B3 implementation and the canonical
+no-op relation require no Apply and no clock change.
+
+Section 34 of `.independent-execution-plan` records the re-adjudicated root.
+The mathematical clock relation will be factored into one discardable owner-
+identity Plan followed by the existing nonempty `ClockCommit`. Production will
+refine it with one move-only typestate capability, not a raw ingress cursor,
+flag or branch bypass. This adds no runtime authority, state, lock, task,
+queue, retry or I/O. The exact next action is to implement the executable
+two-phase relation and production refinement, make the counterexample green,
+then complete the unchanged B3-R1 gate before B3-R2.
+
+## B3-R1 atomic-construction closure
+
+B3-R1 is complete in the local checkpoint containing this record. The
+reference clock relation and production implementation now have two linear
+phases: discardable owner-identity planning and nonempty Apply sealing. The
+complete producer surface uses the sealed capability, defaultable transition
+controls and manual clock construction are gone, and the reproduced Proposal
+pressure no-op no longer requires sequence capacity. There is one arithmetic
+owner and no additional runtime authority, state, lock, task, queue, channel,
+retry, cache, I/O or publication point.
+
+Final exact-worktree Nextest run
+`530d2679-a752-4021-9d74-d27986b88e84` passes all 741 internal-feature library
+tests with zero skipped. Focused model and production refinement runs are
+`7319de6d-1046-4f54-b18a-951fbc231f62`,
+`b091031b-b6b8-4ce1-b077-334613150d14` and
+`e273a59a-50a7-4982-bf75-882eaaf85215`. Formatting, diff whitespace,
+production Clippy and all non-mutation-lock aggregate owners pass. The
+all-target Clippy command reports one unchanged test-model `derivable_impls`
+warning; it is baseline cleanup and is not folded into this semantic slice.
+The historical mutation matrix remains intentionally stale and B3-R5-owned.
+
+The section-11 review confirms one authority, exact transition totality and
+clock conservation, unchanged resource/publication/wake/wait graphs, unchanged
+compatibility and concurrency, and no risk transfer. Production source grows
+by net 59 lines solely for compile-time phase separation and closed producer
+delegation; arithmetic policy is not duplicated, and deleting the new phase
+recreates the demonstrated counterexample. The static-performance report is
+therefore retained as routed evidence, not implemented as six local fast
+paths.
+
+The exact next action is B3-R2: implement the modeled nonempty dependency
+maintenance successor and exact stable-epoch rank, then replace the complete
+raw test worker-spawn class with one structured cancellation/join owner. No
+remote push is authorized.

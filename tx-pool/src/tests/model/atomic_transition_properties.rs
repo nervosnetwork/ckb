@@ -1,6 +1,7 @@
 use super::atomic_transition::{
-    ClockCommit, ClockCommitError, ClockDemand, ModelAuthorityClocks, ModelDependencyControl,
-    ModelEffectControl, TransitionControlCommit, TransitionControlDemand, TransitionControlError,
+    ClockCommit, ClockCommitError, ClockDemand, ClockPlan, ModelAuthorityClocks,
+    ModelDependencyControl, ModelEffectControl, TransitionControlCommit, TransitionControlDemand,
+    TransitionControlError,
 };
 
 #[test]
@@ -91,6 +92,33 @@ fn model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary() {
         ClockDemand::new(0, 1),
         Err(ClockCommitError::ArrivalWithoutVersion)
     );
+}
+
+#[test]
+fn model_discardable_clock_plan_does_not_require_apply_sequence_capacity() {
+    let before = ModelAuthorityClocks {
+        next_version: 7,
+        next_arrival: 11,
+        next_sequence: u128::MAX,
+    };
+    let plan = ClockPlan::reserve(
+        before,
+        ClockDemand::new(1, 1).expect("one prospective insertion is legal"),
+    )
+    .expect("a discardable owner Plan does not reserve an Apply sequence");
+
+    assert_eq!(plan.before(), before);
+    assert_eq!(plan.version(0), Ok(7));
+    assert_eq!(plan.arrival(0), Ok(11));
+    assert_eq!(
+        plan.owner_after(),
+        ModelAuthorityClocks {
+            next_version: 8,
+            next_arrival: 12,
+            next_sequence: u128::MAX,
+        }
+    );
+    assert_eq!(plan.commit(), Err(ClockCommitError::SequenceOverflow));
 }
 
 #[test]

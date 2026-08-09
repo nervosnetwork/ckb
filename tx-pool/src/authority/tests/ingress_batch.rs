@@ -369,3 +369,27 @@ fn uak_retained_ingress_batch_noop_has_no_apply_or_clock_advance() {
     drop(committed);
     assert_eq!(authority.normalized_snapshot(), before);
 }
+
+#[test]
+fn uak_retained_ingress_batch_pressure_noop_does_not_require_an_apply_sequence() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let resident = (30..38).map(ingress_tx).collect::<Vec<_>>();
+    drop(
+        authority
+            .plan_retained_admission_batch(&proposal_batch(resident))
+            .expect("the fixture fills the total retained-owner envelope")
+            .apply(),
+    );
+    assert_eq!(authority.owner_count(), 8);
+
+    authority.force_next_sequence(ApplySequence(u128::MAX));
+    let before = authority.normalized_snapshot();
+    let committed = authority
+        .plan_retained_admission_batch(&proposal_batch([ingress_tx(38)]))
+        .expect("a proposal excluded by projected pressure performs no Apply")
+        .apply();
+
+    assert_eq!(committed.consumed(), 1);
+    drop(committed);
+    assert_eq!(authority.normalized_snapshot(), before);
+}

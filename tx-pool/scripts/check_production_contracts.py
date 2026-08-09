@@ -899,44 +899,144 @@ def validate_prepared_full_query() -> list[str]:
     return errors
 
 
-def validate_atomic_batch_clock_reservation() -> list[str]:
-    """Keep one authoritative Apply stamp per atomic Ready batch."""
+def validate_atomic_apply_construction() -> list[str]:
+    """Keep clocks and required controls behind one sealed Apply capability."""
 
     try:
         plan = TX_POOL_AUTHORITY_PLAN.read_text()
         settlement = TX_POOL_AUTHORITY_SETTLEMENT.read_text()
-        reserve = impl_method_body(plan, "BatchClockReservation", "reserve")
+        ingress = (
+            TX_POOL_AUTHORITY_PLAN.parent / "plan" / "ingress.rs"
+        ).read_text()
+        begin = impl_method_body(plan, "ApplyClockReservation", "begin")
+        plan_begin = impl_method_body(plan, "ClockPlanReservation", "begin")
+        plan_commit = impl_method_body(plan, "ClockPlanReservation", "commit")
+        replacement = impl_method_body(plan, "ClockPlanReservation", "replacement")
+        insertion = impl_method_body(plan, "ClockPlanReservation", "insertion")
+        replacements = impl_method_body(plan, "ClockPlanReservation", "replacements")
+        adopt_owner_progress = impl_method_body(
+            plan, "ClockPlanReservation", "adopt_owner_progress"
+        )
         settlement_plan = function_body(settlement, "plan_settlement")
     except (OSError, ValueError) as error:
-        return [f"cannot inspect atomic batch clock reservation: {error}"]
+        return [f"cannot inspect atomic Apply construction: {error}"]
 
     errors: list[str] = []
     if settlement_plan is None:
         return ["TxPoolAuthority::plan_settlement disappeared"]
     masked_settlement = mask_rust_non_code(settlement_plan)
-    if masked_settlement.count("BatchClockReservation::reserve") != 1:
-        errors.append("Ready settlement must consume exactly one sealed batch clock reservation")
-    for forbidden in ("next_sequence(", "next_version("):
+    if masked_settlement.count("ApplyClockReservation::begin") != 1:
+        errors.append("Ready settlement must begin exactly one sealed Apply clock reservation")
+    if masked_settlement.count("clocks.replacements(member_count)") != 1:
+        errors.append("Ready settlement must reserve its complete member range exactly once")
+    for forbidden in ("next_sequence(", "next_version(", "AuthorityClocks {"):
         if forbidden in masked_settlement:
             errors.append(
                 "Ready settlement must not allocate clocks per member; found "
-                f"{forbidden!r} outside BatchClockReservation"
+                f"{forbidden!r} outside ApplyClockReservation"
             )
     if "facts.into_iter().zip(versions)" not in masked_settlement:
         errors.append(
             "Ready settlement must consume the exact reserved version range with its sealed facts"
         )
 
-    masked_reserve = mask_rust_non_code(reserve)
-    for required in (
-        "checked_add(member_count)",
-        "next_sequence: next_sequence(sequence)?",
-        "versions: first_version..next_version.0",
+    masked_ingress = mask_rust_non_code(ingress)
+    plan_start = masked_ingress.find("ClockPlanReservation::begin(self.clocks)")
+    no_apply = masked_ingress.find("if !has_apply", plan_start)
+    plan_commit_call = masked_ingress.find(".commit()?", no_apply)
+    if min(plan_start, no_apply, plan_commit_call) < 0 or not (
+        plan_start < no_apply < plan_commit_call
     ):
-        if required not in masked_reserve:
-            errors.append(f"BatchClockReservation lost total preflight fragment {required!r}")
-    if masked_reserve.count("next_sequence(") != 1:
-        errors.append("BatchClockReservation must advance ApplySequence exactly once")
+        errors.append(
+            "retained ingress must keep owner clocks discardable until a nonempty Apply is proven"
+        )
+    if masked_ingress.count("ClockPlanReservation::begin(self.clocks)") != 1:
+        errors.append("retained ingress must own exactly one discardable clock Plan")
+
+    required_fragments = {
+        "Plan::begin": (plan_begin, ("Self{clocks}",)),
+        "Plan::commit": (
+            plan_commit,
+            (
+                "self.clocks.next_sequence",
+                "checked_add(1)",
+                "Ok(ApplyClockReservation{sequence,plan:self,})",
+            ),
+        ),
+        "Apply::begin": (
+            begin,
+            ("ClockPlanReservation::begin(clocks).commit()",),
+        ),
+        "replacement": (
+            replacement,
+            ("checked_add(1)", "self.clocks.next_version=next_version", "Ok((version,self))"),
+        ),
+        "insertion": (
+            insertion,
+            (
+                "version.0.checked_add(1)",
+                "arrival.0.checked_add(1)",
+                "self.clocks.next_version=next_version",
+                "self.clocks.next_arrival=next_arrival",
+                "Ok((version,arrival,self))",
+            ),
+        ),
+        "replacements": (
+            replacements,
+            (
+                "checked_add(member_count)",
+                "self.clocks.next_version=next_version",
+                "Ok(((first_version..next_version.0).map(EntryVersion),self))",
+            ),
+        ),
+        "adopt_owner_progress": (
+            adopt_owner_progress,
+            (
+                "checked_sub(self.clocks.next_version.0)",
+                "checked_sub(self.clocks.next_arrival.0)",
+                "arrival_advance>version_advance",
+                "Ok(self)",
+            ),
+        ),
+    }
+    for method, (body, fragments) in required_fragments.items():
+        masked = "".join(mask_rust_non_code(body).split())
+        for fragment in fragments:
+            if fragment not in masked:
+                errors.append(
+                    f"sealed clock {method} lost fragment {fragment!r}"
+                )
+
+    plan_root = TX_POOL_AUTHORITY_PLAN.parent
+    production_plan_sources = [TX_POOL_AUTHORITY_PLAN, *sorted((plan_root / "plan").glob("*.rs"))]
+    for path in production_plan_sources:
+        try:
+            source = mask_rust_non_code(path.read_text())
+        except OSError as error:
+            errors.append(f"cannot inspect atomic Apply producer {path}: {error}")
+            continue
+        relative = path.relative_to(REPO_ROOT)
+        for retired in ("BatchClockReservation", "IngressClockCursor"):
+            if retired in source:
+                errors.append(f"retired duplicate clock constructor {retired} remains in {relative}")
+        if re.search(r"\bnext_(?:version|arrival|sequence)\s*\(", source):
+            errors.append(f"manual clock arithmetic remains outside the sealed clock protocol in {relative}")
+        if path != TX_POOL_AUTHORITY_PLAN and "AuthorityClocks {" in source:
+            errors.append(f"manual AuthorityClocks construction remains in {relative}")
+
+    masked_plan = mask_rust_non_code(plan)
+    reservation_start = masked_plan.find("struct ClockPlanReservation")
+    reservation_end = masked_plan.find("impl TxPoolAuthority", reservation_start)
+    outside_reservation = masked_plan[:reservation_start] + masked_plan[reservation_end:]
+    if "AuthorityClocks {" in outside_reservation:
+        errors.append("manual AuthorityClocks construction remains outside the sealed clock protocol")
+    if re.search(r"\bimpl\s+Default\s+for\s+TransitionControls\b", masked_plan):
+        errors.append("TransitionControls must not regain a default partial-construction path")
+    if "TransitionControls::default" in masked_plan:
+        errors.append("a transition producer still uses defaultable projection controls")
+    controls = impl_method_body(plan, "TransitionControls", "dependency_and_effect")
+    if not all(fragment in mask_rust_non_code(controls) for fragment in ("dependency", "effect")):
+        errors.append("TransitionControls lost its closed dependency-and-effect constructor")
     return errors
 
 
@@ -1654,7 +1754,7 @@ def main() -> int:
         *validate_authority_failure_algebra(),
         *validate_transaction_query_failure_domains(),
         *validate_prepared_full_query(),
-        *validate_atomic_batch_clock_reservation(),
+        *validate_atomic_apply_construction(),
         *validate_compute_capability_identity(),
         *validate_ordered_chain_error_domain(),
         *validate_production_vocabulary(),
@@ -1671,7 +1771,7 @@ def main() -> int:
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
-        "one-stamp atomic Ready batches and "
+        "sealed one-stamp atomic Apply construction and "
         "a closed Rust module graph plus current production vocabulary and "
         "execution-topology cost and shutdown order"
     )

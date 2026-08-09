@@ -1,3 +1,4 @@
+mod atomic_refinement;
 mod ban;
 mod boundary_refinement;
 mod chain;

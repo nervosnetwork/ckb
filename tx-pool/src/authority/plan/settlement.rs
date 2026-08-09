@@ -1,5 +1,5 @@
 use super::{
-    AuthorityDelta, AuthorityFault, BatchClockReservation, CandidateDispositionPlan,
+    ApplyClockReservation, AuthorityDelta, AuthorityFault, CandidateDispositionPlan,
     IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
 };
 use crate::authority::{
@@ -147,8 +147,9 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         let member_count = NonZeroUsize::new(facts.len())
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-        let (source_sequence, versions, clocks) =
-            BatchClockReservation::reserve(self.clocks, member_count)?.into_parts();
+        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let source_sequence = clocks.sequence();
+        let (versions, clocks) = clocks.replacements(member_count)?;
         for (fact, version) in facts.into_iter().zip(versions) {
             if !matches!(&fact.before.phase, PreAcceptedPhase::Ready(_)) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -263,7 +264,7 @@ impl TxPoolAuthority {
                 scheduler,
                 dependency,
                 effect,
-                clocks,
+                clocks: clocks.finish(),
                 async_process_starts,
             }),
         }))

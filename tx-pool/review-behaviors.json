@@ -348,6 +348,10 @@
   "unit_evidence": [
 
 
+
+
+
+
     {"test": "authority::tests::foundation::uak_all_four_preaccepted_phases_are_closed_variants", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T5"]},
     {"test": "authority::tests::foundation::uak_duplicate_and_promotion_never_create_second_owner", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T3"]},
     {"test": "authority::tests::foundation::uak_stale_compute_version_is_mutation_free_across_aba", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6"]},
@@ -773,10 +777,15 @@
     {"test": "mathematical_model::develop_refinement::develop_concurrent_clear_can_be_overtaken_by_detached_recovery", "behavior_id": "TP-REORG-001", "invariants": ["T1", "T6", "T9", "T10"]},
     {"test": "mathematical_model::develop_refinement::develop_detached_cache_lookup_can_substitute_raw_for_witness_identity", "behavior_id": "TP-IDENTITY-001", "invariants": ["T11"]},
 
+    {"test": "authority::tests::atomic_refinement::uak_apply_clock_reservation_adopts_only_model_legal_owner_progress", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::tests::atomic_refinement::uak_apply_clock_reservation_refines_every_finite_model_demand", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::tests::atomic_refinement::uak_apply_clock_reservation_refines_model_counter_boundaries", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "authority::tests::atomic_refinement::uak_discardable_clock_plan_refines_owner_demand_before_apply_sealing", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "mathematical_model::atomic_transition_properties::model_batch_clock_commit_uses_one_apply_sequence_for_every_member", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_advances_one_sequence_and_the_exact_identity_ranges", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_discardable_clock_plan_does_not_require_apply_sequence_capacity", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_transition_controls_make_every_required_projection_structural", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_cursor_gives_key_fairness_without_a_second_queue", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_event_only_supersedes_with_a_newer_cut", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},

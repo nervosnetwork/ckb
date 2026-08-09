@@ -1,6 +1,6 @@
 use super::{
-    AuthorityDelta, AuthorityFault, DerivedOwnerDelta, PlanError, PreparedApply, TxPoolAuthority,
-    next_arrival, next_sequence, next_version,
+    AuthorityDelta, AuthorityFault, ClockPlanReservation, DerivedOwnerDelta, PlanError,
+    PreparedApply, TxPoolAuthority,
 };
 use crate::authority::{
     effect::{
@@ -13,9 +13,9 @@ use crate::authority::{
     resources::{OrderedResourceProjection, ResourceBatchPlan, ResourceError},
     scheduler::SchedulerBatchDelta,
     state::{
-        AdmissionBasis, ApplySequence, Arrival, AuthorityClocks, EntryVersion, OwnedTx,
-        PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalId,
-        QueuedWork, RawTxHash, TxRecord, ValidatedAdmission,
+        AdmissionBasis, AuthorityClocks, OwnedTx, PreAcceptedEntry, PreAcceptedPhase,
+        PreAcceptedSource, ProposalBase, ProposalId, QueuedWork, RawTxHash, TxRecord,
+        ValidatedAdmission,
     },
 };
 use std::collections::HashMap;
@@ -108,52 +108,6 @@ impl PreparedRetainedAdmissionBatch<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-struct IngressClockCursor {
-    clocks: AuthorityClocks,
-}
-
-impl IngressClockCursor {
-    fn new(clocks: AuthorityClocks) -> Self {
-        Self { clocks }
-    }
-
-    fn replacement(self) -> Result<(EntryVersion, Self), PlanError> {
-        let version = self.clocks.next_version;
-        Ok((
-            version,
-            Self {
-                clocks: AuthorityClocks {
-                    next_version: next_version(version)?,
-                    ..self.clocks
-                },
-            },
-        ))
-    }
-
-    fn insertion(self) -> Result<(EntryVersion, Arrival, Self), PlanError> {
-        let (version, next) = self.replacement()?;
-        let arrival = next.clocks.next_arrival;
-        Ok((
-            version,
-            arrival,
-            Self {
-                clocks: AuthorityClocks {
-                    next_arrival: next_arrival(arrival)?,
-                    ..next.clocks
-                },
-            },
-        ))
-    }
-
-    fn committed(self, sequence: ApplySequence) -> Result<AuthorityClocks, PlanError> {
-        Ok(AuthorityClocks {
-            next_sequence: next_sequence(sequence)?,
-            ..self.clocks
-        })
-    }
-}
-
 struct OwnerChange {
     key: RawTxHash,
     before: Option<OwnedTx>,
@@ -238,7 +192,44 @@ impl OwnerOverlay {
 struct BatchScratch {
     owners: OwnerOverlay,
     resources: OrderedResourceProjection,
-    clocks: IngressClockCursor,
+    clocks: Option<ClockPlanReservation>,
+}
+
+impl BatchScratch {
+    fn take_clocks(&mut self) -> Result<ClockPlanReservation, PlanError> {
+        self.clocks
+            .take()
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))
+    }
+
+    fn owner_checkpoint(&mut self) -> Result<super::OwnerClockCheckpoint, PlanError> {
+        let clocks = self.take_clocks()?;
+        let checkpoint = clocks.owner_checkpoint();
+        self.clocks = Some(clocks);
+        Ok(checkpoint)
+    }
+
+    fn insertion(
+        &mut self,
+    ) -> Result<
+        (
+            crate::authority::state::EntryVersion,
+            crate::authority::state::Arrival,
+        ),
+        PlanError,
+    > {
+        let clocks = self.take_clocks()?;
+        let (version, arrival, clocks) = clocks.insertion()?;
+        self.clocks = Some(clocks);
+        Ok((version, arrival))
+    }
+
+    fn replacement(&mut self) -> Result<crate::authority::state::EntryVersion, PlanError> {
+        let clocks = self.take_clocks()?;
+        let (version, clocks) = clocks.replacement()?;
+        self.clocks = Some(clocks);
+        Ok(version)
+    }
 }
 
 struct ItemDecision {
@@ -292,7 +283,7 @@ impl TxPoolAuthority {
         let mut scratch = BatchScratch {
             owners: OwnerOverlay::new(item_count)?,
             resources: self.resources.ordered_projection(maximum_peers)?,
-            clocks: IngressClockCursor::new(self.clocks),
+            clocks: Some(ClockPlanReservation::begin(self.clocks)),
         };
         let mut consumed = 0usize;
 
@@ -330,15 +321,19 @@ impl TxPoolAuthority {
             });
         }
 
-        let sequence = self.clocks.next_sequence;
-        let clocks = scratch.clocks.committed(sequence)?;
+        let clocks = scratch
+            .clocks
+            .take()
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+            .commit()?;
+        let sequence = clocks.sequence();
         let effect = match publication {
             Some(publication) => self.effects.plan_publication(&publication, sequence)?,
             None => EffectDelta::default(),
         };
         if scratch.owners.changes.is_empty() {
             return Ok(PreparedRetainedAdmissionBatch {
-                plan: Some(self.prepared_effect_only(effect, clocks.next_sequence)),
+                plan: Some(self.prepared_effect_only(effect, clocks)),
                 consumed,
             });
         }
@@ -401,7 +396,7 @@ impl TxPoolAuthority {
                     scheduler,
                     dependency,
                     effect,
-                    clocks,
+                    clocks: clocks.finish(),
                     retired,
                 }),
             }),
@@ -519,7 +514,8 @@ impl TxPoolAuthority {
         if let Err(error) = self.resources.validate_admission(charge) {
             return self.retained_resource_pressure(kind, admission, error);
         }
-        let (version, arrival, next_clocks) = scratch.clocks.insertion()?;
+        let owner_checkpoint = scratch.owner_checkpoint()?;
+        let (version, arrival) = scratch.insertion()?;
         let after = OwnedTx::PreAccepted(PreAcceptedEntry {
             record: TxRecord {
                 tx: std::sync::Arc::clone(&admission.tx),
@@ -542,9 +538,13 @@ impl TxPoolAuthority {
                 .resources
                 .replace(&self.resources, None, Some(after.charge_record()))
         {
+            scratch
+                .clocks
+                .as_mut()
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+                .restore_owner_checkpoint(owner_checkpoint);
             return self.retained_resource_pressure(kind, admission, error);
         }
-        scratch.clocks = next_clocks;
         scratch
             .owners
             .replace(self, admission.identity.raw.clone(), after)?;
@@ -571,7 +571,8 @@ impl TxPoolAuthority {
             );
         }
 
-        let (after, next_clocks) = match &current {
+        let owner_checkpoint = scratch.owner_checkpoint()?;
+        let after = match &current {
             OwnedTx::PreAccepted(entry) => {
                 let same_witness = entry.record.identity.witness == admission.identity.witness;
                 let proposal_base = match entry.source {
@@ -590,35 +591,32 @@ impl TxPoolAuthority {
                         promoted.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
                         promoted.charge = promoted.original_charge();
                     }
-                    (OwnedTx::PreAccepted(promoted), scratch.clocks)
+                    OwnedTx::PreAccepted(promoted)
                 } else {
-                    let (version, next_clocks) = scratch.clocks.replacement()?;
-                    (
-                        OwnedTx::PreAccepted(PreAcceptedEntry {
-                            record: TxRecord {
-                                tx: std::sync::Arc::clone(&admission.tx),
-                                identity: admission.identity.clone(),
-                                version,
-                                arrival: entry.record.arrival,
-                            },
-                            source: PreAcceptedSource::Proposal {
-                                base: proposal_base,
-                            },
-                            basis: AdmissionBasis::new(
-                                admission.dependencies.clone(),
-                                admission.payload_bytes,
-                                admission.encoded_edges,
-                                charge,
-                            ),
-                            phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                    let version = scratch.replacement()?;
+                    OwnedTx::PreAccepted(PreAcceptedEntry {
+                        record: TxRecord {
+                            tx: std::sync::Arc::clone(&admission.tx),
+                            identity: admission.identity.clone(),
+                            version,
+                            arrival: entry.record.arrival,
+                        },
+                        source: PreAcceptedSource::Proposal {
+                            base: proposal_base,
+                        },
+                        basis: AdmissionBasis::new(
+                            admission.dependencies.clone(),
+                            admission.payload_bytes,
+                            admission.encoded_edges,
                             charge,
-                        }),
-                        next_clocks,
-                    )
+                        ),
+                        phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                        charge,
+                    })
                 }
             }
             OwnedTx::ReplacementHistory(history) => {
-                let (version, next_clocks) = scratch.clocks.replacement()?;
+                let version = scratch.replacement()?;
                 let same_witness = history.record().identity.witness == admission.identity.witness;
                 let promoted = if same_witness {
                     let mut promoted = history.clone().into_recovery(self.generation, version);
@@ -647,7 +645,7 @@ impl TxPoolAuthority {
                         charge,
                     }
                 };
-                (OwnedTx::PreAccepted(promoted), next_clocks)
+                OwnedTx::PreAccepted(promoted)
             }
             OwnedTx::Accepted(_) => {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -658,13 +656,17 @@ impl TxPoolAuthority {
             Some(current.charge_record()),
             Some(after.charge_record()),
         ) {
+            scratch
+                .clocks
+                .as_mut()
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?
+                .restore_owner_checkpoint(owner_checkpoint);
             return self.retained_resource_pressure(
                 RetainedIngressKind::Proposal,
                 admission,
                 error,
             );
         }
-        scratch.clocks = next_clocks;
         scratch
             .owners
             .replace(self, admission.identity.raw.clone(), after)?;

@@ -955,9 +955,8 @@ impl TxPoolAuthority {
 
         let recoveries = self.select_chain_recoveries(receipt.recoveries)?;
 
-        let sequence = self.clocks.next_sequence;
-        let mut version = self.clocks.next_version;
-        let mut arrival = self.clocks.next_arrival;
+        let mut clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
         let mut changes = Vec::new();
         let change_capacity = removals
             .len()
@@ -994,6 +993,8 @@ impl TxPoolAuthority {
             });
         }
         for recovery in recoveries {
+            let (version, arrival, next_clocks) = clocks.insertion()?;
+            clocks = next_clocks;
             let key = recovery.key().clone();
             let before = self.entries.get(&key).cloned();
             let after = match recovery {
@@ -1007,8 +1008,6 @@ impl TxPoolAuthority {
                     requeued_existing_owner(entry, version, arrival)?
                 }
             };
-            version = next_version(version)?;
-            arrival = next_arrival(arrival)?;
             changes.push(PreparedOwnerChange {
                 key,
                 before,
@@ -1065,9 +1064,10 @@ impl TxPoolAuthority {
             if after.status() == status {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
+            let (version, next_clocks) = clocks.replacement()?;
+            clocks = next_clocks;
             after.record.version = version;
             after.proposal = ProposalContextReceipt::from_validation(status);
-            version = next_version(version)?;
             status_after.insert(hash.clone(), after.clone());
             changes.push(PreparedOwnerChange {
                 key: hash,
@@ -1266,11 +1266,6 @@ impl TxPoolAuthority {
             self.effects.plan_chain_rebuildable(effects, sequence)?
         };
 
-        let clocks = AuthorityClocks {
-            next_version: version,
-            next_arrival: arrival,
-            next_sequence: next_sequence(sequence)?,
-        };
         let retired = retired_buffer(changes.len())?;
         let mut updates = Vec::new();
         updates
@@ -1297,7 +1292,7 @@ impl TxPoolAuthority {
                 dependency,
                 effect,
                 retired,
-                clocks,
+                clocks: clocks.finish(),
             }),
         })
     }
@@ -1485,18 +1480,15 @@ impl TxPoolAuthority {
             scheduler: scratch.scheduler,
             dependencies: scratch.dependencies,
         };
-        let sequence = self.clocks.next_sequence;
+        let mut clocks = ApplyClockReservation::begin(self.clocks)?;
+        let sequence = clocks.sequence();
         // Scratch admission sequences are compiler-local: queued Resolve
         // owners and their primary projections retain no dependency/effect
         // cut from those intermediate Applies. The generation swap publishes
         // every external source at `sequence`, so the live clock advances
         // exactly once while versions and arrivals retain their monotonic
         // values from the compiled prefix.
-        let clocks = AuthorityClocks {
-            next_version: scratch.clocks.next_version,
-            next_arrival: scratch.clocks.next_arrival,
-            next_sequence: next_sequence(sequence)?,
-        };
+        clocks = clocks.adopt_owner_progress(scratch.clocks)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let effect = self.effects.plan_generation_reset(sequence)?;
         Ok(PreparedApply {
@@ -1507,7 +1499,7 @@ impl TxPoolAuthority {
                 fresh,
                 sources,
                 effect,
-                clocks,
+                clocks: clocks.finish(),
             }),
         })
     }

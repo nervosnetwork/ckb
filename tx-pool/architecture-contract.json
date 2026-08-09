@@ -111,13 +111,15 @@
         "primary_behavior_id": "TP-COMMIT-001",
         "behavior_ids": ["TP-COMMIT-001", "TP-OWN-001"],
         "invariants": ["T1", "T2", "T3", "T6", "T7"],
-        "model_roles": ["atomic_clock_commit", "atomic_transition_controls"],
-        "production_roles": ["atomic_apply_capability", "atomic_clock_commit", "atomic_transition_controls"],
+        "model_roles": ["atomic_clock_commit", "atomic_clock_plan", "atomic_transition_controls"],
+        "production_roles": ["atomic_apply_capability", "atomic_clock_commit", "atomic_clock_plan_capability", "atomic_transition_controls"],
         "evidence_test_patterns": [
-          "^mathematical_model::atomic_transition_properties::.*$"
+          "^mathematical_model::atomic_transition_properties::.*$",
+          "^authority::tests::atomic_refinement::.*$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::atomic_transition_properties::.*$"
+          "^mathematical_model::atomic_transition_properties::.*$",
+          "^authority::tests::atomic_refinement::.*$"
         ],
         "mutation_selectors": [
           {
@@ -129,12 +131,12 @@
             "function_pattern": "^TxPoolAuthority::prepare_entry_delta_with_controls$"
           }
         ],
-        "semantic_fact": "Each nonempty authority Apply consumes one sequence, exact version/arrival ranges and exactly the dependency/effect controls its owner changes require.",
-        "falsifier": "A defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
+        "semantic_fact": "A discardable Plan may reserve prospective version/arrival identities without requiring a sequence; each nonempty authority Apply then consumes that sole Plan into one sequence, the exact identity ranges and exactly the dependency/effect controls its owner changes require.",
+        "falsifier": "Reserving sequence before nonemptiness rejects a legal pressure no-op at the counter boundary, while a defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
         "parallelism": "Plan remains lock-local and effect I/O remains post-commit; one sealed commit does not move compute under the authority guard.",
         "added_cost": "Sealed stack-owned capabilities replace optional/default construction and add no owner, task, queue or retry state.",
         "deletion_counterexample": "Without the sealed commit, structural field deletion silently creates representable partial transitions.",
-        "production_refinement": "pending"
+        "production_refinement": "implemented"
       },
       {
         "id": "V1-B3-DEPENDENCY-EVIDENCE",
@@ -348,6 +350,7 @@
         "id": "atomic_batch_apply",
         "disposition": "implement",
         "model_roles": [
+          "atomic_clock_plan",
           "canonical_ordered_batch",
           "candidate_apply_cost",
           "ordered_batch_family",
@@ -363,7 +366,7 @@
         ],
         "target_owner": {
           "path": "tx-pool/src/authority/plan.rs",
-          "symbols": ["BatchClockReservation", "AuthorityDelta", "PreparedApply"]
+          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "AuthorityDelta", "PreparedApply"]
         },
         "current_owners": [
           {
@@ -380,7 +383,7 @@
           "authority_locks_added": 0,
           "tasks_added": 0,
           "channel_instances_bound": "0",
-          "protocol_state_bound": "one stack-owned checked clock reservation per prepared batch",
+          "protocol_state_bound": "one stack-owned clock capability in exactly discardable-Plan or nonempty-Apply phase per prepared batch",
           "transient_bound": "O(B) prepared owner changes for configured batch bound B",
           "apply_bound": "one Apply sequence and one atomic projection commit per batch"
         }
@@ -1075,6 +1078,7 @@
       "tx-pool/src/tests/model/adversarial.rs::CurrentRetainedPathInput": "current_retained_path_input",
       "tx-pool/src/tests/model/adversarial.rs::WorkAmplificationAudit": "hostile_work_bound",
       "tx-pool/src/tests/model/atomic_transition.rs::ClockCommit": "atomic_clock_commit",
+      "tx-pool/src/tests/model/atomic_transition.rs::ClockPlan": "atomic_clock_plan",
       "tx-pool/src/tests/model/atomic_transition.rs::TransitionControlCommit": "atomic_transition_controls",
       "tx-pool/src/tests/model/boundaries.rs::CallbackAccess": "callback_capability",
       "tx-pool/src/tests/model/boundaries.rs::CallbackDisposition": "callback_boundary",
@@ -1180,7 +1184,8 @@
       "tx-pool/src/authority/plan.rs::AuthorityPostCommit": "post_commit_handoff",
       "tx-pool/src/authority/plan.rs::AuthorityWakeTransition": "wake_observation_compiler",
       "tx-pool/src/authority/plan.rs::AuthorityFault": "authority_integrity_fault",
-      "tx-pool/src/authority/plan.rs::BatchClockReservation": "atomic_clock_commit",
+      "tx-pool/src/authority/plan.rs::ApplyClockReservation": "atomic_clock_commit",
+      "tx-pool/src/authority/plan.rs::ClockPlanReservation": "atomic_clock_plan_capability",
       "tx-pool/src/authority/plan.rs::Backpressure": "kernel_backpressure_outcome",
       "tx-pool/src/authority/plan.rs::PlanError": "kernel_plan_outcome",
       "tx-pool/src/authority/plan.rs::PreparedApply": "atomic_apply_capability",
@@ -1246,6 +1251,7 @@
       "authority_and_atomic_apply": {
         "model_roles": [
           "atomic_clock_commit",
+          "atomic_clock_plan",
           "atomic_transition_controls",
           "kernel_command",
           "kernel_outcome",
@@ -1256,6 +1262,7 @@
         "production_roles": [
           "atomic_apply_capability",
           "atomic_clock_commit",
+          "atomic_clock_plan_capability",
           "atomic_transition_controls",
           "coherent_store_cut",
           "kernel_plan_outcome",

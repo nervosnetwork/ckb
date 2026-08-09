@@ -50,25 +50,25 @@ pub(crate) enum ClockCommitError {
     IndexOutOfBounds,
 }
 
-/// One nonempty authority Apply's complete clock reservation.
+/// A discardable Plan's complete prospective owner-identity reservation.
 ///
-/// Zero owner identities is legal for effect, dependency-marker and other
-/// projection-only commits. The Apply sequence still advances exactly once.
+/// Planning may need concrete versions and arrivals before another projection
+/// proves that the transition is nonempty. Sequence capacity is deliberately
+/// absent: dropping this value represents a no-op and changes no clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ClockCommit {
+pub(crate) struct ClockPlan {
     before: ModelAuthorityClocks,
-    after: ModelAuthorityClocks,
-    sequence: u128,
+    owner_after: ModelAuthorityClocks,
     version_count: u128,
     arrival_count: u128,
 }
 
-impl ClockCommit {
+impl ClockPlan {
     pub(crate) fn reserve(
         before: ModelAuthorityClocks,
         demand: ClockDemand,
     ) -> Result<Self, ClockCommitError> {
-        let after = ModelAuthorityClocks {
+        let owner_after = ModelAuthorityClocks {
             next_version: before
                 .next_version
                 .checked_add(demand.version_count)
@@ -77,15 +77,11 @@ impl ClockCommit {
                 .next_arrival
                 .checked_add(demand.arrival_count)
                 .ok_or(ClockCommitError::ArrivalOverflow)?,
-            next_sequence: before
-                .next_sequence
-                .checked_add(1)
-                .ok_or(ClockCommitError::SequenceOverflow)?,
+            next_sequence: before.next_sequence,
         };
         Ok(Self {
             before,
-            after,
-            sequence: before.next_sequence,
+            owner_after,
             version_count: demand.version_count,
             arrival_count: demand.arrival_count,
         })
@@ -95,12 +91,8 @@ impl ClockCommit {
         self.before
     }
 
-    pub(crate) const fn after(self) -> ModelAuthorityClocks {
-        self.after
-    }
-
-    pub(crate) const fn sequence(self) -> u128 {
-        self.sequence
+    pub(crate) const fn owner_after(self) -> ModelAuthorityClocks {
+        self.owner_after
     }
 
     pub(crate) fn version(self, index: usize) -> Result<u128, ClockCommitError> {
@@ -123,6 +115,57 @@ impl ClockCommit {
             .next_arrival
             .checked_add(index)
             .ok_or(ClockCommitError::ArrivalOverflow)
+    }
+
+    pub(crate) fn commit(self) -> Result<ClockCommit, ClockCommitError> {
+        let after = ModelAuthorityClocks {
+            next_sequence: self
+                .before
+                .next_sequence
+                .checked_add(1)
+                .ok_or(ClockCommitError::SequenceOverflow)?,
+            ..self.owner_after
+        };
+        Ok(ClockCommit { plan: self, after })
+    }
+}
+
+/// One nonempty authority Apply's complete clock reservation.
+///
+/// Zero owner identities is legal for effect, dependency-marker and other
+/// projection-only commits. The Apply sequence still advances exactly once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClockCommit {
+    plan: ClockPlan,
+    after: ModelAuthorityClocks,
+}
+
+impl ClockCommit {
+    pub(crate) fn reserve(
+        before: ModelAuthorityClocks,
+        demand: ClockDemand,
+    ) -> Result<Self, ClockCommitError> {
+        ClockPlan::reserve(before, demand)?.commit()
+    }
+
+    pub(crate) const fn before(self) -> ModelAuthorityClocks {
+        self.plan.before()
+    }
+
+    pub(crate) const fn after(self) -> ModelAuthorityClocks {
+        self.after
+    }
+
+    pub(crate) const fn sequence(self) -> u128 {
+        self.plan.before().next_sequence
+    }
+
+    pub(crate) fn version(self, index: usize) -> Result<u128, ClockCommitError> {
+        self.plan.version(index)
+    }
+
+    pub(crate) fn arrival(self, index: usize) -> Result<u128, ClockCommitError> {
+        self.plan.arrival(index)
     }
 }
 
