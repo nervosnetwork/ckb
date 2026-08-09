@@ -4250,3 +4250,95 @@ This investigation adds no product semantics and does not authorize cleanup.
 The fixed route remains V1-B3 root closure, V1-C deterministic fixed-binary
 smoke and complete whole-system gate, constructive simplification, release
 reconciliation, performance acceptance and final production review.
+
+## 32. V1-B3 complete-result root-adjudication startup
+
+The unchanged product checkpoint completed both mutation executions and the
+replay-aware machine merger. `mutation-result-lock.json`, rather than this
+plan, owns the exact candidate, execution, replay and outcome counts plus both
+raw-outcome digests. Default aggregate validation reconstructs the complete
+candidate identity relation and validates that result projection without
+requiring cargo-mutants. The result is intentionally not accepted: every
+missed or timed-out row remains an investigation input until it is caught or
+bound to an exact executable equivalence proof.
+
+Two external read-only reports were adjudicated against the exact source,
+outcome JSON and logs. Their replay-closure arithmetic, dependency timeout
+identities, prompt focused failures, three lingering chain fixtures and wake
+true/false asymmetry are confirmed. Their common-root and phase-order claims
+are corrected as follows:
+
+- The dependency timeouts expose a missing stable-epoch frontier rank and a
+  type/refinement gap: a maintenance-only path accepts the optional
+  `DependencyControlDelta::None`, and the driver calls any prepared Apply
+  `Progress` without a committed progress witness. No legal unmutated
+  no-progress input is yet constructed. The private current transition instead
+  appears to advance to a strict successor, remove a key, or supersede one
+  completed epoch with a strictly newer dependency cut. Calling this a second
+  production-reachable defect is therefore rejected pending the executable
+  producer/transition proof.
+- Dirty-map cardinality plus one cursor is not a complete rank. The reference
+  relation must cover every dirty key, remaining waiter/consumer edge,
+  completion marker, pending newer level and the fair dirty-key cursor. A new
+  external event may create a new epoch; under an unchanged epoch, every
+  maintenance Apply must consume one local obligation. The production hot
+  path must carry a local sealed successor witness rather than scan the full
+  frontier to recompute a ghost rank.
+- The acceptance-evidence timeout rows are not another dependency-rank case.
+  They make the coordinator return a structural fault. The affected runtime
+  tests reach their bounded timeout and panic, then skip the test-only worker
+  teardown and leave tasks alive until the mutation process timeout. This is a
+  structured test-task cleanup and fault-observation boundary, not evidence
+  for a generic production retry rank.
+- The effect timeout rows are owned by the monotonic effect level and terminal
+  publication observation. Runtime already reads one coherent
+  `Receipt | Idle | ClosedAndDrained` state; the missing proof is one executable
+  relation from the effect log to that state, its wake level and its named
+  releaser. A generic counter, retry or watchdog is unnecessary.
+- Wake suppression and spurious wake are different falsifiers of one finite
+  before/after truth relation. Suppression threatens liveness. Spurious prompts
+  may preserve transaction semantics but change Notify, probe, lock and
+  operation-count cost, so `true` mutants are not accepted as equivalent by
+  prose or by the fact that signals are non-authoritative.
+- Remote publication, deterministic smoke and forward-only release
+  compatibility remain in their frozen roadmap positions. A review report
+  cannot move smoke or semver work ahead of B3 root closure and the complete
+  V1 checkpoint.
+
+The complete result is clustered by missing mathematical owner, not source
+line:
+
+1. async progress observations: wake truth, dependency epoch/rank, effect
+   publication level and structured task-failure cleanup;
+2. atomic transition construction: one clock commit and closed dependency/
+   effect controls for every owner-changing Apply;
+3. evidence and dependency publication: exact receipt/currentness cuts,
+   missing-source policy, released-input overlay and replacement-history
+   retention;
+4. resource conservation: configuration validation, partial compute
+   reservation, charge construction/release and batch/replace equations;
+5. scheduler quotient: key trait laws, owner/lane overlay eligibility,
+   replacement, batch ordering and wave continuation;
+6. settlement source classification and its sealed capability premises; and
+7. non-semantic but contractual observations: fallible allocation, bounded
+   retirement, metrics and private trait laws.
+
+Three correction topologies are compared. Adding survivor-specific assertions,
+guards or fixture limits is rejected because it preserves missing owners and
+turns the result into a patch queue. Adding one generic runtime rank or
+strict-decrease check to every wait is rejected because ranks, monotonic levels
+and structured task failure have different state bases and failure policies.
+The selected topology extends the pure reference model with the seven relation
+families above, gives each a falsifier and static cost, then implements the
+smallest sealed local witnesses and closed boundary outcomes that refine those
+relations. A nondecreasing maintenance step is a structural fault, never
+`Idle`; a test drain derives its exact operation bound from the model rather
+than copying `16`, `32`, `64` or using an unbounded loop.
+
+The recoverable B3 order is retained and refined: executable relations and
+producer proofs; atomic clock/control capability; dependency liveness plus
+structured test-task cleanup; resource and scheduler refinement; evidence,
+publication and settlement refinement; then portable disposition closure and
+complete mutation rediscovery. Production remains frozen until the model
+relations, necessity ledger, coverage matrix and implementation slices are
+checked and persisted.

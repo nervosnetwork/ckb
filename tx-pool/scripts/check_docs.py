@@ -47,6 +47,7 @@ MACHINE_CONTRACTS = (
     "architecture-contract.json",
     "integration-impact.json",
     "mutation-acceptance-lock.json",
+    "mutation-result-lock.json",
     "review-behaviors.json",
     "security-regression-manifest.json",
     "test-inventory.txt",

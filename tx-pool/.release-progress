@@ -4759,3 +4759,44 @@ unchanged. The next exact action is to commit this resume-protocol correction,
 regenerate the candidate lock because its tool hash changed, regenerate and
 relist the external config, then execute every missing row plus only the
 tool-required replay set without tracked edits.
+
+## V1-B3 complete result and report adjudication
+
+The complement execution started and ended on product checkpoint `466005ec2`
+with a clean tracked tree. Its raw outcome JSON is
+`/private/tmp/ckb-tx-pool-v1-mutants-complement/mutants.out/outcomes.json`,
+SHA-256
+`614144fb846e0443304de541c577372fb11ba9b6d711393ba5dacde7330e3bca`.
+The unmutated baseline passed and every configured execution completed.
+
+The replay-aware verifier merged that artifact with the previously recorded
+selected run and generated `mutation-result-lock.json`. That machine file owns
+the exact unique-candidate, execution, replay and outcome counts and binds both
+raw artifact hashes. All mechanically required structural replays agreed;
+there is no harness-nondeterminism blocker. The result remains
+`accepted: false`, as required while missed and timed-out rows await semantic
+adjudication. The default mutation checker validates both locks and the result
+projection without cargo-mutants.
+
+Two attached verification reports were reproduced and classified. The first
+correctly identifies the dependency maintenance no-progress mutation shape,
+the focused failures, lingering chain fixtures and the need to reject a timeout
+increase. It overstates the finding as a demonstrated product-reachable defect,
+understates the complete multi-key/pending-epoch rank and proposes a runtime
+comparison that could turn structural failure into policy `Idle`. The second
+correctly identifies replay closure, the wake-direction asymmetry and the
+historical snapshot. It incorrectly folds acceptance-fault teardown and effect
+terminal observation into one generic wait-rank root, treats spurious wakes as
+near-automatic equivalence despite the cost contract, and proposes roadmap
+reordering. Section 32 of the fixed plan owns the corrected root analysis and
+selected continuation.
+
+The complete generated join clusters all missed and timed-out rows by semantic
+owner. Product and existing tests remain frozen. The next exact action is to
+define and mechanically check the complete wake, dependency epoch/rank, effect
+level, evidence/dependency-publication, resource, scheduler and settlement
+reference relations; generate their directional coverage from the existing
+registries and result lock; and freeze the smallest typed production
+refinement slices before changing production code. The new result lock is now
+also a documented machine contract. Cleanup, smoke, release reconciliation and
+performance remain blocked in their original order.

@@ -28,6 +28,10 @@ README:
 - [`mutation-acceptance-lock.json`](mutation-acceptance-lock.json) is the
   generated row-level V1 mutation projection over the semantic obligations,
   exact tool/input hashes and complete library-test universe.
+- [`mutation-result-lock.json`](mutation-result-lock.json) is the generated
+  portable outcome projection over that exact candidate universe; it binds
+  every unique candidate to one reconciled result and rejects inconsistent
+  structural replays.
 - [`security-regression-manifest.json`](security-regression-manifest.json)
   binds the other contracts, semantic mutation obligations and release
   blockers without copying generated counts or selectors.
