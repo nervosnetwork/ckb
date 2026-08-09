@@ -34,6 +34,7 @@ RETIRED_PATHS = (
     "tx-pool/docs/README.md",
     "tx-pool/docs/SECURITY_REGRESSION_LEDGER.md",
     "tx-pool/docs/TOOLS.md",
+    "tx-pool/scripts/generate_mutation_matrix.py",
 )
 RETIRED_DOCUMENT_NAMES = {
     "ARCHITECTURE_AUDIT.md",

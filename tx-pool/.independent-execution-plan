@@ -4219,6 +4219,29 @@ The selected B3 continuation is fixed as follows:
    target. V1 advances only when all legal observable gaps are caught and every
    retained equivalent disposition is mechanically bound to its proof.
 
+Whole-roadmap review retains the phase topology but tightens four execution
+rules. First, final mutation acceptance has three legal dispositions: caught
+observable difference, compile-unviable construction, or observational
+equivalence under one exact executable constructor/transition proof. An
+equivalent row must name a machine-validated proof ID owned by the architecture
+and behavior graph; a prose rationale, forged invalid fixture, timeout or
+unstarted row is never acceptance. Second, root implementation order is fixed:
+extend the independent pure relations and ranks first, freeze their production
+refinement inputs second, introduce sealed clock/control types third, wire all
+real callers fourth, and only then delete redundant guards or policies. Types
+must implement the model rather than silently define it.
+
+Third, B3 root correction is a sequence of recoverable slices rather than one
+mixed change: proof-kernel relations; atomic clock/control capability; stable-
+epoch dependency liveness; resource and scheduler transition refinement;
+settlement refinement; then portable mutation-result closure. Every slice uses
+the one cross-phase whole-system checkpoint and cannot invent a phase-local
+substitute. Fourth, evidence artifacts have an explicit complexity bound: keep
+candidate identity, semantic owner, outcome and proof reference, but do not
+copy cargo-mutants logs, nested source spans, discovered test names or other
+rebuildable projections. Complete evidence is not permission for repository
+evidence to acquire its own snowball complexity.
+
 This investigation adds no product semantics and does not authorize cleanup.
 The fixed route remains V1-B3 root closure, V1-C deterministic fixed-binary
 smoke and complete whole-system gate, constructive simplification, release

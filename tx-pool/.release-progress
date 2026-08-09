@@ -4704,3 +4704,32 @@ unstarted complement on this unchanged product source and merges both outcome
 sets. Root model and production corrections are frozen only after that complete
 result is clustered. Cleanup, deterministic smoke, release reconciliation and
 performance work remain blocked in their original order.
+
+## V1-B3a complete candidate-lock freeze
+
+The mutation machine owner was consolidated at pre-freeze checkpoint
+`33afbcfe3`, and checkpoint `2e5749240` removed duplicated nested span storage
+after the first complete lock preview exposed evidence-artifact snowball
+growth. `scripts/check_mutation_matrix.py` is now a discovered aggregate
+contract. Its default path performs tool-free validation from checked-in
+candidate identities plus exact semantic, source, test-inventory and tool
+hashes; only explicit `--rediscover` invokes cargo-mutants. Exact prior outcome
+partitions can be subtracted through `--resume-outcomes`, and repeated
+`--verify-outcomes` inputs are required to form one duplicate-free complete
+result before a portable result lock can be written.
+
+The regenerated `mutation-acceptance-lock.json` is schema 2 and owns the exact
+complete candidate count/digest, every candidate/function/genre/obligation
+row, zero exclusions, the complete library Nextest universe and the external
+command/config digests. Semantic selectors remain narrow where a precise owner
+exists; one unique path-remainder obligation owns every otherwise unmatched
+row, so no candidate can disappear into an undocumented complement. The lock
+itself, rather than this progress projection, owns all derived rows and counts.
+
+Fast lock validation, explicit rediscovery, security-manifest validation,
+documentation validation and whitespace checks pass. Production Rust, tests,
+model state, runtime topology and hot-path work remain unchanged. The next
+exact action is to commit this candidate-lock checkpoint, verify a clean tree,
+generate an exact external config while subtracting the completed selected
+outcome SHA recorded above, verify that cargo-mutants relists only the remaining
+partition, and execute it without modifying tracked files.
