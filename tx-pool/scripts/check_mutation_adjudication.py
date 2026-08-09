@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 import sys
 
+from check_production_contracts import mask_rust_non_code
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = REPO_ROOT / "tx-pool" / "architecture-contract.json"
@@ -23,6 +25,9 @@ INVENTORY = REPO_ROOT / "tx-pool" / "test-inventory.txt"
 UNIT_START = '  "unit_evidence": ['
 UNIT_END = '\n  ],\n  "workspace_evidence":'
 DERIVED_FIELD_NAMES = {"candidate", "candidate_count", "count", "sha256"}
+CANDIDATE_LOCATION = re.compile(
+    r"^(?P<file>.+\.rs):(?P<line>[1-9][0-9]*):(?P<column>[1-9][0-9]*):\s"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,17 +145,73 @@ def evidence_map(registry: dict) -> dict[str, dict]:
     return result
 
 
+def compile_source_site_pattern(value: object, label: str) -> re.Pattern[str]:
+    """Compile one semantic source pattern without accepting derived locations."""
+
+    if not isinstance(value, str) or not value:
+        fail(f"{label} must be a nonempty regex string")
+    if (
+        "tx-pool/" in value
+        or ".rs" in value
+        or re.search(r":[0-9]+", value)
+        or re.search(r"(?i)\b[0-9a-f]{40,}\b", value)
+    ):
+        fail(f"{label} must not copy a generated path, location or digest")
+    try:
+        pattern = re.compile(value, re.S)
+    except re.error as error:
+        fail(f"invalid {label} pattern {value!r}: {error}")
+    if pattern.groups != 1 or pattern.groupindex != {"site": 1}:
+        fail(f"{label} must contain exactly one named 'site' capture and no other groups")
+    return pattern
+
+
+def candidate_source_offset(
+    row: dict,
+    source_overrides: dict[str, str] | None = None,
+) -> tuple[str, str, int]:
+    """Derive a candidate's current source offset from the locked cargo-mutants row."""
+
+    candidate = row.get("candidate")
+    file = row.get("file")
+    if not isinstance(candidate, str) or not isinstance(file, str):
+        fail(f"mutation equivalence matched an invalid candidate row: {row!r}")
+    location = CANDIDATE_LOCATION.match(candidate)
+    if location is None or location.group("file") != file:
+        fail(f"mutation candidate has no coherent source location: {candidate!r}")
+    source = source_overrides.get(file) if source_overrides is not None else None
+    if source is None:
+        try:
+            source = repo_path(file, "mutation candidate source").read_text()
+        except OSError as error:
+            fail(f"cannot load mutation candidate source {file}: {error}")
+        if source_overrides is not None:
+            source_overrides[file] = source
+    lines = source.splitlines(keepends=True)
+    line = int(location.group("line"))
+    column = int(location.group("column"))
+    if line > len(lines):
+        fail(f"mutation candidate line exceeds current source: {candidate!r}")
+    current = lines[line - 1]
+    if column > len(current.rstrip("\r\n")):
+        fail(f"mutation candidate column exceeds current source: {candidate!r}")
+    offset = sum(len(item) for item in lines[: line - 1]) + column - 1
+    return file, source, offset
+
+
 def equivalence_proof_index(
     contract: dict,
     registry: dict,
     tests: set[str],
     candidate_rows: list[dict],
+    *,
+    source_overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Resolve exact current candidates to architecture-owned equivalence proofs."""
 
     equivalence = contract.get("mutation_equivalence")
-    if not isinstance(equivalence, dict) or equivalence.get("schema_version") != 1:
-        fail("architecture contract mutation_equivalence schema_version must be 1")
+    if not isinstance(equivalence, dict) or equivalence.get("schema_version") != 2:
+        fail("architecture contract mutation_equivalence schema_version must be 2")
     copied = contains_derived_fact(equivalence, "mutation_equivalence")
     if copied is not None:
         fail(f"mutation equivalence copies a generated fact at {copied}")
@@ -169,17 +230,21 @@ def equivalence_proof_index(
         "id",
         "behavior_ids",
         "invariants",
-        "obligation_id",
-        "function_pattern",
-        "genre",
-        "replacement_pattern",
+        "selectors",
         "evidence_test_patterns",
         "semantic_fact",
         "producer_boundary",
         "falsifier",
     }
+    selector_required = {
+        "obligation_id",
+        "function_pattern",
+        "genre",
+        "replacement_pattern",
+    }
     proof_ids: set[str] = set()
     candidate_owner: dict[str, str] = {}
+    source_cache = dict(source_overrides or {})
     for proof in proofs:
         if not isinstance(proof, dict) or set(proof) != required:
             fail(f"invalid mutation equivalence proof: {proof!r}")
@@ -206,16 +271,6 @@ def equivalence_proof_index(
         unknown = set(proof_invariants).difference(invariant_ids)
         if unknown:
             fail(f"mutation equivalence proof {proof_id} has unknown invariants: {sorted(unknown)}")
-        obligation_id = proof.get("obligation_id")
-        genre = proof.get("genre")
-        if not isinstance(obligation_id, str) or not isinstance(genre, str) or not genre:
-            fail(f"mutation equivalence proof {proof_id} has an invalid candidate selector")
-        function = compile_patterns(
-            [proof.get("function_pattern")], f"{proof_id}.function_pattern"
-        )[0]
-        replacement = compile_patterns(
-            [proof.get("replacement_pattern")], f"{proof_id}.replacement_pattern"
-        )[0]
         evidence = matched_tests(
             compile_patterns(
                 proof.get("evidence_test_patterns"),
@@ -237,45 +292,115 @@ def equivalence_proof_index(
                 or not set(entry_invariants).issubset(proof_invariants)
             ):
                 fail(f"mutation equivalence evidence {test} exceeds its proof invariants")
-        matches = [
-            row
-            for row in candidate_rows
-            if row.get("obligation_id") == obligation_id
-            and row.get("genre") == genre
-            and function.fullmatch(str(row.get("function", "")))
-            and replacement.fullmatch(str(row.get("replacement", "")))
-        ]
-        if len(matches) != 1:
-            fail(
-                f"mutation equivalence proof {proof_id} must match exactly one current "
-                f"candidate, found {len(matches)}"
-            )
-        candidate = matches[0].get("candidate")
-        if not isinstance(candidate, str):
-            fail(f"mutation equivalence proof {proof_id} matched an invalid candidate row")
-        if candidate in candidate_owner:
-            fail(
-                f"mutation equivalence candidate belongs to both "
-                f"{candidate_owner[candidate]} and {proof_id}"
-            )
-        candidate_owner[candidate] = proof_id
+        selectors = proof.get("selectors")
+        if not isinstance(selectors, list) or not selectors:
+            fail(f"mutation equivalence proof {proof_id} must have nonempty selectors")
+        rendered_selectors: set[str] = set()
+        for selector_index, selector in enumerate(selectors):
+            label = f"{proof_id}.selectors[{selector_index}]"
+            if not isinstance(selector, dict) or not (
+                set(selector) == selector_required
+                or set(selector) == selector_required | {"source_site_pattern"}
+            ):
+                fail(f"invalid mutation equivalence selector {label}: {selector!r}")
+            rendered = json.dumps(selector, sort_keys=True, separators=(",", ":"))
+            if rendered in rendered_selectors:
+                fail(f"duplicate mutation equivalence selector {label}")
+            rendered_selectors.add(rendered)
+            obligation_id = selector.get("obligation_id")
+            genre = selector.get("genre")
+            if not isinstance(obligation_id, str) or not isinstance(genre, str) or not genre:
+                fail(f"mutation equivalence proof {proof_id} has an invalid candidate selector")
+            function = compile_patterns(
+                [selector.get("function_pattern")], f"{label}.function_pattern"
+            )[0]
+            replacement = compile_patterns(
+                [selector.get("replacement_pattern")], f"{label}.replacement_pattern"
+            )[0]
+            matches = [
+                row
+                for row in candidate_rows
+                if isinstance(row, dict)
+                and row.get("obligation_id") == obligation_id
+                and row.get("genre") == genre
+                and function.fullmatch(str(row.get("function", "")))
+                and replacement.fullmatch(str(row.get("replacement", "")))
+            ]
+            source_site = selector.get("source_site_pattern")
+            if source_site is not None:
+                if not matches:
+                    fail(
+                        f"mutation equivalence selector {label} must match exactly one current "
+                        "candidate, found 0"
+                    )
+                pattern = compile_source_site_pattern(source_site, f"{label}.source_site_pattern")
+                files = {row.get("file") for row in matches if isinstance(row.get("file"), str)}
+                if len(files) != 1:
+                    fail(
+                        f"mutation equivalence selector {label} must scope exactly one "
+                        f"candidate source before resolving its semantic site"
+                    )
+                file = next(iter(files))
+                first_file, source, _offset = candidate_source_offset(
+                    matches[0], source_cache
+                )
+                if first_file != file:
+                    fail(f"mutation equivalence selector {label} resolved an incoherent source")
+                source_matches = list(pattern.finditer(mask_rust_non_code(source)))
+                if len(source_matches) != 1:
+                    fail(
+                        f"mutation equivalence selector {label} must match exactly one "
+                        f"semantic source site, found {len(source_matches)}"
+                    )
+                site = source_matches[0].span("site")
+                if site[0] == site[1]:
+                    fail(f"mutation equivalence selector {label} captured an empty source site")
+                site_matches: list[dict] = []
+                for row in matches:
+                    resolved_file, _source, offset = candidate_source_offset(
+                        row, source_cache
+                    )
+                    if resolved_file == file and site[0] <= offset < site[1]:
+                        site_matches.append(row)
+                matches = site_matches
+            if len(matches) != 1:
+                fail(
+                    f"mutation equivalence selector {label} must match exactly one current "
+                    f"candidate, found {len(matches)}"
+                )
+            candidate = matches[0].get("candidate")
+            if not isinstance(candidate, str):
+                fail(f"mutation equivalence proof {proof_id} matched an invalid candidate row")
+            if candidate in candidate_owner:
+                fail(
+                    f"mutation equivalence candidate belongs to both "
+                    f"{candidate_owner[candidate]} and {proof_id}"
+                )
+            candidate_owner[candidate] = proof_id
     return candidate_owner
 
 
 def run_equivalence_canaries() -> None:
+    source = "fn canary() { left && right }\n"
+    column = source.index("&&") + 1
+    source_overrides = {"canary.rs": source}
+    selector = {
+        "obligation_id": "V1-MUT-CANARY",
+        "function_pattern": "^Owner::method$",
+        "genre": "BinaryOperator",
+        "replacement_pattern": "^&&$",
+        "source_site_pattern": r"\bleft\s*(?P<site>&&)\s*right\b",
+    }
     contract = {
         "target_invariants": {"T1": "canary"},
         "mutation_equivalence": {
-            "schema_version": 1,
+            "schema_version": 2,
             "proofs": [
                 {
                     "id": "V1-EQ-CANARY",
                     "behavior_ids": ["TP-CANARY"],
                     "invariants": ["T1"],
-                    "obligation_id": "V1-MUT-CANARY",
-                    "function_pattern": "^Owner::method$",
-                    "genre": "BinaryOperator",
-                    "replacement_pattern": "^&&$",
+                    "selectors": [selector],
                     "evidence_test_patterns": ["^canary::proof$"],
                     "semantic_fact": "one sealed producer premise",
                     "producer_boundary": "one canary constructor",
@@ -295,23 +420,101 @@ def run_equivalence_canaries() -> None:
         ],
     }
     row = {
-        "candidate": "canary mutation",
+        "candidate": f"canary.rs:1:{column}: replace || with && in Owner::method",
+        "file": "canary.rs",
         "function": "Owner::method",
         "genre": "BinaryOperator",
         "replacement": "&&",
         "obligation_id": "V1-MUT-CANARY",
     }
-    if equivalence_proof_index(contract, registry, {"canary::proof"}, [row]) != {
-        "canary mutation": "V1-EQ-CANARY"
+    if equivalence_proof_index(
+        contract,
+        registry,
+        {"canary::proof"},
+        [row],
+        source_overrides=source_overrides,
+    ) != {
+        row["candidate"]: "V1-EQ-CANARY"
     }:
         fail("mutation equivalence positive canary did not resolve one proof")
     try:
-        equivalence_proof_index(contract, registry, {"canary::proof"}, [])
+        equivalence_proof_index(
+            contract,
+            registry,
+            {"canary::proof"},
+            [],
+            source_overrides=source_overrides,
+        )
     except SystemExit as error:
-        if "must match exactly one current candidate" not in str(error):
+        if "must match exactly one current candidate, found 0" not in str(error):
             raise
     else:
         fail("mutation equivalence zero-match canary did not fail")
+
+    ambiguous_row = {
+        **row,
+        "candidate": row["candidate"] + " duplicate",
+    }
+    try:
+        equivalence_proof_index(
+            contract,
+            registry,
+            {"canary::proof"},
+            [row, ambiguous_row],
+            source_overrides=source_overrides,
+        )
+    except SystemExit as error:
+        if "must match exactly one current candidate, found 2" not in str(error):
+            raise
+    else:
+        fail("mutation equivalence candidate-ambiguity canary did not fail")
+
+    missing_site = {
+        **contract,
+        "mutation_equivalence": {
+            **contract["mutation_equivalence"],
+            "proofs": [
+                {
+                    **contract["mutation_equivalence"]["proofs"][0],
+                    "selectors": [
+                        {
+                            **selector,
+                            "source_site_pattern": r"\bmissing\s*(?P<site>&&)\s*right\b",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    try:
+        equivalence_proof_index(
+            missing_site,
+            registry,
+            {"canary::proof"},
+            [row],
+            source_overrides=source_overrides,
+        )
+    except SystemExit as error:
+        if "must match exactly one semantic source site, found 0" not in str(error):
+            raise
+    else:
+        fail("mutation equivalence source-zero canary did not fail")
+
+    duplicate_source = source + source
+    try:
+        equivalence_proof_index(
+            contract,
+            registry,
+            {"canary::proof"},
+            [row],
+            source_overrides={"canary.rs": duplicate_source},
+        )
+    except SystemExit as error:
+        if "must match exactly one semantic source site, found 2" not in str(error):
+            raise
+    else:
+        fail("mutation equivalence source-ambiguity canary did not fail")
+
     duplicate = {
         **contract,
         "mutation_equivalence": {
@@ -326,7 +529,13 @@ def run_equivalence_canaries() -> None:
         },
     }
     try:
-        equivalence_proof_index(duplicate, registry, {"canary::proof"}, [row])
+        equivalence_proof_index(
+            duplicate,
+            registry,
+            {"canary::proof"},
+            [row],
+            source_overrides=source_overrides,
+        )
     except SystemExit as error:
         if "belongs to both" not in str(error):
             raise

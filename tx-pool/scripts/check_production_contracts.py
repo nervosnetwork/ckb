@@ -57,6 +57,15 @@ TX_POOL_AUTHORITY_DEPENDENCY = (
 TX_POOL_AUTHORITY_SETTLEMENT = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "settlement.rs"
 )
+TX_POOL_AUTHORITY_COMPUTE_EXCHANGE = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "compute_exchange.rs"
+)
+TX_POOL_AUTHORITY_CHAIN_TRANSITION = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "chain_transition.rs"
+)
+TX_POOL_AUTHORITY_INGRESS_PLAN = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "ingress.rs"
+)
 TX_POOL_AUTHORITY_QUERY = REPO_ROOT / "tx-pool" / "src" / "authority" / "query.rs"
 TX_POOL_AUTHORITY_READ = REPO_ROOT / "tx-pool" / "src" / "authority" / "read.rs"
 TX_POOL_AUTHORITY_RESOURCES = (
@@ -175,7 +184,9 @@ def matching_brace(masked: str, opening: int) -> int | None:
     return None
 
 
-def rust_impl_methods(source: str, impl_name: str) -> list[tuple[str, str, int]]:
+def rust_impl_methods(
+    source: str, impl_name: str, *, allow_multiple: bool = False
+) -> list[tuple[str, str, int]]:
     """Return concrete inherent-impl method bodies as masked source."""
 
     masked = mask_rust_non_code(source)
@@ -186,42 +197,44 @@ def rust_impl_methods(source: str, impl_name: str) -> list[tuple[str, str, int]]
             masked,
         )
     )
-    if len(declarations) != 1:
+    if not declarations or (not allow_multiple and len(declarations) != 1):
         raise ValueError(
-            f"expected one inherent impl {impl_name}, found {len(declarations)}"
+            f"expected {'one or more' if allow_multiple else 'one'} inherent impl "
+            f"{impl_name}, found {len(declarations)}"
         )
-    opening = masked.find("{", declarations[0].start())
-    closing = matching_brace(masked, opening)
-    if closing is None:
-        raise ValueError(f"inherent impl {impl_name} has no closing brace")
 
     methods: list[tuple[str, str, int]] = []
-    cursor = opening + 1
-    depth = 1
-    while cursor < closing:
-        if masked[cursor] == "{":
-            depth += 1
-            cursor += 1
-            continue
-        if masked[cursor] == "}":
-            depth -= 1
-            cursor += 1
-            continue
-        if depth == 1:
-            method = re.match(r"fn\s+([A-Za-z_][A-Za-z0-9_]*)\b", masked[cursor:])
-            if method is not None:
-                name = method.group(1)
-                body_opening = masked.find("{", cursor + method.end())
-                if body_opening < 0 or body_opening >= closing:
-                    raise ValueError(f"method {impl_name}::{name} has no body")
-                body_closing = matching_brace(masked, body_opening)
-                if body_closing is None or body_closing > closing:
-                    raise ValueError(f"method {impl_name}::{name} has no closing brace")
-                line = source.count("\n", 0, cursor) + 1
-                methods.append((name, masked[body_opening + 1 : body_closing], line))
-                cursor = body_closing + 1
+    for declaration in declarations:
+        opening = masked.find("{", declaration.start())
+        closing = matching_brace(masked, opening)
+        if closing is None:
+            raise ValueError(f"inherent impl {impl_name} has no closing brace")
+        cursor = opening + 1
+        depth = 1
+        while cursor < closing:
+            if masked[cursor] == "{":
+                depth += 1
+                cursor += 1
                 continue
-        cursor += 1
+            if masked[cursor] == "}":
+                depth -= 1
+                cursor += 1
+                continue
+            if depth == 1:
+                method = re.match(r"fn\s+([A-Za-z_][A-Za-z0-9_]*)\b", masked[cursor:])
+                if method is not None:
+                    name = method.group(1)
+                    body_opening = masked.find("{", cursor + method.end())
+                    if body_opening < 0 or body_opening >= closing:
+                        raise ValueError(f"method {impl_name}::{name} has no body")
+                    body_closing = matching_brace(masked, body_opening)
+                    if body_closing is None or body_closing > closing:
+                        raise ValueError(f"method {impl_name}::{name} has no closing brace")
+                    line = source.count("\n", 0, cursor) + 1
+                    methods.append((name, masked[body_opening + 1 : body_closing], line))
+                    cursor = body_closing + 1
+                    continue
+            cursor += 1
     return methods
 
 
@@ -1087,6 +1100,474 @@ def validate_dependency_maintenance_successor() -> list[str]:
     compact_compile = "".join(mask_rust_non_code(compile_maintenance).split())
     if ".plan_maintenance(ticket)?.into_control()" not in compact_compile:
         errors.append("the atomic compiler must consume the sealed successor directly")
+    return errors
+
+
+def validate_dependency_maintenance_producers() -> list[str]:
+    """Bind maintenance decisions to the sole legal cut and projection producers."""
+
+    paths = (
+        TX_POOL_AUTHORITY_PLAN,
+        TX_POOL_AUTHORITY_DEPENDENCY,
+        TX_POOL_AUTHORITY_COMPUTE_EXCHANGE,
+        TX_POOL_AUTHORITY_CHAIN_TRANSITION,
+        TX_POOL_AUTHORITY_SETTLEMENT,
+        TX_POOL_AUTHORITY_INGRESS_PLAN,
+    )
+    try:
+        sources = {path: path.read_text() for path in paths}
+        dependency = sources[TX_POOL_AUTHORITY_DEPENDENCY]
+        plan = sources[TX_POOL_AUTHORITY_PLAN]
+        dependency_methods = {
+            name: body
+            for name, body, _line in rust_impl_methods(dependency, "DependencyFrontier")
+        }
+        authority_methods = {
+            path: {
+                name: body
+                for name, body, _line in rust_impl_methods(
+                    source, "TxPoolAuthority", allow_multiple=True
+                )
+            }
+            for path, source in sources.items()
+            if path != TX_POOL_AUTHORITY_DEPENDENCY
+        }
+    except (OSError, ValueError) as error:
+        return [f"cannot inspect dependency maintenance producers: {error}"]
+
+    errors: list[str] = []
+
+    def compact(body: str) -> str:
+        return "".join(mask_rust_non_code(body).split())
+
+    def require_fragments(body: str, owner: str, fragments: tuple[str, ...]) -> None:
+        compact_body = compact(body)
+        for fragment in fragments:
+            if fragment not in compact_body:
+                errors.append(f"{owner} lost sealed producer fragment {fragment!r}")
+
+    plan_source_paths = [
+        TX_POOL_AUTHORITY_PLAN,
+        *sorted((TX_POOL_AUTHORITY_PLAN.parent / "plan").glob("*.rs")),
+    ]
+
+    def closed_plan_method_surface(
+        pattern: re.Pattern[str],
+        expected: dict[Path, set[str]],
+        label: str,
+    ) -> None:
+        """Reject a new call site outside the complete named Plan surface."""
+
+        for path in plan_source_paths:
+            try:
+                source = sources.get(path, path.read_text())
+                masked = mask_rust_non_code(source)
+            except (OSError, ValueError) as error:
+                errors.append(f"cannot inspect {label} source {path}: {error}")
+                continue
+            source_hits = len(pattern.findall(masked))
+            methods = authority_methods.get(path)
+            if methods is None:
+                if source_hits == 0:
+                    methods = {}
+                else:
+                    try:
+                        methods = {
+                            name: body
+                            for name, body, _line in rust_impl_methods(
+                                source, "TxPoolAuthority", allow_multiple=True
+                            )
+                        }
+                    except ValueError as error:
+                        errors.append(str(error))
+                        continue
+            actual = {
+                name for name, body in methods.items() if pattern.search(body) is not None
+            }
+            wanted = expected.get(path, set())
+            if actual != wanted:
+                errors.append(
+                    f"{label} callers changed in {path.relative_to(REPO_ROOT)}: "
+                    f"expected {sorted(wanted)}, found {sorted(actual)}"
+                )
+            method_hits = sum(len(pattern.findall(body)) for body in methods.values())
+            if method_hits != source_hits:
+                errors.append(
+                    f"{label} call escaped a TxPoolAuthority method in "
+                    f"{path.relative_to(REPO_ROOT)}"
+                )
+
+    # The ticket is a private value with one constructor. Its action and
+    # successor are decided under the same authority borrow before any Apply
+    # capability exists, so no external or intervening producer can alter the
+    # dependency frontier between the two checks.
+    masked_dependency = mask_rust_non_code(dependency)
+    ticket_sites = list(
+        re.finditer(r"\bDependencyMaintenanceTicket\s*\{", masked_dependency)
+    )
+    ticket_declarations = [
+        site
+        for site in ticket_sites
+        if re.search(
+            r"\b(?:struct|impl)\s+$",
+            masked_dependency[max(0, site.start() - 24) : site.start()],
+        )
+    ]
+    ticket_definitions = [
+        site
+        for site in ticket_declarations
+        if re.search(r"\bstruct\s+$", masked_dependency[max(0, site.start() - 24) : site.start()])
+    ]
+    ticket_initializers = [site for site in ticket_sites if site not in ticket_declarations]
+    if (
+        len(ticket_definitions) != 1
+        or len(ticket_declarations) != 2
+        or len(ticket_initializers) != 1
+    ):
+        errors.append(
+            "DependencyMaintenanceTicket must retain one private declaration and one constructor"
+        )
+    elif compact(dependency_methods.get("next_maintenance", "")).count(
+        "DependencyMaintenanceTicket{"
+    ) != 1:
+        errors.append("DependencyMaintenanceTicket must be constructed only by next_maintenance")
+    if ticket_definitions:
+        opening = masked_dependency.find("{", ticket_definitions[0].start())
+        closing = matching_brace(masked_dependency, opening)
+        if closing is None or re.search(r"\bpub\b", masked_dependency[opening + 1 : closing]):
+            errors.append("DependencyMaintenanceTicket fields must remain private")
+
+    maintenance_compile = authority_methods[TX_POOL_AUTHORITY_PLAN].get(
+        "plan_dependency_maintenance", ""
+    )
+    compact_maintenance_compile = compact(maintenance_compile)
+    ordered_ticket_fragments = (
+        "self.dependencies.next_maintenance()?",
+        "ticket.action(&self.dependencies,hash.as_ref().and_then(|hash|self.entries.get(hash)),)?",
+        "self.dependencies.plan_maintenance(ticket)?.into_control()",
+        "ApplyClockReservation::begin(self.clocks)?",
+    )
+    positions = [
+        compact_maintenance_compile.find(fragment) for fragment in ordered_ticket_fragments
+    ]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "plan_dependency_maintenance must select, decide and consume one ticket before Apply"
+        )
+    for fragment in (
+        "self.dependencies.next_maintenance()",
+        "ticket.action(",
+        "self.dependencies.plan_maintenance(ticket)",
+    ):
+        if compact_maintenance_compile.count(fragment) != 1:
+            errors.append(
+                "plan_dependency_maintenance must use exactly one same-guard ticket operation "
+                f"{fragment!r}"
+            )
+    if ".await" in maintenance_compile:
+        errors.append("dependency maintenance may not suspend while its ticket is live")
+
+    # Every raw DependencyCut constructor is closed over a named production
+    # method. This prevents a new equal-cut producer from bypassing the clock
+    # theorem or the exact observation boundary without updating this contract.
+    cut_constructor = re.compile(r"\bDependencyCut\s*\(")
+    expected_cut_methods = {
+        TX_POOL_AUTHORITY_PLAN: {
+            "dependency_observation_cut",
+            "plan_membership_dependency_delta",
+            "retain_replacement_history",
+            "plan_dependency_loss",
+            "plan_owner_removal_batch",
+        },
+        TX_POOL_AUTHORITY_COMPUTE_EXCHANGE: {"compile_compute_exchange_state"},
+        TX_POOL_AUTHORITY_CHAIN_TRANSITION: {"plan_chain_transition"},
+        TX_POOL_AUTHORITY_SETTLEMENT: {"plan_settlement"},
+        TX_POOL_AUTHORITY_INGRESS_PLAN: set(),
+    }
+    for path, expected in expected_cut_methods.items():
+        methods = authority_methods[path]
+        actual = {
+            name
+            for name, body in methods.items()
+            if cut_constructor.search(body) is not None
+        }
+        relative = path.relative_to(REPO_ROOT)
+        if actual != expected:
+            errors.append(
+                f"dependency cut constructors changed in {relative}: "
+                f"expected {sorted(expected)}, found {sorted(actual)}"
+            )
+        method_site_count = sum(
+            len(cut_constructor.findall(body)) for body in methods.values()
+        )
+        source_site_count = len(cut_constructor.findall(mask_rust_non_code(sources[path])))
+        if method_site_count != source_site_count:
+            errors.append(f"dependency cut constructor escaped TxPoolAuthority in {relative}")
+        for name in actual:
+            if len(cut_constructor.findall(methods[name])) != 1:
+                errors.append(f"{name} must own exactly one DependencyCut constructor")
+
+    expected_cut_paths = set(expected_cut_methods)
+    authority_root = TX_POOL_AUTHORITY_DEPENDENCY.parent
+    state_path = authority_root / "state.rs"
+    for path in sorted(authority_root.rglob("*.rs")):
+        if "tests" in path.relative_to(authority_root).parts:
+            continue
+        try:
+            masked = mask_rust_non_code(path.read_text())
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot inspect complete dependency cut surface {path}: {error}")
+            continue
+        hits = len(cut_constructor.findall(masked))
+        if path == state_path:
+            if hits != 1 or "struct DependencyCut(" not in masked:
+                errors.append("DependencyCut must retain one sealed newtype declaration")
+        elif path not in expected_cut_paths and hits:
+            errors.append(
+                "dependency cut constructor escaped the closed producer surface in "
+                f"{path.relative_to(REPO_ROOT)}"
+            )
+
+    closed_plan_method_surface(
+        re.compile(r"\.dependencies\s*\.plan_events\s*\("),
+        {
+            TX_POOL_AUTHORITY_PLAN: {
+                "plan_membership_dependency_delta",
+                "plan_dependency_loss",
+                "plan_owner_removal_batch",
+            },
+            TX_POOL_AUTHORITY_CHAIN_TRANSITION: {"plan_chain_transition"},
+            TX_POOL_AUTHORITY_SETTLEMENT: {"plan_settlement"},
+        },
+        "dependency event",
+    )
+
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get("dependency_observation_cut", ""),
+        "TxPoolAuthority::dependency_observation_cut",
+        (
+            "DependencyCut(ApplySequence(self.clocks.next_sequence.0.saturating_sub(1)))",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_COMPUTE_EXCHANGE].get(
+            "compile_compute_exchange_state", ""
+        ),
+        "TxPoolAuthority::compile_compute_exchange_state",
+        (
+            "ApplyClockReservation::begin(self.clocks)?",
+            "letsequence=clocks.sequence()",
+            "QueuedWork::Resolve=>crate::authority::state::DependencyCut(sequence)",
+            "clocks:clocks.finish()",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get("compile_membership_delta", ""),
+        "TxPoolAuthority::compile_membership_delta",
+        (
+            "letsequence=clocks.sequence()",
+            "self.retain_replacement_history(&accepted,&mutremovals,sequence,clocks)?",
+            "self.plan_membership_dependency_delta(existing.as_ref(),&after,&removals,sequence)?",
+            "clocks:clocks.finish()",
+        ),
+    )
+    for path, method, sequence_name in (
+        (TX_POOL_AUTHORITY_PLAN, "plan_membership_dependency_delta", "sequence"),
+        (TX_POOL_AUTHORITY_PLAN, "plan_dependency_loss", "sequence"),
+        (TX_POOL_AUTHORITY_PLAN, "plan_owner_removal_batch", "sequence"),
+        (TX_POOL_AUTHORITY_CHAIN_TRANSITION, "plan_chain_transition", "sequence"),
+        (TX_POOL_AUTHORITY_SETTLEMENT, "plan_settlement", "source_sequence"),
+    ):
+        body = authority_methods[path].get(method, "")
+        compact_body = compact(body)
+        if compact_body.count(".plan_events(") != 1 or compact_body.count(
+            f"DependencyCut({sequence_name})"
+        ) != 1:
+            errors.append(
+                f"TxPoolAuthority::{method} must publish one event at its sealed Apply cut"
+            )
+
+    # Replacement history can be created in the same membership Apply as a
+    # dependency level. Its trigger construction and final-owner availability
+    # projection are deliberately disjoint: candidate-spent inputs and inputs
+    # whose backing producer is removed cannot be published available. A
+    # same-cut level is therefore a definitive loss, for which the second
+    # strict availability conjunct remains false.
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get("retain_replacement_history", ""),
+        "TxPoolAuthority::retain_replacement_history",
+        (
+            "candidate_inputs.binary_search(input).is_ok()||(producer_removed&&!accepted.proof.is_chain_input(input))",
+            "removed.contains(&RawTxHash(dependency.tx_hash()))&&!accepted.proof.is_chain_dependency(dependency)",
+            "DependencyCut(sequence)",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get(
+            "collect_released_replacement_inputs", ""
+        ),
+        "TxPoolAuthority::collect_released_replacement_inputs",
+        (
+            "ProjectedRemovalSet::Replacement(&removed)",
+            "ReleasedInputContext::Replacement{candidate_inputs:&candidate_inputs,}",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get(
+            "released_input_survives_final_owner_set", ""
+        ),
+        "TxPoolAuthority::released_input_survives_final_owner_set",
+        (
+            "ReleasedInputContext::Replacement{candidate_inputs}=>{ifcandidate_inputs.contains(input){returnOk(false);}",
+            "iffinal_owners.contains_removed(&parent){returnOk(false);}",
+        ),
+    )
+
+    # Accepted loss is coupled to the complete owner replacement and becomes
+    # visible only after every removed dependency slot has detached. This is
+    # the static half of the real lifecycle closure refinement.
+    apply_batch = dependency_methods.get("apply_batch", "")
+    compact_apply_batch = compact(apply_batch)
+    ordered_apply_fragments = (
+        "forslotin&delta.removed{self.detach(slot);}",
+        "forslotin&delta.added{self.attach(slot);}",
+        "forslotin&delta.removed{self.prune_orphaned(slot);}",
+        "self.apply_control(delta.control)",
+    )
+    apply_positions = [compact_apply_batch.find(fragment) for fragment in ordered_apply_fragments]
+    if any(position < 0 for position in apply_positions) or apply_positions != sorted(
+        apply_positions
+    ):
+        errors.append(
+            "DependencyFrontier::apply_batch must detach the owner closure before event publication"
+        )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get(
+            "plan_membership_dependency_delta", ""
+        ),
+        "TxPoolAuthority::plan_membership_dependency_delta",
+        (
+            "letremoved=self.entries.get(&removal.hash)",
+            "changes.push((Some(removed),removal.after()))",
+            "letlost=self.collect_dependency_loss_keys(removed_entries)?.keys",
+            "self.dependencies.plan_replacements(changes)?",
+            "Ok(delta.with_control(control))",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get("plan_owner_removal_batch", ""),
+        "TxPoolAuthority::plan_owner_removal_batch",
+        (
+            "letaccepted_removals=hashes.iter().filter(|hash|matches!(self.entries.get(*hash),Some(OwnedTx::Accepted(_))))",
+            "letmembership=self.prepare_chain_projection(&accepted_removals,&HashMap::new())?",
+            "self.collect_dependency_loss_keys(owner_refs.iter().copied())?.keys",
+            "self.dependencies.plan_replacements(owner_refs.iter().copied().map(|owner|(Some(owner),None)))?.with_control(dependency_control)",
+        ),
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_CHAIN_TRANSITION].get(
+            "plan_chain_transition", ""
+        ),
+        "TxPoolAuthority::plan_chain_transition",
+        (
+            "letmembership=self.prepare_chain_projection(&accepted_removals,&status_after)?",
+            "changes.windows(2).any(",
+            "self.dependencies.plan_primary_replacements(changes.iter().map(|change|(change.before.as_ref(),change.after.as_ref())),)?.with_control(control)",
+        ),
+    )
+    settlement_compact = compact(
+        authority_methods[TX_POOL_AUTHORITY_SETTLEMENT].get("plan_settlement", "")
+    )
+    if "Vec::new(),super::super::state::DependencyCut(source_sequence)" not in settlement_compact:
+        errors.append("independent settlement must not publish a definitive dependency loss")
+
+    direct_loss_callers = {
+        name
+        for name, body in authority_methods[TX_POOL_AUTHORITY_PLAN].items()
+        if "self.plan_dependency_loss(" in body
+    }
+    if direct_loss_callers != {
+        "plan_preaccepted_terminalization",
+        "prepare_compute_rejection",
+    }:
+        errors.append(
+            "direct dependency-loss caller set changed: "
+            f"{sorted(direct_loss_callers)}"
+        )
+    for caller in direct_loss_callers:
+        require_fragments(
+            authority_methods[TX_POOL_AUTHORITY_PLAN][caller],
+            f"TxPoolAuthority::{caller}",
+            (
+                "letOwnedTx::PreAccepted(",
+                "self.plan_dependency_loss(std::iter::once(&existing),sequence)?",
+                "TransitionControls::dependency_and_effect(",
+            ),
+        )
+
+    # The projection compiler receives current owners through a finite closed
+    # caller set. Overlay positions and typed owner-removal keys make duplicate
+    # before identities impossible, while every before slot comes from the sole
+    # entries map whose reverse dependency projection is checked after Apply.
+    batch_call = re.compile(r"\.dependencies\s*\.plan_(?:primary_)?replacements\s*\(")
+    expected_batch_callers = {
+        TX_POOL_AUTHORITY_PLAN: {
+            "plan_membership_dependency_delta",
+            "plan_owner_removal_batch",
+        },
+        TX_POOL_AUTHORITY_INGRESS_PLAN: {"plan_retained_admission_batch"},
+        TX_POOL_AUTHORITY_SETTLEMENT: {"plan_settlement"},
+        TX_POOL_AUTHORITY_CHAIN_TRANSITION: {"plan_chain_transition"},
+        TX_POOL_AUTHORITY_COMPUTE_EXCHANGE: {"compile_compute_exchange_state"},
+    }
+    closed_plan_method_surface(
+        batch_call, expected_batch_callers, "dependency batch projection"
+    )
+
+    for path, owner_name in (
+        (TX_POOL_AUTHORITY_INGRESS_PLAN, "retained ingress OwnerOverlay"),
+        (TX_POOL_AUTHORITY_COMPUTE_EXCHANGE, "compute exchange OwnerOverlay"),
+    ):
+        try:
+            overlay_replace = impl_method_body(sources[path], "OwnerOverlay", "replace")
+        except ValueError as error:
+            errors.append(str(error))
+            continue
+        require_fragments(
+            overlay_replace,
+            owner_name,
+            (
+                "self.positions.get(&key).copied()",
+                "authority.entries.get(&key)",
+                "self.positions.insert(key.clone(),position)",
+                "self.changes.push(OwnerChange{key,before,after})",
+            ),
+        )
+
+    closed_plan_method_surface(
+        re.compile(r"\.dependencies\s*\.plan_stable_replace\s*\("),
+        {TX_POOL_AUTHORITY_PLAN: {"apply_compute_cancellation"}},
+        "stable dependency replacement",
+    )
+    require_fragments(
+        authority_methods[TX_POOL_AUTHORITY_PLAN].get("apply_compute_cancellation", ""),
+        "TxPoolAuthority::apply_compute_cancellation",
+        (
+            "letexisting=self.entries.get(&token.hash).ok_or(ComputeCancellationError::Obsolete(StalePlan::Missing))?.clone()",
+            "PreAcceptedPhase::Computing(_)",
+            "with_preaccepted_phase(PreAcceptedPhase::Queued(QueuedWork::Resolve)",
+            "self.dependencies.plan_stable_replace(&existing,&after)",
+        ),
+    )
+    require_fragments(
+        dependency_methods.get("contains", ""),
+        "DependencyFrontier::contains",
+        (
+            "self.consumers.get(key).is_some_and(|consumers|consumers.contains(&slot.hash))",
+            "self.keys_by_origin.get(&key.origin()).is_some_and(|keys|keys.contains(key))",
+            "self.waiters.get(key).is_some_and(|waiters|waiters.contains(&slot.hash))",
+        ),
+    )
     return errors
 
 
@@ -2343,6 +2824,7 @@ def main() -> int:
         *validate_prepared_full_query(),
         *validate_atomic_apply_construction(),
         *validate_dependency_maintenance_successor(),
+        *validate_dependency_maintenance_producers(),
         *validate_sparse_resource_set_transition(),
         *validate_finite_scheduler_owner_ring(),
         *validate_expiry_index_producers(),
@@ -2366,7 +2848,8 @@ def main() -> int:
         "claim-bound effect publication, centralized profiling seams, the typed "
         "authority failure algebra, split transaction-query failure domains, "
         "the architecture-owned prepared full-query protocol, "
-        "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction, sparse "
+        "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction and "
+        "closed dependency cut/ticket/projection producers, sparse "
         "resource set transitions, finite scheduler owner rings and sealed bounded expiry "
         "index producers, total log-owned effect "
         "observation, exhaustive post-commit wake wiring, one projected released-input law, "

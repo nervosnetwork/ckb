@@ -37,11 +37,13 @@
         "production_roles": ["wake_observation_compiler"],
         "evidence_test_patterns": [
           "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$",
-          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$"
+          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$",
+          "^authority::tests::worker::uak_first_dirty_dependency_apply_notifies_an_already_subscribed_consumer$"
         ],
         "generated_test_patterns": [
           "^mathematical_model::progress_properties::model_(compute_wake_is_exact_over_the_finite_head_and_release_algebra|effect_capacity_wake_observes_any_release_but_not_stable_or_growth|wake_relation_separates_suppression_from_spurious_cost)$",
-          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$"
+          "^authority::tests::progress_refinement::uak_wake_transition_refines_every_finite_projection_law$",
+          "^authority::tests::worker::uak_first_dirty_dependency_apply_notifies_an_already_subscribed_consumer$"
         ],
         "mutation_selectors": [
           {
@@ -147,15 +149,17 @@
         "primary_behavior_id": "TP-DEP-001",
         "behavior_ids": ["TP-DEP-001", "TP-IDENTITY-001", "TP-WORKER-001"],
         "invariants": ["T2", "T4", "T6", "T10", "T11"],
-        "model_roles": ["evidence_dependency_frontier"],
-        "production_roles": ["dependency_level_authority", "dependency_maintenance_successor"],
+        "model_roles": ["dependency_maintenance_decision", "evidence_dependency_frontier"],
+        "production_roles": ["dependency_level_authority", "dependency_maintenance_decision", "dependency_maintenance_successor"],
         "evidence_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$",
-          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$"
+          "^mathematical_model::evidence_transition_properties::model_(dependency_maintenance_action_is_the_total_phase_cut_relation|dependency_maintenance_rejects_projection_faults_before_deciding_progress|dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once|replacement_history_requires_strictly_newer_final_availability_for_every_key)$",
+          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$",
+          "^authority::tests::dependency::uak_(dependency_maintenance_advances_current_accepted_cuts|dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase|existing_waiter_maintenance_advances_a_later_waiter|membership_loss_removes_accepted_dependency_readers_before_publish|replacement_history_ignores_a_newer_loss_until_final_availability)$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once)$",
-          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$"
+          "^mathematical_model::evidence_transition_properties::model_(dependency_maintenance_action_is_the_total_phase_cut_relation|dependency_maintenance_rejects_projection_faults_before_deciding_progress|dependency_proof_currentness_is_the_exact_loss_cut_order|owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once|replacement_history_requires_strictly_newer_final_availability_for_every_key)$",
+          "^authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation$",
+          "^authority::tests::dependency::uak_(dependency_maintenance_advances_current_accepted_cuts|dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase|existing_waiter_maintenance_advances_a_later_waiter|membership_loss_removes_accepted_dependency_readers_before_publish|replacement_history_ignores_a_newer_loss_until_final_availability)$"
         ],
         "mutation_selectors": [
           {
@@ -167,8 +171,8 @@
             "function_pattern": "^DependencyFrontier::(all_observed_dependencies_available|contains|has_new_dependencies|missing_observation_is_current|missing_result_is_current|owner_free_proof_is_current|plan_replacements_with_additions|plan_stable_replace|proof_is_current|resolution_is_current)$"
           }
         ],
-        "semantic_fact": "Positive, missing and owner-free dependency evidence are current exactly when no relevant key or unindexed loss/change follows the sealed cut.",
-        "falsifier": "Weakening any cut comparison can retain proof across a definitive loss or miss a newly discovered unindexed dependency.",
+        "semantic_fact": "Positive, missing and owner-free dependency evidence are current exactly when no relevant key or unindexed loss/change follows the sealed cut; one indexed maintenance ticket, owner phase and level cut then have one total Advance, Requeue or structural-fault decision.",
+        "falsifier": "Weakening a constructible cut comparison can retain proof across a definitive loss or miss a newly discovered unindexed dependency, while an incomplete owner-phase decision can strand or spuriously requeue one legal maintenance edge.",
         "parallelism": "Evidence producers read immutable snapshots outside Apply; only level publication and owner changes are atomically ordered.",
         "added_cost": "The reference frontier is proof-only and production retains its existing sparse indexed levels.",
         "deletion_counterexample": "Without one currentness relation, each caller can invent a different loss boundary and create split proof authority.",
@@ -362,16 +366,20 @@
     ]
   },
   "mutation_equivalence": {
-    "schema_version": 1,
+    "schema_version": 2,
     "proofs": [
       {
         "id": "V1-EQ-REMOTE-EXPIRY-DUE-CUT",
         "behavior_ids": ["TP-ADMIN-001", "TP-DEFECT-001"],
         "invariants": ["T1", "T3", "T6", "T7", "T8", "T10"],
-        "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
-        "function_pattern": "^TxPoolAuthority::compile_administrative_removal$",
-        "genre": "MatchArmGuard",
-        "replacement_pattern": "^true$",
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::compile_administrative_removal$",
+            "genre": "MatchArmGuard",
+            "replacement_pattern": "^true$"
+          }
+        ],
         "evidence_test_patterns": [
           "^authority::tests::foundation::uak_remote_expiry_is_a_bounded_derived_transition_and_allows_refetch$",
           "^mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise$"
@@ -384,10 +392,14 @@
         "id": "V1-EQ-ACCEPTED-EXPIRY-CURRENT-CUT",
         "behavior_ids": ["TP-ADMIN-001", "TP-DEFECT-001"],
         "invariants": ["T3", "T4", "T6", "T8", "T10"],
-        "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
-        "function_pattern": "^TxPoolAuthority::plan_accepted_expiry$",
-        "genre": "BinaryOperator",
-        "replacement_pattern": "^&&$",
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::plan_accepted_expiry$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$"
+          }
+        ],
         "evidence_test_patterns": [
           "^authority::tests::foundation::uak_accepted_expiry_uses_stable_deadlines_and_expires_the_full_closure$",
           "^mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise$"
@@ -395,6 +407,151 @@
         "semantic_fact": "The legal authority invariant derives the Accepted deadline index from the immutable owner value, the only Accepted-expiry producer returns a row at or before the cutoff, and the planner redundantly revalidates both facts before compiling removal.",
         "producer_boundary": "AuthorityIndexes::due_accepted -> TxPoolAuthority::plan_accepted_expiry -> AdminPlan::AcceptedExpiry -> TxPoolAuthority::compile_administrative_removal",
         "falsifier": "A legal producer cut with exactly one of stale-index or future-owner true distinguishes the disjunction from its conjunctive perturbation."
+      },
+      {
+        "id": "V1-EQ-DEPENDENCY-DISTINCT-APPLY-CUTS",
+        "behavior_ids": ["TP-COMMIT-001", "TP-DEP-001"],
+        "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T10", "T11"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "OwnedTx::Accepted\\(entry\\)\\s*=>[\\s\\S]*?last_definitive_loss[\\s\\S]*?entry\\.proof\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*loss"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "DirtyScope::ExistingWaiters\\s*=>\\s*match[\\s\\S]*?PreAcceptedPhase::Waiting\\(observed\\)\\s*=>[\\s\\S]*?observed\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*self\\.target"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "PreAcceptedPhase::Queued\\(QueuedWork::Verify\\(resolved\\)\\)[\\s\\S]*?resolved\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*loss"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "DirtyScope::AllConsumers\\s*=>\\s*\\{\\s*let\\s+loss[\\s\\S]*?PreAcceptedPhase::Waiting\\(observed\\)\\s*=>[\\s\\S]*?observed\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*self\\.target"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "DirtyScope::AllConsumers\\s*=>\\s*\\{\\s*let\\s+loss[\\s\\S]*?PreAcceptedPhase::Ready\\(verified\\)\\s*=>\\s*verified\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*loss"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::all_observed_dependencies_available$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "observed\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*level\\.last_change"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::atomic_transition_properties::model_distinct_nonempty_applies_exclude_an_equal_dependency_event_cut$",
+          "^mathematical_model::evidence_transition_properties::model_replacement_history_requires_strictly_newer_final_availability_for_every_key$",
+          "^authority::tests::dependency::uak_(dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase|existing_waiter_maintenance_advances_a_later_waiter|replacement_history_ignores_a_newer_loss_until_final_availability)$"
+        ],
+        "semantic_fact": "Every nonempty authority Apply owns one strictly increasing sequence. Dependency evidence resident before an event is older, a later Resolve checkout is newer, and a ReplacementHistory trigger cannot be published Available by the Apply that creates it; no legal maintenance comparison receives equal cuts.",
+        "producer_boundary": "ClockPlanReservation::commit -> dependency_observation_cut / plan_events / compile_compute_exchange_state / retain_replacement_history -> DependencyMaintenanceTicket::action",
+        "falsifier": "A legal event, checkout or replacement-history availability producer that emits the same cut to both sides makes one weakened <= comparison differ from strict ordering."
+      },
+      {
+        "id": "V1-EQ-DEPENDENCY-ACCEPTED-CLOSURE",
+        "behavior_ids": ["TP-COMMIT-001", "TP-DEP-001"],
+        "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T10", "T11"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-MAINTENANCE",
+            "function_pattern": "^DependencyMaintenanceTicket::action$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^==$",
+            "source_site_pattern": "OwnedTx::Accepted\\(entry\\)\\s*=>[\\s\\S]*?last_definitive_loss[\\s\\S]*?entry\\.proof\\.dependency_cut\\(\\)\\s*(?P<site><)\\s*loss"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::atomic_transition_properties::model_distinct_nonempty_applies_exclude_an_equal_dependency_event_cut$",
+          "^authority::tests::dependency::uak_(dependency_maintenance_advances_current_accepted_cuts|membership_loss_removes_accepted_dependency_readers_before_publish)$"
+        ],
+        "semantic_fact": "The same owner/projection Apply removes every Accepted dependency reader before publishing definitive loss. An Accepted reader selected later therefore has a proof cut strictly after the loss; an older survivor is a structural fault, and equality is unreachable.",
+        "producer_boundary": "complete membership/administrative/chain removal closure -> DependencyFrontier::apply_batch detach -> DependencyControlDelta::Event -> next_maintenance",
+        "falsifier": "A legal Apply that publishes loss while retaining an Accepted reader whose proof cut equals that loss makes the equality perturbation suppress the required structural fault."
+      },
+      {
+        "id": "V1-EQ-DEPENDENCY-SEALED-MAINTENANCE-TICKET",
+        "behavior_ids": ["TP-DEP-001"],
+        "invariants": ["T2", "T4", "T6", "T10", "T11"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::plan_maintenance$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_(dependency_maintenance_action_is_the_total_phase_cut_relation|dependency_maintenance_rejects_projection_faults_before_deciding_progress)$",
+          "^authority::tests::dependency::uak_dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase$"
+        ],
+        "semantic_fact": "The private ticket has one constructor in next_maintenance and is selected, decided and consumed once under the same authority guard. Its expected dirty value and next key cannot diverge independently on a legal Plan cut.",
+        "producer_boundary": "DependencyFrontier::next_maintenance -> DependencyMaintenanceTicket::action -> DependencyFrontier::plan_maintenance -> DependencyMaintenancePlan",
+        "falsifier": "A legal intervening dependency mutation or a second ticket constructor that changes exactly one of expected dirty or next key distinguishes the weakened conjunction."
+      },
+      {
+        "id": "V1-EQ-DEPENDENCY-EXACT-DERIVED-PROJECTION",
+        "behavior_ids": ["TP-DEFECT-001", "TP-DEP-001", "TP-POOL-001"],
+        "invariants": ["T2", "T3", "T4", "T6", "T8", "T10", "T11"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::plan_stable_replace$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::plan_replacements_with_additions$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::contains$",
+            "genre": "FnValue",
+            "replacement_pattern": "^true$"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::contains$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^\\|\\|$",
+            "source_site_pattern": "consumers\\.contains\\(&slot\\.hash\\)\\)\\s*(?P<site>&&)\\s*self\\s*\\.keys_by_origin"
+          },
+          {
+            "obligation_id": "V1-MUT-DEPENDENCY-FRONTIER",
+            "function_pattern": "^DependencyFrontier::contains$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^\\|\\|$",
+            "source_site_pattern": "\\}\\)\\s*(?P<site>&&)\\s*slot\\.waiting"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^authority::tests::dependency::uak_membership_loss_removes_accepted_dependency_readers_before_publish$",
+          "^authority::tests::foundation::uak_allocation_failure_discards_result_without_retaining_compute_capability$",
+          "^authority::tests::foundation::uak_causal_diamond_is_projection_equivalent_for_every_arrival_order$"
+        ],
+        "semantic_fact": "Every stable or batch replacement before slot is derived from the sole entries map under the authority guard, overlay/OwnerRemovalKeys construction makes identities unique, and the consumers, origin and waiter maps are the exact rebuildable projection at every legal Plan cut.",
+        "producer_boundary": "TxPoolAuthority entries / OwnerOverlay / OwnerRemovalKeys -> DependencySlot::from_owner -> plan_stable_replace or plan_replacements_with_additions -> DependencyFrontier::apply_batch",
+        "falsifier": "A legal current owner with exactly one missing consumer, origin or waiter edge, one duplicate before identity, or a stable phase change with a different slot distinguishes each defensive perturbation."
       }
     ]
   },
@@ -1160,6 +1317,7 @@
       "tx-pool/src/tests/model/dependency_progress.rs::DependencyMaintenanceState": "dependency_maintenance_rank",
       "tx-pool/src/tests/model/dependency_progress.rs::DependencyMaintenanceTransition": "dependency_maintenance_successor",
       "tx-pool/src/tests/model/evidence_transition.rs::ModelAdmissionReceipt": "acceptance_evidence_cut",
+      "tx-pool/src/tests/model/evidence_transition.rs::ModelDependencyMaintenanceTicket": "dependency_maintenance_decision",
       "tx-pool/src/tests/model/evidence_transition.rs::ModelEvidenceFrontier": "evidence_dependency_frontier",
       "tx-pool/src/tests/model/evidence_transition.rs::ModelReleasedInputCut": "released_input_projection",
       "tx-pool/src/tests/model/evidence_transition.rs::ModelReplacementReference": "replacement_history_trigger",
@@ -1229,6 +1387,7 @@
       "tx-pool/src/authority/chain.rs::FinalAdmissionReceipt": "final_acceptance_evidence",
       "tx-pool/src/authority/dependency.rs::DependencyFrontier": "dependency_level_authority",
       "tx-pool/src/authority/dependency.rs::DependencyMaintenancePlan": "dependency_maintenance_successor",
+      "tx-pool/src/authority/dependency.rs::DependencyMaintenanceTicket": "dependency_maintenance_decision",
       "tx-pool/src/authority/effect.rs::CommittedEffect": "committed_effect_value",
       "tx-pool/src/authority/effect.rs::EffectLog": "committed_effect_authority",
       "tx-pool/src/authority/effect.rs::EffectReceipt": "effect_delivery_capability",
@@ -1368,6 +1527,7 @@
         "model_roles": [
           "chain_removal_cause",
           "dependency_level_authority",
+          "dependency_maintenance_decision",
           "dependency_maintenance_rank",
           "dependency_maintenance_successor",
           "evidence_dependency_frontier"
@@ -1375,6 +1535,7 @@
         "production_roles": [
           "chain_reconciliation_capability",
           "dependency_level_authority",
+          "dependency_maintenance_decision",
           "dependency_maintenance_successor",
           "ordered_chain_handoff",
           "ordered_chain_preparation"

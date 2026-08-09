@@ -1,5 +1,5 @@
 use super::{
-    dependency::seed_runtime_dependency_maintenance,
+    dependency::{seed_runtime_dependency_maintenance, seed_runtime_dependency_waiter},
     foundation::{accepted_parent_child_at, admit_remote_until, genesis_snapshot, runtime_config},
 };
 use crate::authority::{
@@ -12,6 +12,31 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use std::time::Duration;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_first_dirty_dependency_apply_notifies_an_already_subscribed_consumer() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let (_hash, key) = seed_runtime_dependency_waiter(&runtime);
+
+    let notified = runtime.maintenance_signal().notified();
+    tokio::pin!(notified);
+    let _ = notified.as_mut().enable();
+    assert!(
+        runtime
+            .publish_dependency_availability_for_foundation(vec![key])
+            .expect("the real post-commit dependency event is valid")
+    );
+    tokio::time::timeout(Duration::from_millis(100), notified.as_mut())
+        .await
+        .expect("the empty-to-nonempty dirty edge publishes one maintenance prompt");
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_maintenance_driver_fairly_drains_every_preexisting_level() {

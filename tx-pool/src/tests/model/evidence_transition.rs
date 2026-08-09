@@ -154,6 +154,170 @@ impl ModelEvidenceFrontier {
                     .last_change
                     .is_none_or(|change| change <= cut))
     }
+
+    fn all_observed_dependencies_available(
+        &self,
+        observed: &ModelKnownDependencies,
+        cut: ModelDependencyCut,
+    ) -> bool {
+        observed.iter().all(|key| {
+            self.levels.get(key).is_some_and(|level| {
+                cut < level.last_change
+                    && level
+                        .last_definitive_loss
+                        .is_none_or(|loss| loss < level.last_change)
+            })
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelDependencyMaintenanceScope {
+    ExistingWaiters,
+    AllConsumers,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ModelPreAcceptedMaintenancePhase {
+    QueuedResolve,
+    QueuedVerify {
+        dependency_cut: ModelDependencyCut,
+    },
+    Computing,
+    Waiting {
+        observed: ModelKnownDependencies,
+        dependency_cut: ModelDependencyCut,
+    },
+    Ready {
+        dependency_cut: ModelDependencyCut,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ModelDependencyMaintenanceLocation {
+    PreAccepted(ModelPreAcceptedMaintenancePhase),
+    Accepted {
+        dependency_cut: ModelDependencyCut,
+    },
+    ReplacementHistory {
+        observed: ModelKnownDependencies,
+        dependency_cut: ModelDependencyCut,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModelDependencyMaintenanceOwner {
+    pub(crate) identity_matches: bool,
+    pub(crate) dependencies: ModelKnownDependencies,
+    pub(crate) location: ModelDependencyMaintenanceLocation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModelDependencyMaintenanceTicket {
+    pub(crate) key: ModelDependencyKey,
+    pub(crate) has_owner_edge: bool,
+    pub(crate) target: ModelDependencyCut,
+    pub(crate) scope: ModelDependencyMaintenanceScope,
+    pub(crate) last_definitive_loss: Option<ModelDependencyCut>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelDependencyMaintenanceAction {
+    Advance,
+    Requeue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelDependencyMaintenanceError {
+    Projection,
+    SurvivingAcceptedConsumer,
+}
+
+/// Total owner decision for one indexed dependency-maintenance ticket.
+///
+/// The finite-rank relation owns which edge is selected and how its successor
+/// decreases. This relation owns the independent semantic question that must
+/// be answered before that successor is compiled: whether the selected owner
+/// has already observed the ticket's level or must return to Resolve.
+pub(crate) fn dependency_maintenance_action(
+    frontier: &ModelEvidenceFrontier,
+    ticket: ModelDependencyMaintenanceTicket,
+    owner: Option<&ModelDependencyMaintenanceOwner>,
+) -> Result<ModelDependencyMaintenanceAction, ModelDependencyMaintenanceError> {
+    if !ticket.has_owner_edge {
+        return Ok(ModelDependencyMaintenanceAction::Advance);
+    }
+    let owner = owner.ok_or(ModelDependencyMaintenanceError::Projection)?;
+    if !owner.identity_matches {
+        return Err(ModelDependencyMaintenanceError::Projection);
+    }
+    match &owner.location {
+        ModelDependencyMaintenanceLocation::Accepted { dependency_cut } => {
+            if ticket.scope == ModelDependencyMaintenanceScope::AllConsumers
+                && ticket
+                    .last_definitive_loss
+                    .is_some_and(|loss| *dependency_cut < loss)
+            {
+                return Err(ModelDependencyMaintenanceError::SurvivingAcceptedConsumer);
+            }
+            Ok(ModelDependencyMaintenanceAction::Advance)
+        }
+        ModelDependencyMaintenanceLocation::ReplacementHistory {
+            observed,
+            dependency_cut,
+        } => {
+            if !owner.dependencies.contains(&ticket.key) {
+                return Err(ModelDependencyMaintenanceError::Projection);
+            }
+            Ok(
+                if observed.contains(&ticket.key)
+                    && frontier.all_observed_dependencies_available(observed, *dependency_cut)
+                {
+                    ModelDependencyMaintenanceAction::Requeue
+                } else {
+                    ModelDependencyMaintenanceAction::Advance
+                },
+            )
+        }
+        ModelDependencyMaintenanceLocation::PreAccepted(phase) => {
+            if !owner.dependencies.contains(&ticket.key) {
+                return Err(ModelDependencyMaintenanceError::Projection);
+            }
+            let stale = match ticket.scope {
+                ModelDependencyMaintenanceScope::ExistingWaiters => match phase {
+                    ModelPreAcceptedMaintenancePhase::Waiting {
+                        observed,
+                        dependency_cut,
+                    } => observed.contains(&ticket.key) && *dependency_cut < ticket.target,
+                    ModelPreAcceptedMaintenancePhase::QueuedResolve
+                    | ModelPreAcceptedMaintenancePhase::QueuedVerify { .. }
+                    | ModelPreAcceptedMaintenancePhase::Computing
+                    | ModelPreAcceptedMaintenancePhase::Ready { .. } => false,
+                },
+                ModelDependencyMaintenanceScope::AllConsumers => {
+                    let loss = ticket
+                        .last_definitive_loss
+                        .ok_or(ModelDependencyMaintenanceError::Projection)?;
+                    match phase {
+                        ModelPreAcceptedMaintenancePhase::QueuedResolve
+                        | ModelPreAcceptedMaintenancePhase::Computing => false,
+                        ModelPreAcceptedMaintenancePhase::QueuedVerify { dependency_cut }
+                        | ModelPreAcceptedMaintenancePhase::Ready { dependency_cut } => {
+                            *dependency_cut < loss
+                        }
+                        ModelPreAcceptedMaintenancePhase::Waiting { dependency_cut, .. } => {
+                            *dependency_cut < ticket.target
+                        }
+                    }
+                }
+            };
+            Ok(if stale {
+                ModelDependencyMaintenanceAction::Requeue
+            } else {
+                ModelDependencyMaintenanceAction::Advance
+            })
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

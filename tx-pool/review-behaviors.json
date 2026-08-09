@@ -65,11 +65,12 @@
         {"path": "tx-pool/src/authority/dependency.rs", "symbols": ["struct DependencyFrontier", "struct DependencyMaintenanceTicket", "struct DependencyMaintenancePlan", "enum DependencyMaintenanceStep"]},
         {"path": "tx-pool/src/authority/resolver.rs", "symbols": ["collect_missing_against_cut", "resolve_candidate"]}
       ],
-      "required_behavior": "Canonical input, cell-dep, header and expanded dep-group evidence drives one DependencyFrontier. Missing observations carry an exact cut; availability and definitive loss advance the same level in the owner-changing Apply. Every stable-epoch maintenance Apply carries a sealed nonempty successor and strictly decreases the finite edge-plus-marker rank.",
+      "required_behavior": "Canonical input, cell-dep, header and expanded dep-group evidence drives one DependencyFrontier. Missing observations carry an exact cut; availability and definitive loss advance the same level in the owner-changing Apply. One private indexed ticket, owner phase and coherent level cut have one total Advance, Requeue or structural-fault decision. Every stable-epoch maintenance Apply carries a sealed nonempty successor, strictly decreases the finite edge-plus-marker rank and publishes the first dirty edge through the committed wake transition.",
       "hostile_case": "Parent death, repeated availability, source promotion, high fanout, late dep-group discovery or coalesced wakes must not strand a child, accept stale evidence or spin indefinitely.",
       "reviewer_questions": [
         "Does every producer loss reach every surviving indexed consumer exactly once?",
         "Does a waiter subscribe before checking the authoritative level?",
+        "Can any legal producer emit an equal evidence/event cut or mutate between ticket selection and consumption?",
         "Are fanout and maintenance work sliced by explicit bounds?"
       ],
       "performance_bound": "Indexed key-scoped maintenance replaces polling and population scans; each maintenance step has a fixed work bound."
@@ -346,6 +347,7 @@
     }
   ],
   "unit_evidence": [
+
 
 
 
@@ -783,6 +785,11 @@
     {"test": "authority::tests::contract_observation_refinement::uak_operational_metrics_are_the_exact_read_only_owned_counter_projection", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "authority::tests::contract_observation_refinement::uak_plan_scratch_reservations_observe_capacity_without_authority_mutation", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "authority::tests::contract_observation_refinement::uak_remote_expiry_removes_exactly_the_effect_bounded_due_prefix", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
+    {"test": "authority::tests::dependency::uak_dependency_maintenance_advances_current_accepted_cuts", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::dependency::uak_dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::dependency::uak_existing_waiter_maintenance_advances_a_later_waiter", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::dependency::uak_membership_loss_removes_accepted_dependency_readers_before_publish", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::dependency::uak_replacement_history_ignores_a_newer_loss_until_final_availability", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "authority::tests::evidence_refinement::uak_dependency_evidence_currentness_refines_the_complete_finite_cut_relation", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "authority::tests::evidence_refinement::uak_direct_rejection_refines_the_closed_view_and_source_truth_table", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
     {"test": "authority::tests::evidence_refinement::uak_final_and_direct_acceptance_refine_current_chain_and_dependency_cuts", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
@@ -804,10 +811,12 @@
     {"test": "authority::tests::scheduler_transition_refinement::uak_scheduler_set_transition_refines_every_real_projection_state_and_order", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "authority::tests::settlement_refinement::uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "authority::tests::settlement_refinement::uak_settlement_reference_retires_resource_rejection_after_baseline_loss", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::worker::uak_first_dirty_dependency_apply_notifies_an_already_subscribed_consumer", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
     {"test": "mathematical_model::atomic_transition_properties::model_batch_clock_commit_uses_one_apply_sequence_for_every_member", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_advances_one_sequence_and_the_exact_identity_ranges", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_is_total_or_mutation_free_at_every_counter_boundary", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_discardable_clock_plan_does_not_require_apply_sequence_capacity", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
+    {"test": "mathematical_model::atomic_transition_properties::model_distinct_nonempty_applies_exclude_an_equal_dependency_event_cut", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_transition_controls_make_every_required_projection_structural", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::contract_observation_properties::model_expiry_index_producer_is_the_exact_equivalence_premise", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
     {"test": "mathematical_model::contract_observation_properties::model_operational_metrics_projection_preserves_every_owned_counter", "behavior_id": "TP-DEFECT-001", "invariants": ["T3", "T6", "T8", "T10"]},
@@ -820,11 +829,14 @@
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_is_the_exact_static_edge_drain_bound", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::evidence_transition_properties::model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_dependency_maintenance_action_is_the_total_phase_cut_relation", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_dependency_maintenance_rejects_projection_faults_before_deciding_progress", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_dependency_proof_currentness_is_the_exact_loss_cut_order", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_final_subject_and_direct_rejection_have_closed_currentness_outcomes", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_missing_source_policy_is_remote_wait_or_trusted_definitive_rejection", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_owner_free_resolution_and_missing_evidence_use_the_global_cut_exactly_once", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_released_input_is_derived_from_the_projected_final_owner_set", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_replacement_history_requires_strictly_newer_final_availability_for_every_key", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
     {"test": "mathematical_model::progress_properties::model_compute_wake_is_exact_over_the_finite_head_and_release_algebra", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
     {"test": "mathematical_model::progress_properties::model_effect_capacity_wake_observes_any_release_but_not_stable_or_growth", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},

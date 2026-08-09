@@ -1,4 +1,4 @@
-use super::super::state::{ValidatedAdmission, WorkPermit};
+use super::super::state::{DependencyKey, ValidatedAdmission, WorkPermit};
 use super::super::{
     ingress::{
         RemoteIngressPressure, RetainedIngress, RetainedIngressBoundaryError, RetainedIngressError,
@@ -469,6 +469,24 @@ impl AuthorityRuntime {
         };
         self.publish_committed(retirement);
         Ok(())
+    }
+
+    pub(in crate::authority) fn publish_dependency_availability_for_foundation(
+        &self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<bool, PlanError> {
+        let committed = {
+            let mut store = self.store.write();
+            store
+                .authority
+                .plan_dependency_availability_for_foundation(keys)?
+                .map(|plan| plan.apply())
+        };
+        let Some(committed) = committed else {
+            return Ok(false);
+        };
+        self.publish_committed(committed);
+        Ok(true)
     }
 
     pub(in crate::authority) fn effect_observation_for_foundation(

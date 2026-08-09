@@ -5232,3 +5232,84 @@ The current adjudication gate correctly fails because the new clock root has no
 architecture family owner. The next action is full dependency producer,
 consumer, transition, publication and legal-counterexample adjudication before
 changing any family selector or production code.
+
+## B3-R5 dependency root adjudicated, executable refinement active
+
+Section 47 of the fixed plan records the complete 22-row producer/consumer
+audit and the resulting model delta. The shared root is not a local boolean
+defect: the currentness relation stops before owner maintenance decisions, the
+rank relation starts after that decision, and the wake refinement does not bind
+the real dirty projection to post-commit notification. Fourteen current rows
+have legal old/equal/newer-cut or notification falsifiers; eight are
+sealed-producer equivalence hypotheses spanning indexed waiter membership,
+same-cut history loss, same-guard ticket consumption and exact derived-slot
+projection.
+
+The selected correction extends the existing evidence relation and real
+production refinement only. It adds no runtime owner, state, lock, task, queue,
+retry, timer, watchdog, cache, scan or compatibility path. Candidate-specific
+tests, a second full dependency model, runtime compensation and blanket
+equivalence were rejected. The next exact action is the finite decision law and
+legal lifecycle reproduction before any mutation selector, result disposition
+or production implementation is changed. Cleanup and remote push remain
+unauthorized.
+
+## B3-R5 dependency executable refinement reproduced and corrected
+
+The first lifecycle run disproved the provisional equal-cut constructibility:
+the event owns sequence `s`, while the first later checkout owns `s + 1`.
+Earlier resident evidence is strictly below `s`; no legal producer emits cut
+`s`. The ReplacementHistory prototype also exposed a missing fixture budget
+and was rebuilt with the canonical explicit history partition rather than an
+adjusted expectation. All nine corrected model/production refinements pass in
+Nextest run `5c80bfcf-c8c6-4013-aade-02961642a793`.
+
+The exact 33-candidate decision cohort then completed with 25 caught, seven
+missed and one unviable. It closes nine of the original 22 unaccepted rows and
+leaves 13 equivalence hypotheses when the six unchanged same-guard/projection
+rows are included. Section 48 records the exact 9/13 correction and the
+interrupted 121-candidate harness-union attempt. The next action is mechanical
+producer-premise validation and grouped exact-selector equivalence proof; no
+raw result or family owner changes before that gate. Production behavior,
+cleanup authority and remote state remain unchanged.
+
+## B3-R5 dependency producer and selector topology frozen
+
+Section 49 rejects broad same-shape equivalence selectors, copied mutation
+line/column facts and production refactors made only for mutation tooling. The
+selected schema-2 proof registry groups semantic theorems while each selector
+still resolves exactly one current candidate through a named source-site
+capture whose offset is derived mechanically from the candidate lock. Zero or
+ambiguous source/candidate matches and proof overlap remain canary failures.
+
+The 13 hypotheses are owned by four producer premises: distinct nonempty Apply
+cuts, Accepted-reader closure before definitive-loss publication, sole
+same-guard maintenance-ticket consumption, and exact owner-derived dependency
+projection. The next exact action is to implement and run the static production
+theorem before adding any equivalence proof or changing result dispositions.
+Production code, configuration, runtime topology, cleanup authority and remote
+state remain unchanged.
+
+## B3-R5 dependency proof root closed, final rerun deferred by design
+
+The complete static producer theorem and schema-2 exact source-site selector
+canaries pass. Four proof objects now own all 13 dependency equivalence
+hypotheses without copied candidate locations or broad same-shape absorption.
+The model/production decision role, semantic binding, behavior registry and
+generated review guide are synchronized.
+
+Focused Nextest run `eec646a7-0d17-4bd5-aa9b-b1f807f02749` passes 9/9 and
+complete library run `0534a181-016f-4bc0-a838-b3800e02e460` passes 775/775;
+the single leaky marker is pre-existing and the run succeeds. The security
+manifest validates 779 discovered tests, 456 registered Rust tests and 1,892
+invariant references. Production-contract, model-refinement, documentation,
+review-guide, formatting and static whitespace gates pass.
+
+The mutation candidate lock is now intentionally stale only because the test
+universe grew. The old complete outcome and new focused outcome cannot be
+overlaid or reconciled as same-universe replays. Section 50 therefore requires
+one complete final-universe rerun after all seven remaining root audits, rather
+than a wasteful full rerun after every new falsifier. Raw artifacts and the
+dependency 25 caught / 7 missed / 1 unviable focused outcome remain preserved.
+The next exact action is the two-row clock-checkpoint root audit. Production
+behavior, compatibility, cleanup authority and remote state remain unchanged.

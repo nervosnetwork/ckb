@@ -141,6 +141,29 @@ fn model_batch_clock_commit_uses_one_apply_sequence_for_every_member() {
 }
 
 #[test]
+fn model_distinct_nonempty_applies_exclude_an_equal_dependency_event_cut() {
+    for next_sequence in 0..=8 {
+        let before = ModelAuthorityClocks {
+            next_version: 0,
+            next_arrival: 0,
+            next_sequence,
+        };
+        let no_owner = ClockDemand::new(0, 0).expect("a projection Apply needs no owner clock");
+        let evidence = ClockCommit::reserve(before, no_owner)
+            .expect("the finite evidence producer sequence is representable");
+        let event = ClockCommit::reserve(evidence.after(), no_owner)
+            .expect("the finite dependency event sequence is representable");
+        let later_checkout = ClockCommit::reserve(event.after(), no_owner)
+            .expect("the finite checkout sequence is representable");
+
+        assert!(evidence.sequence() < event.sequence());
+        assert!(later_checkout.sequence() > event.sequence());
+        assert_ne!(evidence.sequence(), event.sequence());
+        assert_ne!(later_checkout.sequence(), event.sequence());
+    }
+}
+
+#[test]
 fn model_transition_controls_make_every_required_projection_structural() {
     let dependency = ModelDependencyControl(1);
     let effect = ModelEffectControl(2);

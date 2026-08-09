@@ -5,13 +5,16 @@ use super::super::{
     },
     runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime},
     state::{
-        AcceptedStatus, DependencyKey, EntryVersion, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission, VerifyCapability,
-        WorkPermit,
+        AcceptedStatus, DependencyCut, DependencyKey, EntryVersion, OwnedTx, PoolGeneration,
+        PreAcceptedPhase, QueuedWork, RawTxHash, ResolvedPayload, TxIdentity, ValidatedAdmission,
+        VerifyCapability, WorkPermit,
     },
     work::{CheckedOutWork, ComputeSettlement, ContinuousResolution, ContinuousResolveWork},
 };
-use super::foundation::{FixtureCommit, direct_verified_facts, genesis_snapshot, runtime_config};
+use super::foundation::{
+    FixtureCommit, direct_verified_facts, genesis_snapshot, resolved_payload_with_facts,
+    runtime_config,
+};
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
@@ -48,6 +51,13 @@ fn input_transaction(version: u32, input: OutPoint) -> TransactionView {
     TransactionBuilder::default()
         .version(version)
         .input(CellInput::new(input, 0))
+        .build()
+}
+
+fn cell_dep_transaction(version: u32, dependency: OutPoint) -> TransactionView {
+    TransactionBuilder::default()
+        .version(version)
+        .cell_dep(CellDep::new_builder().out_point(dependency).build())
         .build()
 }
 
@@ -104,6 +114,40 @@ fn checkout_continuous(authority: &mut TxPoolAuthority, hash: &RawTxHash) -> Con
         panic!("continuous capability returned another work type");
     };
     work
+}
+
+fn queue_verify_from_chain(authority: &mut TxPoolAuthority, hash: &RawTxHash) {
+    let resolve = checkout_resolve(authority, hash);
+    let transaction = resolve.transaction().clone();
+    let payload =
+        resolved_payload_with_facts(&transaction, Vec::new(), Vec::new(), Capacity::shannons(1));
+    apply_plan(
+        authority
+            .apply_settlement(
+                resolve
+                    .yield_verify(payload)
+                    .expect("the chain-backed dependency fits the resolve grant"),
+            )
+            .expect("the current resolution enters queued verification"),
+    );
+}
+
+fn ready_from_chain(authority: &mut TxPoolAuthority, hash: &RawTxHash) {
+    let resolve = checkout_continuous(authority, hash);
+    let transaction = resolve.transaction().clone();
+    let payload =
+        resolved_payload_with_facts(&transaction, Vec::new(), Vec::new(), Capacity::shannons(1));
+    let ContinuousResolution::Verify(verify) = resolve
+        .into_verify(payload)
+        .expect("the chain-backed dependency fits the continuous grant")
+    else {
+        panic!("the fixture grant permits continuous verification");
+    };
+    apply_plan(
+        authority
+            .apply_settlement(verify.verified(0))
+            .expect("the current chain-backed proof becomes Ready"),
+    );
 }
 
 fn verified_settlement(
@@ -191,6 +235,349 @@ fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
         .count()
 }
 
+#[derive(Clone, Copy, Debug)]
+enum PositiveMaintenancePhase {
+    QueuedVerify,
+    Waiting,
+    Ready,
+}
+
+fn enter_positive_phase(
+    authority: &mut TxPoolAuthority,
+    hash: &RawTxHash,
+    dependency: &DependencyKey,
+    phase: PositiveMaintenancePhase,
+) {
+    match phase {
+        PositiveMaintenancePhase::QueuedVerify => queue_verify_from_chain(authority, hash),
+        PositiveMaintenancePhase::Waiting => {
+            let missing = checkout_resolve(authority, hash)
+                .missing(vec![dependency.clone()])
+                .expect("the exact missing dependency fits the resolve grant");
+            apply_plan(
+                authority
+                    .apply_settlement(missing)
+                    .expect("the current missing observation enters Waiting"),
+            );
+        }
+        PositiveMaintenancePhase::Ready => ready_from_chain(authority, hash),
+    }
+}
+
+fn positive_phase_cut(
+    authority: &TxPoolAuthority,
+    hash: &RawTxHash,
+    phase: PositiveMaintenancePhase,
+) -> DependencyCut {
+    let Some(OwnedTx::PreAccepted(entry)) = authority.entry(hash) else {
+        panic!("the positive maintenance fixture remains PreAccepted");
+    };
+    match (&entry.phase, phase) {
+        (
+            PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+            PositiveMaintenancePhase::QueuedVerify,
+        ) => resolved.dependency_cut(),
+        (PreAcceptedPhase::Waiting(observed), PositiveMaintenancePhase::Waiting) => {
+            observed.dependency_cut()
+        }
+        (PreAcceptedPhase::Ready(verified), PositiveMaintenancePhase::Ready) => {
+            verified.dependency_cut()
+        }
+        _ => panic!("the owner occupies the requested positive phase"),
+    }
+}
+
+fn remains_positive_phase(
+    authority: &TxPoolAuthority,
+    hash: &RawTxHash,
+    phase: PositiveMaintenancePhase,
+) -> bool {
+    matches!(
+        (authority.entry(hash), phase),
+        (
+            Some(OwnedTx::PreAccepted(
+                super::super::state::PreAcceptedEntry {
+                    phase: PreAcceptedPhase::Queued(QueuedWork::Verify(_)),
+                    ..
+                }
+            )),
+            PositiveMaintenancePhase::QueuedVerify,
+        ) | (
+            Some(OwnedTx::PreAccepted(
+                super::super::state::PreAcceptedEntry {
+                    phase: PreAcceptedPhase::Waiting(_),
+                    ..
+                }
+            )),
+            PositiveMaintenancePhase::Waiting,
+        ) | (
+            Some(OwnedTx::PreAccepted(
+                super::super::state::PreAcceptedEntry {
+                    phase: PreAcceptedPhase::Ready(_),
+                    ..
+                }
+            )),
+            PositiveMaintenancePhase::Ready,
+        )
+    )
+}
+
+#[test]
+fn uak_dependency_maintenance_refines_older_and_later_cuts_for_every_positive_phase() {
+    for (offset, phase) in [
+        PositiveMaintenancePhase::QueuedVerify,
+        PositiveMaintenancePhase::Waiting,
+        PositiveMaintenancePhase::Ready,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut authority = TxPoolAuthority::for_foundation(limits());
+        let base = 900 + (offset as u32 * 10);
+        let parent_tx = output_transaction(base);
+        let parent_output = OutPoint::new(parent_tx.hash(), 0);
+        let dependency = DependencyKey::Cell(parent_output.clone());
+        let parent = admit(
+            &mut authority,
+            ValidatedAdmission::proposal(parent_tx).expect("the dependency parent is valid"),
+        );
+        let older = admit(
+            &mut authority,
+            ValidatedAdmission::remote(
+                cell_dep_transaction(base + 1, parent_output.clone()),
+                PeerIndex::from(220 + offset),
+            )
+            .expect("the older read-only consumer is valid"),
+        );
+        let later = admit(
+            &mut authority,
+            ValidatedAdmission::remote(
+                cell_dep_transaction(base + 2, parent_output),
+                PeerIndex::from(230 + offset),
+            )
+            .expect("the later read-only consumer is valid"),
+        );
+
+        enter_positive_phase(&mut authority, &older, &dependency, phase);
+        let older_cut = positive_phase_cut(&authority, &older, phase);
+        apply_plan(
+            authority
+                .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
+                .expect("parent loss publishes one AllConsumers level"),
+        );
+        let loss_cut = authority.dependency_observation_cut();
+        assert!(older_cut < loss_cut);
+
+        // Checkout is itself the next nonempty Apply, so its immutable
+        // observation cut is strictly newer than the published loss level.
+        // Later settlement Applies do not rewrite that evidence.
+        enter_positive_phase(&mut authority, &later, &dependency, phase);
+        assert!(positive_phase_cut(&authority, &later, phase) > loss_cut);
+        let older_version = owner_version(&authority, &older);
+        let later_version = owner_version(&authority, &later);
+
+        assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+        assert!(matches!(
+            authority.entry(&older),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+                    && entry.record.version > older_version
+        ));
+        assert_eq!(owner_version(&authority, &later), later_version);
+        assert!(remains_positive_phase(&authority, &later, phase));
+        assert!(authority.primary_projection_consistent());
+    }
+}
+
+#[test]
+fn uak_dependency_maintenance_advances_current_accepted_cuts() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let parent_tx = output_transaction(940);
+    let parent_output = OutPoint::new(parent_tx.hash(), 0);
+    let parent = admit(
+        &mut authority,
+        ValidatedAdmission::proposal(parent_tx).expect("the Accepted-cut parent is valid"),
+    );
+    let first = admit(
+        &mut authority,
+        ValidatedAdmission::remote(
+            cell_dep_transaction(941, parent_output.clone()),
+            PeerIndex::from(241),
+        )
+        .expect("the first current Accepted reader is valid"),
+    );
+    let newer = admit(
+        &mut authority,
+        ValidatedAdmission::remote(
+            cell_dep_transaction(942, parent_output),
+            PeerIndex::from(242),
+        )
+        .expect("the newer-cut Accepted reader is valid"),
+    );
+    apply_plan(
+        authority
+            .plan_terminalize_for_foundation(&parent, owner_version(&authority, &parent))
+            .expect("parent loss publishes one AllConsumers level"),
+    );
+    let loss_cut = authority.dependency_observation_cut();
+
+    ready_from_chain(&mut authority, &first);
+    apply_plan(
+        authority
+            .plan_accept_for_foundation(
+                &first,
+                owner_version(&authority, &first),
+                AcceptedStatus::Pending,
+            )
+            .expect("the first current chain-backed reader enters membership"),
+    );
+    ready_from_chain(&mut authority, &newer);
+    apply_plan(
+        authority
+            .plan_accept_for_foundation(
+                &newer,
+                owner_version(&authority, &newer),
+                AcceptedStatus::Pending,
+            )
+            .expect("the newer-cut chain-backed reader enters membership"),
+    );
+
+    let Some(OwnedTx::Accepted(first_entry)) = authority.entry(&first) else {
+        panic!("the first current reader is Accepted");
+    };
+    let Some(OwnedTx::Accepted(newer_entry)) = authority.entry(&newer) else {
+        panic!("the newer-cut reader is Accepted");
+    };
+    assert!(first_entry.proof.dependency_cut() > loss_cut);
+    assert!(newer_entry.proof.dependency_cut() > first_entry.proof.dependency_cut());
+    assert_eq!(drain_dependency_maintenance(&mut authority), 0);
+    assert!(matches!(
+        authority.entry(&first),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(matches!(
+        authority.entry(&newer),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_existing_waiter_maintenance_advances_a_later_waiter() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let dependency = OutPoint::new(Byte32::new([0xd1; 32]), 0);
+    let key = DependencyKey::Cell(dependency.clone());
+    let older = admit(
+        &mut authority,
+        ValidatedAdmission::remote(
+            cell_dep_transaction(950, dependency.clone()),
+            PeerIndex::from(250),
+        )
+        .expect("the older waiter is valid"),
+    );
+    let later = admit(
+        &mut authority,
+        ValidatedAdmission::remote(cell_dep_transaction(951, dependency), PeerIndex::from(251))
+            .expect("the late waiter is valid"),
+    );
+    enter_positive_phase(
+        &mut authority,
+        &older,
+        &key,
+        PositiveMaintenancePhase::Waiting,
+    );
+    let older_cut = positive_phase_cut(&authority, &older, PositiveMaintenancePhase::Waiting);
+    apply_plan(
+        authority
+            .plan_dependency_availability_for_foundation(vec![key.clone()])
+            .expect("the availability level is coherent")
+            .expect("the older waiter activates maintenance"),
+    );
+    let target = authority.dependency_observation_cut();
+    assert!(older_cut < target);
+
+    enter_positive_phase(
+        &mut authority,
+        &later,
+        &key,
+        PositiveMaintenancePhase::Waiting,
+    );
+    assert!(positive_phase_cut(&authority, &later, PositiveMaintenancePhase::Waiting) > target);
+    let older_version = owner_version(&authority, &older);
+    let later_version = owner_version(&authority, &later);
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert!(owner_version(&authority, &older) > older_version);
+    assert_eq!(owner_version(&authority, &later), later_version);
+    assert!(remains_positive_phase(
+        &authority,
+        &later,
+        PositiveMaintenancePhase::Waiting,
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_replacement_history_ignores_a_newer_loss_until_final_availability() {
+    let history_limits = limits()
+        .with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+        .expect("the fixture reserves one bounded replacement-history partition");
+    let mut authority = TxPoolAuthority::with_replacement(history_limits, FeeRate::from_u64(1_000));
+    let conflicting_input = OutPoint::new(Byte32::new([0xd2; 32]), 0);
+    let key = DependencyKey::Cell(conflicting_input.clone());
+    let victim = accept_remote(
+        &mut authority,
+        input_transaction(960, conflicting_input.clone()),
+        260,
+        vec![conflicting_input.clone()],
+        Capacity::shannons(100),
+    );
+    let winner = accept_remote(
+        &mut authority,
+        input_transaction(961, conflicting_input.clone()),
+        261,
+        vec![conflicting_input],
+        Capacity::shannons(10_000),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    // Removing the winner publishes availability, but a newer external loss
+    // supersedes that level before the bounded history traversal consumes it.
+    apply_plan(
+        authority
+            .plan_local_removal(&winner)
+            .expect("winner removal planning is coherent")
+            .expect("the Accepted winner remains locally removable"),
+    );
+    apply_plan(
+        authority
+            .plan_dependency_loss_for_foundation(vec![key.clone()])
+            .expect("the newer external loss is coherent")
+            .expect("the retained history keeps the key indexed"),
+    );
+    assert_eq!(drain_dependency_maintenance(&mut authority), 0);
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    apply_plan(
+        authority
+            .plan_dependency_availability_for_foundation(vec![key])
+            .expect("the final availability level is coherent")
+            .expect("the retained history remains an indexed waiter"),
+    );
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
 #[test]
 fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
     let snapshot = genesis_snapshot();
@@ -237,6 +624,21 @@ fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
 }
 
 pub(super) fn seed_runtime_dependency_maintenance(runtime: &AuthorityRuntime) -> RawTxHash {
+    let (hash, key) = seed_runtime_dependency_waiter(runtime);
+    runtime.with_authority_for_foundation(|authority| {
+        apply_plan(
+            authority
+                .plan_dependency_availability_for_foundation(vec![key])
+                .expect("availability event planning is valid")
+                .expect("the live waiter creates one dirty level"),
+        );
+    });
+    hash
+}
+
+pub(super) fn seed_runtime_dependency_waiter(
+    runtime: &AuthorityRuntime,
+) -> (RawTxHash, DependencyKey) {
     runtime.with_authority_for_foundation(|authority| {
         let dependency = OutPoint::new(Byte32::new([0x9a; 32]), 0);
         let key = DependencyKey::Cell(dependency.clone());
@@ -254,13 +656,7 @@ pub(super) fn seed_runtime_dependency_maintenance(runtime: &AuthorityRuntime) ->
                 )
                 .expect("the missing owner enters dependency wait"),
         );
-        apply_plan(
-            authority
-                .plan_dependency_availability_for_foundation(vec![key.clone()])
-                .expect("availability event planning is valid")
-                .expect("the live waiter creates one dirty level"),
-        );
-        hash
+        (hash, key)
     })
 }
 

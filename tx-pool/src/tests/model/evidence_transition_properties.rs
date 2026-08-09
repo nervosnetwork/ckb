@@ -1,15 +1,20 @@
 use super::{
     dependency_progress::{ModelDependencyCut, ModelDependencyKey},
     evidence_transition::{
-        ModelAdmissionReceipt, ModelDependencyLevel, ModelDirectRejectionObservation,
+        ModelAdmissionReceipt, ModelDependencyLevel, ModelDependencyMaintenanceAction,
+        ModelDependencyMaintenanceError, ModelDependencyMaintenanceLocation,
+        ModelDependencyMaintenanceOwner, ModelDependencyMaintenanceScope,
+        ModelDependencyMaintenanceTicket, ModelDirectRejectionObservation,
         ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity,
         ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject,
         ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
-        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext,
-        ModelReleasedInputCut, ModelReleasedInputDisposition, ModelReplacementReference,
-        ModelSubjectValidation, ModelUnindexedDependencyLevel, missing_resolution_disposition,
-        released_input_disposition, replacement_history_trigger, validate_direct_acceptance,
-        validate_direct_rejection, validate_final_acceptance, validate_final_subject,
+        ModelPreAcceptedMaintenancePhase, ModelPreAcceptedSource, ModelRawTransaction,
+        ModelReadyOwner, ModelReleasedInputContext, ModelReleasedInputCut,
+        ModelReleasedInputDisposition, ModelReplacementReference, ModelSubjectValidation,
+        ModelUnindexedDependencyLevel, dependency_maintenance_action,
+        missing_resolution_disposition, released_input_disposition, replacement_history_trigger,
+        validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
+        validate_final_subject,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -60,6 +65,214 @@ fn model_dependency_proof_currentness_is_the_exact_loss_cut_order() {
     }
     let absent_level = frontier(&[], unindexed(None, None));
     assert!(absent_level.proof_is_current(&observed, ModelDependencyCut(0)));
+}
+
+fn maintenance_ticket(
+    scope: ModelDependencyMaintenanceScope,
+    target: u16,
+    loss: Option<u16>,
+) -> ModelDependencyMaintenanceTicket {
+    ModelDependencyMaintenanceTicket {
+        key: key(1),
+        has_owner_edge: true,
+        target: ModelDependencyCut(target),
+        scope,
+        last_definitive_loss: loss.map(ModelDependencyCut),
+    }
+}
+
+fn maintenance_owner(
+    location: ModelDependencyMaintenanceLocation,
+) -> ModelDependencyMaintenanceOwner {
+    ModelDependencyMaintenanceOwner {
+        identity_matches: true,
+        dependencies: dependencies(&[1]),
+        location,
+    }
+}
+
+#[test]
+fn model_dependency_maintenance_action_is_the_total_phase_cut_relation() {
+    let model = frontier(&[], unindexed(None, None));
+    let loss = ModelDependencyCut(2);
+    for cut in 0..=4 {
+        let dependency_cut = ModelDependencyCut(cut);
+        let stale = dependency_cut < loss;
+        let all_consumers = maintenance_ticket(
+            ModelDependencyMaintenanceScope::AllConsumers,
+            loss.0,
+            Some(loss.0),
+        );
+
+        let accepted =
+            maintenance_owner(ModelDependencyMaintenanceLocation::Accepted { dependency_cut });
+        assert_eq!(
+            dependency_maintenance_action(&model, all_consumers, Some(&accepted)),
+            if stale {
+                Err(ModelDependencyMaintenanceError::SurvivingAcceptedConsumer)
+            } else {
+                Ok(ModelDependencyMaintenanceAction::Advance)
+            },
+            "Accepted cut={cut}"
+        );
+
+        for phase in [
+            ModelPreAcceptedMaintenancePhase::QueuedVerify { dependency_cut },
+            ModelPreAcceptedMaintenancePhase::Ready { dependency_cut },
+        ] {
+            let owner = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(phase));
+            assert_eq!(
+                dependency_maintenance_action(&model, all_consumers, Some(&owner)),
+                Ok(if stale {
+                    ModelDependencyMaintenanceAction::Requeue
+                } else {
+                    ModelDependencyMaintenanceAction::Advance
+                }),
+                "positive-evidence cut={cut}"
+            );
+        }
+
+        let waiting = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(
+            ModelPreAcceptedMaintenancePhase::Waiting {
+                observed: dependencies(&[1]),
+                dependency_cut,
+            },
+        ));
+        for scope in [
+            ModelDependencyMaintenanceScope::ExistingWaiters,
+            ModelDependencyMaintenanceScope::AllConsumers,
+        ] {
+            let ticket = maintenance_ticket(scope, loss.0, Some(loss.0));
+            assert_eq!(
+                dependency_maintenance_action(&model, ticket, Some(&waiting)),
+                Ok(if stale {
+                    ModelDependencyMaintenanceAction::Requeue
+                } else {
+                    ModelDependencyMaintenanceAction::Advance
+                }),
+                "Waiting scope={scope:?}, cut={cut}"
+            );
+        }
+    }
+
+    for phase in [
+        ModelPreAcceptedMaintenancePhase::QueuedResolve,
+        ModelPreAcceptedMaintenancePhase::Computing,
+    ] {
+        let owner = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(phase));
+        assert_eq!(
+            dependency_maintenance_action(
+                &model,
+                maintenance_ticket(
+                    ModelDependencyMaintenanceScope::AllConsumers,
+                    loss.0,
+                    Some(loss.0),
+                ),
+                Some(&owner),
+            ),
+            Ok(ModelDependencyMaintenanceAction::Advance)
+        );
+    }
+}
+
+#[test]
+fn model_replacement_history_requires_strictly_newer_final_availability_for_every_key() {
+    let ticket = maintenance_ticket(ModelDependencyMaintenanceScope::AllConsumers, 3, Some(3));
+    let history = ModelDependencyMaintenanceOwner {
+        identity_matches: true,
+        dependencies: dependencies(&[1, 2]),
+        location: ModelDependencyMaintenanceLocation::ReplacementHistory {
+            observed: dependencies(&[1, 2]),
+            dependency_cut: ModelDependencyCut(2),
+        },
+    };
+    let cases = [
+        (
+            frontier(
+                &[(1, level(2, None)), (2, level(3, Some(2)))],
+                unindexed(None, None),
+            ),
+            ModelDependencyMaintenanceAction::Advance,
+            "same-cut change is not a later availability",
+        ),
+        (
+            frontier(
+                &[(1, level(3, Some(3))), (2, level(3, Some(2)))],
+                unindexed(None, None),
+            ),
+            ModelDependencyMaintenanceAction::Advance,
+            "a newer definitive loss is not availability",
+        ),
+        (
+            frontier(&[(1, level(3, Some(2)))], unindexed(None, None)),
+            ModelDependencyMaintenanceAction::Advance,
+            "every observed key needs a current level",
+        ),
+        (
+            frontier(
+                &[(1, level(3, Some(2))), (2, level(4, Some(3)))],
+                unindexed(None, None),
+            ),
+            ModelDependencyMaintenanceAction::Requeue,
+            "every key has a strictly newer final availability",
+        ),
+    ];
+    for (model, expected, reason) in cases {
+        assert_eq!(
+            dependency_maintenance_action(&model, ticket, Some(&history)),
+            Ok(expected),
+            "{reason}"
+        );
+    }
+}
+
+#[test]
+fn model_dependency_maintenance_rejects_projection_faults_before_deciding_progress() {
+    let model = frontier(&[], unindexed(None, None));
+    let ticket = maintenance_ticket(ModelDependencyMaintenanceScope::AllConsumers, 2, Some(2));
+    assert_eq!(
+        dependency_maintenance_action(&model, ticket, None),
+        Err(ModelDependencyMaintenanceError::Projection)
+    );
+
+    let mut mismatched = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(
+        ModelPreAcceptedMaintenancePhase::QueuedResolve,
+    ));
+    mismatched.identity_matches = false;
+    assert_eq!(
+        dependency_maintenance_action(&model, ticket, Some(&mismatched)),
+        Err(ModelDependencyMaintenanceError::Projection)
+    );
+
+    let mut absent_key = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(
+        ModelPreAcceptedMaintenancePhase::QueuedResolve,
+    ));
+    absent_key.dependencies.clear();
+    assert_eq!(
+        dependency_maintenance_action(&model, ticket, Some(&absent_key)),
+        Err(ModelDependencyMaintenanceError::Projection)
+    );
+
+    let marker = ModelDependencyMaintenanceTicket {
+        has_owner_edge: false,
+        ..ticket
+    };
+    assert_eq!(
+        dependency_maintenance_action(&model, marker, None),
+        Ok(ModelDependencyMaintenanceAction::Advance)
+    );
+
+    let missing_loss = ModelDependencyMaintenanceTicket {
+        last_definitive_loss: None,
+        ..ticket
+    };
+    let queued = maintenance_owner(ModelDependencyMaintenanceLocation::PreAccepted(
+        ModelPreAcceptedMaintenancePhase::QueuedResolve,
+    ));
+    assert_eq!(
+        dependency_maintenance_action(&model, missing_loss, Some(&queued)),
+        Err(ModelDependencyMaintenanceError::Projection)
+    );
 }
 
 #[test]

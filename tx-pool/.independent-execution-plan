@@ -5371,3 +5371,245 @@ action after freezing this diagnostic checkpoint is the complete producer and
 consumer audit of the dependency root, followed by the same adjudication for
 the other seven roots before any production implementation. Cleanup and
 remote push remain unauthorized.
+
+## 47. B3-R5 dependency decision and publication root adjudication
+
+The first section-46 root is now traced from every current candidate through
+its production producer, owner transition, projection update, post-commit wake
+and maintenance consumer. The 22 unaccepted rows are not 22 independent test
+holes. They expose one blueprint coverage gap between two already selected
+model owners. `evidence_dependency_frontier` ends after receipt currentness,
+while `dependency_maintenance_rank` starts after a successor has already been
+chosen. Neither relation owns the total decision that maps one indexed ticket,
+one owner phase and the current level cuts to `Advance`, `Requeue` or a
+structural fault. The existing wake refinement also accepts a synthetic
+`dependency_maintenance` boolean and therefore does not close the production
+edge from `DependencyFrontier::dirty` becoming nonempty through one committed
+`AuthorityWakeTransition` to the runtime maintenance notification.
+
+The complete current surface has three semantic classes. Fourteen rows have a
+source-constructible observation boundary and must first be reproduced through
+legal lifecycle values:
+
+- Accepted, queued-Verify, Waiting and Ready owners must distinguish evidence
+  strictly before a loss/target from evidence at or after it. A consumer may
+  already exist when the event commits and later reach a new phase with a cut
+  exactly equal to that event while the bounded dirty traversal is still live.
+- ReplacementHistory becomes runnable only when every observed key has a
+  strictly newer availability level than both its observation and the latest
+  definitive loss. A newer loss must not be mistaken for availability.
+- the first empty-to-nonempty dirty transition must publish one prompt to an
+  already subscribed idle maintenance consumer. The one-second expiry tick is
+  not the dependency releaser and cannot be used as the acceptance observation.
+
+Eight rows are sealed-producer equivalence hypotheses, not permission to forge
+an invalid authority fixture. A ticket selected from the waiter index already
+names a key in that waiter's observation. A ReplacementHistory trigger cannot
+have a same-cut availability level: its observation is sealed before any later
+availability producer and same-cut loss remains unavailable through the second
+conjunct. `next_maintenance`, `action` and `plan_maintenance` execute under one
+authority guard with no intervening dependency mutation. Stable replacement,
+batch removal and `contains` consume before-slots from the sole owner map while
+the derived dependency projection is exact; duplicate before identities or a
+missing consumer/origin/waiter edge are structural faults outside the legal
+input relation. The exact eight perturbations are still discovered from the
+candidate/result join and are not copied into this plan.
+
+Four credible topologies were compared before implementation. Adding one
+assertion per candidate is rejected: a source operator would become the
+semantic owner and the next equivalent perturbation would regrow the suite.
+Extending the full kernel with the production dirty maps, cursors and pending
+epochs is rejected: it duplicates the sparse async projection and substantially
+raises proof-state and synchronization cost. Adding a queue, retry, timer or
+watchdog is rejected because no runtime liveness defect has been established
+and it would create a second progress authority. Treating every missed row as
+equivalent is rejected by the legal old-cut, equal-cut, newer-loss and real
+notification falsifiers. The selected topology extends the existing pure
+evidence relation with the missing total maintenance decision, refines it
+through real production lifecycles, closes the real post-commit notification
+edge, and proves the remaining sealed premises mechanically.
+
+No new production field, owner, lock, task, queue, channel, retry, timer,
+watchdog, cache, scan, capability or compatibility path is permitted by this
+slice. Independent validation and compute remain outside the authority guard;
+maintenance continues to consume one indexed edge or marker per Apply. The
+only checker topology delta under consideration is a schema-2 equivalence
+registry that lets one semantic producer theorem own several exact selectors,
+while requiring every selector to resolve exactly one current structured
+candidate and every candidate to have one proof owner. This removes repeated
+semantic prose without weakening zero-match, ambiguity, timeout or evidence
+drift canaries.
+
+The fixed implementation order is: add the finite executable decision and its
+strict-cut laws to the existing evidence model; reproduce the legal phase/cut
+and newer-loss counterexamples with real authority producers; close the actual
+empty-to-nonempty post-commit notification; add static checks for sole ticket
+construction, same-guard consumption and owner/projection-derived replacement
+inputs; register only the mechanically proven equivalence selectors; regenerate
+the directional evidence graph; run focused and complete Nextest/static gates;
+perform the section-11 and snowball review; then run only the exact affected
+mutation cohort before deciding whether a complete 795-candidate rerun is
+required. No mutation family selector changes before those semantic owners and
+falsifiers pass. No cleanup or remote push is authorized.
+
+## 48. Dependency root falsification correction and focused outcome
+
+The first legal lifecycle reproduction falsified section 47's provisional
+14/8 split before any production or mutation-registry change. An event commits
+at sequence `s`; the first later Resolve checkout is itself the next nonempty
+Apply and seals dependency cut `s + 1`, not `s`. This was reproduced
+independently for queued-Verify, Waiting, Ready and Accepted producers. The
+same result holds for a late waiter after an availability event. Conversely,
+evidence already resident before the event has a cut strictly below `s`.
+Therefore the legal producer relation has two temporal regions, `< s` and
+`> s`, and no `= s` region. The existing atomic clock relation now states this
+three-Apply theorem explicitly; production lifecycle tests bind each owner
+phase to it.
+
+The first ReplacementHistory prototype also falsified an environment premise:
+the dependency test's local limits have no optional history partition. The
+fixture was not made to pass by changing the expected owner. It was rebuilt
+with the same explicit bounded history partition used by the authoritative
+replacement fixtures, then used real RBF retention, local Accepted removal,
+a newer external loss and final availability. It proves that a newer loss does
+not consume history and a later final availability does.
+
+Focused Nextest run `5c80bfcf-c8c6-4013-aade-02961642a793` passes all nine
+new model and production refinements. The first mutation command was stopped
+before testing any candidate because cargo-mutants unions CLI `-F` with the
+generated config's complete `examine_re`, selecting 121 dependency candidates
+instead of the intended semantic cohort. A read-only `--no-config --list`
+then fixed the universe at 33 candidates: every candidate in the three changed
+decision functions, including caught and unviable controls.
+
+The exact isolated cohort completed in six minutes with 25 caught, seven
+missed and one compile-unviable. Relative to the original 22-row dependency
+root, nine observation gaps are now caught: the current Accepted `>` error,
+the late-waiter disjunction, both old queued-Verify false comparisons, both
+newer-loss history perturbations and all three dirty-activation perturbations.
+Thirteen equivalence hypotheses remain. Seven are in the focused result: six
+strict comparisons weakened to `<=`, plus the Accepted `<` to `==` change that
+also depends on stale Accepted closure. The other six are the same-guard
+ticket conjunction, stable replacement conjunction, batch-removal conjunction
+and three exact-projection `contains` perturbations. These counts remain
+mechanically joined from the current lock and focused outcome; they are not an
+allowlist.
+
+The root correction remains the selected topology, but the adjudication split
+is explicitly corrected from provisional 14 observable / 8 equivalent to
+9 observable / 13 equivalence hypotheses. The next exact action is to bind the
+no-equal-cut, no-stale-Accepted, same-guard-ticket and exact-derived-projection
+premises to static production checks and registered evidence. Only then may a
+schema-2 proof object map those semantic theorems to exact one-candidate
+selectors and regenerate result dispositions. Production behavior remains
+unchanged; no cleanup or remote push is authorized.
+
+## 49. Dependency producer theorem and exact-selector topology freeze
+
+The remaining equivalence hypotheses exposed one checker-design ambiguity
+before any registry entry was added. Several distinct mutation sites share the
+same obligation, enclosing function, genre and replacement. A selector over
+only those generated fields cannot distinguish the sites, while a selector
+that copies a candidate string, path line, column or ordinal would make a
+derived observation into hand-maintained authority. Allowing one broad
+selector to absorb every current and future same-shaped candidate is also
+rejected because a newly introduced expression could inherit an unrelated
+proof without an explicit semantic decision. Refactoring production into
+mutation-specific helper functions is rejected because it changes the product
+surface and candidate universe solely to accommodate a tool.
+
+The selected schema-2 topology keeps one proof object per semantic theorem and
+one or more exact selectors per proof. A selector retains the structured
+obligation/function/genre/replacement fields and may add a semantic source-site
+pattern with one named `site` capture. The checker derives each candidate's
+source offset from the candidate lock, searches the current masked production
+source, and accepts the selector only when the captured operator contains that
+offset and exactly one current candidate matches. Source patterns describe the
+product expression and surrounding semantic arm; they contain no generated
+line, column, ordinal, candidate string, count or digest. Zero source matches,
+multiple source matches, zero candidate matches, multiple candidate matches
+and proof overlap all remain hard failures with dedicated canaries.
+
+Four producer theorems own the 13 hypotheses:
+
+- the sealed Apply clock and dependency event/checkout producers admit only an
+  earlier evidence cut or a strictly later evidence cut, never an equal cut;
+- Accepted dependency readers are removed by the same owner/projection Apply
+  before a definitive loss becomes visible, so an Accepted survivor is either
+  older and rejected structurally or was accepted after the loss;
+- `next_maintenance`, `action` and `plan_maintenance` use the sole sealed
+  ticket under one authority guard with no intervening dependency mutation;
+- stable and batch replacement `before` slots derive from the sole owner map,
+  and the dependency reverse projection is exact at every legal Plan cut.
+
+The production-contract checker must bind the exact clock/event/checkout
+construction, sole ticket constructor and ordered consumption, dependency
+batch detach-before-control order, accepted-loss owner coupling, stable
+cancellation caller, and complete finite set of batch projection call sites.
+It may not encode candidate outcomes. The executable model and production
+lifecycle tests remain the falsifiers; the static theorem closes only the
+sealed producer premises they cannot legally negate. After both layers pass,
+schema 2 and its canaries may be implemented, then architecture/refinement and
+review evidence may be regenerated. No production behavior, runtime topology,
+configuration boundary, cleanup authority or remote state changes in this
+slice.
+
+## 50. Dependency proof closure and final-universe rerun decision
+
+The section-49 static theorem now passes over the complete production surface,
+not only the previously known files. It rejects any new raw `DependencyCut`
+constructor outside the sealed observation/event/checkout/history producers,
+any event/stable/batch dependency call outside the finite adjudicated Plan
+methods, a second maintenance-ticket constructor, an intervening ticket
+mutation boundary, event publication before owner-slot detachment, loss without
+the accepted-owner closure, or replacement inputs not derived from the sole
+owner map. ReplacementHistory's same-Apply case is closed separately: every
+retained trigger is candidate-spent or loses its non-chain producer, while the
+final-owner availability projection rejects both classes. A same-cut level can
+therefore only remain unavailable; final availability requires a later Apply.
+
+The mutation equivalence registry is schema 2. Four semantic proof objects own
+the 13 dependency hypotheses through 13 selectors. Each repeated-shape
+selector captures one semantic operator in current masked production source
+and mechanically aligns it with one structured candidate offset. The positive,
+zero-candidate, multiple-candidate, zero-source-site, multiple-source-site and
+proof-overlap canaries pass. The two historical expiry proofs were migrated to
+one-selector objects without changing their meaning. The dependency decision
+now has one model and production refinement role, one semantic binding and
+generated review evidence; no hand-copied test row or candidate location was
+introduced.
+
+Focused Nextest run `eec646a7-0d17-4bd5-aa9b-b1f807f02749` passes all nine
+new falsifiers. Complete library run `0534a181-016f-4bc0-a838-b3800e02e460`
+passes 775 of 775 tests; Nextest reports one pre-existing leaky test marker and
+returns success. The generated manifest now contains 779 discovered Nextest
+tests, 456 registered Rust tests and 1,892 invariant references. Formatting,
+diff whitespace, Python compilation, security-manifest, model-refinement,
+review-guide, documentation and production-contract checks pass.
+
+The candidate registry now correctly reports stale because the generated test
+universe changed. The earlier complete outcome and the exact 33-candidate
+dependency outcome come from different test universes; treating the focused
+result as last-writer-wins or as a deterministic replay would violate the
+result algebra. A complete final-universe mutation rerun is therefore required.
+Running all 795 candidates after each investigation root is rejected as
+duplicated experiment cost and would immediately stale again when the next
+root adds a falsifier. The fixed B3-R5 order is refined as follows: preserve the
+raw artifacts and exact dependency adjudication, continue the remaining seven
+root audits, freeze all semantic/test changes, regenerate the candidate lock
+once from that clean checkpoint, then execute the complete final cohort and
+generate one non-overlaid result lock. The result and aggregate mutation gates
+remain intentionally red until that point.
+
+Section-11 review finds no model drift beyond the missing decision relation now
+owned explicitly, no authority duplication, invalid-state growth, risk
+transfer, concurrency loss, compatibility change or runtime performance cost.
+The added checker topology has one distinct owner: cross-module producer
+premises that Rust privacy and legal lifecycle tests cannot each prove alone.
+Its cost is bounded by current production source bytes, proof selectors and
+candidate rows and is cached per source file. Deleting it permits a new equal
+cut or projection producer to inherit an old equivalence proof silently. The
+new tests each own a distinct phase, closure, later-waiter, final-availability
+or post-commit-wake falsifier; they are not candidate-by-candidate patches.
+Production behavior and legacy configuration remain unchanged, node downgrade
+remains unsupported, and cleanup and remote push remain unauthorized.
