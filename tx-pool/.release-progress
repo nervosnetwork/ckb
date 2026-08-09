@@ -5195,3 +5195,19 @@ review gates pass. Read-only complete rediscovery no longer reports a zero,
 unowned or ambiguous candidate; it reaches only the expected stale-lock
 boundary without writing a row. The next action is a local correction commit,
 then clean schema-3 lock generation and exact equivalence-selector validation.
+
+## B3-R5 current candidate lock reviewed
+
+Clean generation produced 795/795 uniquely owned current candidates, zero
+excluded, with candidate digest
+`4529eb462e7a40eeba46c7eab4746b1d48263ee5162447d21a4055b4db50cf47`
+and the exact 770-test internal library universe. All 17 obligations are
+nonempty; atomic transition fields owns precisely the three closed
+`TransitionControls` deletions, and both expiry equivalence proofs each match
+one distinct structured candidate. Read-only rediscovery reproduced the lock
+exactly when the historical result projection was removed from validation.
+
+The old schema-2 result lock remains deliberately unchanged and is stale
+against the current universe. The next action is a local generated-lock commit,
+then exact config generation and the complete isolated mutation run. No remote
+push or cleanup is authorized.

@@ -5302,3 +5302,23 @@ delta remains empty for authority, state, transitions, capabilities,
 compatibility, concurrency and runtime cost. The next exact action is one local
 owner-correction commit, followed by clean generated-lock creation and proof
 selector validation.
+
+Clean rediscovery after checkpoint `90f7f868b` generated schema-3 candidate
+lock `4529eb462e7a40eeba46c7eab4746b1d48263ee5162447d21a4055b4db50cf47`.
+It contains the complete 795-candidate universe with zero exclusions, 17
+nonempty uniquely owning obligations and the exact 770-test internal library
+universe. The atomic-field obligation owns exactly the three current
+`TransitionControls` field deletions. The two expiry proof selectors each
+resolve one distinct current structured replacement. A second read-only
+rediscovery against an absent result path reproduced the lock exactly and
+validated its input, candidate, config and command digests.
+
+The locked production-source revision is correctly
+`3437f8b02e0984219c3743bdef87e066e7707946`, the last commit touching the four
+selected production files; later semantic-proof and owner commits change no
+production source. The checked-in schema-2 result remains historical and fails
+against the new universe at its first absent candidate, so it is neither
+rebound nor migrated. The next exact action is to commit the reviewed generated
+candidate lock together with this checkpoint record, verify a clean tree,
+generate the exact run config and start the complete isolated Nextest mutation
+execution.
