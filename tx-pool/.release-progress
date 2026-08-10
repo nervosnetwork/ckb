@@ -2,7 +2,8 @@
 
 Projection date: 2026-08-10 Asia/Shanghai
 Branch: `zhangsoledad/txpool-pipeline`
-Checkpoint HEAD: `75ef1668b415`
+Pre-normalization recovery base: `75ef1668b415`
+Normalization content checkpoint: `0099747e9a45`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`
 Active phase: `release_boundary_adjudication`
