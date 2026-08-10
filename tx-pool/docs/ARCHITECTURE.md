@@ -670,9 +670,16 @@ owner construction uses one `OwnerClockBranch` that exclusively borrows its
 parent reservation. Versions and arrivals change only inside that stack-owned
 branch until explicit adoption; discarding resource- or allocation-rejected
 work therefore leaves the parent clock cut unchanged and needs no checkpoint,
-repair write or rollback path. The closed
-`TransitionControls` constructors are the sole owner of the legal dependency,
-effect and replacement-retirement combinations. Their three fields remain an
+repair write or rollback path. `EntryTransition` is the closed nonempty
+`Insert | Replace | Remove` owner relation; insertion capacity and retirement
+come from its exhaustive variants, so an option-pair no-op cannot be built.
+Membership Apply additionally receives one closed
+`MembershipRetirement::Inline(Vec) | Outside(Vec)` carrier. Plan binds the
+changed-owner drop policy to the only fallibly reserved retirement buffer;
+Apply can neither allocate retirement capacity under the authority guard nor
+carry an independent policy/count pair that can drift.
+The closed `TransitionControls` constructors separately own the legal
+dependency and effect combinations. These Plan-only values remain an
 atomic-commit mutation surface even though required clock-field deletion is
 now compile-unrepresentable.
 

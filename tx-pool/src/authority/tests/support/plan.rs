@@ -1279,7 +1279,7 @@ impl TxPoolAuthority {
             delta: AuthorityDelta::Membership(MembershipDelta {
                 changed_key: key.clone(),
                 changed_after: after,
-                changed_retirement: ChangedOwnerRetirement::VacantOrSharedShellInline,
+                retirement: MembershipRetirement::Inline(Vec::new()),
                 removals: Vec::new(),
                 owners,
                 resource,
@@ -1287,7 +1287,6 @@ impl TxPoolAuthority {
                 scheduler,
                 dependency,
                 effect: EffectDelta::default(),
-                retired: Vec::new(),
                 clocks: clocks.finish(),
                 async_process_start: None,
             }),

@@ -207,6 +207,57 @@ pub(crate) enum TransitionControlError {
     UnexpectedEffect,
 }
 
+/// The complete nonempty single-owner transition domain and its fallible
+/// scratch-retirement policy. There is deliberately no no-op variant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelOwnerTransition {
+    Insert,
+    ReplaceInline,
+    ReplaceOutside,
+    Remove,
+}
+
+/// The retirement policy and its already-reserved lock-external carrier are
+/// one fact. `reserved_owners` includes every coupled removal plus the changed
+/// predecessor exactly when that predecessor must leave the authority guard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelRetirementCarrier {
+    Inline { reserved_owners: usize },
+    Outside { reserved_owners: usize },
+}
+
+impl ModelRetirementCarrier {
+    pub(crate) const fn reserved_owners(self) -> usize {
+        match self {
+            Self::Inline { reserved_owners } | Self::Outside { reserved_owners } => reserved_owners,
+        }
+    }
+}
+
+impl ModelOwnerTransition {
+    pub(crate) const fn primary_insertions(self) -> usize {
+        match self {
+            Self::Insert => 1,
+            Self::ReplaceInline | Self::ReplaceOutside | Self::Remove => 0,
+        }
+    }
+
+    pub(crate) const fn retirement_carrier(
+        self,
+        coupled_removals: usize,
+    ) -> Option<ModelRetirementCarrier> {
+        match self {
+            Self::Insert | Self::ReplaceInline => Some(ModelRetirementCarrier::Inline {
+                reserved_owners: coupled_removals,
+            }),
+            Self::ReplaceOutside | Self::Remove => match coupled_removals.checked_add(1) {
+                Some(reserved_owners) => Some(ModelRetirementCarrier::Outside { reserved_owners }),
+                None => None,
+            },
+        }
+    }
+}
+
 /// Closed proof that one owner transition carries exactly its required
 /// dependency/effect controls. No default branch can erase a required field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

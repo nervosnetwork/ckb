@@ -5409,3 +5409,85 @@ authority, state, lock, task, queue, failure domain, configuration or
 compatibility path. The next exact action is the seven-row
 membership/history/released-input and transition-control root. Cleanup and
 remote push remain unauthorized.
+
+## B3-R5 membership closure root adjudicated, model work active
+
+Section 55 records the complete seven-row census and reopens all 28
+same-function candidates plus the three inseparable structural controls. Two
+rows are confirmed production liveness observations: administrative Accepted
+removal must publish released input availability, and RBF history must exclude
+input and cell-dependency references backed by a surviving Accepted parent.
+The strict output bound instead depends on the sealed resolver and membership
+producer relation. The resource fallback guard, changed-owner existence check
+and option-pair insertion formula duplicate facts already owned by the legal
+membership/resource and transition domains.
+
+The frozen correction adds no runtime topology. It extends existing executable
+relations, proves the sealed pool-output and no-history resource premises,
+adds two real lifecycle refinements, derives changed retirement from its enum,
+removes the redundant resource guard and replaces the representable
+`None/None` entry option pair with closed `Insert`, `Replace` and `Remove`
+variants. The next exact action is the executable model layer; production code
+cannot change before it passes. Historical mutation locks, cleanup authority
+and remote state remain unchanged.
+
+## B3-R5 membership mutation refinement delta frozen
+
+The exact 28-row focused cohort produced 15 caught, six compile-unviable and
+seven missed outcomes. Replaying the seven hypotheses against the complete
+788-test Nextest universe reduced that set to four. The empty replacement
+collector and both provenance negations were existing-test observations
+omitted only from the focused expression. The strict output comparison is the
+single sealed-producer equivalence already proved in the executable model.
+
+The remaining history conjunction exposed a false dual-role fixture: one
+OutPoint was canonicalized into the input role, so the cell-dependency branch
+was never constructed. The two retirement constant replacements exposed a
+split production fact between drop policy and preallocated carrier. Section 56
+freezes one root correction: two distinct surviving-parent outputs for the
+real lifecycle refinement, plus a closed `MembershipRetirement` carrier that
+owns both inline/outside policy and its fallibly reserved Vec. No allocator
+assertion, boolean guard, copied count or equivalence exception is permitted.
+
+The next exact action is the executable carrier relation, followed by the
+fused production cutover and distinct-output lifecycle refinement. Historical
+mutation locks, cleanup authority and remote state remain unchanged.
+
+## B3-R5 membership proof root closed
+
+Section 57 records the complete root correction and section-11 checkpoint.
+The nonempty owner-transition enum and fused `MembershipRetirement` carrier
+replace the optional no-op state and split policy/count/buffer fact. The
+resource, strict pool-output and replacement-history relations are executable;
+the two real lifecycle tests now observe administrative release and genuinely
+distinct surviving-parent input/cell-dependency roles. Apply performs no
+retirement allocation and no runtime owner, lock, task, queue, retry, scan or
+compatibility path was added.
+
+A post-run Clippy expectation moved source positions, so the earlier r3
+artifact was correctly rejected as non-current rather than hand-relocated. The
+exact current r4 cohort rediscovered 26 rows and completed with 19 caught, six
+compile-unviable, one missed and zero timeout. The sole miss at
+`plan.rs:2101:40` is resolved exactly by
+`V1-EQ-RELEASED-INPUT-SEALED-POOL-OUTPUT`. Current `outcomes.json` SHA-256 is
+`515c80968317d019f68dff8cfe9ae8915397f1c2e56277f0bdcd4ff7f4d6cc9f`;
+section 57 records every artifact hash.
+
+Exact-worktree Nextest run `307a1223-a392-4f35-b15b-d798e86c8e62`
+passes 788/788 with zero skipped. Strict Clippy, formatting, production,
+basic/expanded refinement, review, security, docs, ASCII, develop, test-layout
+and TLC gates pass. Aggregate validation is red only at the two section-50
+historical mutation-lock boundaries; neither checked-in lock was changed.
+
+The section-11 review confirms one authority, unchanged trusted boundary,
+capability/resource/effect conservation, wait/publication graphs, concurrency,
+external observations and legacy-configuration compatibility. Membership
+remains one bounded O(removals + 1) Plan/Apply transition with one fallible Plan
+allocation and none in Apply. Proof growth is confined to the existing model,
+tests and sole production checker; its possible generic fusion is owned by the
+post-V1 constructive-simplification gate, not by this correctness slice.
+
+The next exact action is the five-row settlement-evidence root audit from
+section 46. The later resource-configuration, resource-ledger and scheduler
+roots, final complete mutation rerun, deterministic smoke, V1 whole-system
+gate and constructive cleanup remain pending. No remote push is authorized.

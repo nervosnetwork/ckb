@@ -291,3 +291,55 @@ fn model_resource_batch_is_one_order_independent_set_transition() {
         Err(ContinuousChargeError::ExistingChargeMismatch)
     );
 }
+
+#[test]
+fn model_membership_without_history_cannot_increase_transient_resource_usage() {
+    let accepted = ContinuousChargeRecord::Accepted(ContinuousAcceptedResources {
+        entries: 1,
+        serialized_bytes: 5,
+        resident_bytes: 6,
+        cycles: 7,
+    });
+    let transient = ContinuousResourceVector::retained(1, 8, 3);
+    let changed_before = [
+        None,
+        Some(preaccepted(transient, None, None)),
+        Some(ContinuousChargeRecord::ReplacementHistory(transient)),
+    ];
+
+    for before in changed_before {
+        for victim_count in 0..=2u8 {
+            let mut charges = BTreeMap::new();
+            if let Some(before) = before {
+                charges.insert(0, before);
+            }
+            for victim in 0..victim_count {
+                charges.insert(victim + 1, accepted);
+            }
+            let ledger = ContinuousResourceLedger::new(limits(), charges)
+                .expect("the finite legal membership cut fits");
+            let before_usage = ledger.usage().expect("the initial cut is valid");
+            let mut changes = vec![ContinuousResourceChange {
+                key: 0,
+                expected: before,
+                after: Some(accepted),
+            }];
+            changes.extend((0..victim_count).map(|victim| ContinuousResourceChange {
+                key: victim + 1,
+                expected: Some(accepted),
+                after: None,
+            }));
+            let after = ledger
+                .plan_changes(&changes)
+                .expect("a no-history membership transition fits the transient partitions");
+            let after_usage = after.usage().expect("the resulting cut is valid");
+
+            assert!(after_usage.preaccepted.fits(before_usage.preaccepted));
+            assert!(
+                after_usage
+                    .replacement_history
+                    .fits(before_usage.replacement_history)
+            );
+        }
+    }
+}

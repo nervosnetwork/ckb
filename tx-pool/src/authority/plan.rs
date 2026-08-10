@@ -654,6 +654,14 @@ enum ChangedOwnerRetirement {
     OutsideGuard,
 }
 
+/// Closed Plan-to-Apply carrier for every owner that must be destroyed after
+/// the authority guard opens. The variant owns both the changed-owner drop
+/// policy and the Vec whose capacity was fallibly reserved for that policy.
+enum MembershipRetirement {
+    Inline(Vec<OwnedTx>),
+    Outside(Vec<OwnedTx>),
+}
+
 impl CommittedDelta {
     /// Destroy all potentially large retired values after the authority guard
     /// opens, then return the only capability that may publish this Apply's
@@ -715,10 +723,25 @@ struct EntryDelta {
     clocks: AuthorityClocks,
 }
 
-struct EntryTransition {
-    key: RawTxHash,
-    before: Option<OwnedTx>,
-    after: Option<OwnedTx>,
+#[expect(
+    clippy::large_enum_variant,
+    reason = "this Plan-only value replaces an equally wide before/after option pair; boxing would add fallible allocation to every owner transition"
+)]
+enum EntryTransition {
+    Insert {
+        key: RawTxHash,
+        after: OwnedTx,
+    },
+    Replace {
+        key: RawTxHash,
+        before: OwnedTx,
+        after: OwnedTx,
+        retirement: EntryReplacementRetirement,
+    },
+    Remove {
+        key: RawTxHash,
+        before: OwnedTx,
+    },
 }
 
 struct DerivedOwnerDelta {
@@ -729,7 +752,6 @@ struct DerivedOwnerDelta {
 struct TransitionControls {
     dependency: DependencyControlDelta,
     effect: EffectDelta,
-    replacement_retirement: EntryReplacementRetirement,
 }
 
 impl TransitionControls {
@@ -737,7 +759,6 @@ impl TransitionControls {
         Self {
             dependency: DependencyControlDelta::default(),
             effect: EffectDelta::default(),
-            replacement_retirement: EntryReplacementRetirement::SharedShellInline,
         }
     }
 
@@ -756,18 +777,7 @@ impl TransitionControls {
     }
 
     fn dependency_and_effect(dependency: DependencyControlDelta, effect: EffectDelta) -> Self {
-        Self {
-            dependency,
-            effect,
-            replacement_retirement: EntryReplacementRetirement::SharedShellInline,
-        }
-    }
-
-    fn replacement_retirement(replacement_retirement: EntryReplacementRetirement) -> Self {
-        Self {
-            replacement_retirement,
-            ..Self::none()
-        }
+        Self { dependency, effect }
     }
 }
 
@@ -794,7 +804,7 @@ struct DependencyLossKeys {
 struct MembershipDelta {
     changed_key: RawTxHash,
     changed_after: OwnedTx,
-    changed_retirement: ChangedOwnerRetirement,
+    retirement: MembershipRetirement,
     removals: Vec<MembershipRemoval>,
     owners: DerivedOwnerDelta,
     resource: ResourceBatchPlan,
@@ -802,7 +812,6 @@ struct MembershipDelta {
     scheduler: SchedulerDelta,
     dependency: DependencyBatchDelta,
     effect: EffectDelta,
-    retired: Vec<OwnedTx>,
     clocks: AuthorityClocks,
     async_process_start: Option<AsyncProcessStart>,
 }
@@ -1294,30 +1303,36 @@ impl PreparedApply<'_> {
         authority: &mut TxPoolAuthority,
         mut delta: MembershipDelta,
     ) -> ApplyRetirement {
-        let mut retired = delta.retired;
+        let mut retirement = delta.retirement;
         for removal in &mut delta.removals {
             let previous = match removal.take_after() {
                 Some(after) => authority.entries.insert(removal.hash.clone(), after),
                 None => authority.entries.remove(&removal.hash),
             };
             if let Some(owner) = previous {
-                retired.push(owner);
+                match &mut retirement {
+                    MembershipRetirement::Inline(retired)
+                    | MembershipRetirement::Outside(retired) => retired.push(owner),
+                }
             }
         }
         let previous = authority
             .entries
             .insert(delta.changed_key, delta.changed_after);
-        match delta.changed_retirement {
-            ChangedOwnerRetirement::VacantOrSharedShellInline => drop(previous),
-            ChangedOwnerRetirement::OutsideGuard => {
-                if let Some(owner) = previous {
-                    // Capacity was reserved while planning; Apply performs no
-                    // allocation and the last payload reference dies only
-                    // after the authority guard is released.
-                    retired.push(owner);
-                }
+        let retired = match (retirement, previous) {
+            (MembershipRetirement::Inline(retired), previous) => {
+                drop(previous);
+                retired
             }
-        }
+            (MembershipRetirement::Outside(mut retired), Some(owner)) => {
+                // The carrier was reserved while planning; Apply performs no
+                // allocation and the last payload reference dies only after
+                // the authority guard is released.
+                retired.push(owner);
+                retired
+            }
+            (MembershipRetirement::Outside(retired), None) => retired,
+        };
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
         authority.resources.apply_batch(delta.resource);
@@ -2399,11 +2414,7 @@ impl TxPoolAuthority {
             charge,
         });
         self.prepare_entry_delta(
-            EntryTransition {
-                key,
-                before: None,
-                after: Some(after),
-            },
+            EntryTransition::Insert { key, after },
             clocks.finish(),
             sequence,
         )
@@ -2521,26 +2532,24 @@ impl TxPoolAuthority {
             };
             (promoted, clocks)
         };
-        let transition = EntryTransition {
-            key,
-            before: Some(existing),
-            after: Some(OwnedTx::PreAccepted(promoted)),
-        };
-        if same_witness {
-            self.prepare_entry_delta(transition, clocks.finish(), sequence)
+        // A distinct trusted payload retires the exact old owner outside the
+        // authority guard. A checked-out worker still holds the old version
+        // and can only return a typed stale completion.
+        let retirement = if same_witness {
+            EntryReplacementRetirement::SharedShellInline
         } else {
-            // The trusted payload replaces the exact owner atomically. A
-            // checked-out worker still holds the old EntryVersion and can
-            // therefore only return a typed stale completion. Carry the old
-            // payload outside the future authority guard instead of waiting
-            // for obsolete work or destroying its last Arc in Apply.
-            self.prepare_entry_delta_with_replacement_retirement(
-                transition,
-                clocks.finish(),
-                sequence,
-                EntryReplacementRetirement::OutsideGuard,
-            )
-        }
+            EntryReplacementRetirement::OutsideGuard
+        };
+        self.prepare_entry_delta(
+            EntryTransition::Replace {
+                key,
+                before: existing,
+                after: OwnedTx::PreAccepted(promoted),
+                retirement,
+            },
+            clocks.finish(),
+            sequence,
+        )
     }
 
     fn plan_replacement_history_admission(
@@ -2594,10 +2603,11 @@ impl TxPoolAuthority {
             }
         };
         self.prepare_entry_delta(
-            EntryTransition {
+            EntryTransition::Replace {
                 key,
-                before: Some(existing),
-                after: Some(OwnedTx::PreAccepted(promoted)),
+                before: existing,
+                after: OwnedTx::PreAccepted(promoted),
+                retirement: EntryReplacementRetirement::SharedShellInline,
             },
             clocks.finish(),
             sequence,
@@ -2699,15 +2709,15 @@ impl TxPoolAuthority {
         requeued.record.version = version;
         requeued.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
         requeued.charge = preaccepted.original_charge();
-        self.prepare_entry_delta_with_replacement_retirement(
-            EntryTransition {
+        self.prepare_entry_delta(
+            EntryTransition::Replace {
                 key: subject.key().clone(),
-                before: Some(OwnedTx::PreAccepted(preaccepted)),
-                after: Some(OwnedTx::PreAccepted(requeued)),
+                before: OwnedTx::PreAccepted(preaccepted),
+                after: OwnedTx::PreAccepted(requeued),
+                retirement: EntryReplacementRetirement::OutsideGuard,
             },
             clocks.finish(),
             sequence,
-            EntryReplacementRetirement::OutsideGuard,
         )
     }
 
@@ -3141,13 +3151,10 @@ impl TxPoolAuthority {
             MembershipEffects::SilentInternal => EffectDelta::default(),
         };
         let after = OwnedTx::Accepted(accepted);
-        let has_history = removals.iter().any(|removal| removal.after().is_some());
         let resource =
             match self.plan_membership_resources(&key, existing.as_ref(), &after, &removals) {
                 Ok(resource) => resource,
-                Err(ResourceError::PreAcceptedLimit | ResourceError::ReplacementHistoryLimit)
-                    if has_history =>
-                {
+                Err(ResourceError::PreAcceptedLimit | ResourceError::ReplacementHistoryLimit) => {
                     removals.iter_mut().for_each(MembershipRemoval::terminalize);
                     retained_history = false;
                     self.plan_membership_resources(&key, existing.as_ref(), &after, &removals)
@@ -3158,15 +3165,18 @@ impl TxPoolAuthority {
         if retained_history {
             history_clocks.adopt();
         }
-        let changed_retirements = usize::from(
-            existing.is_some()
-                && matches!(changed_retirement, ChangedOwnerRetirement::OutsideGuard),
-        );
-        let retired_capacity = removals
-            .len()
-            .checked_add(changed_retirements)
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let retired = retired_buffer(retired_capacity)?;
+        let retirement = match changed_retirement {
+            ChangedOwnerRetirement::VacantOrSharedShellInline => {
+                MembershipRetirement::Inline(retired_buffer(removals.len())?)
+            }
+            ChangedOwnerRetirement::OutsideGuard => {
+                let capacity = removals
+                    .len()
+                    .checked_add(1)
+                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+                MembershipRetirement::Outside(retired_buffer(capacity)?)
+            }
+        };
         let scheduler = self
             .scheduler
             .plan_replace(existing.as_ref(), Some(&after), None)?;
@@ -3182,7 +3192,7 @@ impl TxPoolAuthority {
         Ok(MembershipDelta {
             changed_key: key.clone(),
             changed_after: after,
-            changed_retirement,
+            retirement,
             removals,
             owners,
             resource,
@@ -3190,7 +3200,6 @@ impl TxPoolAuthority {
             scheduler,
             dependency,
             effect,
-            retired,
             clocks: clocks.finish(),
             async_process_start,
         })
@@ -3337,10 +3346,9 @@ impl TxPoolAuthority {
         let dependency_control = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
         let effect = self.effects.plan_publication(publication, sequence)?;
         self.prepare_entry_delta_with_controls(
-            EntryTransition {
+            EntryTransition::Remove {
                 key: key.clone(),
-                before: Some(existing),
-                after: None,
+                before: existing,
             },
             clocks.finish(),
             sequence,
@@ -3932,10 +3940,11 @@ impl TxPoolAuthority {
             }
         };
         self.prepare_entry_delta_with_dependency(
-            EntryTransition {
+            EntryTransition::Replace {
                 key: hash,
-                before: Some(existing),
-                after: Some(after),
+                before: existing,
+                after,
+                retirement: EntryReplacementRetirement::SharedShellInline,
             },
             clocks.finish(),
             sequence,
@@ -4512,10 +4521,11 @@ impl TxPoolAuthority {
             )
             .map_err(PlanError::from)?;
         self.prepare_entry_delta_with_controls(
-            EntryTransition {
+            EntryTransition::Replace {
                 key: token.hash.clone(),
-                before: Some(existing),
-                after: Some(after),
+                before: existing,
+                after,
+                retirement: EntryReplacementRetirement::SharedShellInline,
             },
             clocks.finish(),
             sequence,
@@ -4566,10 +4576,9 @@ impl TxPoolAuthority {
         let effect = self.effects.plan_publication(&publication, sequence)?;
         let key = preaccepted.record.identity.raw.clone();
         self.prepare_entry_delta_with_controls(
-            EntryTransition {
+            EntryTransition::Remove {
                 key,
-                before: Some(existing),
-                after: None,
+                before: existing,
             },
             clocks.finish(),
             sequence,
@@ -4609,22 +4618,6 @@ impl TxPoolAuthority {
         )
     }
 
-    fn prepare_entry_delta_with_replacement_retirement(
-        &mut self,
-        transition: EntryTransition,
-        clocks: AuthorityClocks,
-        sequence: ApplySequence,
-        replacement_retirement: EntryReplacementRetirement,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.prepare_entry_delta_with_controls(
-            transition,
-            clocks,
-            sequence,
-            TransitionControls::replacement_retirement(replacement_retirement),
-            None,
-        )
-    }
-
     fn prepare_entry_delta_with_controls(
         &mut self,
         transition: EntryTransition,
@@ -4634,27 +4627,39 @@ impl TxPoolAuthority {
         explicit_resources: Option<ResourcePlan>,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
-        let EntryTransition {
-            key,
-            before: expected,
-            after,
-        } = transition;
         let TransitionControls {
             dependency: dependency_control,
             effect,
-            replacement_retirement,
         } = controls;
+        let (key, expected, after, primary_insertions, retirement) = match transition {
+            EntryTransition::Insert { key, after } => {
+                (key, None, Some(after), 1, EntryRetirement::InlineDrop)
+            }
+            EntryTransition::Replace {
+                key,
+                before,
+                after,
+                retirement,
+            } => {
+                let retirement = match retirement {
+                    EntryReplacementRetirement::SharedShellInline => EntryRetirement::InlineDrop,
+                    EntryReplacementRetirement::OutsideGuard => {
+                        EntryRetirement::Outside(retired_buffer(1)?)
+                    }
+                };
+                (key, Some(before), Some(after), 0, retirement)
+            }
+            EntryTransition::Remove { key, before } => (
+                key,
+                Some(before),
+                None,
+                0,
+                EntryRetirement::Outside(retired_buffer(1)?),
+            ),
+        };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);
-        let retirement = match (expected.is_some(), after.is_none(), replacement_retirement) {
-            (true, true, _) | (true, false, EntryReplacementRetirement::OutsideGuard) => {
-                EntryRetirement::Outside(retired_buffer(1)?)
-            }
-            (false, _, _) | (true, false, EntryReplacementRetirement::SharedShellInline) => {
-                EntryRetirement::InlineDrop
-            }
-        };
-        self.reserve_primary_owner_insertions(usize::from(after.is_some() && expected.is_none()))?;
+        self.reserve_primary_owner_insertions(primary_insertions)?;
         let resource = match explicit_resources {
             Some(resources) => resources,
             None => self

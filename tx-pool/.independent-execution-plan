@@ -5960,3 +5960,260 @@ consumers, ownership/accounting effects, publication observations and legal
 counterexamples before changing production or proof-family ownership. The
 five remaining roots retain their frozen order, followed by the one complete
 final-universe mutation rerun. Cleanup and remote push remain unauthorized.
+
+## 55. Membership closure root adjudication and model freeze
+
+The fourth section-46 root contains exactly seven unaccepted rows. The
+previous remote-expiry guard is not part of this root: it is already owned by
+`V1-EQ-REMOTE-EXPIRY-DUE-CUT`. The seven current hypotheses are the empty
+administrative released-input collector, the surviving-parent output bound
+weakened from `<` to `<=`, the two RBF history trigger conjunctions weakened
+to disjunctions, the forced-true optional-history resource guard, the changed
+owner retirement conjunction weakened to a disjunction, and the primary
+insertion reservation conjunction weakened to a disjunction. The same-premise
+audit reopens all 28 current candidates in the six affected functions plus the
+three inseparable `TransitionControls` structural controls; caught and
+compile-unviable rows are controls, not proof that the seven rows share one
+disposition.
+
+Two hypotheses have legal externally observable counterexamples. Removing an
+Accepted owner administratively must publish each input whose backing cell
+survives the projected final owner set. An indexed ReplacementHistory waiter
+must then become runnable in bounded maintenance work. The existing newer-loss
+test intentionally overwrites that availability before maintenance and cannot
+observe an empty administrative collector. Separately, a replaced Accepted
+victim may reference an Accepted parent that survives the RBF cohort in both
+input and cell-dependency roles. Neither non-chain-backed parent reference is
+a recovery trigger; changing either `producer_removed && !chain_backed`
+conjunction to a disjunction adds a false blocker and delays recovery after
+the real conflict is released. The existing chain-backed unrelated-input test
+does not construct this topology. Each correction therefore uses one real
+production lifecycle refinement over the already canonical released-input and
+replacement-history-trigger model relations, not candidate-shaped fixtures.
+
+The strict surviving-output comparison is a sealed-producer equivalence
+hypothesis. Arbitrary values distinguish `index < output_count` from
+`index <= output_count`, but a legal Accepted child cannot carry the boundary
+case. `SparsePoolCellProvider::cell` returns Unknown unless
+`output_with_data(index)` succeeds, `surviving_pool_parent` rejects a missing
+pool output, and `validate_candidate_input_evidence` seals exact chain,
+released-RBF or surviving-pool evidence before membership. A finite legal
+construction theorem plus a complete resolver/membership producer and caller
+theorem must close that premise. Forging an invalid Accepted fixture is
+rejected, and the equivalence proof may select only this exact source site.
+
+The remaining three rows expose duplicated or over-wide transition facts and
+are removed constructively:
+
+- a no-history membership batch changes vacant, PreAccepted or
+  ReplacementHistory ownership to Accepted and removes Accepted victims to
+  `None`; it cannot increase either total preacceptance or replacement-history
+  usage. Because `ResourceLedger::plan_batch` removes the entire before set
+  before adding the after set, `PreAcceptedLimit` or
+  `ReplacementHistoryLimit` implies a retained history row. The separate
+  `has_history` guard is redundant; the fallback owns those two typed resource
+  outcomes directly and an already terminal batch retries to the same fault;
+- `ChangedOwnerRetirement::OutsideGuard` is produced only for an existing
+  direct owner or a location-refreshed Ready owner. Its policy therefore owns
+  exactly one retired changed owner. Capacity derives from the enum rather
+  than recomputing `existing.is_some()`;
+- the option-pair `EntryTransition { before, after }` represents an illegal
+  `None/None` transition and makes insertion capacity a duplicated boolean
+  formula. It is replaced by the closed `Insert`, `Replace` and `Remove`
+  algebra. Primary insertion and retirement are derived exhaustively from the
+  variant, so no no-op constructor exists.
+
+Four topology families were compared. Per-mutant fixtures and new boolean
+guards are rejected as patching. Blanket equivalence is rejected because two
+rows have legal liveness consequences. One generic projected-owner layer over
+administration, RBF, resources and entry transitions is rejected because it
+couples distinct semantic facts and adds proof and vocabulary cost without a
+runtime owner to remove. Keeping the option pair with a static allowlist is
+smaller in lines but leaves the invalid state representable. The selected
+topology extends the two existing evidence/resource models, adds one small
+owner-transition cost algebra, closes two real production paths, removes the
+redundant resource and retirement predicates, and makes the entry transition
+domain closed.
+
+No persistent field, mutable authority, lock, task, queue, capability, retry,
+timer, cache, scan, I/O or compatibility path is added. The entry enum is
+stack-owned Plan input and preserves all existing Apply, allocation and
+retirement behavior. Legacy configuration remains unchanged and node
+downgrade remains unsupported. The fixed implementation order is: executable
+resource monotonicity, legal pool-output and owner-transition algebra; real
+administrative-release and surviving-parent history refinements; production
+cutover removing the duplicated predicates and option pair; complete static
+producer/caller/construction census; generated evidence synchronization;
+focused and complete Nextest/static gates; section-11 and snowball review; then
+one exact no-config current mutation cohort. Historical candidate/result locks
+remain unchanged until the final-universe rerun required by section 50.
+Cleanup and remote push remain unauthorized.
+
+## 56. Membership mutation refinement delta and retirement-carrier freeze
+
+The first exact no-config execution of the section-55 current cohort discovered
+28 rows. Its focused ten-test baseline passed, then 15 rows were caught, six
+were compile-unviable and seven were missed. A second execution selected those
+seven hypotheses plus cargo-mutants' inseparable structural controls and ran
+the complete 788-test library universe. The complete universe caught the empty
+replacement released-input collector and both non-chain-provenance negations;
+the focused expression, not production evidence, was incomplete for those
+rows. Four hypotheses remain after that classification: the two constant
+replacements of `ChangedOwnerRetirement::retired_owner_count`, the exact
+released-input `<` to `<=` perturbation, and the cell-dependency history
+conjunction weakened to a disjunction.
+
+The strict output-bound result is the section-55 sealed-producer equivalence.
+The new finite constructor theorem and real projected-owner refinement close
+only the exact comparison site selected by
+`V1-EQ-RELEASED-INPUT-SEALED-POOL-OUTPUT`; arbitrary indices remain outside
+the legal Accepted domain, so no broader comparison family is accepted.
+
+The cell-dependency survivor reopens the lifecycle refinement rather than the
+production relation. The test intended to cover a surviving parent in both
+input and cell-dependency roles reused one OutPoint. `ExpandedFootprint`
+canonicalizes dependency keys, so the cell-dependency loop had no distinct
+key and the asserted recovery basis was satisfied by the input role alone.
+The legal counterexample remains real. Its root correction is to use two
+different outputs of one surviving Accepted parent, one as an input and one as
+a declared cell dependency, and observe that neither becomes a history wake
+trigger while both remain in the recovery basis.
+
+The two retirement-count survivors expose a production-design residue. The
+semantic inline/outside drop policy and the Vec that proves sufficient
+lock-external retirement capacity are still stored as two facts, with a
+fallible numeric projection between them. Replacing that projection with a
+constant preserves ordinary outputs but either permits allocation while the
+authority guard is held or reserves capacity with no semantic owner. A test
+allowlist, allocator-specific capacity assertion, extra boolean or copied
+count would retain the split fact and is rejected.
+
+The frozen correction fuses policy and carrier into one closed linear
+`MembershipRetirement` relation with `Inline(Vec<OwnedTx>)` and
+`Outside(Vec<OwnedTx>)` variants. Plan constructs the selected variant only
+after the complete removal cohort is known and fallibly reserves exactly the
+semantic upper bound: removal count for Inline, and checked removal count plus
+one for Outside. Apply pushes removed owners through the variant's existing
+Vec and exhaustively either drops the changed predecessor inline or appends it
+to the Outside carrier. `MembershipDelta` then owns one retirement fact rather
+than separate policy and buffer fields, and the numeric projection disappears.
+This preserves one allocation, the existing memory bound and the lock-external
+destruction behavior; it adds no owner, task, queue, lock, retry, scan, I/O,
+configuration or compatibility path.
+
+The re-adjudicated order is: extend the owner-transition model from counts to
+the closed carrier relation; cut production over to the fused carrier; repair
+the lifecycle refinement with distinct parent outputs; update the complete
+static construction/consumption theorem and generated evidence; rerun the
+focused 28-row cohort with the two existing full-universe falsifiers included;
+then run complete Nextest and all non-mutation gates before the section-11 and
+snowball review. Historical candidate/result locks remain unchanged until the
+single final-universe regeneration required by section 50. Cleanup and remote
+push remain unauthorized.
+
+## 57. Membership proof closure and section-11 checkpoint
+
+The section-56 correction is complete in the local checkpoint containing this
+record. `ModelOwnerTransition` now has exactly the nonempty Insert,
+ReplaceInline, ReplaceOutside and Remove cases, and its checked
+`ModelRetirementCarrier` derives both policy and the complete coupled-removal
+capacity. Production refines that relation through the closed
+`EntryTransition::{Insert, Replace, Remove}` and
+`MembershipRetirement::{Inline, Outside}` carriers. `MembershipDelta` no
+longer stores an independent changed-owner policy and retirement Vec, and
+Apply consumes the carrier without fallible allocation. The Plan-only owner
+transition remains stack-owned; the exact Clippy expectation documents why
+boxing an equally wide predecessor representation would add a hot-path
+allocation rather than simplify the proof.
+
+The released-input model excludes the output-count boundary through a sealed
+`ModelAcceptedPoolOutput` constructor. The production theorem follows the
+complete resolver, Accepted proof, membership validation, eviction and shared
+released-input caller surface. The administrative-removal lifecycle observes
+the final spender release, while the corrected RBF lifecycle uses two distinct
+outputs of one surviving Accepted parent so both the input and cell-dependency
+roles are actually constructed. The no-history resource model proves that the
+typed transient-limit fallback owns the decision without an independent
+history predicate.
+
+The first 26-row final cohort artifact became non-current when the later
+Clippy expectation moved source locations. Its semantic result was unchanged,
+but it was not relabelled or hand-adjusted. A fresh cargo-mutants 27.1.0
+no-config execution at the exact current production source rediscovered the
+same eight-function 26-row surface and produced 19 caught, six
+compile-unviable, one missed and zero timed-out outcomes. The sole miss is
+`plan.rs:2101:40`, replacing the strict released-input output bound with
+`<=`; the architecture-owned
+`V1-EQ-RELEASED-INPUT-SEALED-POOL-OUTPUT` source-site selector and its canaries
+resolve exactly that current candidate and no other comparison.
+
+The current artifact is
+`/private/tmp/ckb-tx-pool-v1-mutants-membership-closure-r4/mutants.out`.
+Its SHA-256 records are:
+
+- `lock.json`:
+  `b59e1e2102bf3ceaa862a015ab2e5d33dc242b823b6c20d660569c752392cc62`;
+- `mutants.json`:
+  `816332892c172e89634ba17e20d5fa76dc1f350e54a1393e31117cac6c512583`;
+- `outcomes.json`:
+  `515c80968317d019f68dff8cfe9ae8915397f1c2e56277f0bdcd4ff7f4d6cc9f`;
+- `caught.txt`:
+  `0a363af25783e5c66688fe4afb4b2938f6780e5567692af8115e32e3d9b36d3b`;
+- `missed.txt`:
+  `df54bd135a938f10d090f4a251bfb3bb1b143e9c2fbf3500c5d151fef37be22c`;
+- `unviable.txt`:
+  `b3541419c51f4d559a7f202c1f606a455838b611ee6f0bf51d87beb3a4abd43c`;
+- empty `timeout.txt`:
+  `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+Exact-worktree Nextest run `307a1223-a392-4f35-b15b-d798e86c8e62`
+passes 788/788 internal-feature library tests with zero skipped. Strict
+all-target Clippy, formatting and diff whitespace pass. The basic and expanded
+refinement gates report 319 reachable model terms / 99 outside roots / 38
+files and 672 reachable production terms / 18 outside roots / 42 files, with
+zero constructorless model variants, expanded-production variants or root
+structs. Production, review, security, documentation, ASCII, develop,
+test-layout and formal gates pass; TLC retains 1,098 generated / 318 distinct
+positive states and the required four-state negative witness. The generated
+evidence graph contains 465 unique Rust tests, 1,939 invariant references, 19
+integration anchors and 150 managed specs over the discovered 788-test
+universe.
+
+The aggregate gate remains red at exactly the two section-50 historical-lock
+boundaries. Mutation adjudication cannot find the new released-input proof in
+the old candidate lock, and mutation-matrix validation cannot find the removed
+atomic-clock branch in that same stale universe. The current root selector was
+validated directly against the current artifact; the historical locks remain
+unchanged until the single final-universe regeneration and complete rerun.
+
+The section-11 review finds no trusted-environment, protocol, consensus,
+configuration, persistence, RPC or external-effect change. The mutable state
+basis still has one `TxPoolAuthority`; the new production values are linear
+Plan-to-Apply carriers, not persistent owners or derived authorities. Owner,
+resource, capability and effect conservation remain one atomic Apply, while
+validation, compute and external I/O remain outside the authority guard. No
+lock, task, queue, channel, retry, timer, watchdog, cache, scan, wait edge,
+publication edge or failure domain was added. One fallible reservation remains
+in Plan, Apply performs no retirement allocation, and membership work remains
+O(removals + 1) with the existing bounded cohort and one allocation. Legacy
+configuration remains accepted and node binary/database downgrade remains
+unsupported.
+
+The snowball review distinguishes runtime topology from proof cost. Production
+`plan.rs` is net five lines larger after replacing the equally wide option pair
+and split retirement fields; it adds no persistent state or hot-path
+indirection. The larger model, lifecycle and 417-line static-theorem growth
+closes two distinct directional proof chains inside the existing sole checker;
+it creates no registry, runner or parallel specification. This proof cost is
+retained through the final mutation universe so no falsifier is erased. The
+post-V1 constructive-simplification gate must re-evaluate whether generic
+source-graph derivation can fuse repeated syntax observations while preserving
+the exact producer, caller, constructor and allocation falsifiers; line-count
+reduction alone is not authorization.
+
+The next exact action is the fifth section-46 root: perform the complete
+producer, consumer, transition, currentness and legal-counterexample audit for
+the five settlement-evidence rows before changing any model, production owner
+or mutation disposition. Resource configuration, resource-ledger transitions,
+scheduler eligibility and the one final-universe mutation rerun remain pending
+in their frozen order. Cleanup and remote push remain unauthorized.

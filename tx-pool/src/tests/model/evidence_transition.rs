@@ -532,12 +532,44 @@ pub(crate) enum ModelPoolParent {
     Other,
 }
 
+/// A pool-output reference that a legal Accepted membership proof may carry.
+/// Construction is the strict output-domain predicate used by resolution and
+/// final membership validation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModelAcceptedPoolOutput {
+    output_index: usize,
+    output_count: usize,
+}
+
+impl ModelAcceptedPoolOutput {
+    pub(crate) const fn new(output_index: usize, output_count: usize) -> Option<Self> {
+        if output_index < output_count {
+            Some(Self {
+                output_index,
+                output_count,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn output_index(self) -> usize {
+        self.output_index
+    }
+
+    pub(crate) const fn output_count(self) -> usize {
+        self.output_count
+    }
+}
+
 impl ModelPoolParent {
     const fn preserves(self, output_index: usize) -> bool {
-        matches!(
-            self,
-            Self::SurvivingAccepted { output_count } if output_index < output_count
-        )
+        match self {
+            Self::SurvivingAccepted { output_count } => {
+                ModelAcceptedPoolOutput::new(output_index, output_count).is_some()
+            }
+            Self::Removed | Self::Other => false,
+        }
     }
 }
 

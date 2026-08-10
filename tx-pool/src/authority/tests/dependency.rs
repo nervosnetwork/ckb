@@ -579,6 +579,150 @@ fn uak_replacement_history_ignores_a_newer_loss_until_final_availability() {
 }
 
 #[test]
+fn uak_administrative_removal_releases_the_final_spender_input_to_history() {
+    let history_limits = limits()
+        .with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+        .expect("the fixture reserves one bounded replacement-history partition");
+    let mut authority = TxPoolAuthority::with_replacement(history_limits, FeeRate::from_u64(1_000));
+    let conflicting_input = OutPoint::new(Byte32::new([0xd3; 32]), 0);
+    let victim = accept_remote(
+        &mut authority,
+        input_transaction(962, conflicting_input.clone()),
+        262,
+        vec![conflicting_input.clone()],
+        Capacity::shannons(100),
+    );
+    let winner = accept_remote(
+        &mut authority,
+        input_transaction(963, conflicting_input.clone()),
+        263,
+        vec![conflicting_input],
+        Capacity::shannons(10_000),
+    );
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    apply_plan(
+        authority
+            .plan_local_removal(&winner)
+            .expect("winner removal planning is coherent")
+            .expect("the Accepted winner remains locally removable"),
+    );
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_replacement_history_excludes_references_to_a_surviving_pool_parent() {
+    let history_limits = limits()
+        .with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+        .expect("the fixture reserves one bounded replacement-history partition");
+    let mut authority = TxPoolAuthority::with_replacement(history_limits, FeeRate::from_u64(1_000));
+    let conflicting_input = OutPoint::new(Byte32::new([0xd4; 32]), 0);
+    let parent_tx = TransactionBuilder::default()
+        .version(964u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let parent_input = OutPoint::new(parent_tx.hash(), 0);
+    let parent_dependency = OutPoint::new(parent_tx.hash(), 1);
+    let parent = accept_remote(
+        &mut authority,
+        parent_tx,
+        264,
+        Vec::new(),
+        Capacity::shannons(100),
+    );
+    let victim_tx = TransactionBuilder::default()
+        .version(965u32)
+        .input(CellInput::new(conflicting_input.clone(), 0))
+        .input(CellInput::new(parent_input.clone(), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(parent_dependency.clone())
+                .build(),
+        )
+        .build();
+    let victim = accept_remote(
+        &mut authority,
+        victim_tx,
+        265,
+        vec![conflicting_input.clone()],
+        Capacity::shannons(100),
+    );
+    let winner = accept_remote(
+        &mut authority,
+        input_transaction(966, conflicting_input.clone()),
+        266,
+        vec![conflicting_input.clone()],
+        Capacity::shannons(10_000),
+    );
+
+    let Some(OwnedTx::ReplacementHistory(history)) = authority.entry(&victim) else {
+        panic!("the accepted victim must become replacement history");
+    };
+    assert_eq!(history.observation().len(), 1);
+    assert!(
+        history
+            .observation()
+            .contains(&DependencyKey::Cell(conflicting_input))
+    );
+    assert!(
+        !history
+            .observation()
+            .contains(&DependencyKey::Cell(parent_input.clone()))
+    );
+    assert!(
+        !history
+            .observation()
+            .contains(&DependencyKey::Cell(parent_dependency.clone()))
+    );
+    assert!(matches!(
+        authority.entry(&parent),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(
+        history
+            .dependencies()
+            .contains(&DependencyKey::Cell(parent_input)),
+        "the surviving parent input remains in the recovery basis but is not a wake trigger"
+    );
+    assert!(
+        history
+            .dependencies()
+            .contains(&DependencyKey::Cell(parent_dependency)),
+        "the surviving parent cell dependency remains in the recovery basis but is not a wake trigger"
+    );
+
+    apply_plan(
+        authority
+            .plan_local_removal(&winner)
+            .expect("winner removal planning is coherent")
+            .expect("the Accepted winner remains locally removable"),
+    );
+    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    assert!(matches!(
+        authority.entry(&parent),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
 fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(

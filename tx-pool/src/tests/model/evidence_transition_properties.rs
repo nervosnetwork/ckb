@@ -1,17 +1,17 @@
 use super::{
     dependency_progress::{ModelDependencyCut, ModelDependencyKey},
     evidence_transition::{
-        ModelAdmissionReceipt, ModelDependencyLevel, ModelDependencyMaintenanceAction,
-        ModelDependencyMaintenanceError, ModelDependencyMaintenanceLocation,
-        ModelDependencyMaintenanceOwner, ModelDependencyMaintenanceScope,
-        ModelDependencyMaintenanceTicket, ModelDirectRejectionObservation,
-        ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity,
-        ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject,
-        ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
-        ModelPreAcceptedMaintenancePhase, ModelPreAcceptedSource, ModelRawTransaction,
-        ModelReadyOwner, ModelReleasedInputContext, ModelReleasedInputCut,
-        ModelReleasedInputDisposition, ModelReplacementReference, ModelSubjectValidation,
-        ModelUnindexedDependencyLevel, dependency_maintenance_action,
+        ModelAcceptedPoolOutput, ModelAdmissionReceipt, ModelDependencyLevel,
+        ModelDependencyMaintenanceAction, ModelDependencyMaintenanceError,
+        ModelDependencyMaintenanceLocation, ModelDependencyMaintenanceOwner,
+        ModelDependencyMaintenanceScope, ModelDependencyMaintenanceTicket,
+        ModelDirectRejectionObservation, ModelDirectRejectionValidity, ModelEvidenceFrontier,
+        ModelEvidenceIdentity, ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView,
+        ModelFinalAdmissionSubject, ModelKnownDependencies, ModelMissingDisposition,
+        ModelMissingFact, ModelPoolParent, ModelPreAcceptedMaintenancePhase,
+        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext,
+        ModelReleasedInputCut, ModelReleasedInputDisposition, ModelReplacementReference,
+        ModelSubjectValidation, ModelUnindexedDependencyLevel, dependency_maintenance_action,
         missing_resolution_disposition, released_input_disposition, replacement_history_trigger,
         validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
         validate_final_subject,
@@ -569,6 +569,20 @@ fn model_released_input_is_derived_from_the_projected_final_owner_set() {
         }),
         ModelReleasedInputDisposition::StructuralFault
     );
+}
+
+#[test]
+fn model_accepted_pool_output_construction_excludes_the_weak_bound_counterexample() {
+    for output_count in 0..=4 {
+        for output_index in 0..=5 {
+            let reference = ModelAcceptedPoolOutput::new(output_index, output_count);
+            assert_eq!(reference.is_some(), output_index < output_count);
+            if let Some(reference) = reference {
+                assert!(reference.output_index() < reference.output_count());
+                assert!(reference.output_index() <= reference.output_count());
+            }
+        }
+    }
 }
 
 #[test]

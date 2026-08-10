@@ -1,7 +1,8 @@
 use super::atomic_transition::{
     ClockBranchDecision, ClockCommit, ClockCommitError, ClockDemand, ClockPlan,
-    ModelAuthorityClocks, ModelDependencyControl, ModelEffectControl, TransitionControlCommit,
-    TransitionControlDemand, TransitionControlError,
+    ModelAuthorityClocks, ModelDependencyControl, ModelEffectControl, ModelOwnerTransition,
+    ModelRetirementCarrier, TransitionControlCommit, TransitionControlDemand,
+    TransitionControlError,
 };
 
 #[test]
@@ -269,5 +270,45 @@ fn model_transition_controls_make_every_required_projection_structural() {
     assert_eq!(
         TransitionControlCommit::seal(TransitionControlDemand::None, None, Some(effect)),
         Err(TransitionControlError::UnexpectedEffect)
+    );
+}
+
+#[test]
+fn model_owner_transition_derives_insertion_and_retirement_without_a_noop_state() {
+    let cases = [
+        (ModelOwnerTransition::Insert, 1, false),
+        (ModelOwnerTransition::ReplaceInline, 0, false),
+        (ModelOwnerTransition::ReplaceOutside, 0, true),
+        (ModelOwnerTransition::Remove, 0, true),
+    ];
+    for (transition, primary_insertions, outside) in cases {
+        assert_eq!(transition.primary_insertions(), primary_insertions);
+        for coupled_removals in [0, 1, 3] {
+            let carrier = transition
+                .retirement_carrier(coupled_removals)
+                .expect("the finite retirement demand fits usize");
+            assert_eq!(
+                carrier.reserved_owners(),
+                coupled_removals + usize::from(outside)
+            );
+            assert_eq!(
+                matches!(carrier, ModelRetirementCarrier::Outside { .. }),
+                outside
+            );
+        }
+    }
+    assert_eq!(
+        ModelOwnerTransition::ReplaceOutside.retirement_carrier(usize::MAX),
+        None
+    );
+    assert_eq!(
+        ModelOwnerTransition::Remove.retirement_carrier(usize::MAX),
+        None
+    );
+    assert_eq!(
+        ModelOwnerTransition::Insert
+            .retirement_carrier(usize::MAX)
+            .map(ModelRetirementCarrier::reserved_owners),
+        Some(usize::MAX)
     );
 }

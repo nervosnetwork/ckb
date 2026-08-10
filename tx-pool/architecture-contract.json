@@ -117,8 +117,8 @@
         "primary_behavior_id": "TP-COMMIT-001",
         "behavior_ids": ["TP-COMMIT-001", "TP-OWN-001"],
         "invariants": ["T1", "T2", "T3", "T6", "T7"],
-        "model_roles": ["atomic_clock_branch_decision", "atomic_clock_commit", "atomic_clock_plan", "atomic_transition_controls"],
-        "production_roles": ["atomic_apply_capability", "atomic_clock_branch_capability", "atomic_clock_commit", "atomic_clock_plan_capability", "atomic_transition_controls"],
+        "model_roles": ["atomic_clock_branch_decision", "atomic_clock_commit", "atomic_clock_plan", "atomic_owner_transition", "atomic_retirement_carrier", "atomic_transition_controls"],
+        "production_roles": ["atomic_apply_capability", "atomic_clock_branch_capability", "atomic_clock_commit", "atomic_clock_plan_capability", "atomic_owner_transition", "atomic_retirement_carrier", "atomic_transition_controls"],
         "evidence_test_patterns": [
           "^mathematical_model::atomic_transition_properties::.*$",
           "^authority::tests::atomic_refinement::.*$",
@@ -153,10 +153,10 @@
             "function_pattern": "^TxPoolAuthority::prepare_entry_delta_with_controls$"
           }
         ],
-        "semantic_fact": "A discardable Plan may reserve prospective version/arrival identities without requiring a sequence. A borrowed owner-clock branch changes only private prospective counters until explicit adoption, so discarded resource or allocation work is the identity transition. Each nonempty authority Apply then consumes the sole parent Plan into one sequence, the exact committed identity ranges and exactly the dependency/effect controls its owner changes require.",
-        "falsifier": "Reserving sequence before nonemptiness rejects a legal pressure no-op at the counter boundary; adopting a discarded branch burns the final identity and changes the next legal success to CounterExhausted; a defaultable clock or projection field can publish an owner transition without advancing its identity or derived authority cut.",
+        "semantic_fact": "A discardable Plan may reserve prospective version/arrival identities without requiring a sequence. A borrowed owner-clock branch changes only private prospective counters until explicit adoption, so discarded resource or allocation work is the identity transition. Each nonempty authority Apply then consumes the sole parent Plan into one sequence, the exact committed identity ranges, one closed Insert/Replace/Remove owner transition, one policy-bound preallocated retirement carrier and exactly the dependency/effect controls its owner changes require.",
+        "falsifier": "Reserving sequence before nonemptiness rejects a legal pressure no-op at the counter boundary; adopting a discarded branch burns the final identity and changes the next legal success to CounterExhausted; an optional before/after pair or defaultable clock/projection field can represent a no-op or partial transition; separating changed-owner drop policy from its Vec permits allocation under the authority guard or capacity with no semantic owner.",
         "parallelism": "Plan remains lock-local and effect I/O remains post-commit; one sealed commit does not move compute under the authority guard.",
-        "added_cost": "Sealed stack-owned capabilities replace optional/default construction and manual rollback. One exclusive borrow plus two prospective counters exists only during local Plan compilation and adds no owner, allocation, task, queue or retry state.",
+        "added_cost": "Sealed stack-owned capabilities and a closed stack-only owner-transition enum replace optional/default construction and manual rollback. One exclusive borrow plus two prospective counters exists only during local Plan compilation and adds no owner, allocation, task, queue or retry state.",
         "deletion_counterexample": "Without the sealed commit, structural field deletion silently creates representable partial transitions; without the borrowed branch, rejected speculative identities require manual repair or leak into the committed clock cut.",
         "production_refinement": "implemented"
       },
@@ -230,12 +230,14 @@
         "model_roles": ["released_input_projection", "replacement_history_trigger"],
         "production_roles": ["dependency_level_authority", "membership_projection"],
         "evidence_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
-          "^authority::tests::released_input_refinement::.*$"
+          "^mathematical_model::evidence_transition_properties::model_(accepted_pool_output_construction_excludes_the_weak_bound_counterexample|released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
+          "^authority::tests::released_input_refinement::.*$",
+          "^authority::tests::dependency::uak_(administrative_removal_releases_the_final_spender_input_to_history|replacement_history_excludes_references_to_a_surviving_pool_parent)$"
         ],
         "generated_test_patterns": [
-          "^mathematical_model::evidence_transition_properties::model_(released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
-          "^authority::tests::released_input_refinement::.*$"
+          "^mathematical_model::evidence_transition_properties::model_(accepted_pool_output_construction_excludes_the_weak_bound_counterexample|released_input_is_derived_from_the_projected_final_owner_set|replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer)$",
+          "^authority::tests::released_input_refinement::.*$",
+          "^authority::tests::dependency::uak_(administrative_removal_releases_the_final_spender_input_to_history|replacement_history_excludes_references_to_a_surviving_pool_parent)$"
         ],
         "mutation_selectors": [
           {
@@ -243,8 +245,8 @@
             "function_pattern": "^TxPoolAuthority::(collect_released_administrative_inputs|collect_released_replacement_inputs|compile_membership_delta|released_input_survives_final_owner_set|retain_replacement_history)$"
           }
         ],
-        "semantic_fact": "Input availability and history triggers are derived only from the projected final spender/parent set and exact chain-backed provenance.",
-        "falsifier": "Publishing an input at output_count equality or while a spender/parent survives can wake a false recovery and corrupt conflict ownership.",
+        "semantic_fact": "Input availability and history triggers are derived only from the projected final spender/parent set and exact chain-backed provenance. Resolver and final membership construction seal every Accepted pool-output reference strictly below the immutable output count before the shared release relation can consume it.",
+        "falsifier": "Omitting administrative availability strands an indexed history owner; treating a surviving pool parent as removed adds a false recovery blocker; admitting an unsealed output_count boundary or publishing while a spender/parent survives can wake a false recovery and corrupt conflict ownership.",
         "parallelism": "The finite membership cohort is canonically planned once; unrelated transactions and validation remain parallel.",
         "added_cost": "The relation reuses the bounded membership cohort and adds no index, scan, cache or second owner.",
         "deletion_counterexample": "Without the final-set relation, administrative removal, RBF and history retention can publish contradictory availability.",
@@ -425,6 +427,27 @@
         "falsifier": "A legal producer cut with exactly one of stale-index or future-owner true distinguishes the disjunction from its conjunctive perturbation."
       },
       {
+        "id": "V1-EQ-RELEASED-INPUT-SEALED-POOL-OUTPUT",
+        "behavior_ids": ["TP-RBF-001"],
+        "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
+            "function_pattern": "^TxPoolAuthority::released_input_survives_final_owner_set$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^<=$",
+            "source_site_pattern": "usize::try_from\\(index\\)[\\s\\S]*?\\.is_some_and\\(\\|index\\|\\s*index\\s*(?P<site><)\\s*parent\\.record\\.tx\\.outputs\\(\\)\\.len\\(\\)\\)"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::evidence_transition_properties::model_accepted_pool_output_construction_excludes_the_weak_bound_counterexample$",
+          "^authority::tests::released_input_refinement::uak_replacement_and_administration_share_the_final_owner_projection$"
+        ],
+        "semantic_fact": "Every non-chain-backed input admitted into an Accepted owner carries resolver evidence for an existing pool output, and final membership revalidates that output before sealing the owner. The shared released-input relation can therefore observe only an index strictly below the immutable surviving Accepted parent's output count; equality is not a legal input to this comparison.",
+        "producer_boundary": "AcceptedOverlay::capture_cell -> SparsePoolCellProvider::cell -> validate_candidate_input_evidence -> AcceptedProof -> membership validation and eviction -> TxPoolAuthority::released_input_survives_final_owner_set",
+        "falsifier": "A legal Accepted child whose non-chain-backed input index equals its surviving Accepted parent's output count distinguishes the weakened <= comparison from the strict bound."
+      },
+      {
         "id": "V1-EQ-DEPENDENCY-DISTINCT-APPLY-CUTS",
         "behavior_ids": ["TP-COMMIT-001", "TP-DEP-001"],
         "invariants": ["T1", "T2", "T3", "T4", "T6", "T7", "T10", "T11"],
@@ -584,6 +607,8 @@
         "model_roles": [
           "atomic_clock_branch_decision",
           "atomic_clock_plan",
+          "atomic_owner_transition",
+          "atomic_retirement_carrier",
           "canonical_ordered_batch",
           "candidate_apply_cost",
           "ordered_batch_family",
@@ -599,7 +624,7 @@
         ],
         "target_owner": {
           "path": "tx-pool/src/authority/plan.rs",
-          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "OwnerClockBranch", "TransitionControls", "AuthorityDelta", "PreparedApply"]
+          "symbols": ["ClockPlanReservation", "ApplyClockReservation", "OwnerClockBranch", "EntryTransition", "MembershipRetirement", "TransitionControls", "AuthorityDelta", "PreparedApply"]
         },
         "current_owners": [
           {
@@ -608,7 +633,7 @@
           },
           {
             "path": "tx-pool/src/authority/plan.rs",
-            "symbols": ["TransitionControls", "AuthorityDelta", "IndependentDelta", "PreparedApply"]
+            "symbols": ["EntryTransition", "MembershipRetirement", "TransitionControls", "AuthorityDelta", "IndependentDelta", "PreparedApply"]
           }
         ],
         "cost": {
@@ -1313,6 +1338,8 @@
       "tx-pool/src/tests/model/atomic_transition.rs::ClockBranchDecision": "atomic_clock_branch_decision",
       "tx-pool/src/tests/model/atomic_transition.rs::ClockCommit": "atomic_clock_commit",
       "tx-pool/src/tests/model/atomic_transition.rs::ClockPlan": "atomic_clock_plan",
+      "tx-pool/src/tests/model/atomic_transition.rs::ModelOwnerTransition": "atomic_owner_transition",
+      "tx-pool/src/tests/model/atomic_transition.rs::ModelRetirementCarrier": "atomic_retirement_carrier",
       "tx-pool/src/tests/model/atomic_transition.rs::TransitionControlCommit": "atomic_transition_controls",
       "tx-pool/src/tests/model/boundaries.rs::CallbackAccess": "callback_capability",
       "tx-pool/src/tests/model/boundaries.rs::CallbackDisposition": "callback_boundary",
@@ -1429,6 +1456,8 @@
       "tx-pool/src/authority/plan.rs::SettlementDisposition": "compute_settlement_outcome",
       "tx-pool/src/authority/plan.rs::StalePlan": "stale_plan_outcome",
       "tx-pool/src/authority/plan.rs::TxPoolAuthority": "transaction_authority",
+      "tx-pool/src/authority/plan.rs::EntryTransition": "atomic_owner_transition",
+      "tx-pool/src/authority/plan.rs::MembershipRetirement": "atomic_retirement_carrier",
       "tx-pool/src/authority/plan.rs::TransitionControls": "atomic_transition_controls",
       "tx-pool/src/authority/plan/chain_transition.rs::PreacceptedCapability": "chain_reconciliation_capability",
       "tx-pool/src/authority/plan/compute_exchange.rs::ComputeExchangeDelta": "completion_exchange",
@@ -1490,6 +1519,8 @@
           "atomic_clock_branch_decision",
           "atomic_clock_commit",
           "atomic_clock_plan",
+          "atomic_owner_transition",
+          "atomic_retirement_carrier",
           "atomic_transition_controls",
           "kernel_command",
           "kernel_outcome",
@@ -1502,6 +1533,8 @@
           "atomic_clock_branch_capability",
           "atomic_clock_commit",
           "atomic_clock_plan_capability",
+          "atomic_owner_transition",
+          "atomic_retirement_carrier",
           "atomic_transition_controls",
           "coherent_store_cut",
           "kernel_plan_outcome",

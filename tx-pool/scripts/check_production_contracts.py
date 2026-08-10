@@ -77,6 +77,21 @@ TX_POOL_AUTHORITY_CHAIN = REPO_ROOT / "tx-pool" / "src" / "authority" / "chain.r
 TX_POOL_AUTHORITY_VALIDATION = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "validation.rs"
 )
+TX_POOL_AUTHORITY_RESOLVER = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "resolver.rs"
+)
+TX_POOL_AUTHORITY_MEMBERSHIP = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "plan" / "membership.rs"
+)
+TX_POOL_AUTHORITY_MEMBERSHIP_EVICTION = (
+    REPO_ROOT
+    / "tx-pool"
+    / "src"
+    / "authority"
+    / "plan"
+    / "membership"
+    / "eviction.rs"
+)
 RUST_CHAR_LITERAL = re.compile(
     r"'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}))'"
 )
@@ -2211,6 +2226,9 @@ def validate_released_input_projection() -> list[str]:
 
     try:
         plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        resolver = TX_POOL_AUTHORITY_RESOLVER.read_text()
+        membership = TX_POOL_AUTHORITY_MEMBERSHIP.read_text()
+        eviction = TX_POOL_AUTHORITY_MEMBERSHIP_EVICTION.read_text()
         replacement = required_function_body(
             plan, "collect_released_replacement_inputs"
         )
@@ -2220,6 +2238,17 @@ def validate_released_input_projection() -> list[str]:
         shared = required_function_body(
             plan, "released_input_survives_final_owner_set"
         )
+        removal_batch = required_function_body(plan, "plan_owner_removal_batch")
+        capture_cell = impl_method_body(resolver, "AcceptedOverlay", "capture_cell")
+        provide_cell = required_function_body(resolver, "cell")
+        surviving_parent = required_function_body(membership, "surviving_pool_parent")
+        candidate_input = required_function_body(
+            membership, "validate_candidate_input_evidence"
+        )
+        candidate_dependency = required_function_body(
+            membership, "validate_candidate_dependency_evidence"
+        )
+        complete_removals = required_function_body(eviction, "complete_removals")
     except (OSError, ValueError) as error:
         return [f"cannot inspect projected released-input relation: {error}"]
 
@@ -2273,6 +2302,393 @@ def validate_released_input_projection() -> list[str]:
             errors.append(
                 f"the shared released-input relation lost exact semantic fragment {fragment!r}"
             )
+
+    compact_removal = "".join(mask_rust_non_code(removal_batch).split())
+    ordered_removal = (
+        "letmembership=self.prepare_chain_projection(&accepted_removals,&HashMap::new())?",
+        "letavailable=self.collect_released_administrative_inputs(&accepted_removals)?",
+        "letlost=self.collect_dependency_loss_keys(owner_refs.iter().copied())?.keys",
+        "self.dependencies.plan_events(available,lost,DependencyCut(sequence))?",
+        ".plan_replacements(owner_refs.iter().copied().map(|owner|(Some(owner),None)))?",
+        ".with_control(dependency_control)",
+    )
+    positions = [compact_removal.find(fragment) for fragment in ordered_removal]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "administrative removal must derive final-owner availability and publish it "
+            "with loss before replacing dependency slots"
+        )
+
+    compact_capture = "".join(mask_rust_non_code(capture_cell).split())
+    for fragment in (
+        "letSome(OwnedTx::Accepted(entry))=authority.entry(&query.producer)else{return;}",
+        "ifindex<entry.record.tx.outputs().len(){",
+        "producers.insert(query.producer.clone(),Arc::clone(&entry.record.tx))",
+    ):
+        if fragment not in compact_capture:
+            errors.append(
+                f"AcceptedOverlay::capture_cell lost strict pool-output producer {fragment!r}"
+            )
+    compact_provider = "".join(mask_rust_non_code(provide_cell).split())
+    if (
+        "letSome((output,data))=tx.output_with_data(index)else{returnCellStatus::Unknown;}"
+        not in compact_provider
+    ):
+        errors.append("SparsePoolCellProvider must reject every absent pool output")
+
+    compact_parent = "".join(mask_rust_non_code(surviving_parent).split())
+    for fragment in (
+        "letSome(OwnedTx::Accepted(entry))=self.entries.get(&parent)else{returnOk(None);}",
+        "index<entry.record.tx.data().raw().outputs().len()",
+        "MembershipReject::MissingPoolOutput(out_point.clone())",
+        "Ok(Some(parent))",
+    ):
+        if fragment not in compact_parent:
+            errors.append(
+                f"surviving_pool_parent lost sealed membership producer {fragment!r}"
+            )
+    compact_input = "".join(mask_rust_non_code(candidate_input).split())
+    compact_dependency = "".join(mask_rust_non_code(candidate_dependency).split())
+    for body, owner, fragments in (
+        (
+            compact_input,
+            "validate_candidate_input_evidence",
+            (
+                "candidate.proof.is_chain_input(input)",
+                "self.membership.spender(input).is_some_and(|spender|removed.contains(spender))",
+                "self.surviving_pool_parent(input,removed)?.is_none()",
+                "MembershipReject::MissingInputEvidence(input.clone())",
+            ),
+        ),
+        (
+            compact_dependency,
+            "validate_candidate_dependency_evidence",
+            (
+                "candidate.proof.is_chain_dependency(dependency)",
+                "self.surviving_pool_parent(dependency,removed)?.is_some()",
+                "MembershipReject::MissingDependencyEvidence(dependency.clone())",
+            ),
+        ),
+    ):
+        for fragment in fragments:
+            if fragment not in body:
+                errors.append(f"{owner} lost positive evidence fragment {fragment!r}")
+
+    compact_eviction = "".join(mask_rust_non_code(complete_removals).split())
+    ordered_evidence = (
+        "authority.validate_candidate_input_evidence(candidate,&removed)?",
+        "authority.validate_candidate_dependency_evidence(candidate,&removed)?",
+        "letcandidate_parents=authority.candidate_parents(candidate,&removed)?",
+    )
+    positions = [compact_eviction.find(fragment) for fragment in ordered_evidence]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "membership eviction must seal input and dependency evidence before deriving parents"
+        )
+
+    authority_root = TX_POOL_AUTHORITY_PLAN.parent
+    expected_occurrences = {
+        "collect_released_administrative_inputs": {
+            TX_POOL_AUTHORITY_PLAN: 2,
+        },
+        "released_input_survives_final_owner_set": {
+            TX_POOL_AUTHORITY_PLAN: 3,
+        },
+        "surviving_pool_parent": {
+            TX_POOL_AUTHORITY_MEMBERSHIP: 4,
+        },
+        "validate_candidate_input_evidence": {
+            TX_POOL_AUTHORITY_MEMBERSHIP: 1,
+            TX_POOL_AUTHORITY_MEMBERSHIP_EVICTION: 1,
+        },
+        "validate_candidate_dependency_evidence": {
+            TX_POOL_AUTHORITY_MEMBERSHIP: 1,
+            TX_POOL_AUTHORITY_MEMBERSHIP_EVICTION: 1,
+        },
+    }
+    production_sources: dict[Path, str] = {}
+    for path in sorted(authority_root.rglob("*.rs")):
+        if "tests" in path.relative_to(authority_root).parts:
+            continue
+        try:
+            production_sources[path] = mask_rust_non_code(path.read_text())
+        except OSError as error:
+            errors.append(f"cannot inspect released-input producer surface {path}: {error}")
+    for symbol, expected in expected_occurrences.items():
+        pattern = re.compile(rf"\b{re.escape(symbol)}\s*\(")
+        observed = {
+            path: len(pattern.findall(source))
+            for path, source in production_sources.items()
+            if pattern.search(source)
+        }
+        if observed != expected:
+            rendered_expected = {
+                str(path.relative_to(REPO_ROOT)): count for path, count in expected.items()
+            }
+            rendered_observed = {
+                str(path.relative_to(REPO_ROOT)): count for path, count in observed.items()
+            }
+            errors.append(
+                f"closed producer/caller surface for {symbol} changed: "
+                f"expected {rendered_expected}, found {rendered_observed}"
+            )
+    return errors
+
+
+def validate_owner_transition_construction() -> list[str]:
+    """Keep nonempty owner changes and the retirement carrier structural."""
+
+    try:
+        plan = TX_POOL_AUTHORITY_PLAN.read_text()
+        masked_plan = mask_rust_non_code(plan)
+        authority_methods = {
+            name: body
+            for name, body, _line in rust_impl_methods(
+                plan, "TxPoolAuthority", allow_multiple=True
+            )
+        }
+        prepare = authority_methods["prepare_entry_delta_with_controls"]
+        compile_membership = authority_methods["compile_membership_delta"]
+        direct = authority_methods["plan_direct_admission"]
+        internal = authority_methods["plan_internal_plug"]
+        final = authority_methods["prepare_accept_delta"]
+        apply_membership = impl_method_body(plan, "PreparedApply", "apply_membership")
+    except (OSError, KeyError, ValueError) as error:
+        return [f"cannot inspect closed owner-transition construction: {error}"]
+
+    errors: list[str] = []
+
+    def declaration_body(kind: str, name: str) -> str | None:
+        declaration = re.search(rf"\b{kind}\s+{re.escape(name)}\s*\{{", masked_plan)
+        if declaration is None:
+            return None
+        opening = masked_plan.find("{", declaration.start())
+        closing = matching_brace(masked_plan, opening)
+        return None if closing is None else masked_plan[opening + 1 : closing]
+
+    transition_body = declaration_body("enum", "EntryTransition")
+    controls_body = declaration_body("struct", "TransitionControls")
+    retirement_body = declaration_body("enum", "MembershipRetirement")
+    membership_delta_body = declaration_body("struct", "MembershipDelta")
+    if any(
+        body is None
+        for body in (
+            transition_body,
+            controls_body,
+            retirement_body,
+            membership_delta_body,
+        )
+    ):
+        return [
+            "EntryTransition, TransitionControls, MembershipRetirement or "
+            "MembershipDelta declaration disappeared"
+        ]
+    variants = re.findall(r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\s*\{", transition_body)
+    if variants != ["Insert", "Replace", "Remove"]:
+        errors.append(
+            f"EntryTransition must expose exactly Insert, Replace and Remove, found {variants}"
+        )
+    compact_transition = "".join(transition_body.split())
+    if "Option<OwnedTx>" in compact_transition:
+        errors.append("EntryTransition must not regain an optional before/after no-op state")
+    for indirection in ("Box<OwnedTx>", "Arc<OwnedTx>"):
+        if indirection in compact_transition:
+            errors.append(
+                f"EntryTransition must remain stack-owned without hot-path indirection {indirection!r}"
+            )
+    fields = re.findall(r"(?m)^\s*([a-z][A-Za-z0-9_]*)\s*:", controls_body)
+    if fields != ["dependency", "effect"]:
+        errors.append(
+            f"TransitionControls must own exactly dependency and effect, found {fields}"
+        )
+    retirement_variants = re.findall(
+        r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\s*\(\s*Vec\s*<\s*OwnedTx\s*>\s*\)\s*,",
+        retirement_body,
+    )
+    if retirement_variants != ["Inline", "Outside"]:
+        errors.append(
+            "MembershipRetirement must fuse policy with exactly Inline and Outside Vec "
+            f"carriers, found {retirement_variants}"
+        )
+    membership_fields = re.findall(
+        r"(?m)^\s*([a-z][A-Za-z0-9_]*)\s*:", membership_delta_body
+    )
+    expected_membership_fields = [
+        "changed_key",
+        "changed_after",
+        "retirement",
+        "removals",
+        "owners",
+        "resource",
+        "projection",
+        "scheduler",
+        "dependency",
+        "effect",
+        "clocks",
+        "async_process_start",
+    ]
+    if membership_fields != expected_membership_fields:
+        errors.append(
+            "MembershipDelta must own one fused retirement fact: "
+            f"expected {expected_membership_fields}, found {membership_fields}"
+        )
+
+    expected_sites = {
+        "plan_charged_admission": {"Insert": 1},
+        "plan_existing_admission": {"Replace": 1},
+        "plan_replacement_history_admission": {"Replace": 1},
+        "plan_final_reresolution": {"Replace": 1},
+        "plan_preaccepted_terminalization": {"Remove": 1},
+        "plan_dependency_maintenance": {"Replace": 1},
+        "prepare_settlement_inner": {"Replace": 1},
+        "prepare_compute_rejection": {"Remove": 1},
+        "prepare_entry_delta_with_controls": {
+            "Insert": 1,
+            "Replace": 1,
+            "Remove": 1,
+        },
+    }
+    site_pattern = re.compile(r"\bEntryTransition::(Insert|Replace|Remove)\s*\{")
+    observed_sites: dict[str, dict[str, int]] = {}
+    for method, body in authority_methods.items():
+        found: dict[str, int] = {}
+        for variant in site_pattern.findall(body):
+            found[variant] = found.get(variant, 0) + 1
+        if found:
+            observed_sites[method] = found
+    if observed_sites != expected_sites:
+        errors.append(
+            "EntryTransition constructor/match surface changed: "
+            f"expected {expected_sites}, found {observed_sites}"
+        )
+    if len(site_pattern.findall(masked_plan)) != sum(
+        sum(counts.values()) for counts in expected_sites.values()
+    ):
+        errors.append("EntryTransition escaped the closed TxPoolAuthority construction surface")
+
+    compact_prepare = "".join(mask_rust_non_code(prepare).split())
+    for fragment in (
+        "EntryTransition::Insert{key,after}=>{(key,None,Some(after),1,EntryRetirement::InlineDrop)}",
+        "EntryReplacementRetirement::SharedShellInline=>EntryRetirement::InlineDrop",
+        "EntryReplacementRetirement::OutsideGuard=>{EntryRetirement::Outside(retired_buffer(1)?)}",
+        "EntryTransition::Remove{key,before}=>(key,Some(before),None,0,EntryRetirement::Outside(retired_buffer(1)?),)",
+        "self.reserve_primary_owner_insertions(primary_insertions)?",
+    ):
+        if fragment not in compact_prepare:
+            errors.append(f"closed EntryTransition mapping lost fragment {fragment!r}")
+    for forbidden in (
+        "after.is_some()&&expected.is_none()",
+        "expected.is_some()",
+        "EntryTransition{",
+    ):
+        if forbidden in compact_prepare:
+            errors.append(f"owner-transition mapping regained boolean option algebra {forbidden!r}")
+
+    caller_pattern = re.compile(r"\bprepare_entry_delta_with_controls\s*\(")
+    expected_callers = {
+        "plan_preaccepted_terminalization": 1,
+        "prepare_settlement_inner": 1,
+        "prepare_compute_rejection": 1,
+        "prepare_entry_delta": 1,
+        "prepare_entry_delta_with_dependency": 1,
+    }
+    observed_callers = {
+        method: len(caller_pattern.findall(body))
+        for method, body in authority_methods.items()
+        if caller_pattern.search(body)
+    }
+    if observed_callers != expected_callers:
+        errors.append(
+            "prepare_entry_delta_with_controls caller surface changed: "
+            f"expected {expected_callers}, found {observed_callers}"
+        )
+
+    compact_membership = "".join(mask_rust_non_code(compile_membership).split())
+    if "has_history" in compact_membership:
+        errors.append("membership resource fallback regained a duplicate history predicate")
+    fallback_fragments = (
+        "Err(ResourceError::PreAcceptedLimit|ResourceError::ReplacementHistoryLimit)=>{",
+        "removals.iter_mut().for_each(MembershipRemoval::terminalize)",
+        "retained_history=false",
+        "self.plan_membership_resources(&key,existing.as_ref(),&after,&removals)",
+        "letretirement=matchchanged_retirement{",
+        "ChangedOwnerRetirement::VacantOrSharedShellInline=>{MembershipRetirement::Inline(retired_buffer(removals.len())?)}",
+        "ChangedOwnerRetirement::OutsideGuard=>{letcapacity=removals.len().checked_add(1).ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;MembershipRetirement::Outside(retired_buffer(capacity)?)}",
+    )
+    cursor = 0
+    positions: list[int] = []
+    for fragment in fallback_fragments:
+        position = compact_membership.find(fragment, cursor)
+        positions.append(position)
+        if position >= 0:
+            cursor = position + len(fragment)
+    if any(position < 0 for position in positions):
+        errors.append(
+            "membership must terminalize optional history, retry the same set transition and "
+            "fuse changed-owner policy with its fallibly reserved carrier"
+        )
+    for forbidden in (
+        "retired_owner_count",
+        "changed_retirement:",
+        "retired:",
+    ):
+        if forbidden in "".join(membership_delta_body.split()):
+            errors.append(
+                f"MembershipDelta regained split retirement fact {forbidden!r}"
+            )
+    for body, owner, fragments in (
+        (
+            "".join(mask_rust_non_code(direct).split()),
+            "plan_direct_admission",
+            (
+                "letretirement=ifexisting.is_some(){ChangedOwnerRetirement::OutsideGuard}else{ChangedOwnerRetirement::VacantOrSharedShellInline}",
+                "changed_retirement:retirement",
+            ),
+        ),
+        (
+            "".join(mask_rust_non_code(internal).split()),
+            "plan_internal_plug",
+            ("changed_retirement:ChangedOwnerRetirement::VacantOrSharedShellInline",),
+        ),
+        (
+            "".join(mask_rust_non_code(final).split()),
+            "prepare_accept_delta",
+            (
+                "ReadyPayloadRelation::Shared=>ChangedOwnerRetirement::VacantOrSharedShellInline",
+                "ReadyPayloadRelation::LocationRefreshed=>ChangedOwnerRetirement::OutsideGuard",
+            ),
+        ),
+    ):
+        for fragment in fragments:
+            if fragment not in body:
+                errors.append(f"{owner} lost changed-owner retirement fragment {fragment!r}")
+
+    compact_apply = "".join(mask_rust_non_code(apply_membership).split())
+    for fragment in (
+        "letmutretirement=delta.retirement",
+        "match&mutretirement{MembershipRetirement::Inline(retired)|MembershipRetirement::Outside(retired)=>retired.push(owner)",
+        "letretired=match(retirement,previous){",
+        "(MembershipRetirement::Inline(retired),previous)=>{drop(previous);retired}",
+        "(MembershipRetirement::Outside(mutretired),Some(owner))=>{retired.push(owner);retired}",
+        "(MembershipRetirement::Outside(retired),None)=>retired",
+    ):
+        if fragment not in compact_apply:
+            errors.append(
+                f"PreparedApply::apply_membership lost fused carrier fragment {fragment!r}"
+            )
+    if "retired_buffer(" in compact_apply or ".try_reserve(" in compact_apply:
+        errors.append("membership Apply must not allocate retirement capacity under the guard")
+    carrier_sites = {
+        variant: len(
+            re.findall(rf"\bMembershipRetirement::{variant}\b", masked_plan)
+        )
+        for variant in ("Inline", "Outside")
+    }
+    if carrier_sites != {"Inline": 3, "Outside": 4}:
+        errors.append(
+            "MembershipRetirement construction/consumption surface changed: "
+            f"expected Inline=3 and Outside=4, found {carrier_sites}"
+        )
     return errors
 
 
@@ -3082,6 +3498,7 @@ def main() -> int:
         *validate_effect_publication_observation(),
         *validate_post_commit_wake_wiring(),
         *validate_released_input_projection(),
+        *validate_owner_transition_construction(),
         *validate_evidence_and_settlement_construction(),
         *validate_execution_topology_contract(),
     ]
