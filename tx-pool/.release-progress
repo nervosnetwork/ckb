@@ -11,6 +11,7 @@ Settlement/location content checkpoint: `d36a7de5d`
 Resource-domain closure checkpoint: `89b916447`
 Scheduler-domain closure checkpoint: `24eff856d`
 Clock-domain closure checkpoint: `bade251ef`
+Dependency-closure checkpoint: `6564e7520`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
 `release_boundary_adjudication`, `architecture_optimality_synthesis`
@@ -82,12 +83,12 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (11, 1, 0, 1, 4)`. Every listed item has exactly one blocker owner.
-This is strictly below the prior `(12, 1, 0, 1, 4)` rank because the wall/
-monotonic clock-domain release law is proved and terminally disposed without
-changing the immutable release basis.
+`rho_C = (10, 1, 0, 1, 4)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(11, 1, 0, 1, 4)` rank because dependency
+closure is proved and terminally disposed without changing the immutable
+release basis.
 
-### `open_release_laws` (11)
+### `open_release_laws` (10)
 
 - `D1-READY-OCC-LIVENESS`
 - `D1-DIRECT-NEGATIVE-OCC`
@@ -97,7 +98,6 @@ changing the immutable release basis.
 - `D1-ALLOCATION-LIVENESS`
 - `D1-STOP-REACHABILITY`
 - `D1-TASK-CAPABILITY`
-- `D1-DEPENDENCY-CLOSURE`
 - `D1-FAULT-INGRESS-EVIDENCE`
 - `D1-HISTORY`
 
@@ -124,7 +124,7 @@ No registered semantic family remains open.
 
 | Blocker | Owned current obligations / later gate |
 |---|---|
-| `REGISTERED-RELEASE-LAW-CLOSURE` | 11 open `D1-*` items plus one proved disposition in the immutable 8-family release basis |
+| `REGISTERED-RELEASE-LAW-CLOSURE` | 10 open `D1-*` items plus two proved dispositions in the immutable 8-family release basis |
 | `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | the remaining 4 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
@@ -298,6 +298,26 @@ closure. The content-addressed release basis and normal-form partition remain
 unchanged. The clock check was folded into the existing bounded expiry
 producer mechanism, so this slice has zero `Delta Kappa` in canonical order.
 
+The dependency-closure root is closed without a production change. The
+behavior registry supplies the complete 55-test `TP-DEP-001` universe over
+cell, dep-group and header evidence; candidate/accepted relations; exact
+current cuts; replacement history; loss, wake and terminalization; bounded
+edge maintenance; and model-to-production refinement. Registered Nextest run
+`0c43fb5e-952a-4323-affe-ea12a75c16b3` passed 55/55.
+
+The production checker now independently derives every direct mutation of the
+primary `authority.entries` owner and requires exactly the closed eight Apply
+bodies. Each body must update the dependency projection exactly once in the
+same atomic cut, including whole-generation replacement, while a repository
+scan rejects any escaped primary-owner mutation. Existing checks separately
+seal nonempty maintenance successors, exact dependency event producers,
+replacement ordering and finite edge/cursor progress. Production-contract,
+model-refinement, test-layout, behavior-registry and security-manifest gates
+all pass at `rho_C = (10, 1, 0, 1, 4)`. The release-basis, workload-matrix and
+normal-form file hashes are unchanged. This proof extends an existing static
+mechanism and adds no product state, source role, authority, lock, task, queue,
+API or proof authority, so its `Delta Kappa` is zero in canonical order.
+
 The selected topology remains frozen for `registered_semantic_root_closure`.
 A new semantic family, authority, topology or compatibility boundary reopens
 synthesis first. Mutation regeneration, downstream performance acceptance and
@@ -312,8 +332,11 @@ model/production frontier checks pass. TLC closes the registered
 1,098-generated/318-distinct-state positive model, and its negative
 configuration reproduces the required `NoEffectBlockedDirectHandoff` witness.
 The aggregate security, production-contract and test-layout checkers pass. The
-mutation gates retain only the declared one stale evidence hash and three
-historical zero-match selectors. Focused global-normal-form Nextest run
+complete aggregate runner independently reconfirmed ASCII, documentation,
+develop refinement, TLC and model refinement, then stopped at the already
+declared stale settlement mutation-evidence projection; it was not regenerated
+out of phase. The mutation gates retain only that one stale evidence hash and
+three historical zero-match selectors. Focused global-normal-form Nextest run
 `70f78cff-010c-485c-9740-1acc1d69473b` passed 3/3. This is a diagnostic
 checkpoint, not release evidence.
 
@@ -340,11 +363,11 @@ build/tests and rehearsal against current official `develop`.
 ## Exact next action
 
 Continue `registered_semantic_root_closure` from the frozen witness. Audit
-`CRF-DEPENDENCY-CLOSURE` next because same-Apply dependency truth is independent
-of the still-open allocation outcome: allocation failure commits no owner
-transition, while every committed owner death/evidence change must carry its
-dependency delta. Then return to the confirmed upstream
-`CRF-BOUNDED-RESOURCE-ADMISSION` root as one payload/scratch/progress algebra.
-Close `CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE` last against all other terminal
+the confirmed upstream `CRF-BOUNDED-RESOURCE-ADMISSION` root as one
+payload/scratch/allocation-progress algebra. Reconcile the current architecture
+contradiction first: unchanged-cut allocator retry is forbidden by the progress
+law, while the failure table still prescribes retained timer retry. Derive one
+typed bounded outcome and ownership law before changing production. Close
+`CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE` last against all other terminal
 dispositions. Any new semantic case reopens architecture synthesis before
 production continues.
