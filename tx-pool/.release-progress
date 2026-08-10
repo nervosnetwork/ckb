@@ -5,9 +5,10 @@ is not public architecture or implementation history. Delete it when P10 and
 the final completion review close.
 
 The active architecture replan is `tx-pool/.independent-execution-plan`.
-Benchmarking, profiling and local performance patches are frozen until the
-selected I1-I6 end-to-end independent execution model is implemented and
-correctness-gated.
+Product changes, acceptance benchmarking and mutation regeneration are frozen
+while the complete obligation basis and globally optimized architecture model
+are reconstructed. Labeled diagnostic prototypes belong only to the upstream
+optimality-synthesis phase.
 
 ## Fixed route
 
@@ -29,18 +30,30 @@ correctness-gated.
    core, I2 retained-ingress batching and I3 bounded compute exchange are
    complete. I4 prepared full query and I5 typed ordered control are complete;
    I6 production convergence is complete.
-8. ACTIVE - V1 complete static/model/related-crate Nextest, all managed
-   tx-pool-related integration, interruption, mutation and fixed-binary smoke
-   correctness acceptance.
-9. PENDING - release-facing documentation, generated evidence, scripts, CI and
-   external-review decision reconciliation.
-10. PENDING - reproducible fixed-binary A/B against both `develop` and the
-   frozen pre-performance UAK checkpoint.
-11. PENDING - final production completion review and release handoff.
+8. REOPENED - the first CR0 state machine was internally consistent but its
+   basis was incomplete and its machine DAG exposed performance only downstream.
+9. ACTIVE - normalize the entire plan and status, map every historical open
+   finding into the finite basis or an exact disposition, and emit actual
+   `rho_C = (12, 3, 4, 1, 5)`.
+10. PENDING - total Rust API/semver, legacy-configuration and landing-boundary
+    adjudication.
+11. PENDING - upstream admissible-normal-form synthesis, static cost objective,
+    conditional lower bounds and diagnostic tie evidence.
+12. PENDING - close every registered semantic family, including the preserved
+    settlement/location slice and every historical finding mapped by step 9.
+13. PENDING - generated source-role/necessity census, constructive reduction
+    and production refinement to the globally optimal static witness.
+14. PENDING - isolated reconciliation and landing rehearsal against current
+    `develop` and the generated downstream universe.
+15. PENDING - freeze one universe and run complete mutation, deterministic
+    smoke and complete static/model/Nextest/integration correctness on it.
+16. PENDING - reproducible fixed-binary empirical acceptance; a product change
+    returns to Construction.
+17. PENDING - cold evidence portability, final production review and handoff.
 
-The order is fixed. Phase 6 is closed. Benchmark tooling is frozen, but the
-performance verdict may not run ahead of the six ordered implementation slices
-and the phase-7 correctness gate.
+Every historical next-action/order statement is non-authoritative during step
+9. Completed product evidence remains recoverable, but only the machine DAG,
+rank and blockers may issue current work.
 
 ## Phase-4 checkpoint evidence
 
@@ -5491,3 +5504,94 @@ The next exact action is the five-row settlement-evidence root audit from
 section 46. The later resource-configuration, resource-ledger and scheduler
 roots, final complete mutation rerun, deterministic smoke, V1 whole-system
 gate and constructive cleanup remain pending. No remote push is authorized.
+
+## B3-R5 settlement origin root adjudicated, model work active
+
+Section 58 records the exact-current 5 missed / 4 caught / 0 timeout diagnostic
+and the complete producer, consumer, owner-transition and policy audit. The
+four identity/view hypotheses are illegal only under the sealed worker
+producer relation, but checkout still constructed the worker token and
+`ActiveWork` with two hand-maintained formulas. The selected root correction
+gives that atomic pair one constructor and mechanically audits every later
+settlement carrier. Ready witness is derived from full payload identity and is
+removed as accidental model/production state.
+
+The policy survivor is not folded into the evidence theorem. The executable
+domain will retain declared-cycle values and distinguish unchanged,
+Remote-to-Trusted and invalid policy evolution; this exposes the previously
+erased Remote(a)-to-Remote(b) falsifier. No new persistent state, authority,
+lock, task, queue, retry, scan, external effect or compatibility path is
+permitted. The next exact action is the executable origin/policy model before
+production changes. Historical mutation locks, cleanup authority and remote
+state remain unchanged.
+
+## B3-R5 settlement refinement delta and location root frozen
+
+The exact expanded diagnostic contains 23 caught, six missed, three
+compile-unviable and zero timeout outcomes. Three misses are the already proved
+sealed-origin identity/view equivalences. The production payload-policy algebra
+instead lacked a pointwise reference binding; its finite 3-by-3 differential
+now passes. The SmallCycleOnly checkout guard is legal-domain equivalent only
+because the sealed scheduler ticket producer excludes Large work; the finite
+model, pointwise scheduler refinement and static permit/ticket census now own
+that premise.
+
+The remaining missed `VerifiedFacts` content update is a confirmed evidence
+model gap, not an unrelated mutant. A legal chain-to-pool location refresh can
+leave old `TransactionInfo` in the Accepted payload and template observation
+while the separately updated context reports pool origin. Section 59 freezes
+the root correction: one executable payload/context location relation, one
+sealed production rebind and one Accepted-to-template external falsifier. No
+new runtime topology or compatibility surface is permitted. The next exact
+action is the pure location model before the production cutover; historical
+mutation locks, cleanup authority and remote state remain unchanged.
+
+## CR0 completeness counterexample absorbed; whole-plan normalization active
+
+The strategic report is absorbed as a process counterexample, not four local
+patch requests. Exact lock facts and the missing landing owner are confirmed.
+Its size comparison is diagnostic pending the generated Cargo/module
+source-role census, and the existing validation/review entry points disprove
+the stronger claim that no portable summary exists; independent cold
+operability remains open.
+
+The first root cause was the former tail order: mutation discovery was allowed to
+extend Construction, API/landing decisions were deferred, and constructive
+simplification followed a claimed final evidence run even though it changes
+that run's universe. Section 60 now owns the explicit plan delta. Sections 28,
+50 and 59 retain their semantic evidence but no longer own ordering.
+
+`architecture-contract.json#convergence_protocol` is the machine owner for the
+finite Construction/Acceptance state machine, phase DAG, invalidators, terminal
+mutation outcomes and snowball dimensions. `check_security_manifest.py`
+validates the closed transition relation, both DAGs, downward-closed status and
+negative shortcut canaries. `AGENTS.md` now integrates the same general method into
+design, compatibility/landing, performance invalidation, traceability,
+mutation, phase review and continuity rather than carrying a task-specific
+appendix. The consolidated review then exposed a deeper closed-world error:
+twelve section-16 `OPEN`/`SUPPORTED` findings were absent from the current
+basis, no concrete construction rank had been emitted, and static architecture
+performance had no upstream machine phase. The previous CR0 closure claim is
+therefore invalidated rather than patched.
+
+Current state is `Construction`. Clean base is
+`f6b0b918f05533fbe8e8dc2a189e83fbc8ac9a20`; the complete in-flight B3-R5
+settlement/location worktree is preserved but paused and is not claimed green.
+The corrected status is `Construction`, active phase
+`basis_and_roadmap_normalization`, and
+`rho_C = (12, 3, 4, 1, 5)`. Every coordinate is a list of named obligations,
+and every obligation has exactly one release-blocker owner. Negative canaries
+reject an unmapped obligation, phase skipping, cleanup after final mutation,
+downstream architecture optimization and an uncertified global-optimality
+claim. The paused location slice still owns its three known red edges; the
+twelve historical findings are now explicit basis-audit obligations rather
+than silently lost work.
+
+The ignored `AGENTS.md` is being globally minimized together with the full
+roadmap. This pre-normalization checkpoint is governed by 513 lines / 24,986
+bytes with SHA-256
+`ea85c0f930211a317a333c6f4b296755c4d51a0706ecc6805e370b9010296fa8`;
+the post-rewrite checkpoint must record and verify its replacement digest.
+The exact next action is the complete plan obligation difference and bounded
+roadmap/status projection. Semver, R5 code, cleanup and remote push remain
+frozen until normalization closes.

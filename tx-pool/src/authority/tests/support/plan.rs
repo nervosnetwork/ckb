@@ -14,8 +14,8 @@ use super::super::{
     indexes::test_support::IndexSnapshot,
     resources::{ActiveWorkAvailability, test_support::ResourceSnapshot},
     scheduler::{CheckoutTicket, test_support::SchedulerSnapshot},
-    state::{AcceptedStatus, ActiveWork, ComputeAttribution, TxIdentity},
-    work::{CheckedOutWork, LeaseToken},
+    state::{AcceptedStatus, ComputeAttribution, TxIdentity},
+    work::CheckedOutWork,
 };
 use super::*;
 use crate::authority::ingress::RetainedIngress;
@@ -1731,42 +1731,17 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement()?;
-        let dependency_cut = match queued {
-            QueuedWork::Resolve => DependencyCut(sequence),
-            QueuedWork::Verify(resolved) => resolved.dependency_cut(),
-        };
-        let token = LeaseToken {
-            settlement: SettlementToken {
-                hash: key.clone(),
-                version,
-            },
-            chain_view: self.chain_view.clone(),
-            dependency_cut,
+        let (work, active) = CheckedOutWork::from_owner(
+            version,
+            self.chain_view.clone(),
+            DependencyCut(sequence),
             permit,
             grant,
-            payload_policy: preaccepted.source.payload_policy(),
-        };
-        let work = CheckedOutWork::new(
-            token,
-            Arc::clone(&preaccepted.record.tx),
-            preaccepted.basis.dependencies().clone(),
-            queued.clone(),
+            preaccepted,
         )
         .map_err(|_| PlanError::Stale(StalePlan::Phase))?;
         let after = existing
-            .with_preaccepted_phase(
-                PreAcceptedPhase::Computing(ActiveWork {
-                    chain_view: self.chain_view.clone(),
-                    permit,
-                    grant,
-                    attribution: preaccepted.source.compute_attribution(),
-                    payload_policy: preaccepted.source.payload_policy(),
-                    dependency_cut,
-                    dependencies: preaccepted.dependencies().clone(),
-                }),
-                version,
-                after_charge,
-            )
+            .with_preaccepted_phase(PreAcceptedPhase::Computing(active), version, after_charge)
             .map_err(PlanError::Stale)?;
         let scheduler = self
             .scheduler

@@ -5,9 +5,9 @@ use super::{
         ModelKnownDependencies, ModelRawTransaction, ModelUnindexedDependencyLevel,
     },
     settlement_transition::{
-        ModelMissingSettlement, ModelPayloadPolicy, ModelSettlementCut, ModelSettlementEvidence,
-        ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
-        ModelSettlementRejection,
+        ModelMissingSettlement, ModelPayloadPolicy, ModelPayloadPolicyEvolution,
+        ModelSettlementCut, ModelSettlementEvidence, ModelSettlementFault, ModelSettlementNext,
+        ModelSettlementObservation, ModelSettlementOrigin, ModelSettlementRejection,
     },
 };
 
@@ -41,21 +41,53 @@ fn settlement_cut() -> ModelSettlementCut {
         },
         baseline_dependencies: dependencies(&[1]),
         current_policy: ModelPayloadPolicy::Trusted,
-        active_view: ModelEvidenceView(1),
-        active_dependency_cut: ModelDependencyCut(1),
-        active_policy: ModelPayloadPolicy::Trusted,
+        active: ModelSettlementOrigin {
+            payload_identity: ModelEvidenceIdentity {
+                raw: ModelRawTransaction(1),
+                witness: 2,
+            },
+            view: ModelEvidenceView(1),
+            dependency_cut: ModelDependencyCut(1),
+            payload_policy: ModelPayloadPolicy::Trusted,
+        },
         frontier: frontier(None),
     }
 }
 
 fn evidence() -> ModelSettlementEvidence {
     let cut = settlement_cut();
-    ModelSettlementEvidence {
-        payload_identity: cut.owner_identity,
-        sealed_witness: cut.owner_identity.witness,
-        view: cut.active_view,
-        dependency_cut: cut.active_dependency_cut,
-        dependencies: cut.baseline_dependencies,
+    cut.active.evidence(cut.baseline_dependencies)
+}
+
+#[test]
+fn model_checkout_origin_is_the_exact_settlement_evidence_equivalence_premise() {
+    for raw in [1, 2] {
+        for witness in [3, 4] {
+            for view in [ModelEvidenceView(1), ModelEvidenceView(2)] {
+                for dependency_cut in [ModelDependencyCut(1), ModelDependencyCut(2)] {
+                    for payload_policy in [
+                        ModelPayloadPolicy::RemoteDeclaredCycles(5),
+                        ModelPayloadPolicy::Trusted,
+                    ] {
+                        let origin = ModelSettlementOrigin {
+                            payload_identity: ModelEvidenceIdentity {
+                                raw: ModelRawTransaction(raw),
+                                witness,
+                            },
+                            view,
+                            dependency_cut,
+                            payload_policy,
+                        };
+                        let dependencies = dependencies(&[1]);
+                        let evidence = origin.evidence(dependencies.clone());
+                        assert_eq!(evidence.payload_identity, origin.payload_identity);
+                        assert_eq!(evidence.view, origin.view);
+                        assert_eq!(evidence.dependency_cut, origin.dependency_cut);
+                        assert_eq!(evidence.dependencies, dependencies);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -132,7 +164,7 @@ fn model_waiting_is_retained_only_at_the_same_chain_and_current_missing_cut() {
 }
 
 #[test]
-fn model_ready_requires_both_payload_identity_and_sealed_witness() {
+fn model_ready_requires_exact_payload_identity_from_checkout_origin() {
     let cut = settlement_cut();
     let verified = evidence();
     assert_eq!(
@@ -140,7 +172,7 @@ fn model_ready_requires_both_payload_identity_and_sealed_witness() {
         ModelSettlementObservation::Ready
     );
     let mut changed = verified.clone();
-    changed.sealed_witness = 3;
+    changed.payload_identity.raw = ModelRawTransaction(2);
     assert_eq!(
         cut.classify(&ModelSettlementNext::Ready(changed)),
         ModelSettlementObservation::Fault(ModelSettlementFault::MembershipProjection)
@@ -208,36 +240,44 @@ fn model_every_settlement_result_requires_the_active_baseline_to_remain_current(
 fn model_verification_rejection_policy_transition_is_a_closed_truth_table() {
     let resolved = evidence();
     for active_policy in [
-        ModelPayloadPolicy::RemoteDeclaredCycles,
+        ModelPayloadPolicy::RemoteDeclaredCycles(1),
+        ModelPayloadPolicy::RemoteDeclaredCycles(2),
         ModelPayloadPolicy::Trusted,
     ] {
         for current_policy in [
-            ModelPayloadPolicy::RemoteDeclaredCycles,
+            ModelPayloadPolicy::RemoteDeclaredCycles(1),
+            ModelPayloadPolicy::RemoteDeclaredCycles(2),
             ModelPayloadPolicy::Trusted,
         ] {
             for chain_current in [false, true] {
+                let baseline = settlement_cut();
                 let cut = ModelSettlementCut {
                     authority_view: ModelEvidenceView(if chain_current { 1 } else { 2 }),
-                    active_policy,
                     current_policy,
-                    ..settlement_cut()
+                    active: ModelSettlementOrigin {
+                        payload_policy: active_policy,
+                        ..baseline.active.clone()
+                    },
+                    ..baseline
                 };
-                let expected = if current_policy == active_policy {
-                    if chain_current {
-                        ModelSettlementObservation::Rejected
-                    } else {
-                        ModelSettlementObservation::QueuedResolve
+                let expected = match active_policy.evolution_to(current_policy) {
+                    ModelPayloadPolicyEvolution::Unchanged => {
+                        if chain_current {
+                            ModelSettlementObservation::Rejected
+                        } else {
+                            ModelSettlementObservation::QueuedResolve
+                        }
                     }
-                } else if active_policy == ModelPayloadPolicy::RemoteDeclaredCycles
-                    && current_policy == ModelPayloadPolicy::Trusted
-                {
-                    if chain_current {
-                        ModelSettlementObservation::QueuedVerify
-                    } else {
-                        ModelSettlementObservation::QueuedResolve
+                    ModelPayloadPolicyEvolution::RemoteToTrusted => {
+                        if chain_current {
+                            ModelSettlementObservation::QueuedVerify
+                        } else {
+                            ModelSettlementObservation::QueuedResolve
+                        }
                     }
-                } else {
-                    ModelSettlementObservation::Fault(ModelSettlementFault::MembershipProjection)
+                    ModelPayloadPolicyEvolution::Invalid => ModelSettlementObservation::Fault(
+                        ModelSettlementFault::MembershipProjection,
+                    ),
                 };
                 assert_eq!(
                     cut.classify(&ModelSettlementNext::VerificationRejected(resolved.clone())),

@@ -13,17 +13,62 @@ use super::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ModelPayloadPolicy {
-    RemoteDeclaredCycles,
+    RemoteDeclaredCycles(u8),
     Trusted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelPayloadPolicyEvolution {
+    Unchanged,
+    RemoteToTrusted,
+    Invalid,
+}
+
+impl ModelPayloadPolicy {
+    pub(crate) fn evolution_to(self, current: Self) -> ModelPayloadPolicyEvolution {
+        match (self, current) {
+            (Self::RemoteDeclaredCycles(active), Self::RemoteDeclaredCycles(current))
+                if active == current =>
+            {
+                ModelPayloadPolicyEvolution::Unchanged
+            }
+            (Self::Trusted, Self::Trusted) => ModelPayloadPolicyEvolution::Unchanged,
+            (Self::RemoteDeclaredCycles(_), Self::Trusted) => {
+                ModelPayloadPolicyEvolution::RemoteToTrusted
+            }
+            (Self::RemoteDeclaredCycles(_), Self::RemoteDeclaredCycles(_))
+            | (Self::Trusted, Self::RemoteDeclaredCycles(_)) => {
+                ModelPayloadPolicyEvolution::Invalid
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ModelSettlementEvidence {
     pub(crate) payload_identity: ModelEvidenceIdentity,
-    pub(crate) sealed_witness: u8,
     pub(crate) view: ModelEvidenceView,
     pub(crate) dependency_cut: ModelDependencyCut,
     pub(crate) dependencies: ModelKnownDependencies,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ModelSettlementOrigin {
+    pub(crate) payload_identity: ModelEvidenceIdentity,
+    pub(crate) view: ModelEvidenceView,
+    pub(crate) dependency_cut: ModelDependencyCut,
+    pub(crate) payload_policy: ModelPayloadPolicy,
+}
+
+impl ModelSettlementOrigin {
+    pub(crate) fn evidence(&self, dependencies: ModelKnownDependencies) -> ModelSettlementEvidence {
+        ModelSettlementEvidence {
+            payload_identity: self.payload_identity,
+            view: self.view,
+            dependency_cut: self.dependency_cut,
+            dependencies,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,9 +99,7 @@ pub(crate) struct ModelSettlementCut {
     pub(crate) owner_identity: ModelEvidenceIdentity,
     pub(crate) baseline_dependencies: ModelKnownDependencies,
     pub(crate) current_policy: ModelPayloadPolicy,
-    pub(crate) active_view: ModelEvidenceView,
-    pub(crate) active_dependency_cut: ModelDependencyCut,
-    pub(crate) active_policy: ModelPayloadPolicy,
+    pub(crate) active: ModelSettlementOrigin,
     pub(crate) frontier: ModelEvidenceFrontier,
 }
 
@@ -78,23 +121,19 @@ pub(crate) enum ModelSettlementObservation {
 
 impl ModelSettlementCut {
     fn chain_state_is_current(&self) -> bool {
-        self.authority_view == self.active_view
+        self.authority_view == self.active.view
     }
 
     fn evidence_fault(
         &self,
         evidence: &ModelSettlementEvidence,
-        require_sealed_witness: bool,
     ) -> Option<ModelSettlementObservation> {
-        if evidence.payload_identity != self.owner_identity
-            || evidence.view != self.active_view
-            || (require_sealed_witness && evidence.sealed_witness != self.owner_identity.witness)
-        {
+        if evidence.payload_identity != self.owner_identity || evidence.view != self.active.view {
             return Some(ModelSettlementObservation::Fault(
                 ModelSettlementFault::MembershipProjection,
             ));
         }
-        if evidence.dependency_cut != self.active_dependency_cut {
+        if evidence.dependency_cut != self.active.dependency_cut {
             return Some(ModelSettlementObservation::Fault(
                 ModelSettlementFault::DependencyProjection,
             ));
@@ -105,13 +144,13 @@ impl ModelSettlementCut {
     pub(crate) fn classify(&self, next: &ModelSettlementNext) -> ModelSettlementObservation {
         if !self
             .frontier
-            .proof_is_current(&self.baseline_dependencies, self.active_dependency_cut)
+            .proof_is_current(&self.baseline_dependencies, self.active.dependency_cut)
         {
             return ModelSettlementObservation::QueuedResolve;
         }
         match next {
             ModelSettlementNext::QueuedVerify(resolved) => {
-                if let Some(fault) = self.evidence_fault(resolved, false) {
+                if let Some(fault) = self.evidence_fault(resolved) {
                     return fault;
                 }
                 if !self.chain_state_is_current() {
@@ -120,7 +159,7 @@ impl ModelSettlementCut {
                 if self.frontier.resolution_is_current(
                     &self.baseline_dependencies,
                     &resolved.dependencies,
-                    self.active_dependency_cut,
+                    self.active.dependency_cut,
                 ) {
                     ModelSettlementObservation::QueuedVerify
                 } else {
@@ -133,7 +172,7 @@ impl ModelSettlementCut {
                         &self.baseline_dependencies,
                         &missing.dependencies,
                         &missing.missing,
-                        self.active_dependency_cut,
+                        self.active.dependency_cut,
                     )
                 {
                     ModelSettlementObservation::Waiting
@@ -142,13 +181,13 @@ impl ModelSettlementCut {
                 }
             }
             ModelSettlementNext::Ready(verified) => {
-                if let Some(fault) = self.evidence_fault(verified, true) {
+                if let Some(fault) = self.evidence_fault(verified) {
                     return fault;
                 }
                 if self.frontier.resolution_is_current(
                     &self.baseline_dependencies,
                     &verified.dependencies,
-                    self.active_dependency_cut,
+                    self.active.dependency_cut,
                 ) {
                     ModelSettlementObservation::Ready
                 } else {
@@ -165,32 +204,34 @@ impl ModelSettlementCut {
                 }
             }
             ModelSettlementNext::VerificationRejected(resolved) => {
-                if let Some(fault) = self.evidence_fault(resolved, false) {
+                if let Some(fault) = self.evidence_fault(resolved) {
                     return fault;
                 }
-                if self.current_policy == self.active_policy {
-                    if self.chain_state_is_current() {
-                        ModelSettlementObservation::Rejected
-                    } else {
-                        ModelSettlementObservation::QueuedResolve
+                match self.active.payload_policy.evolution_to(self.current_policy) {
+                    ModelPayloadPolicyEvolution::Unchanged => {
+                        if self.chain_state_is_current() {
+                            ModelSettlementObservation::Rejected
+                        } else {
+                            ModelSettlementObservation::QueuedResolve
+                        }
                     }
-                } else if self.active_policy == ModelPayloadPolicy::RemoteDeclaredCycles
-                    && self.current_policy == ModelPayloadPolicy::Trusted
-                {
-                    if !self.chain_state_is_current() {
-                        return ModelSettlementObservation::QueuedResolve;
+                    ModelPayloadPolicyEvolution::RemoteToTrusted => {
+                        if !self.chain_state_is_current() {
+                            return ModelSettlementObservation::QueuedResolve;
+                        }
+                        if self.frontier.resolution_is_current(
+                            &self.baseline_dependencies,
+                            &resolved.dependencies,
+                            self.active.dependency_cut,
+                        ) {
+                            ModelSettlementObservation::QueuedVerify
+                        } else {
+                            ModelSettlementObservation::QueuedResolve
+                        }
                     }
-                    if self.frontier.resolution_is_current(
-                        &self.baseline_dependencies,
-                        &resolved.dependencies,
-                        self.active_dependency_cut,
-                    ) {
-                        ModelSettlementObservation::QueuedVerify
-                    } else {
-                        ModelSettlementObservation::QueuedResolve
-                    }
-                } else {
-                    ModelSettlementObservation::Fault(ModelSettlementFault::MembershipProjection)
+                    ModelPayloadPolicyEvolution::Invalid => ModelSettlementObservation::Fault(
+                        ModelSettlementFault::MembershipProjection,
+                    ),
                 }
             }
             ModelSettlementNext::Retry => ModelSettlementObservation::QueuedResolve,

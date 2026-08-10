@@ -1,12 +1,16 @@
 # Transaction-Semantic Architecture Replan
 
-Status: I6 convergence complete; V1 correctness acceptance active
+Status: whole-plan basis and roadmap normalization active
 Architecture baseline: `c91d5fe21` (`tx-pool: converge production execution topology`)
-Current product-source checkpoint: `c4d777a0a8d7f4d7d6953475afcb712be5dd3494`
-Active slice: V1 static, model and correctness acceptance
+Current clean base: `f6b0b918f05533fbe8e8dc2a189e83fbc8ac9a20`
+In-flight state: B3-R5 settlement/location worktree preserved and paused
+Active slice: derive the complete obligation basis and replace historical directives with one bounded DAG/status projection
 Restart authority: `tx-pool/.release-progress`
-Fixed tail: constructive simplification, release reconciliation,
-profiling/fixed-binary A/B, production completion review
+Fixed tail: basis/roadmap normalization, release-boundary adjudication,
+upstream architecture-optimality synthesis, registered semantic-root closure,
+constructive simplification/refinement certificate, develop reconciliation and
+landing rehearsal, final-universe correctness, empirical fixed-binary A/B and
+completion review
 
 This is a temporary design and execution authority. It is deliberately not a
 second public architecture document. When one model has passed its
@@ -3921,6 +3925,11 @@ complete V1 rerun. At that historical checkpoint, the user-owned root
 
 ## 28. Post-V1 constructive-simplification gate
 
+Ordering status: `SUPERSEDED BY CR0-CONVERGENCE-RESET` in section 60. The
+constructive rules below remain binding, but placing this gate after a claimed
+final mutation/correctness universe is rejected because cleanup changes that
+universe and makes the evidence stale by construction.
+
 The complete post-change V1 gate and its whole-system checkpoint must pass
 before any structural deletion or fusion. Immediately afterward, and before
 release-surface reconciliation or performance claims, run one separate
@@ -5556,6 +5565,11 @@ slice.
 
 ## 50. Dependency proof closure and final-universe rerun decision
 
+Ordering status: `SUPERSEDED BY CR0-CONVERGENCE-RESET` in section 60. The raw
+artifact and non-overlay rules remain binding; the complete rerun moves after
+all registered semantic roots, constructive simplification and landing
+reconciliation have frozen the final universe.
+
 The section-49 static theorem now passes over the complete production surface,
 not only the previously known files. It rejects any new raw `DependencyCut`
 constructor outside the sealed observation/event/checkout/history producers,
@@ -6217,3 +6231,293 @@ the five settlement-evidence rows before changing any model, production owner
 or mutation disposition. Resource configuration, resource-ledger transitions,
 scheduler eligibility and the one final-universe mutation rerun remain pending
 in their frozen order. Cleanup and remote push remain unauthorized.
+
+## 58. Settlement origin and payload-policy root adjudication
+
+The fifth section-46 root is reproduced against exact clean checkpoint
+`f6b0b918f05533fbe8e8dc2a189e83fbc8ac9a20`. A no-config diagnostic selected
+the seven boolean candidates in `TxPoolAuthority::classify_settlement` plus the
+two inseparable `TransitionControls` construction controls and ran the complete
+788-test internal library universe. Four controls were caught and the five
+historical hypotheses remained missed with no timeout or compile-unviable row.
+The current artifact is
+`/private/tmp/ckb-tx-pool-v1-mutants-settlement-evidence-r1/mutants.out`; its
+lock, candidate, outcome, caught and missed SHA-256 values are respectively
+`dbf048a81c4006b84f4fed453926d1670cfc334741af8fe67fa888625546a5db`,
+`b21315af0e4f06fda07a35e3850c652a43994db21a7978e5b37c8cf53d4bbdbf`,
+`852eaf4224fc00a5bc0ec01d9261ddc1f0d918006d65b2943a9be1d927ebd74e`,
+`06f8d4bddef2e5766c08a1c0523263c31ca7ed30987a1367b76ea35849a84370`
+and `63ad6d57abf8e875eecfafe7893db5c1f986314369f185829abebff54bdf3691`.
+The empty unviable and timeout projections each have the canonical empty-file
+digest `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+Four hypotheses weaken identity, view or witness mismatch disjunctions for
+QueuedVerify, Ready and VerificationRejected. Arbitrarily forged receipt
+fields distinguish every weakened expression and can publish the wrong owner,
+retain a foreign view or reuse rejection evidence outside its validity cut.
+Those are structural fault cases, but they are not legal worker results.
+`ResolutionSeal` and `VerificationSeal` have private fields; the only
+production `ResolvedFacts::from_resolution` and
+`VerifiedFacts::from_verification` calls are in `authority/work.rs`; resolution
+derives payload identity from the checked-out transaction and location view
+from the same token; verification consumes that resolved value; and every
+failure/deferred route moves the original `SettlementNext` rather than
+reconstructing evidence. A non-reused owner version and Computing phase reject
+a different-witness replacement before the classifier runs.
+
+The audit nevertheless finds one constructible proof gap at checkout.
+`compute_exchange.rs` currently builds `LeaseToken` and `ActiveWork` separately
+from the same local owner facts, and the foundation checkout adapter repeats
+that formula. Current values are equal, but the pair is not owned by one
+constructor. The root correction moves both products into one
+`CheckedOutWork::from_owner` constructor. It derives settlement identity,
+transaction, declared dependencies, source policy, attribution, active
+dependencies and queued evidence from one borrowed `PreAcceptedEntry`, derives
+the Resolve or Verify dependency cut once, and returns the move-only work plus
+its exact `ActiveWork`. Production and test refinement consume this same
+constructor. No second maintained checkout specification or copied equality
+formula remains.
+
+The Ready witness predicate exposes a separate model and production residue.
+`VerifiedFacts::witness()` is exactly
+`VerifiedFacts::payload().identity().witness`, so witness and full identity are
+not two facts and cannot diverge even in a structurally constructed
+`VerifiedFacts`. The model's independent `sealed_witness` field is accidental
+state, and the classifier's separate witness comparison duplicates the full
+identity comparison. Both are removed; structurally forged payload identity or
+view remains a typed fault.
+
+The fifth hypothesis weakens the active-Remote/current-Trusted policy
+conjunction. The only distinguishing two-variant case hidden by the current
+model is active `RemoteDeclaredCycles(a)` with current
+`RemoteDeclaredCycles(b)` for `a != b`: the disjunctive perturbation treats it
+as a promotion even though it must fault. The model currently erases the cycle
+value and therefore cannot express this falsifier. Production ingress never
+rewrites a retained Remote cycle claim. An unchanged source preserves the
+policy; a same-witness Proposal promotion preserves the owner version and
+changes Remote to Trusted; a Proposal demotion keeps Trusted policy; and a
+different-witness promotion replaces the version before settlement. The
+reference policy gains its declared-cycle value and both model and production
+classifiers consume one closed `Unchanged | RemoteToTrusted | Invalid`
+relation instead of an open boolean formula.
+
+Four credible topologies were compared. Candidate-shaped fixtures are
+rejected because they forge states sealed out of production and make mutation
+syntax the semantic owner. Blanket equivalence is rejected because the manual
+dual checkout construction and erased policy value leave its premise
+unproved. A new generative settlement ID, shared heap object or broad wrapper
+across every compute/deferred route is rejected because the existing owner
+version and move-only value already provide linearity; it adds state,
+allocation or proof topology without eliminating a legal failure. The selected
+topology adds the missing active-origin term to the existing executable
+settlement model, fuses the existing checkout products, removes the duplicate
+witness fact and makes payload-policy evolution exhaustive. Defensive
+identity/view fault checks remain at the authority boundary and may receive an
+exact equivalence disposition only after the complete constructor and recovery
+census passes against current source.
+
+Externally observable legal behavior is unchanged: current results retain
+their existing disposition, stale chain or dependency evidence re-resolves,
+same-witness Remote-to-Trusted promotion reuses resolution, and every invalid
+identity, view, dependency cut or policy evolution faults before Apply.
+Checkout remains one bounded Plan/Apply transition. No persistent field,
+mutable authority, lock, task, queue, channel, retry, timer, watchdog, cache,
+scan, I/O, publication edge, failure domain, configuration key, wire/storage
+format or downgrade path is added. Legacy configuration remains accepted and
+node binary/database downgrade remains unsupported.
+
+The fixed implementation order is: extend the executable settlement origin and
+declared-cycle policy relation and exhaust their finite falsifiers; cut the
+single checkout constructor over to one work/ActiveWork pair and delete the
+derived witness duplicate; consume the closed policy relation in production;
+extend the sole production checker over every checkout product, sealed receipt
+constructor and unchanged settlement recovery/reassembly; bind real current,
+stale, trusted-promotion and Proposal-demotion lifecycles to the model;
+rediscover the exact current classifier candidate surface; register only any
+remaining mechanically proved identity/view equivalences with semantic
+source-site selectors; regenerate the directional evidence graph; run focused
+and complete Nextest plus every static/formal gate; perform the section-11 and
+snowball review; and run one exact no-config current root cohort. Historical
+mutation locks remain unchanged until the section-50 final-universe rerun.
+Cleanup and remote push remain unauthorized.
+
+## 59. Settlement refinement and final-location evidence delta
+
+Execution status: paused by `CR0-CONVERGENCE-RESET` before the location-model
+cutover. The diagnosis remains an input to the registered settlement family;
+it cannot create another mutation-driven roadmap phase.
+
+The section-58 implementation exposed a broader exact-current diagnostic
+surface because cargo-mutants selected inseparable candidates in the three
+changed production files. The no-config run at the current worktree executed
+the complete 789-test internal library universe and classified 32 candidates
+as 23 caught, six missed, three compile-unviable and zero timed out. The raw
+artifact is
+`/private/tmp/ckb-tx-pool-v1-mutants-settlement-origin-r2/mutants.out`. Its
+lock, candidate, outcome, caught, missed and unviable SHA-256 values are
+respectively
+`d9bf3fa8961efb946726a21dc998e78f7f9dcaf3ea988b6e2bd0cd7aa390038b`,
+`88c0724a3ff916b26093803142335241a72d7650d1fb5962a41e823dd406ac93`,
+`28826b2ee5b1f6429c964e2992ee9ee791aa1a4b84ffeb4009406ee9f94bcab6`,
+`d8416f8390df52b5612705e1251014372ee6d2991b80f8aadada52a8e7cd1c28`,
+`7f1bddeddc60fc05c0c3dc914c4bced4df2a7ba8c15f965a1ac5673bcf163ed0`
+and
+`d9562cff5f05312699c88bfc8c676770f24dd2b14968a070bf977b2453848090`;
+the empty timeout projection has the canonical empty digest
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+
+The three classifier misses are the exact identity/view legal-domain
+equivalences already owned by the sealed-checkout-origin proof. The payload
+policy guard is not equivalent: the reference truth table distinguished
+Remote(1) from Remote(2), but no pointwise production/refinement edge consumed
+the production `PayloadPolicy::evolution_to` algebra. The correction is a
+finite 3-by-3 differential and an architecture-owned mutation obligation, not
+a new production branch. The Verify-capability guard has the opposite
+classification. A `SmallCycleOnly` Verify ticket can be produced only from the
+scheduler's small-class index, and the same permit/ticket pair is carried into
+checkout. The exact forced-true guard is equivalent on legal production
+inputs; a finite capability/class model, the pointwise production scheduler
+refinement and a complete static ticket-producer theorem own that premise.
+Forging a Large/Small checkout fixture is rejected.
+
+The remaining missed field deletion reopens the earlier D1 evidence claim.
+It is legally constructible and externally observable. Final validation may
+change a resolved cell from chain-backed `Some(TransactionInfo)` to pool-origin
+`None`, or between two exact chain locations. The current validator correctly
+replaces both `VerifiedFacts` payload content and its location context, but the
+executable model contains neither projection and production performs the two
+updates through consecutive methods. Deleting the payload replacement leaves
+an Accepted proof whose context reports pool origin while block-template
+capture publishes the old chain location. The existing test observed only the
+context and retirement route, so it could not falsify this split result.
+
+Candidate-shaped assertions, a mutation allowlist and an extra consistency
+boolean are rejected. Keeping the two production update calls and adding only
+an output assertion would retain the ambiguous transition. A broad redesign
+of `ResolvedTransaction` or a second resident location authority is also
+rejected: block construction legitimately needs the refreshed resolved
+payload, while policy needs typed location provenance. The selected root
+correction adds one pure pointwise final-location transition whose payload and
+context observations must both equal the authoritative location, fuses the
+production payload/context rebind behind one sealed method, and observes the
+same value through the Accepted owner and template capture. It adds one
+mutation obligation and one proof family bound to the existing evidence
+registry; no runtime field, owner, lock, task, queue, allocation, scan, retry,
+I/O, configuration, wire/storage format or downgrade path is added.
+
+The frozen order is: implement and exhaust the pure location transition;
+replace the split final-validation calls with the one sealed transition;
+extend the legal pool-origin lifecycle through Accepted and template
+observations; close the constructor/caller and pointwise-role census in the
+sole production checker; regenerate the evidence graph; rerun only the exact
+policy, checkout and location semantic owners before the complete current
+root cohort; then execute complete Nextest, static/formal gates and the
+section-11/snowball review. Historical mutation locks remain unchanged until
+the section-50 final-universe rerun. Cleanup and remote push remain
+unauthorized.
+
+## 60. CR0 global convergence reset and superseding route
+
+The strategic review at clean base
+`f6b0b918f05533fbe8e8dc2a189e83fbc8ac9a20` is accepted only after correcting
+its scope claims. The schema-3 mutation facts are exact: 795 candidates, 508
+caught, 226 compile-unviable, 59 missed, two timed out, two proved equivalent
+and 59 unaccepted. Landing has no prior owned phase. The size signal is real,
+but the report's file/diff and develop line totals do not match the current
+standard Git scopes, and its non-test-path comparison is not a Cargo/module
+source-role census. The repository already has portable validation and review
+entry points; what remains unproved is cold independent operability, not the
+existence of a portable summary.
+
+The common root is a wrong acceptance topology. The old route let mutation
+discoveries extend construction while calling the phase final, deferred the
+Rust API and landing decisions that can change source, and placed structural
+simplification after a complete mutation/correctness result. Cleanup would
+therefore invalidate the result by construction. Repeating that route cannot
+converge regardless of how carefully each local root is adjudicated.
+
+The normative correction is
+`architecture-contract.json#convergence_protocol`, checked by the existing
+security-manifest aggregate owner. It instantiates the repository-wide
+Construction/Acceptance algebra:
+
+```text
+B = finite release-law basis
+F(B) = registered semantic families
+rho_C = lexicographic open-construction rank
+D = acyclic content-addressed evidence dependency graph
+h(v) = H(inputs(v), h(predecessors(v)))
+U = hash-bound required sinks of D
+E(U) = generated final obligations
+rho_A = (unclassified obligations, stale edges, failing gates)
+
+Construction --rho_C=0/freeze(U)--> Acceptance(U)
+Acceptance(U) --strict rho_A decrease--> Acceptance(U)
+Acceptance(U) --rho_A=0--> Accepted(U)
+Acceptance|Accepted --construction input/new family--> Construction
+Acceptance|Accepted --evidence-only input x--> Acceptance(descendants_D(x))
+```
+
+The finite semantic basis remains the existing target invariants, root
+families, release surfaces and residual-risk registry. The in-flight final
+location observation is part of the registered identity/evidence and
+settlement-currentness laws; it is not a ninth mutation-created family. A
+future legal observation outside that basis invalidates this freeze and
+reopens blueprint derivation. It may not silently append another `B3-R5` root.
+
+The consolidated-review counterexample reopens CR0 before CR1: internal
+consistency did not prove basis completeness. Section 16 still contains twelve
+`OPEN` or `SUPPORTED` rows absent from the prior machine status, and the prior
+DAG placed its only performance phase after complete correctness. The first
+actual construction rank is `(12, 3, 4, 1, 5)`, not an asserted zero.
+
+The corrected machine phase DAG preserves every completed recovery, M0-M4,
+I1-I6 and B3-R1-R4 result while superseding all historical live directives:
+
+1. `basis_and_roadmap_normalization`: derive protocol obligations top-down and
+   code/configuration/API/task/history obligations bottom-up; map or
+   re-adjudicate every section-16 row; replace the append-only plan/status with
+   one bounded DAG projection.
+2. `release_boundary_adjudication`: total semver disposition, legacy-config
+   forward compatibility, unsupported node downgrade, landing target and
+   downstream impact boundary.
+3. `architecture_optimality_synthesis`: before further product cutover,
+   construct the admissible normal forms, lexicographic static cost function
+   and conditional lower bounds. Static ties may use labeled diagnostic
+   prototypes here; they are Construction evidence, not acceptance.
+4. `registered_semantic_root_closure`: close the registered location,
+   resource and scheduler families plus every historical finding mapped into
+   the finite basis. Focused mutation may falsify a family but cannot silently
+   create a phase.
+5. `constructive_simplification`: generate source roles and the snowball
+   vector, remove unowned/duplicate product and proof ceremony, and bind
+   production to the optimal witness.
+6. `landing_rehearsal`: reconcile against current `develop` and exercise the
+   generated downstream/configuration/integration universe without push or
+   merge authority.
+7. `evidence_universe_freeze`: bind one clean `U` only after every planned
+   source, model, feature, configuration and reconciliation change closes.
+8. `complete_mutation` and `deterministic_smoke`, then
+   `complete_correctness`: close every current obligation on the same `U`.
+9. `empirical_performance_acceptance`: confirm immutable binaries against the
+   upstream cost model. It cannot select architecture; any accepted product
+   change returns to Construction.
+10. `portability_and_final_review`: cold-reproduce the canonical entry point
+    and close or explicitly own every residual.
+
+Four additional facts must be machine functions rather than new prose ledgers:
+
+- semver lint class -> exactly one compatibility disposition and evidence;
+- discovered source item -> exactly one source role and semantic owner, or a
+  deletion candidate;
+- landing candidate -> one comparable conflict/build/review/migration/recovery
+  cost vector and a falsifier;
+- phase DAG + release blockers -> the sole current TODO/status projection.
+
+The current worktree remains the paused B3-R5 settlement/location Construction
+state and is not claimed green. No cleanup, candidate-lock regeneration, final
+mutation run, acceptance benchmark or remote push is allowed during the
+normalization phase. The corrected protocol rejects an unmapped construction
+obligation, missing rank, downstream-only architecture optimization and an
+uncertified global claim. CR1 semver/landing work remains frozen until the
+whole-plan obligation difference is empty.

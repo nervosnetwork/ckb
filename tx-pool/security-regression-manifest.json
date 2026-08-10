@@ -1,5 +1,5 @@
 {
-  "schema_version": 8,
+  "schema_version": 10,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
@@ -53,6 +53,28 @@
           "symbol": "struct TxPoolAuthority"
         },
         "selector": {"kind": "method", "name": "classify_settlement"}
+      },
+      {
+        "id": "V1-MUT-SETTLEMENT-POLICY-EVOLUTION",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-OWN-001",
+          "symbol": "enum PayloadPolicy"
+        },
+        "selector": {"kind": "method", "name": "evolution_to"}
+      },
+      {
+        "id": "V1-MUT-CHECKOUT-ORIGIN",
+        "semantic_binding": "compute_and_fair_permits",
+        "component_id": "compute_exchange",
+        "owner_ref": {
+          "kind": "behavior_owner",
+          "behavior_id": "TP-OWN-001",
+          "symbol": "enum CheckedOutWork"
+        },
+        "selector": {"kind": "method", "name": "from_owner"}
       },
       {
         "id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
@@ -207,18 +229,111 @@
       }
     ]
   },
+  "convergence_status": {
+    "schema_version": 2,
+    "state": "construction",
+    "active_phase": "basis_and_roadmap_normalization",
+    "completed_phases": [],
+    "acceptance_universe": null,
+    "construction_rank": {
+      "open_release_laws": [
+        "D1-READY-OCC-LIVENESS",
+        "D1-DIRECT-NEGATIVE-OCC",
+        "D1-FAULT-REACHABILITY",
+        "D1-FALLIBLE-SCRATCH",
+        "D1-REQUEST-PAYLOAD-BOUND",
+        "D1-CLOCK-DOMAIN",
+        "D1-ALLOCATION-LIVENESS",
+        "D1-STOP-REACHABILITY",
+        "D1-TASK-CAPABILITY",
+        "D1-DEPENDENCY-CLOSURE",
+        "D1-FAULT-INGRESS-EVIDENCE",
+        "D1-HISTORY"
+      ],
+      "open_compatibility_and_landing_decisions": [
+        "rust_api_semver_disposition",
+        "legacy_configuration_forward_compatibility",
+        "landing_topology"
+      ],
+      "unclosed_registered_semantic_families": [
+        "settlement_and_location",
+        "resource_configuration",
+        "resource_ledger",
+        "scheduler"
+      ],
+      "unowned_or_duplicated_production_items": [
+        "generated_source_role_necessity_census"
+      ],
+      "incomplete_refinement_edges": [
+        "roadmap_and_status_projection",
+        "global_static_optimality_certificate",
+        "location_behavior_and_inventory_binding",
+        "sealed_payload_context_rebind",
+        "location_test_layout_seam"
+      ]
+    }
+  },
   "release_blockers": [
     {
+      "id": "BASIS-AND-ROADMAP-NORMALIZATION",
+      "reason": "The 60-section plan contains twelve OPEN or SUPPORTED D1 findings not yet mapped to a current machine semantic family or an exact superseded/closed disposition, and its historical directives have not yet been reduced to the sole DAG/status projection",
+      "construction_obligations": [
+        "D1-READY-OCC-LIVENESS",
+        "D1-DIRECT-NEGATIVE-OCC",
+        "D1-FAULT-REACHABILITY",
+        "D1-FALLIBLE-SCRATCH",
+        "D1-REQUEST-PAYLOAD-BOUND",
+        "D1-CLOCK-DOMAIN",
+        "D1-ALLOCATION-LIVENESS",
+        "D1-STOP-REACHABILITY",
+        "D1-TASK-CAPABILITY",
+        "D1-DEPENDENCY-CLOSURE",
+        "D1-FAULT-INGRESS-EVIDENCE",
+        "D1-HISTORY",
+        "roadmap_and_status_projection"
+      ]
+    },
+    {
       "id": "RUST-API-COMPATIBILITY-DECISION",
-      "reason": "cargo-semver-checks against develop reports 9 major-change lint classes, including removal of public TxPool/module/method/macro surfaces, builder signature changes, exhaustive enum changes and PlugTarget gaining Copy; release requires either non-authoritative compatibility designs for each retained API or an explicit major-version migration"
+      "reason": "cargo-semver-checks against develop reports 9 major-change lint classes, including removal of public TxPool/module/method/macro surfaces, builder signature changes, exhaustive enum changes and PlugTarget gaining Copy; release requires either non-authoritative compatibility designs for each retained API or an explicit major-version migration, plus mechanical confirmation of legacy configuration forward compatibility",
+      "construction_obligations": [
+        "rust_api_semver_disposition",
+        "legacy_configuration_forward_compatibility"
+      ]
     },
     {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
-      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 are implemented; related-crate Nextest, the complete 150-spec managed integration universe and interruption contracts passed before the latest compute-exchange correction, but the selected mutation cohort, deterministic smoke and complete post-change V1 gate have not yet passed"
+      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 are implemented, but the registered settlement/location, resource-configuration, resource-ledger and scheduler families and the paused location refinement edges remain open before frozen-universe acceptance",
+      "construction_obligations": [
+        "settlement_and_location",
+        "resource_configuration",
+        "resource_ledger",
+        "scheduler",
+        "location_behavior_and_inventory_binding",
+        "sealed_payload_context_rebind",
+        "location_test_layout_seam"
+      ]
+    },
+    {
+      "id": "GLOBAL-OPTIMALITY-AND-SIMPLIFICATION",
+      "reason": "The normal-form coverage, conditional lower bounds, selected-witness cost and production refinement certificate are unproved, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
+      "construction_obligations": [
+        "global_static_optimality_certificate",
+        "generated_source_role_necessity_census"
+      ]
+    },
+    {
+      "id": "DEVELOP-LANDING-REHEARSAL",
+      "reason": "Incremental, curated-series and one-shot landing topologies have not yet been adjudicated or rehearsed against current develop and the generated downstream impact universe",
+      "construction_obligations": ["landing_topology"]
     },
     {
       "id": "PERFORMANCE-ACCEPTANCE",
       "reason": "Post-model controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B has not yet passed"
+    },
+    {
+      "id": "EVIDENCE-PORTABILITY",
+      "reason": "The canonical tracked validation entry point exists but has not yet been reproduced from a fresh checkout by an independent operator using only generated inputs"
     }
   ]
 }

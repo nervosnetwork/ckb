@@ -12,10 +12,8 @@ use crate::authority::{
     },
     runtime::{AuthorityComputeAftermath, AuthorityFinishedCompute},
     scheduler::{CheckoutTicket, SchedulerBatchDelta, SchedulerExchangeWave},
-    state::{
-        ActiveWork, EntryVersion, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash, WorkPermit,
-    },
-    work::{CheckedOutWork, ComputeSettlement, LeaseToken, SettlementNext, SettlementToken},
+    state::{EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, WorkPermit},
+    work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
 };
 use ckb_network::PeerIndex;
 use std::{collections::HashMap, num::NonZeroUsize};
@@ -126,8 +124,7 @@ enum ClassifiedCompletion {
     },
     Deferred {
         slot: ComputeWorkerSlot,
-        token: SettlementToken,
-        next: SettlementNext,
+        settlement: ComputeSettlement,
         aftermath: AuthorityComputeAftermath,
         route: ComputeExchangeDeferredRoute,
     },
@@ -156,13 +153,12 @@ impl ClassifiedCompletion {
             )),
             Self::Deferred {
                 slot,
-                token,
-                next,
+                settlement,
                 aftermath,
                 ..
             } => sink.recover_settlement(ComputeExchangeCompletion::from_finished(
                 slot,
-                AuthorityFinishedCompute::from_parts(ComputeSettlement { token, next }, aftermath),
+                AuthorityFinishedCompute::from_parts(settlement, aftermath),
             )),
             Self::Obsolete { slot } => sink.recover_obsolete(slot),
         }
@@ -451,18 +447,14 @@ impl PreparedComputeExchange<'_> {
                 } => settled.push(ComputeExchangeSettled { slot, aftermath }),
                 ClassifiedCompletion::Deferred {
                     slot,
-                    token,
-                    next,
+                    settlement,
                     aftermath,
                     route,
                 } => deferred.push(ComputeExchangeDeferred {
                     route,
                     completion: ComputeExchangeCompletion::from_finished(
                         slot,
-                        AuthorityFinishedCompute::from_parts(
-                            ComputeSettlement { token, next },
-                            aftermath,
-                        ),
+                        AuthorityFinishedCompute::from_parts(settlement, aftermath),
                     ),
                 }),
                 ClassifiedCompletion::Obsolete { slot } => obsolete.push(slot),
@@ -532,8 +524,10 @@ fn defer_owner_local(
     };
     *member = ClassifiedCompletion::Deferred {
         slot,
-        token,
-        next: SettlementNext::Retry,
+        settlement: ComputeSettlement {
+            token,
+            next: SettlementNext::Retry,
+        },
         aftermath,
         route,
     };
@@ -545,11 +539,9 @@ fn defer_completion(
 ) -> ClassifiedCompletion {
     let ComputeExchangeCompletion { slot, finished } = completion;
     let (settlement, aftermath) = finished.into_parts();
-    let ComputeSettlement { token, next } = settlement;
     ClassifiedCompletion::Deferred {
         slot,
-        token,
-        next,
+        settlement,
         aftermath,
         route,
     }
@@ -715,8 +707,7 @@ impl TxPoolAuthority {
             {
                 classified.push(ClassifiedCompletion::Deferred {
                     slot,
-                    token,
-                    next,
+                    settlement: ComputeSettlement { token, next },
                     aftermath,
                     route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
                 });
@@ -751,8 +742,10 @@ impl TxPoolAuthority {
                     let Some(peer) = revocation_peer else {
                         classified.push(ClassifiedCompletion::Deferred {
                             slot,
-                            token,
-                            next: deferred_next(nonlocal),
+                            settlement: ComputeSettlement {
+                                token,
+                                next: deferred_next(nonlocal),
+                            },
                             aftermath,
                             route: ComputeExchangeDeferredRoute::ExactSettlement,
                         });
@@ -770,8 +763,10 @@ impl TxPoolAuthority {
                         super::NonLocalSettlement::Waiting(missing) => {
                             classified.push(ClassifiedCompletion::Deferred {
                                 slot,
-                                token,
-                                next: SettlementNext::Waiting(missing),
+                                settlement: ComputeSettlement {
+                                    token,
+                                    next: SettlementNext::Waiting(missing),
+                                },
                                 aftermath,
                                 route: ComputeExchangeDeferredRoute::ExactSettlement,
                             });
@@ -785,8 +780,10 @@ impl TxPoolAuthority {
                         }
                         classified.push(ClassifiedCompletion::Deferred {
                             slot,
-                            token,
-                            next: SettlementNext::Rejected(retry),
+                            settlement: ComputeSettlement {
+                                token,
+                                next: SettlementNext::Rejected(retry),
+                            },
                             aftermath,
                             route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
                         });
@@ -835,8 +832,10 @@ impl TxPoolAuthority {
                             }
                             classified.push(ClassifiedCompletion::Deferred {
                                 slot,
-                                token,
-                                next: SettlementNext::Rejected(retry),
+                                settlement: ComputeSettlement {
+                                    token,
+                                    next: SettlementNext::Rejected(retry),
+                                },
                                 aftermath,
                                 route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
                             });
@@ -844,8 +843,10 @@ impl TxPoolAuthority {
                         Err(error) => {
                             classified.push(ClassifiedCompletion::Deferred {
                                 slot,
-                                token,
-                                next: SettlementNext::Rejected(retry),
+                                settlement: ComputeSettlement {
+                                    token,
+                                    next: SettlementNext::Rejected(retry),
+                                },
                                 aftermath,
                                 route: ComputeExchangeDeferredRoute::ExchangeRetry,
                             });
@@ -1102,43 +1103,19 @@ impl TxPoolAuthority {
             let OwnedTx::PreAccepted(preaccepted) = &reservation.before else {
                 return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
             };
-            let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
-                return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
-            };
-            let dependency_cut = match queued {
-                QueuedWork::Resolve => crate::authority::state::DependencyCut(sequence),
-                QueuedWork::Verify(resolved) => resolved.dependency_cut(),
-            };
-            let token = LeaseToken {
-                settlement: SettlementToken {
-                    hash: key.clone(),
-                    version,
-                },
-                chain_view: self.chain_view.clone(),
-                dependency_cut,
+            let (work, active) = CheckedOutWork::from_owner(
+                version,
+                self.chain_view.clone(),
+                crate::authority::state::DependencyCut(sequence),
                 permit,
-                grant: reservation.grant,
-                payload_policy: preaccepted.source.payload_policy(),
-            };
-            let work = CheckedOutWork::new(
-                token,
-                std::sync::Arc::clone(&preaccepted.record.tx),
-                preaccepted.basis.dependencies().clone(),
-                queued.clone(),
+                reservation.grant,
+                preaccepted,
             )
             .map_err(|_| PlanError::Fault(AuthorityFault::SchedulerProjection))?;
             let after = reservation
                 .before
                 .with_preaccepted_phase(
-                    PreAcceptedPhase::Computing(ActiveWork {
-                        chain_view: self.chain_view.clone(),
-                        permit,
-                        grant: reservation.grant,
-                        attribution: preaccepted.source.compute_attribution(),
-                        payload_policy: preaccepted.source.payload_policy(),
-                        dependency_cut,
-                        dependencies: preaccepted.dependencies().clone(),
-                    }),
+                    PreAcceptedPhase::Computing(active),
                     version,
                     reservation.after_charge,
                 )

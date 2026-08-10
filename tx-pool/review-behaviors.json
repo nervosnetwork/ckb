@@ -13,7 +13,7 @@
       "id": "TP-OWN-001",
       "title": "Single transaction ownership and ABA safety",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/state.rs", "symbols": ["enum OwnedTx", "enum PreAcceptedPhase", "EntryVersion"]},
+        {"path": "tx-pool/src/authority/state.rs", "symbols": ["enum OwnedTx", "enum PayloadPolicy", "enum PayloadPolicyEvolution", "enum PreAcceptedPhase", "EntryVersion"]},
         {"path": "tx-pool/src/authority/work.rs", "symbols": ["struct SettlementToken", "enum CheckedOutWork"]},
         {"path": "tx-pool/src/authority/plan.rs", "symbols": ["struct TxPoolAuthority", "struct PreparedApply"]}
       ],
@@ -815,7 +815,9 @@
     {"test": "authority::tests::scheduler_transition_refinement::uak_scheduler_private_partial_orders_equal_total_cmp_for_real_keys", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "authority::tests::scheduler_transition_refinement::uak_scheduler_set_transition_refines_every_real_projection_state_and_order", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "authority::tests::settlement_refinement::uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "authority::tests::settlement_refinement::uak_payload_policy_evolution_refines_every_declared_cycle_pair", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T6", "T11"]},
     {"test": "authority::tests::settlement_refinement::uak_settlement_reference_retires_resource_rejection_after_baseline_loss", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::scheduler_properties::model_scheduler_small_capability_excludes_large_checkout_equivalence_premise", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "authority::tests::worker::uak_first_dirty_dependency_apply_notifies_an_already_subscribed_consumer", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
     {"test": "mathematical_model::atomic_transition_properties::model_batch_clock_commit_uses_one_apply_sequence_for_every_member", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
     {"test": "mathematical_model::atomic_transition_properties::model_clock_commit_advances_one_sequence_and_the_exact_identity_ranges", "behavior_id": "TP-COMMIT-001", "invariants": ["T1", "T2", "T3", "T6", "T7"]},
@@ -864,9 +866,10 @@
     {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_partial_order_is_exactly_some_total_cmp", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_ready_is_in_the_set_projection_and_outside_the_worker_ring", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
     {"test": "mathematical_model::scheduler_transition_properties::model_scheduler_replace_rejects_stale_duplicate_and_identity_ambiguous_changes", "behavior_id": "TP-WORKER-001", "invariants": ["T2", "T5", "T6", "T8", "T10"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_checkout_origin_is_the_exact_settlement_evidence_equivalence_premise", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::settlement_transition_properties::model_every_settlement_result_requires_the_active_baseline_to_remain_current", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::settlement_transition_properties::model_queued_verify_requires_exact_identity_view_cut_chain_and_dependencies", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
-    {"test": "mathematical_model::settlement_transition_properties::model_ready_requires_both_payload_identity_and_sealed_witness", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
+    {"test": "mathematical_model::settlement_transition_properties::model_ready_requires_exact_payload_identity_from_checkout_origin", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::settlement_transition_properties::model_rejection_validity_is_chain_or_resource_bound", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::settlement_transition_properties::model_verification_rejection_policy_transition_is_a_closed_truth_table", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::settlement_transition_properties::model_waiting_is_retained_only_at_the_same_chain_and_current_missing_cut", "behavior_id": "TP-OWN-001", "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"]}

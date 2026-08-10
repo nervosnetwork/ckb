@@ -55,9 +55,9 @@ use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
     AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, DependencyCut, DependencyKey,
     DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
-    PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase,
-    QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError,
-    ResolvedFacts, TxRecord, ValidatedAdmission,
+    PayloadPolicyEvolution, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
+    ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry,
+    ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
@@ -343,10 +343,12 @@ impl ComputeSettlementFailure {
     }
 
     pub(super) fn into_settlement(self) -> ComputeSettlement {
-        ComputeSettlement {
-            token: self.token,
-            next: self.next,
-        }
+        let Self {
+            recovery: _,
+            token,
+            next,
+        } = self;
+        ComputeSettlement { token, next }
     }
 
     /// Discard an expensive result before reacquiring the authority guard and
@@ -4251,8 +4253,7 @@ impl TxPoolAuthority {
                 }
             }
             SettlementNext::Ready(verified) => {
-                if verified.witness() != &preaccepted.record.identity.witness
-                    || verified.payload().identity() != &preaccepted.record.identity
+                if verified.payload().identity() != &preaccepted.record.identity
                     || verified.chain_view() != &active.chain_view
                 {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -4303,56 +4304,56 @@ impl TxPoolAuthority {
                     return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
                 }
                 let current_policy = preaccepted.source.payload_policy();
-                if current_policy == active.payload_policy {
-                    if chain_state_is_current {
-                        Ok(SettlementClassification::NonLocal(
-                            NonLocalSettlement::VerificationRejected {
-                                rejection,
-                                resolved,
-                            },
-                        ))
-                    } else {
-                        Ok(local(
-                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            raw_charge,
-                        ))
+                match active.payload_policy.evolution_to(current_policy) {
+                    PayloadPolicyEvolution::Unchanged => {
+                        if chain_state_is_current {
+                            Ok(SettlementClassification::NonLocal(
+                                NonLocalSettlement::VerificationRejected {
+                                    rejection,
+                                    resolved,
+                                },
+                            ))
+                        } else {
+                            Ok(local(
+                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                raw_charge,
+                            ))
+                        }
                     }
-                } else if matches!(
-                    active.payload_policy,
-                    PayloadPolicy::RemoteDeclaredCycles(_)
-                ) && current_policy == PayloadPolicy::Trusted
-                {
-                    if !chain_state_is_current {
-                        return Ok(local(
-                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            raw_charge,
-                        ));
+                    PayloadPolicyEvolution::RemoteToTrusted => {
+                        if !chain_state_is_current {
+                            return Ok(local(
+                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                raw_charge,
+                            ));
+                        }
+                        let dependencies = resolved.payload().dependencies().clone();
+                        let retained_charge = active
+                            .grant
+                            .retained_charge(
+                                resolved.payload().resolved_resident_bytes(),
+                                dependencies.len(),
+                            )
+                            .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
+                        if self.dependencies.resolution_is_current(
+                            preaccepted.dependencies(),
+                            &dependencies,
+                            dependency_cut,
+                        ) {
+                            Ok(local(
+                                PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+                                retained_charge,
+                            ))
+                        } else {
+                            Ok(local(
+                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                                raw_charge,
+                            ))
+                        }
                     }
-                    let dependencies = resolved.payload().dependencies().clone();
-                    let retained_charge = active
-                        .grant
-                        .retained_charge(
-                            resolved.payload().resolved_resident_bytes(),
-                            dependencies.len(),
-                        )
-                        .ok_or(PlanError::Fault(AuthorityFault::ResourceProjection))?;
-                    if self.dependencies.resolution_is_current(
-                        preaccepted.dependencies(),
-                        &dependencies,
-                        dependency_cut,
-                    ) {
-                        Ok(local(
-                            PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                            retained_charge,
-                        ))
-                    } else {
-                        Ok(local(
-                            PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                            raw_charge,
-                        ))
+                    PayloadPolicyEvolution::Invalid => {
+                        Err(PlanError::Fault(AuthorityFault::MembershipProjection))
                     }
-                } else {
-                    Err(PlanError::Fault(AuthorityFault::MembershipProjection))
                 }
             }
             SettlementNext::Retry => Ok(local(

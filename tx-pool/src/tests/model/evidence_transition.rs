@@ -647,3 +647,43 @@ pub(crate) const fn replacement_history_trigger(
         ModelReplacementReference::CellDependency => producer_removed && !chain_backed,
     }
 }
+
+/// The externally relevant location carried by one resolved cell. The chain
+/// token is deliberately value-bearing: changing between two chain locations
+/// is as observable as changing between chain and pool origin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelCellLocation {
+    Pool,
+    Chain(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ModelReadyPayloadRelation {
+    Shared,
+    LocationRefreshed,
+}
+
+/// One pointwise final-validation transition. Payload metadata is consumed by
+/// block construction while context provenance is consumed by policy; both
+/// must observe the same authoritative location cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModelValidatedLocationTransition {
+    pub(crate) payload_location: ModelCellLocation,
+    pub(crate) context_location: ModelCellLocation,
+    pub(crate) relation: ModelReadyPayloadRelation,
+}
+
+pub(crate) fn validated_location_transition(
+    previous: ModelCellLocation,
+    authoritative: ModelCellLocation,
+) -> ModelValidatedLocationTransition {
+    ModelValidatedLocationTransition {
+        payload_location: authoritative,
+        context_location: authoritative,
+        relation: if previous == authoritative {
+            ModelReadyPayloadRelation::Shared
+        } else {
+            ModelReadyPayloadRelation::LocationRefreshed
+        },
+    }
+}

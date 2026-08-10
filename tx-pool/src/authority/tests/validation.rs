@@ -19,6 +19,9 @@ use crate::authority::{
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
     },
 };
+use crate::mathematical_model::{
+    ModelCellLocation, ModelReadyPayloadRelation, validated_location_transition,
+};
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::PeerIndex;
 use ckb_script::TxVerifyEnv;
@@ -520,6 +523,19 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
     let work = authority
         .final_admission_work(&child, version)
         .expect("the child is Ready");
+    assert!(
+        work.payload()
+            .resolved_transaction()
+            .resolved_inputs
+            .first()
+            .expect("the child has one input")
+            .transaction_info
+            .is_some()
+    );
+    let model = validated_location_transition(
+        ModelCellLocation::Chain(1),
+        ModelCellLocation::Pool,
+    );
     let outcome =
         FinalAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
             .expect("the Accepted parent is captured in the bounded overlay")
@@ -533,6 +549,8 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
         receipt.payload_relation(),
         crate::authority::chain::ReadyPayloadRelation::LocationRefreshed
     );
+    assert_eq!(model.relation, ModelReadyPayloadRelation::LocationRefreshed);
+    assert_eq!(model.context_location, ModelCellLocation::Pool);
     assert!(!receipt.proof().is_chain_input(&input));
     let batch = SettlementBatch::new(vec![IndependentCandidate::new(receipt)])
         .expect("one Ready candidate is a valid batch");
@@ -547,6 +565,39 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
     };
     let committed = plan.apply();
     assert_eq!(committed.retired_len(), 1);
+    let Some(OwnedTx::Accepted(child_owner)) = authority.entry(&child) else {
+        panic!("the admitted child must own the refreshed Accepted proof");
+    };
+    let accepted_input = child_owner
+        .proof
+        .payload()
+        .resolved_transaction()
+        .resolved_inputs
+        .first()
+        .expect("the accepted child has one input");
+    assert_eq!(model.payload_location, ModelCellLocation::Pool);
+    assert!(accepted_input.transaction_info.is_none());
+
+    let template = authority
+        .read_view()
+        .capture_template()
+        .expect("the Accepted proof has one coherent template projection")
+        .into_selection()
+        .expect("template selection consumes the captured projection");
+    let template_child = template
+        .candidates()
+        .iter()
+        .find(|candidate| candidate.hash() == &child)
+        .expect("the accepted child is externally visible to block construction");
+    assert!(
+        template_child
+            .resolved()
+            .resolved_inputs
+            .first()
+            .expect("the template child has one input")
+            .transaction_info
+            .is_none()
+    );
     let parents = authority
         .accepted_parents(&child)
         .expect("the accepted child records its causal parent");

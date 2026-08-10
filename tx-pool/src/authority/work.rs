@@ -2,10 +2,11 @@ use super::chain::{CellContentReceipt, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
 use super::resources::{AcceptedCost, ComputeGrant};
 use super::state::{
-    AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
+    ActiveWork, AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
     DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
-    KnownDependencies, MissingDependencies, PayloadPolicy, QueuedWork, RawTxHash, ResolvedFacts,
-    ResolvedPayload, VerifiedFacts, VerifyCapability, VerifyCycleClass, WorkPermit,
+    KnownDependencies, MissingDependencies, PayloadPolicy, PreAcceptedEntry, PreAcceptedPhase,
+    QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, VerifiedFacts, VerifyCapability,
+    VerifyCycleClass, WorkPermit,
 };
 use crate::error::Reject;
 use ckb_types::core::TransactionView;
@@ -23,7 +24,6 @@ pub(super) struct LeaseToken {
     pub(super) settlement: SettlementToken,
     pub(super) chain_view: ChainViewId,
     pub(super) dependency_cut: DependencyCut,
-    pub(super) permit: WorkPermit,
     pub(super) grant: ComputeGrant,
     pub(super) payload_policy: PayloadPolicy,
 }
@@ -666,33 +666,69 @@ impl SnapshotBoundVerifyWork {
 }
 
 impl CheckedOutWork {
-    pub(super) fn new(
-        token: LeaseToken,
-        tx: Arc<TransactionView>,
-        declared_dependencies: KnownDependencies,
-        queued: QueuedWork,
-    ) -> Result<Self, WorkPermitMismatch> {
-        match (token.permit, queued) {
-            (WorkPermit::ResolveOnly, QueuedWork::Resolve) => Ok(Self::Resolve(ResolveWork {
+    /// Construct the unique worker capability and its authoritative Computing
+    /// phase from one owner cut. The caller cannot pair a token with a
+    /// separately assembled view, policy, dependency cut or payload.
+    pub(super) fn from_owner(
+        version: EntryVersion,
+        chain_view: ChainViewId,
+        resolve_dependency_cut: DependencyCut,
+        permit: WorkPermit,
+        grant: ComputeGrant,
+        preaccepted: &PreAcceptedEntry,
+    ) -> Result<(Self, ActiveWork), WorkPermitMismatch> {
+        let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
+            return Err(WorkPermitMismatch::Incompatible);
+        };
+        let dependency_cut = match queued {
+            QueuedWork::Resolve => resolve_dependency_cut,
+            QueuedWork::Verify(resolved) => resolved.dependency_cut(),
+        };
+        let payload_policy = preaccepted.source.payload_policy();
+        let token = LeaseToken {
+            settlement: SettlementToken {
+                hash: preaccepted.record.identity.raw.clone(),
+                version,
+            },
+            chain_view: chain_view.clone(),
+            dependency_cut,
+            grant,
+            payload_policy,
+        };
+        let active = ActiveWork {
+            chain_view,
+            permit,
+            grant,
+            attribution: preaccepted.source.compute_attribution(),
+            payload_policy,
+            dependency_cut,
+            dependencies: preaccepted.dependencies().clone(),
+        };
+        let work = match (permit, queued) {
+            (WorkPermit::ResolveOnly, QueuedWork::Resolve) => Self::Resolve(ResolveWork {
                 token,
-                tx,
-                declared_dependencies,
-            })),
+                tx: Arc::clone(&preaccepted.record.tx),
+                declared_dependencies: preaccepted.basis.dependencies().clone(),
+            }),
             (WorkPermit::ResolveThenVerify(capability), QueuedWork::Resolve) => {
-                Ok(Self::ContinuousResolve(ContinuousResolveWork {
+                Self::ContinuousResolve(ContinuousResolveWork {
                     token,
-                    tx,
-                    declared_dependencies,
+                    tx: Arc::clone(&preaccepted.record.tx),
+                    declared_dependencies: preaccepted.basis.dependencies().clone(),
                     capability,
-                }))
+                })
             }
             (WorkPermit::VerifyOnly(capability), QueuedWork::Verify(resolved))
                 if capability.permits(resolved.verify_class()) =>
             {
-                Ok(Self::Verify(VerifyWork { token, resolved }))
+                Self::Verify(VerifyWork {
+                    token,
+                    resolved: resolved.clone(),
+                })
             }
-            _ => Err(WorkPermitMismatch::Incompatible),
-        }
+            _ => return Err(WorkPermitMismatch::Incompatible),
+        };
+        Ok((work, active))
     }
 }
 

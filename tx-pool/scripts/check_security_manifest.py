@@ -42,6 +42,107 @@ REQUIRED_RELEASE_COMPATIBILITY_POLICY = {
     "current_persistence_write": "v2_only",
     "reverse_persistence_migration": "unsupported",
 }
+REQUIRED_CONVERGENCE_STATES = ["construction", "acceptance", "accepted"]
+REQUIRED_CONVERGENCE_LAW_SOURCES = {
+    "root_families",
+    "target_invariants",
+    "release_surface",
+    "residual_risks",
+}
+REQUIRED_CONSTRUCTION_INVALIDATORS = {
+    "production_source_change",
+    "model_or_release_law_test_change",
+    "resolved_feature_change",
+    "configuration_or_migration_change",
+    "landing_reconciliation_change",
+    "semantic_contract_change",
+    "new_semantic_family",
+}
+REQUIRED_EVIDENCE_INVALIDATORS = {
+    "correctness_oracle_change_without_product_or_release_law_change",
+    "tool_semantics_change",
+    "performance_environment_change",
+    "fixed_binary_or_workload_change",
+    "raw_evidence_artifact_change",
+}
+REQUIRED_MUTATION_TERMINALS = {
+    "caught",
+    "compile_unviable",
+    "proved_equivalent_or_unconstructible",
+    "release_blocker",
+}
+REQUIRED_CONVERGENCE_PHASES = {
+    "basis_and_roadmap_normalization",
+    "release_boundary_adjudication",
+    "architecture_optimality_synthesis",
+    "registered_semantic_root_closure",
+    "constructive_simplification",
+    "landing_rehearsal",
+    "evidence_universe_freeze",
+    "complete_mutation",
+    "deterministic_smoke",
+    "complete_correctness",
+    "empirical_performance_acceptance",
+    "portability_and_final_review",
+}
+REQUIRED_SNOWBALL_DIMENSIONS = {
+    "authority_state_and_fields",
+    "public_api",
+    "tasks_locks_queues_and_failure_domains",
+    "authority_guard_work",
+    "allocations_and_clones",
+    "default_production_source",
+    "test_and_model_source",
+    "checker_and_proof_machinery",
+}
+REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES = {
+    "proof_policy",
+    "root_families",
+    "target_invariants",
+    "release_surface",
+    "residual_risks",
+}
+REQUIRED_OPTIMALITY_NORMAL_FORM_AXES = {
+    "authority_and_atomic_commit",
+    "lifecycle_capability_and_evidence",
+    "commutativity_coupling_and_batching",
+    "dependency_scheduler_and_progress",
+    "resources_and_adversarial_bounds",
+    "effects_queries_and_derived_projections",
+    "tasks_locks_queues_channels_and_failure_domains",
+    "compatibility_migration_and_landing",
+}
+REQUIRED_OPTIMALITY_OBJECTIVE = [
+    "residual_correctness_security_and_data_risk",
+    "authority_policy_and_failure_domain_count",
+    "supported_compatibility_and_migration_cost",
+    "worst_case_serial_apply_and_authority_guard_work",
+    "adversarial_time_memory_allocation_and_wake_bounds",
+    "tasks_locks_queues_channels_and_resident_state",
+    "public_api_and_default_production_mechanisms",
+    "test_model_and_checker_proof_mechanisms",
+]
+REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS = {
+    "release_basis_hash",
+    "normal_form_coverage_proof",
+    "generated_candidate_partition_hash",
+    "feasibility_proof_per_partition",
+    "conditional_lower_bound_per_objective_dimension",
+    "witness_cost_equals_lower_bound_vector",
+    "production_refinement_and_static_cost_binding",
+    "independent_negative_certificate_canaries",
+}
+REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS = {
+    "release_basis_sha256",
+    "candidate_partition_sha256",
+    "normal_form_coverage_evidence",
+    "feasibility_evidence",
+    "conditional_lower_bounds",
+    "witness",
+    "witness_cost",
+    "production_refinement_evidence",
+    "negative_canary_evidence",
+}
 MODEL_BOUNDARY_FAMILIES = {
     "acceptance_publication",
     "administration",
@@ -807,6 +908,659 @@ def validate_selected_topology_canaries(contract: dict, registry: dict) -> list[
     return errors
 
 
+def _validate_named_dag(
+    rows: object, label: str, *, require_bindings: bool = False
+) -> tuple[dict[str, set[str]], list[str]]:
+    errors: list[str] = []
+    dependencies: dict[str, set[str]] = {}
+    binding_owners: dict[str, str] = {}
+    if not isinstance(rows, list):
+        return {}, [f"{label} must be a list"]
+
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            errors.append(f"each {label} node must have one string id")
+            continue
+        node = row["id"]
+        if node in dependencies:
+            errors.append(f"duplicate {label} node {node}")
+            continue
+        required = row.get("requires")
+        required_set = _string_set(required)
+        if not isinstance(required, list) or len(required_set) != len(required):
+            errors.append(f"{label} node {node} requires must be a unique string list")
+        dependencies[node] = required_set
+
+        bindings = row.get("binds")
+        if require_bindings:
+            binding_set = _string_set(bindings)
+            if (
+                not isinstance(bindings, list)
+                or not binding_set
+                or len(binding_set) != len(bindings)
+            ):
+                errors.append(f"{label} node {node} must own unique bindings")
+            for binding in binding_set:
+                prior = binding_owners.setdefault(binding, node)
+                if prior != node:
+                    errors.append(
+                        f"{label} binding {binding} has owners {prior} and {node}"
+                    )
+
+    unknown = set().union(*dependencies.values()).difference(dependencies)
+    if unknown:
+        errors.append(f"{label} has unknown dependencies {sorted(unknown)}")
+
+    closed: set[str] = set()
+    remaining = set(dependencies)
+    while remaining:
+        ready = {
+            node for node in remaining if dependencies[node] <= closed
+        }
+        if not ready:
+            errors.append(f"{label} contains a cycle")
+            break
+        closed.update(ready)
+        remaining.difference_update(ready)
+    return dependencies, errors
+
+
+def _descendants(dependencies: dict[str, set[str]], start: str) -> set[str]:
+    result: set[str] = set()
+    frontier = [start]
+    while frontier:
+        current = frontier.pop()
+        for node, required in dependencies.items():
+            if current in required and node not in result:
+                result.add(node)
+                frontier.append(node)
+    return result
+
+
+def _natural_vector(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(item, int) and not isinstance(item, bool) and item >= 0
+            for item in value
+        )
+    )
+
+
+def validate_optimality_protocol(contract: dict) -> list[str]:
+    """Reject an unscoped or uncertified global architecture-optimality claim."""
+
+    errors: list[str] = []
+    protocol = contract.get("optimality_protocol")
+    if not isinstance(protocol, dict) or protocol.get("schema_version") != 1:
+        return ["architecture contract optimality_protocol schema_version must be 1"]
+    if protocol.get("claim_scope") != (
+        "semantic_topology_and_static_costs_under_explicit_release_laws"
+    ):
+        errors.append("optimality claim scope differs")
+    if protocol.get("admissible_domain") != (
+        "architectures_modulo_external_observational_equivalence"
+    ):
+        errors.append("optimality admissible domain differs")
+    if _string_set(protocol.get("feasibility_sources")) != (
+        REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES
+    ):
+        errors.append("optimality feasibility sources differ")
+    if _string_set(protocol.get("normal_form_axes")) != (
+        REQUIRED_OPTIMALITY_NORMAL_FORM_AXES
+    ):
+        errors.append("optimality normal-form axes differ")
+
+    objective = protocol.get("objective")
+    if not isinstance(objective, dict):
+        errors.append("optimality objective must be an object")
+        objective = {}
+    if objective.get("comparison") != "lexicographic_without_weights":
+        errors.append("optimality objective must be lexicographic without weights")
+    if objective.get("cost_encoding") != (
+        "each_dimension_is_a_finite_lexicographic_N_vector"
+    ):
+        errors.append("optimality cost encoding differs")
+    if objective.get("dimensions") != REQUIRED_OPTIMALITY_OBJECTIVE:
+        errors.append("optimality objective order differs")
+    if objective.get("lower_bound_rule") != (
+        "minimize_dimension_i_over_feasible_candidates_with_prior_dimensions_"
+        "fixed_to_their_lower_bounds"
+    ):
+        errors.append("optimality conditional lower-bound rule differs")
+
+    if _string_set(protocol.get("certificate_requirements")) != (
+        REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
+    ):
+        errors.append("optimality certificate requirements differ")
+    witness = protocol.get("current_witness")
+    if witness != contract.get("selected_topology", {}).get("id"):
+        errors.append("optimality witness must be the selected topology")
+    if protocol.get("empirical_boundary") != (
+        "fixed_binary_measurement_may_break_static_ties_but_cannot_prove_"
+        "universal_wall_clock_optimality"
+    ):
+        errors.append("optimality empirical boundary differs")
+
+    claim = protocol.get("current_claim")
+    certificate = protocol.get("certificate")
+    if claim == "unproved":
+        if certificate is not None:
+            errors.append("unproved optimality claim cannot retain a certificate")
+        return errors
+    if claim != "globally_optimal_within_model":
+        return errors + [f"unknown optimality claim {claim!r}"]
+    if not isinstance(certificate, dict):
+        return errors + ["global optimality claim requires one certificate"]
+    if set(certificate) != REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS:
+        errors.append("global optimality certificate fields differ")
+    for field in ("release_basis_sha256", "candidate_partition_sha256"):
+        if re.fullmatch(r"[0-9a-f]{64}", str(certificate.get(field))) is None:
+            errors.append(f"global optimality certificate has invalid {field}")
+    for field in (
+        "normal_form_coverage_evidence",
+        "feasibility_evidence",
+        "production_refinement_evidence",
+        "negative_canary_evidence",
+    ):
+        if not _nonempty_unique_strings(certificate.get(field)):
+            errors.append(f"global optimality certificate has invalid {field}")
+    lower_bounds = certificate.get("conditional_lower_bounds")
+    witness_cost = certificate.get("witness_cost")
+    expected_dimensions = set(REQUIRED_OPTIMALITY_OBJECTIVE)
+    for field, vector in (
+        ("conditional_lower_bounds", lower_bounds),
+        ("witness_cost", witness_cost),
+    ):
+        if not isinstance(vector, dict) or set(vector) != expected_dimensions:
+            errors.append(f"global optimality certificate has invalid {field}")
+        elif not all(_natural_vector(value) for value in vector.values()):
+            errors.append(f"global optimality certificate has non-natural {field}")
+    if isinstance(lower_bounds, dict) and isinstance(witness_cost, dict):
+        if lower_bounds != witness_cost:
+            errors.append("global optimality witness does not attain every lower bound")
+    if certificate.get("witness") != witness:
+        errors.append("global optimality certificate names a different witness")
+    return errors
+
+
+def validate_optimality_canaries(contract: dict) -> list[str]:
+    """Prove that wording alone cannot upgrade the current witness to optimal."""
+
+    errors: list[str] = []
+    false_claim = copy.deepcopy(contract)
+    false_claim["optimality_protocol"]["current_claim"] = (
+        "globally_optimal_within_model"
+    )
+    observed = validate_optimality_protocol(false_claim)
+    if not any("requires one certificate" in error for error in observed):
+        errors.append("optimality canary admitted an uncertified global claim")
+
+    reordered = copy.deepcopy(contract)
+    dimensions = reordered["optimality_protocol"]["objective"]["dimensions"]
+    dimensions[0], dimensions[1] = dimensions[1], dimensions[0]
+    observed = validate_optimality_protocol(reordered)
+    if not any("objective order differs" in error for error in observed):
+        errors.append("optimality canary admitted a lower-priority objective reorder")
+    return errors
+
+
+def validate_convergence_protocol(contract: dict) -> list[str]:
+    """Validate the finite convergence relation and its two dependency DAGs."""
+
+    errors: list[str] = []
+    protocol = contract.get("convergence_protocol")
+    if not isinstance(protocol, dict) or protocol.get("schema_version") != 1:
+        return ["architecture contract convergence_protocol schema_version must be 1"]
+
+    if protocol.get("states") != REQUIRED_CONVERGENCE_STATES:
+        errors.append(
+            "convergence states must be ordered construction, acceptance, accepted"
+        )
+    for field, expected in (
+        ("release_law_sources", REQUIRED_CONVERGENCE_LAW_SOURCES),
+        ("terminal_mutation_dispositions", REQUIRED_MUTATION_TERMINALS),
+        ("snowball_dimensions", REQUIRED_SNOWBALL_DIMENSIONS),
+    ):
+        actual = _string_set(protocol.get(field))
+        if actual != expected:
+            errors.append(
+                f"convergence {field} differs: expected={sorted(expected)}, "
+                f"actual={sorted(actual)}"
+            )
+    for field in ("construction_rank", "acceptance_universe", "acceptance_rank"):
+        value = protocol.get(field)
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(item, str) and item for item in value)
+            or len(value) != len(set(value))
+        ):
+            errors.append(f"convergence {field} must be a nonempty unique string list")
+    if protocol.get("termination_boundary") != (
+        "fixed_complete_basis_and_eventually_stable_construction_inputs"
+    ):
+        errors.append("convergence termination boundary differs")
+
+    invalidators = protocol.get("invalidators")
+    if not isinstance(invalidators, dict):
+        errors.append("convergence invalidators must be an object")
+    else:
+        construction = _string_set(invalidators.get("construction"))
+        evidence_only = _string_set(invalidators.get("evidence_only"))
+        if construction != REQUIRED_CONSTRUCTION_INVALIDATORS:
+            errors.append("convergence construction invalidators differ")
+        if evidence_only != REQUIRED_EVIDENCE_INVALIDATORS:
+            errors.append("convergence evidence-only invalidators differ")
+        if construction.intersection(evidence_only):
+            errors.append("convergence invalidator classes overlap")
+
+    evidence_dag = protocol.get("evidence_dag")
+    if not isinstance(evidence_dag, dict):
+        errors.append("convergence evidence_dag must be an object")
+        evidence_dependencies = {}
+    else:
+        if evidence_dag.get("invalidation") != (
+            "changed_node_and_transitive_successors_only"
+        ):
+            errors.append("evidence DAG must use transitive-successor invalidation")
+        evidence_dependencies, dag_errors = _validate_named_dag(
+            evidence_dag.get("nodes"),
+            "convergence evidence DAG",
+            require_bindings=True,
+        )
+        errors.extend(dag_errors)
+
+    expected_evidence_nodes = {
+        "reconciled_product",
+        "correctness_oracle",
+        "mutation_result",
+        "deterministic_smoke_result",
+        "complete_correctness_result",
+        "empirical_performance_result",
+        "final_release",
+    }
+    if set(evidence_dependencies) != expected_evidence_nodes:
+        errors.append("convergence evidence node universe differs")
+    if _descendants(evidence_dependencies, "reconciled_product") != (
+        expected_evidence_nodes - {"reconciled_product"}
+    ):
+        errors.append("a product change must invalidate every later evidence node")
+    if _descendants(evidence_dependencies, "empirical_performance_result") != {
+        "final_release"
+    }:
+        errors.append("empirical performance evidence must not invalidate correctness")
+
+    expected_transitions = {
+        (
+            "close_construction",
+            "construction",
+            "acceptance",
+            "construction_rank_zero_and_universe_hash_bound",
+            "bind_acceptance_evidence_to_universe",
+        ),
+        (
+            "discharge_obligation",
+            "acceptance",
+            "acceptance",
+            "acceptance_rank_positive",
+            "strictly_decrease_acceptance_rank_without_universe_change",
+        ),
+        (
+            "accept",
+            "acceptance",
+            "accepted",
+            "acceptance_rank_zero",
+            "retain_exact_universe_binding",
+        ),
+        (
+            "construction_input_change",
+            "acceptance",
+            "construction",
+            "always",
+            "invalidate_construction_freeze_and_dependent_evidence",
+        ),
+        (
+            "construction_input_change",
+            "accepted",
+            "construction",
+            "always",
+            "invalidate_construction_freeze_and_dependent_evidence",
+        ),
+        (
+            "evidence_input_change",
+            "acceptance",
+            "acceptance",
+            "blueprint_and_construction_inputs_unchanged",
+            "invalidate_changed_node_and_transitive_successors",
+        ),
+        (
+            "evidence_input_change",
+            "accepted",
+            "acceptance",
+            "blueprint_and_construction_inputs_unchanged",
+            "invalidate_changed_node_and_transitive_successors",
+        ),
+        (
+            "new_semantic_family",
+            "any",
+            "construction",
+            "legal_observable_counterexample",
+            "invalidate_blueprint_freeze",
+        ),
+    }
+    transition_rows = protocol.get("transitions")
+    if not isinstance(transition_rows, list):
+        errors.append("convergence transitions must be a list")
+    else:
+        transitions = {
+            tuple(row.get(field) for field in ("event", "from", "to", "guard", "effect"))
+            for row in transition_rows
+            if isinstance(row, dict)
+        }
+        if len(transitions) != len(transition_rows):
+            errors.append("convergence transitions must be unique objects")
+        if transitions != expected_transitions:
+            errors.append("convergence transition relation differs")
+
+    phase_dependencies, phase_errors = _validate_named_dag(
+        protocol.get("phase_dag"), "convergence phase DAG"
+    )
+    errors.extend(phase_errors)
+    if set(phase_dependencies) != REQUIRED_CONVERGENCE_PHASES:
+        errors.append("convergence phase universe differs")
+    required_order = (
+        ("basis_and_roadmap_normalization", "release_boundary_adjudication"),
+        ("release_boundary_adjudication", "architecture_optimality_synthesis"),
+        ("architecture_optimality_synthesis", "registered_semantic_root_closure"),
+        ("registered_semantic_root_closure", "constructive_simplification"),
+        ("constructive_simplification", "landing_rehearsal"),
+        ("landing_rehearsal", "evidence_universe_freeze"),
+        ("evidence_universe_freeze", "complete_mutation"),
+        ("evidence_universe_freeze", "deterministic_smoke"),
+        ("complete_mutation", "complete_correctness"),
+        ("deterministic_smoke", "complete_correctness"),
+        ("complete_correctness", "empirical_performance_acceptance"),
+        ("empirical_performance_acceptance", "portability_and_final_review"),
+    )
+    for before, after in required_order:
+        if after not in _descendants(phase_dependencies, before):
+            errors.append(f"convergence phase {before} must precede {after}")
+
+    if _string_set(protocol.get("landing_candidates")) != {
+        "incremental",
+        "curated_series",
+        "one_shot",
+    }:
+        errors.append("convergence landing candidates are incomplete")
+    if protocol.get("source_change_after_correctness") != (
+        "return_to_construction_and_invalidate_later_evidence"
+    ):
+        errors.append("post-correctness source change must return to Construction")
+    return errors
+
+
+def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
+    """Validate one downward-closed status projection of the phase DAG."""
+
+    errors: list[str] = []
+    status = manifest.get("convergence_status")
+    protocol = contract.get("convergence_protocol")
+    if not isinstance(status, dict) or status.get("schema_version") != 2:
+        return ["security manifest convergence_status schema_version must be 2"]
+    if not isinstance(protocol, dict):
+        return ["cannot validate convergence status without its protocol"]
+
+    phase_dependencies, phase_errors = _validate_named_dag(
+        protocol.get("phase_dag"), "convergence phase DAG"
+    )
+    errors.extend(phase_errors)
+    state = status.get("state")
+    if state not in protocol.get("states", []):
+        errors.append(f"unknown convergence state {state!r}")
+
+    rank_value = status.get("construction_rank")
+    rank_fields = protocol.get("construction_rank")
+    rank_ids: list[str] = []
+    if (
+        not isinstance(rank_value, dict)
+        or not isinstance(rank_fields, list)
+        or set(rank_value) != set(rank_fields)
+    ):
+        errors.append("construction rank projection differs from its protocol")
+    else:
+        for field in rank_fields:
+            items = rank_value.get(field)
+            if not isinstance(items, list) or not all(
+                isinstance(item, str) and item for item in items
+            ):
+                errors.append(f"construction rank coordinate {field} is invalid")
+                continue
+            if len(items) != len(set(items)):
+                errors.append(f"construction rank coordinate {field} has duplicates")
+            rank_ids.extend(items)
+        if len(rank_ids) != len(set(rank_ids)):
+            errors.append("one construction obligation occupies multiple rank coordinates")
+
+    completed_value = status.get("completed_phases")
+    completed = _string_set(completed_value)
+    if not isinstance(completed_value, list) or len(completed) != len(completed_value):
+        errors.append("completed convergence phases must be a unique string list")
+    if completed.difference(phase_dependencies):
+        errors.append("completed convergence phases contain an unknown node")
+    for phase in completed.intersection(phase_dependencies):
+        missing = phase_dependencies[phase] - completed
+        if missing:
+            errors.append(
+                f"completed convergence phase {phase} lacks predecessors {sorted(missing)}"
+            )
+
+    active = status.get("active_phase")
+    if state in {"construction", "acceptance"} and active is None:
+        errors.append(f"{state} requires one active convergence phase")
+    if active is not None:
+        if active not in phase_dependencies:
+            errors.append(f"unknown active convergence phase {active!r}")
+        elif active in completed:
+            errors.append(f"active convergence phase {active} is already completed")
+        else:
+            missing = phase_dependencies[active] - completed
+            if missing:
+                errors.append(
+                    f"active convergence phase {active} lacks predecessors "
+                    f"{sorted(missing)}"
+                )
+
+    acceptance_phases = {
+        "complete_mutation",
+        "deterministic_smoke",
+        "complete_correctness",
+        "empirical_performance_acceptance",
+        "portability_and_final_review",
+    }
+    universe = status.get("acceptance_universe")
+    if state == "construction":
+        if universe is not None or completed.intersection(acceptance_phases):
+            errors.append("Construction cannot retain acceptance evidence")
+        if active in acceptance_phases:
+            errors.append("Construction cannot activate an acceptance phase")
+    elif state in {"acceptance", "accepted"}:
+        if rank_ids:
+            errors.append(f"{state} requires a zero construction rank")
+        if "evidence_universe_freeze" not in completed:
+            errors.append(f"{state} requires a completed evidence universe freeze")
+        if (
+            not isinstance(universe, dict)
+            or re.fullmatch(r"[0-9a-f]{64}", str(universe.get("sha256"))) is None
+        ):
+            errors.append(f"{state} requires one hash-bound acceptance universe")
+    if state == "accepted":
+        if "portability_and_final_review" not in completed or active is not None:
+            errors.append("Accepted requires every phase complete and no active phase")
+        if contract.get("optimality_protocol", {}).get("current_claim") != (
+            "globally_optimal_within_model"
+        ):
+            errors.append("Accepted requires a certified global static optimum")
+
+    if "constructive_simplification" in completed and contract.get(
+        "optimality_protocol", {}
+    ).get("current_claim") != "globally_optimal_within_model":
+        errors.append(
+            "constructive simplification cannot close before the global static "
+            "optimality certificate"
+        )
+
+    blockers = manifest.get("release_blockers")
+    if not isinstance(blockers, list):
+        errors.append("release blockers must be a list")
+    else:
+        blocker_ids = [
+            blocker.get("id") for blocker in blockers if isinstance(blocker, dict)
+        ]
+        if (
+            len(blocker_ids) != len(blockers)
+            or not all(isinstance(item, str) and item for item in blocker_ids)
+            or len(blocker_ids) != len(set(blocker_ids))
+        ):
+            errors.append("release blocker ids must be unique nonempty strings")
+        if state == "accepted" and blockers:
+            errors.append("Accepted cannot retain a release blocker")
+        obligation_owners: dict[str, list[str]] = {}
+        for blocker in blockers:
+            if not isinstance(blocker, dict):
+                continue
+            blocker_id = blocker.get("id")
+            obligations = blocker.get("construction_obligations", [])
+            if not isinstance(obligations, list) or not all(
+                isinstance(item, str) and item for item in obligations
+            ):
+                errors.append(
+                    f"release blocker {blocker_id!r} has invalid construction obligations"
+                )
+                continue
+            if len(obligations) != len(set(obligations)):
+                errors.append(
+                    f"release blocker {blocker_id!r} repeats a construction obligation"
+                )
+            for obligation in obligations:
+                obligation_owners.setdefault(obligation, []).append(str(blocker_id))
+        unknown_obligations = set(obligation_owners).difference(rank_ids)
+        if unknown_obligations:
+            errors.append(
+                "release blockers reference unknown construction obligations "
+                f"{sorted(unknown_obligations)}"
+            )
+        missing_owners = set(rank_ids).difference(obligation_owners)
+        if missing_owners:
+            errors.append(
+                "construction obligations lack a release-blocker owner "
+                f"{sorted(missing_owners)}"
+            )
+        duplicate_owners = {
+            obligation: owners
+            for obligation, owners in obligation_owners.items()
+            if len(owners) != 1
+        }
+        if duplicate_owners:
+            errors.append(
+                f"construction obligations have duplicate blocker owners {duplicate_owners}"
+            )
+    return errors
+
+
+def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
+    """Prove the convergence validator rejects the known shortcut classes."""
+
+    errors: list[str] = []
+
+    nondecreasing = copy.deepcopy(contract)
+    discharge = next(
+        row
+        for row in nondecreasing["convergence_protocol"]["transitions"]
+        if row["event"] == "discharge_obligation"
+    )
+    discharge["effect"] = "retain_acceptance_rank"
+    observed = validate_convergence_protocol(nondecreasing)
+    if not any("transition relation differs" in error for error in observed):
+        errors.append("convergence canary admitted a nondecreasing acceptance step")
+
+    cleanup_after_mutation = copy.deepcopy(contract)
+    phases = {
+        row["id"]: row
+        for row in cleanup_after_mutation["convergence_protocol"]["phase_dag"]
+    }
+    phases["constructive_simplification"]["requires"] = ["complete_mutation"]
+    observed = validate_convergence_protocol(cleanup_after_mutation)
+    if not any("contains a cycle" in error for error in observed):
+        errors.append("convergence canary admitted cleanup after final mutation")
+
+    performance_to_correctness = copy.deepcopy(contract)
+    evidence_nodes = {
+        row["id"]: row
+        for row in performance_to_correctness["convergence_protocol"]["evidence_dag"][
+            "nodes"
+        ]
+    }
+    evidence_nodes["complete_correctness_result"]["requires"].append(
+        "empirical_performance_result"
+    )
+    observed = validate_convergence_protocol(performance_to_correctness)
+    if not any("contains a cycle" in error for error in observed):
+        errors.append("convergence canary admitted performance-to-correctness invalidation")
+
+    late_optimality = copy.deepcopy(contract)
+    late_phases = {
+        row["id"]: row
+        for row in late_optimality["convergence_protocol"]["phase_dag"]
+    }
+    late_phases["registered_semantic_root_closure"]["requires"] = [
+        "release_boundary_adjudication"
+    ]
+    late_phases["architecture_optimality_synthesis"]["requires"] = [
+        "complete_correctness"
+    ]
+    observed = validate_convergence_protocol(late_optimality)
+    if not any(
+        "contains a cycle" in error or "must precede" in error for error in observed
+    ):
+        errors.append("convergence canary admitted downstream architecture optimality")
+
+    skipped_predecessor = copy.deepcopy(manifest)
+    skipped_predecessor["convergence_status"]["active_phase"] = (
+        "constructive_simplification"
+    )
+    observed = validate_convergence_status(skipped_predecessor, contract)
+    if not any("lacks predecessors" in error for error in observed):
+        errors.append("convergence canary admitted a phase before its predecessors")
+
+    unmapped_obligation = copy.deepcopy(manifest)
+    basis_blocker = next(
+        blocker
+        for blocker in unmapped_obligation["release_blockers"]
+        if blocker["id"] == "BASIS-AND-ROADMAP-NORMALIZATION"
+    )
+    basis_blocker["construction_obligations"].pop()
+    observed = validate_convergence_status(unmapped_obligation, contract)
+    if not any("lack a release-blocker owner" in error for error in observed):
+        errors.append("convergence canary admitted an unmapped construction obligation")
+
+    stale_acceptance = copy.deepcopy(manifest)
+    stale_acceptance["convergence_status"] = {
+        "schema_version": 2,
+        "state": "accepted",
+        "active_phase": None,
+        "completed_phases": [],
+        "acceptance_universe": None,
+        "construction_rank": {
+            field: []
+            for field in contract["convergence_protocol"]["construction_rank"]
+        },
+    }
+    observed = validate_convergence_status(stale_acceptance, contract)
+    if not any("requires every phase complete" in error for error in observed):
+        errors.append("convergence canary admitted Accepted without current evidence")
+    return errors
 def validate_enum_boundary_mapping(
     value: object,
     path_value: str,
@@ -924,11 +1678,14 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 14:
-        errors.append("architecture contract schema_version must be 14")
+    if contract.get("schema_version") != 16:
+        errors.append("architecture contract schema_version must be 16")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
     errors.extend(validate_interruption_contract(contract, registry))
+    errors.extend(validate_convergence_protocol(contract))
+    errors.extend(validate_optimality_protocol(contract))
+    errors.extend(validate_optimality_canaries(contract))
 
     authority = contract.get("authority")
     if not isinstance(authority, dict):
@@ -1709,8 +2466,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 8:
-        raise SystemExit("security manifest schema_version must be 8")
+    if manifest.get("schema_version") != 10:
+        raise SystemExit("security manifest schema_version must be 10")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
@@ -1730,6 +2487,8 @@ def main() -> int:
     )
     if contract is not None:
         errors.extend(validate_architecture_contract(contract, registry))
+        errors.extend(validate_convergence_status(manifest, contract))
+        errors.extend(validate_convergence_canaries(manifest, contract))
         mutation_acceptance = manifest.get("mutation_acceptance")
         errors.extend(
             validate_mutation_acceptance(mutation_acceptance, contract, registry)
@@ -1794,11 +2553,23 @@ def main() -> int:
     references = sum(map(len, evidence.values()))
     unique_tests = len(registry["unit_evidence"])
     source_anchors = len(registry["integration_evidence"])
+    convergence_status = manifest["convergence_status"]
+    convergence_phases = contract["convergence_protocol"]["phase_dag"]
+    completed_convergence = convergence_status["completed_phases"]
+    construction_rank = convergence_status["construction_rank"]
+    rho_c = tuple(
+        len(construction_rank[field])
+        for field in contract["convergence_protocol"]["construction_rank"]
+    )
     print(
         f"validated {references} invariant references covering {unique_tests} unique Rust "
         f"tests, {source_anchors} security integration anchors and "
         f"{len(managed_integration_specs)} managed integration specs against "
         f"{test_count} nextest tests; "
+        f"convergence={convergence_status['state']}:"
+        f"{convergence_status['active_phase']} "
+        f"({len(completed_convergence)}/{len(convergence_phases)} phases); "
+        f"rho_C={rho_c}; "
         f"{len(blockers)} explicit release blockers remain"
     )
     return 0

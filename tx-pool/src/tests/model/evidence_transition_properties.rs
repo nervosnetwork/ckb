@@ -1,7 +1,7 @@
 use super::{
     dependency_progress::{ModelDependencyCut, ModelDependencyKey},
     evidence_transition::{
-        ModelAcceptedPoolOutput, ModelAdmissionReceipt, ModelDependencyLevel,
+        ModelAcceptedPoolOutput, ModelAdmissionReceipt, ModelCellLocation, ModelDependencyLevel,
         ModelDependencyMaintenanceAction, ModelDependencyMaintenanceError,
         ModelDependencyMaintenanceLocation, ModelDependencyMaintenanceOwner,
         ModelDependencyMaintenanceScope, ModelDependencyMaintenanceTicket,
@@ -10,11 +10,11 @@ use super::{
         ModelFinalAdmissionSubject, ModelKnownDependencies, ModelMissingDisposition,
         ModelMissingFact, ModelPoolParent, ModelPreAcceptedMaintenancePhase,
         ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext,
-        ModelReleasedInputCut, ModelReleasedInputDisposition, ModelReplacementReference,
-        ModelSubjectValidation, ModelUnindexedDependencyLevel, dependency_maintenance_action,
-        missing_resolution_disposition, released_input_disposition, replacement_history_trigger,
-        validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
-        validate_final_subject,
+        ModelReadyPayloadRelation, ModelReleasedInputCut, ModelReleasedInputDisposition,
+        ModelReplacementReference, ModelSubjectValidation, ModelUnindexedDependencyLevel,
+        dependency_maintenance_action, missing_resolution_disposition, released_input_disposition,
+        replacement_history_trigger, validate_direct_acceptance, validate_direct_rejection,
+        validate_final_acceptance, validate_final_subject, validated_location_transition,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -608,6 +608,30 @@ fn model_replacement_history_trigger_is_exactly_conflict_or_removed_pool_produce
                     chain_backed,
                 ),
                 producer_removed && !chain_backed
+            );
+        }
+    }
+}
+
+#[test]
+fn model_final_location_refresh_updates_payload_and_context_atomically() {
+    let locations = [
+        ModelCellLocation::Pool,
+        ModelCellLocation::Chain(1),
+        ModelCellLocation::Chain(2),
+    ];
+    for previous in locations {
+        for authoritative in locations {
+            let transition = validated_location_transition(previous, authoritative);
+            assert_eq!(transition.payload_location, authoritative);
+            assert_eq!(transition.context_location, authoritative);
+            assert_eq!(
+                transition.relation,
+                if previous == authoritative {
+                    ModelReadyPayloadRelation::Shared
+                } else {
+                    ModelReadyPayloadRelation::LocationRefreshed
+                }
             );
         }
     }

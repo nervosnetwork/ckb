@@ -1492,7 +1492,7 @@ def validate_dependency_maintenance_producers() -> list[str]:
         (
             "ApplyClockReservation::begin(self.clocks)?",
             "letsequence=clocks.sequence()",
-            "QueuedWork::Resolve=>crate::authority::state::DependencyCut(sequence)",
+            "crate::authority::state::DependencyCut(sequence)",
             "clocks:clocks.finish()",
         ),
     )
@@ -2700,6 +2700,10 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         validation = TX_POOL_AUTHORITY_VALIDATION.read_text()
         plan = TX_POOL_AUTHORITY_PLAN.read_text()
         work = TX_POOL_AUTHORITY_WORK.read_text()
+        state = TX_POOL_AUTHORITY_STATE.read_text()
+        scheduler = TX_POOL_AUTHORITY_SCHEDULER.read_text()
+        compute_exchange = TX_POOL_AUTHORITY_COMPUTE_EXCHANGE.read_text()
+        chain_transition = TX_POOL_AUTHORITY_CHAIN_TRANSITION.read_text()
         final_work = required_function_body(plan, "final_admission_work")
         final_evidence = required_function_body(plan, "validate_acceptance_evidence")
         direct_evidence = required_function_body(
@@ -2712,6 +2716,44 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         direct_receipt_view = impl_method_body(chain, "DirectAdmissionReceipt", "view")
         subject = required_function_body(plan, "final_admission_subject_owner")
         classifier = required_function_body(plan, "classify_settlement")
+        checkout = impl_method_body(work, "CheckedOutWork", "from_owner")
+        final_location = impl_method_body(
+            state, "VerifiedFacts", "with_final_validation"
+        )
+        refresh_locations = required_function_body(validation, "refresh_locations")
+        queue_for_permit = impl_method_body(scheduler, "QueueLane", "for_permit")
+        queue_population = impl_method_body(scheduler, "QueueLane", "population")
+        owner_head_excluding = impl_method_body(
+            scheduler, "OwnerQueue", "head_excluding"
+        )
+        frontier_slot = impl_method_body(scheduler, "FairFrontier", "slot")
+        frontier_next = impl_method_body(
+            scheduler, "FairFrontier", "next_queued_in_wave_with_overlay"
+        )
+        frontier_next_after = impl_method_body(
+            scheduler, "FairFrontier", "next_queued_after_in_wave_with_overlay"
+        )
+        search_exchange_permit = impl_method_body(
+            compute_exchange, "TxPoolAuthority", "search_exchange_permit"
+        )
+        exchange_checkout_resource = impl_method_body(
+            compute_exchange, "TxPoolAuthority", "exchange_checkout_resource"
+        )
+        compile_compute_exchange_state = impl_method_body(
+            compute_exchange, "TxPoolAuthority", "compile_compute_exchange_state"
+        )
+        policy_evolution = impl_method_body(state, "PayloadPolicy", "evolution_to")
+        remote_ingress = impl_method_body(state, "RemoteBase", "ingress")
+        plan_chain_transition = impl_method_body(
+            chain_transition, "TxPoolAuthority", "plan_chain_transition"
+        )
+        defer_completion = required_function_body(compute_exchange, "defer_completion")
+        recover_classified = impl_method_body(
+            compute_exchange, "ClassifiedCompletion", "recover_into"
+        )
+        apply_exchange = impl_method_body(
+            compute_exchange, "PreparedComputeExchange", "apply"
+        )
     except (OSError, ValueError) as error:
         return [f"cannot inspect sealed evidence and settlement construction: {error}"]
 
@@ -2913,6 +2955,317 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         "verified.payload().identity()!=&preaccepted.record.identity"
     ) != 1:
         errors.append("Ready settlement must seal the proof identity to its exact owner")
+    if "verified.witness()" in compact_classifier:
+        errors.append("Ready settlement reconstructed witness beside its complete payload identity")
+
+    compact_checkout = "".join(mask_rust_non_code(checkout).split())
+    checkout_order = (
+        "letPreAcceptedPhase::Queued(queued)=&preaccepted.phaseelse",
+        "letdependency_cut=matchqueued{",
+        "letpayload_policy=preaccepted.source.payload_policy();",
+        "lettoken=LeaseToken{",
+        "letactive=ActiveWork{",
+        "letwork=match(permit,queued){",
+        "Ok((work,active))",
+    )
+    positions = [compact_checkout.find(fragment) for fragment in checkout_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append("checkout lost its one owner-to-work/ActiveWork construction order")
+    checkout_facts = (
+        "hash:preaccepted.record.identity.raw.clone()",
+        "chain_view:chain_view.clone()",
+        "attribution:preaccepted.source.compute_attribution()",
+        "payload_policy",
+        "dependencies:preaccepted.dependencies().clone()",
+        "tx:Arc::clone(&preaccepted.record.tx)",
+        "declared_dependencies:preaccepted.basis.dependencies().clone()",
+        "resolved:resolved.clone()",
+    )
+    for fragment in checkout_facts:
+        if fragment not in compact_checkout:
+            errors.append(f"sealed checkout origin lost {fragment!r}")
+    if compact_checkout.count("LeaseToken{") != 1 or compact_checkout.count("ActiveWork{") != 1:
+        errors.append("checkout must construct exactly one worker token and one ActiveWork")
+
+    authority_production = [
+        path
+        for path in production_rust_sources()
+        if path.is_relative_to(TX_POOL_AUTHORITY_PLAN.parent)
+    ]
+    checkout_callers: list[str] = []
+    for path in authority_production:
+        masked = mask_rust_non_code(path.read_text())
+        call_count = len(re.findall(r"\bCheckedOutWork\s*::\s*from_owner\s*\(", masked))
+        checkout_callers.extend([str(path.relative_to(REPO_ROOT))] * call_count)
+        if path != TX_POOL_AUTHORITY_WORK and "LeaseToken {" in masked:
+            errors.append(
+                f"LeaseToken escaped its sole checkout constructor in {path.relative_to(REPO_ROOT)}"
+            )
+        if path not in (TX_POOL_AUTHORITY_WORK, TX_POOL_AUTHORITY_STATE) and re.search(
+            r"\bActiveWork\s*\{[^{}]*\bchain_view\s*:", masked, re.S
+        ):
+            errors.append(
+                f"ActiveWork escaped its sole checkout constructor in {path.relative_to(REPO_ROOT)}"
+            )
+        if path == TX_POOL_AUTHORITY_STATE and masked.count("ActiveWork {") != 1:
+            errors.append("ActiveWork state declaration gained a second constructor")
+    expected_checkout_caller = str(TX_POOL_AUTHORITY_COMPUTE_EXCHANGE.relative_to(REPO_ROOT))
+    if checkout_callers != [expected_checkout_caller]:
+        errors.append(
+            "CheckedOutWork::from_owner production caller set changed: "
+            f"expected {[expected_checkout_caller]}, found {checkout_callers}"
+        )
+
+    compact_final_location = "".join(mask_rust_non_code(final_location).split())
+    final_location_order = (
+        "self.script.is_reusable_under(context.rules())",
+        "content:CellContentReceipt::from_resolution(payload)",
+        "context",
+        "..self",
+    )
+    positions = [compact_final_location.find(fragment) for fragment in final_location_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "final validation must rebind payload location and context in one sealed transition"
+        )
+    compact_refresh_locations = "".join(
+        mask_rust_non_code(refresh_locations).split()
+    )
+    for fragment in (
+        "ResolvedCellRole::Input",
+        "ResolvedCellRole::Dependency",
+        "ResolvedCellRole::DependencyGroup",
+        "ifcurrent!=cell.transaction_info",
+        "cell.transaction_info=change.current",
+        "payload.with_refreshed_locations(LocationRefreshSeal(()),Arc::new(refreshed))",
+        "ReadyPayloadRelation::LocationRefreshed",
+    ):
+        if fragment not in compact_refresh_locations:
+            errors.append(f"pointwise final-location refresh lost {fragment!r}")
+    compact_validation_location = "".join(mask_rust_non_code(validation).split())
+    final_location_call = (
+        "verified.with_final_validation(LocationRefreshSeal(()),payload,context)"
+    )
+    if compact_validation_location.count(final_location_call) != 1:
+        errors.append("the final validator must consume one fused payload/context transition")
+    if "matchpayload_relation" in compact_validation_location:
+        errors.append("payload relation must not decide whether final evidence is rebound")
+    if ".with_context(context)" in compact_validation_location:
+        errors.append("production final validation regained a split context-only update")
+
+    final_location_callers: list[str] = []
+    for path in authority_production:
+        masked = mask_rust_non_code(path.read_text())
+        call_count = len(re.findall(r"\.\s*with_final_validation\s*\(", masked))
+        final_location_callers.extend([str(path.relative_to(REPO_ROOT))] * call_count)
+    expected_final_location_caller = str(TX_POOL_AUTHORITY_VALIDATION.relative_to(REPO_ROOT))
+    if final_location_callers != [expected_final_location_caller]:
+        errors.append(
+            "VerifiedFacts::with_final_validation caller set changed: expected "
+            f"{[expected_final_location_caller]}, found {final_location_callers}"
+        )
+
+    compact_scheduler = "".join(mask_rust_non_code(scheduler).split())
+    ticket_declaration = re.search(
+        r"pub\s*\(super\)\s+struct\s+CheckoutTicket\s*\{(?P<body>.*?)\n\}",
+        mask_rust_non_code(scheduler),
+        re.S,
+    )
+    if ticket_declaration is None or re.search(r"\bpub\b", ticket_declaration.group("body")):
+        errors.append("CheckoutTicket must retain private fields behind the scheduler")
+    if compact_scheduler.count("CheckoutTicket{") != 4:
+        errors.append(
+            "CheckoutTicket must have one declaration, one impl and exactly two scheduler-wave constructors"
+        )
+
+    scheduler_capability_fragments = {
+        "QueueLane::for_permit": (
+            queue_for_permit,
+            ("super::state::WorkPermit::VerifyOnly(_)=>Self::Verify",),
+        ),
+        "QueueLane::population": (
+            queue_population,
+            (
+                "(Self::Verify,VerifyCapability::SmallCycleOnly)=>QueuePopulation::SmallOnly",
+            ),
+        ),
+        "OwnerQueue::head_excluding": (
+            owner_head_excluding,
+            (
+                "VerifyCapability::SmallCycleOnly=>last_available(&self.small,excluded_versions)",
+            ),
+        ),
+        "FairFrontier::slot": (
+            frontier_slot,
+            (
+                "PreAcceptedPhase::Queued(super::state::QueuedWork::Verify(resolved))",
+                "class:resolved.verify_class()",
+            ),
+        ),
+        "FairFrontier::next": (
+            frontier_next,
+            (
+                "letlane=QueueLane::for_permit(permit)",
+                "letcapability=QueueLane::capability(permit)",
+                "next_excluding_with_overlay(added,lane,capability",
+                "CheckoutTicket{lane,owner,key:key.clone(),}",
+            ),
+        ),
+        "FairFrontier::next_after": (
+            frontier_next_after,
+            (
+                "letlane=QueueLane::for_permit(permit)",
+                "letcapability=QueueLane::capability(permit)",
+                "next_excluding_with_overlay(added,lane,capability",
+                "CheckoutTicket{lane,owner,key:key.clone(),}",
+            ),
+        ),
+        "TxPoolAuthority::search_exchange_permit": (
+            search_exchange_permit,
+            (
+                "Some(owner)=>wave.next_after(permit,owner)",
+                "None=>wave.next(permit)",
+                "self.exchange_checkout_resource(owners,resources,&ticket,permit",
+                "PlannedAssignment{permit,ticket,reservation,}",
+            ),
+        ),
+        "TxPoolAuthority::exchange_checkout_resource": (
+            exchange_checkout_resource,
+            (
+                "letbefore=owners.current(self,ticket.hash())?",
+                "before.record().version!=ticket.version()",
+                "letOwnedTx::PreAccepted(preaccepted)=beforeelse",
+                "self.checkout_eligibility(preaccepted,permit)?",
+            ),
+        ),
+    }
+    for owner, (body, fragments) in scheduler_capability_fragments.items():
+        compact_body = "".join(mask_rust_non_code(body).split())
+        for fragment in fragments:
+            if fragment not in compact_body:
+                errors.append(
+                    f"sealed checkout scheduler premise {owner} lost {fragment!r}"
+                )
+    compact_compile_exchange = "".join(
+        mask_rust_non_code(compile_compute_exchange_state).split()
+    )
+    exchange_order = (
+        "letPlannedAssignment{permit,ticket,reservation,}=assignment",
+        "letkey=ticket.hash().clone()",
+        "letOwnedTx::PreAccepted(preaccepted)=&reservation.beforeelse",
+        "CheckedOutWork::from_owner(",
+    )
+    positions = [compact_compile_exchange.find(fragment) for fragment in exchange_order]
+    if any(position < 0 for position in positions) or positions != sorted(positions):
+        errors.append(
+            "compute exchange must carry one scheduler permit/ticket pair into checkout"
+        )
+    if compact_checkout.count(
+        "ifcapability.permits(resolved.verify_class())"
+    ) != 1:
+        errors.append("checkout lost its sole defensive Verify capability guard")
+
+    policy_declaration = re.search(
+        r"enum\s+PayloadPolicyEvolution\s*\{(?P<body>.*?)\n\}",
+        mask_rust_non_code(state),
+        re.S,
+    )
+    expected_policy_evolution = {"Unchanged", "RemoteToTrusted", "Invalid"}
+    if policy_declaration is None:
+        errors.append("the closed settlement payload-policy evolution disappeared")
+    else:
+        policy_variants = set(
+            re.findall(
+                r"(?m)^\s*([A-Z][A-Za-z0-9_]*)\s*,?\s*$",
+                policy_declaration.group("body"),
+            )
+        )
+        if policy_variants != expected_policy_evolution:
+            errors.append(
+                "payload-policy evolution changed: expected "
+                f"{sorted(expected_policy_evolution)}, found {sorted(policy_variants)}"
+            )
+    compact_policy_evolution = "".join(mask_rust_non_code(policy_evolution).split())
+    policy_fragments = (
+        "Self::RemoteDeclaredCycles(active),Self::RemoteDeclaredCycles(current)",
+        "ifactive==current",
+        "Self::Trusted,Self::Trusted",
+        "Self::RemoteDeclaredCycles(_),Self::Trusted",
+        "Self::Trusted,Self::RemoteDeclaredCycles(_)",
+    )
+    for fragment in policy_fragments:
+        if fragment not in compact_policy_evolution:
+            errors.append(f"payload-policy evolution lost {fragment!r}")
+    compact_remote_ingress = "".join(mask_rust_non_code(remote_ingress).split())
+    if "payload_policy:PayloadPolicy::RemoteDeclaredCycles(declared_cycles)" not in compact_remote_ingress:
+        errors.append("Remote ingress no longer seals its exact declared-cycle policy")
+    compact_chain_transition = "".join(mask_rust_non_code(plan_chain_transition).split())
+    trusted_demotion = (
+        "after.source=PreAcceptedSource::Remote(RemoteBase{"
+        "residency,payload_policy:PayloadPolicy::Trusted,});"
+    )
+    if compact_chain_transition.count(trusted_demotion) != 1:
+        errors.append("Proposal demotion must preserve one Trusted payload policy")
+    if compact_classifier.count("active.payload_policy.evolution_to(current_policy)") != 1:
+        errors.append("settlement must consume one closed payload-policy evolution")
+    for variant in expected_policy_evolution:
+        if compact_classifier.count(f"PayloadPolicyEvolution::{variant}") != 1:
+            errors.append(
+                f"settlement payload-policy classifier must consume {variant} exactly once"
+            )
+    remote_base_constructors: list[str] = []
+    for path in authority_production:
+        if path == TX_POOL_AUTHORITY_STATE:
+            continue
+        masked = mask_rust_non_code(path.read_text())
+        count = len(re.findall(r"\bRemoteBase\s*\{", masked))
+        remote_base_constructors.extend([str(path.relative_to(REPO_ROOT))] * count)
+        if re.search(r"\.payload_policy\s*=", masked):
+            errors.append(
+                f"payload policy gained an in-place mutation in {path.relative_to(REPO_ROOT)}"
+            )
+    expected_remote_base_constructor = str(
+        TX_POOL_AUTHORITY_CHAIN_TRANSITION.relative_to(REPO_ROOT)
+    )
+    if remote_base_constructors != [expected_remote_base_constructor]:
+        errors.append(
+            "RemoteBase constructor set changed: expected the sole trusted demotion in "
+            f"{expected_remote_base_constructor}, found {remote_base_constructors}"
+        )
+
+    deferred_declaration = re.search(
+        r"(?ms)^\s{4}Deferred\s*\{(?P<body>.*?)^\s{4}\},",
+        mask_rust_non_code(compute_exchange),
+    )
+    if deferred_declaration is None:
+        errors.append("ClassifiedCompletion::Deferred disappeared")
+    else:
+        deferred_fields = set(
+            re.findall(
+                r"^\s*([a-z_][A-Za-z0-9_]*)\s*:",
+                deferred_declaration.group("body"),
+                re.M,
+            )
+        )
+        expected_deferred_fields = {"slot", "settlement", "aftermath", "route"}
+        if deferred_fields != expected_deferred_fields:
+            errors.append(
+                "deferred completion split its move-only settlement: expected "
+                f"{sorted(expected_deferred_fields)}, found {sorted(deferred_fields)}"
+            )
+    compact_defer = "".join(mask_rust_non_code(defer_completion).split())
+    if (
+        "let(settlement,aftermath)=finished.into_parts();" not in compact_defer
+        or "ClassifiedCompletion::Deferred{slot,settlement,aftermath,route,}"
+        not in compact_defer
+        or "letComputeSettlement{" in compact_defer
+    ):
+        errors.append("deferred completion must move the original settlement without splitting it")
+    recovered_settlement = "AuthorityFinishedCompute::from_parts(settlement,aftermath)"
+    if "".join(mask_rust_non_code(recover_classified).split()).count(recovered_settlement) != 1:
+        errors.append("failed exchange recovery must return the intact deferred settlement")
+    if "".join(mask_rust_non_code(apply_exchange).split()).count(recovered_settlement) != 1:
+        errors.append("committed exchange deferral must return the intact deferred settlement")
 
     settlement = re.search(
         r"enum\s+SettlementNext\s*\{(?P<body>.*?)\n\}",
@@ -2945,9 +3298,18 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         for path in production_rust_sources()
         if path != TX_POOL_AUTHORITY_WORK
     )
-    for constructor in ("ResolvedFacts::from_resolution(", "VerifiedFacts::from_verification("):
+    evidence_constructors = {
+        "ResolvedFacts::from_resolution(": 2,
+        "VerifiedFacts::from_verification(": 1,
+    }
+    for constructor, expected_count in evidence_constructors.items():
         if constructor in production_without_work:
             errors.append(f"sealed settlement evidence escaped authority work via {constructor!r}")
+        if work.count(constructor) != expected_count:
+            errors.append(
+                f"sealed settlement evidence constructor {constructor!r} changed: "
+                f"expected {expected_count}, found {work.count(constructor)}"
+            )
     return errors
 
 

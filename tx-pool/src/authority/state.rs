@@ -153,6 +153,34 @@ pub(super) enum PayloadPolicy {
     Trusted,
 }
 
+/// The complete payload-policy relation visible to one settlement. An active
+/// peer claim may be superseded only by trusted evidence for the same owner
+/// version; every other policy change is structural corruption.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PayloadPolicyEvolution {
+    Unchanged,
+    RemoteToTrusted,
+    Invalid,
+}
+
+impl PayloadPolicy {
+    pub(super) const fn evolution_to(self, current: Self) -> PayloadPolicyEvolution {
+        match (self, current) {
+            (Self::RemoteDeclaredCycles(active), Self::RemoteDeclaredCycles(current))
+                if active == current =>
+            {
+                PayloadPolicyEvolution::Unchanged
+            }
+            (Self::Trusted, Self::Trusted) => PayloadPolicyEvolution::Unchanged,
+            (Self::RemoteDeclaredCycles(_), Self::Trusted) => {
+                PayloadPolicyEvolution::RemoteToTrusted
+            }
+            (Self::RemoteDeclaredCycles(_), Self::RemoteDeclaredCycles(_))
+            | (Self::Trusted, Self::RemoteDeclaredCycles(_)) => PayloadPolicyEvolution::Invalid,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RemoteBase {
     pub(super) residency: RemoteResidencyLease,
@@ -903,10 +931,6 @@ impl VerifiedFacts {
         }
     }
 
-    pub(super) fn witness(&self) -> &WitnessTxHash {
-        &self.payload().identity().witness
-    }
-
     pub(super) fn chain_view(&self) -> &ChainViewId {
         self.context.view()
     }
@@ -948,6 +972,7 @@ impl VerifiedFacts {
         &self.context
     }
 
+    #[cfg(test)]
     pub(super) fn with_context(self, context: VerificationContextReceipt) -> Option<Self> {
         if !self.script.is_reusable_under(context.rules()) {
             return None;
@@ -969,18 +994,24 @@ impl VerifiedFacts {
         }
     }
 
-    /// Rebind immutable content to freshly validated cell locations. Only the
-    /// validator can construct the seal, and [`ResolvedPayload`] preserves the
-    /// exact transaction, footprint, dependency set, fee and resident charge.
-    pub(super) fn with_refreshed_locations(
+    /// Commit the final validator's authoritative cell-location cut to both
+    /// consumers in one transition. Block construction reads the payload's
+    /// `TransactionInfo`, while policy reads the context provenance; neither
+    /// projection can be updated independently by a production caller.
+    pub(super) fn with_final_validation(
         self,
         _seal: super::validation::LocationRefreshSeal,
         payload: Arc<ResolvedPayload>,
-    ) -> Self {
-        Self {
-            content: CellContentReceipt::from_resolution(payload),
-            ..self
+        context: VerificationContextReceipt,
+    ) -> Option<Self> {
+        if !self.script.is_reusable_under(context.rules()) {
+            return None;
         }
+        Some(Self {
+            content: CellContentReceipt::from_resolution(payload),
+            context,
+            ..self
+        })
     }
 }
 

@@ -471,14 +471,8 @@ fn validate_membership(
         TimeContextReceipt::from_validation(rules),
     );
     let sensitivity = chain_sensitivity(payload.resolved_transaction());
-    let verified = match payload_relation {
-        ReadyPayloadRelation::Shared => verified,
-        ReadyPayloadRelation::LocationRefreshed => {
-            verified.with_refreshed_locations(LocationRefreshSeal(()), Arc::clone(&payload))
-        }
-    };
     let verified = verified
-        .with_context(context)
+        .with_final_validation(LocationRefreshSeal(()), payload, context)
         .ok_or(FinalAdmissionValidationError::ContextReceipt)?;
     let membership = MembershipReceipt::from_validation(
         seal,

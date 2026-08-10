@@ -2346,6 +2346,25 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = tx(1_726);
     let hash = admit_remote_until(&mut authority, 1_726, 726, 20);
+    let (_, resolve) = super::foundation::take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("remote owner checks out resolution")
+            .apply(),
+    );
+    apply_plan(
+        authority
+            .apply_settlement(
+                resolve
+                    .yield_verify(resolved_payload(&transaction))
+                    .expect("the resolved payload belongs to the active owner"),
+            )
+            .expect("resolution queues the exact verify evidence"),
+    );
     apply_plan(
         authority
             .plan_admission(
@@ -2354,16 +2373,19 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
             )
             .expect("remote owner promotes"),
     );
-    let (_, work) = super::foundation::take_resolve_work(
-        authority
-            .plan_checkout_for_foundation(
-                &hash,
-                owner_version(&authority, &hash),
-                WorkPermit::ResolveOnly,
-            )
-            .expect("promoted owner checks out trusted work")
-            .apply(),
-    );
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::VerifyOnly(super::super::state::VerifyCapability::Any),
+        )
+        .expect("promoted owner checks out trusted verification")
+        .apply();
+    let CheckedOutWork::Verify(verify) = checkout.into_work() else {
+        panic!("the Verify-only permit returns Verify work");
+    };
+    assert_eq!(verify.payload_policy(), PayloadPolicy::Trusted);
+    let rejection = verify.rejected(super::super::state::test_support::RejectionKind::Verification);
     let active_version = owner_version(&authority, &hash);
     let proposal = ProposalId(transaction.proposal_short_id());
     let facts = ChainTransitionFacts::for_foundation(
@@ -2396,11 +2418,14 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
     ));
     apply_plan(
         authority
-            .apply_settlement(
-                work.rejected(super::super::state::test_support::RejectionKind::Policy),
-            )
+            .apply_settlement(rejection)
             .expect("the pre-demotion work capability remains uniquely settleable"),
     );
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
     assert!(authority.primary_projection_consistent());
 }
 

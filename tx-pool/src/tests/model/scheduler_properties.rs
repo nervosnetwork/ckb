@@ -297,6 +297,57 @@ fn model_scheduler_wave_preserves_verify_capability_and_configured_order() {
 }
 
 #[test]
+fn model_scheduler_small_capability_excludes_large_checkout_equivalence_premise() {
+    let mut transaction_id = 20u8;
+    for capability in [VerifyCapability::SmallCycleOnly, VerifyCapability::Any] {
+        for class in [VerifyCycleClass::Small, VerifyCycleClass::Large] {
+            transaction_id += 1;
+            let mut omega = model(1);
+            let transaction =
+                Transaction::independent(transaction_id, 1, 10, 20).with_verify_class(class);
+            queue_verify_wave(&mut omega, vec![remote(transaction.clone(), 1)]);
+
+            let mut permits = FairPermitScheduler::new(PermitDomain(1), 1, 1)
+                .expect("one retained permit is valid");
+            let grants = grant_batch(
+                &mut permits,
+                vec![RetainedWorkerSlot::new(
+                    WorkerSlotId(1),
+                    RetainedWorkerRole::Verifier(capability),
+                )],
+            );
+            let wave = SchedulerQuotient::default().plan_wave(&omega, grants);
+            let (cursor, assigned, idle) = wave.into_parts();
+            assert_eq!(
+                assigned.len(),
+                usize::from(capability.permits(class)),
+                "capability={capability:?}, class={class:?}"
+            );
+            assert_eq!(
+                idle.len(),
+                usize::from(!capability.permits(class)),
+                "capability={capability:?}, class={class:?}"
+            );
+            if let Some((grant, assignment)) = assigned.into_iter().next() {
+                assert_eq!(assignment.transaction(), transaction.id);
+                assert_eq!(assignment.permit(), WorkPermit::VerifyOnly(capability));
+                assert!(matches!(
+                    permits.release(grant.into_permit().into()),
+                    PermitReleaseDisposition::Released { next: None, .. }
+                ));
+            }
+            if let Some(grant) = idle.into_iter().next() {
+                assert!(matches!(
+                    permits.release(grant.into_permit().into()),
+                    PermitReleaseDisposition::Released { next: None, .. }
+                ));
+            }
+            drop(cursor);
+        }
+    }
+}
+
+#[test]
 fn model_worker_grant_binding_rejects_ambiguous_topology_without_losing_resources() {
     let check = |domain, slots: Vec<RetainedWorkerSlot>, expected| {
         let permit_count = if matches!(expected, WorkerGrantBatchErrorKind::CountMismatch { .. }) {

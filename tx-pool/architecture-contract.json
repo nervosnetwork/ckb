@@ -1,5 +1,5 @@
 {
-  "schema_version": 14,
+  "schema_version": 16,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -21,6 +21,297 @@
     "progress": "per_obligation_rank_or_monotonic_level_under_named_fairness_premises",
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
+  },
+  "convergence_protocol": {
+    "schema_version": 1,
+    "states": ["construction", "acceptance", "accepted"],
+    "release_law_sources": [
+      "root_families",
+      "target_invariants",
+      "release_surface",
+      "residual_risks"
+    ],
+    "construction_rank": [
+      "open_release_laws",
+      "open_compatibility_and_landing_decisions",
+      "unclosed_registered_semantic_families",
+      "unowned_or_duplicated_production_items",
+      "incomplete_refinement_edges"
+    ],
+    "termination_boundary": "fixed_complete_basis_and_eventually_stable_construction_inputs",
+    "acceptance_universe": [
+      "production_sources",
+      "resolved_features",
+      "test_inventory",
+      "configuration_and_migration_surfaces",
+      "tool_semantics"
+    ],
+    "evidence_dag": {
+      "invalidation": "changed_node_and_transitive_successors_only",
+      "nodes": [
+        {
+          "id": "reconciled_product",
+          "requires": [],
+          "binds": [
+            "production_sources",
+            "resolved_features",
+            "configuration_and_migration_surfaces",
+            "landing_target_and_rehearsal"
+          ]
+        },
+        {
+          "id": "correctness_oracle",
+          "requires": ["reconciled_product"],
+          "binds": ["test_inventory", "correctness_tool_semantics"]
+        },
+        {
+          "id": "mutation_result",
+          "requires": ["correctness_oracle"],
+          "binds": [
+            "mutation_tool_semantics",
+            "candidate_and_result_locks"
+          ]
+        },
+        {
+          "id": "deterministic_smoke_result",
+          "requires": ["reconciled_product"],
+          "binds": ["smoke_binary_and_fixture"]
+        },
+        {
+          "id": "complete_correctness_result",
+          "requires": [
+            "correctness_oracle",
+            "mutation_result",
+            "deterministic_smoke_result"
+          ],
+          "binds": ["static_model_nextest_and_integration_results"]
+        },
+        {
+          "id": "empirical_performance_result",
+          "requires": ["complete_correctness_result"],
+          "binds": [
+            "fixed_binary_hash",
+            "performance_environment_fingerprint",
+            "workload_and_runner_hash"
+          ]
+        },
+        {
+          "id": "final_release",
+          "requires": [
+            "complete_correctness_result",
+            "empirical_performance_result"
+          ],
+          "binds": ["evidence_portability_and_release_review"]
+        }
+      ]
+    },
+    "acceptance_rank": [
+      "unclassified_current_obligations",
+      "stale_evidence_edges",
+      "failing_required_gates"
+    ],
+    "invalidators": {
+      "construction": [
+        "production_source_change",
+        "model_or_release_law_test_change",
+        "resolved_feature_change",
+        "configuration_or_migration_change",
+        "landing_reconciliation_change",
+        "semantic_contract_change",
+        "new_semantic_family"
+      ],
+      "evidence_only": [
+        "correctness_oracle_change_without_product_or_release_law_change",
+        "tool_semantics_change",
+        "performance_environment_change",
+        "fixed_binary_or_workload_change",
+        "raw_evidence_artifact_change"
+      ]
+    },
+    "terminal_mutation_dispositions": [
+      "caught",
+      "compile_unviable",
+      "proved_equivalent_or_unconstructible",
+      "release_blocker"
+    ],
+    "transitions": [
+      {
+        "event": "close_construction",
+        "from": "construction",
+        "to": "acceptance",
+        "guard": "construction_rank_zero_and_universe_hash_bound",
+        "effect": "bind_acceptance_evidence_to_universe"
+      },
+      {
+        "event": "discharge_obligation",
+        "from": "acceptance",
+        "to": "acceptance",
+        "guard": "acceptance_rank_positive",
+        "effect": "strictly_decrease_acceptance_rank_without_universe_change"
+      },
+      {
+        "event": "accept",
+        "from": "acceptance",
+        "to": "accepted",
+        "guard": "acceptance_rank_zero",
+        "effect": "retain_exact_universe_binding"
+      },
+      {
+        "event": "construction_input_change",
+        "from": "acceptance",
+        "to": "construction",
+        "guard": "always",
+        "effect": "invalidate_construction_freeze_and_dependent_evidence"
+      },
+      {
+        "event": "construction_input_change",
+        "from": "accepted",
+        "to": "construction",
+        "guard": "always",
+        "effect": "invalidate_construction_freeze_and_dependent_evidence"
+      },
+      {
+        "event": "evidence_input_change",
+        "from": "acceptance",
+        "to": "acceptance",
+        "guard": "blueprint_and_construction_inputs_unchanged",
+        "effect": "invalidate_changed_node_and_transitive_successors"
+      },
+      {
+        "event": "evidence_input_change",
+        "from": "accepted",
+        "to": "acceptance",
+        "guard": "blueprint_and_construction_inputs_unchanged",
+        "effect": "invalidate_changed_node_and_transitive_successors"
+      },
+      {
+        "event": "new_semantic_family",
+        "from": "any",
+        "to": "construction",
+        "guard": "legal_observable_counterexample",
+        "effect": "invalidate_blueprint_freeze"
+      }
+    ],
+    "phase_dag": [
+      {
+        "id": "basis_and_roadmap_normalization",
+        "requires": []
+      },
+      {
+        "id": "release_boundary_adjudication",
+        "requires": ["basis_and_roadmap_normalization"]
+      },
+      {
+        "id": "architecture_optimality_synthesis",
+        "requires": ["release_boundary_adjudication"]
+      },
+      {
+        "id": "registered_semantic_root_closure",
+        "requires": ["architecture_optimality_synthesis"]
+      },
+      {
+        "id": "constructive_simplification",
+        "requires": ["registered_semantic_root_closure"]
+      },
+      {
+        "id": "landing_rehearsal",
+        "requires": [
+          "release_boundary_adjudication",
+          "constructive_simplification"
+        ]
+      },
+      {
+        "id": "evidence_universe_freeze",
+        "requires": ["landing_rehearsal"]
+      },
+      {
+        "id": "complete_mutation",
+        "requires": ["evidence_universe_freeze"]
+      },
+      {
+        "id": "deterministic_smoke",
+        "requires": ["evidence_universe_freeze"]
+      },
+      {
+        "id": "complete_correctness",
+        "requires": ["complete_mutation", "deterministic_smoke"]
+      },
+      {
+        "id": "empirical_performance_acceptance",
+        "requires": ["complete_correctness"]
+      },
+      {
+        "id": "portability_and_final_review",
+        "requires": ["empirical_performance_acceptance"]
+      }
+    ],
+    "landing_candidates": [
+      "incremental",
+      "curated_series",
+      "one_shot"
+    ],
+    "snowball_dimensions": [
+      "authority_state_and_fields",
+      "public_api",
+      "tasks_locks_queues_and_failure_domains",
+      "authority_guard_work",
+      "allocations_and_clones",
+      "default_production_source",
+      "test_and_model_source",
+      "checker_and_proof_machinery"
+    ],
+    "source_change_after_correctness": "return_to_construction_and_invalidate_later_evidence"
+  },
+  "optimality_protocol": {
+    "schema_version": 1,
+    "claim_scope": "semantic_topology_and_static_costs_under_explicit_release_laws",
+    "admissible_domain": "architectures_modulo_external_observational_equivalence",
+    "current_claim": "unproved",
+    "feasibility_sources": [
+      "proof_policy",
+      "root_families",
+      "target_invariants",
+      "release_surface",
+      "residual_risks"
+    ],
+    "normal_form_axes": [
+      "authority_and_atomic_commit",
+      "lifecycle_capability_and_evidence",
+      "commutativity_coupling_and_batching",
+      "dependency_scheduler_and_progress",
+      "resources_and_adversarial_bounds",
+      "effects_queries_and_derived_projections",
+      "tasks_locks_queues_channels_and_failure_domains",
+      "compatibility_migration_and_landing"
+    ],
+    "objective": {
+      "comparison": "lexicographic_without_weights",
+      "cost_encoding": "each_dimension_is_a_finite_lexicographic_N_vector",
+      "dimensions": [
+        "residual_correctness_security_and_data_risk",
+        "authority_policy_and_failure_domain_count",
+        "supported_compatibility_and_migration_cost",
+        "worst_case_serial_apply_and_authority_guard_work",
+        "adversarial_time_memory_allocation_and_wake_bounds",
+        "tasks_locks_queues_channels_and_resident_state",
+        "public_api_and_default_production_mechanisms",
+        "test_model_and_checker_proof_mechanisms"
+      ],
+      "lower_bound_rule": "minimize_dimension_i_over_feasible_candidates_with_prior_dimensions_fixed_to_their_lower_bounds"
+    },
+    "certificate_requirements": [
+      "release_basis_hash",
+      "normal_form_coverage_proof",
+      "generated_candidate_partition_hash",
+      "feasibility_proof_per_partition",
+      "conditional_lower_bound_per_objective_dimension",
+      "witness_cost_equals_lower_bound_vector",
+      "production_refinement_and_static_cost_binding",
+      "independent_negative_certificate_canaries"
+    ],
+    "current_witness": "bounded_semantic_exchange",
+    "certificate": null,
+    "empirical_boundary": "fixed_binary_measurement_may_break_static_ties_but_cannot_prove_universal_wall_clock_optimality"
   },
   "mutation_adjudication": {
     "schema_version": 2,
@@ -296,11 +587,13 @@
         "model_roles": ["scheduler_owner_ring", "scheduler_set_transition"],
         "production_roles": ["scheduler_authority", "scheduler_owner_ring"],
         "evidence_test_patterns": [
+          "^mathematical_model::scheduler_properties::model_scheduler_small_capability_excludes_large_checkout_equivalence_premise$",
           "^mathematical_model::scheduler_transition_properties::.*$",
           "^authority::tests::scheduler_refinement::.*$",
           "^authority::tests::scheduler_transition_refinement::.*$"
         ],
         "generated_test_patterns": [
+          "^mathematical_model::scheduler_properties::model_scheduler_small_capability_excludes_large_checkout_equivalence_premise$",
           "^mathematical_model::scheduler_transition_properties::.*$",
           "^authority::tests::scheduler_refinement::.*$",
           "^authority::tests::scheduler_transition_refinement::.*$"
@@ -341,12 +634,20 @@
           {
             "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
             "function_pattern": "^TxPoolAuthority::classify_settlement$"
+          },
+          {
+            "obligation_id": "V1-MUT-SETTLEMENT-POLICY-EVOLUTION",
+            "function_pattern": "^PayloadPolicy::evolution_to$"
+          },
+          {
+            "obligation_id": "V1-MUT-CHECKOUT-ORIGIN",
+            "function_pattern": "^CheckedOutWork::from_owner$"
           }
         ],
-        "semantic_fact": "One move-only completion is totally classified from its sealed view, identity, dependency cut, payload policy and rejection validity domain.",
-        "falsifier": "Weakening an identity/policy conjunction retains stale proof, blames the wrong source or terminalizes work that must re-resolve.",
+        "semantic_fact": "One checkout constructor derives the move-only completion origin and authoritative ActiveWork from the same owner cut. Settlement is totally classified from that sealed identity, view and dependency cut, one value-preserving Unchanged | RemoteToTrusted | Invalid payload-policy evolution and the rejection validity domain.",
+        "falsifier": "A checkout product with a split owner identity/view/cut, a Remote(a)-to-Remote(b) policy change for a != b, or a weakened currentness decision retains stale proof, blames the wrong source or terminalizes work that must re-resolve.",
         "parallelism": "Workers compute independently; only the returned capability's owner/resource/effect disposition is ordered in Apply.",
-        "added_cost": "The model is pure; production already carries every premise in the completion capability and owner cut.",
+        "added_cost": "The model is pure. Production fuses two existing stack-owned checkout products, removes the derived witness projection and keeps deferred settlement in its existing move-only carrier; it adds no persistent state, allocation, lock or scan.",
         "deletion_counterexample": "Without the total table, each settlement variant can silently use a different currentness or source-policy boundary.",
         "production_refinement": "implemented"
       },
@@ -446,6 +747,63 @@
         "semantic_fact": "Every non-chain-backed input admitted into an Accepted owner carries resolver evidence for an existing pool output, and final membership revalidates that output before sealing the owner. The shared released-input relation can therefore observe only an index strictly below the immutable surviving Accepted parent's output count; equality is not a legal input to this comparison.",
         "producer_boundary": "AcceptedOverlay::capture_cell -> SparsePoolCellProvider::cell -> validate_candidate_input_evidence -> AcceptedProof -> membership validation and eviction -> TxPoolAuthority::released_input_survives_final_owner_set",
         "falsifier": "A legal Accepted child whose non-chain-backed input index equals its surviving Accepted parent's output count distinguishes the weakened <= comparison from the strict bound."
+      },
+      {
+        "id": "V1-EQ-SETTLEMENT-SEALED-CHECKOUT-ORIGIN",
+        "behavior_ids": ["TP-IDENTITY-001", "TP-OWN-001", "TP-WORKER-001"],
+        "invariants": ["T1", "T2", "T4", "T6", "T10", "T11"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
+            "function_pattern": "^TxPoolAuthority::classify_settlement$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$",
+            "source_site_pattern": "SettlementNext::QueuedVerify\\(resolved\\)\\s*=>\\s*\\{[\\s\\S]*?resolved\\.payload\\(\\)\\.identity\\(\\)\\s*!=\\s*&preaccepted\\.record\\.identity\\s*(?P<site>\\|\\|)\\s*resolved\\.chain_view\\(\\)\\s*!=\\s*&active\\.chain_view"
+          },
+          {
+            "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
+            "function_pattern": "^TxPoolAuthority::classify_settlement$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$",
+            "source_site_pattern": "SettlementNext::Ready\\(verified\\)\\s*=>\\s*\\{[\\s\\S]*?verified\\.payload\\(\\)\\.identity\\(\\)\\s*!=\\s*&preaccepted\\.record\\.identity\\s*(?P<site>\\|\\|)\\s*verified\\.chain_view\\(\\)\\s*!=\\s*&active\\.chain_view"
+          },
+          {
+            "obligation_id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
+            "function_pattern": "^TxPoolAuthority::classify_settlement$",
+            "genre": "BinaryOperator",
+            "replacement_pattern": "^&&$",
+            "source_site_pattern": "SettlementNext::VerificationRejected\\s*\\{\\s*rejection,\\s*resolved,\\s*\\}\\s*=>\\s*\\{\\s*if\\s+resolved\\.payload\\(\\)\\.identity\\(\\)\\s*!=\\s*&preaccepted\\.record\\.identity\\s*(?P<site>\\|\\|)\\s*resolved\\.chain_view\\(\\)\\s*!=\\s*&active\\.chain_view"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::settlement_transition_properties::model_checkout_origin_is_the_exact_settlement_evidence_equivalence_premise$",
+          "^mathematical_model::settlement_transition_properties::model_(queued_verify_requires_exact_identity_view_cut_chain_and_dependencies|ready_requires_exact_payload_identity_from_checkout_origin)$",
+          "^authority::tests::settlement_refinement::uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut$"
+        ],
+        "semantic_fact": "The only production checkout constructor derives SettlementToken identity, worker transaction, active view and dependency cut from one PreAccepted owner cut; sealed resolution and verification constructors preserve that origin, while deferred and failure carriers move the same SettlementNext. Every legal QueuedVerify, Ready or VerificationRejected receipt therefore reaches classification with both identity-mismatch and view-mismatch false, so weakening their defensive disjunction to conjunction has no legal observation.",
+        "producer_boundary": "TxPoolAuthority::compile_compute_exchange_state -> CheckedOutWork::from_owner -> ResolveWork/VerifyWork sealed evidence -> ComputeSettlement -> unchanged deferred/failure carriers -> TxPoolAuthority::classify_settlement",
+        "falsifier": "A legal checkout or recovery path that pairs one owner's payload identity with another active view makes exactly one mismatch true and distinguishes the defensive disjunction from its conjunctive perturbation."
+      },
+      {
+        "id": "V1-EQ-CHECKOUT-SCHEDULER-CAPABILITY",
+        "behavior_ids": ["TP-OWN-001", "TP-WORKER-001"],
+        "invariants": ["T2", "T5", "T6", "T8", "T10"],
+        "selectors": [
+          {
+            "obligation_id": "V1-MUT-CHECKOUT-ORIGIN",
+            "function_pattern": "^CheckedOutWork::from_owner$",
+            "genre": "MatchArmGuard",
+            "replacement_pattern": "^true$",
+            "source_site_pattern": "WorkPermit::VerifyOnly\\(capability\\),\\s*QueuedWork::Verify\\(resolved\\)\\)\\s*(?P<site>if)\\s*capability\\.permits\\(resolved\\.verify_class\\(\\)\\)"
+          }
+        ],
+        "evidence_test_patterns": [
+          "^mathematical_model::scheduler_properties::model_scheduler_small_capability_excludes_large_checkout_equivalence_premise$",
+          "^authority::tests::scheduler_refinement::uak_verify_capability_wave_refines_the_scheduler_quotient_pointwise$"
+        ],
+        "semantic_fact": "The only Verify checkout ticket producer filters the derived scheduler population by the same worker capability carried unchanged into CheckedOutWork::from_owner. A SmallCycleOnly ticket can therefore name only a Queued Verify owner whose sealed class is Small; forcing the final defensive match guard true adds no legal assignment.",
+        "producer_boundary": "FairFrontier::slot -> QueueKey class partition -> SchedulerExchangeWave::next/next_after -> TxPoolAuthority::search_exchange_permit -> PlannedAssignment permit/ticket -> CheckedOutWork::from_owner",
+        "falsifier": "A legal scheduler wave that returns a Large Queued Verify owner for a SmallCycleOnly permit distinguishes the forced-true match guard by checking out incompatible work."
       },
       {
         "id": "V1-EQ-DEPENDENCY-DISTINCT-APPLY-CUTS",

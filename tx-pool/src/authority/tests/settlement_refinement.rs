@@ -14,17 +14,18 @@ use crate::{
             test_support::SettlementClassificationObservationForFoundation,
         },
         state::{
-            OwnedTx, PreAcceptedPhase, QueuedWork, ValidatedAdmission, VerifyCapability,
-            WorkPermit, test_support::RejectionKind,
+            OwnedTx, PayloadPolicy, PayloadPolicyEvolution, PreAcceptedPhase, QueuedWork,
+            ValidatedAdmission, VerifyCapability, WorkPermit, test_support::RejectionKind,
         },
         work::{CheckedOutWork, ComputeSettlement},
     },
     mathematical_model::{
         ModelDependencyCut, ModelDependencyKey, ModelDependencyLevel, ModelEvidenceFrontier,
         ModelEvidenceIdentity, ModelEvidenceView, ModelKnownDependencies, ModelMissingSettlement,
-        ModelPayloadPolicy, ModelRawTransaction, ModelSettlementCut, ModelSettlementEvidence,
-        ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
-        ModelSettlementRejection, ModelUnindexedDependencyLevel,
+        ModelPayloadPolicy, ModelPayloadPolicyEvolution, ModelRawTransaction, ModelSettlementCut,
+        ModelSettlementEvidence, ModelSettlementFault, ModelSettlementNext,
+        ModelSettlementObservation, ModelSettlementOrigin, ModelSettlementRejection,
+        ModelUnindexedDependencyLevel,
     },
 };
 use ckb_network::PeerIndex;
@@ -45,10 +46,16 @@ fn stale_reference_cut() -> ModelSettlementCut {
             witness: 1,
         },
         baseline_dependencies: baseline,
-        current_policy: ModelPayloadPolicy::RemoteDeclaredCycles,
-        active_view: ModelEvidenceView(1),
-        active_dependency_cut: crate::mathematical_model::ModelDependencyCut(1),
-        active_policy: ModelPayloadPolicy::RemoteDeclaredCycles,
+        current_policy: ModelPayloadPolicy::RemoteDeclaredCycles(7),
+        active: ModelSettlementOrigin {
+            payload_identity: ModelEvidenceIdentity {
+                raw: ModelRawTransaction(1),
+                witness: 1,
+            },
+            view: ModelEvidenceView(1),
+            dependency_cut: crate::mathematical_model::ModelDependencyCut(1),
+            payload_policy: ModelPayloadPolicy::RemoteDeclaredCycles(7),
+        },
         frontier: ModelEvidenceFrontier::new(
             [(
                 key,
@@ -292,52 +299,48 @@ fn settlement_model_frontier(stale_baseline: bool) -> ModelEvidenceFrontier {
 }
 
 fn model_settlement_cut(scenario: SettlementScenario) -> ModelSettlementCut {
+    let identity = ModelEvidenceIdentity {
+        raw: ModelRawTransaction(1),
+        witness: 2,
+    };
     ModelSettlementCut {
         authority_view: ModelEvidenceView(if scenario == SettlementScenario::StaleChain {
             2
         } else {
             1
         }),
-        owner_identity: ModelEvidenceIdentity {
-            raw: ModelRawTransaction(1),
-            witness: 2,
-        },
+        owner_identity: identity,
         baseline_dependencies: [ModelDependencyKey(1)].into_iter().collect(),
         current_policy: if scenario == SettlementScenario::TrustedPromotion {
             ModelPayloadPolicy::Trusted
         } else {
-            ModelPayloadPolicy::RemoteDeclaredCycles
+            ModelPayloadPolicy::RemoteDeclaredCycles(9)
         },
-        active_view: ModelEvidenceView(1),
-        active_dependency_cut: ModelDependencyCut(1),
-        active_policy: ModelPayloadPolicy::RemoteDeclaredCycles,
+        active: ModelSettlementOrigin {
+            payload_identity: identity,
+            view: ModelEvidenceView(1),
+            dependency_cut: ModelDependencyCut(1),
+            payload_policy: ModelPayloadPolicy::RemoteDeclaredCycles(9),
+        },
         frontier: settlement_model_frontier(scenario == SettlementScenario::StaleBaseline),
     }
 }
 
-fn model_settlement_evidence() -> ModelSettlementEvidence {
-    ModelSettlementEvidence {
-        payload_identity: ModelEvidenceIdentity {
-            raw: ModelRawTransaction(1),
-            witness: 2,
-        },
-        sealed_witness: 2,
-        view: ModelEvidenceView(1),
-        dependency_cut: ModelDependencyCut(1),
-        dependencies: [ModelDependencyKey(1)].into_iter().collect(),
-    }
+fn model_settlement_evidence(cut: &ModelSettlementCut) -> ModelSettlementEvidence {
+    cut.active
+        .evidence([ModelDependencyKey(1)].into_iter().collect())
 }
 
-fn model_settlement_next(kind: SettlementKind) -> ModelSettlementNext {
+fn model_settlement_next(kind: SettlementKind, cut: &ModelSettlementCut) -> ModelSettlementNext {
     match kind {
         SettlementKind::QueuedVerify => {
-            ModelSettlementNext::QueuedVerify(model_settlement_evidence())
+            ModelSettlementNext::QueuedVerify(model_settlement_evidence(cut))
         }
         SettlementKind::Waiting => ModelSettlementNext::Waiting(ModelMissingSettlement {
             dependencies: [ModelDependencyKey(1)].into_iter().collect(),
             missing: [ModelDependencyKey(1)].into_iter().collect(),
         }),
-        SettlementKind::Ready => ModelSettlementNext::Ready(model_settlement_evidence()),
+        SettlementKind::Ready => ModelSettlementNext::Ready(model_settlement_evidence(cut)),
         SettlementKind::ChainRejected => {
             ModelSettlementNext::Rejected(ModelSettlementRejection::ChainBound)
         }
@@ -345,7 +348,7 @@ fn model_settlement_next(kind: SettlementKind) -> ModelSettlementNext {
             ModelSettlementNext::Rejected(ModelSettlementRejection::ResourceBound)
         }
         SettlementKind::VerificationRejected => {
-            ModelSettlementNext::VerificationRejected(model_settlement_evidence())
+            ModelSettlementNext::VerificationRejected(model_settlement_evidence(cut))
         }
         SettlementKind::Retry => ModelSettlementNext::Retry,
     }
@@ -384,6 +387,59 @@ fn production_settlement_observation(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PayloadPolicyEvolutionObservation {
+    Unchanged,
+    RemoteToTrusted,
+    Invalid,
+}
+
+impl From<PayloadPolicyEvolution> for PayloadPolicyEvolutionObservation {
+    fn from(value: PayloadPolicyEvolution) -> Self {
+        match value {
+            PayloadPolicyEvolution::Unchanged => Self::Unchanged,
+            PayloadPolicyEvolution::RemoteToTrusted => Self::RemoteToTrusted,
+            PayloadPolicyEvolution::Invalid => Self::Invalid,
+        }
+    }
+}
+
+impl From<ModelPayloadPolicyEvolution> for PayloadPolicyEvolutionObservation {
+    fn from(value: ModelPayloadPolicyEvolution) -> Self {
+        match value {
+            ModelPayloadPolicyEvolution::Unchanged => Self::Unchanged,
+            ModelPayloadPolicyEvolution::RemoteToTrusted => Self::RemoteToTrusted,
+            ModelPayloadPolicyEvolution::Invalid => Self::Invalid,
+        }
+    }
+}
+
+#[test]
+fn uak_payload_policy_evolution_refines_every_declared_cycle_pair() {
+    let policies = [
+        (
+            PayloadPolicy::RemoteDeclaredCycles(1),
+            ModelPayloadPolicy::RemoteDeclaredCycles(1),
+        ),
+        (
+            PayloadPolicy::RemoteDeclaredCycles(2),
+            ModelPayloadPolicy::RemoteDeclaredCycles(2),
+        ),
+        (PayloadPolicy::Trusted, ModelPayloadPolicy::Trusted),
+    ];
+    for (production_active, model_active) in policies {
+        for (production_current, model_current) in policies {
+            assert_eq!(
+                PayloadPolicyEvolutionObservation::from(
+                    production_active.evolution_to(production_current),
+                ),
+                PayloadPolicyEvolutionObservation::from(model_active.evolution_to(model_current),),
+                "payload policy differs: active={model_active:?}, current={model_current:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut() {
     let kinds = [
@@ -410,7 +466,8 @@ fn uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut
                     .authority
                     .classify_settlement_for_foundation(production.settlement),
             );
-            let model = model_settlement_cut(scenario).classify(&model_settlement_next(kind));
+            let model_cut = model_settlement_cut(scenario);
+            let model = model_cut.classify(&model_settlement_next(kind, &model_cut));
             assert_eq!(
                 observed, model,
                 "settlement differs: kind={kind:?}, scenario={scenario:?}"
@@ -427,6 +484,7 @@ fn uak_settlement_classifier_refines_every_legal_result_staleness_and_policy_cut
             .authority
             .classify_settlement_for_foundation(production.settlement),
     );
-    let model = model_settlement_cut(scenario).classify(&model_settlement_next(kind));
+    let model_cut = model_settlement_cut(scenario);
+    let model = model_cut.classify(&model_settlement_next(kind, &model_cut));
     assert_eq!(observed, model, "trusted promotion must reuse resolution");
 }

@@ -65,13 +65,15 @@ pub(crate) use eviction_quotient::{
 };
 pub(crate) use evidence_transition::{
     ModelAdmissionReceipt, ModelDependencyLevel, ModelDirectRejectionObservation,
-    ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity, ModelEvidenceProof,
-    ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject, ModelKnownDependencies,
-    ModelMissingDisposition, ModelMissingFact, ModelPoolParent, ModelPreAcceptedSource,
-    ModelRawTransaction, ModelReadyOwner, ModelReleasedInputContext, ModelReleasedInputCut,
-    ModelReleasedInputDisposition, ModelSubjectValidation, ModelUnindexedDependencyLevel,
+    ModelCellLocation, ModelDirectRejectionValidity, ModelEvidenceFrontier, ModelEvidenceIdentity,
+    ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView, ModelFinalAdmissionSubject,
+    ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
+    ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReadyPayloadRelation,
+    ModelReleasedInputContext, ModelReleasedInputCut, ModelReleasedInputDisposition,
+    ModelSubjectValidation, ModelUnindexedDependencyLevel, ModelValidatedLocationTransition,
     missing_resolution_disposition, released_input_disposition, validate_direct_acceptance,
     validate_direct_rejection, validate_final_acceptance, validate_final_subject,
+    validated_location_transition,
 };
 pub(crate) use progress::{
     AuthorityProgressCut, EffectHead, EffectLogCut, EffectPublicationObservation,
@@ -100,9 +102,9 @@ pub(crate) use scheduler_transition::{
     SchedulerOwnerPopulation, SchedulerOwnerRing, SchedulerProjectionChange, SchedulerSetProjection,
 };
 pub(crate) use settlement_transition::{
-    ModelMissingSettlement, ModelPayloadPolicy, ModelSettlementCut, ModelSettlementEvidence,
-    ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
-    ModelSettlementRejection,
+    ModelMissingSettlement, ModelPayloadPolicy, ModelPayloadPolicyEvolution, ModelSettlementCut,
+    ModelSettlementEvidence, ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
+    ModelSettlementOrigin, ModelSettlementRejection,
 };
 pub(crate) use trace::{
     TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,
