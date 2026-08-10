@@ -250,7 +250,6 @@
         "D1-ALLOCATION-LIVENESS",
         "D1-STOP-REACHABILITY",
         "D1-TASK-CAPABILITY",
-        "D1-DEPENDENCY-CLOSURE",
         "D1-FAULT-INGRESS-EVIDENCE",
         "D1-HISTORY"
       ],
@@ -275,6 +274,17 @@
           "model:mathematical_model::properties::model_wall_clock_rollback_never_fabricates_expiry_progress",
           "model:mathematical_model::adversarial_properties::model_hostile_trace_makes_wall_and_monotonic_clock_domains_explicit",
           "production:check_production_contracts.py::validate_expiry_index_producers"
+        ]
+      },
+      "D1-DEPENDENCY-CLOSURE": {
+        "root_family_id": "CRF-DEPENDENCY-CLOSURE",
+        "disposition": "proved",
+        "evidence_owner_refs": [
+          "behavior:TP-DEP-001",
+          "model:mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply",
+          "model:mathematical_model::evidence_transition_properties::model_dependency_maintenance_action_is_the_total_phase_cut_relation",
+          "production:check_production_contracts.py::validate_dependency_maintenance_producers",
+          "production:check_production_contracts.py::validate_dependency_maintenance_successor"
         ]
       }
     }
@@ -383,7 +393,7 @@
   "release_blockers": [
     {
       "id": "REGISTERED-RELEASE-LAW-CLOSURE",
-      "reason": "The eleven remaining D1 release laws are mapped exactly once inside the immutable eight-family release basis, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
+      "reason": "The ten remaining D1 release laws are mapped exactly once inside the immutable eight-family release basis, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
       "construction_obligations": [
         "D1-READY-OCC-LIVENESS",
         "D1-DIRECT-NEGATIVE-OCC",
@@ -393,7 +403,6 @@
         "D1-ALLOCATION-LIVENESS",
         "D1-STOP-REACHABILITY",
         "D1-TASK-CAPABILITY",
-        "D1-DEPENDENCY-CLOSURE",
         "D1-FAULT-INGRESS-EVIDENCE",
         "D1-HISTORY"
       ]

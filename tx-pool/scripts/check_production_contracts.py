@@ -1271,6 +1271,16 @@ def validate_dependency_maintenance_producers() -> list[str]:
             for path, source in sources.items()
             if path != TX_POOL_AUTHORITY_DEPENDENCY
         }
+        prepared_apply_methods = {
+            name: body
+            for name, body, _line in rust_impl_methods(plan, "PreparedApply")
+        }
+        retained_ingress_apply = required_function_body(
+            sources[TX_POOL_AUTHORITY_INGRESS_PLAN], "apply_retained_ingress"
+        )
+        compute_exchange_apply = required_function_body(
+            sources[TX_POOL_AUTHORITY_COMPUTE_EXCHANGE], "apply_compute_exchange"
+        )
     except (OSError, ValueError) as error:
         return [f"cannot inspect dependency maintenance producers: {error}"]
 
@@ -1709,6 +1719,72 @@ def validate_dependency_maintenance_producers() -> list[str]:
             "self.waiters.get(key).is_some_and(|waiters|waiters.contains(&slot.hash))",
         ),
     )
+
+    # Generate the complete primary-owner mutation surface independently from
+    # the Plan-call inventory above. Every direct entries-map mutation must
+    # publish its derived dependency projection in the same Apply body; whole
+    # generation replacement must replace both structures in that same body.
+    entry_mutation = re.compile(
+        r"\bauthority\.entries\s*\.\s*(?:insert|remove)\s*\("
+        r"|\bstd::mem::replace\s*\(\s*&mut\s+authority\.entries\b"
+    )
+    dependency_mutation = re.compile(
+        r"\bauthority\.dependencies\s*\.\s*apply(?:_batch)?\s*\("
+        r"|\bstd::mem::replace\s*\(\s*&mut\s+authority\.dependencies\b"
+    )
+    owner_apply_bodies = {
+        f"PreparedApply::{name}": body
+        for name, body in prepared_apply_methods.items()
+        if entry_mutation.search(mask_rust_non_code(body)) is not None
+    }
+    owner_apply_bodies.update(
+        {
+            "apply_retained_ingress": retained_ingress_apply,
+            "apply_compute_exchange": compute_exchange_apply,
+        }
+    )
+    expected_owner_applies = {
+        "PreparedApply::apply_entry",
+        "PreparedApply::apply_membership",
+        "PreparedApply::apply_independent",
+        "PreparedApply::apply_owner_removal",
+        "PreparedApply::apply_chain",
+        "PreparedApply::apply_clear_pool",
+        "apply_retained_ingress",
+        "apply_compute_exchange",
+    }
+    if set(owner_apply_bodies) != expected_owner_applies:
+        errors.append(
+            "primary-owner Apply surface changed: "
+            f"expected {sorted(expected_owner_applies)}, "
+            f"found {sorted(owner_apply_bodies)}"
+        )
+    owned_mutation_sites = 0
+    for owner, body in owner_apply_bodies.items():
+        masked = mask_rust_non_code(body)
+        entry_sites = len(entry_mutation.findall(masked))
+        dependency_sites = len(dependency_mutation.findall(masked))
+        owned_mutation_sites += entry_sites
+        if entry_sites == 0 or dependency_sites != 1:
+            errors.append(
+                f"{owner} must pair its primary-owner mutation with exactly one "
+                "dependency projection mutation"
+            )
+    discovered_mutation_sites = 0
+    for path in sorted(TX_POOL_AUTHORITY_PLAN.parent.rglob("*.rs")):
+        if "tests" in path.relative_to(TX_POOL_AUTHORITY_PLAN.parent).parts:
+            continue
+        try:
+            discovered_mutation_sites += len(
+                entry_mutation.findall(mask_rust_non_code(path.read_text()))
+            )
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot inspect primary-owner mutation source {path}: {error}")
+    if discovered_mutation_sites != owned_mutation_sites:
+        errors.append(
+            "a primary-owner mutation escaped the closed same-Apply dependency "
+            f"surface: discovered {discovered_mutation_sites}, owned {owned_mutation_sites}"
+        )
     return errors
 
 
