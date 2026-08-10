@@ -6,10 +6,11 @@ Pre-normalization recovery base: `75ef1668b415`
 Normalization content checkpoint: `0099747e9a45`
 Legacy compatibility content checkpoint: `5755286c2a91`
 Release-boundary content checkpoint: `96cf5d14ffc2`
+Architecture-synthesis content checkpoint: `8d446716c`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
-`release_boundary_adjudication`
-Active phase: `architecture_optimality_synthesis`
+`release_boundary_adjudication`, `architecture_optimality_synthesis`
+Active phase: `registered_semantic_root_closure`
 Remote policy: no push is authorized
 
 This is the sole human current-status projection of
@@ -29,7 +30,7 @@ Current witness: `bounded_semantic_exchange`
 Current claim: `unproved`
 Certificate: absent, as required while construction is open
 Canonical goal SHA-256:
-`294cf0b52b3bde653b5ca8e46db1d1feb1cc244a08b179751d96d3df3d12305d`
+`37e72f5cafb51e3a8a62664107d15e4aefc8959abe5e8c0911c7ee824f36daf0`
 
 ## Recovery integrity
 
@@ -77,10 +78,10 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 1, 4, 1, 15)`. Every listed item has exactly one blocker owner.
-This is strictly below the prior `(12, 2, 4, 1, 4)` rank because the second
-coordinate decreased; the last coordinate was simultaneously normalized from
-one coarse certificate placeholder into its finite, hash-bound requirements.
+`rho_C = (12, 1, 4, 1, 7)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(12, 1, 4, 1, 8)` rank because the executable
+singleton theorem closes `X2` without admitting a fabricated Construction
+measurement record.
 
 ### `open_release_laws` (12)
 
@@ -112,16 +113,8 @@ one coarse certificate placeholder into its finite, hash-bound requirements.
 
 - `generated_source_role_necessity_census`
 
-### `incomplete_refinement_edges` (15)
+### `incomplete_refinement_edges` (7)
 
-- `release_basis_hash`
-- `normal_form_coverage_proof`
-- `generated_candidate_partition_hash`
-- `feasibility_proof_per_partition`
-- `conditional_static_lower_bound_per_dimension`
-- `witness_static_cost_equals_lower_bounds`
-- `declared_workload_environment_matrix_hash`
-- `noise_gated_empirical_frontier_evidence`
 - `conditional_complexity_lower_bound_per_dimension`
 - `witness_complexity_cost_equals_lower_bounds`
 - `production_refinement_and_cost_binding`
@@ -136,7 +129,7 @@ one coarse certificate placeholder into its finite, hash-bound requirements.
 |---|---|
 | `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
 | `INDEPENDENT-EXECUTION-CUTOVER` | four semantic families and three paused location refinement edges |
-| `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | all 12 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
+| `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | the remaining 4 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
 | `EVIDENCE-PORTABILITY` | later cold-checkout reproduction |
@@ -166,6 +159,67 @@ constraints and lexicographic cost objective are machine-owned; the actual
 universe now also binds the optimization certificate, landing target/rehearsal
 and declared workload/environment matrix.
 
+Architecture synthesis has content-addressed the release basis and declared
+matrix, then classified all 127 generated basis atoms under the eight semantic
+normal-form axes. The checker compiles the same Rust model used by Nextest: its
+Cartesian quotient contains 36,864 unique forms, partitions 64 into `X0`, and
+rejects the other 36,800 through explicit hard/concurrency/coupling gaps. The
+extra-cost frontier has one zero-extra-cost form: the selected topology. Cost
+is explicitly normalized over the release-law-implied floor shared by all
+`X0` forms; its
+conditional lower bound is zero in each ordered coordinate and the witness
+attains it. Absolute production operation/resource bounds remain separately
+owned by `production_refinement_and_cost_binding` and were not inferred from
+the normalized result.
+
+Because the executable frontier proves `|X1| = 1`, the empirical argmin over
+`X1` is that same member for every objective. The generated artifact therefore
+binds `X2 = X1`, the declared matrix and its typed record protocol while proving
+that both the Construction measurement universe and record ledger are empty.
+Fixed-binary matrix measurement remains mandatory in Acceptance and cannot
+repair or select topology. Architecture synthesis is complete on this scoped
+release basis; any new semantic family or legal counterexample reopens it.
+
+The phase-boundary anti-snowball audit found no production source, authority,
+state, lock, task, queue, public API or compatibility addition. In canonical
+complexity-objective order, this slice has
+`Delta Kappa = (0, 0, 0, 1, 0, 1, 0)`: one finite executable normal-form
+algebra and one named residual certificate checker, with no new source role or
+manual evidence authority. Deleting either admits an uncovered normal form or
+an unverified optimality claim. Absolute `Kappa` remains owned by the later
+generated source-role/necessity census; raw line count is not substituted for
+that census.
+
+Content identities at this boundary are:
+
+- release basis: file SHA-256
+  `015b12203bf636ace05b01db8ced2a272863624954568578e45ad56ecad85567`,
+  canonical basis
+  `ce858991458ec37250b7af47a1509715d8bd1c41ae59d9fbd541fbf3a4a64daf`;
+- workload matrix: file SHA-256
+  `e9167856427ff7f011a311693c542ee0f8b8448aaee884f381891c587c6b6b1d`,
+  canonical matrix
+  `0cd21992ba066d5fd77eba0fb91652f0465ecf0a1277e92b564f22c0837934ce`;
+- normal-form/X1/X2 frontier: file SHA-256
+  `7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c`,
+  generated evidence
+  `372f8714a2058c8958a80614dc37b15618e07d4dbaa928efadd6e526cd2bdda2`.
+
+The phase review falsified the first smaller quotient: a separately bounded,
+fully charged resource partition is feasible though statically dominated, and
+a pure non-authoritative compatibility facade is feasible though it transfers
+one additional supported public boundary and is statically dominated on the
+first risk coordinate. They are explicit representatives rather than being
+conflated with uncharged resources or authority-restoring facades.
+
+The post-restart direction review was adjudicated against current state. The
+certificate remains release-gating with no silent `best known` degradation;
+the proposed root-closure parallel exception was rejected because the current
+families overlap live synthesis axes; and Construction/Acceptance measurements
+now have disjoint machine-checked record contracts. Current one-shot workloads
+are deterministic from scenario parameters and runner source, while future
+randomized/generated inputs must also bind their fixture/generator and seed.
+
 The last locally checkpointed semantic slice is B3-R5 settlement/location:
 
 - origin identity/view duplication was removed through a sealed producer;
@@ -185,16 +239,22 @@ That slice is paused and is not green. Its exact current red gate outputs are:
    branch, checkout-origin and settlement-policy obligations;
 3. `model_final_location_refresh_updates_payload_and_context_atomically` is
    absent from behavior evidence;
-4. the generated test inventory is stale for that location model test;
-5. production still lacks the sealed payload/context rebind; and
-6. the `state.rs:975` test-only observation seam remains unadjudicated.
+4. production still lacks the sealed payload/context rebind; and
+5. the `state.rs:975` test-only observation seam remains unadjudicated.
+
+The generated test inventory is now current and includes the location model
+test plus both global-normal-form tests. This closes only the mechanical
+inventory half of the still-open behavior/inventory refinement edge; it does
+not register the paused location behavior prematurely.
 
 These are evidence/refinement consequences of the already registered paused R5
-family, not six new semantic families. Regenerating mutation locks before all
+family, not five new semantic families. Regenerating mutation locks before all
 construction roots close remains forbidden.
 
-No R5 production change may proceed until architecture synthesis freezes its
-selected topology. Mutation regeneration, downstream performance acceptance and
+The selected topology is now frozen for `registered_semantic_root_closure`, so
+R5 production work may resume only as the already modeled root correction. A
+new semantic family, authority, topology or compatibility boundary reopens
+synthesis first. Mutation regeneration, downstream performance acceptance and
 remote push remain forbidden at this phase.
 
 ## Current validation facts
@@ -205,10 +265,11 @@ goal-completeness gate, review guide, ASCII, develop refinement and
 model/production frontier checks pass. TLC closes the registered
 1,098-generated/318-distinct-state positive model, and its negative
 configuration reproduces the required `NoEffectBlockedDirectHandoff` witness.
-The aggregate security checker exposes exactly the two registered R5
-model/inventory edges; the production, test-layout and mutation gates expose
-exactly the other four outputs above. This is a diagnostic checkpoint, not
-release evidence.
+The aggregate security checker exposes exactly the one registered R5 behavior
+edge; the production, test-layout and mutation gates expose exactly the other
+four outputs above. Focused global-normal-form Nextest run
+`70f78cff-010c-485c-9740-1acc1d69473b` passed 3/3. This is a diagnostic
+checkpoint, not release evidence.
 
 Release-boundary compatibility evidence is current:
 
@@ -232,21 +293,11 @@ build/tests and rehearsal against current official `develop`.
 
 ## Exact next action
 
-Execute `architecture_optimality_synthesis` without touching paused R5
-production:
-
-1. content-address the fixed release basis and declared workload/environment
-   matrix, including the final goal, release and landing laws and all 12 `D1-*`
-   candidates;
-2. generate normal-form coverage and the candidate partition from the declared
-   semantic axes, then mechanically separate feasible `X0` from explicit
-   counterexamples;
-3. derive each conditional static lower bound and prove the witness cost,
-   retaining maximal independent work and the unique minimum Apply cut; and
-4. measure only statically tied `X1` candidates under the frozen construction
-   matrix, bind the noise-gated frontier, freeze `X2`, and rerun the canonical
-   goal, root `AGENTS.md` and entire-DAG phase-boundary audit.
-
-Each of these outputs closes its same-named hash-bound refinement item. Only
-after all eight architecture-synthesis requirements close may
-`registered_semantic_root_closure` resume the paused R5 implementation family.
+Execute `registered_semantic_root_closure` from the frozen witness. Resume the
+paused B3-R5 settlement/location family first: close the single payload/context
+location relation with one sealed production rebind, then bind its behavior and
+remove the test-only observation seam. Re-run the exact model, production,
+inventory and mutation diagnostics before advancing to the remaining registered
+resource, scheduler and recovered-law root families. Any newly exposed semantic
+case changes the model and reopens architecture synthesis before production
+continues.
