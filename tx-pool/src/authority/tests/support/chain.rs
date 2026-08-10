@@ -131,7 +131,7 @@ impl MembershipValidationWork {
             .refreshed_for_foundation(self.view, rules);
         let verified = self
             .verified
-            .with_context(context)
+            .with_context_for_foundation(context)
             .ok_or(AdmissionEvidenceError::ScriptRulesChanged)?;
         let (verified, async_process_start) = verified.into_accepted();
         Ok(MembershipReceipt {

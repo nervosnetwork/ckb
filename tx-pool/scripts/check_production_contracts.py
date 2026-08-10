@@ -3017,14 +3017,27 @@ def validate_evidence_and_settlement_construction() -> list[str]:
         )
 
     compact_final_location = "".join(mask_rust_non_code(final_location).split())
-    final_location_order = (
-        "self.script.is_reusable_under(context.rules())",
-        "content:CellContentReceipt::from_resolution(payload)",
-        "context",
-        "..self",
+    final_location_literal = re.search(
+        r"Some\s*\(\s*Self\s*\{(?P<body>.*?)\}\s*\)",
+        mask_rust_non_code(final_location),
+        re.DOTALL,
     )
-    positions = [compact_final_location.find(fragment) for fragment in final_location_order]
-    if any(position < 0 for position in positions) or positions != sorted(positions):
+    compact_final_location_literal = (
+        "".join(final_location_literal.group("body").split())
+        if final_location_literal is not None
+        else ""
+    )
+    guard = compact_final_location.find(
+        "self.script.is_reusable_under(context.rules())"
+    )
+    literal = compact_final_location.find("Some(Self{")
+    if (
+        guard < 0
+        or literal < 0
+        or guard >= literal
+        or compact_final_location_literal
+        != "content:CellContentReceipt::from_resolution(payload),context,..self"
+    ):
         errors.append(
             "final validation must rebind payload location and context in one sealed transition"
         )

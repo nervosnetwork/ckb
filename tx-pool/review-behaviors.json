@@ -285,7 +285,7 @@
       "id": "TP-IDENTITY-001",
       "title": "Exact transaction and evidence identity",
       "implementation_owners": [
-        {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct TxIdentity", "struct RawTxHash", "struct WitnessTxHash", "struct ProposalId"]},
+        {"path": "tx-pool/src/authority/state.rs", "symbols": ["struct TxIdentity", "struct RawTxHash", "struct WitnessTxHash", "struct ProposalId", "struct VerifiedFacts", "fn with_final_validation"]},
         {"path": "tx-pool/src/authority/chain.rs", "symbols": ["struct CellLocationReceipt", "struct VerificationContextReceipt", "struct FinalAdmissionReceipt", "struct DirectAdmissionReceipt"]},
         {"path": "verification/src/cache.rs", "symbols": ["struct TxVerificationCacheKey", "enum ScriptVerificationRules"]},
         {"path": "tx-pool/src/authority/validation.rs", "symbols": ["struct FinalAdmissionValidation", "fn validate_membership"]}
@@ -840,6 +840,7 @@
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::dependency_progress_properties::model_dependency_rank_is_the_exact_static_edge_drain_bound", "behavior_id": "TP-DEP-001", "invariants": ["T4", "T8", "T10"]},
     {"test": "mathematical_model::evidence_transition_properties::model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependency_cut", "behavior_id": "TP-IDENTITY-001", "invariants": ["T1", "T2", "T4", "T6", "T9", "T10", "T11"]},
+    {"test": "mathematical_model::evidence_transition_properties::model_final_location_refresh_updates_payload_and_context_atomically", "behavior_id": "TP-IDENTITY-001", "invariants": ["T6", "T9", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_dependency_maintenance_action_is_the_total_phase_cut_relation", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_dependency_maintenance_rejects_projection_faults_before_deciding_progress", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_dependency_proof_currentness_is_the_exact_loss_cut_order", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
@@ -850,6 +851,7 @@
     {"test": "mathematical_model::evidence_transition_properties::model_released_input_is_derived_from_the_projected_final_owner_set", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
     {"test": "mathematical_model::evidence_transition_properties::model_replacement_history_requires_strictly_newer_final_availability_for_every_key", "behavior_id": "TP-DEP-001", "invariants": ["T2", "T4", "T6", "T10", "T11"]},
     {"test": "mathematical_model::evidence_transition_properties::model_replacement_history_trigger_is_exactly_conflict_or_removed_pool_producer", "behavior_id": "TP-RBF-001", "invariants": ["T1", "T3", "T4", "T6", "T8", "T10"]},
+    {"test": "authority::tests::validation::uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply", "behavior_id": "TP-IDENTITY-001", "invariants": ["T6", "T9", "T11", "T12", "T13"]},
     {"test": "mathematical_model::progress_properties::model_compute_wake_is_exact_over_the_finite_head_and_release_algebra", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
     {"test": "mathematical_model::progress_properties::model_effect_capacity_wake_observes_any_release_but_not_stable_or_growth", "behavior_id": "TP-WORKER-001", "invariants": ["T4", "T5", "T7", "T8", "T10", "T13"]},
     {"test": "mathematical_model::progress_properties::model_effect_publication_observation_is_one_total_three_way_cut", "behavior_id": "TP-EFFECT-001", "invariants": ["T2", "T7", "T10"]},

@@ -234,6 +234,16 @@ impl VerifiedFacts {
         }
     }
 
+    pub(in crate::authority) fn with_context_for_foundation(
+        self,
+        context: VerificationContextReceipt,
+    ) -> Option<Self> {
+        if !self.script.is_reusable_under(context.rules()) {
+            return None;
+        }
+        Some(Self { context, ..self })
+    }
+
     pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
         &self,
         other: &Self,

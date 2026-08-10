@@ -257,7 +257,6 @@
       ],
       "open_compatibility_and_landing_decisions": ["landing_topology"],
       "unclosed_registered_semantic_families": [
-        "settlement_and_location",
         "resource_configuration",
         "resource_ledger",
         "scheduler"
@@ -269,10 +268,7 @@
         "conditional_complexity_lower_bound_per_dimension",
         "witness_complexity_cost_equals_lower_bounds",
         "production_refinement_and_cost_binding",
-        "independent_negative_certificate_canaries",
-        "location_behavior_and_inventory_binding",
-        "sealed_payload_context_rebind",
-        "location_test_layout_seam"
+        "independent_negative_certificate_canaries"
       ]
     }
   },
@@ -398,15 +394,11 @@
     },
     {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
-      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 are implemented, but the registered settlement/location, resource-configuration, resource-ledger and scheduler families and the paused location refinement edges remain open before frozen-universe acceptance",
+      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 plus the settlement/location root correction are implemented, but the registered resource-configuration, resource-ledger and scheduler families remain open before frozen-universe acceptance",
       "construction_obligations": [
-        "settlement_and_location",
         "resource_configuration",
         "resource_ledger",
-        "scheduler",
-        "location_behavior_and_inventory_binding",
-        "sealed_payload_context_rebind",
-        "location_test_layout_seam"
+        "scheduler"
       ]
     },
     {

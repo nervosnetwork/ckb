@@ -972,14 +972,6 @@ impl VerifiedFacts {
         &self.context
     }
 
-    #[cfg(test)]
-    pub(super) fn with_context(self, context: VerificationContextReceipt) -> Option<Self> {
-        if !self.script.is_reusable_under(context.rules()) {
-            return None;
-        }
-        Some(Self { context, ..self })
-    }
-
     /// Rebind dependency observation only after the final validator has
     /// rechecked every resolved cell against the authority cut that issued
     /// `dependency_cut`. Script and cell-content evidence remain unchanged.
