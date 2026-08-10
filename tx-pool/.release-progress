@@ -8,6 +8,7 @@ Legacy compatibility content checkpoint: `5755286c2a91`
 Release-boundary content checkpoint: `96cf5d14ffc2`
 Architecture-synthesis content checkpoint: `8d446716c`
 Settlement/location content checkpoint: `d36a7de5d`
+Resource-domain closure checkpoint: `89b916447`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
 `release_boundary_adjudication`, `architecture_optimality_synthesis`
@@ -79,9 +80,9 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 1, 3, 1, 4)`. Every listed item has exactly one blocker owner.
-This is strictly below the prior `(12, 1, 4, 1, 7)` rank because the single
-settlement/location root family and its three refinement edges are closed.
+`rho_C = (12, 1, 1, 1, 4)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(12, 1, 3, 1, 4)` rank because the complete
+resource-configuration and resource-ledger families are closed.
 
 ### `open_release_laws` (12)
 
@@ -102,10 +103,8 @@ settlement/location root family and its three refinement edges are closed.
 
 - `landing_topology`
 
-### `unclosed_registered_semantic_families` (3)
+### `unclosed_registered_semantic_families` (1)
 
-- `resource_configuration`
-- `resource_ledger`
 - `scheduler`
 
 ### `unowned_or_duplicated_production_items` (1)
@@ -124,7 +123,7 @@ settlement/location root family and its three refinement edges are closed.
 | Blocker | Owned current obligations / later gate |
 |---|---|
 | `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
-| `INDEPENDENT-EXECUTION-CUTOVER` | resource-configuration, resource-ledger and scheduler semantic families |
+| `INDEPENDENT-EXECUTION-CUTOVER` | scheduler semantic family |
 | `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | the remaining 4 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
@@ -244,6 +243,19 @@ is intentionally not regenerated: its one stale model hash and three
 zero-current-match selectors remain Construction diagnostics until every root
 family closes.
 
+The resource domain is also closed without a product change. One finite model
+defines the legal configuration hierarchy, continuous charge vectors, sparse
+ledger, batch set transition and exact compute release. Three production
+refinement tests exhaust the configured-premise masks, partial reservation and
+attribution states, two-key charge sets, both caller orders and release pairs.
+The production checker independently requires old-set removal before new-set
+addition, checked change-local scratch bounds and no full-ledger recount.
+Resource Nextest run `b5b925cb-8878-4bb3-a94d-5865f0799c8b` passed 16/16.
+Production construction is limited to the runtime configuration compiler, the
+authority's sole ledger and owner-derived sealed charge records. This audit
+adds no state, mechanism, source role or documentation authority, so its
+`Delta Kappa` is the zero vector.
+
 The selected topology remains frozen for `registered_semantic_root_closure`.
 A new semantic family, authority, topology or compatibility boundary reopens
 synthesis first. Mutation regeneration, downstream performance acceptance and
@@ -285,9 +297,9 @@ build/tests and rehearsal against current official `develop`.
 
 ## Exact next action
 
-Execute `registered_semantic_root_closure` from the frozen witness. Audit
-`resource_configuration` first because it defines the legal bounded domain for
-the `resource_ledger` transition algebra; close both only after their complete
-model/production/refinement surfaces agree, then audit `scheduler`. Any newly
-exposed semantic case changes the model and reopens architecture synthesis
-before production continues.
+Execute `registered_semantic_root_closure` from the frozen witness by auditing
+the last registered family, `scheduler`: prove the stored set, owner ring,
+capability filter, overlay union, finite probe bound, cursor successor and
+batch transition against every production producer. Any newly exposed semantic
+case changes the model and reopens architecture synthesis before production
+continues.
