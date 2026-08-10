@@ -1422,6 +1422,40 @@ translation and defaults. Adding a configuration field without a legacy
 default or explicit migration decision reopens the release surface before
 production use.
 
+The published Rust crate is a separate compatibility domain. Let `DeltaRust`
+be the complete generated public API delta at landing. Its decision is total:
+
+```text
+compat_rust : DeltaRust
+  -> {non_authoritative_facade, intentional_major, revert}
+forall delta in DeltaRust: compat_rust(delta) = intentional_major
+```
+
+This is an intentional SemVer-major migration, not a source-compatibility
+claim. The reconciled version must have a major component strictly greater
+than the latest published `ckb-tx-pool` baseline; migration notes, generated
+workspace reverse-dependency builds/tests and current-`develop` rehearsal are
+owned by the still-open `landing_topology` obligation. API-delta tools are
+optional diagnostics and cannot replace this categorical decision. A facade is
+admissible only when it is observational and non-authoritative; it must not
+restore removed mutable transaction or policy authority.
+
+Landing uses the same finite optimization form rather than a preferred Git
+workflow. The contract generates the downstream universe from Cargo reverse
+dependencies, registered integration impact, release-surface consumers and
+the merge-tree conflict closure, then selects:
+
+```text
+L0 = {l in {incremental, curated_series, one_shot} | landing_feasible(l)}
+L1 = argmin_lex J_landing(l) over L0
+```
+
+`J_landing` orders residual semantic/migration risk before unvalidated delta,
+migration/recovery cuts, conflicts, repeated validation, review dependencies
+and history operations. The selection occurs only after the `X3` tree is
+frozen for rehearsal; a local rehearsal grants no push, merge or release
+authority.
+
 ### Historical finding convergence
 
 Historical reports are evidence inputs, not parallel design documents. Their

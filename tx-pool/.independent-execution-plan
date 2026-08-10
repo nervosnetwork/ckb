@@ -110,6 +110,12 @@ lexicographic rank. New legal semantics, production changes or model/release-law
 test changes return to Construction. Evidence-only changes invalidate only the
 changed evidence node and its transitive successors.
 
+The optimality-certificate requirements are the refinement-rank items
+themselves. A requirement disappears only when
+`optimality_protocol.construction_evidence` binds it to a tracked artifact and
+SHA-256; the architecture and simplification phase partitions are mechanically
+checked. Thus candidate exploration cannot claim progress by changing prose.
+
 Termination is conditional on a fixed complete basis and eventually stable
 construction inputs. New external facts may reopen Construction; this is not
 hidden nontermination.
@@ -158,12 +164,12 @@ complete plan, not only the current tail.
 | Phase | Requires | Required output / closure condition |
 |---|---|---|
 | `basis_and_roadmap_normalization` | none | Both basis differences empty; every historical open item mapped once; one compact roadmap and one status projection; canonical goal referenced by every current document. |
-| `release_boundary_adjudication` | normalization | Total Rust API/semver, configuration, persistence, downgrade and landing input matrix. Legacy configuration remains accepted; unsupported downgrade is explicit. |
+| `release_boundary_adjudication` | normalization | Total public Rust API decision independent of optional delta tools; configuration, persistence and downgrade decisions; finite landing candidate, downstream-universe, feasibility and cost inputs. Legacy configuration remains accepted; unsupported downgrade is explicit. |
 | `architecture_optimality_synthesis` | release boundary | Covered normal forms and feasibility partition (`X0`); conditional static lower bounds (`X1`); upstream controlled matrix selection among static minima (`X2`); frozen topology and falsifiers. |
 | `registered_semantic_root_closure` | optimality synthesis | Every registered root family and paused R5 refinement implemented from the frozen model; no unmapped legal counterexample or obsolete producer remains. |
 | `constructive_simplification` | root closure | Generated source-role/necessity census; `X3` complexity lower bounds; duplicate/unowned mechanism deletion; production refinement and complete scoped optimization certificate. |
 | `landing_rehearsal` | release boundary + simplification | Lexicographically selected incremental/curated/one-shot landing topology rehearsed against current `develop` and the generated downstream universe. |
-| `evidence_universe_freeze` | landing rehearsal | One hash binds source, features, config/migration surfaces, tests, tools, workload matrix and landing target. Construction rank is zero. |
+| `evidence_universe_freeze` | landing rehearsal | One hash binds source, features, config/migration surfaces, tests, tools, optimization certificate, workload matrix and landing target/rehearsal. Construction rank is zero. |
 | `complete_mutation` | universe freeze | Every discovered candidate is caught, compile-unviable, proved equivalent/unconstructible or a release blocker; no timeout/unstarted ambiguity. |
 | `deterministic_smoke` | universe freeze | Fixed binary and fixtures pass deterministic process/lifecycle smoke including shutdown, reorg and interruption cuts. May run in parallel with mutation. |
 | `complete_correctness` | mutation + smoke | Static/model/TLC, complete affected Nextest and generated managed integration universe, hostile/fault and complexity gates pass on the same universe. |
@@ -214,9 +220,10 @@ For every phase:
    checks; remove the invalid state and obsolete route.
 8. Emit the actual new rank and prove it strictly decreased, or record the new
    legal counterexample that justifiably reopens the basis.
-9. Apply the whole-system checkpoint: authority count, transition totality,
-   conservation, fault/wait/publication graphs, compatibility, concurrency,
-   cost, risk transfer and snowball complexity.
+9. Re-derive the canonical goal, stable `AGENTS.md` method and entire remaining
+   DAG, then apply the whole-system checkpoint: authority count, transition
+   totality, conservation, fault/wait/publication graphs, compatibility,
+   concurrency, cost, risk transfer and snowball complexity.
 10. Freeze a recoverable local checkpoint and continue to the next ready phase.
 
 No phase may disappear, reorder or close from prose. A new semantic case,
@@ -230,6 +237,7 @@ only when it changes no product or release law.
 |---|---|
 | Closed-world review missed requirements | Either independently generated basis difference is nonempty. |
 | Prose finding vanished from TODOs | Any open prose ID has zero or multiple construction-rank/blocker owners. |
+| Diagnostic tool became policy authority | A Rust API delta tool result substitutes for the total compatibility decision or landing evidence. |
 | Performance appeared only downstream | Architecture-selection phase is not upstream of semantic closure and evidence freeze. |
 | Symbolic convergence hid no progress | Current status omits named rank values or a step fails to decrease rank. |
 | Mutation kept extending the release | A nonterminal candidate, timeout or new semantic family survives universe freeze. |

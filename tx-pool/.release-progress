@@ -6,8 +6,9 @@ Pre-normalization recovery base: `75ef1668b415`
 Normalization content checkpoint: `0099747e9a45`
 Legacy compatibility content checkpoint: `5755286c2a91`
 State: `Construction`
-Completed phases: `basis_and_roadmap_normalization`
-Active phase: `release_boundary_adjudication`
+Completed phases: `basis_and_roadmap_normalization`,
+`release_boundary_adjudication`
+Active phase: `architecture_optimality_synthesis`
 Remote policy: no push is authorized
 
 This is the sole human current-status projection of
@@ -43,9 +44,9 @@ Root `AGENTS.md` is intentionally ignored by Git and must be copied separately
 for device recovery. Current normalized identity:
 
 ```text
-lines = 419
-bytes = 19678
-sha256 = 1926026cfad7f03b4b6505350c9c09ccf93823cf681c3859f5852f657a55a278
+lines = 421
+bytes = 19815
+sha256 = f98a4e602f0c3284ce62847ef1635d630a46e8f1d49b0d85b89b4cd1442ecd78
 ```
 
 These values must be recomputed after any further method edit and before the
@@ -54,7 +55,7 @@ next checkpoint. Conversation history is not recovery authority.
 ## Current device evidence tools
 
 The repository toolchain is Rust 1.95.0 / LLVM 22.1.2 on
-`aarch64-apple-darwin`. Current required local evidence tools include
+`aarch64-apple-darwin`. Currently available local evidence tools include
 Nextest 0.9.143, cargo-mutants 27.1.0, cargo-llvm-cov 0.8.7,
 cargo-semver-checks 0.50.0, Kani 0.67.0, Samply 0.13.1,
 cargo-show-asm (`cargo asm`) 0.2.62 and cargo-instruments 0.4.17. TLC 2.19 is
@@ -75,7 +76,10 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 2, 4, 1, 4)`. Every listed item has exactly one blocker owner.
+`rho_C = (12, 1, 4, 1, 15)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(12, 2, 4, 1, 4)` rank because the second
+coordinate decreased; the last coordinate was simultaneously normalized from
+one coarse certificate placeholder into its finite, hash-bound requirements.
 
 ### `open_release_laws` (12)
 
@@ -92,9 +96,8 @@ The ordered rank is
 - `D1-FAULT-INGRESS-EVIDENCE`
 - `D1-HISTORY`
 
-### `open_compatibility_and_landing_decisions` (2)
+### `open_compatibility_and_landing_decisions` (1)
 
-- `rust_api_semver_disposition`
 - `landing_topology`
 
 ### `unclosed_registered_semantic_families` (4)
@@ -108,9 +111,20 @@ The ordered rank is
 
 - `generated_source_role_necessity_census`
 
-### `incomplete_refinement_edges` (4)
+### `incomplete_refinement_edges` (15)
 
-- `global_optimization_certificate`
+- `release_basis_hash`
+- `normal_form_coverage_proof`
+- `generated_candidate_partition_hash`
+- `feasibility_proof_per_partition`
+- `conditional_static_lower_bound_per_dimension`
+- `witness_static_cost_equals_lower_bounds`
+- `declared_workload_environment_matrix_hash`
+- `noise_gated_empirical_frontier_evidence`
+- `conditional_complexity_lower_bound_per_dimension`
+- `witness_complexity_cost_equals_lower_bounds`
+- `production_refinement_and_cost_binding`
+- `independent_negative_certificate_canaries`
 - `location_behavior_and_inventory_binding`
 - `sealed_payload_context_rebind`
 - `location_test_layout_seam`
@@ -120,10 +134,9 @@ The ordered rank is
 | Blocker | Owned current obligations / later gate |
 |---|---|
 | `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
-| `RUST-API-COMPATIBILITY-DECISION` | `rust_api_semver_disposition` |
 | `INDEPENDENT-EXECUTION-CUTOVER` | four semantic families and three paused location refinement edges |
-| `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | `global_optimization_certificate`, `generated_source_role_necessity_census` |
-| `DEVELOP-LANDING-REHEARSAL` | `landing_topology` |
+| `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | all 12 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
+| `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
 | `EVIDENCE-PORTABILITY` | later cold-checkout reproduction |
 
@@ -140,6 +153,17 @@ finished product work. The checkpoint and prior commits preserve the UAK cutover
 bounded semantic exchange I1-I6, model/refinement evidence, historical mutation
 cohorts and complete affected test runs. They become current evidence only when
 rebound to the final frozen universe.
+
+Release-boundary adjudication is complete. Legacy configuration and persistence
+remain forward-compatible under the proved policy. For the complete public Rust
+API delta, the total decision is the constant function
+`compat_rust(delta) = intentional_major`; a delta generator is optional and no
+facade may restore mutable transaction or policy authority. The landing
+candidate domain, generated downstream-universe operators, feasibility
+constraints and lexicographic cost objective are machine-owned; the actual
+`L1` choice remains open until the final `X3` tree exists. The acceptance
+universe now also binds the optimization certificate, landing target/rehearsal
+and declared workload/environment matrix.
 
 The last locally checkpointed semantic slice is B3-R5 settlement/location:
 
@@ -168,19 +192,22 @@ These are evidence/refinement consequences of the already registered paused R5
 family, not six new semantic families. Regenerating mutation locks before all
 construction roots close remains forbidden.
 
-No R5 production change, mutation regeneration, performance acceptance or
-remote push may proceed during release-boundary adjudication.
+No R5 production change may proceed until architecture synthesis freezes its
+selected topology. Mutation regeneration, downstream performance acceptance and
+remote push remain forbidden at this phase.
 
 ## Current validation facts
 
-Post-checkpoint direct goal, optimality, convergence, status and negative-canary
-validators pass. The document goal-completeness gate, review guide, ASCII,
-develop refinement and model/production frontier checks pass. TLC closes the
-registered 1,098-generated/318-distinct-state positive model, and its negative
+Current direct goal, optimality, landing, convergence, release-status, rank/
+artifact binding and negative-canary validators pass. The document
+goal-completeness gate, review guide, ASCII, develop refinement and
+model/production frontier checks pass. TLC closes the registered
+1,098-generated/318-distinct-state positive model, and its negative
 configuration reproduces the required `NoEffectBlockedDirectHandoff` witness.
-The aggregate light gate stops at the first paused-R5 stale mutation-evidence
-edge; the individual gates expose exactly the six outputs above. This is a
-diagnostic checkpoint, not release evidence.
+The aggregate security checker exposes exactly the two registered R5
+model/inventory edges; the production, test-layout and mutation gates expose
+exactly the other four outputs above. This is a diagnostic checkpoint, not
+release evidence.
 
 Release-boundary compatibility evidence is current:
 
@@ -194,32 +221,31 @@ Release-boundary compatibility evidence is current:
 - `TP-PERSIST-001` owns legacy v1 acceptance/revalidation and v2-only writes;
 - node/database downgrade and reverse persistence migration remain unsupported.
 
-The exact current semver run is not classified as product evidence. A retry
-obtained controlled Cargo-cache access, but the tool's default feature heuristic
-enabled the mutually exclusive `portable` and `march-native` features and failed
-before producing rustdoc. The corrected `--default-features` run was then
-stopped by explicit user direction: semver output is an optional delta
-generator, not the architecture objective. The prior 9-class report is only a
-candidate set because public API files changed after that candidate revision.
-The crate is publishable and release-plz intentionally has `semver_check =
-false`, so `rust_api_semver_disposition` remains open until the declared Rust
-API compatibility boundary itself receives one total decision; neither an
-incomplete tool run nor a hand-written API census can close it.
+The interrupted semver diagnostic remains non-authoritative history. Its default
+feature heuristic enabled mutually exclusive `portable` and `march-native`
+features, and the corrected run was stopped by user direction. No rerun is
+required: the machine contract maps every generated public Rust API delta to
+`intentional_major`. The still-open `landing_topology` obligation owns the
+major-version relation, migration notes, generated workspace reverse-dependency
+build/tests and rehearsal against current official `develop`.
 
 ## Exact next action
 
-Execute `release_boundary_adjudication` without touching paused R5 production:
+Execute `architecture_optimality_synthesis` without touching paused R5
+production:
 
-1. decide whether the published Rust crate surface is a declared compatibility
-   boundary; if it is, generate only the delta needed to give it a total
-   `non_authoritative_facade`, `intentional_major` or `revert` disposition and
-   reject any facade with policy or mutation authority;
-2. bind incremental, curated-series and one-shot landing candidates to the
-   generated downstream impact universe and their build/conflict/migration/
-   recovery costs, while reserving final candidate selection for the
-   post-simplification `landing_rehearsal`; and
-3. close the phase input boundary, emit the actual rank and checkpoint before
-   upstream `architecture_optimality_synthesis`. The proved legacy
-   configuration/persistence obligation must not be reopened unless its
-   policy, implementation or exact evidence changes; `landing_topology`
-   remains explicitly open until rehearsal.
+1. content-address the fixed release basis and declared workload/environment
+   matrix, including the final goal, release and landing laws and all 12 `D1-*`
+   candidates;
+2. generate normal-form coverage and the candidate partition from the declared
+   semantic axes, then mechanically separate feasible `X0` from explicit
+   counterexamples;
+3. derive each conditional static lower bound and prove the witness cost,
+   retaining maximal independent work and the unique minimum Apply cut; and
+4. measure only statically tied `X1` candidates under the frozen construction
+   matrix, bind the noise-gated frontier, freeze `X2`, and rerun the canonical
+   goal, root `AGENTS.md` and entire-DAG phase-boundary audit.
+
+Each of these outputs closes its same-named hash-bound refinement item. Only
+after all eight architecture-synthesis requirements close may
+`registered_semantic_root_closure` resume the paused R5 implementation family.

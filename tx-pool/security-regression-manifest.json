@@ -233,8 +233,11 @@
     "schema_version": 2,
     "optimization_goal_sha256": "294cf0b52b3bde653b5ca8e46db1d1feb1cc244a08b179751d96d3df3d12305d",
     "state": "construction",
-    "active_phase": "release_boundary_adjudication",
-    "completed_phases": ["basis_and_roadmap_normalization"],
+    "active_phase": "architecture_optimality_synthesis",
+    "completed_phases": [
+      "basis_and_roadmap_normalization",
+      "release_boundary_adjudication"
+    ],
     "acceptance_universe": null,
     "construction_rank": {
       "open_release_laws": [
@@ -251,10 +254,7 @@
         "D1-FAULT-INGRESS-EVIDENCE",
         "D1-HISTORY"
       ],
-      "open_compatibility_and_landing_decisions": [
-        "rust_api_semver_disposition",
-        "landing_topology"
-      ],
+      "open_compatibility_and_landing_decisions": ["landing_topology"],
       "unclosed_registered_semantic_families": [
         "settlement_and_location",
         "resource_configuration",
@@ -265,7 +265,18 @@
         "generated_source_role_necessity_census"
       ],
       "incomplete_refinement_edges": [
-        "global_optimization_certificate",
+        "release_basis_hash",
+        "normal_form_coverage_proof",
+        "generated_candidate_partition_hash",
+        "feasibility_proof_per_partition",
+        "conditional_static_lower_bound_per_dimension",
+        "witness_static_cost_equals_lower_bounds",
+        "declared_workload_environment_matrix_hash",
+        "noise_gated_empirical_frontier_evidence",
+        "conditional_complexity_lower_bound_per_dimension",
+        "witness_complexity_cost_equals_lower_bounds",
+        "production_refinement_and_cost_binding",
+        "independent_negative_certificate_canaries",
         "location_behavior_and_inventory_binding",
         "sealed_payload_context_rebind",
         "location_test_layout_seam"
@@ -354,11 +365,23 @@
     }
   ],
   "release_boundary_status": {
-    "schema_version": 1,
+    "schema_version": 2,
     "legacy_configuration_forward_compatibility": {
       "state": "proved",
       "policy_ref": "architecture_contract.release_surface.compatibility_policy",
       "behavior_refs": ["TP-BUDGET-001", "TP-PERSIST-001"]
+    },
+    "rust_api_compatibility": {
+      "state": "adjudicated",
+      "policy_ref": "architecture_contract.release_surface.rust_api_compatibility",
+      "disposition": "intentional_major",
+      "landing_obligation": "landing_topology"
+    },
+    "landing_input_matrix": {
+      "state": "defined",
+      "policy_ref": "architecture_contract.landing_protocol",
+      "selection": "open",
+      "construction_obligation": "landing_topology"
     }
   },
   "release_blockers": [
@@ -381,11 +404,6 @@
       ]
     },
     {
-      "id": "RUST-API-COMPATIBILITY-DECISION",
-      "reason": "ckb-tx-pool is a published crate while the repository release policy deliberately disables automatic semver checking; the last complete diagnostic found 9 major-change lint classes, so the declared Rust API compatibility boundary still requires one total non-authoritative-facade, intentional-major or revert decision even when cargo-semver-checks is not used as the generator",
-      "construction_obligations": ["rust_api_semver_disposition"]
-    },
-    {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
       "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 are implemented, but the registered settlement/location, resource-configuration, resource-ledger and scheduler families and the paused location refinement edges remain open before frozen-universe acceptance",
       "construction_obligations": [
@@ -402,13 +420,24 @@
       "id": "GLOBAL-OPTIMALITY-AND-SIMPLIFICATION",
       "reason": "Normal-form coverage, X1 conditional static lower bounds, upstream noise-gated X2 selection, X3 complexity lower bounds and production refinement remain uncertified, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
       "construction_obligations": [
-        "global_optimization_certificate",
+        "release_basis_hash",
+        "normal_form_coverage_proof",
+        "generated_candidate_partition_hash",
+        "feasibility_proof_per_partition",
+        "conditional_static_lower_bound_per_dimension",
+        "witness_static_cost_equals_lower_bounds",
+        "declared_workload_environment_matrix_hash",
+        "noise_gated_empirical_frontier_evidence",
+        "conditional_complexity_lower_bound_per_dimension",
+        "witness_complexity_cost_equals_lower_bounds",
+        "production_refinement_and_cost_binding",
+        "independent_negative_certificate_canaries",
         "generated_source_role_necessity_census"
       ]
     },
     {
       "id": "DEVELOP-LANDING-REHEARSAL",
-      "reason": "Incremental, curated-series and one-shot landing topologies have not yet been adjudicated or rehearsed against current develop and the generated downstream impact universe",
+      "reason": "The landing candidate domain, generated downstream universe, feasibility constraints and lexicographic cost objective are defined, but the final X3 tree is not yet available to select and rehearse one topology against current develop; this obligation also owns the intentional-major version relation, migration notes and generated workspace reverse-dependency migration evidence",
       "construction_obligations": ["landing_topology"]
     },
     {

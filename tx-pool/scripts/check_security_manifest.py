@@ -49,7 +49,18 @@ REQUIRED_CONVERGENCE_LAW_SOURCES = {
     "target_invariants",
     "optimization_goal",
     "release_surface",
+    "landing_protocol",
     "residual_risks",
+}
+REQUIRED_ACCEPTANCE_UNIVERSE = {
+    "production_sources",
+    "resolved_features",
+    "test_inventory",
+    "configuration_and_migration_surfaces",
+    "tool_semantics",
+    "optimization_certificate",
+    "landing_target_and_rehearsal",
+    "declared_workload_environment_matrix",
 }
 REQUIRED_CONSTRUCTION_INVALIDATORS = {
     "production_source_change",
@@ -93,6 +104,7 @@ REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES = {
     "root_families",
     "target_invariants",
     "release_surface",
+    "landing_protocol",
     "residual_risks",
 }
 REQUIRED_OPTIMALITY_NORMAL_FORM_AXES = {
@@ -119,6 +131,66 @@ REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS = {
     "production_refinement_and_cost_binding",
     "independent_negative_certificate_canaries",
 }
+ARCHITECTURE_SYNTHESIS_REQUIREMENTS = {
+    "release_basis_hash",
+    "normal_form_coverage_proof",
+    "generated_candidate_partition_hash",
+    "feasibility_proof_per_partition",
+    "conditional_static_lower_bound_per_dimension",
+    "witness_static_cost_equals_lower_bounds",
+    "declared_workload_environment_matrix_hash",
+    "noise_gated_empirical_frontier_evidence",
+}
+SIMPLIFICATION_REQUIREMENTS = (
+    REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
+    - ARCHITECTURE_SYNTHESIS_REQUIREMENTS
+)
+REQUIRED_RUST_API_DISPOSITIONS = {
+    "non_authoritative_facade",
+    "intentional_major",
+    "revert",
+}
+REQUIRED_RUST_API_LANDING_EVIDENCE = {
+    "candidate_major_version_relation",
+    "release_migration_notes",
+    "generated_workspace_reverse_dependency_build_and_tests",
+    "rehearsal_against_current_official_develop",
+}
+REQUIRED_LANDING_GENERATORS = {
+    "workspace_reverse_dependencies": (
+        "cargo_metadata_reverse_dependency_closure",
+        "changed_workspace_packages_against_target",
+    ),
+    "managed_integration_impact": (
+        "registered_integration_impact_closure",
+        "changed_paths_against_target",
+    ),
+    "release_surface_consumers": (
+        "release_surface_anchor_closure",
+        "release_surface.anchors",
+    ),
+    "merge_conflict_surface": (
+        "git_merge_tree_conflict_closure",
+        "candidate_and_target_trees",
+    ),
+}
+REQUIRED_LANDING_FEASIBILITY = {
+    "reconciles_the_same_frozen_X3_witness_and_final_tree",
+    "all_release_surface_version_migration_and_recovery_requirements_hold",
+    "zero_unresolved_semantic_conflicts",
+    "generated_downstream_universe_builds_and_tests",
+    "local_rehearsal_is_recoverable_and_grants_no_push_merge_or_release_authority",
+}
+REQUIRED_LANDING_COST_OBJECTIVE = [
+    "residual_semantic_conflict_and_migration_risk",
+    "maximum_unvalidated_semantic_delta",
+    "migration_and_recovery_cut_count",
+    "conflict_resolution_operation_count",
+    "downstream_build_and_test_repetition_count",
+    "review_dependency_edge_count",
+    "history_rewrite_operation_count",
+    "canonical_candidate_order_index",
+]
 REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS = {
     "release_basis_sha256",
     "candidate_partition_sha256",
@@ -547,6 +619,257 @@ def validate_mutation_acceptance_canaries(
     return errors
 
 
+def validate_rust_api_compatibility(contract: dict) -> list[str]:
+    """Validate the total public Rust API release decision."""
+
+    errors: list[str] = []
+    policy = contract.get("release_surface", {}).get("rust_api_compatibility")
+    expected_fields = {
+        "schema_version",
+        "decision_function",
+        "facade_constraint",
+        "version_transition",
+        "delta_generator_role",
+        "landing_evidence_requirements",
+        "landing_obligation",
+    }
+    if not isinstance(policy, dict) or policy.get("schema_version") != 1:
+        return ["Rust API compatibility schema_version must be 1"]
+    if set(policy) != expected_fields:
+        errors.append("Rust API compatibility fields differ")
+
+    decision = policy.get("decision_function")
+    if not isinstance(decision, dict) or set(decision) != {
+        "domain",
+        "codomain",
+        "operator",
+        "value",
+    }:
+        errors.append("Rust API compatibility decision function fields differ")
+    else:
+        codomain = decision.get("codomain")
+        if (
+            not isinstance(codomain, list)
+            or len(codomain) != len(set(codomain))
+            or set(codomain) != REQUIRED_RUST_API_DISPOSITIONS
+        ):
+            errors.append("Rust API compatibility decision codomain differs")
+        if (
+            decision.get("domain") != "all_public_rust_api_delta"
+            or decision.get("operator") != "constant"
+            or decision.get("value") != "intentional_major"
+        ):
+            errors.append(
+                "Rust API compatibility must map every public delta to intentional_major"
+            )
+
+    if policy.get("facade_constraint") != (
+        "must_not_restore_removed_mutable_transaction_or_policy_authority"
+    ):
+        errors.append("Rust API compatibility facade constraint differs")
+    if policy.get("version_transition") != {
+        "baseline": "latest_published_ckb_tx_pool_version_at_landing",
+        "candidate": "reconciled_release_version",
+        "operator": "candidate_major_strictly_greater_than_baseline_major",
+    }:
+        errors.append("Rust API compatibility major-version transition differs")
+    if policy.get("delta_generator_role") != "optional_diagnostic_only":
+        errors.append("Rust API delta generator must remain an optional diagnostic")
+    evidence = policy.get("landing_evidence_requirements")
+    if (
+        not isinstance(evidence, list)
+        or len(evidence) != len(set(evidence))
+        or set(evidence) != REQUIRED_RUST_API_LANDING_EVIDENCE
+    ):
+        errors.append("Rust API compatibility landing evidence requirements differ")
+    if policy.get("landing_obligation") != "landing_topology":
+        errors.append("Rust API compatibility must transfer evidence to landing_topology")
+
+    try:
+        cargo_toml = repo_path("tx-pool/Cargo.toml").read_text()
+    except (OSError, ValueError) as error:
+        errors.append(f"cannot inspect ckb-tx-pool publication boundary: {error}")
+        cargo_toml = ""
+    package_match = re.search(
+        r"(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)", cargo_toml
+    )
+    package = package_match.group(1) if package_match is not None else ""
+    if re.search(r'(?m)^name\s*=\s*"ckb-tx-pool"\s*$', package) is None:
+        errors.append("Rust API compatibility is not bound to ckb-tx-pool")
+    elif re.search(r"(?m)^publish\s*=\s*(?:false|\[\s*\])\s*$", package):
+        errors.append("Rust API compatibility requires a publishable ckb-tx-pool crate")
+    return errors
+
+
+def validate_landing_protocol(contract: dict) -> list[str]:
+    """Validate the finite, goal-bound landing optimization problem."""
+
+    errors: list[str] = []
+    protocol = contract.get("landing_protocol")
+    expected_fields = {
+        "schema_version",
+        "goal_ref",
+        "owner_phase",
+        "target",
+        "candidate_ref",
+        "downstream_universe",
+        "feasibility_constraints",
+        "cost_objective",
+        "selection",
+        "current_selection",
+    }
+    if not isinstance(protocol, dict) or protocol.get("schema_version") != 1:
+        return ["architecture contract landing_protocol schema_version must be 1"]
+    if set(protocol) != expected_fields:
+        errors.append("landing protocol fields differ")
+    if protocol.get("goal_ref") != "optimization_goal":
+        errors.append("landing protocol must reference the canonical optimization goal")
+    if protocol.get("owner_phase") != "landing_rehearsal":
+        errors.append("landing protocol owner phase differs")
+    if protocol.get("target") != "current_official_develop_at_rehearsal":
+        errors.append("landing protocol target differs")
+    if protocol.get("candidate_ref") != "convergence_protocol.landing_candidates":
+        errors.append("landing protocol candidate reference differs")
+
+    universe = protocol.get("downstream_universe")
+    if not isinstance(universe, dict) or set(universe) != {"operator", "generators"}:
+        errors.append("landing downstream universe fields differ")
+        generators = []
+    else:
+        if universe.get("operator") != "set_union":
+            errors.append("landing downstream universe must use set union")
+        generators = universe.get("generators")
+        if not isinstance(generators, list):
+            errors.append("landing downstream universe generators must be a list")
+            generators = []
+    discovered_generators: dict[str, tuple[object, object]] = {}
+    for generator in generators:
+        if not isinstance(generator, dict) or set(generator) != {
+            "id",
+            "operator",
+            "input",
+        }:
+            errors.append(f"invalid landing downstream generator {generator!r}")
+            continue
+        generator_id = generator.get("id")
+        if not isinstance(generator_id, str) or generator_id in discovered_generators:
+            errors.append(f"invalid or duplicate landing generator ID {generator_id!r}")
+            continue
+        discovered_generators[generator_id] = (
+            generator.get("operator"),
+            generator.get("input"),
+        )
+    if discovered_generators != REQUIRED_LANDING_GENERATORS:
+        errors.append("landing downstream generator set differs")
+
+    feasibility = protocol.get("feasibility_constraints")
+    if (
+        not isinstance(feasibility, list)
+        or len(feasibility) != len(set(feasibility))
+        or set(feasibility) != REQUIRED_LANDING_FEASIBILITY
+    ):
+        errors.append("landing feasibility constraints differ")
+    if protocol.get("cost_objective") != REQUIRED_LANDING_COST_OBJECTIVE:
+        errors.append("landing lexicographic cost objective differs")
+    if protocol.get("selection") != [
+        {
+            "set": "L0",
+            "operator": "filter",
+            "domain_ref": "convergence_protocol.landing_candidates",
+            "constraint_ref": "feasibility_constraints",
+        },
+        {
+            "set": "L1",
+            "operator": "lexicographic_argmin",
+            "domain_ref": "L0",
+            "objective_ref": "cost_objective",
+        },
+    ]:
+        errors.append("landing L0/L1 selection algebra differs")
+
+    selected = protocol.get("current_selection")
+    if selected is not None:
+        selected_fields = {
+            "candidate",
+            "target_revision",
+            "final_tree_sha256",
+            "downstream_universe_sha256",
+            "candidate_matrix_sha256",
+            "cost_vector",
+            "rehearsal_evidence_sha256",
+        }
+        if not isinstance(selected, dict) or set(selected) != selected_fields:
+            errors.append("landing current selection certificate fields differ")
+        else:
+            candidates = _string_set(
+                contract.get("convergence_protocol", {}).get("landing_candidates")
+            )
+            if selected.get("candidate") not in candidates:
+                errors.append("landing current selection uses an unknown candidate")
+            if re.fullmatch(r"[0-9a-f]{40}", str(selected.get("target_revision"))) is None:
+                errors.append("landing current selection target revision is invalid")
+            for field in (
+                "final_tree_sha256",
+                "downstream_universe_sha256",
+                "candidate_matrix_sha256",
+                "rehearsal_evidence_sha256",
+            ):
+                if re.fullmatch(r"[0-9a-f]{64}", str(selected.get(field))) is None:
+                    errors.append(f"landing current selection {field} is invalid")
+            cost = selected.get("cost_vector")
+            if (
+                not isinstance(cost, list)
+                or len(cost) != len(REQUIRED_LANDING_COST_OBJECTIVE)
+                or not all(
+                    isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                    for value in cost
+                )
+            ):
+                errors.append("landing current selection cost vector is invalid")
+    return errors
+
+
+def validate_release_protocol_canaries(contract: dict) -> list[str]:
+    """Prove release choices cannot regress to tool, facade or prose authority."""
+
+    errors: list[str] = []
+    facade = copy.deepcopy(contract)
+    facade["release_surface"]["rust_api_compatibility"]["decision_function"][
+        "value"
+    ] = "non_authoritative_facade"
+    observed = validate_rust_api_compatibility(facade)
+    if not any("map every public delta" in error for error in observed):
+        errors.append("Rust API release canary admitted a compatibility facade")
+
+    tool_gate = copy.deepcopy(contract)
+    tool_gate["release_surface"]["rust_api_compatibility"][
+        "delta_generator_role"
+    ] = "required_gate"
+    observed = validate_rust_api_compatibility(tool_gate)
+    if not any("optional diagnostic" in error for error in observed):
+        errors.append("Rust API release canary made a delta tool authoritative")
+
+    incomplete_landing = copy.deepcopy(contract)
+    incomplete_landing["landing_protocol"]["downstream_universe"]["generators"].pop()
+    observed = validate_landing_protocol(incomplete_landing)
+    if not any("generator set differs" in error for error in observed):
+        errors.append("landing canary admitted an incomplete downstream universe")
+
+    reordered_cost = copy.deepcopy(contract)
+    objective = reordered_cost["landing_protocol"]["cost_objective"]
+    objective[0], objective[1] = objective[1], objective[0]
+    observed = validate_landing_protocol(reordered_cost)
+    if not any("cost objective differs" in error for error in observed):
+        errors.append("landing canary admitted a reordered cost objective")
+
+    weakened_selection = copy.deepcopy(contract)
+    weakened_selection["landing_protocol"]["selection"][1]["operator"] = "filter"
+    observed = validate_landing_protocol(weakened_selection)
+    if not any("selection algebra differs" in error for error in observed):
+        errors.append("landing canary admitted a non-optimal selection operator")
+    return errors
+
+
 def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
     topology = contract.get("selected_topology")
@@ -556,8 +879,8 @@ def validate_selected_topology(contract: dict, registry: dict) -> list[str]:
         return ["architecture contract selected_topology schema_version must be 1"]
     if not isinstance(slices_contract, dict) or slices_contract.get("schema_version") != 1:
         return ["architecture contract implementation_slices schema_version must be 1"]
-    if not isinstance(release_surface, dict) or release_surface.get("schema_version") != 2:
-        return ["architecture contract release_surface schema_version must be 2"]
+    if not isinstance(release_surface, dict) or release_surface.get("schema_version") != 3:
+        return ["architecture contract release_surface schema_version must be 3"]
     if release_surface.get("compatibility_policy") != REQUIRED_RELEASE_COMPATIBILITY_POLICY:
         errors.append(
             "release surface must define the exact forward-only node, configuration "
@@ -1078,8 +1401,26 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
 
     errors: list[str] = []
     protocol = contract.get("optimality_protocol")
-    if not isinstance(protocol, dict) or protocol.get("schema_version") != 1:
-        return ["architecture contract optimality_protocol schema_version must be 1"]
+    if not isinstance(protocol, dict) or protocol.get("schema_version") != 2:
+        return ["architecture contract optimality_protocol schema_version must be 2"]
+    if set(protocol) != {
+        "schema_version",
+        "claim_scope",
+        "admissible_domain",
+        "feasibility_sources",
+        "normal_form_axes",
+        "objective_ref",
+        "static_lower_bound_rule",
+        "certificate_requirements",
+        "construction_evidence",
+        "current_witness",
+        "certificate",
+        "empirical_selection_phase",
+        "release_binary_confirmation_phase",
+        "empirical_boundary",
+        "current_claim",
+    }:
+        errors.append("optimality protocol fields differ")
     if protocol.get("claim_scope") != (
         "semantic_topology_static_costs_empirical_frontier_and_complexity_"
         "under_explicit_release_laws"
@@ -1118,6 +1459,46 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
         REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
     ):
         errors.append("optimality certificate requirements differ")
+    construction_evidence = protocol.get("construction_evidence")
+    if (
+        not isinstance(construction_evidence, dict)
+        or set(construction_evidence) != REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
+    ):
+        errors.append("optimality construction evidence universe differs")
+        construction_evidence = {}
+    pending_requirements: set[str] = set()
+    for requirement in REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS:
+        artifact = construction_evidence.get(requirement)
+        if artifact is None:
+            pending_requirements.add(requirement)
+            continue
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
+            errors.append(
+                f"optimality construction evidence {requirement} fields differ"
+            )
+            continue
+        path_value = artifact.get("path")
+        expected_hash = artifact.get("sha256")
+        if (
+            not isinstance(path_value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)) is None
+        ):
+            errors.append(
+                f"optimality construction evidence {requirement} identity is invalid"
+            )
+            continue
+        try:
+            path = repo_path(path_value)
+            actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        except (OSError, ValueError) as error:
+            errors.append(
+                f"cannot read optimality construction evidence {requirement}: {error}"
+            )
+            continue
+        if actual_hash != expected_hash:
+            errors.append(
+                f"optimality construction evidence {requirement} hash differs"
+            )
     witness = protocol.get("current_witness")
     if witness != contract.get("selected_topology", {}).get("id"):
         errors.append("optimality witness must be the selected topology")
@@ -1133,11 +1514,18 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
     if claim == "unproved":
         if certificate is not None:
             errors.append("unproved optimality claim cannot retain a certificate")
+        if not pending_requirements:
+            errors.append("complete optimality construction evidence requires certification")
         return errors
     if claim != "globally_optimal_within_declared_model_and_empirical_matrix":
         return errors + [f"unknown optimality claim {claim!r}"]
     if not isinstance(certificate, dict):
         return errors + ["global optimality claim requires one certificate"]
+    if pending_requirements:
+        errors.append(
+            "global optimality claim retains incomplete construction evidence "
+            f"{sorted(pending_requirements)}"
+        )
     if set(certificate) != REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS:
         errors.append("global optimality certificate fields differ")
     for field in (
@@ -1220,6 +1608,14 @@ def validate_optimality_canaries(contract: dict) -> list[str]:
     observed = validate_optimality_protocol(late_empirical_selection)
     if not any("must occur upstream" in error for error in observed):
         errors.append("optimality canary admitted downstream architecture selection")
+
+    unhashed_progress = copy.deepcopy(contract)
+    unhashed_progress["optimality_protocol"]["construction_evidence"][
+        "release_basis_hash"
+    ] = {"path": "tx-pool/architecture-contract.json"}
+    observed = validate_optimality_protocol(unhashed_progress)
+    if not any("construction evidence release_basis_hash fields differ" in error for error in observed):
+        errors.append("optimality canary admitted progress without content identity")
     return errors
 
 
@@ -1254,6 +1650,8 @@ def validate_convergence_protocol(contract: dict) -> list[str]:
             or len(value) != len(set(value))
         ):
             errors.append(f"convergence {field} must be a nonempty unique string list")
+    if _string_set(protocol.get("acceptance_universe")) != REQUIRED_ACCEPTANCE_UNIVERSE:
+        errors.append("convergence acceptance universe differs")
     if protocol.get("termination_boundary") != (
         "fixed_complete_basis_and_eventually_stable_construction_inputs"
     ):
@@ -1472,6 +1870,29 @@ def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
         if len(rank_ids) != len(set(rank_ids)):
             errors.append("one construction obligation occupies multiple rank coordinates")
 
+    construction_evidence = contract.get("optimality_protocol", {}).get(
+        "construction_evidence", {}
+    )
+    pending_optimality = {
+        requirement
+        for requirement in REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
+        if not isinstance(construction_evidence, dict)
+        or construction_evidence.get(requirement) is None
+    }
+    rank_refinement = _string_set(
+        rank_value.get("incomplete_refinement_edges")
+        if isinstance(rank_value, dict)
+        else None
+    )
+    ranked_optimality = rank_refinement.intersection(
+        REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
+    )
+    if ranked_optimality != pending_optimality:
+        errors.append(
+            "optimality construction evidence and refinement rank differ: "
+            f"evidence={sorted(pending_optimality)}, rank={sorted(ranked_optimality)}"
+        )
+
     completed_value = status.get("completed_phases")
     completed = _string_set(completed_value)
     if not isinstance(completed_value, list) or len(completed) != len(completed_value):
@@ -1484,6 +1905,22 @@ def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
             errors.append(
                 f"completed convergence phase {phase} lacks predecessors {sorted(missing)}"
             )
+    if (
+        "architecture_optimality_synthesis" in completed
+        and pending_optimality.intersection(ARCHITECTURE_SYNTHESIS_REQUIREMENTS)
+    ):
+        errors.append(
+            "completed architecture synthesis retains construction evidence "
+            f"{sorted(pending_optimality.intersection(ARCHITECTURE_SYNTHESIS_REQUIREMENTS))}"
+        )
+    if (
+        "constructive_simplification" in completed
+        and pending_optimality.intersection(SIMPLIFICATION_REQUIREMENTS)
+    ):
+        errors.append(
+            "completed simplification retains construction evidence "
+            f"{sorted(pending_optimality.intersection(SIMPLIFICATION_REQUIREMENTS))}"
+        )
 
     active = status.get("active_phase")
     if state in {"construction", "acceptance"} and active is None:
@@ -1731,13 +2168,26 @@ def validate_release_boundary_status(
 
     errors: list[str] = []
     status = manifest.get("release_boundary_status")
-    if not isinstance(status, dict) or status.get("schema_version") != 1:
-        return ["release boundary status schema_version must be 1"]
+    if not isinstance(status, dict) or status.get("schema_version") != 2:
+        return ["release boundary status schema_version must be 2"]
     if set(status) != {
         "schema_version",
         "legacy_configuration_forward_compatibility",
+        "rust_api_compatibility",
+        "landing_input_matrix",
     }:
         errors.append("release boundary status fields differ")
+
+    rank = manifest.get("convergence_status", {}).get("construction_rank", {})
+    open_decisions = _string_set(
+        rank.get("open_compatibility_and_landing_decisions")
+        if isinstance(rank, dict)
+        else None
+    )
+    completed = _string_set(
+        manifest.get("convergence_status", {}).get("completed_phases")
+    )
+
     legacy = status.get("legacy_configuration_forward_compatibility")
     if not isinstance(legacy, dict) or set(legacy) != {
         "state",
@@ -1780,12 +2230,6 @@ def validate_release_boundary_status(
             f"{sorted(unevidenced)}"
         )
 
-    rank = manifest.get("convergence_status", {}).get("construction_rank", {})
-    open_decisions = _string_set(
-        rank.get("open_compatibility_and_landing_decisions")
-        if isinstance(rank, dict)
-        else None
-    )
     obligation = "legacy_configuration_forward_compatibility"
     if legacy.get("state") == "proved" and obligation in open_decisions:
         errors.append("proved legacy configuration compatibility remains in the rank")
@@ -1795,6 +2239,75 @@ def validate_release_boundary_status(
         policy = contract.get("release_surface", {}).get("compatibility_policy", {})
         if policy != REQUIRED_RELEASE_COMPATIBILITY_POLICY:
             errors.append("proved legacy configuration compatibility has policy drift")
+
+    rust_api = status.get("rust_api_compatibility")
+    if not isinstance(rust_api, dict) or set(rust_api) != {
+        "state",
+        "policy_ref",
+        "disposition",
+        "landing_obligation",
+    }:
+        errors.append("Rust API compatibility status fields differ")
+        rust_api = {}
+    if rust_api.get("state") != "adjudicated":
+        errors.append("Rust API compatibility must be adjudicated")
+    if rust_api.get("policy_ref") != (
+        "architecture_contract.release_surface.rust_api_compatibility"
+    ):
+        errors.append("Rust API compatibility policy reference differs")
+    contract_disposition = (
+        contract.get("release_surface", {})
+        .get("rust_api_compatibility", {})
+        .get("decision_function", {})
+        .get("value")
+    )
+    if (
+        rust_api.get("disposition") != "intentional_major"
+        or rust_api.get("disposition") != contract_disposition
+    ):
+        errors.append("Rust API compatibility disposition differs from its contract")
+    if rust_api.get("landing_obligation") != "landing_topology":
+        errors.append("Rust API compatibility landing obligation differs")
+    if "rust_api_semver_disposition" in open_decisions:
+        errors.append("adjudicated Rust API compatibility remains in the rank")
+
+    landing = status.get("landing_input_matrix")
+    if not isinstance(landing, dict) or set(landing) != {
+        "state",
+        "policy_ref",
+        "selection",
+        "construction_obligation",
+    }:
+        errors.append("landing input matrix status fields differ")
+        landing = {}
+    if landing.get("state") != "defined":
+        errors.append("landing input matrix must be defined")
+    if landing.get("policy_ref") != "architecture_contract.landing_protocol":
+        errors.append("landing input matrix policy reference differs")
+    if landing.get("construction_obligation") != "landing_topology":
+        errors.append("landing input matrix construction obligation differs")
+    selection = landing.get("selection")
+    contract_selection = contract.get("landing_protocol", {}).get("current_selection")
+    if selection == "open":
+        if "landing_topology" not in open_decisions:
+            errors.append("open landing topology is absent from the rank")
+        if contract_selection is not None:
+            errors.append("open landing topology has a premature selection certificate")
+    elif selection == "selected":
+        if "landing_topology" in open_decisions:
+            errors.append("selected landing topology remains in the rank")
+        if contract_selection is None:
+            errors.append("selected landing topology lacks a selection certificate")
+    else:
+        errors.append("landing input matrix selection state is invalid")
+
+    if "release_boundary_adjudication" in completed:
+        if legacy.get("state") != "proved":
+            errors.append("completed release boundary lacks legacy compatibility proof")
+        if rust_api.get("state") != "adjudicated":
+            errors.append("completed release boundary lacks the Rust API decision")
+        if landing.get("state") != "defined":
+            errors.append("completed release boundary lacks landing inputs")
     return errors
 
 
@@ -1818,6 +2331,30 @@ def validate_release_boundary_canaries(
     observed = validate_release_boundary_status(false_close, contract, registry)
     if not any("remains in the rank" in error for error in observed):
         errors.append("release boundary canary admitted contradictory compatibility state")
+
+    facade = copy.deepcopy(manifest)
+    facade["release_boundary_status"]["rust_api_compatibility"]["disposition"] = (
+        "non_authoritative_facade"
+    )
+    observed = validate_release_boundary_status(facade, contract, registry)
+    if not any("disposition differs" in error for error in observed):
+        errors.append("release boundary canary admitted a Rust API facade")
+
+    premature_landing = copy.deepcopy(manifest)
+    premature_landing["release_boundary_status"]["landing_input_matrix"][
+        "selection"
+    ] = "selected"
+    observed = validate_release_boundary_status(premature_landing, contract, registry)
+    if not any("remains in the rank" in error for error in observed):
+        errors.append("release boundary canary admitted a premature landing selection")
+
+    unowned_landing = copy.deepcopy(manifest)
+    unowned_landing["convergence_status"]["construction_rank"][
+        "open_compatibility_and_landing_decisions"
+    ].remove("landing_topology")
+    observed = validate_release_boundary_status(unowned_landing, contract, registry)
+    if not any("absent from the rank" in error for error in observed):
+        errors.append("release boundary canary admitted an unowned landing decision")
     return errors
 
 
@@ -1838,6 +2375,14 @@ def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
     observed = validate_convergence_status(manifest, incomplete_goal)
     if not any("optimization-goal hash binding differs" in error for error in observed):
         errors.append("convergence canary admitted a missing hard constraint")
+
+    unhashed_progress = copy.deepcopy(manifest)
+    unhashed_progress["convergence_status"]["construction_rank"][
+        "incomplete_refinement_edges"
+    ].remove("release_basis_hash")
+    observed = validate_convergence_status(unhashed_progress, contract)
+    if not any("construction evidence and refinement rank differ" in error for error in observed):
+        errors.append("convergence canary admitted unhashed optimality progress")
 
     nondecreasing = copy.deepcopy(contract)
     discharge = next(
@@ -2043,10 +2588,13 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 17:
-        errors.append("architecture contract schema_version must be 17")
+    if contract.get("schema_version") != 18:
+        errors.append("architecture contract schema_version must be 18")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
+    errors.extend(validate_rust_api_compatibility(contract))
+    errors.extend(validate_landing_protocol(contract))
+    errors.extend(validate_release_protocol_canaries(contract))
     errors.extend(validate_interruption_contract(contract, registry))
     errors.extend(validate_optimization_goal(contract))
     errors.extend(validate_convergence_protocol(contract))

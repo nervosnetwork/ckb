@@ -1,5 +1,5 @@
 {
-  "schema_version": 17,
+  "schema_version": 18,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -102,6 +102,7 @@
       "target_invariants",
       "optimization_goal",
       "release_surface",
+      "landing_protocol",
       "residual_risks"
     ],
     "construction_rank": [
@@ -117,7 +118,10 @@
       "resolved_features",
       "test_inventory",
       "configuration_and_migration_surfaces",
-      "tool_semantics"
+      "tool_semantics",
+      "optimization_certificate",
+      "landing_target_and_rehearsal",
+      "declared_workload_environment_matrix"
     ],
     "evidence_dag": {
       "invalidation": "changed_node_and_transitive_successors_only",
@@ -129,7 +133,9 @@
             "production_sources",
             "resolved_features",
             "configuration_and_migration_surfaces",
-            "landing_target_and_rehearsal"
+            "optimization_certificate",
+            "landing_target_and_rehearsal",
+            "declared_workload_environment_matrix"
           ]
         },
         {
@@ -326,8 +332,72 @@
     "snowball_objective_ref": "optimization_goal.complexity_objective",
     "source_change_after_correctness": "return_to_construction_and_invalidate_later_evidence"
   },
-  "optimality_protocol": {
+  "landing_protocol": {
     "schema_version": 1,
+    "goal_ref": "optimization_goal",
+    "owner_phase": "landing_rehearsal",
+    "target": "current_official_develop_at_rehearsal",
+    "candidate_ref": "convergence_protocol.landing_candidates",
+    "downstream_universe": {
+      "operator": "set_union",
+      "generators": [
+        {
+          "id": "workspace_reverse_dependencies",
+          "operator": "cargo_metadata_reverse_dependency_closure",
+          "input": "changed_workspace_packages_against_target"
+        },
+        {
+          "id": "managed_integration_impact",
+          "operator": "registered_integration_impact_closure",
+          "input": "changed_paths_against_target"
+        },
+        {
+          "id": "release_surface_consumers",
+          "operator": "release_surface_anchor_closure",
+          "input": "release_surface.anchors"
+        },
+        {
+          "id": "merge_conflict_surface",
+          "operator": "git_merge_tree_conflict_closure",
+          "input": "candidate_and_target_trees"
+        }
+      ]
+    },
+    "feasibility_constraints": [
+      "reconciles_the_same_frozen_X3_witness_and_final_tree",
+      "all_release_surface_version_migration_and_recovery_requirements_hold",
+      "zero_unresolved_semantic_conflicts",
+      "generated_downstream_universe_builds_and_tests",
+      "local_rehearsal_is_recoverable_and_grants_no_push_merge_or_release_authority"
+    ],
+    "cost_objective": [
+      "residual_semantic_conflict_and_migration_risk",
+      "maximum_unvalidated_semantic_delta",
+      "migration_and_recovery_cut_count",
+      "conflict_resolution_operation_count",
+      "downstream_build_and_test_repetition_count",
+      "review_dependency_edge_count",
+      "history_rewrite_operation_count",
+      "canonical_candidate_order_index"
+    ],
+    "selection": [
+      {
+        "set": "L0",
+        "operator": "filter",
+        "domain_ref": "convergence_protocol.landing_candidates",
+        "constraint_ref": "feasibility_constraints"
+      },
+      {
+        "set": "L1",
+        "operator": "lexicographic_argmin",
+        "domain_ref": "L0",
+        "objective_ref": "cost_objective"
+      }
+    ],
+    "current_selection": null
+  },
+  "optimality_protocol": {
+    "schema_version": 2,
     "claim_scope": "semantic_topology_static_costs_empirical_frontier_and_complexity_under_explicit_release_laws",
     "admissible_domain": "architectures_modulo_external_observational_equivalence",
     "current_claim": "unproved",
@@ -337,6 +407,7 @@
       "root_families",
       "target_invariants",
       "release_surface",
+      "landing_protocol",
       "residual_risks"
     ],
     "normal_form_axes": [
@@ -365,6 +436,20 @@
       "production_refinement_and_cost_binding",
       "independent_negative_certificate_canaries"
     ],
+    "construction_evidence": {
+      "release_basis_hash": null,
+      "normal_form_coverage_proof": null,
+      "generated_candidate_partition_hash": null,
+      "feasibility_proof_per_partition": null,
+      "conditional_static_lower_bound_per_dimension": null,
+      "witness_static_cost_equals_lower_bounds": null,
+      "declared_workload_environment_matrix_hash": null,
+      "noise_gated_empirical_frontier_evidence": null,
+      "conditional_complexity_lower_bound_per_dimension": null,
+      "witness_complexity_cost_equals_lower_bounds": null,
+      "production_refinement_and_cost_binding": null,
+      "independent_negative_certificate_canaries": null
+    },
     "current_witness": "bounded_semantic_exchange",
     "certificate": null,
     "empirical_selection_phase": "architecture_optimality_synthesis",
@@ -1642,7 +1727,7 @@
     ]
   },
   "release_surface": {
-    "schema_version": 2,
+    "schema_version": 3,
     "compatibility_policy": {
       "node_downgrade": "unsupported",
       "legacy_tx_pool_configuration": "accepted_on_forward_upgrade",
@@ -1651,6 +1736,33 @@
       "legacy_persistence_v1": "accepted_and_revalidated",
       "current_persistence_write": "v2_only",
       "reverse_persistence_migration": "unsupported"
+    },
+    "rust_api_compatibility": {
+      "schema_version": 1,
+      "decision_function": {
+        "domain": "all_public_rust_api_delta",
+        "codomain": [
+          "non_authoritative_facade",
+          "intentional_major",
+          "revert"
+        ],
+        "operator": "constant",
+        "value": "intentional_major"
+      },
+      "facade_constraint": "must_not_restore_removed_mutable_transaction_or_policy_authority",
+      "version_transition": {
+        "baseline": "latest_published_ckb_tx_pool_version_at_landing",
+        "candidate": "reconciled_release_version",
+        "operator": "candidate_major_strictly_greater_than_baseline_major"
+      },
+      "delta_generator_role": "optional_diagnostic_only",
+      "landing_evidence_requirements": [
+        "candidate_major_version_relation",
+        "release_migration_notes",
+        "generated_workspace_reverse_dependency_build_and_tests",
+        "rehearsal_against_current_official_develop"
+      ],
+      "landing_obligation": "landing_topology"
     },
     "anchors": [
       {
@@ -1710,6 +1822,23 @@
           {
             "path": "tx-pool/CHANGELOG.md",
             "required_phrases": ["persistence v2", "legacy v1", "Node downgrade and reverse persistence migration are not supported"]
+          }
+        ]
+      },
+      {
+        "id": "rust_api_major_migration",
+        "files": [
+          {
+            "path": "tx-pool/Cargo.toml",
+            "required_phrases": ["name = \"ckb-tx-pool\""]
+          },
+          {
+            "path": "tx-pool/CHANGELOG.md",
+            "required_phrases": [
+              "project adheres to [Semantic Versioning]",
+              "complete public Rust API delta is an intentional SemVer-major migration",
+              "No compatibility facade may restore mutable transaction or policy authority"
+            ]
           }
         ]
       },

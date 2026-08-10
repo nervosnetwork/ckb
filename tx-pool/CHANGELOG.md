@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The complete public Rust API delta is an intentional SemVer-major migration.
+  The reconciled release must use a major version greater than the latest
+  published `ckb-tx-pool` baseline and include migration notes. No compatibility
+  facade may restore mutable transaction or policy authority; generated
+  workspace reverse dependencies migrate during the landing rehearsal.
 - Replace the fragmented pre-pool queues with one charged transaction
   authority and atomic Plan/Apply transitions. In-flight retained transactions
   are visible through `get_transaction` as `pending` rather than `unknown`.
