@@ -5,6 +5,7 @@ Branch: `zhangsoledad/txpool-pipeline`
 Pre-normalization recovery base: `75ef1668b415`
 Normalization content checkpoint: `0099747e9a45`
 Legacy compatibility content checkpoint: `5755286c2a91`
+Release-boundary content checkpoint: `96cf5d14ffc2`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
 `release_boundary_adjudication`
