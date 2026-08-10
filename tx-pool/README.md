@@ -1,5 +1,16 @@
 # ckb-tx-pool
 
+## Canonical final goal
+
+The sole machine authority for the program's final objective is
+[`architecture-contract.json#/optimization_goal`](architecture-contract.json#/optimization_goal).
+All tx-pool documents inherit its hard constraints and ordered `X0 -> X1 -> X2
+-> X3` selection: feasible architectures, global static minima, noise-gated
+empirical winners on the declared matrix, then minimum implementation/proof
+complexity. Independent work is maximally parallel; coupled facts are ordered
+only at the unique authority's minimum atomic commit cut. This README is an
+index, not a second definition of that objective.
+
 This crate is a component of [ckb](https://github.com/nervosnetwork/ckb).
 
 CKB Tx-pool stores transactions for CKB's two-step transaction confirmation

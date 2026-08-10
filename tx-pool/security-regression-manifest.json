@@ -1,5 +1,5 @@
 {
-  "schema_version": 10,
+  "schema_version": 11,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
@@ -231,9 +231,10 @@
   },
   "convergence_status": {
     "schema_version": 2,
+    "optimization_goal_sha256": "294cf0b52b3bde653b5ca8e46db1d1feb1cc244a08b179751d96d3df3d12305d",
     "state": "construction",
-    "active_phase": "basis_and_roadmap_normalization",
-    "completed_phases": [],
+    "active_phase": "release_boundary_adjudication",
+    "completed_phases": ["basis_and_roadmap_normalization"],
     "acceptance_universe": null,
     "construction_rank": {
       "open_release_laws": [
@@ -265,18 +266,98 @@
         "generated_source_role_necessity_census"
       ],
       "incomplete_refinement_edges": [
-        "roadmap_and_status_projection",
-        "global_static_optimality_certificate",
+        "global_optimization_certificate",
         "location_behavior_and_inventory_binding",
         "sealed_payload_context_rebind",
         "location_test_layout_seam"
       ]
     }
   },
+  "construction_root_families": [
+    {
+      "id": "CRF-READY-PRIORITY-PROGRESS",
+      "members": ["D1-READY-OCC-LIVENESS"],
+      "root_family_refs": ["F5"],
+      "invariant_refs": ["T5", "T10", "T16"],
+      "law": "a_ready_capture_commits_only_the_longest_unchanged_strict_priority_prefix_or_waits_after_a_changed_head_cut",
+      "falsifier": "continuous_mutation_of_weaker_tail_owners_strands_an_unchanged_strongest_owner_or_spins_the_driver",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-DIRECT-NEGATIVE-EVIDENCE",
+      "members": ["D1-DIRECT-NEGATIVE-OCC"],
+      "root_family_refs": ["F5", "F8"],
+      "invariant_refs": ["T10", "T11", "T14", "T16"],
+      "law": "direct_negative_evidence_is_bound_to_the_exact_bounded_observation_set_and_commutes_with_unrelated_accepted_changes",
+      "falsifier": "a_stream_of_disjoint_accepted_commits_stales_and_reexecutes_one_unchanged_direct_rejection_forever",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-TOTAL-FAULT-BOUNDARY",
+      "members": [
+        "D1-FAULT-REACHABILITY",
+        "D1-FAULT-INGRESS-EVIDENCE"
+      ],
+      "root_family_refs": ["F4", "F8"],
+      "invariant_refs": ["T6", "T8", "T11"],
+      "law": "each_operation_has_one_closed_producer_owned_error_algebra_and_only_structural_faults_reach_the_service_fault_boundary",
+      "falsifier": "a_legal_or_hostile_input_reaches_a_broad_structural_adapter_or_an_unsealed_constructor_fabricates_invalid_evidence",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-BOUNDED-RESOURCE-ADMISSION",
+      "members": [
+        "D1-FALLIBLE-SCRATCH",
+        "D1-REQUEST-PAYLOAD-BOUND",
+        "D1-ALLOCATION-LIVENESS"
+      ],
+      "root_family_refs": ["F4"],
+      "invariant_refs": ["T3", "T8", "T10", "T15"],
+      "law": "peer_shaped_resident_and_scratch_work_is_count_and_byte_bounded_fallible_and_never_retried_without_a_changed_level",
+      "falsifier": "legal_payload_or_allocation_pressure_escapes_typed_bounds_retains_unaccounted_bytes_or_retries_forever_on_an_unchanged_cut",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-CLOCK-PROGRESS-DOMAIN",
+      "members": ["D1-CLOCK-DOMAIN"],
+      "root_family_refs": ["F4", "F5"],
+      "invariant_refs": ["T8", "T10"],
+      "law": "wall_time_is_an_external_observation_while_internal_progress_uses_a_named_monotonic_level_or_an_explicit_environment_premise",
+      "falsifier": "wall_clock_rollback_invalidates_an_unconditional_expiry_rank_or_changes_deterministic_timestamp_order",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-TASK-CAPABILITY-LIFECYCLE",
+      "members": ["D1-STOP-REACHABILITY", "D1-TASK-CAPABILITY"],
+      "root_family_refs": ["F1", "F3", "F4"],
+      "invariant_refs": ["T2", "T6", "T7", "T10", "T15"],
+      "law": "every_task_channel_and_shutdown_edge_preserves_unique_capability_ownership_and_has_one_total_join_drain_and_failure_outcome",
+      "falsifier": "channel_closure_cancellation_or_post_apply_delivery_loss_strands_a_capability_or_makes_a_legal_input_stop_the_service",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-DEPENDENCY-CLOSURE",
+      "members": ["D1-DEPENDENCY-CLOSURE"],
+      "root_family_refs": ["F5"],
+      "invariant_refs": ["T4", "T10", "T16"],
+      "law": "every_owner_death_or_dependency_evidence_change_updates_dependency_truth_in_the_same_authority_apply",
+      "falsifier": "a_producer_removal_or_evidence_loss_bypasses_the_dependency_delta_and_leaves_a_waiter_or_member_on_false_truth",
+      "closure_phase": "registered_semantic_root_closure"
+    },
+    {
+      "id": "CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE",
+      "members": ["D1-HISTORY"],
+      "root_family_refs": ["*"],
+      "invariant_refs": ["*"],
+      "law": "every_retained_historical_rule_has_one_current_semantic_owner_and_every_current_rule_has_business_or_attack_provenance",
+      "falsifier": "the_top_down_or_bottom_up_obligation_difference_contains_an_unmapped_rule_owner_or_evidence_edge",
+      "closure_phase": "registered_semantic_root_closure"
+    }
+  ],
   "release_blockers": [
     {
-      "id": "BASIS-AND-ROADMAP-NORMALIZATION",
-      "reason": "The 60-section plan contains twelve OPEN or SUPPORTED D1 findings not yet mapped to a current machine semantic family or an exact superseded/closed disposition, and its historical directives have not yet been reduced to the sole DAG/status projection",
+      "id": "REGISTERED-RELEASE-LAW-CLOSURE",
+      "reason": "The twelve recovered D1 release laws are now mapped exactly once to eight machine-checked root families, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
       "construction_obligations": [
         "D1-READY-OCC-LIVENESS",
         "D1-DIRECT-NEGATIVE-OCC",
@@ -289,8 +370,7 @@
         "D1-TASK-CAPABILITY",
         "D1-DEPENDENCY-CLOSURE",
         "D1-FAULT-INGRESS-EVIDENCE",
-        "D1-HISTORY",
-        "roadmap_and_status_projection"
+        "D1-HISTORY"
       ]
     },
     {
@@ -316,9 +396,9 @@
     },
     {
       "id": "GLOBAL-OPTIMALITY-AND-SIMPLIFICATION",
-      "reason": "The normal-form coverage, conditional lower bounds, selected-witness cost and production refinement certificate are unproved, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
+      "reason": "Normal-form coverage, X1 conditional static lower bounds, upstream noise-gated X2 selection, X3 complexity lower bounds and production refinement remain uncertified, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
       "construction_obligations": [
-        "global_static_optimality_certificate",
+        "global_optimization_certificate",
         "generated_source_role_necessity_census"
       ]
     },
@@ -329,7 +409,7 @@
     },
     {
       "id": "PERFORMANCE-ACCEPTANCE",
-      "reason": "Post-model controlled clean-revision throughput, tail-latency, CPU, RSS/allocation and lock-hold A/B has not yet passed"
+      "reason": "The frozen release binary has not yet confirmed the upstream X2 selection for throughput, tail latency, CPU, RSS/allocation and authority lock wait/hold under the declared matrix; this gate cannot select or repair topology"
     },
     {
       "id": "EVIDENCE-PORTABILITY",

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -53,10 +54,24 @@ MACHINE_CONTRACTS = (
     "test-inventory.txt",
     "test-layout-manifest.json",
 )
+OPTIMIZATION_GOAL_REFERENCE = "architecture-contract.json#/optimization_goal"
 
 
 def markdown_files() -> list[Path]:
     return [TX_POOL / "README.md", *sorted(DOCS.glob("*.md"))]
+
+
+def optimization_goal_documents() -> list[Path]:
+    hidden_current_documents = (
+        TX_POOL / ".independent-execution-plan",
+        TX_POOL / ".release-progress",
+    )
+    documents = sorted({*TX_POOL.glob("*.md"), *DOCS.glob("*.md")})
+    documents.extend(path for path in hidden_current_documents if path.exists())
+    root_agents = REPO_ROOT / "AGENTS.md"
+    if root_agents.exists():
+        documents.append(root_agents)
+    return documents
 
 
 def local_target(source: Path, raw_target: str) -> Path | None:
@@ -70,6 +85,20 @@ def local_target(source: Path, raw_target: str) -> Path | None:
 def validate() -> list[str]:
     errors: list[str] = []
     files = markdown_files()
+    for source in optimization_goal_documents():
+        if OPTIMIZATION_GOAL_REFERENCE not in source.read_text():
+            errors.append(
+                "tx-pool document omits the canonical final optimization goal: "
+                f"{source.relative_to(REPO_ROOT)}"
+            )
+    root_agents = REPO_ROOT / "AGENTS.md"
+    if root_agents.exists():
+        agents_digest = hashlib.sha256(root_agents.read_bytes()).hexdigest()
+        progress = (TX_POOL / ".release-progress").read_text()
+        if agents_digest not in progress:
+            errors.append(
+                "current release progress does not bind the ignored AGENTS.md digest"
+            )
     for source in files:
         text = source.read_text()
         for raw_target in MARKDOWN_LINK.findall(text):

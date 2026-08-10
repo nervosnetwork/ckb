@@ -1,5 +1,14 @@
 # Tx-Pool Performance Contract and Evidence
 
+The sole final objective is
+[`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
+This document owns its static-cost and empirical projections only: architecture
+is selected upstream from the complete feasible domain, then immutable binaries
+compete on the declared workload/environment matrix. Measurements may select
+among static minima and must confirm maximum independent work plus the minimum
+coupled authority cut; they cannot relax a hard constraint, repair a downstream
+topology choice or redefine the ordered objective.
+
 This document is the reviewer-facing performance companion to
 [`ARCHITECTURE.md`](ARCHITECTURE.md). It records the current UAK performance
 model, reproducible profiling method, evidence strength and final acceptance

@@ -1,5 +1,12 @@
 # tx-pool Criterion Benchmark
 
+The benchmark is evidence for, not an alternative definition of, the canonical
+[`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
+It measures the empirical coordinates of the frozen static-minimum candidate on
+the declared workload/environment matrix. A result from another binary, matrix
+or environment cannot select `X2`, and timing cannot weaken the hard constraints
+or the minimum unique-authority coupling cut.
+
 This module measures the throughput of the CKB tx-pool pipeline.
 
 ## Running

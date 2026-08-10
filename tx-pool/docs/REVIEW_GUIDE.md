@@ -1,5 +1,12 @@
 # Tx-Pool Test-Driven Review Guide
 
+Every review is subordinate to the sole machine-owned
+[`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
+Review must preserve its complete hard-constraint basis, ordered static,
+empirical and complexity selection, maximum independent work and minimum atomic
+ordering of coupled facts. An implementation, test or report cannot redefine
+that target, and no global-optimum claim is valid without the bound certificate.
+
 This guide is the reviewer entry point for tx-pool changes. It translates the
 T1-T16 proof obligations in [`ARCHITECTURE.md`](ARCHITECTURE.md) into stable
 `TP-*` behaviors, hostile counterexamples and executable evidence.

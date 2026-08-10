@@ -1,5 +1,5 @@
 {
-  "schema_version": 16,
+  "schema_version": 17,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -22,12 +22,85 @@
     "model_review": "phase_boundary_model_delta_and_refinement_audit",
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
   },
+  "optimization_goal": {
+    "schema_version": 1,
+    "scope": "ckb_tx_pool_protocol_transaction_dependency_and_conflict_semantics",
+    "hard_constraints": [
+      "ckb_protocol_and_external_observational_equivalence",
+      "consensus_data_integrity_and_determinism",
+      "single_transaction_authority_and_linear_capability_resource_conservation",
+      "total_legal_and_hostile_input_outcomes_without_service_fail_stop",
+      "declared_forward_compatibility_including_legacy_configuration",
+      "bounded_peer_controlled_time_memory_edges_fanout_depth_retry_and_work",
+      "unsupported_node_binary_and_database_downgrade",
+      "external_effects_cannot_retroactively_veto_commit"
+    ],
+    "static_objective": [
+      "residual_security_and_operational_risk_transfer",
+      "authority_and_atomic_commit_domain_count",
+      "worst_case_serial_authority_cuts",
+      "authority_guard_operation_and_hold_bounds",
+      "adversarial_time_memory_allocation_and_wake_bounds",
+      "independent_parallelism_loss",
+      "tasks_locks_queues_channels_resident_state_and_failure_domains"
+    ],
+    "empirical_objective": [
+      "negative_throughput",
+      "p99_end_to_end_latency",
+      "cpu_time_per_transaction",
+      "peak_rss_and_allocation_rate",
+      "authority_lock_wait_and_hold",
+      "shutdown_and_reorg_interference_latency"
+    ],
+    "complexity_objective": [
+      "public_api_surface",
+      "default_production_semantic_mechanisms",
+      "default_production_source_roles",
+      "test_and_model_semantic_mechanisms",
+      "test_and_model_source_roles",
+      "checker_and_proof_mechanisms",
+      "manual_evidence_and_documentation_authorities"
+    ],
+    "selection": [
+      {
+        "set": "X0",
+        "operator": "filter",
+        "domain_ref": "admissible_normal_forms",
+        "constraint_ref": "hard_constraints"
+      },
+      {
+        "set": "X1",
+        "operator": "lexicographic_argmin",
+        "domain_ref": "X0",
+        "objective_ref": "static_objective",
+        "proof_ref": "conditional_static_lower_bounds"
+      },
+      {
+        "set": "X2",
+        "operator": "noise_gated_argmin",
+        "domain_ref": "X1",
+        "objective_ref": "empirical_objective",
+        "matrix_ref": "declared_workload_environment_matrix"
+      },
+      {
+        "set": "X3",
+        "operator": "lexicographic_argmin",
+        "domain_ref": "X2",
+        "objective_ref": "complexity_objective",
+        "proof_ref": "conditional_complexity_lower_bounds"
+      }
+    ],
+    "concurrency_law": "maximize_independent_validation_and_computation_without_weakening_a_higher_priority_coordinate",
+    "coupling_law": "order_coupled_facts_only_at_the_unique_authority_minimum_atomic_commit_cut",
+    "claim_boundary": "current_declared_ckb_semantics_trusted_environment_and_workload_matrix;_a_new_legal_counterexample_reopens_construction"
+  },
   "convergence_protocol": {
     "schema_version": 1,
     "states": ["construction", "acceptance", "accepted"],
     "release_law_sources": [
       "root_families",
       "target_invariants",
+      "optimization_goal",
       "release_surface",
       "residual_risks"
     ],
@@ -250,24 +323,16 @@
       "curated_series",
       "one_shot"
     ],
-    "snowball_dimensions": [
-      "authority_state_and_fields",
-      "public_api",
-      "tasks_locks_queues_and_failure_domains",
-      "authority_guard_work",
-      "allocations_and_clones",
-      "default_production_source",
-      "test_and_model_source",
-      "checker_and_proof_machinery"
-    ],
+    "snowball_objective_ref": "optimization_goal.complexity_objective",
     "source_change_after_correctness": "return_to_construction_and_invalidate_later_evidence"
   },
   "optimality_protocol": {
     "schema_version": 1,
-    "claim_scope": "semantic_topology_and_static_costs_under_explicit_release_laws",
+    "claim_scope": "semantic_topology_static_costs_empirical_frontier_and_complexity_under_explicit_release_laws",
     "admissible_domain": "architectures_modulo_external_observational_equivalence",
     "current_claim": "unproved",
     "feasibility_sources": [
+      "optimization_goal",
       "proof_policy",
       "root_families",
       "target_invariants",
@@ -284,34 +349,27 @@
       "tasks_locks_queues_channels_and_failure_domains",
       "compatibility_migration_and_landing"
     ],
-    "objective": {
-      "comparison": "lexicographic_without_weights",
-      "cost_encoding": "each_dimension_is_a_finite_lexicographic_N_vector",
-      "dimensions": [
-        "residual_correctness_security_and_data_risk",
-        "authority_policy_and_failure_domain_count",
-        "supported_compatibility_and_migration_cost",
-        "worst_case_serial_apply_and_authority_guard_work",
-        "adversarial_time_memory_allocation_and_wake_bounds",
-        "tasks_locks_queues_channels_and_resident_state",
-        "public_api_and_default_production_mechanisms",
-        "test_model_and_checker_proof_mechanisms"
-      ],
-      "lower_bound_rule": "minimize_dimension_i_over_feasible_candidates_with_prior_dimensions_fixed_to_their_lower_bounds"
-    },
+    "objective_ref": "optimization_goal",
+    "static_lower_bound_rule": "minimize_static_dimension_i_over_feasible_candidates_with_prior_static_dimensions_fixed_to_their_lower_bounds",
     "certificate_requirements": [
       "release_basis_hash",
       "normal_form_coverage_proof",
       "generated_candidate_partition_hash",
       "feasibility_proof_per_partition",
-      "conditional_lower_bound_per_objective_dimension",
-      "witness_cost_equals_lower_bound_vector",
-      "production_refinement_and_static_cost_binding",
+      "conditional_static_lower_bound_per_dimension",
+      "witness_static_cost_equals_lower_bounds",
+      "declared_workload_environment_matrix_hash",
+      "noise_gated_empirical_frontier_evidence",
+      "conditional_complexity_lower_bound_per_dimension",
+      "witness_complexity_cost_equals_lower_bounds",
+      "production_refinement_and_cost_binding",
       "independent_negative_certificate_canaries"
     ],
     "current_witness": "bounded_semantic_exchange",
     "certificate": null,
-    "empirical_boundary": "fixed_binary_measurement_may_break_static_ties_but_cannot_prove_universal_wall_clock_optimality"
+    "empirical_selection_phase": "architecture_optimality_synthesis",
+    "release_binary_confirmation_phase": "empirical_performance_acceptance",
+    "empirical_boundary": "construction_matrix_measurement_selects_among_static_minima;_release_binary_acceptance_confirms_without_repairing_topology;_neither_proves_universal_wall_clock_optimality"
   },
   "mutation_adjudication": {
     "schema_version": 2,

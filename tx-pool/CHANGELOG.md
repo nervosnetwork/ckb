@@ -1,5 +1,10 @@
 # Changelog
 
+Current Unreleased work is selected against the sole machine-owned
+[`architecture-contract.json#/optimization_goal`](architecture-contract.json#/optimization_goal).
+The entries below record externally visible change history; they neither
+redefine that objective nor turn a historical implementation into the target.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

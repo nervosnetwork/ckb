@@ -1,5 +1,13 @@
 # Tx-Pool Validation and Machine Contracts
 
+The final objective is single-owned by
+[`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
+Validation checks that every current tx-pool document references that object,
+that its hard constraints and `X0 -> X1 -> X2 -> X3` ordering cannot drift, and
+that an optimality claim remains `unproved` until the static, empirical,
+complexity and production-refinement certificate is complete. This document
+owns maintenance procedure, not another copy of the target.
+
 This document is the maintenance entry point for the architecture and review
 contracts. Run commands from the repository root. Validators are read-only by
 default; CI detects drift and never rewrites a proposed change.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -46,6 +47,7 @@ REQUIRED_CONVERGENCE_STATES = ["construction", "acceptance", "accepted"]
 REQUIRED_CONVERGENCE_LAW_SOURCES = {
     "root_families",
     "target_invariants",
+    "optimization_goal",
     "release_surface",
     "residual_risks",
 }
@@ -85,17 +87,8 @@ REQUIRED_CONVERGENCE_PHASES = {
     "empirical_performance_acceptance",
     "portability_and_final_review",
 }
-REQUIRED_SNOWBALL_DIMENSIONS = {
-    "authority_state_and_fields",
-    "public_api",
-    "tasks_locks_queues_and_failure_domains",
-    "authority_guard_work",
-    "allocations_and_clones",
-    "default_production_source",
-    "test_and_model_source",
-    "checker_and_proof_machinery",
-}
 REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES = {
+    "optimization_goal",
     "proof_policy",
     "root_families",
     "target_invariants",
@@ -112,34 +105,32 @@ REQUIRED_OPTIMALITY_NORMAL_FORM_AXES = {
     "tasks_locks_queues_channels_and_failure_domains",
     "compatibility_migration_and_landing",
 }
-REQUIRED_OPTIMALITY_OBJECTIVE = [
-    "residual_correctness_security_and_data_risk",
-    "authority_policy_and_failure_domain_count",
-    "supported_compatibility_and_migration_cost",
-    "worst_case_serial_apply_and_authority_guard_work",
-    "adversarial_time_memory_allocation_and_wake_bounds",
-    "tasks_locks_queues_channels_and_resident_state",
-    "public_api_and_default_production_mechanisms",
-    "test_model_and_checker_proof_mechanisms",
-]
 REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS = {
     "release_basis_hash",
     "normal_form_coverage_proof",
     "generated_candidate_partition_hash",
     "feasibility_proof_per_partition",
-    "conditional_lower_bound_per_objective_dimension",
-    "witness_cost_equals_lower_bound_vector",
-    "production_refinement_and_static_cost_binding",
+    "conditional_static_lower_bound_per_dimension",
+    "witness_static_cost_equals_lower_bounds",
+    "declared_workload_environment_matrix_hash",
+    "noise_gated_empirical_frontier_evidence",
+    "conditional_complexity_lower_bound_per_dimension",
+    "witness_complexity_cost_equals_lower_bounds",
+    "production_refinement_and_cost_binding",
     "independent_negative_certificate_canaries",
 }
 REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS = {
     "release_basis_sha256",
     "candidate_partition_sha256",
+    "workload_environment_matrix_sha256",
     "normal_form_coverage_evidence",
     "feasibility_evidence",
-    "conditional_lower_bounds",
+    "conditional_static_lower_bounds",
     "witness",
-    "witness_cost",
+    "witness_static_cost",
+    "empirical_frontier_evidence",
+    "conditional_complexity_lower_bounds",
+    "witness_complexity_cost",
     "production_refinement_evidence",
     "negative_canary_evidence",
 }
@@ -988,15 +979,110 @@ def _natural_vector(value: object) -> bool:
     )
 
 
+def canonical_json_sha256(value: object) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validate_optimization_goal(contract: dict) -> list[str]:
+    """Validate the objective algebra without copying its semantic contents."""
+
+    errors: list[str] = []
+    goal = contract.get("optimization_goal")
+    required_fields = {
+        "schema_version",
+        "scope",
+        "hard_constraints",
+        "static_objective",
+        "empirical_objective",
+        "complexity_objective",
+        "selection",
+        "concurrency_law",
+        "coupling_law",
+        "claim_boundary",
+    }
+    if not isinstance(goal, dict):
+        return ["architecture contract optimization_goal must be an object"]
+    if set(goal) != required_fields:
+        errors.append("optimization goal fields differ")
+    if goal.get("schema_version") != 1:
+        errors.append("optimization goal schema_version must be 1")
+    if re.fullmatch(r"[a-z][a-z0-9_]+", str(goal.get("scope"))) is None:
+        errors.append("optimization goal scope must be one stable identifier")
+
+    dimension_fields = (
+        "hard_constraints",
+        "static_objective",
+        "empirical_objective",
+        "complexity_objective",
+    )
+    dimensions: dict[str, set[str]] = {}
+    for field in dimension_fields:
+        value = goal.get(field)
+        if not _nonempty_unique_strings(value):
+            errors.append(f"optimization goal {field} must be nonempty and unique")
+            dimensions[field] = set()
+        else:
+            dimensions[field] = set(value)
+    objective_fields = dimension_fields[1:]
+    for index, left in enumerate(objective_fields):
+        for right in objective_fields[index + 1 :]:
+            overlap = dimensions[left].intersection(dimensions[right])
+            if overlap:
+                errors.append(
+                    f"optimization goal dimensions overlap across {left}/{right}: "
+                    f"{sorted(overlap)}"
+                )
+
+    expected_selection = [
+        {
+            "set": "X0",
+            "operator": "filter",
+            "domain_ref": "admissible_normal_forms",
+            "constraint_ref": "hard_constraints",
+        },
+        {
+            "set": "X1",
+            "operator": "lexicographic_argmin",
+            "domain_ref": "X0",
+            "objective_ref": "static_objective",
+            "proof_ref": "conditional_static_lower_bounds",
+        },
+        {
+            "set": "X2",
+            "operator": "noise_gated_argmin",
+            "domain_ref": "X1",
+            "objective_ref": "empirical_objective",
+            "matrix_ref": "declared_workload_environment_matrix",
+        },
+        {
+            "set": "X3",
+            "operator": "lexicographic_argmin",
+            "domain_ref": "X2",
+            "objective_ref": "complexity_objective",
+            "proof_ref": "conditional_complexity_lower_bounds",
+        },
+    ]
+    if goal.get("selection") != expected_selection:
+        errors.append("optimization goal X0-X3 selection algebra differs")
+    for field in ("concurrency_law", "coupling_law", "claim_boundary"):
+        if not isinstance(goal.get(field), str) or not goal[field]:
+            errors.append(f"optimization goal {field} must be nonempty")
+    return errors
+
+
 def validate_optimality_protocol(contract: dict) -> list[str]:
-    """Reject an unscoped or uncertified global architecture-optimality claim."""
+    """Reject an unscoped or uncertified final optimization claim."""
 
     errors: list[str] = []
     protocol = contract.get("optimality_protocol")
     if not isinstance(protocol, dict) or protocol.get("schema_version") != 1:
         return ["architecture contract optimality_protocol schema_version must be 1"]
     if protocol.get("claim_scope") != (
-        "semantic_topology_and_static_costs_under_explicit_release_laws"
+        "semantic_topology_static_costs_empirical_frontier_and_complexity_"
+        "under_explicit_release_laws"
     ):
         errors.append("optimality claim scope differs")
     if protocol.get("admissible_domain") != (
@@ -1012,23 +1098,21 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
     ):
         errors.append("optimality normal-form axes differ")
 
-    objective = protocol.get("objective")
-    if not isinstance(objective, dict):
-        errors.append("optimality objective must be an object")
-        objective = {}
-    if objective.get("comparison") != "lexicographic_without_weights":
-        errors.append("optimality objective must be lexicographic without weights")
-    if objective.get("cost_encoding") != (
-        "each_dimension_is_a_finite_lexicographic_N_vector"
+    if protocol.get("objective_ref") != "optimization_goal":
+        errors.append("optimality objective must reference optimization_goal")
+    if protocol.get("static_lower_bound_rule") != (
+        "minimize_static_dimension_i_over_feasible_candidates_with_prior_static_"
+        "dimensions_fixed_to_their_lower_bounds"
     ):
-        errors.append("optimality cost encoding differs")
-    if objective.get("dimensions") != REQUIRED_OPTIMALITY_OBJECTIVE:
-        errors.append("optimality objective order differs")
-    if objective.get("lower_bound_rule") != (
-        "minimize_dimension_i_over_feasible_candidates_with_prior_dimensions_"
-        "fixed_to_their_lower_bounds"
+        errors.append("optimality conditional static lower-bound rule differs")
+    if protocol.get("empirical_selection_phase") != (
+        "architecture_optimality_synthesis"
     ):
-        errors.append("optimality conditional lower-bound rule differs")
+        errors.append("empirical architecture selection must occur upstream")
+    if protocol.get("release_binary_confirmation_phase") != (
+        "empirical_performance_acceptance"
+    ):
+        errors.append("release binary confirmation phase differs")
 
     if _string_set(protocol.get("certificate_requirements")) != (
         REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS
@@ -1038,7 +1122,8 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
     if witness != contract.get("selected_topology", {}).get("id"):
         errors.append("optimality witness must be the selected topology")
     if protocol.get("empirical_boundary") != (
-        "fixed_binary_measurement_may_break_static_ties_but_cannot_prove_"
+        "construction_matrix_measurement_selects_among_static_minima;_release_"
+        "binary_acceptance_confirms_without_repairing_topology;_neither_proves_"
         "universal_wall_clock_optimality"
     ):
         errors.append("optimality empirical boundary differs")
@@ -1049,37 +1134,53 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
         if certificate is not None:
             errors.append("unproved optimality claim cannot retain a certificate")
         return errors
-    if claim != "globally_optimal_within_model":
+    if claim != "globally_optimal_within_declared_model_and_empirical_matrix":
         return errors + [f"unknown optimality claim {claim!r}"]
     if not isinstance(certificate, dict):
         return errors + ["global optimality claim requires one certificate"]
     if set(certificate) != REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS:
         errors.append("global optimality certificate fields differ")
-    for field in ("release_basis_sha256", "candidate_partition_sha256"):
+    for field in (
+        "release_basis_sha256",
+        "candidate_partition_sha256",
+        "workload_environment_matrix_sha256",
+    ):
         if re.fullmatch(r"[0-9a-f]{64}", str(certificate.get(field))) is None:
             errors.append(f"global optimality certificate has invalid {field}")
     for field in (
         "normal_form_coverage_evidence",
         "feasibility_evidence",
+        "empirical_frontier_evidence",
         "production_refinement_evidence",
         "negative_canary_evidence",
     ):
         if not _nonempty_unique_strings(certificate.get(field)):
             errors.append(f"global optimality certificate has invalid {field}")
-    lower_bounds = certificate.get("conditional_lower_bounds")
-    witness_cost = certificate.get("witness_cost")
-    expected_dimensions = set(REQUIRED_OPTIMALITY_OBJECTIVE)
-    for field, vector in (
-        ("conditional_lower_bounds", lower_bounds),
-        ("witness_cost", witness_cost),
+    goal = contract.get("optimization_goal", {})
+    for label, dimension_field in (
+        ("static", "static_objective"),
+        ("complexity", "complexity_objective"),
     ):
-        if not isinstance(vector, dict) or set(vector) != expected_dimensions:
-            errors.append(f"global optimality certificate has invalid {field}")
-        elif not all(_natural_vector(value) for value in vector.values()):
-            errors.append(f"global optimality certificate has non-natural {field}")
-    if isinstance(lower_bounds, dict) and isinstance(witness_cost, dict):
-        if lower_bounds != witness_cost:
-            errors.append("global optimality witness does not attain every lower bound")
+        lower_field = f"conditional_{label}_lower_bounds"
+        witness_field = f"witness_{label}_cost"
+        lower_bounds = certificate.get(lower_field)
+        witness_cost = certificate.get(witness_field)
+        expected_dimensions = _string_set(
+            goal.get(dimension_field) if isinstance(goal, dict) else None
+        )
+        for field, vector in (
+            (lower_field, lower_bounds),
+            (witness_field, witness_cost),
+        ):
+            if not isinstance(vector, dict) or set(vector) != expected_dimensions:
+                errors.append(f"global optimality certificate has invalid {field}")
+            elif not all(_natural_vector(value) for value in vector.values()):
+                errors.append(f"global optimality certificate has non-natural {field}")
+        if isinstance(lower_bounds, dict) and isinstance(witness_cost, dict):
+            if lower_bounds != witness_cost:
+                errors.append(
+                    f"global optimality witness does not attain every {label} lower bound"
+                )
     if certificate.get("witness") != witness:
         errors.append("global optimality certificate names a different witness")
     return errors
@@ -1091,18 +1192,34 @@ def validate_optimality_canaries(contract: dict) -> list[str]:
     errors: list[str] = []
     false_claim = copy.deepcopy(contract)
     false_claim["optimality_protocol"]["current_claim"] = (
-        "globally_optimal_within_model"
+        "globally_optimal_within_declared_model_and_empirical_matrix"
     )
     observed = validate_optimality_protocol(false_claim)
     if not any("requires one certificate" in error for error in observed):
         errors.append("optimality canary admitted an uncertified global claim")
 
-    reordered = copy.deepcopy(contract)
-    dimensions = reordered["optimality_protocol"]["objective"]["dimensions"]
-    dimensions[0], dimensions[1] = dimensions[1], dimensions[0]
-    observed = validate_optimality_protocol(reordered)
-    if not any("objective order differs" in error for error in observed):
-        errors.append("optimality canary admitted a lower-priority objective reorder")
+    duplicate_dimension = copy.deepcopy(contract)
+    dimensions = duplicate_dimension["optimization_goal"]["static_objective"]
+    dimensions.append(dimensions[0])
+    observed = validate_optimization_goal(duplicate_dimension)
+    if not any("static_objective must be nonempty and unique" in error for error in observed):
+        errors.append("optimality canary admitted a duplicate objective dimension")
+
+    changed_selection = copy.deepcopy(contract)
+    changed_selection["optimization_goal"]["selection"][2]["operator"] = (
+        "accept_first"
+    )
+    observed = validate_optimization_goal(changed_selection)
+    if not any("X0-X3 selection algebra differs" in error for error in observed):
+        errors.append("optimality canary admitted a weaker selection relation")
+
+    late_empirical_selection = copy.deepcopy(contract)
+    late_empirical_selection["optimality_protocol"]["empirical_selection_phase"] = (
+        "empirical_performance_acceptance"
+    )
+    observed = validate_optimality_protocol(late_empirical_selection)
+    if not any("must occur upstream" in error for error in observed):
+        errors.append("optimality canary admitted downstream architecture selection")
     return errors
 
 
@@ -1121,7 +1238,6 @@ def validate_convergence_protocol(contract: dict) -> list[str]:
     for field, expected in (
         ("release_law_sources", REQUIRED_CONVERGENCE_LAW_SOURCES),
         ("terminal_mutation_dispositions", REQUIRED_MUTATION_TERMINALS),
-        ("snowball_dimensions", REQUIRED_SNOWBALL_DIMENSIONS),
     ):
         actual = _string_set(protocol.get(field))
         if actual != expected:
@@ -1294,6 +1410,10 @@ def validate_convergence_protocol(contract: dict) -> list[str]:
         "one_shot",
     }:
         errors.append("convergence landing candidates are incomplete")
+    if protocol.get("snowball_objective_ref") != (
+        "optimization_goal.complexity_objective"
+    ):
+        errors.append("convergence snowball objective must reference the final goal")
     if protocol.get("source_change_after_correctness") != (
         "return_to_construction_and_invalidate_later_evidence"
     ):
@@ -1311,6 +1431,15 @@ def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
         return ["security manifest convergence_status schema_version must be 2"]
     if not isinstance(protocol, dict):
         return ["cannot validate convergence status without its protocol"]
+
+    goal = contract.get("optimization_goal")
+    recorded_goal_hash = status.get("optimization_goal_sha256")
+    if (
+        not isinstance(goal, dict)
+        or re.fullmatch(r"[0-9a-f]{64}", str(recorded_goal_hash)) is None
+        or recorded_goal_hash != canonical_json_sha256(goal)
+    ):
+        errors.append("convergence status optimization-goal hash binding differs")
 
     phase_dependencies, phase_errors = _validate_named_dag(
         protocol.get("phase_dag"), "convergence phase DAG"
@@ -1399,16 +1528,18 @@ def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
         if "portability_and_final_review" not in completed or active is not None:
             errors.append("Accepted requires every phase complete and no active phase")
         if contract.get("optimality_protocol", {}).get("current_claim") != (
-            "globally_optimal_within_model"
+            "globally_optimal_within_declared_model_and_empirical_matrix"
         ):
-            errors.append("Accepted requires a certified global static optimum")
+            errors.append("Accepted requires a certified final optimization witness")
 
     if "constructive_simplification" in completed and contract.get(
         "optimality_protocol", {}
-    ).get("current_claim") != "globally_optimal_within_model":
+    ).get("current_claim") != (
+        "globally_optimal_within_declared_model_and_empirical_matrix"
+    ):
         errors.append(
-            "constructive simplification cannot close before the global static "
-            "optimality certificate"
+            "constructive simplification cannot close before the final "
+            "optimization certificate"
         )
 
     blockers = manifest.get("release_blockers")
@@ -1469,10 +1600,147 @@ def validate_convergence_status(manifest: dict, contract: dict) -> list[str]:
     return errors
 
 
+def validate_construction_root_families(manifest: dict, contract: dict) -> list[str]:
+    """Bind every open release law to exactly one falsifiable root family."""
+
+    errors: list[str] = []
+    rows = manifest.get("construction_root_families")
+    if not isinstance(rows, list) or not rows:
+        return ["construction root families must be a nonempty list"]
+    required_fields = {
+        "id",
+        "members",
+        "root_family_refs",
+        "invariant_refs",
+        "law",
+        "falsifier",
+        "closure_phase",
+    }
+    family_ids: list[str] = []
+    member_owners: dict[str, list[str]] = {}
+    known_roots = set(contract.get("root_families", {}))
+    known_invariants = set(contract.get("target_invariants", {}))
+    phases = {
+        row.get("id")
+        for row in contract.get("convergence_protocol", {}).get("phase_dag", [])
+        if isinstance(row, dict)
+    }
+
+    for row in rows:
+        if not isinstance(row, dict):
+            errors.append("each construction root family must be an object")
+            continue
+        if set(row) != required_fields:
+            errors.append("construction root family fields differ")
+        family_id = row.get("id")
+        if re.fullmatch(r"CRF-[A-Z0-9-]+", str(family_id)) is None:
+            errors.append(f"invalid construction root family id {family_id!r}")
+            continue
+        family_ids.append(family_id)
+        members = row.get("members")
+        if not _nonempty_unique_strings(members):
+            errors.append(f"construction root family {family_id} has invalid members")
+        else:
+            for member in members:
+                member_owners.setdefault(member, []).append(family_id)
+
+        for field, known in (
+            ("root_family_refs", known_roots),
+            ("invariant_refs", known_invariants),
+        ):
+            refs = row.get(field)
+            if not _nonempty_unique_strings(refs):
+                errors.append(f"construction root family {family_id} has invalid {field}")
+                continue
+            if refs != ["*"]:
+                unknown = set(refs).difference(known)
+                if unknown:
+                    errors.append(
+                        f"construction root family {family_id} has unknown {field} "
+                        f"{sorted(unknown)}"
+                    )
+        for field in ("law", "falsifier"):
+            if re.fullmatch(r"[a-z][a-z0-9_]+", str(row.get(field))) is None:
+                errors.append(
+                    f"construction root family {family_id} has invalid {field}"
+                )
+        if row.get("closure_phase") != "registered_semantic_root_closure":
+            errors.append(
+                f"construction root family {family_id} closes outside root closure"
+            )
+        if row.get("closure_phase") not in phases:
+            errors.append(
+                f"construction root family {family_id} names an unknown phase"
+            )
+
+    if len(family_ids) != len(set(family_ids)):
+        errors.append("construction root family ids must be unique")
+    rank = manifest.get("convergence_status", {}).get("construction_rank", {})
+    open_laws = _string_set(
+        rank.get("open_release_laws") if isinstance(rank, dict) else None
+    )
+    mapped_laws = set(member_owners)
+    if open_laws != mapped_laws:
+        errors.append(
+            "construction root-family coverage differs from open release laws: "
+            f"missing={sorted(open_laws - mapped_laws)}, "
+            f"extra={sorted(mapped_laws - open_laws)}"
+        )
+    duplicate_members = {
+        member: owners for member, owners in member_owners.items() if len(owners) != 1
+    }
+    if duplicate_members:
+        errors.append(
+            f"open release laws have duplicate root families {duplicate_members}"
+        )
+    return errors
+
+
+def validate_construction_root_family_canaries(
+    manifest: dict, contract: dict
+) -> list[str]:
+    errors: list[str] = []
+
+    unmapped = copy.deepcopy(manifest)
+    unmapped["construction_root_families"][0]["members"].clear()
+    observed = validate_construction_root_families(unmapped, contract)
+    if not any("coverage differs" in error for error in observed):
+        errors.append("construction root-family canary admitted an unmapped law")
+
+    duplicated = copy.deepcopy(manifest)
+    member = duplicated["construction_root_families"][0]["members"][0]
+    duplicated["construction_root_families"][1]["members"].append(member)
+    observed = validate_construction_root_families(duplicated, contract)
+    if not any("duplicate root families" in error for error in observed):
+        errors.append("construction root-family canary admitted duplicate ownership")
+
+    unknown_invariant = copy.deepcopy(manifest)
+    unknown_invariant["construction_root_families"][0]["invariant_refs"] = [
+        "T-UNKNOWN"
+    ]
+    observed = validate_construction_root_families(unknown_invariant, contract)
+    if not any("unknown invariant_refs" in error for error in observed):
+        errors.append("construction root-family canary admitted an unknown law ref")
+    return errors
+
+
 def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
     """Prove the convergence validator rejects the known shortcut classes."""
 
     errors: list[str] = []
+
+    reordered_goal = copy.deepcopy(contract)
+    dimensions = reordered_goal["optimization_goal"]["static_objective"]
+    dimensions[0], dimensions[1] = dimensions[1], dimensions[0]
+    observed = validate_convergence_status(manifest, reordered_goal)
+    if not any("optimization-goal hash binding differs" in error for error in observed):
+        errors.append("convergence canary admitted an objective reorder")
+
+    incomplete_goal = copy.deepcopy(contract)
+    incomplete_goal["optimization_goal"]["hard_constraints"].pop()
+    observed = validate_convergence_status(manifest, incomplete_goal)
+    if not any("optimization-goal hash binding differs" in error for error in observed):
+        errors.append("convergence canary admitted a missing hard constraint")
 
     nondecreasing = copy.deepcopy(contract)
     discharge = next(
@@ -1538,7 +1806,7 @@ def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
     basis_blocker = next(
         blocker
         for blocker in unmapped_obligation["release_blockers"]
-        if blocker["id"] == "BASIS-AND-ROADMAP-NORMALIZATION"
+        if blocker["id"] == "REGISTERED-RELEASE-LAW-CLOSURE"
     )
     basis_blocker["construction_obligations"].pop()
     observed = validate_convergence_status(unmapped_obligation, contract)
@@ -1678,11 +1946,12 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 16:
-        errors.append("architecture contract schema_version must be 16")
+    if contract.get("schema_version") != 17:
+        errors.append("architecture contract schema_version must be 17")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
     errors.extend(validate_interruption_contract(contract, registry))
+    errors.extend(validate_optimization_goal(contract))
     errors.extend(validate_convergence_protocol(contract))
     errors.extend(validate_optimality_protocol(contract))
     errors.extend(validate_optimality_canaries(contract))
@@ -2466,8 +2735,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 10:
-        raise SystemExit("security manifest schema_version must be 10")
+    if manifest.get("schema_version") != 11:
+        raise SystemExit("security manifest schema_version must be 11")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"
@@ -2489,6 +2758,10 @@ def main() -> int:
         errors.extend(validate_architecture_contract(contract, registry))
         errors.extend(validate_convergence_status(manifest, contract))
         errors.extend(validate_convergence_canaries(manifest, contract))
+        errors.extend(validate_construction_root_families(manifest, contract))
+        errors.extend(
+            validate_construction_root_family_canaries(manifest, contract)
+        )
         mutation_acceptance = manifest.get("mutation_acceptance")
         errors.extend(
             validate_mutation_acceptance(mutation_acceptance, contract, registry)

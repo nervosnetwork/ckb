@@ -1,5 +1,27 @@
 # Tx-Pool Architecture: Unified Authority Kernel
 
+## Canonical final goal
+
+The sole machine authority is
+[`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
+For the fixed release basis `B`, let `N_B` be the covered admissible normal
+forms and `H` the complete hard-constraint predicate. The required selection is:
+
+```text
+X0 = {x in N_B | H(x)}
+X1 = argmin_lex J_static(x)       over X0
+X2 = argmin_noise_gated J_perf(x) over X1 on the declared matrix
+X3 = argmin_lex J_complexity(x)   over X2
+```
+
+The witness must maximize independent validation and computation without
+weakening an earlier coordinate, and order dependency/conflict, replacement,
+budget, ownership and effect facts only at the sole authority's minimum atomic
+commit cut. This document refines that target into architecture and proof
+obligations; it does not redefine the constraint or objective order. Until the
+content-addressed certificate closes, the selected topology is a candidate and
+the global optimum claim remains unproved.
+
 This document is the normative design of the current tx-pool. It describes
 the surviving production model, not the migration history. Executable behavior
 and attack regressions are indexed by [REVIEW_GUIDE.md](REVIEW_GUIDE.md);
