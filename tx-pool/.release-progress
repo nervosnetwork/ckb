@@ -7,6 +7,7 @@ Normalization content checkpoint: `0099747e9a45`
 Legacy compatibility content checkpoint: `5755286c2a91`
 Release-boundary content checkpoint: `96cf5d14ffc2`
 Architecture-synthesis content checkpoint: `8d446716c`
+Settlement/location content checkpoint: `d36a7de5d`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
 `release_boundary_adjudication`, `architecture_optimality_synthesis`
@@ -78,10 +79,9 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 1, 4, 1, 7)`. Every listed item has exactly one blocker owner.
-This is strictly below the prior `(12, 1, 4, 1, 8)` rank because the executable
-singleton theorem closes `X2` without admitting a fabricated Construction
-measurement record.
+`rho_C = (12, 1, 3, 1, 4)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(12, 1, 4, 1, 7)` rank because the single
+settlement/location root family and its three refinement edges are closed.
 
 ### `open_release_laws` (12)
 
@@ -102,9 +102,8 @@ measurement record.
 
 - `landing_topology`
 
-### `unclosed_registered_semantic_families` (4)
+### `unclosed_registered_semantic_families` (3)
 
-- `settlement_and_location`
 - `resource_configuration`
 - `resource_ledger`
 - `scheduler`
@@ -113,22 +112,19 @@ measurement record.
 
 - `generated_source_role_necessity_census`
 
-### `incomplete_refinement_edges` (7)
+### `incomplete_refinement_edges` (4)
 
 - `conditional_complexity_lower_bound_per_dimension`
 - `witness_complexity_cost_equals_lower_bounds`
 - `production_refinement_and_cost_binding`
 - `independent_negative_certificate_canaries`
-- `location_behavior_and_inventory_binding`
-- `sealed_payload_context_rebind`
-- `location_test_layout_seam`
 
 ## Unique blocker projection
 
 | Blocker | Owned current obligations / later gate |
 |---|---|
 | `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
-| `INDEPENDENT-EXECUTION-CUTOVER` | four semantic families and three paused location refinement edges |
+| `INDEPENDENT-EXECUTION-CUTOVER` | resource-configuration, resource-ledger and scheduler semantic families |
 | `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | the remaining 4 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
@@ -220,7 +216,7 @@ now have disjoint machine-checked record contracts. Current one-shot workloads
 are deterministic from scenario parameters and runner source, while future
 randomized/generated inputs must also bind their fixture/generator and seed.
 
-The last locally checkpointed semantic slice is B3-R5 settlement/location:
+The B3-R5 settlement/location family is closed:
 
 - origin identity/view duplication was removed through a sealed producer;
 - payload policy has a finite pointwise model;
@@ -231,29 +227,25 @@ The last locally checkpointed semantic slice is B3-R5 settlement/location:
   production rebind, with no new authority, lock, task, queue or compatibility
   surface.
 
-That slice is paused and is not green. Its exact current red gate outputs are:
+The apparent missing-production gate was a harness false negative: its raw
+substring order matched `context` inside the guard before the struct field.
+The checker now parses the exact `Some(Self { ... })` body and proves one
+payload/context rebind plus one production caller. The only test-only
+`with_context` helper moved from production `state.rs` into its existing child
+test-support module rather than becoming an allowlisted seam. The pointwise
+model and the real pool-origin refresh/refinement test are both owned by
+`TP-IDENTITY-001`; the generated guide and inventory agree.
 
-1. mutation evidence is stale for
-   `uak_payload_policy_evolution_refines_every_declared_cycle_pair`;
-2. the historical mutation matrix has zero current matches for the atomic-clock
-   branch, checkout-origin and settlement-policy obligations;
-3. `model_final_location_refresh_updates_payload_and_context_atomically` is
-   absent from behavior evidence;
-4. production still lacks the sealed payload/context rebind; and
-5. the `state.rs:975` test-only observation seam remains unadjudicated.
+Settlement/location Nextest run
+`38bcebca-0dc0-47ce-9e13-1376634e8701` passed all 14 settlement model,
+refinement and location cases. Production-contract, model-refinement,
+test-layout and security-manifest gates pass. The historical mutation evidence
+is intentionally not regenerated: its one stale model hash and three
+zero-current-match selectors remain Construction diagnostics until every root
+family closes.
 
-The generated test inventory is now current and includes the location model
-test plus both global-normal-form tests. This closes only the mechanical
-inventory half of the still-open behavior/inventory refinement edge; it does
-not register the paused location behavior prematurely.
-
-These are evidence/refinement consequences of the already registered paused R5
-family, not five new semantic families. Regenerating mutation locks before all
-construction roots close remains forbidden.
-
-The selected topology is now frozen for `registered_semantic_root_closure`, so
-R5 production work may resume only as the already modeled root correction. A
-new semantic family, authority, topology or compatibility boundary reopens
+The selected topology remains frozen for `registered_semantic_root_closure`.
+A new semantic family, authority, topology or compatibility boundary reopens
 synthesis first. Mutation regeneration, downstream performance acceptance and
 remote push remain forbidden at this phase.
 
@@ -265,9 +257,9 @@ goal-completeness gate, review guide, ASCII, develop refinement and
 model/production frontier checks pass. TLC closes the registered
 1,098-generated/318-distinct-state positive model, and its negative
 configuration reproduces the required `NoEffectBlockedDirectHandoff` witness.
-The aggregate security checker exposes exactly the one registered R5 behavior
-edge; the production, test-layout and mutation gates expose exactly the other
-four outputs above. Focused global-normal-form Nextest run
+The aggregate security, production-contract and test-layout checkers pass. The
+mutation gates retain only the declared one stale evidence hash and three
+historical zero-match selectors. Focused global-normal-form Nextest run
 `70f78cff-010c-485c-9740-1acc1d69473b` passed 3/3. This is a diagnostic
 checkpoint, not release evidence.
 
@@ -293,11 +285,9 @@ build/tests and rehearsal against current official `develop`.
 
 ## Exact next action
 
-Execute `registered_semantic_root_closure` from the frozen witness. Resume the
-paused B3-R5 settlement/location family first: close the single payload/context
-location relation with one sealed production rebind, then bind its behavior and
-remove the test-only observation seam. Re-run the exact model, production,
-inventory and mutation diagnostics before advancing to the remaining registered
-resource, scheduler and recovered-law root families. Any newly exposed semantic
-case changes the model and reopens architecture synthesis before production
-continues.
+Execute `registered_semantic_root_closure` from the frozen witness. Audit
+`resource_configuration` first because it defines the legal bounded domain for
+the `resource_ledger` transition algebra; close both only after their complete
+model/production/refinement surfaces agree, then audit `scheduler`. Any newly
+exposed semantic case changes the model and reopens architecture synthesis
+before production continues.
