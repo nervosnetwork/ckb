@@ -744,6 +744,8 @@
     {"test": "mathematical_model::topology_properties::model_bounded_exchange_is_wave_amortization_not_asymptotic_magic", "behavior_id": "TP-PERF-001", "invariants": ["T5", "T6", "T8"]},
     {"test": "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T5", "T6", "T8", "T10", "T12", "T14", "T15", "T16"]},
     {"test": "mathematical_model::topology_properties::model_exchange_cost_names_its_task_channel_and_failure_price", "behavior_id": "TP-PERF-001", "invariants": ["T2", "T3", "T5", "T8", "T10", "T15"]},
+    {"test": "mathematical_model::topology_properties::model_global_normal_form_partition_is_finite_unique_and_total", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16"]},
+    {"test": "mathematical_model::topology_properties::model_global_static_objective_has_one_zero_extra_cost_witness", "behavior_id": "TP-PERF-001", "invariants": ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16"]},
     {"test": "mathematical_model::topology_properties::model_one_available_wave_falsifies_current_and_self_fused_serial_cut_targets", "behavior_id": "TP-PERF-001", "invariants": ["T3", "T5", "T6", "T8", "T16"]},
 
     {"test": "authority::tests::refinement::uak_candidate_role_product_refines_the_executable_model_pointwise", "behavior_id": "TP-COMMIT-001", "invariants": ["T4", "T5", "T6", "T11"]},

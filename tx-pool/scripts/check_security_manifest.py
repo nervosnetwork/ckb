@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 from check_review_guide import (
     invariant_unit_evidence,
@@ -50,6 +51,7 @@ REQUIRED_CONVERGENCE_LAW_SOURCES = {
     "optimization_goal",
     "release_surface",
     "landing_protocol",
+    "construction_root_families",
     "residual_risks",
 }
 REQUIRED_ACCEPTANCE_UNIVERSE = {
@@ -105,6 +107,7 @@ REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES = {
     "target_invariants",
     "release_surface",
     "landing_protocol",
+    "construction_root_families",
     "residual_risks",
 }
 REQUIRED_OPTIMALITY_NORMAL_FORM_AXES = {
@@ -130,6 +133,30 @@ REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS = {
     "witness_complexity_cost_equals_lower_bounds",
     "production_refinement_and_cost_binding",
     "independent_negative_certificate_canaries",
+}
+REQUIRED_OPTIMALITY_RELEASE_GATE = {
+    "required_claim": "globally_optimal_within_declared_model_and_empirical_matrix",
+    "uncertified_disposition": "release_blocker",
+    "degradation_path": "forbidden_without_explicit_user_goal_change",
+    "coverage_owner_phase": "architecture_optimality_synthesis",
+    "certificate_owner_phase": "constructive_simplification",
+    "review_owner_phase": "portability_and_final_review",
+}
+REQUIRED_STATIC_LOWER_BOUND_RULE = {
+    "normalized_cost": "J_static_B(n)=absolute_static_cost(n)-L_B",
+    "codomain": "Nat^7_in_optimization_goal_static_objective_order",
+    "common_floor": "L_B_is_release_law_implied_and_shared_by_every_X0_normal_form",
+    "conditional_rule": "minimize_coordinate_i_with_prior_coordinates_fixed_to_zero",
+    "lower_bound": [0, 0, 0, 0, 0, 0, 0],
+    "absolute_cost_binding": "production_refinement_and_cost_binding",
+}
+REQUIRED_EMPIRICAL_SINGLETON_RULE = {
+    "premise": "X1_cardinality_equals_one",
+    "theorem": "for_every_empirical_objective_argmin_over_X1_equals_X1",
+    "construction_measurement_universe": (
+        "empty_by_measurement_record_admission"
+    ),
+    "acceptance_obligation": "fixed_release_binary_confirmation_remains_required",
 }
 ARCHITECTURE_SYNTHESIS_REQUIREMENTS = {
     "release_basis_hash",
@@ -191,6 +218,103 @@ REQUIRED_LANDING_COST_OBJECTIVE = [
     "history_rewrite_operation_count",
     "canonical_candidate_order_index",
 ]
+REQUIRED_TIMED_SCENARIOS = {
+    "independent_cheap": {"always_success"},
+    "independent_crypto": {"secp256k1"},
+    "dependency_frontiers": {
+        "dependent_forest_10",
+        "dependent_forest_10_reverse",
+        "fanout",
+        "fanout_reverse",
+        "always_success_fanin_8",
+    },
+}
+REQUIRED_ADVERSARIAL_SHAPES = {
+    "rbf_conflict": {
+        "accepted_victim_closure",
+        "rejected_candidate",
+        "winner_failure_and_history_recovery",
+    },
+    "full_pool_eviction": {
+        "near_configured_limits",
+        "hostile_causal_closure",
+        "one_over_each_declared_bound",
+    },
+    "reorg": {"blank_fork", "recovered_tree", "large_bounded_fork"},
+    "template": {
+        "independent_suffix",
+        "deep_dependency_tree",
+        "conditional_cycle",
+        "uncle_pressure",
+    },
+    "peer_pressure": {"many_owners", "large_cycle_backlog", "ban_and_refetch"},
+    "shutdown": {"compute_in_flight", "effect_io_in_flight", "reorg_in_flight"},
+}
+REQUIRED_MATRIX_ENVIRONMENT = {
+    "scope": "one_content_addressed_controlled_host_class_per_record",
+    "required_fingerprint_fields": [
+        "source_revision_and_tracked_diff",
+        "binary_harness_lockfile_and_workspace_hashes",
+        "toolchain_target_features_and_build_flags",
+        "logical_cpu_platform_kernel_and_filesystem",
+        "power_thermal_and_competing_load_state",
+        "scenario_command_and_target_window",
+    ],
+    "binary_rule": "build_each_side_once_then_reuse_the_exact_hash",
+}
+REQUIRED_MATRIX_NOISE_POLICY = {
+    "schedule": "adjacent_balanced_ab_ba",
+    "minimum_pairs": 6,
+    "diagnostic_max_paired_relative_mad_basis_points": 200,
+    "selection_and_acceptance_max_paired_relative_mad_basis_points": 150,
+    "outlier_deletion": "forbidden",
+    "repeat_until_favorable": "forbidden",
+    "mismatched_or_noisy_record": "invalid_not_pass",
+}
+REQUIRED_MATRIX_MEASUREMENT_RECORD_PROTOCOL = {
+    "schema_version": 1,
+    "input_identity": {
+        "deterministic_runner": "scenario_parameters_and_runner_source_sha256",
+        "generated_or_randomized": "fixture_or_generator_sha256_and_explicit_seed",
+    },
+    "construction": {
+        "admission": "only_when_X1_has_multiple_static_minimizers",
+        "purpose": "select_X2_only_among_X1",
+        "required_bindings": [
+            "record_role",
+            "release_basis_sha256",
+            "candidate_partition_sha256",
+            "X1_candidate_binary_sha256",
+            "matrix_sha256",
+            "runner_source_sha256",
+            "environment_fingerprint_values",
+            "scenario_parameters",
+            "fixture_or_generator_sha256",
+            "seed_if_randomized",
+            "raw_samples_sha256",
+        ],
+        "inadmissible_as": ["release_acceptance_evidence"],
+    },
+    "acceptance": {
+        "admission": "only_after_complete_correctness_on_frozen_universe",
+        "purpose": "confirm_frozen_X2_release_binary",
+        "required_bindings": [
+            "record_role",
+            "acceptance_universe_sha256",
+            "frozen_X2_witness",
+            "release_binary_sha256",
+            "matrix_sha256",
+            "runner_source_sha256",
+            "environment_fingerprint_values",
+            "scenario_parameters",
+            "fixture_or_generator_sha256",
+            "seed_if_randomized",
+            "raw_samples_sha256",
+        ],
+        "inadmissible_as": ["X2_selection_evidence", "topology_repair_input"],
+    },
+}
+MAX_MATRIX_TRANSACTIONS = 32_768
 REQUIRED_OPTIMALITY_CERTIFICATE_FIELDS = {
     "release_basis_sha256",
     "candidate_partition_sha256",
@@ -829,6 +953,170 @@ def validate_landing_protocol(contract: dict) -> list[str]:
     return errors
 
 
+def validate_workload_environment_matrix(contract: dict) -> list[str]:
+    """Validate the finite X2 and fixed-binary confirmation matrix."""
+
+    errors: list[str] = []
+    matrix = contract.get("declared_workload_environment_matrix")
+    if not isinstance(matrix, dict) or matrix.get("schema_version") != 2:
+        return ["declared workload/environment matrix schema_version must be 2"]
+    if set(matrix) != {
+        "schema_version",
+        "objective_ref",
+        "phase_roles",
+        "measurement_record_protocol",
+        "timed_families",
+        "adversarial_families",
+        "required_observations",
+        "environment",
+        "noise_policy",
+    }:
+        errors.append("declared workload/environment matrix fields differ")
+    if matrix.get("objective_ref") != "optimization_goal.empirical_objective":
+        errors.append("workload matrix empirical objective reference differs")
+    if matrix.get("phase_roles") != {
+        "construction": "select_X2_only_among_statically_minimal_X1_candidates",
+        "acceptance": "confirm_the_frozen_X2_witness_without_topology_repair",
+    }:
+        errors.append("workload matrix phase roles differ")
+    if (
+        matrix.get("measurement_record_protocol")
+        != REQUIRED_MATRIX_MEASUREMENT_RECORD_PROTOCOL
+    ):
+        errors.append("workload matrix measurement record protocol differs")
+
+    timed = matrix.get("timed_families")
+    timed_by_id: dict[str, dict] = {}
+    if not isinstance(timed, list):
+        errors.append("timed workload families must be a list")
+        timed = []
+    for family in timed:
+        if not isinstance(family, dict) or set(family) != {
+            "id",
+            "runner",
+            "scenarios",
+            "pool_populations",
+            "peers",
+            "workers",
+            "target_transactions",
+        }:
+            errors.append(f"invalid timed workload family {family!r}")
+            continue
+        family_id = family.get("id")
+        if not isinstance(family_id, str) or family_id in timed_by_id:
+            errors.append(f"invalid or duplicate timed workload family {family_id!r}")
+            continue
+        timed_by_id[family_id] = family
+    if set(timed_by_id) != set(REQUIRED_TIMED_SCENARIOS):
+        errors.append("timed workload family universe differs")
+    for family_id, expected_scenarios in REQUIRED_TIMED_SCENARIOS.items():
+        family = timed_by_id.get(family_id, {})
+        scenarios = family.get("scenarios")
+        if (
+            family.get("runner") != "fixed_binary_one_shot"
+            or not _nonempty_unique_strings(scenarios)
+            or set(scenarios) != expected_scenarios
+        ):
+            errors.append(f"timed workload family {family_id} scenarios differ")
+        for field, expected in (("peers", {1, 4}), ("workers", {1, 8})):
+            values = family.get(field)
+            if (
+                not isinstance(values, list)
+                or not all(
+                    isinstance(value, int) and not isinstance(value, bool)
+                    for value in values
+                )
+                or len(values) != len(set(values))
+                or set(values) != expected
+            ):
+                errors.append(
+                    f"timed workload family {family_id} scaling dimension {field} differs"
+                )
+        targets = family.get("target_transactions")
+        if (
+            not isinstance(targets, list)
+            or not targets
+            or not all(
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and 0 < value <= MAX_MATRIX_TRANSACTIONS
+                for value in targets
+            )
+            or len(targets) != len(set(targets))
+        ):
+            errors.append(f"timed workload family {family_id} target sizes are invalid")
+            targets = []
+        populations = family.get("pool_populations")
+        population_by_state: dict[str, int] = {}
+        if not isinstance(populations, list):
+            populations = []
+        for population in populations:
+            if not isinstance(population, dict) or set(population) != {
+                "state",
+                "warm_transactions",
+            }:
+                errors.append(f"timed workload family {family_id} population is invalid")
+                continue
+            state = population.get("state")
+            warm = population.get("warm_transactions")
+            if (
+                state not in {"cold", "warm"}
+                or state in population_by_state
+                or not isinstance(warm, int)
+                or isinstance(warm, bool)
+                or warm < 0
+                or (state == "cold" and warm != 0)
+                or (state == "warm" and warm == 0)
+            ):
+                errors.append(f"timed workload family {family_id} population differs")
+                continue
+            population_by_state[state] = warm
+        expected_states = {"cold"} if family_id == "dependency_frontiers" else {
+            "cold",
+            "warm",
+        }
+        if set(population_by_state) != expected_states:
+            errors.append(f"timed workload family {family_id} pool states differ")
+        if targets and any(
+            target + warm > MAX_MATRIX_TRANSACTIONS
+            for target in targets
+            for warm in population_by_state.values()
+        ):
+            errors.append(f"timed workload family {family_id} exceeds the runner bound")
+
+    adversarial = matrix.get("adversarial_families")
+    adversarial_by_id: dict[str, set[str]] = {}
+    if not isinstance(adversarial, list):
+        errors.append("adversarial workload families must be a list")
+        adversarial = []
+    for family in adversarial:
+        if not isinstance(family, dict) or set(family) != {"id", "shapes"}:
+            errors.append(f"invalid adversarial workload family {family!r}")
+            continue
+        family_id = family.get("id")
+        shapes = family.get("shapes")
+        if (
+            not isinstance(family_id, str)
+            or family_id in adversarial_by_id
+            or not _nonempty_unique_strings(shapes)
+        ):
+            errors.append(f"invalid or duplicate adversarial workload family {family_id!r}")
+            continue
+        adversarial_by_id[family_id] = set(shapes)
+    if adversarial_by_id != REQUIRED_ADVERSARIAL_SHAPES:
+        errors.append("adversarial workload family universe differs")
+
+    if matrix.get("required_observations") != contract.get(
+        "optimization_goal", {}
+    ).get("empirical_objective"):
+        errors.append("workload matrix required observations differ from the goal")
+    if matrix.get("environment") != REQUIRED_MATRIX_ENVIRONMENT:
+        errors.append("workload matrix environment fingerprint contract differs")
+    if matrix.get("noise_policy") != REQUIRED_MATRIX_NOISE_POLICY:
+        errors.append("workload matrix noise policy differs")
+    return errors
+
+
 def validate_release_protocol_canaries(contract: dict) -> list[str]:
     """Prove release choices cannot regress to tool, facade or prose authority."""
 
@@ -867,6 +1155,33 @@ def validate_release_protocol_canaries(contract: dict) -> list[str]:
     observed = validate_landing_protocol(weakened_selection)
     if not any("selection algebra differs" in error for error in observed):
         errors.append("landing canary admitted a non-optimal selection operator")
+
+    incomplete_matrix = copy.deepcopy(contract)
+    incomplete_matrix["declared_workload_environment_matrix"][
+        "adversarial_families"
+    ].pop()
+    observed = validate_workload_environment_matrix(incomplete_matrix)
+    if not any("adversarial workload family universe differs" in error for error in observed):
+        errors.append("workload-matrix canary admitted an omitted adversarial family")
+
+    weakened_noise = copy.deepcopy(contract)
+    weakened_noise["declared_workload_environment_matrix"]["noise_policy"][
+        "selection_and_acceptance_max_paired_relative_mad_basis_points"
+    ] = 999
+    observed = validate_workload_environment_matrix(weakened_noise)
+    if not any("noise policy differs" in error for error in observed):
+        errors.append("workload-matrix canary admitted a weakened noise gate")
+
+    reused_construction_record = copy.deepcopy(contract)
+    record_protocol = reused_construction_record[
+        "declared_workload_environment_matrix"
+    ]["measurement_record_protocol"]
+    record_protocol["acceptance"] = copy.deepcopy(record_protocol["construction"])
+    observed = validate_workload_environment_matrix(reused_construction_record)
+    if not any("measurement record protocol differs" in error for error in observed):
+        errors.append(
+            "workload-matrix canary admitted construction evidence as acceptance"
+        )
     return errors
 
 
@@ -1309,6 +1624,525 @@ def canonical_json_sha256(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def expected_release_basis(manifest: dict, contract: dict) -> tuple[dict, list[str]]:
+    """Derive the content-addressed release-law and feasibility basis."""
+
+    errors: list[str] = []
+    convergence = contract.get("convergence_protocol", {})
+    optimality = contract.get("optimality_protocol", {})
+    release_laws = _string_set(convergence.get("release_law_sources"))
+    feasibility = _string_set(optimality.get("feasibility_sources"))
+    source_hashes: dict[str, str] = {}
+    for source in sorted(release_laws.union(feasibility)):
+        if source == "construction_root_families":
+            value = manifest.get(source)
+        else:
+            value = contract.get(source)
+        if value is None:
+            errors.append(f"release basis source {source!r} is absent")
+            continue
+        source_hashes[source] = canonical_json_sha256(value)
+    payload = {
+        "schema_version": 1,
+        "release_law_sources": sorted(release_laws),
+        "feasibility_sources": sorted(feasibility),
+        "source_sha256": source_hashes,
+    }
+    return {**payload, "basis_sha256": canonical_json_sha256(payload)}, errors
+
+
+def validate_release_basis_value(
+    value: object, manifest: dict, contract: dict
+) -> list[str]:
+    expected, errors = expected_release_basis(manifest, contract)
+    if value != expected:
+        errors.append("release-basis evidence differs from its generated projection")
+    return errors
+
+
+def validate_release_basis_evidence(manifest: dict, contract: dict) -> list[str]:
+    evidence = (
+        contract.get("optimality_protocol", {})
+        .get("construction_evidence", {})
+        .get("release_basis_hash")
+    )
+    if evidence is None:
+        return []
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("path"), str):
+        return ["release-basis construction evidence has no artifact path"]
+    value, errors = load_repo_json(evidence["path"], "release_basis_evidence")
+    if value is not None:
+        errors.extend(validate_release_basis_value(value, manifest, contract))
+    return errors
+
+
+def expected_workload_matrix_evidence(contract: dict) -> tuple[dict, list[str]]:
+    """Bind the declared matrix to its current fixed-binary runner sources."""
+
+    errors: list[str] = []
+    runner_sources = [
+        "tx-pool/benches/profile_one_shot.rs",
+        "tx-pool/scripts/benchmark.py",
+        "tx-pool/scripts/cross_version_benchmark.py",
+        "tx-pool/src/benchmark.rs",
+    ]
+    source_hashes: dict[str, str] = {}
+    for path_value in runner_sources:
+        try:
+            source_hashes[path_value] = hashlib.sha256(
+                repo_path(path_value).read_bytes()
+            ).hexdigest()
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot hash workload-matrix runner {path_value}: {error}")
+    payload = {
+        "schema_version": 1,
+        "matrix_sha256": canonical_json_sha256(
+            contract.get("declared_workload_environment_matrix")
+        ),
+        "runner_source_sha256": source_hashes,
+    }
+    return {**payload, "evidence_sha256": canonical_json_sha256(payload)}, errors
+
+
+def validate_workload_matrix_evidence_value(
+    value: object, contract: dict
+) -> list[str]:
+    expected, errors = expected_workload_matrix_evidence(contract)
+    if value != expected:
+        errors.append("workload-matrix evidence differs from its generated projection")
+    return errors
+
+
+def validate_workload_matrix_evidence(contract: dict) -> list[str]:
+    evidence = (
+        contract.get("optimality_protocol", {})
+        .get("construction_evidence", {})
+        .get("declared_workload_environment_matrix_hash")
+    )
+    if evidence is None:
+        return []
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("path"), str):
+        return ["workload-matrix construction evidence has no artifact path"]
+    value, errors = load_repo_json(evidence["path"], "workload_matrix_evidence")
+    if value is not None:
+        errors.extend(validate_workload_matrix_evidence_value(value, contract))
+    return errors
+
+
+def expected_normal_form_basis_atoms(
+    manifest: dict, contract: dict
+) -> tuple[set[str], list[str]]:
+    """Derive the semantic atom universe that the normal-form axes must cover."""
+
+    errors: list[str] = []
+    atoms: set[str] = set()
+
+    def add_keyed(prefix: str, value: object) -> None:
+        if not isinstance(value, dict) or not value:
+            errors.append(f"normal-form basis source {prefix} is not a nonempty object")
+            return
+        atoms.update(f"{prefix}.{key}" for key in value if isinstance(key, str) and key)
+        if len(atoms.intersection({f"{prefix}.{key}" for key in value})) != len(value):
+            errors.append(f"normal-form basis source {prefix} has an invalid key")
+
+    def add_named(prefix: str, value: object) -> None:
+        names = _string_set(value)
+        if not isinstance(value, list) or not names or len(names) != len(value):
+            errors.append(f"normal-form basis source {prefix} is not a unique string list")
+            return
+        atoms.update(f"{prefix}.{name}" for name in names)
+
+    goal = contract.get("optimization_goal")
+    if not isinstance(goal, dict):
+        errors.append("normal-form basis cannot read optimization_goal")
+    else:
+        atoms.update(
+            {
+                "optimization_goal.scope",
+                "optimization_goal.concurrency_law",
+                "optimization_goal.coupling_law",
+                "optimization_goal.claim_boundary",
+            }
+        )
+        for field in (
+            "hard_constraints",
+            "static_objective",
+            "empirical_objective",
+            "complexity_objective",
+        ):
+            add_named(f"optimization_goal.{field}", goal.get(field))
+
+    for source in ("proof_policy", "root_families", "target_invariants"):
+        add_keyed(source, contract.get(source))
+
+    release = contract.get("release_surface")
+    if not isinstance(release, dict):
+        errors.append("normal-form basis cannot read release_surface")
+    else:
+        add_keyed(
+            "release_surface.compatibility_policy",
+            release.get("compatibility_policy"),
+        )
+        rust_api = release.get("rust_api_compatibility")
+        if not isinstance(rust_api, dict):
+            errors.append("normal-form basis cannot read Rust API compatibility")
+        else:
+            atoms.update(
+                {
+                    "release_surface.rust_api_compatibility.decision_function",
+                    "release_surface.rust_api_compatibility.facade_constraint",
+                    "release_surface.rust_api_compatibility.version_transition",
+                }
+            )
+            add_named(
+                "release_surface.rust_api_compatibility.landing_evidence_requirements",
+                rust_api.get("landing_evidence_requirements"),
+            )
+        anchors = release.get("anchors")
+        if not isinstance(anchors, list) or not anchors:
+            errors.append("normal-form basis cannot read release-surface anchors")
+        else:
+            anchor_ids = [
+                row.get("id") for row in anchors if isinstance(row, dict)
+            ]
+            add_named("release_surface.anchors", anchor_ids)
+
+    landing = contract.get("landing_protocol")
+    if not isinstance(landing, dict):
+        errors.append("normal-form basis cannot read landing_protocol")
+    else:
+        downstream = landing.get("downstream_universe")
+        generators = downstream.get("generators") if isinstance(downstream, dict) else None
+        generator_ids = (
+            [row.get("id") for row in generators if isinstance(row, dict)]
+            if isinstance(generators, list)
+            else None
+        )
+        add_named("landing_protocol.downstream_universe.generators", generator_ids)
+        add_named(
+            "landing_protocol.feasibility_constraints",
+            landing.get("feasibility_constraints"),
+        )
+        add_named("landing_protocol.cost_objective", landing.get("cost_objective"))
+
+    construction_roots = manifest.get("construction_root_families")
+    if not isinstance(construction_roots, list) or not construction_roots:
+        errors.append("normal-form basis cannot read construction root families")
+    else:
+        root_ids = [
+            row.get("id") for row in construction_roots if isinstance(row, dict)
+        ]
+        add_named("construction_root_families", root_ids)
+        members: list[object] = []
+        for row in construction_roots:
+            if not isinstance(row, dict) or not isinstance(row.get("members"), list):
+                errors.append("normal-form basis construction root has invalid members")
+                continue
+            members.extend(row["members"])
+        add_named("construction_root_members", members)
+
+    add_keyed("residual_risks", contract.get("residual_risks"))
+    return atoms, errors
+
+
+def global_optimality_model_summary() -> tuple[dict | None, list[str]]:
+    """Compile and execute the Rust normal-form model instead of mirroring it."""
+
+    errors: list[str] = []
+    model_path = repo_path("tx-pool/src/tests/model/topology.rs").resolve()
+    wrapper = f'''#[path = r#"{model_path.as_posix()}"#]
+mod topology;
+
+fn main() {{
+    let summary = topology::global_optimality_summary();
+    println!(
+        "{{{{\\\"axis_cardinalities\\\":{{:?}},\\\"total_normal_forms\\\":{{}},\\\"feasible_normal_forms\\\":{{}},\\\"rejected_normal_forms\\\":{{}},\\\"rejected_by_law\\\":{{:?}},\\\"minimum_static_extra_cost\\\":{{:?}},\\\"static_minimizers\\\":{{}},\\\"selected_static_minimizers\\\":{{}},\\\"minimum_facade_static_extra_cost\\\":{{:?}},\\\"minimum_partitioned_resource_static_extra_cost\\\":{{:?}}}}}}",
+        summary.axis_cardinalities,
+        summary.total_normal_forms,
+        summary.feasible_normal_forms,
+        summary.rejected_normal_forms,
+        summary.rejected_by_law,
+        summary.minimum_static_extra_cost,
+        summary.static_minimizers,
+        summary.selected_static_minimizers,
+        summary.minimum_facade_static_extra_cost,
+        summary.minimum_partitioned_resource_static_extra_cost,
+    );
+}}
+'''
+    try:
+        with tempfile.TemporaryDirectory(prefix="ckb-txpool-optimality-") as temporary:
+            temporary_path = Path(temporary)
+            wrapper_path = temporary_path / "global_optimality.rs"
+            binary_path = temporary_path / "global_optimality"
+            wrapper_path.write_text(wrapper)
+            compile_result = subprocess.run(
+                [
+                    "rustc",
+                    "--edition=2024",
+                    "-O",
+                    str(wrapper_path),
+                    "-o",
+                    str(binary_path),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if compile_result.returncode != 0:
+                return None, [
+                    "cannot compile global optimality model: "
+                    f"{compile_result.stderr.strip()}"
+                ]
+            run_result = subprocess.run(
+                [str(binary_path)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if run_result.returncode != 0:
+                return None, [
+                    "cannot execute global optimality model: "
+                    f"{run_result.stderr.strip()}"
+                ]
+            return json.loads(run_result.stdout), errors
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return None, [f"cannot evaluate global optimality model: {error}"]
+
+
+def expected_normal_form_partition_evidence(
+    coverage: object, manifest: dict, contract: dict
+) -> tuple[dict | None, list[str]]:
+    """Generate coverage, candidate partition and X0 feasibility evidence."""
+
+    errors: list[str] = []
+    axes_value = contract.get("optimality_protocol", {}).get("normal_form_axes")
+    axes = _string_set(axes_value)
+    if not isinstance(coverage, dict) or set(coverage) != axes:
+        errors.append("normal-form basis-axis coverage differs from the declared axes")
+        coverage = {}
+    covered_atoms: list[str] = []
+    for axis in axes_value if isinstance(axes_value, list) else []:
+        assigned = coverage.get(axis)
+        if not isinstance(assigned, list) or not all(
+            isinstance(atom, str) and atom for atom in assigned
+        ):
+            errors.append(f"normal-form axis {axis} has invalid basis coverage")
+            continue
+        if len(assigned) != len(set(assigned)):
+            errors.append(f"normal-form axis {axis} repeats a basis atom")
+        covered_atoms.extend(assigned)
+    if len(covered_atoms) != len(set(covered_atoms)):
+        errors.append("one normal-form basis atom is owned by multiple primary axes")
+
+    expected_atoms, atom_errors = expected_normal_form_basis_atoms(manifest, contract)
+    errors.extend(atom_errors)
+    covered_set = set(covered_atoms)
+    missing = sorted(expected_atoms - covered_set)
+    extra = sorted(covered_set - expected_atoms)
+    if missing or extra:
+        errors.append(
+            "normal-form basis coverage differs: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    basis, basis_errors = expected_release_basis(manifest, contract)
+    errors.extend(basis_errors)
+    summary, model_errors = global_optimality_model_summary()
+    errors.extend(model_errors)
+    if summary is None:
+        return None, errors
+    law_counts = summary.get("rejected_by_law")
+    if not isinstance(law_counts, list) or len(law_counts) != 3:
+        return None, errors + ["global optimality model returned invalid law counts"]
+    axis_cardinalities = summary.get("axis_cardinalities")
+    if (
+        not isinstance(axes_value, list)
+        or not isinstance(axis_cardinalities, list)
+        or len(axis_cardinalities) != len(axes_value)
+    ):
+        return None, errors + [
+            "global optimality model returned invalid axis cardinalities"
+        ]
+
+    goal = contract.get("optimization_goal", {})
+    static_dimensions = (
+        goal.get("static_objective") if isinstance(goal, dict) else None
+    )
+    static_rule = contract.get("optimality_protocol", {}).get(
+        "static_lower_bound_rule"
+    )
+    lower_bound = (
+        static_rule.get("lower_bound") if isinstance(static_rule, dict) else None
+    )
+    minimum_cost = summary.get("minimum_static_extra_cost")
+    if (
+        not _nonempty_unique_strings(static_dimensions)
+        or not isinstance(lower_bound, list)
+        or len(lower_bound) != len(static_dimensions)
+        or minimum_cost != lower_bound
+    ):
+        errors.append("global optimality model does not attain the static lower bound")
+        static_dimensions = []
+        lower_bound = []
+    static_cost_by_dimension = dict(
+        zip(static_dimensions, lower_bound, strict=True)
+    )
+    x1_cardinality = summary.get("static_minimizers")
+    selected_cardinality = summary.get("selected_static_minimizers")
+    if x1_cardinality != 1 or selected_cardinality != 1:
+        errors.append(
+            "global optimality model does not establish the singleton X1 premise"
+        )
+
+    matrix = contract.get("declared_workload_environment_matrix")
+    record_protocol = (
+        matrix.get("measurement_record_protocol")
+        if isinstance(matrix, dict)
+        else None
+    )
+
+    model_sources = [
+        "tx-pool/src/tests/model/topology.rs",
+        "tx-pool/src/tests/model/topology_properties.rs",
+    ]
+    model_hashes: dict[str, str] = {}
+    for path_value in model_sources:
+        try:
+            model_hashes[path_value] = hashlib.sha256(
+                repo_path(path_value).read_bytes()
+            ).hexdigest()
+        except (OSError, ValueError) as error:
+            errors.append(f"cannot hash normal-form model source {path_value}: {error}")
+    payload = {
+        "schema_version": 1,
+        "release_basis_sha256": basis.get("basis_sha256"),
+        "optimization_goal_sha256": canonical_json_sha256(
+            contract.get("optimization_goal")
+        ),
+        "static_lower_bound_rule_sha256": canonical_json_sha256(static_rule),
+        "basis_atom_count": len(expected_atoms),
+        "basis_axis_coverage": coverage,
+        "axis_cardinalities": dict(zip(axes_value, axis_cardinalities, strict=True)),
+        "candidate_partition": {
+            "normal_forms": summary.get("total_normal_forms"),
+            "X0_feasible": summary.get("feasible_normal_forms"),
+            "rejected": summary.get("rejected_normal_forms"),
+            "rejected_by_feasibility_law": dict(
+                zip(
+                    ["hard_constraints", "concurrency_law", "coupling_law"],
+                    law_counts,
+                    strict=True,
+                )
+            ),
+        },
+        "X1_static_frontier": {
+            "minimum_extra_cost": minimum_cost,
+            "conditional_lower_bound_by_dimension": static_cost_by_dimension,
+            "selected_witness_cost_by_dimension": static_cost_by_dimension,
+            "minimizers": summary.get("static_minimizers"),
+            "selected_witness_minimizers": summary.get(
+                "selected_static_minimizers"
+            ),
+            "minimum_non_authoritative_facade_extra_cost": summary.get(
+                "minimum_facade_static_extra_cost"
+            ),
+            "minimum_partitioned_resource_extra_cost": summary.get(
+                "minimum_partitioned_resource_static_extra_cost"
+            ),
+            "witness": contract.get("optimality_protocol", {}).get(
+                "current_witness"
+            ),
+        },
+        "X2_empirical_frontier": {
+            "selection_rule": REQUIRED_EMPIRICAL_SINGLETON_RULE["theorem"],
+            "X1_cardinality": x1_cardinality,
+            "construction_measurement_universe": [],
+            "construction_measurement_records": [],
+            "declared_matrix_sha256": canonical_json_sha256(matrix),
+            "measurement_record_protocol_sha256": canonical_json_sha256(
+                record_protocol
+            ),
+            "X2_cardinality": selected_cardinality,
+            "witness": contract.get("optimality_protocol", {}).get(
+                "current_witness"
+            ),
+            "acceptance_obligation": REQUIRED_EMPIRICAL_SINGLETON_RULE[
+                "acceptance_obligation"
+            ],
+        },
+        "model_source_sha256": model_hashes,
+        "proof_tests": [
+            "mathematical_model::topology_properties::model_global_normal_form_partition_is_finite_unique_and_total",
+            "mathematical_model::topology_properties::model_global_static_objective_has_one_zero_extra_cost_witness",
+            "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions",
+        ],
+    }
+    return {**payload, "evidence_sha256": canonical_json_sha256(payload)}, errors
+
+
+def validate_normal_form_partition_evidence_value(
+    value: object, manifest: dict, contract: dict
+) -> list[str]:
+    """Reject stale or incomplete generated normal-form evidence."""
+
+    if not isinstance(value, dict):
+        return ["normal-form partition evidence must be an object"]
+    expected, errors = expected_normal_form_partition_evidence(
+        value.get("basis_axis_coverage"), manifest, contract
+    )
+    if expected is None:
+        return errors
+    if value != expected:
+        errors.append(
+            "normal-form partition evidence differs from its generated projection"
+        )
+    return errors
+
+
+def validate_normal_form_partition_evidence(
+    manifest: dict, contract: dict
+) -> list[str]:
+    evidence = contract.get("optimality_protocol", {}).get(
+        "construction_evidence", {}
+    )
+    requirements = (
+        "normal_form_coverage_proof",
+        "generated_candidate_partition_hash",
+        "feasibility_proof_per_partition",
+    )
+    artifacts = [evidence.get(requirement) for requirement in requirements]
+    if all(artifact is None for artifact in artifacts):
+        return []
+    frontier_requirements = (
+        "conditional_static_lower_bound_per_dimension",
+        "witness_static_cost_equals_lower_bounds",
+        "noise_gated_empirical_frontier_evidence",
+    )
+    frontier_artifacts = [
+        evidence.get(requirement) for requirement in frontier_requirements
+    ]
+    if any(artifact is not None for artifact in frontier_artifacts):
+        artifacts.extend(frontier_artifacts)
+    if any(artifact is None for artifact in artifacts) or len(
+        {canonical_json_sha256(artifact) for artifact in artifacts}
+    ) != 1:
+        return [
+            "normal-form coverage, partition, feasibility and X1/X2 frontiers must share one artifact"
+        ]
+    artifact = artifacts[0]
+    if not isinstance(artifact, dict) or not isinstance(artifact.get("path"), str):
+        return ["normal-form partition construction evidence has no artifact path"]
+    value, errors = load_repo_json(artifact["path"], "normal_form_partition_evidence")
+    if value is not None:
+        errors.extend(
+            validate_normal_form_partition_evidence_value(value, manifest, contract)
+        )
+    return errors
+
+
 def validate_optimization_goal(contract: dict) -> list[str]:
     """Validate the objective algebra without copying its semantic contents."""
 
@@ -1321,6 +2155,7 @@ def validate_optimization_goal(contract: dict) -> list[str]:
         "static_objective",
         "empirical_objective",
         "complexity_objective",
+        "feasibility_laws",
         "selection",
         "concurrency_law",
         "coupling_law",
@@ -1330,8 +2165,8 @@ def validate_optimization_goal(contract: dict) -> list[str]:
         return ["architecture contract optimization_goal must be an object"]
     if set(goal) != required_fields:
         errors.append("optimization goal fields differ")
-    if goal.get("schema_version") != 1:
-        errors.append("optimization goal schema_version must be 1")
+    if goal.get("schema_version") != 2:
+        errors.append("optimization goal schema_version must be 2")
     if re.fullmatch(r"[a-z][a-z0-9_]+", str(goal.get("scope"))) is None:
         errors.append("optimization goal scope must be one stable identifier")
 
@@ -1359,12 +2194,19 @@ def validate_optimization_goal(contract: dict) -> list[str]:
                     f"{sorted(overlap)}"
                 )
 
+    if goal.get("feasibility_laws") != [
+        "hard_constraints",
+        "concurrency_law",
+        "coupling_law",
+    ]:
+        errors.append("optimization goal feasibility law conjunction differs")
+
     expected_selection = [
         {
             "set": "X0",
             "operator": "filter",
             "domain_ref": "admissible_normal_forms",
-            "constraint_ref": "hard_constraints",
+            "constraint_ref": "feasibility_laws",
         },
         {
             "set": "X1",
@@ -1401,16 +2243,18 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
 
     errors: list[str] = []
     protocol = contract.get("optimality_protocol")
-    if not isinstance(protocol, dict) or protocol.get("schema_version") != 2:
-        return ["architecture contract optimality_protocol schema_version must be 2"]
+    if not isinstance(protocol, dict) or protocol.get("schema_version") != 5:
+        return ["architecture contract optimality_protocol schema_version must be 5"]
     if set(protocol) != {
         "schema_version",
         "claim_scope",
         "admissible_domain",
+        "release_gate",
         "feasibility_sources",
         "normal_form_axes",
         "objective_ref",
         "static_lower_bound_rule",
+        "empirical_singleton_rule",
         "certificate_requirements",
         "construction_evidence",
         "current_witness",
@@ -1430,6 +2274,8 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
         "architectures_modulo_external_observational_equivalence"
     ):
         errors.append("optimality admissible domain differs")
+    if protocol.get("release_gate") != REQUIRED_OPTIMALITY_RELEASE_GATE:
+        errors.append("optimality release gate and no-degradation decision differs")
     if _string_set(protocol.get("feasibility_sources")) != (
         REQUIRED_OPTIMALITY_FEASIBILITY_SOURCES
     ):
@@ -1441,11 +2287,10 @@ def validate_optimality_protocol(contract: dict) -> list[str]:
 
     if protocol.get("objective_ref") != "optimization_goal":
         errors.append("optimality objective must reference optimization_goal")
-    if protocol.get("static_lower_bound_rule") != (
-        "minimize_static_dimension_i_over_feasible_candidates_with_prior_static_"
-        "dimensions_fixed_to_their_lower_bounds"
-    ):
+    if protocol.get("static_lower_bound_rule") != REQUIRED_STATIC_LOWER_BOUND_RULE:
         errors.append("optimality conditional static lower-bound rule differs")
+    if protocol.get("empirical_singleton_rule") != REQUIRED_EMPIRICAL_SINGLETON_RULE:
+        errors.append("optimality empirical singleton theorem differs")
     if protocol.get("empirical_selection_phase") != (
         "architecture_optimality_synthesis"
     ):
@@ -1601,6 +2446,14 @@ def validate_optimality_canaries(contract: dict) -> list[str]:
     if not any("X0-X3 selection algebra differs" in error for error in observed):
         errors.append("optimality canary admitted a weaker selection relation")
 
+    uncoupled_feasibility = copy.deepcopy(contract)
+    uncoupled_feasibility["optimization_goal"]["feasibility_laws"].remove(
+        "coupling_law"
+    )
+    observed = validate_optimization_goal(uncoupled_feasibility)
+    if not any("feasibility law conjunction differs" in error for error in observed):
+        errors.append("optimality canary admitted a goal without the coupling law")
+
     late_empirical_selection = copy.deepcopy(contract)
     late_empirical_selection["optimality_protocol"]["empirical_selection_phase"] = (
         "empirical_performance_acceptance"
@@ -1608,6 +2461,22 @@ def validate_optimality_canaries(contract: dict) -> list[str]:
     observed = validate_optimality_protocol(late_empirical_selection)
     if not any("must occur upstream" in error for error in observed):
         errors.append("optimality canary admitted downstream architecture selection")
+
+    degraded_claim = copy.deepcopy(contract)
+    degraded_claim["optimality_protocol"]["release_gate"]["degradation_path"] = (
+        "best_known"
+    )
+    observed = validate_optimality_protocol(degraded_claim)
+    if not any("no-degradation decision differs" in error for error in observed):
+        errors.append("optimality canary admitted a silent best-known downgrade")
+
+    fabricated_singleton_measurement = copy.deepcopy(contract)
+    fabricated_singleton_measurement["optimality_protocol"][
+        "empirical_singleton_rule"
+    ]["construction_measurement_universe"] = "nonempty"
+    observed = validate_optimality_protocol(fabricated_singleton_measurement)
+    if not any("empirical singleton theorem differs" in error for error in observed):
+        errors.append("optimality canary admitted measurement into a singleton X1")
 
     unhashed_progress = copy.deepcopy(contract)
     unhashed_progress["optimality_protocol"]["construction_evidence"][
@@ -2376,10 +3245,69 @@ def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
     if not any("optimization-goal hash binding differs" in error for error in observed):
         errors.append("convergence canary admitted a missing hard constraint")
 
+    stale_basis, basis_errors = expected_release_basis(manifest, contract)
+    if basis_errors:
+        errors.append("cannot construct the release-basis negative canary")
+    else:
+        stale_basis["source_sha256"]["optimization_goal"] = "0" * 64
+        observed = validate_release_basis_value(stale_basis, manifest, contract)
+        if not any("generated projection" in error for error in observed):
+            errors.append("convergence canary admitted a stale release basis")
+
+    stale_matrix, matrix_errors = expected_workload_matrix_evidence(contract)
+    if matrix_errors:
+        errors.append("cannot construct the workload-matrix negative canary")
+    else:
+        stale_matrix["matrix_sha256"] = "0" * 64
+        observed = validate_workload_matrix_evidence_value(stale_matrix, contract)
+        if not any("generated projection" in error for error in observed):
+            errors.append("convergence canary admitted a stale workload matrix")
+
+    normal_form_evidence = contract.get("optimality_protocol", {}).get(
+        "construction_evidence", {}
+    )
+    normal_form_artifact = (
+        normal_form_evidence.get("normal_form_coverage_proof")
+        if isinstance(normal_form_evidence, dict)
+        else None
+    )
+    if isinstance(normal_form_artifact, dict):
+        value, load_errors = load_repo_json(
+            normal_form_artifact.get("path"), "normal_form_partition_canary"
+        )
+        if load_errors or value is None:
+            errors.append("cannot construct the normal-form coverage negative canary")
+        else:
+            omitted_atom = copy.deepcopy(value)
+            coverage = omitted_atom.get("basis_axis_coverage", {})
+            assigned = next(
+                (
+                    atoms
+                    for atoms in coverage.values()
+                    if isinstance(atoms, list) and atoms
+                ),
+                None,
+            )
+            if assigned is None:
+                errors.append("normal-form coverage canary found no assigned atom")
+            else:
+                assigned.pop()
+                observed = validate_normal_form_partition_evidence_value(
+                    omitted_atom, manifest, contract
+                )
+                if not any("basis coverage differs" in error for error in observed):
+                    errors.append("convergence canary admitted an omitted basis atom")
+
     unhashed_progress = copy.deepcopy(manifest)
-    unhashed_progress["convergence_status"]["construction_rank"][
+    evidence = contract["optimality_protocol"]["construction_evidence"]
+    requirement = next(iter(sorted(REQUIRED_OPTIMALITY_CERTIFICATE_REQUIREMENTS)))
+    ranked = unhashed_progress["convergence_status"]["construction_rank"][
         "incomplete_refinement_edges"
-    ].remove("release_basis_hash")
+    ]
+    if evidence[requirement] is None:
+        ranked.remove(requirement)
+    else:
+        ranked.append(requirement)
     observed = validate_convergence_status(unhashed_progress, contract)
     if not any("construction evidence and refinement rank differ" in error for error in observed):
         errors.append("convergence canary admitted unhashed optimality progress")
@@ -2588,12 +3516,13 @@ def validate_impl_method_boundary_mapping(
 
 def validate_architecture_contract(contract: dict, registry: dict) -> list[str]:
     errors: list[str] = []
-    if contract.get("schema_version") != 18:
-        errors.append("architecture contract schema_version must be 18")
+    if contract.get("schema_version") != 22:
+        errors.append("architecture contract schema_version must be 22")
     errors.extend(validate_selected_topology(contract, registry))
     errors.extend(validate_selected_topology_canaries(contract, registry))
     errors.extend(validate_rust_api_compatibility(contract))
     errors.extend(validate_landing_protocol(contract))
+    errors.extend(validate_workload_environment_matrix(contract))
     errors.extend(validate_release_protocol_canaries(contract))
     errors.extend(validate_interruption_contract(contract, registry))
     errors.extend(validate_optimization_goal(contract))
@@ -3409,6 +4338,9 @@ def main() -> int:
         )
         errors.extend(validate_release_boundary_status(manifest, contract, registry))
         errors.extend(validate_release_boundary_canaries(manifest, contract, registry))
+        errors.extend(validate_release_basis_evidence(manifest, contract))
+        errors.extend(validate_workload_matrix_evidence(contract))
+        errors.extend(validate_normal_form_partition_evidence(manifest, contract))
         mutation_acceptance = manifest.get("mutation_acceptance")
         errors.extend(
             validate_mutation_acceptance(mutation_acceptance, contract, registry)

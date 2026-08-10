@@ -15,12 +15,26 @@ model, reproducible profiling method, evidence strength and final acceptance
 matrix. Machine-contract maintenance is defined by
 [`VALIDATION.md`](VALIDATION.md). It is not an implementation diary.
 
-The current architecture has not yet passed either the M0-M4 mathematical/
-refinement/minimality gate or the later controlled performance gate. New
-timing experiments are paused until the semantic model derives a complete
-candidate; benchmark results cannot reveal that a required concurrency
-mechanism is absent. Historical profiles below explain why mechanisms were
-considered or rejected, but they are not a release verdict for the final
+The matrix has two disjoint record types. A Construction record is admissible
+only when `X1` has multiple static minimizers and can only select `X2`; it never
+counts as release evidence. An Acceptance record binds the frozen evidence
+universe and release-binary hash after complete correctness; it can confirm but
+never select or repair topology. The checker rejects substitution in either
+direction.
+
+The current executable frontier has one `X1` member. Therefore, for every
+empirical objective, `argmin over X1 = X1`; no Construction timing record is
+admissible or needed and `X2 = X1`. This is not a performance waiver: the full
+fixed-binary matrix remains an Acceptance obligation after complete
+correctness.
+
+The current architecture has passed the scoped finite normal-form `X0/X1/X2`
+synthesis, but registered semantic root closure, production refinement,
+constructive simplification and later fixed-binary Acceptance remain open. New
+timing experiments are inadmissible while `X1` is a singleton and correctness
+construction is active; benchmark results cannot reveal that a required
+semantic mechanism is absent. Historical profiles below explain why mechanisms
+were considered or rejected, but they are not a release verdict for the final
 source. The pre-performance checkpoint `4135df3c7` passed 415/415
 internal-feature tx-pool tests and the complete 150/150 managed integration
 universe. Any later semantic change reopens its affected correctness gates
@@ -552,6 +566,11 @@ P10 must cover both ordinary and adversarial CKB shapes:
 
 Static operation/complexity tests must close any issue inferable from code
 before this matrix runs. Benchmarking is not correctness discovery.
+Scenario generation in the current one-shot runner is deterministic from its
+parameters and runner-source hash. Any future generated or randomized fixture
+must additionally bind its generator/fixture hash and explicit seed. Every raw
+record binds scenario parameters, environment values and raw-sample identity;
+declaring required fingerprint field names is not itself a measurement.
 
 ## 6. Fixed-binary A/B acceptance
 

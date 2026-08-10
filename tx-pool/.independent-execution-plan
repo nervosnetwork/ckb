@@ -14,8 +14,9 @@ blockers and next action are owned only by `.release-progress` and
 
 The sole machine authority for the final target is
 [`architecture-contract.json#/optimization_goal`](architecture-contract.json#/optimization_goal).
-For the complete fixed release basis `B`, admissible normal forms `N_B`, hard
-constraint predicate `H`, and ordered costs from that object:
+For the complete fixed release basis `B`, admissible normal forms `N_B`,
+feasibility predicate `H = hard_constraints and concurrency_law and
+coupling_law`, and ordered costs from that object:
 
 ```text
 X0 = {x in N_B | H(x)}
@@ -165,7 +166,7 @@ complete plan, not only the current tail.
 |---|---|---|
 | `basis_and_roadmap_normalization` | none | Both basis differences empty; every historical open item mapped once; one compact roadmap and one status projection; canonical goal referenced by every current document. |
 | `release_boundary_adjudication` | normalization | Total public Rust API decision independent of optional delta tools; configuration, persistence and downgrade decisions; finite landing candidate, downstream-universe, feasibility and cost inputs. Legacy configuration remains accepted; unsupported downgrade is explicit. |
-| `architecture_optimality_synthesis` | release boundary | Covered normal forms and feasibility partition (`X0`); conditional static lower bounds (`X1`); upstream controlled matrix selection among static minima (`X2`); frozen topology and falsifiers. |
+| `architecture_optimality_synthesis` | release boundary | Covered normal forms and feasibility partition (`X0`); conditional static lower bounds (`X1`); upstream controlled matrix selection among static ties, or the singleton theorem `|X1| = 1 => X2 = X1` with no Construction record; frozen topology and falsifiers. |
 | `registered_semantic_root_closure` | optimality synthesis | Every registered root family and paused R5 refinement implemented from the frozen model; no unmapped legal counterexample or obsolete producer remains. |
 | `constructive_simplification` | root closure | Generated source-role/necessity census; `X3` complexity lower bounds; duplicate/unowned mechanism deletion; production refinement and complete scoped optimization certificate. |
 | `landing_rehearsal` | release boundary + simplification | Lexicographically selected incremental/curated/one-shot landing topology rehearsed against current `develop` and the generated downstream universe. |
@@ -175,6 +176,14 @@ complete plan, not only the current tail.
 | `complete_correctness` | mutation + smoke | Static/model/TLC, complete affected Nextest and generated managed integration universe, hostile/fault and complexity gates pass on the same universe. |
 | `empirical_performance_acceptance` | complete correctness | Frozen release binary confirms the already selected `X2` result under recorded noise gates; it cannot repair or select topology. |
 | `portability_and_final_review` | performance acceptance | Cold-checkout reproduction, evidence portability, whole-system completion audit and explicit final residual-risk decision. |
+
+The edge from architecture synthesis to semantic root closure is a declared
+coupling edge, not blanket conservatism: the currently open settlement,
+resource and scheduler families occupy lifecycle, resource, progress and
+coupling axes still present in the candidate quotient. Model analysis may feed
+the synthesis, but production closure cannot claim independence unless a
+generated owner/candidate-path intersection is empty; no current family meets
+that premise.
 
 ### 5.1 Upstream performance and final confirmation
 
@@ -188,6 +197,18 @@ Performance has two non-interchangeable roles:
 
 Moving architecture selection to the second role is a phase-order violation.
 Using the first role to accept release correctness is an evidence violation.
+The matrix therefore defines distinct typed records: Construction records are
+admitted only for multiple `X1` minimizers and cannot prove release acceptance;
+Acceptance records bind the frozen universe and release binary and cannot
+select or repair topology. Deterministic scenarios bind parameters and runner
+source; generated/randomized inputs additionally bind fixture/generator hash
+and seed.
+
+If the executable static frontier proves `|X1| = 1`, then for every empirical
+objective `J_e`, `argmin J_e over X1 = X1`. The Construction measurement
+universe is therefore empty by admission, `X2 = X1`, and fabricating a timing
+comparison is a phase violation. This algebra does not discharge the later
+fixed-binary Acceptance matrix.
 
 ### 5.2 Optimality certificate boundary
 
@@ -204,6 +225,9 @@ The final scoped claim requires all of:
   downstream selection and an uncertified optimum.
 
 Without every item, `current_claim` remains `unproved`.
+An uncertified result is a release blocker. There is no implicit `best known`
+degradation path; changing that disposition requires an explicit user goal
+change and a new release-law basis.
 
 ## 6. Phase execution rule
 
@@ -239,6 +263,9 @@ only when it changes no product or release law.
 | Prose finding vanished from TODOs | Any open prose ID has zero or multiple construction-rank/blocker owners. |
 | Diagnostic tool became policy authority | A Rust API delta tool result substitutes for the total compatibility decision or landing evidence. |
 | Performance appeared only downstream | Architecture-selection phase is not upstream of semantic closure and evidence freeze. |
+| Construction timing became release evidence | A Construction record is referenced by Acceptance or lacks the X1 candidate partition; an Acceptance record lacks the frozen universe/release binary or selects topology. |
+| Schedule pressure weakened the final goal | The release gate admits an uncertified or implicit `best known` disposition without an explicit user goal change. |
+| Apparent independence removed a real DAG edge | A phase/family is parallelized while its generated owner/candidate-path intersection is nonempty. |
 | Symbolic convergence hid no progress | Current status omits named rank values or a step fails to decrease rank. |
 | Mutation kept extending the release | A nonterminal candidate, timeout or new semantic family survives universe freeze. |
 | Cleanup invalidated final evidence | Constructive simplification is ordered after mutation/correctness. |

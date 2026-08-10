@@ -231,12 +231,13 @@
   },
   "convergence_status": {
     "schema_version": 2,
-    "optimization_goal_sha256": "294cf0b52b3bde653b5ca8e46db1d1feb1cc244a08b179751d96d3df3d12305d",
+    "optimization_goal_sha256": "37e72f5cafb51e3a8a62664107d15e4aefc8959abe5e8c0911c7ee824f36daf0",
     "state": "construction",
-    "active_phase": "architecture_optimality_synthesis",
+    "active_phase": "registered_semantic_root_closure",
     "completed_phases": [
       "basis_and_roadmap_normalization",
-      "release_boundary_adjudication"
+      "release_boundary_adjudication",
+      "architecture_optimality_synthesis"
     ],
     "acceptance_universe": null,
     "construction_rank": {
@@ -265,14 +266,6 @@
         "generated_source_role_necessity_census"
       ],
       "incomplete_refinement_edges": [
-        "release_basis_hash",
-        "normal_form_coverage_proof",
-        "generated_candidate_partition_hash",
-        "feasibility_proof_per_partition",
-        "conditional_static_lower_bound_per_dimension",
-        "witness_static_cost_equals_lower_bounds",
-        "declared_workload_environment_matrix_hash",
-        "noise_gated_empirical_frontier_evidence",
         "conditional_complexity_lower_bound_per_dimension",
         "witness_complexity_cost_equals_lower_bounds",
         "production_refinement_and_cost_binding",
@@ -418,16 +411,8 @@
     },
     {
       "id": "GLOBAL-OPTIMALITY-AND-SIMPLIFICATION",
-      "reason": "Normal-form coverage, X1 conditional static lower bounds, upstream noise-gated X2 selection, X3 complexity lower bounds and production refinement remain uncertified, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
+      "reason": "The singleton X1 theorem has closed X2 without an inadmissible Construction measurement, but X3 complexity lower bounds, production refinement and independent certificate canaries remain uncertified, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
       "construction_obligations": [
-        "release_basis_hash",
-        "normal_form_coverage_proof",
-        "generated_candidate_partition_hash",
-        "feasibility_proof_per_partition",
-        "conditional_static_lower_bound_per_dimension",
-        "witness_static_cost_equals_lower_bounds",
-        "declared_workload_environment_matrix_hash",
-        "noise_gated_empirical_frontier_evidence",
         "conditional_complexity_lower_bound_per_dimension",
         "witness_complexity_cost_equals_lower_bounds",
         "production_refinement_and_cost_binding",

@@ -454,3 +454,452 @@ impl CompleteTopology {
         Some(gaps)
     }
 }
+
+// The global normal-form quotient is deliberately semantic rather than a list
+// of Rust implementations. Every architecture in the declared release basis
+// is classified by the observation that distinguishes each axis; syntax-only
+// variants normalize to the same representative.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum AuthorityNormalForm {
+    UniqueMinimumApply,
+    UniqueOversizedApply,
+    SplitLifecycleAuthorities,
+    UniversalActor,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum LifecycleNormalForm {
+    SealedLinearExact,
+    SealedLinearWithRollback,
+    CopiedOrInferredEvidence,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum CouplingNormalForm {
+    ExactCanonicalAvailableCut,
+    PerOwnerIndependentCuts,
+    TimerOrApproximateBatch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ProgressNormalForm {
+    SameApplyDerivedFiniteRank,
+    SameApplyWithResidentDerivedDag,
+    ResidentDecisionAuthority,
+    PollingOrUnchangedRetry,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ResourceNormalForm {
+    UnifiedBoundedFallible,
+    PartitionedBoundedCharged,
+    FragmentedOrUncharged,
+    InfallibleOrUnbounded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ProjectionNormalForm {
+    PostCommitDerivedPrepared,
+    PostCommitWithResidentDerivedProjection,
+    ExternalVetoOrGuardIo,
+    ResidentPolicyProjection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum TaskNormalForm {
+    BoundedOwnedMinimalLanes,
+    BoundedOwnedExtraActor,
+    UniversalSerializedLoop,
+    DetachedOrRepairTopology,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum CompatibilityNormalForm {
+    ForwardLegacyMajorGeneratedLanding,
+    ForwardLegacyMajorWithNonAuthoritativeFacade,
+    DropsSupportedLegacy,
+    ReverseMigrationOrAuthorityFacade,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct GlobalNormalForm {
+    pub(super) authority: AuthorityNormalForm,
+    pub(super) lifecycle: LifecycleNormalForm,
+    pub(super) coupling: CouplingNormalForm,
+    pub(super) progress: ProgressNormalForm,
+    pub(super) resources: ResourceNormalForm,
+    pub(super) projections: ProjectionNormalForm,
+    pub(super) tasks: TaskNormalForm,
+    pub(super) compatibility: CompatibilityNormalForm,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FeasibilityLaw {
+    HardConstraint,
+    ConcurrencyLaw,
+    CouplingLaw,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GlobalFeasibilityGap {
+    NonUniqueAuthority,
+    UnnecessaryIndependentSerialization,
+    NonMinimumCouplingCut,
+    InexactCapabilityOrEvidence,
+    ApproximateOrTimedBatch,
+    DuplicateDependencyPolicy,
+    UnchangedCutRetry,
+    ResourceConservationViolation,
+    HostileResourceUnbounded,
+    ExternalEffectVetoOrGuardIo,
+    DuplicateProjectionPolicy,
+    UntotalTaskOrRepairTopology,
+    CompatibilityBoundaryViolation,
+}
+
+impl GlobalFeasibilityGap {
+    pub(super) const fn law(self) -> FeasibilityLaw {
+        match self {
+            Self::UnnecessaryIndependentSerialization => FeasibilityLaw::ConcurrencyLaw,
+            Self::NonMinimumCouplingCut => FeasibilityLaw::CouplingLaw,
+            Self::NonUniqueAuthority
+            | Self::InexactCapabilityOrEvidence
+            | Self::ApproximateOrTimedBatch
+            | Self::DuplicateDependencyPolicy
+            | Self::UnchangedCutRetry
+            | Self::ResourceConservationViolation
+            | Self::HostileResourceUnbounded
+            | Self::ExternalEffectVetoOrGuardIo
+            | Self::DuplicateProjectionPolicy
+            | Self::UntotalTaskOrRepairTopology
+            | Self::CompatibilityBoundaryViolation => FeasibilityLaw::HardConstraint,
+        }
+    }
+}
+
+impl FeasibilityLaw {
+    const fn index(self) -> usize {
+        match self {
+            Self::HardConstraint => 0,
+            Self::ConcurrencyLaw => 1,
+            Self::CouplingLaw => 2,
+        }
+    }
+}
+
+impl GlobalNormalForm {
+    pub(super) fn feasibility_gaps(self) -> Vec<GlobalFeasibilityGap> {
+        use GlobalFeasibilityGap as Gap;
+
+        let mut gaps = Vec::new();
+        match self.authority {
+            AuthorityNormalForm::UniqueMinimumApply => {}
+            AuthorityNormalForm::UniqueOversizedApply => gaps.push(Gap::NonMinimumCouplingCut),
+            AuthorityNormalForm::SplitLifecycleAuthorities => gaps.push(Gap::NonUniqueAuthority),
+            AuthorityNormalForm::UniversalActor => {
+                gaps.push(Gap::UnnecessaryIndependentSerialization);
+            }
+        }
+        if matches!(
+            self.lifecycle,
+            LifecycleNormalForm::CopiedOrInferredEvidence
+        ) {
+            gaps.push(Gap::InexactCapabilityOrEvidence);
+        }
+        match self.coupling {
+            CouplingNormalForm::ExactCanonicalAvailableCut => {}
+            CouplingNormalForm::PerOwnerIndependentCuts => {
+                gaps.push(Gap::UnnecessaryIndependentSerialization);
+            }
+            CouplingNormalForm::TimerOrApproximateBatch => {
+                gaps.push(Gap::ApproximateOrTimedBatch);
+            }
+        }
+        match self.progress {
+            ProgressNormalForm::SameApplyDerivedFiniteRank
+            | ProgressNormalForm::SameApplyWithResidentDerivedDag => {}
+            ProgressNormalForm::ResidentDecisionAuthority => {
+                gaps.push(Gap::DuplicateDependencyPolicy);
+            }
+            ProgressNormalForm::PollingOrUnchangedRetry => gaps.push(Gap::UnchangedCutRetry),
+        }
+        match self.resources {
+            ResourceNormalForm::UnifiedBoundedFallible
+            | ResourceNormalForm::PartitionedBoundedCharged => {}
+            ResourceNormalForm::FragmentedOrUncharged => {
+                gaps.push(Gap::ResourceConservationViolation);
+            }
+            ResourceNormalForm::InfallibleOrUnbounded => {
+                gaps.push(Gap::HostileResourceUnbounded);
+            }
+        }
+        match self.projections {
+            ProjectionNormalForm::PostCommitDerivedPrepared
+            | ProjectionNormalForm::PostCommitWithResidentDerivedProjection => {}
+            ProjectionNormalForm::ExternalVetoOrGuardIo => {
+                gaps.push(Gap::ExternalEffectVetoOrGuardIo);
+            }
+            ProjectionNormalForm::ResidentPolicyProjection => {
+                gaps.push(Gap::DuplicateProjectionPolicy);
+            }
+        }
+        match self.tasks {
+            TaskNormalForm::BoundedOwnedMinimalLanes | TaskNormalForm::BoundedOwnedExtraActor => {}
+            TaskNormalForm::UniversalSerializedLoop => {
+                gaps.push(Gap::UnnecessaryIndependentSerialization);
+            }
+            TaskNormalForm::DetachedOrRepairTopology => {
+                gaps.push(Gap::UntotalTaskOrRepairTopology);
+            }
+        }
+        if matches!(
+            self.compatibility,
+            CompatibilityNormalForm::DropsSupportedLegacy
+                | CompatibilityNormalForm::ReverseMigrationOrAuthorityFacade
+        ) {
+            gaps.push(Gap::CompatibilityBoundaryViolation);
+        }
+        gaps
+    }
+
+    /// Ordered extra cost above the irreducible release-law lower bound. The
+    /// coordinates follow `optimization_goal.static_objective` exactly.
+    pub(super) const fn static_extra_cost(self) -> [u32; 7] {
+        let mut cost = [0; 7];
+        if matches!(
+            self.lifecycle,
+            LifecycleNormalForm::SealedLinearWithRollback
+        ) {
+            cost[0] += 1;
+            cost[2] += 1;
+            cost[3] += 1;
+            cost[4] += 1;
+            cost[6] += 1;
+        }
+        if matches!(
+            self.progress,
+            ProgressNormalForm::SameApplyWithResidentDerivedDag
+        ) {
+            cost[3] += 1;
+            cost[4] += 1;
+            cost[6] += 1;
+        }
+        if matches!(
+            self.projections,
+            ProjectionNormalForm::PostCommitWithResidentDerivedProjection
+        ) {
+            cost[3] += 1;
+            cost[4] += 1;
+            cost[6] += 1;
+        }
+        if matches!(self.tasks, TaskNormalForm::BoundedOwnedExtraActor) {
+            cost[0] += 1;
+            cost[4] += 1;
+            cost[6] += 1;
+        }
+        if matches!(
+            self.resources,
+            ResourceNormalForm::PartitionedBoundedCharged
+        ) {
+            cost[4] += 1;
+            cost[6] += 1;
+        }
+        if matches!(
+            self.compatibility,
+            CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade
+        ) {
+            cost[0] += 1;
+        }
+        cost
+    }
+
+    const fn is_selected_core(self) -> bool {
+        matches!(self.authority, AuthorityNormalForm::UniqueMinimumApply)
+            && matches!(self.lifecycle, LifecycleNormalForm::SealedLinearExact)
+            && matches!(
+                self.coupling,
+                CouplingNormalForm::ExactCanonicalAvailableCut
+            )
+            && matches!(
+                self.progress,
+                ProgressNormalForm::SameApplyDerivedFiniteRank
+            )
+            && matches!(self.resources, ResourceNormalForm::UnifiedBoundedFallible)
+            && matches!(
+                self.projections,
+                ProjectionNormalForm::PostCommitDerivedPrepared
+            )
+            && matches!(self.tasks, TaskNormalForm::BoundedOwnedMinimalLanes)
+    }
+
+    pub(super) const fn is_selected_witness(self) -> bool {
+        self.is_selected_core()
+            && matches!(
+                self.compatibility,
+                CompatibilityNormalForm::ForwardLegacyMajorGeneratedLanding
+            )
+    }
+
+    pub(super) const fn is_non_authoritative_facade_variant(self) -> bool {
+        self.is_selected_core()
+            && matches!(
+                self.compatibility,
+                CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade
+            )
+    }
+}
+
+const AUTHORITIES: [AuthorityNormalForm; 4] = [
+    AuthorityNormalForm::UniqueMinimumApply,
+    AuthorityNormalForm::UniqueOversizedApply,
+    AuthorityNormalForm::SplitLifecycleAuthorities,
+    AuthorityNormalForm::UniversalActor,
+];
+const LIFECYCLES: [LifecycleNormalForm; 3] = [
+    LifecycleNormalForm::SealedLinearExact,
+    LifecycleNormalForm::SealedLinearWithRollback,
+    LifecycleNormalForm::CopiedOrInferredEvidence,
+];
+const COUPLINGS: [CouplingNormalForm; 3] = [
+    CouplingNormalForm::ExactCanonicalAvailableCut,
+    CouplingNormalForm::PerOwnerIndependentCuts,
+    CouplingNormalForm::TimerOrApproximateBatch,
+];
+const PROGRESS_FORMS: [ProgressNormalForm; 4] = [
+    ProgressNormalForm::SameApplyDerivedFiniteRank,
+    ProgressNormalForm::SameApplyWithResidentDerivedDag,
+    ProgressNormalForm::ResidentDecisionAuthority,
+    ProgressNormalForm::PollingOrUnchangedRetry,
+];
+const RESOURCES: [ResourceNormalForm; 4] = [
+    ResourceNormalForm::UnifiedBoundedFallible,
+    ResourceNormalForm::PartitionedBoundedCharged,
+    ResourceNormalForm::FragmentedOrUncharged,
+    ResourceNormalForm::InfallibleOrUnbounded,
+];
+const PROJECTIONS: [ProjectionNormalForm; 4] = [
+    ProjectionNormalForm::PostCommitDerivedPrepared,
+    ProjectionNormalForm::PostCommitWithResidentDerivedProjection,
+    ProjectionNormalForm::ExternalVetoOrGuardIo,
+    ProjectionNormalForm::ResidentPolicyProjection,
+];
+const TASKS: [TaskNormalForm; 4] = [
+    TaskNormalForm::BoundedOwnedMinimalLanes,
+    TaskNormalForm::BoundedOwnedExtraActor,
+    TaskNormalForm::UniversalSerializedLoop,
+    TaskNormalForm::DetachedOrRepairTopology,
+];
+const COMPATIBILITIES: [CompatibilityNormalForm; 4] = [
+    CompatibilityNormalForm::ForwardLegacyMajorGeneratedLanding,
+    CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade,
+    CompatibilityNormalForm::DropsSupportedLegacy,
+    CompatibilityNormalForm::ReverseMigrationOrAuthorityFacade,
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct GlobalOptimalitySummary {
+    pub(super) axis_cardinalities: [usize; 8],
+    pub(super) total_normal_forms: usize,
+    pub(super) feasible_normal_forms: usize,
+    pub(super) rejected_normal_forms: usize,
+    pub(super) rejected_by_law: [usize; 3],
+    pub(super) minimum_static_extra_cost: [u32; 7],
+    pub(super) static_minimizers: usize,
+    pub(super) selected_static_minimizers: usize,
+    pub(super) minimum_facade_static_extra_cost: [u32; 7],
+    pub(super) minimum_partitioned_resource_static_extra_cost: [u32; 7],
+}
+
+pub(super) fn global_optimality_summary() -> GlobalOptimalitySummary {
+    let mut summary = GlobalOptimalitySummary {
+        axis_cardinalities: [
+            AUTHORITIES.len(),
+            LIFECYCLES.len(),
+            COUPLINGS.len(),
+            PROGRESS_FORMS.len(),
+            RESOURCES.len(),
+            PROJECTIONS.len(),
+            TASKS.len(),
+            COMPATIBILITIES.len(),
+        ],
+        total_normal_forms: 0,
+        feasible_normal_forms: 0,
+        rejected_normal_forms: 0,
+        rejected_by_law: [0; 3],
+        minimum_static_extra_cost: [u32::MAX; 7],
+        static_minimizers: 0,
+        selected_static_minimizers: 0,
+        minimum_facade_static_extra_cost: [u32::MAX; 7],
+        minimum_partitioned_resource_static_extra_cost: [u32::MAX; 7],
+    };
+    visit_global_normal_forms(|normal_form| {
+        summary.total_normal_forms += 1;
+        let gaps = normal_form.feasibility_gaps();
+        if gaps.is_empty() {
+            summary.feasible_normal_forms += 1;
+            let cost = normal_form.static_extra_cost();
+            if normal_form.is_non_authoritative_facade_variant() {
+                summary.minimum_facade_static_extra_cost =
+                    summary.minimum_facade_static_extra_cost.min(cost);
+            }
+            if matches!(
+                normal_form.resources,
+                ResourceNormalForm::PartitionedBoundedCharged
+            ) {
+                summary.minimum_partitioned_resource_static_extra_cost = summary
+                    .minimum_partitioned_resource_static_extra_cost
+                    .min(cost);
+            }
+            if cost < summary.minimum_static_extra_cost {
+                summary.minimum_static_extra_cost = cost;
+                summary.static_minimizers = 1;
+                summary.selected_static_minimizers = usize::from(normal_form.is_selected_witness());
+            } else if cost == summary.minimum_static_extra_cost {
+                summary.static_minimizers += 1;
+                summary.selected_static_minimizers +=
+                    usize::from(normal_form.is_selected_witness());
+            }
+            return;
+        }
+
+        summary.rejected_normal_forms += 1;
+        let mut laws = [false; 3];
+        for gap in gaps {
+            laws[gap.law().index()] = true;
+        }
+        for (count, observed) in summary.rejected_by_law.iter_mut().zip(laws) {
+            *count += usize::from(observed);
+        }
+    });
+    summary
+}
+
+pub(super) fn visit_global_normal_forms(mut visit: impl FnMut(GlobalNormalForm)) {
+    for authority in AUTHORITIES {
+        for lifecycle in LIFECYCLES {
+            for coupling in COUPLINGS {
+                for progress in PROGRESS_FORMS {
+                    for resources in RESOURCES {
+                        for projections in PROJECTIONS {
+                            for tasks in TASKS {
+                                for compatibility in COMPATIBILITIES {
+                                    visit(GlobalNormalForm {
+                                        authority,
+                                        lifecycle,
+                                        coupling,
+                                        progress,
+                                        resources,
+                                        projections,
+                                        tasks,
+                                        compatibility,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

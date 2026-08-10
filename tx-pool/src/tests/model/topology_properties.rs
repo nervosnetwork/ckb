@@ -1,10 +1,13 @@
 use super::topology::{
     CachePublicationInput, CachePublicationTopology, CompleteTopology, CompleteTopologyGap,
-    ExchangePermitAcquisition, ExchangePermitState, ExecutionTopology, IndependentWaveInput,
-    OrderedBoundaryInput, OrderedBoundaryTopology, ProducerResidencyBound, QueryScratch,
-    QueryScratchStep, QueryTopology, QueryTopologyInput, RetainedIngressTopology,
-    exchange_permit_acquisition, retained_ingress_surface,
+    ExchangePermitAcquisition, ExchangePermitState, ExecutionTopology, FeasibilityLaw,
+    IndependentWaveInput, OrderedBoundaryInput, OrderedBoundaryTopology, ProducerResidencyBound,
+    QueryScratch, QueryScratchStep, QueryTopology, QueryTopologyInput, RetainedIngressTopology,
+    exchange_permit_acquisition, global_optimality_summary, retained_ingress_surface,
+    visit_global_normal_forms,
 };
+
+use std::collections::HashSet;
 
 fn workload(owners: u32, workers: u32) -> IndependentWaveInput {
     IndependentWaveInput {
@@ -301,5 +304,87 @@ fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exc
             .gaps(execution, query, cache, ordered)
             .expect("the selected complete topology is representable"),
         Vec::new()
+    );
+}
+
+#[test]
+fn model_global_normal_form_partition_is_finite_unique_and_total() {
+    const EXPECTED_NORMAL_FORMS: usize = 4 * 3 * 3 * 4 * 4 * 4 * 4 * 4;
+    const EXPECTED_FEASIBLE_FORMS: usize = 2 * 2 * 2 * 2 * 2 * 2;
+
+    let mut seen = HashSet::new();
+    let mut feasible = 0;
+    let mut observed_hard_constraint = false;
+    let mut observed_concurrency_law = false;
+    let mut observed_coupling_law = false;
+    visit_global_normal_forms(|normal_form| {
+        assert!(
+            seen.insert(normal_form),
+            "the Cartesian partition repeated a normal form"
+        );
+        let gaps = normal_form.feasibility_gaps();
+        if gaps.is_empty() {
+            feasible += 1;
+        }
+        for gap in gaps {
+            match gap.law() {
+                FeasibilityLaw::HardConstraint => observed_hard_constraint = true,
+                FeasibilityLaw::ConcurrencyLaw => observed_concurrency_law = true,
+                FeasibilityLaw::CouplingLaw => observed_coupling_law = true,
+            }
+        }
+    });
+
+    assert_eq!(seen.len(), EXPECTED_NORMAL_FORMS);
+    assert_eq!(feasible, EXPECTED_FEASIBLE_FORMS);
+    assert!(observed_hard_constraint);
+    assert!(observed_concurrency_law);
+    assert!(observed_coupling_law);
+
+    let summary = global_optimality_summary();
+    assert_eq!(summary.axis_cardinalities, [4, 3, 3, 4, 4, 4, 4, 4]);
+    assert_eq!(summary.total_normal_forms, EXPECTED_NORMAL_FORMS);
+    assert_eq!(summary.feasible_normal_forms, EXPECTED_FEASIBLE_FORMS);
+    assert_eq!(
+        summary.rejected_normal_forms,
+        EXPECTED_NORMAL_FORMS - EXPECTED_FEASIBLE_FORMS
+    );
+    assert!(summary.rejected_by_law.into_iter().all(|count| count > 0));
+}
+
+#[test]
+fn model_global_static_objective_has_one_zero_extra_cost_witness() {
+    let mut feasible = Vec::new();
+    visit_global_normal_forms(|normal_form| {
+        if normal_form.feasibility_gaps().is_empty() {
+            feasible.push(normal_form);
+        }
+    });
+
+    let minimum = feasible
+        .iter()
+        .map(|normal_form| normal_form.static_extra_cost())
+        .min()
+        .expect("the release basis has at least one feasible normal form");
+    let minimizers = feasible
+        .into_iter()
+        .filter(|normal_form| normal_form.static_extra_cost() == minimum)
+        .collect::<Vec<_>>();
+
+    assert_eq!(minimum, [0; 7]);
+    assert_eq!(minimizers.len(), 1);
+    assert!(minimizers[0].is_selected_witness());
+
+    let summary = global_optimality_summary();
+    assert_eq!(summary.minimum_static_extra_cost, minimum);
+    assert_eq!(summary.static_minimizers, minimizers.len());
+    assert_eq!(summary.selected_static_minimizers, 1);
+    assert_eq!(
+        summary.minimum_facade_static_extra_cost,
+        [1, 0, 0, 0, 0, 0, 0]
+    );
+    assert_eq!(
+        summary.minimum_partitioned_resource_static_extra_cost,
+        [0, 0, 0, 0, 1, 0, 1]
     );
 }

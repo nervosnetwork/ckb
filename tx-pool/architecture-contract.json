@@ -1,5 +1,5 @@
 {
-  "schema_version": 18,
+  "schema_version": 22,
   "authority_document": "tx-pool/docs/ARCHITECTURE.md",
   "performance_document": "tx-pool/docs/PERFORMANCE.md",
   "review_guide": "tx-pool/docs/REVIEW_GUIDE.md",
@@ -23,7 +23,7 @@
     "prose_role": "trusted_boundaries_assumptions_and_rationale_only"
   },
   "optimization_goal": {
-    "schema_version": 1,
+    "schema_version": 2,
     "scope": "ckb_tx_pool_protocol_transaction_dependency_and_conflict_semantics",
     "hard_constraints": [
       "ckb_protocol_and_external_observational_equivalence",
@@ -61,12 +61,17 @@
       "checker_and_proof_mechanisms",
       "manual_evidence_and_documentation_authorities"
     ],
+    "feasibility_laws": [
+      "hard_constraints",
+      "concurrency_law",
+      "coupling_law"
+    ],
     "selection": [
       {
         "set": "X0",
         "operator": "filter",
         "domain_ref": "admissible_normal_forms",
-        "constraint_ref": "hard_constraints"
+        "constraint_ref": "feasibility_laws"
       },
       {
         "set": "X1",
@@ -90,7 +95,7 @@
         "proof_ref": "conditional_complexity_lower_bounds"
       }
     ],
-    "concurrency_law": "maximize_independent_validation_and_computation_without_weakening_a_higher_priority_coordinate",
+    "concurrency_law": "independent_validation_and_computation_have_no_mandatory_serial_edge_without_a_declared_coupling_fact",
     "coupling_law": "order_coupled_facts_only_at_the_unique_authority_minimum_atomic_commit_cut",
     "claim_boundary": "current_declared_ckb_semantics_trusted_environment_and_workload_matrix;_a_new_legal_counterexample_reopens_construction"
   },
@@ -103,6 +108,7 @@
       "optimization_goal",
       "release_surface",
       "landing_protocol",
+      "construction_root_families",
       "residual_risks"
     ],
     "construction_rank": [
@@ -396,11 +402,185 @@
     ],
     "current_selection": null
   },
-  "optimality_protocol": {
+  "declared_workload_environment_matrix": {
     "schema_version": 2,
+    "objective_ref": "optimization_goal.empirical_objective",
+    "phase_roles": {
+      "construction": "select_X2_only_among_statically_minimal_X1_candidates",
+      "acceptance": "confirm_the_frozen_X2_witness_without_topology_repair"
+    },
+    "measurement_record_protocol": {
+      "schema_version": 1,
+      "input_identity": {
+        "deterministic_runner": "scenario_parameters_and_runner_source_sha256",
+        "generated_or_randomized": "fixture_or_generator_sha256_and_explicit_seed"
+      },
+      "construction": {
+        "admission": "only_when_X1_has_multiple_static_minimizers",
+        "purpose": "select_X2_only_among_X1",
+        "required_bindings": [
+          "record_role",
+          "release_basis_sha256",
+          "candidate_partition_sha256",
+          "X1_candidate_binary_sha256",
+          "matrix_sha256",
+          "runner_source_sha256",
+          "environment_fingerprint_values",
+          "scenario_parameters",
+          "fixture_or_generator_sha256",
+          "seed_if_randomized",
+          "raw_samples_sha256"
+        ],
+        "inadmissible_as": ["release_acceptance_evidence"]
+      },
+      "acceptance": {
+        "admission": "only_after_complete_correctness_on_frozen_universe",
+        "purpose": "confirm_frozen_X2_release_binary",
+        "required_bindings": [
+          "record_role",
+          "acceptance_universe_sha256",
+          "frozen_X2_witness",
+          "release_binary_sha256",
+          "matrix_sha256",
+          "runner_source_sha256",
+          "environment_fingerprint_values",
+          "scenario_parameters",
+          "fixture_or_generator_sha256",
+          "seed_if_randomized",
+          "raw_samples_sha256"
+        ],
+        "inadmissible_as": ["X2_selection_evidence", "topology_repair_input"]
+      }
+    },
+    "timed_families": [
+      {
+        "id": "independent_cheap",
+        "runner": "fixed_binary_one_shot",
+        "scenarios": ["always_success"],
+        "pool_populations": [
+          {"state": "cold", "warm_transactions": 0},
+          {"state": "warm", "warm_transactions": 2000}
+        ],
+        "peers": [1, 4],
+        "workers": [1, 8],
+        "target_transactions": [8000]
+      },
+      {
+        "id": "independent_crypto",
+        "runner": "fixed_binary_one_shot",
+        "scenarios": ["secp256k1"],
+        "pool_populations": [
+          {"state": "cold", "warm_transactions": 0},
+          {"state": "warm", "warm_transactions": 500}
+        ],
+        "peers": [1, 4],
+        "workers": [1, 8],
+        "target_transactions": [2000]
+      },
+      {
+        "id": "dependency_frontiers",
+        "runner": "fixed_binary_one_shot",
+        "scenarios": [
+          "dependent_forest_10",
+          "dependent_forest_10_reverse",
+          "fanout",
+          "fanout_reverse",
+          "always_success_fanin_8"
+        ],
+        "pool_populations": [
+          {"state": "cold", "warm_transactions": 0}
+        ],
+        "peers": [1, 4],
+        "workers": [1, 8],
+        "target_transactions": [2000]
+      }
+    ],
+    "adversarial_families": [
+      {
+        "id": "rbf_conflict",
+        "shapes": [
+          "accepted_victim_closure",
+          "rejected_candidate",
+          "winner_failure_and_history_recovery"
+        ]
+      },
+      {
+        "id": "full_pool_eviction",
+        "shapes": [
+          "near_configured_limits",
+          "hostile_causal_closure",
+          "one_over_each_declared_bound"
+        ]
+      },
+      {
+        "id": "reorg",
+        "shapes": ["blank_fork", "recovered_tree", "large_bounded_fork"]
+      },
+      {
+        "id": "template",
+        "shapes": [
+          "independent_suffix",
+          "deep_dependency_tree",
+          "conditional_cycle",
+          "uncle_pressure"
+        ]
+      },
+      {
+        "id": "peer_pressure",
+        "shapes": ["many_owners", "large_cycle_backlog", "ban_and_refetch"]
+      },
+      {
+        "id": "shutdown",
+        "shapes": [
+          "compute_in_flight",
+          "effect_io_in_flight",
+          "reorg_in_flight"
+        ]
+      }
+    ],
+    "required_observations": [
+      "negative_throughput",
+      "p99_end_to_end_latency",
+      "cpu_time_per_transaction",
+      "peak_rss_and_allocation_rate",
+      "authority_lock_wait_and_hold",
+      "shutdown_and_reorg_interference_latency"
+    ],
+    "environment": {
+      "scope": "one_content_addressed_controlled_host_class_per_record",
+      "required_fingerprint_fields": [
+        "source_revision_and_tracked_diff",
+        "binary_harness_lockfile_and_workspace_hashes",
+        "toolchain_target_features_and_build_flags",
+        "logical_cpu_platform_kernel_and_filesystem",
+        "power_thermal_and_competing_load_state",
+        "scenario_command_and_target_window"
+      ],
+      "binary_rule": "build_each_side_once_then_reuse_the_exact_hash"
+    },
+    "noise_policy": {
+      "schedule": "adjacent_balanced_ab_ba",
+      "minimum_pairs": 6,
+      "diagnostic_max_paired_relative_mad_basis_points": 200,
+      "selection_and_acceptance_max_paired_relative_mad_basis_points": 150,
+      "outlier_deletion": "forbidden",
+      "repeat_until_favorable": "forbidden",
+      "mismatched_or_noisy_record": "invalid_not_pass"
+    }
+  },
+  "optimality_protocol": {
+    "schema_version": 5,
     "claim_scope": "semantic_topology_static_costs_empirical_frontier_and_complexity_under_explicit_release_laws",
     "admissible_domain": "architectures_modulo_external_observational_equivalence",
     "current_claim": "unproved",
+    "release_gate": {
+      "required_claim": "globally_optimal_within_declared_model_and_empirical_matrix",
+      "uncertified_disposition": "release_blocker",
+      "degradation_path": "forbidden_without_explicit_user_goal_change",
+      "coverage_owner_phase": "architecture_optimality_synthesis",
+      "certificate_owner_phase": "constructive_simplification",
+      "review_owner_phase": "portability_and_final_review"
+    },
     "feasibility_sources": [
       "optimization_goal",
       "proof_policy",
@@ -408,6 +588,7 @@
       "target_invariants",
       "release_surface",
       "landing_protocol",
+      "construction_root_families",
       "residual_risks"
     ],
     "normal_form_axes": [
@@ -421,7 +602,20 @@
       "compatibility_migration_and_landing"
     ],
     "objective_ref": "optimization_goal",
-    "static_lower_bound_rule": "minimize_static_dimension_i_over_feasible_candidates_with_prior_static_dimensions_fixed_to_their_lower_bounds",
+    "static_lower_bound_rule": {
+      "normalized_cost": "J_static_B(n)=absolute_static_cost(n)-L_B",
+      "codomain": "Nat^7_in_optimization_goal_static_objective_order",
+      "common_floor": "L_B_is_release_law_implied_and_shared_by_every_X0_normal_form",
+      "conditional_rule": "minimize_coordinate_i_with_prior_coordinates_fixed_to_zero",
+      "lower_bound": [0, 0, 0, 0, 0, 0, 0],
+      "absolute_cost_binding": "production_refinement_and_cost_binding"
+    },
+    "empirical_singleton_rule": {
+      "premise": "X1_cardinality_equals_one",
+      "theorem": "for_every_empirical_objective_argmin_over_X1_equals_X1",
+      "construction_measurement_universe": "empty_by_measurement_record_admission",
+      "acceptance_obligation": "fixed_release_binary_confirmation_remains_required"
+    },
     "certificate_requirements": [
       "release_basis_hash",
       "normal_form_coverage_proof",
@@ -437,14 +631,38 @@
       "independent_negative_certificate_canaries"
     ],
     "construction_evidence": {
-      "release_basis_hash": null,
-      "normal_form_coverage_proof": null,
-      "generated_candidate_partition_hash": null,
-      "feasibility_proof_per_partition": null,
-      "conditional_static_lower_bound_per_dimension": null,
-      "witness_static_cost_equals_lower_bounds": null,
-      "declared_workload_environment_matrix_hash": null,
-      "noise_gated_empirical_frontier_evidence": null,
+      "release_basis_hash": {
+        "path": "tx-pool/optimization-evidence/release-basis.json",
+        "sha256": "015b12203bf636ace05b01db8ced2a272863624954568578e45ad56ecad85567"
+      },
+      "normal_form_coverage_proof": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
+      "generated_candidate_partition_hash": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
+      "feasibility_proof_per_partition": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
+      "conditional_static_lower_bound_per_dimension": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
+      "witness_static_cost_equals_lower_bounds": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
+      "declared_workload_environment_matrix_hash": {
+        "path": "tx-pool/optimization-evidence/workload-environment-matrix.json",
+        "sha256": "e9167856427ff7f011a311693c542ee0f8b8448aaee884f381891c587c6b6b1d"
+      },
+      "noise_gated_empirical_frontier_evidence": {
+        "path": "tx-pool/optimization-evidence/normal-form-partition.json",
+        "sha256": "7b01cf960f5efad30170e689b1ae7ca959df1f9b727beb4bbb8141bef5ae9f8c"
+      },
       "conditional_complexity_lower_bound_per_dimension": null,
       "witness_complexity_cost_equals_lower_bounds": null,
       "production_refinement_and_cost_binding": null,
