@@ -256,9 +256,7 @@
         "D1-HISTORY"
       ],
       "open_compatibility_and_landing_decisions": ["landing_topology"],
-      "unclosed_registered_semantic_families": [
-        "scheduler"
-      ],
+      "unclosed_registered_semantic_families": [],
       "unowned_or_duplicated_production_items": [
         "generated_source_role_necessity_census"
       ],
@@ -388,13 +386,6 @@
         "D1-DEPENDENCY-CLOSURE",
         "D1-FAULT-INGRESS-EVIDENCE",
         "D1-HISTORY"
-      ]
-    },
-    {
-      "id": "INDEPENDENT-EXECUTION-CUTOVER",
-      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 plus the settlement/location and complete resource-domain root corrections are implemented, but the registered scheduler family remains open before frozen-universe acceptance",
-      "construction_obligations": [
-        "scheduler"
       ]
     },
     {
