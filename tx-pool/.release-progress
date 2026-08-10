@@ -74,7 +74,7 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 3, 4, 1, 4)`. Every listed item has exactly one blocker owner.
+`rho_C = (12, 2, 4, 1, 4)`. Every listed item has exactly one blocker owner.
 
 ### `open_release_laws` (12)
 
@@ -91,10 +91,9 @@ The ordered rank is
 - `D1-FAULT-INGRESS-EVIDENCE`
 - `D1-HISTORY`
 
-### `open_compatibility_and_landing_decisions` (3)
+### `open_compatibility_and_landing_decisions` (2)
 
 - `rust_api_semver_disposition`
-- `legacy_configuration_forward_compatibility`
 - `landing_topology`
 
 ### `unclosed_registered_semantic_families` (4)
@@ -120,7 +119,7 @@ The ordered rank is
 | Blocker | Owned current obligations / later gate |
 |---|---|
 | `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
-| `RUST-API-COMPATIBILITY-DECISION` | `rust_api_semver_disposition`, `legacy_configuration_forward_compatibility` |
+| `RUST-API-COMPATIBILITY-DECISION` | `rust_api_semver_disposition` |
 | `INDEPENDENT-EXECUTION-CUTOVER` | four semantic families and three paused location refinement edges |
 | `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | `global_optimization_certificate`, `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology` |
@@ -182,20 +181,44 @@ The aggregate light gate stops at the first paused-R5 stale mutation-evidence
 edge; the individual gates expose exactly the six outputs above. This is a
 diagnostic checkpoint, not release evidence.
 
+Release-boundary compatibility evidence is current:
+
+- official `origin/develop` is `17d7db5bb423a1b2177e14a132a41d5a91a515f3`;
+- `ckb-app-config` Nextest run
+  `90b6991a-6758-4665-9760-8f781321a8e0` passed 13/13;
+- persistence Nextest run `d0448f02-e199-40ff-bd22-fa6a37fac232` passed
+  all 6 `persisted::tests` cases, including legacy v1 input;
+- `TP-BUDGET-001` owns missing-new-field defaults, legacy aggregate-budget
+  preservation and explicit-current precedence;
+- `TP-PERSIST-001` owns legacy v1 acceptance/revalidation and v2-only writes;
+- node/database downgrade and reverse persistence migration remain unsupported.
+
+The exact current semver run is not classified as product evidence. A retry
+obtained controlled Cargo-cache access, but the tool's default feature heuristic
+enabled the mutually exclusive `portable` and `march-native` features and failed
+before producing rustdoc. The corrected `--default-features` run was then
+stopped by explicit user direction: semver output is an optional delta
+generator, not the architecture objective. The prior 9-class report is only a
+candidate set because public API files changed after that candidate revision.
+The crate is publishable and release-plz intentionally has `semver_check =
+false`, so `rust_api_semver_disposition` remains open until the declared Rust
+API compatibility boundary itself receives one total decision; neither an
+incomplete tool run nor a hand-written API census can close it.
+
 ## Exact next action
 
 Execute `release_boundary_adjudication` without touching paused R5 production:
 
-1. regenerate the Rust public API/semver delta against exact current `develop`;
-2. give every delta exactly one `non_authoritative_facade`,
-   `intentional_major` or `revert` disposition and reject any facade with policy
-   or mutation authority;
-3. generate the legacy and current configuration/persistence input matrix,
-   prove old configuration remains accepted with validated defaults and legacy
-   budget translation, and keep node/database downgrade unsupported;
-4. bind incremental, curated-series and one-shot landing candidates to the
+1. decide whether the published Rust crate surface is a declared compatibility
+   boundary; if it is, generate only the delta needed to give it a total
+   `non_authoritative_facade`, `intentional_major` or `revert` disposition and
+   reject any facade with policy or mutation authority;
+2. bind incremental, curated-series and one-shot landing candidates to the
    generated downstream impact universe and their build/conflict/migration/
-   recovery costs; and
-5. update the three named compatibility/landing rank items, emit the strictly
-   decreased rank and checkpoint before upstream
-   `architecture_optimality_synthesis`.
+   recovery costs, while reserving final candidate selection for the
+   post-simplification `landing_rehearsal`; and
+3. close the phase input boundary, emit the actual rank and checkpoint before
+   upstream `architecture_optimality_synthesis`. The proved legacy
+   configuration/persistence obligation must not be reopened unless its
+   policy, implementation or exact evidence changes; `landing_topology`
+   remains explicitly open until rehearsal.

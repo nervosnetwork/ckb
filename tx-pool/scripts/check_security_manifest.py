@@ -1724,6 +1724,103 @@ def validate_construction_root_family_canaries(
     return errors
 
 
+def validate_release_boundary_status(
+    manifest: dict, contract: dict, registry: dict
+) -> list[str]:
+    """Require machine evidence before a compatibility obligation disappears."""
+
+    errors: list[str] = []
+    status = manifest.get("release_boundary_status")
+    if not isinstance(status, dict) or status.get("schema_version") != 1:
+        return ["release boundary status schema_version must be 1"]
+    if set(status) != {
+        "schema_version",
+        "legacy_configuration_forward_compatibility",
+    }:
+        errors.append("release boundary status fields differ")
+    legacy = status.get("legacy_configuration_forward_compatibility")
+    if not isinstance(legacy, dict) or set(legacy) != {
+        "state",
+        "policy_ref",
+        "behavior_refs",
+    }:
+        return errors + ["legacy configuration compatibility evidence fields differ"]
+    if legacy.get("state") not in {"open", "proved"}:
+        errors.append("legacy configuration compatibility state is invalid")
+    if legacy.get("policy_ref") != (
+        "architecture_contract.release_surface.compatibility_policy"
+    ):
+        errors.append("legacy configuration compatibility policy reference differs")
+    behavior_refs = legacy.get("behavior_refs")
+    if not _nonempty_unique_strings(behavior_refs):
+        errors.append("legacy configuration compatibility behavior refs are invalid")
+        behavior_refs = []
+    known_behaviors = {
+        behavior.get("id")
+        for behavior in registry.get("behaviors", [])
+        if isinstance(behavior, dict) and isinstance(behavior.get("id"), str)
+    }
+    evidenced_behaviors = {
+        evidence.get("behavior_id")
+        for evidence in registry.get("unit_evidence", [])
+        if isinstance(evidence, dict) and isinstance(evidence.get("behavior_id"), str)
+    }
+    for evidence in registry.get("cross_crate_evidence", []):
+        if isinstance(evidence, dict):
+            evidenced_behaviors.update(_string_set(evidence.get("behavior_ids")))
+    unknown = set(behavior_refs).difference(known_behaviors)
+    unevidenced = set(behavior_refs).difference(evidenced_behaviors)
+    if unknown:
+        errors.append(
+            f"legacy configuration compatibility uses unknown behaviors {sorted(unknown)}"
+        )
+    if unevidenced:
+        errors.append(
+            "legacy configuration compatibility uses behaviors without exact evidence "
+            f"{sorted(unevidenced)}"
+        )
+
+    rank = manifest.get("convergence_status", {}).get("construction_rank", {})
+    open_decisions = _string_set(
+        rank.get("open_compatibility_and_landing_decisions")
+        if isinstance(rank, dict)
+        else None
+    )
+    obligation = "legacy_configuration_forward_compatibility"
+    if legacy.get("state") == "proved" and obligation in open_decisions:
+        errors.append("proved legacy configuration compatibility remains in the rank")
+    if legacy.get("state") == "open" and obligation not in open_decisions:
+        errors.append("open legacy configuration compatibility is absent from the rank")
+    if legacy.get("state") == "proved":
+        policy = contract.get("release_surface", {}).get("compatibility_policy", {})
+        if policy != REQUIRED_RELEASE_COMPATIBILITY_POLICY:
+            errors.append("proved legacy configuration compatibility has policy drift")
+    return errors
+
+
+def validate_release_boundary_canaries(
+    manifest: dict, contract: dict, registry: dict
+) -> list[str]:
+    errors: list[str] = []
+
+    missing_evidence = copy.deepcopy(manifest)
+    missing_evidence["release_boundary_status"][
+        "legacy_configuration_forward_compatibility"
+    ]["behavior_refs"].clear()
+    observed = validate_release_boundary_status(missing_evidence, contract, registry)
+    if not any("behavior refs are invalid" in error for error in observed):
+        errors.append("release boundary canary admitted a proof without evidence")
+
+    false_close = copy.deepcopy(manifest)
+    false_close["convergence_status"]["construction_rank"][
+        "open_compatibility_and_landing_decisions"
+    ].append("legacy_configuration_forward_compatibility")
+    observed = validate_release_boundary_status(false_close, contract, registry)
+    if not any("remains in the rank" in error for error in observed):
+        errors.append("release boundary canary admitted contradictory compatibility state")
+    return errors
+
+
 def validate_convergence_canaries(manifest: dict, contract: dict) -> list[str]:
     """Prove the convergence validator rejects the known shortcut classes."""
 
@@ -2762,6 +2859,8 @@ def main() -> int:
         errors.extend(
             validate_construction_root_family_canaries(manifest, contract)
         )
+        errors.extend(validate_release_boundary_status(manifest, contract, registry))
+        errors.extend(validate_release_boundary_canaries(manifest, contract, registry))
         mutation_acceptance = manifest.get("mutation_acceptance")
         errors.extend(
             validate_mutation_acceptance(mutation_acceptance, contract, registry)

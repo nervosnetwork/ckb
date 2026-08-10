@@ -253,7 +253,6 @@
       ],
       "open_compatibility_and_landing_decisions": [
         "rust_api_semver_disposition",
-        "legacy_configuration_forward_compatibility",
         "landing_topology"
       ],
       "unclosed_registered_semantic_families": [
@@ -354,6 +353,14 @@
       "closure_phase": "registered_semantic_root_closure"
     }
   ],
+  "release_boundary_status": {
+    "schema_version": 1,
+    "legacy_configuration_forward_compatibility": {
+      "state": "proved",
+      "policy_ref": "architecture_contract.release_surface.compatibility_policy",
+      "behavior_refs": ["TP-BUDGET-001", "TP-PERSIST-001"]
+    }
+  },
   "release_blockers": [
     {
       "id": "REGISTERED-RELEASE-LAW-CLOSURE",
@@ -375,11 +382,8 @@
     },
     {
       "id": "RUST-API-COMPATIBILITY-DECISION",
-      "reason": "cargo-semver-checks against develop reports 9 major-change lint classes, including removal of public TxPool/module/method/macro surfaces, builder signature changes, exhaustive enum changes and PlugTarget gaining Copy; release requires either non-authoritative compatibility designs for each retained API or an explicit major-version migration, plus mechanical confirmation of legacy configuration forward compatibility",
-      "construction_obligations": [
-        "rust_api_semver_disposition",
-        "legacy_configuration_forward_compatibility"
-      ]
+      "reason": "ckb-tx-pool is a published crate while the repository release policy deliberately disables automatic semver checking; the last complete diagnostic found 9 major-change lint classes, so the declared Rust API compatibility boundary still requires one total non-authoritative-facade, intentional-major or revert decision even when cargo-semver-checks is not used as the generator",
+      "construction_obligations": ["rust_api_semver_disposition"]
     },
     {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
