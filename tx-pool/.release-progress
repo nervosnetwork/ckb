@@ -4,6 +4,7 @@ Projection date: 2026-08-10 Asia/Shanghai
 Branch: `zhangsoledad/txpool-pipeline`
 Pre-normalization recovery base: `75ef1668b415`
 Normalization content checkpoint: `0099747e9a45`
+Legacy compatibility content checkpoint: `5755286c2a91`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`
 Active phase: `release_boundary_adjudication`
