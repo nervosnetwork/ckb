@@ -1,5 +1,5 @@
 {
-  "schema_version": 11,
+  "schema_version": 12,
   "package": "ckb-tx-pool",
   "features": ["internal"],
   "behavior_registry": "tx-pool/review-behaviors.json",
@@ -247,7 +247,6 @@
         "D1-FAULT-REACHABILITY",
         "D1-FALLIBLE-SCRATCH",
         "D1-REQUEST-PAYLOAD-BOUND",
-        "D1-CLOCK-DOMAIN",
         "D1-ALLOCATION-LIVENESS",
         "D1-STOP-REACHABILITY",
         "D1-TASK-CAPABILITY",
@@ -266,6 +265,18 @@
         "production_refinement_and_cost_binding",
         "independent_negative_certificate_canaries"
       ]
+    },
+    "release_law_dispositions": {
+      "D1-CLOCK-DOMAIN": {
+        "root_family_id": "CRF-CLOCK-PROGRESS-DOMAIN",
+        "disposition": "proved",
+        "evidence_owner_refs": [
+          "behavior:TP-ADMIN-001",
+          "model:mathematical_model::properties::model_wall_clock_rollback_never_fabricates_expiry_progress",
+          "model:mathematical_model::adversarial_properties::model_hostile_trace_makes_wall_and_monotonic_clock_domains_explicit",
+          "production:check_production_contracts.py::validate_expiry_index_producers"
+        ]
+      }
     }
   },
   "construction_root_families": [
@@ -372,14 +383,13 @@
   "release_blockers": [
     {
       "id": "REGISTERED-RELEASE-LAW-CLOSURE",
-      "reason": "The twelve recovered D1 release laws are now mapped exactly once to eight machine-checked root families, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
+      "reason": "The eleven remaining D1 release laws are mapped exactly once inside the immutable eight-family release basis, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
       "construction_obligations": [
         "D1-READY-OCC-LIVENESS",
         "D1-DIRECT-NEGATIVE-OCC",
         "D1-FAULT-REACHABILITY",
         "D1-FALLIBLE-SCRATCH",
         "D1-REQUEST-PAYLOAD-BOUND",
-        "D1-CLOCK-DOMAIN",
         "D1-ALLOCATION-LIVENESS",
         "D1-STOP-REACHABILITY",
         "D1-TASK-CAPABILITY",

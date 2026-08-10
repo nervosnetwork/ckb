@@ -2986,12 +2986,51 @@ def validate_construction_root_families(manifest: dict, contract: dict) -> list[
         rank.get("open_release_laws") if isinstance(rank, dict) else None
     )
     mapped_laws = set(member_owners)
-    if open_laws != mapped_laws:
+    dispositions = manifest.get("convergence_status", {}).get(
+        "release_law_dispositions"
+    )
+    if not isinstance(dispositions, dict):
+        errors.append("release-law dispositions must be an object")
+        dispositions = {}
+    closed_laws = set(dispositions)
+    if open_laws.intersection(closed_laws):
         errors.append(
-            "construction root-family coverage differs from open release laws: "
-            f"missing={sorted(open_laws - mapped_laws)}, "
-            f"extra={sorted(mapped_laws - open_laws)}"
+            "one release law is both open and terminally disposed "
+            f"{sorted(open_laws.intersection(closed_laws))}"
         )
+    if open_laws.union(closed_laws) != mapped_laws:
+        errors.append(
+            "construction root-family state partition differs from the immutable "
+            "release-law basis: "
+            f"unclassified={sorted(mapped_laws - open_laws - closed_laws)}, "
+            f"unknown={sorted(open_laws.union(closed_laws) - mapped_laws)}"
+        )
+    for law, record in dispositions.items():
+        if not isinstance(record, dict) or set(record) != {
+            "root_family_id",
+            "disposition",
+            "evidence_owner_refs",
+        }:
+            errors.append(f"release-law disposition {law!r} has invalid fields")
+            continue
+        if record.get("disposition") not in {
+            "proved",
+            "superseded",
+            "unconstructible",
+        }:
+            errors.append(f"release-law disposition {law!r} is not terminal")
+        evidence_refs = record.get("evidence_owner_refs")
+        if not _nonempty_unique_strings(evidence_refs) or not all(
+            ":" in reference for reference in evidence_refs
+        ):
+            errors.append(
+                f"release-law disposition {law!r} lacks exact evidence-owner refs"
+            )
+        owners = member_owners.get(law, [])
+        if owners != [record.get("root_family_id")]:
+            errors.append(
+                f"release-law disposition {law!r} names the wrong root family"
+            )
     duplicate_members = {
         member: owners for member, owners in member_owners.items() if len(owners) != 1
     }
@@ -3010,7 +3049,7 @@ def validate_construction_root_family_canaries(
     unmapped = copy.deepcopy(manifest)
     unmapped["construction_root_families"][0]["members"].clear()
     observed = validate_construction_root_families(unmapped, contract)
-    if not any("coverage differs" in error for error in observed):
+    if not any("state partition differs" in error for error in observed):
         errors.append("construction root-family canary admitted an unmapped law")
 
     duplicated = copy.deepcopy(manifest)
@@ -3027,6 +3066,17 @@ def validate_construction_root_family_canaries(
     observed = validate_construction_root_families(unknown_invariant, contract)
     if not any("unknown invariant_refs" in error for error in observed):
         errors.append("construction root-family canary admitted an unknown law ref")
+
+    unproved = copy.deepcopy(manifest)
+    dispositions = unproved["convergence_status"]["release_law_dispositions"]
+    if dispositions:
+        first = next(iter(dispositions.values()))
+        first["evidence_owner_refs"].clear()
+        observed = validate_construction_root_families(unproved, contract)
+        if not any("lacks exact evidence-owner refs" in error for error in observed):
+            errors.append(
+                "construction root-family canary admitted an evidence-free closure"
+            )
     return errors
 
 
@@ -4309,8 +4359,8 @@ def main() -> int:
     if args.integration_only and args.update_inventory:
         raise SystemExit("--integration-only cannot be combined with --update-inventory")
     manifest = load_manifest(args.manifest)
-    if manifest.get("schema_version") != 11:
-        raise SystemExit("security manifest schema_version must be 11")
+    if manifest.get("schema_version") != 12:
+        raise SystemExit("security manifest schema_version must be 12")
     if "evidence" in manifest or "source_anchors" in manifest:
         raise SystemExit(
             "security manifest may not duplicate evidence owned by behavior_registry"

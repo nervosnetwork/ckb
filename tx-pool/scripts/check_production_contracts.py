@@ -25,6 +25,10 @@ TX_POOL_AUTHORITY_SERVICE = (
 TX_POOL_AUTHORITY_RUNTIME = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "runtime.rs"
 )
+TX_POOL_AUTHORITY_INGRESS = (
+    REPO_ROOT / "tx-pool" / "src" / "authority" / "ingress.rs"
+)
+TX_POOL_AUTHORITY_BAN = REPO_ROOT / "tx-pool" / "src" / "authority" / "ban.rs"
 TX_POOL_AUTHORITY_PUBLISHER = (
     REPO_ROOT / "tx-pool" / "src" / "authority" / "publisher.rs"
 )
@@ -1816,16 +1820,31 @@ def validate_finite_scheduler_owner_ring() -> list[str]:
 
 
 def validate_expiry_index_producers() -> list[str]:
-    """Bind both expiry planners to the sole bounded due-index producers."""
+    """Bind bounded expiry producers to explicit wall and monotonic clock domains."""
 
     try:
         plan = TX_POOL_AUTHORITY_PLAN.read_text()
         indexes = TX_POOL_AUTHORITY_INDEXES.read_text()
+        ingress = TX_POOL_AUTHORITY_INGRESS.read_text()
+        validation = TX_POOL_AUTHORITY_VALIDATION.read_text()
+        runtime = TX_POOL_AUTHORITY_RUNTIME.read_text()
+        ban = TX_POOL_AUTHORITY_BAN.read_text()
         remote_index = required_function_body(indexes, "due_remote")
         accepted_index = required_function_body(indexes, "due_accepted")
         remote_plan = required_function_body(plan, "plan_remote_expiry")
         accepted_plan = required_function_body(plan, "plan_accepted_expiry")
         compiler = required_function_body(plan, "compile_administrative_removal")
+        remote = required_function_body(ingress, "remote")
+        remote_at = required_function_body(ingress, "remote_at")
+        membership = required_function_body(validation, "validate_membership")
+        expire_remote = impl_method_body(runtime, "AuthorityRuntime", "expire_remote_due")
+        expire_accepted = impl_method_body(
+            runtime, "AuthorityRuntime", "expire_accepted_due"
+        )
+        ban_deadline = impl_method_body(
+            ban, "PeerBanDeadline", "after_malformed_ban"
+        )
+        ban_active = impl_method_body(ban, "PeerBanDeadline", "is_active_at")
     except (OSError, ValueError) as error:
         return [f"cannot inspect expiry index producers: {error}"]
 
@@ -1842,6 +1861,44 @@ def validate_expiry_index_producers() -> list[str]:
         not in dense_accepted_index
     ):
         errors.append("due_accepted must retain the bounded accepted-at <= cutoff prefix")
+
+    clock_fragments = {
+        "Remote ingress": (remote, "ckb_systemtime::unix_time().as_secs()"),
+        "Remote deadline": (
+            remote_at,
+            "admitted_at_secs.saturating_add(REMOTE_RESIDENCY_BLOCKS.saturating_mul(MAX_BLOCK_INTERVAL))",
+        ),
+        "Accepted membership": (
+            membership,
+            "AcceptedAtMillis(ckb_systemtime::unix_time_as_millis())",
+        ),
+        "Remote expiry": (
+            expire_remote,
+            "RemoteDeadline(ckb_systemtime::unix_time().as_secs())",
+        ),
+        "Accepted expiry": (
+            expire_accepted,
+            "ckb_systemtime::unix_time_as_millis().checked_sub(self.expiry_policy.accepted_residency_millis)",
+        ),
+        "Peer-ban deadline": (
+            ban_deadline,
+            "now.checked_add(Duration::from_secs(MALFORMED_TX_BAN_SECONDS))",
+        ),
+        "Peer-ban activity": (ban_active, "Self::At(deadline)=>deadline>now"),
+    }
+    for owner, (body, required) in clock_fragments.items():
+        if required not in "".join(mask_rust_non_code(body).split()):
+            errors.append(f"{owner} lost clock-domain fragment {required!r}")
+    if any(
+        "Instant::" in mask_rust_non_code(body)
+        for body in (remote, remote_at, membership, expire_remote, expire_accepted)
+    ):
+        errors.append("wall-clock ownership must not be replaced by process Instant")
+    if any(
+        "ckb_systemtime::" in mask_rust_non_code(body)
+        for body in (ban_deadline, ban_active)
+    ):
+        errors.append("process-lifetime peer-ban leases must not read the Unix clock")
 
     remote_fragments = (
         "self.indexes.due_remote(cutoff,limit.get())?",
@@ -3889,8 +3946,8 @@ def main() -> int:
         "the architecture-owned prepared full-query protocol, "
         "sealed one-stamp atomic Apply, nonempty dependency-maintenance construction and "
         "closed dependency cut/ticket/projection producers, sparse "
-        "resource set transitions, finite scheduler owner rings and sealed bounded expiry "
-        "index producers, total log-owned effect "
+        "resource set transitions, finite scheduler owner rings, explicit wall/monotonic "
+        "clock domains and sealed bounded expiry index producers, total log-owned effect "
         "observation, exhaustive post-commit wake wiring, one projected released-input law, "
         "sealed evidence and total settlement classification plus "
         "a closed Rust module graph plus current production vocabulary and "
