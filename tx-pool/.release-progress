@@ -10,6 +10,7 @@ Architecture-synthesis content checkpoint: `8d446716c`
 Settlement/location content checkpoint: `d36a7de5d`
 Resource-domain closure checkpoint: `89b916447`
 Scheduler-domain closure checkpoint: `24eff856d`
+Clock-domain closure checkpoint: `bade251ef`
 State: `Construction`
 Completed phases: `basis_and_roadmap_normalization`,
 `release_boundary_adjudication`, `architecture_optimality_synthesis`
@@ -81,18 +82,18 @@ therefore usable; no global `xcode-select` mutation is required.
 ## Actual construction rank
 
 The ordered rank is
-`rho_C = (12, 1, 0, 1, 4)`. Every listed item has exactly one blocker owner.
-This is strictly below the prior `(12, 1, 1, 1, 4)` rank because the final
-registered semantic family, scheduler, is closed.
+`rho_C = (11, 1, 0, 1, 4)`. Every listed item has exactly one blocker owner.
+This is strictly below the prior `(12, 1, 0, 1, 4)` rank because the wall/
+monotonic clock-domain release law is proved and terminally disposed without
+changing the immutable release basis.
 
-### `open_release_laws` (12)
+### `open_release_laws` (11)
 
 - `D1-READY-OCC-LIVENESS`
 - `D1-DIRECT-NEGATIVE-OCC`
 - `D1-FAULT-REACHABILITY`
 - `D1-FALLIBLE-SCRATCH`
 - `D1-REQUEST-PAYLOAD-BOUND`
-- `D1-CLOCK-DOMAIN`
 - `D1-ALLOCATION-LIVENESS`
 - `D1-STOP-REACHABILITY`
 - `D1-TASK-CAPABILITY`
@@ -123,7 +124,7 @@ No registered semantic family remains open.
 
 | Blocker | Owned current obligations / later gate |
 |---|---|
-| `REGISTERED-RELEASE-LAW-CLOSURE` | all 12 `D1-*` items, exactly partitioned into 8 construction root families |
+| `REGISTERED-RELEASE-LAW-CLOSURE` | 11 open `D1-*` items plus one proved disposition in the immutable 8-family release basis |
 | `GLOBAL-OPTIMALITY-AND-SIMPLIFICATION` | the remaining 4 hash-bound optimality certificate requirements plus `generated_source_role_necessity_census` |
 | `DEVELOP-LANDING-REHEARSAL` | `landing_topology`, including the major-version relation, migration notes and generated downstream migration evidence |
 | `PERFORMANCE-ACCEPTANCE` | later frozen-binary empirical confirmation |
@@ -277,6 +278,26 @@ and security-manifest gates agree on `rho_C = (12, 1, 0, 1, 4)` and five
 release blockers. No state, source, authority, lock, task, queue, API or proof
 mechanism was added, so this audit also has zero `Delta Kappa`.
 
+The clock-progress root is closed without a production change. The external
+Unix clock remains a legal repeatable/backward input and exact public
+`accepted_at` observation; Remote and Accepted expiry are conditionally live
+only under the explicit premise that wall time eventually reaches their
+recorded deadline. Process `Instant` remains the distinct monotonic owner for
+authority-local peer-ban leases. The model admits rollback without fabricating
+expiry progress, while bounded hostile traces independently distinguish wall
+and monotonic transitions. The existing expiry-producer checker now binds all
+four production observation/expiry cuts and both ban-lease cuts, so neither
+domain can silently substitute for the other.
+
+Clock Nextest run `b58b095f-6ae9-4155-9614-d3b318594287` passed 11/11 model,
+hostile-trace, production-expiry, immutable-timestamp and ban-bound cases. The
+convergence status now partitions the immutable release laws into disjoint
+open obligations and terminal dispositions with exact evidence-owner refs;
+negative canaries reject an unclassified, multiply owned or evidence-free
+closure. The content-addressed release basis and normal-form partition remain
+unchanged. The clock check was folded into the existing bounded expiry
+producer mechanism, so this slice has zero `Delta Kappa` in canonical order.
+
 The selected topology remains frozen for `registered_semantic_root_closure`.
 A new semantic family, authority, topology or compatibility boundary reopens
 synthesis first. Mutation regeneration, downstream performance acceptance and
@@ -318,11 +339,12 @@ build/tests and rehearsal against current official `develop`.
 
 ## Exact next action
 
-Continue `registered_semantic_root_closure` from the frozen witness. Generate
-the producer/consumer and premise-intersection partial order for the seven
-substantive construction root families, then adjudicate its minimal enabled
-roots; do not treat the manifest listing order as a dependency order. Close
-`CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE` last by proving both generated basis
-differences empty against the other seven terminal dispositions. Any newly
-exposed semantic case changes the model and reopens architecture synthesis
-before production continues.
+Continue `registered_semantic_root_closure` from the frozen witness. Audit
+`CRF-DEPENDENCY-CLOSURE` next because same-Apply dependency truth is independent
+of the still-open allocation outcome: allocation failure commits no owner
+transition, while every committed owner death/evidence change must carry its
+dependency delta. Then return to the confirmed upstream
+`CRF-BOUNDED-RESOURCE-ADMISSION` root as one payload/scratch/progress algebra.
+Close `CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE` last against all other terminal
+dispositions. Any new semantic case reopens architecture synthesis before
+production continues.
