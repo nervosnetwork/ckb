@@ -257,8 +257,6 @@
       ],
       "open_compatibility_and_landing_decisions": ["landing_topology"],
       "unclosed_registered_semantic_families": [
-        "resource_configuration",
-        "resource_ledger",
         "scheduler"
       ],
       "unowned_or_duplicated_production_items": [
@@ -394,10 +392,8 @@
     },
     {
       "id": "INDEPENDENT-EXECUTION-CUTOVER",
-      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 plus the settlement/location root correction are implemented, but the registered resource-configuration, resource-ledger and scheduler families remain open before frozen-universe acceptance",
+      "reason": "M4 selected the bounded semantic exchange and production slices I1-I6 plus the settlement/location and complete resource-domain root corrections are implemented, but the registered scheduler family remains open before frozen-universe acceptance",
       "construction_obligations": [
-        "resource_configuration",
-        "resource_ledger",
         "scheduler"
       ]
     },
