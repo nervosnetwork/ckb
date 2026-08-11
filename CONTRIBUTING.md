@@ -42,6 +42,19 @@ Please note we have a code of conduct, please follow it in all your interactions
 
 * `make quick-test` and `make test` use `nextest`: https://nexte.st/
 
+* **Use `make test` / `make quick-test`, not `cargo test`.** Several timestamp-sensitive tests
+  in the `verification` and `util/systemtime` crates rely on a process-wide faketime state
+  guarded by a `Mutex<()>` (see [`util/systemtime/src/lib.rs`](util/systemtime/src/lib.rs)).
+  Running plain `cargo test` against the full workspace invades the verifier suite in parallel
+  threads within a single process, which can deadlock on that mutex and/or produce
+  non-deterministic failures depending on the host's test thread count.
+  `make test` invokes `cargo nextest run`, which runs each test in its own process — the
+  correct execution model for this test suite.
+  If you specifically need to iterate on a single test, invoke nextest directly on the
+  affected crate, e.g. `cargo nextest run -p ckb-verification --no-fail-fast`, or pass a
+  single test name to `cargo nextest run -- <test-name>`; each test still runs in its own
+  process.
+
 ### Propose new features
 
 See [Nervos Network RFCs Process](https://github.com/nervosnetwork/rfcs).
