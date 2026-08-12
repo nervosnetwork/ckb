@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-fee-estimator-v1.1.1...ckb-fee-estimator-v1.1.2) - 2026-07-28
+
+### Fixed
+
+- Fix clippy and format issues (#5263) (by @chenyukang)
+- bound failed tx accounting to estimator window in confirmation fraction (by @eval-exec)
+- cap fee estimator bucket index (#5248) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @eval-exec
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-fee-estimator-v1.1.0...ckb-fee-estimator-v1.1.1) - 2026-06-08
 
 ### Changed

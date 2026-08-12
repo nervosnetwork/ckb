@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-chain-spec-v1.1.1...ckb-chain-spec-v1.1.2) - 2026-07-28
+
+### Fixed
+
+- Fix some public security issues (#5219) (by @Officeyutong)
+
+### Contributors
+
+- @Officeyutong
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-chain-spec-v1.1.0...ckb-chain-spec-v1.1.1) - 2026-06-08
 
 ### Changed

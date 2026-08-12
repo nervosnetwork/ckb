@@ -139,6 +139,13 @@ impl PoolMap {
         self.entries.get_by_id(id)
     }
 
+    /// Returns the pool entry for a transaction hash.
+    pub(crate) fn get_by_tx_hash(&self, tx_hash: &Byte32) -> Option<&PoolEntry> {
+        let id = ProposalShortId::from_tx_hash(tx_hash);
+        self.get_by_id(&id)
+            .filter(|entry| &entry.inner.transaction().hash() == tx_hash)
+    }
+
     fn get_by_id_checked(&self, id: &ProposalShortId) -> &PoolEntry {
         self.get_by_id(id).expect("inconsistent pool")
     }
@@ -181,8 +188,9 @@ impl PoolMap {
     }
 
     pub(crate) fn get_output_with_data(&self, out_point: &OutPoint) -> Option<(CellOutput, Bytes)> {
-        self.get(&ProposalShortId::from_tx_hash(&out_point.tx_hash()))
-            .and_then(|entry| {
+        self.get_by_tx_hash(&out_point.tx_hash())
+            .and_then(|pool_entry| {
+                let entry = &pool_entry.inner;
                 entry
                     .transaction()
                     .output_with_data(out_point.index().into())
@@ -262,6 +270,21 @@ impl PoolMap {
             .iter()
             .filter_map(|id| self.remove_entry(id))
             .collect()
+    }
+
+    pub(crate) fn remove_entry_and_descendants_by_tx_hash(
+        &mut self,
+        tx_hash: &Byte32,
+    ) -> Vec<TxEntry> {
+        let Some(id) = self.get_by_tx_hash(tx_hash).map(|entry| entry.id.clone()) else {
+            return Vec::new();
+        };
+        self.remove_entry_and_descendants(&id)
+    }
+
+    pub(crate) fn remove_entry_by_tx_hash(&mut self, tx_hash: &Byte32) -> Option<TxEntry> {
+        let id = self.get_by_tx_hash(tx_hash).map(|entry| entry.id.clone())?;
+        self.remove_entry(&id)
     }
 
     pub(crate) fn resolve_conflict_header_dep(
@@ -533,16 +556,14 @@ impl PoolMap {
                 parents.extend(deps.iter().cloned());
             }
 
-            let id = ProposalShortId::from_tx_hash(&input_pt.tx_hash());
-            if self.links.inner.contains_key(&id) {
-                parents.insert(id);
+            if let Some(parent) = self.get_by_tx_hash(&input_pt.tx_hash()) {
+                parents.insert(parent.id.clone());
             }
         }
         for cell_dep in entry.cell_deps() {
             let dep_pt = cell_dep.out_point();
-            let id = ProposalShortId::from_tx_hash(&dep_pt.tx_hash());
-            if self.links.inner.contains_key(&id) {
-                parents.insert(id);
+            if let Some(parent) = self.get_by_tx_hash(&dep_pt.tx_hash()) {
+                parents.insert(parent.id.clone());
             }
         }
 
@@ -617,20 +638,20 @@ impl PoolMap {
 
         let mut iter = evict_candidates.iter();
         while ancestors_count > self.max_ancestors_count {
-            if let Some(next_id) = iter.next() {
-                let removed = self.remove_entry_and_descendants(next_id);
-                for removed_id in removed.iter().map(|entry| entry.proposal_short_id()) {
-                    parents.remove(&removed_id);
-                }
-                ancestors_count = self
-                    .links
-                    .calc_relation_ids(parents.clone(), Relation::Parents)
-                    .len()
-                    + 1;
-                evicted.extend(removed);
-            } else {
+            let Some(next_id) = iter.next() else {
                 break;
+            };
+
+            let removed = self.remove_entry_and_descendants(next_id);
+            for removed_id in removed.iter().map(|entry| entry.proposal_short_id()) {
+                parents.remove(&removed_id);
             }
+            ancestors_count = self
+                .links
+                .calc_relation_ids(parents.clone(), Relation::Parents)
+                .len()
+                + 1;
+            evicted.extend(removed);
         }
 
         // some txs in `parents` are removed, now `ancestors` need to re-caculate,

@@ -103,7 +103,7 @@ pub(crate) type TestAcceptTxResult = Result<EntryCompleted, Reject>;
 
 type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
-type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
+type FetchTxsWithCyclesResult = Vec<(TransactionView, Cycle)>;
 
 pub(crate) type ChainReorgArgs = (
     VecDeque<BlockView>,
@@ -123,7 +123,7 @@ pub(crate) enum Message {
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
+    FetchTxsWithCycles(AsyncRequest<HashSet<Byte32>, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     GetLiveCell(Request<(OutPoint, bool), CellStatus>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
@@ -364,10 +364,10 @@ impl TxPoolController {
     /// Mainly for relay transactions
     pub async fn fetch_txs_with_cycles(
         &self,
-        short_ids: HashSet<ProposalShortId>,
+        tx_hashes: HashSet<Byte32>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(short_ids, responder);
+        let request = AsyncRequest::call(tx_hashes, responder);
         self.sender
             .try_send(Message::FetchTxsWithCycles(request))
             .map_err(|e| {
@@ -881,13 +881,12 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: hash,
         }) => {
-            let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
             let ret = if let Some(PoolEntry {
                 status,
                 inner: entry,
                 ..
-            }) = tx_pool.pool_map.get_by_id(&id)
+            }) = tx_pool.pool_map.get_by_tx_hash(&hash)
             {
                 let status = if status == &Status::Proposed {
                     TxStatus::Proposed
@@ -918,13 +917,12 @@ async fn process(mut service: TxPoolService, message: Message) {
             responder,
             arguments: hash,
         }) => {
-            let id = ProposalShortId::from_tx_hash(&hash);
             let tx_pool = service.tx_pool.read().await;
             let ret = if let Some(PoolEntry {
                 status,
                 inner: entry,
                 ..
-            }) = tx_pool.pool_map.get_by_id(&id)
+            }) = tx_pool.pool_map.get_by_tx_hash(&hash)
             {
                 let (tx_status, min_replace_fee) = if status == &Status::Proposed {
                     (TxStatus::Proposed, None)
@@ -964,16 +962,12 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::FetchTxsWithCycles(AsyncRequest {
             responder,
-            arguments: short_ids,
+            arguments: tx_hashes,
         }) => {
             let tx_pool = service.tx_pool.read().await;
-            let txs = short_ids
+            let txs = tx_hashes
                 .into_iter()
-                .filter_map(|short_id| {
-                    tx_pool
-                        .get_tx_with_cycles(&short_id)
-                        .map(|(tx, cycles)| (short_id, (tx, cycles)))
-                })
+                .filter_map(|tx_hash| tx_pool.get_tx_with_cycles(&tx_hash))
                 .collect();
             if let Err(e) = responder.send(txs) {
                 error!("Responder sending fetch_txs_with_cycles failed {:?}", e);
@@ -1002,9 +996,8 @@ async fn process(mut service: TxPoolService, message: Message) {
             arguments: tx_hash,
         }) => {
             let tx_pool = service.tx_pool.read().await;
-            let id = ProposalShortId::from_tx_hash(&tx_hash);
             let tx_details = tx_pool
-                .get_tx_detail(&id)
+                .get_tx_detail(&tx_hash)
                 .unwrap_or(PoolTxDetailInfo::with_unknown());
             if let Err(e) = responder.send(tx_details) {
                 error!("responder send get_pool_tx_details failed {:?}", e)

@@ -43,6 +43,8 @@ impl<'a> TransactionHashesProcess<'a> {
                 .iter()
                 .map(|x| x.to_entity())
                 .filter(|tx_hash| !tx_filter.contains(tx_hash))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
                 .collect()
         };
 

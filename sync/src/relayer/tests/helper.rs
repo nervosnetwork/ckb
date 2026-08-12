@@ -325,6 +325,10 @@ impl MockProtocolContext {
             .borrow()
             .contains(&(protocol_id, peer_index, data))
     }
+
+    pub(crate) fn sent_messages_len(&self) -> usize {
+        self.sent_messages.borrow().len()
+    }
 }
 
 #[async_trait]

@@ -2,22 +2,27 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DaoScriptSizeVerifier, DuplicateDepsVerifier, EmptyVerifier,
     MaturityVerifier, OutputsDataVerifier, Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
+use crate::cache::Completed;
 use crate::error::TransactionErrorSource;
 use crate::transaction_verifier::ScriptHashTypeVerifier;
-use crate::{TransactionError, TxVerifyEnv};
+use crate::{ContextualTransactionVerifier, ScriptError, TransactionError, TxVerifyEnv};
 use ckb_chain_spec::{
     OUTPUT_INDEX_DAO, build_genesis_type_id_script,
     consensus::{Consensus, ConsensusBuilder},
 };
 use ckb_error::{Error, assert_error_eq};
 use ckb_test_chain_utils::{MOCK_MEDIAN_TIME_COUNT, MockMedianTime};
-use ckb_traits::CellDataProvider;
+use ckb_traits::{
+    CellDataProvider, EpochProvider, ExtensionProvider, HeaderFields, HeaderFieldsProvider,
+    HeaderProvider,
+};
 use ckb_types::{
     bytes::Bytes,
     constants::TX_VERSION,
     core::{
-        BlockNumber, Capacity, EpochNumber, EpochNumberWithFraction, HeaderView, ScriptHashType,
-        TransactionBuilder, TransactionInfo, TransactionView, capacity_bytes,
+        BlockExt, BlockNumber, Capacity, Cycle, EpochExt, EpochNumber, EpochNumberWithFraction,
+        HeaderView, ScriptHashType, TransactionBuilder, TransactionInfo, TransactionView,
+        capacity_bytes,
         cell::{CellMeta, CellMetaBuilder, ResolvedTransaction},
         hardfork::HardForks,
     },
@@ -385,6 +390,137 @@ pub fn test_capacity_invalid() {
             inputs_sum: capacity_bytes!(149),
             outputs_sum: capacity_bytes!(150),
         },
+    );
+}
+
+#[derive(Clone)]
+struct ContextualTestDataLoader;
+
+impl CellDataProvider for ContextualTestDataLoader {
+    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+        None
+    }
+
+    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+        None
+    }
+}
+
+impl HeaderProvider for ContextualTestDataLoader {
+    fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
+    }
+}
+
+impl ExtensionProvider for ContextualTestDataLoader {
+    fn get_block_extension(&self, _hash: &Byte32) -> Option<ckb_types::packed::Bytes> {
+        None
+    }
+}
+
+impl HeaderFieldsProvider for ContextualTestDataLoader {
+    fn get_header_fields(&self, _hash: &Byte32) -> Option<HeaderFields> {
+        None
+    }
+}
+
+impl EpochProvider for ContextualTestDataLoader {
+    fn get_epoch_ext(&self, _block_header: &HeaderView) -> Option<EpochExt> {
+        None
+    }
+
+    fn get_block_hash(&self, _number: BlockNumber) -> Option<Byte32> {
+        None
+    }
+
+    fn get_block_ext(&self, _block_hash: &Byte32) -> Option<BlockExt> {
+        None
+    }
+
+    fn get_block_header(&self, _hash: &Byte32) -> Option<HeaderView> {
+        None
+    }
+}
+
+fn contextual_verifier_with_cached_script_cycles(
+    input_capacity: Capacity,
+    output_capacity: Capacity,
+    cached_script_cycles: Cycle,
+) -> ContextualTransactionVerifier<ContextualTestDataLoader> {
+    let transaction = TransactionBuilder::default()
+        .output(CellOutput::new_builder().capacity(output_capacity).build())
+        .output_data(Bytes::new())
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder().capacity(input_capacity).build(),
+                Bytes::new(),
+            )
+            .build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    });
+    let consensus = Arc::new(ConsensusBuilder::default().build());
+    let tx_env = Arc::new(TxVerifyEnv::new_commit(
+        &HeaderView::new_advanced_builder().build(),
+    ));
+    ContextualTransactionVerifier::new_with_cached_script_cycles(
+        rtx,
+        consensus,
+        ContextualTestDataLoader,
+        tx_env,
+        Some(cached_script_cycles),
+    )
+}
+
+#[test]
+fn test_cached_script_cycles_do_not_skip_capacity_verification() {
+    let verifier = contextual_verifier_with_cached_script_cycles(
+        capacity_bytes!(149),
+        capacity_bytes!(150),
+        42,
+    );
+
+    assert_error_eq!(
+        verifier.verify(u64::MAX, false).unwrap_err(),
+        TransactionError::OutputsSumOverflow {
+            inputs_sum: capacity_bytes!(149),
+            outputs_sum: capacity_bytes!(150),
+        },
+    );
+}
+
+#[test]
+fn test_cached_script_cycles_recalculate_fee() {
+    let verifier = contextual_verifier_with_cached_script_cycles(
+        capacity_bytes!(200),
+        capacity_bytes!(150),
+        42,
+    );
+
+    assert_eq!(
+        verifier.verify(u64::MAX, false).unwrap(),
+        Completed {
+            cycles: 42,
+            fee: capacity_bytes!(50),
+        },
+    );
+}
+
+#[test]
+fn test_cached_script_cycles_respect_max_cycles() {
+    let verifier = contextual_verifier_with_cached_script_cycles(
+        capacity_bytes!(200),
+        capacity_bytes!(150),
+        42,
+    );
+
+    assert_error_eq!(
+        verifier.verify(41, false).unwrap_err(),
+        ScriptError::ExceededMaximumCycles(41).unknown_source(),
     );
 }
 

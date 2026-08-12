@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.3.1...ckb-sync-v1.3.2) - 2026-07-28
+
+### Changed
+
+- *(sync)* simplify header sync ETA log (#5280) (by @janx)
+
+### Fixed
+
+- Fix/unbounded memory growth (#5292) (by @chenyukang)
+- Fix clippy and format issues (#5263) (by @chenyukang)
+- Fix some public security issues (#5219) (by @Officeyutong)
+- reject duplicate indexes in GetBlockTransactions to prevent relay amplification (by @eval-exec)
+- *(relay)* fail fast on tx-pool backpressure (#5239) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @janx
+- @Officeyutong
+- @eval-exec
+
 ## [1.3.1](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.3.0...ckb-sync-v1.3.1) - 2026-06-08
 
 ### Added

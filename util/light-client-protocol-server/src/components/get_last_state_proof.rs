@@ -319,6 +319,12 @@ impl<'a> GetLastStateProofProcess<'a> {
                 difficulty_boundary_block_number = last_block_number - last_n_blocks;
             }
 
+            let min_boundary = last_block_number
+                .saturating_sub(constant::GET_LAST_STATE_PROOF_LIMIT as BlockNumber);
+            if difficulty_boundary_block_number < min_boundary {
+                difficulty_boundary_block_number = min_boundary;
+            }
+
             let last_n_numbers =
                 (difficulty_boundary_block_number..last_block_number).collect::<Vec<_>>();
 
@@ -356,6 +362,10 @@ impl<'a> GetLastStateProofProcess<'a> {
             .chain(sampled_numbers)
             .chain(last_n_numbers)
             .collect::<Vec<_>>();
+
+        if block_numbers.len() > constant::GET_LAST_STATE_PROOF_LIMIT {
+            return StatusCode::MalformedProtocolMessage.with_context("too many samples");
+        }
 
         let (positions, headers) = {
             let mut positions: Vec<u64> = Vec::new();

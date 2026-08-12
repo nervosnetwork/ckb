@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.208.0"
+version = "0.209.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-bin"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -915,7 +915,7 @@ version = "1.1.1"
 
 [[package]]
 name = "ckb-chain"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain-spec",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-chain-spec"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "cacache",
  "ckb-constant",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-constant"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "phf 0.12.1",
 ]
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-dao"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fee-estimator"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-chain-spec",
  "ckb-logger",
@@ -1210,7 +1210,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "ckb-types",
  "faster-hex",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-launcher"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "1.2.1"
+version = "1.3.0"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-logger-service"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "backtrace",
  "ckb-channel",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-memory-tracker"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-db",
  "ckb-logger",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-metrics"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "prometheus",
  "prometheus-static-metric",
@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-miner"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "base64 0.21.7",
  "ckb-app-config",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "bitflags 2.11.1",
  "bloom-filters",
@@ -1541,7 +1541,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-onion"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-error",
@@ -1583,7 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rational"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "numext-fixed-uint",
  "proptest",
@@ -1592,7 +1592,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1622,7 +1622,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rich-indexer"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "anyhow",
  "ckb-app-config",
@@ -1657,7 +1657,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-rpc"
-version = "1.2.3"
+version = "1.3.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1729,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1963,14 +1963,14 @@ dependencies = [
 
 [[package]]
 name = "ckb-traits"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-types",
 ]
 
 [[package]]
 name = "ckb-tx-pool"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -2012,7 +2012,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-types"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "bit-vec 0.6.3",
  "bytes",
@@ -2044,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "ckb-chain-spec",
  "ckb-constant",
@@ -2066,7 +2066,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-verification-contextual"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "ckb-async-runtime",
  "ckb-chain",

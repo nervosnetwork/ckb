@@ -200,13 +200,10 @@ impl TxPool {
             .collect()
     }
 
-    /// Returns tx with cycles corresponding to the id.
-    pub(crate) fn get_tx_with_cycles(
-        &self,
-        id: &ProposalShortId,
-    ) -> Option<(TransactionView, Cycle)> {
+    /// Returns a transaction and its cycles by transaction hash.
+    pub(crate) fn get_tx_with_cycles(&self, tx_hash: &Byte32) -> Option<(TransactionView, Cycle)> {
         self.pool_map
-            .get_by_id(id)
+            .get_by_tx_hash(tx_hash)
             .map(|entry| (entry.inner.transaction().clone(), entry.inner.cycles))
     }
 
@@ -251,9 +248,9 @@ impl TxPool {
     }
 
     fn remove_committed_tx(&mut self, tx: &TransactionView, callbacks: &Callbacks) {
-        let short_id = tx.proposal_short_id();
-        if let Some(_entry) = self.pool_map.remove_entry(&short_id) {
-            debug!("remove_committed_tx for {}", tx.hash());
+        let tx_hash = tx.hash();
+        if self.pool_map.remove_entry_by_tx_hash(&tx_hash).is_some() {
+            debug!("remove_committed_tx for {}", tx_hash);
         }
         {
             for (entry, reject) in self.pool_map.resolve_conflict(tx) {
@@ -355,8 +352,10 @@ impl TxPool {
         }
     }
 
-    pub(crate) fn remove_tx(&mut self, id: &ProposalShortId) -> bool {
-        let entries = self.pool_map.remove_entry_and_descendants(id);
+    pub(crate) fn remove_tx_by_hash(&mut self, tx_hash: &Byte32) -> bool {
+        let entries = self
+            .pool_map
+            .remove_entry_and_descendants_by_tx_hash(tx_hash);
         !entries.is_empty()
     }
 
@@ -679,8 +678,9 @@ impl TxPool {
     }
 
     /// query the details of a transaction in the pool, only for trouble shooting
-    pub(crate) fn get_tx_detail(&self, id: &ProposalShortId) -> Option<PoolTxDetailInfo> {
-        if let Some(entry) = self.pool_map.get_by_id(id) {
+    pub(crate) fn get_tx_detail(&self, tx_hash: &Byte32) -> Option<PoolTxDetailInfo> {
+        if let Some(entry) = self.pool_map.get_by_tx_hash(tx_hash) {
+            let id = entry.id.clone();
             let ids = self.get_ids();
             let rank_in_pending = if entry.status == Status::Proposed {
                 0
@@ -700,8 +700,8 @@ impl TxPool {
                 pending_count: self.pool_map.pending_size(),
                 rank_in_pending,
                 proposed_count: ids.proposed.len(),
-                descendants_count: self.pool_map.calc_descendants(id).len(),
-                ancestors_count: self.pool_map.calc_ancestors(id).len(),
+                descendants_count: self.pool_map.calc_descendants(&id).len(),
+                ancestors_count: self.pool_map.calc_ancestors(&id).len(),
                 score_sortkey: entry.inner.as_score_key().into(),
             };
             Some(res)
