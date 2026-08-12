@@ -6776,8 +6776,7 @@ dependencies = [
 [[package]]
 name = "tentacle"
 version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ab80c50726dc639daf326406efc983c578e65d06efa84f6d11385abc6dc27be"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6810,8 +6809,7 @@ dependencies = [
 [[package]]
 name = "tentacle-multiaddr"
 version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7b06b419ae75898680ae449d5db5bf9dfedb531c49cdb6f24d42054508a2df3"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "arrayref",
  "bs58",
@@ -6826,8 +6824,7 @@ dependencies = [
 [[package]]
 name = "tentacle-secio"
 version = "0.6.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "410f26213e6f4bf189f661db9c92241f77b84f6eabebe4bf35283d841cbb67ae"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "bs58",
  "bytes",
@@ -7152,8 +7149,7 @@ dependencies = [
 [[package]]
 name = "tokio-yamux"
 version = "0.3.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52ec7b39569c9fc5dada5c87ca70e364bae3ca191b6f72a444842b114a656bd5"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "bytes",
  "futures",
