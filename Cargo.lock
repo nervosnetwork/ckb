@@ -7039,6 +7039,7 @@ dependencies = [
 [[package]]
 name = "tentacle"
 version = "0.7.6"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7076,6 +7077,7 @@ dependencies = [
 [[package]]
 name = "tentacle-multiaddr"
 version = "0.3.7"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "arrayref",
  "bs58",
@@ -7090,6 +7092,7 @@ dependencies = [
 [[package]]
 name = "tentacle-secio"
 version = "0.6.8"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "bs58",
  "bytes",
@@ -7414,6 +7417,7 @@ dependencies = [
 [[package]]
 name = "tokio-yamux"
 version = "0.3.19"
+source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
 dependencies = [
  "bytes",
  "futures",
