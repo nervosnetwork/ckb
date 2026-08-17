@@ -2186,7 +2186,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3695,7 +3695,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5529,7 +5529,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5568,7 +5568,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -7038,8 +7038,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle"
-version = "0.7.6"
-source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ece1f30bebb1d7e7dcb2c32591aa677b4ca72c66c6b73be721886b041f22e470"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7076,8 +7077,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-multiaddr"
-version = "0.3.7"
-source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "557b93edd813d6f875e03013f2cf5bb2b4318b9e440d69a98ce8536bb302699e"
 dependencies = [
  "arrayref",
  "bs58",
@@ -7091,8 +7093,9 @@ dependencies = [
 
 [[package]]
 name = "tentacle-secio"
-version = "0.6.8"
-source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d608a76b7e4947413e54475a077d47f7cec41b58f0ad12d9a27293032b680839"
 dependencies = [
  "bs58",
  "bytes",
@@ -7416,8 +7419,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-yamux"
-version = "0.3.19"
-source = "git+https://github.com/nervosnetwork/tentacle?rev=2541c7a#2541c7a3ae877187b9f7e08d73d38e451bc5e5f7"
+version = "0.3.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1203db1ac9762aaf041ba62d4fade5959b89af1abd057c5e9bc54ae3e7f00c4b"
 dependencies = [
  "bytes",
  "futures",
@@ -8057,7 +8061,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
