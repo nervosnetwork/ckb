@@ -602,7 +602,7 @@ impl AuthorityWakeTransition {
 #[must_use = "a committed delta owns post-Apply retirement and timing evidence"]
 pub(super) struct CommittedDelta {
     async_process_observations: AsyncProcessObservations,
-    /// Removal observations remain available to model tests and are destroyed
+    /// Removal observations remain available to production property tests and are destroyed
     /// with the retirement carrier before post-commit publication.
     pub(super) removals: Vec<MembershipRemoval>,
     retired: Vec<OwnedTx>,

@@ -92,11 +92,6 @@ impl TemplateCandidate {
     pub(super) fn order(&self) -> &AcceptedOrderKey {
         &self.order
     }
-
-    #[cfg(test)]
-    pub(super) fn eviction_order(&self) -> &EvictionOrderKey {
-        &self.eviction
-    }
 }
 
 #[derive(Debug)]

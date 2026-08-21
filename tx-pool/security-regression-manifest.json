@@ -27,42 +27,7 @@
     }
   ],
   "kind": "disposable_structural_projection_not_proof",
-  "legacy_routes": [
-    "active_legacy_proof_document:tx-pool/README.md",
-    "active_legacy_proof_document:tx-pool/docs/ARCHITECTURE.md",
-    "active_legacy_proof_document:tx-pool/docs/BENCHMARK.md",
-    "active_legacy_proof_document:tx-pool/docs/PERFORMANCE.md",
-    "active_legacy_proof_document:tx-pool/docs/REVIEW_GUIDE.md",
-    "active_legacy_proof_document:tx-pool/docs/VALIDATION.md",
-    "legacy_artifact:tx-pool/formal/models.json",
-    "legacy_artifact:tx-pool/integration-impact.json",
-    "legacy_artifact:tx-pool/mutation-acceptance-lock.json",
-    "legacy_artifact:tx-pool/mutation-result-lock.json",
-    "legacy_artifact:tx-pool/optimization-evidence/complexity-blueprint.json",
-    "legacy_artifact:tx-pool/optimization-evidence/complexity-certificate.json",
-    "legacy_artifact:tx-pool/optimization-evidence/integration-differential-census.json",
-    "legacy_artifact:tx-pool/optimization-evidence/normal-form-partition.json",
-    "legacy_artifact:tx-pool/optimization-evidence/release-basis.json",
-    "legacy_artifact:tx-pool/optimization-evidence/reviews/method-g2-decision-ledger.md",
-    "legacy_artifact:tx-pool/optimization-evidence/semantic-refinement-census.json",
-    "legacy_artifact:tx-pool/optimization-evidence/workload-environment-matrix.json",
-    "legacy_artifact:tx-pool/review-behaviors.json",
-    "legacy_artifact:tx-pool/scripts/check_ascii.py",
-    "legacy_artifact:tx-pool/scripts/check_docs.py",
-    "legacy_artifact:tx-pool/scripts/check_formal_models.py",
-    "legacy_artifact:tx-pool/scripts/check_model_refinement.py",
-    "legacy_artifact:tx-pool/scripts/check_mutation_adjudication.py",
-    "legacy_artifact:tx-pool/scripts/check_mutation_matrix.py",
-    "legacy_artifact:tx-pool/scripts/check_production_contracts.py",
-    "legacy_artifact:tx-pool/scripts/check_review_guide.py",
-    "legacy_artifact:tx-pool/scripts/check_semantic_refinement_census.py",
-    "legacy_artifact:tx-pool/scripts/check_test_layout.py",
-    "legacy_artifact:tx-pool/scripts/fixtures/model_refinement_canary.rs",
-    "legacy_artifact:tx-pool/scripts/run_acceptance_lane.py",
-    "legacy_artifact:tx-pool/src/tests/model",
-    "legacy_artifact:tx-pool/test-inventory.txt",
-    "legacy_artifact:tx-pool/test-layout-manifest.json"
-  ],
+  "legacy_routes": [],
   "method_identity": {
     "authority_hashes": {
       ".github/workflows/ci_tx_pool_review.yaml": "4990318d31850ee1783a2b329309eed090a08f9b8be7d457aaa77eb39254581e",
@@ -82,10 +47,11 @@
     "recovery_tree": "f54256aa52c071ffdaa9dfe1e4af7dc5424de592"
   },
   "phase_projection": {
-    "active": "legacy_generation_retirement",
+    "active": "hard_and_static_proof",
     "completed": [
       "method_same_subject_review",
-      "partner_a_method_review"
+      "partner_a_method_review",
+      "legacy_generation_retirement"
     ],
     "controller_available": false,
     "entries": [
@@ -99,11 +65,11 @@
       },
       {
         "id": "legacy_generation_retirement",
-        "status": "ready_incomplete"
+        "status": "complete"
       },
       {
         "id": "hard_and_static_proof",
-        "status": "blocked"
+        "status": "ready_incomplete"
       },
       {
         "id": "measured_performance",
@@ -143,7 +109,6 @@
   },
   "schema_version": 1,
   "warnings": [
-    "34 active legacy proof routes remain",
     "controller absent; machine phases fail closed"
   ]
 }

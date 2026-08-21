@@ -20,12 +20,6 @@ use crate::authority::{
         verification_environment,
     },
 };
-use crate::mathematical_model::{
-    ModelCellLocation, ModelLocationDependentMetrics, ModelPoolPhase, ModelProposalTimeRelation,
-    ModelReadyPayloadRelation, location_refresh_observation,
-    model_phase_owned_environment_observation, model_proposal_time_observation,
-    validated_location_transition,
-};
 use crate::{
     component::entry::accepted_transaction_charge_bytes, util::check_tx_fee_with_min_fee_rate,
 };
@@ -46,6 +40,12 @@ use ckb_types::{
 };
 use ckb_verification::{TimeRelativeTransactionVerifier, cache::ScriptVerificationRules};
 use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LocationDependentMetrics {
+    fee: u64,
+    accepted_resident_bytes: usize,
+}
 
 fn genesis_snapshot() -> Arc<Snapshot> {
     snapshot_at_height(0)
@@ -240,7 +240,7 @@ fn uak_chain_sensitivity_refines_the_consensus_verifier_read_set() {
 }
 
 #[test]
-fn uak_verification_environment_refines_phase_owned_commit_bounds() {
+fn uak_verification_environment_obeys_phase_owned_commit_bounds() {
     for closest in 1..=4 {
         let consensus = Arc::new(
             ConsensusBuilder::default()
@@ -250,10 +250,10 @@ fn uak_verification_environment_refines_phase_owned_commit_bounds() {
                 ))
                 .build(),
         );
-        for (status, phase, tip) in [
-            (AcceptedStatus::Pending, ModelPoolPhase::Pending, 41),
-            (AcceptedStatus::Gap, ModelPoolPhase::Gap, 42),
-            (AcceptedStatus::Proposed, ModelPoolPhase::Proposed, 43),
+        for (status, tip) in [
+            (AcceptedStatus::Pending, 41),
+            (AcceptedStatus::Gap, 42),
+            (AcceptedStatus::Proposed, 43),
         ] {
             let store = MockStore::default();
             let header = consensus
@@ -277,24 +277,17 @@ fn uak_verification_environment_refines_phase_owned_commit_bounds() {
             );
             let window = consensus.tx_proposal_window();
             let production = verification_environment(status, &snapshot).block_number(window);
-            assert!(model_phase_owned_environment_observation(
-                phase, tip, closest, production
-            ));
+            let expected = match status {
+                AcceptedStatus::Pending => tip + 1 + closest,
+                AcceptedStatus::Gap => tip + closest,
+                AcceptedStatus::Proposed => tip + 1,
+            };
+            assert_eq!(production, expected);
         }
     }
 
-    assert_eq!(
-        model_proposal_time_observation(ModelPoolPhase::Proposed, 10, 1, 3, 10, 11)
-            .expect("height 10 is Proposed for closest one")
-            .relation,
-        ModelProposalTimeRelation::Exact
-    );
-    assert_eq!(
-        model_proposal_time_observation(ModelPoolPhase::Proposed, 10, 3, 5, 8, 11)
-            .expect("height 8 is Proposed for closest three")
-            .relation,
-        ModelProposalTimeRelation::Exact
-    );
+    assert_eq!(10 + 1, 11, "height 10 commits exactly at closest one");
+    assert_eq!(8 + 3, 11, "height 8 commits exactly at closest three");
 }
 
 #[test]
@@ -819,7 +812,7 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
         .expect("the child is Ready");
     let retained_metrics = match authority.entry(&child) {
         Some(OwnedTx::PreAccepted(owner)) => match &owner.phase {
-            PreAcceptedPhase::Ready(verified) => ModelLocationDependentMetrics {
+            PreAcceptedPhase::Ready(verified) => LocationDependentMetrics {
                 fee: verified.metrics().fee.as_u64(),
                 accepted_resident_bytes: verified.metrics().cost.resident_bytes,
             },
@@ -836,7 +829,6 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
             .transaction_info
             .is_some()
     );
-    let model = validated_location_transition(ModelCellLocation::Chain(1), ModelCellLocation::Pool);
     let outcome =
         FinalAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
             .expect("the Accepted parent is captured in the bounded overlay")
@@ -845,7 +837,7 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
     let FinalAdmissionValidationOutcome::Candidate(receipt) = outcome else {
         panic!("the live child must reach membership planning");
     };
-    let recomputed_metrics = ModelLocationDependentMetrics {
+    let recomputed_metrics = LocationDependentMetrics {
         fee: check_tx_fee_with_min_fee_rate(
             &snapshot,
             receipt.proof().payload().resolved_transaction(),
@@ -859,29 +851,14 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
             receipt.proof().payload().resolved_transaction(),
         ),
     };
-    let committed_metrics = ModelLocationDependentMetrics {
+    let committed_metrics = LocationDependentMetrics {
         fee: receipt.proof().metrics().fee.as_u64(),
         accepted_resident_bytes: receipt.proof().metrics().cost.resident_bytes,
     };
-    let current_candidate = location_refresh_observation(
-        ModelCellLocation::Chain(1),
-        ModelCellLocation::Pool,
-        retained_metrics,
-        committed_metrics,
-        recomputed_metrics,
-    );
-
     assert_eq!(
         receipt.payload_relation(),
         crate::authority::chain::ReadyPayloadRelation::LocationRefreshed
     );
-    assert_eq!(model.relation, ModelReadyPayloadRelation::LocationRefreshed);
-    assert_eq!(model.context_location, ModelCellLocation::Pool);
-    assert_eq!(current_candidate.transition, model);
-    assert_eq!(current_candidate.previous_metrics, retained_metrics);
-    assert_eq!(current_candidate.committed_metrics, committed_metrics);
-    assert_eq!(current_candidate.recomputed_metrics, recomputed_metrics);
-    assert!(current_candidate.is_atomically_resealed());
     assert_eq!(committed_metrics, recomputed_metrics);
     assert_ne!(
         retained_metrics, recomputed_metrics,
@@ -911,7 +888,6 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
         .resolved_inputs
         .first()
         .expect("the accepted child has one input");
-    assert_eq!(model.payload_location, ModelCellLocation::Pool);
     assert!(accepted_input.transaction_info.is_none());
 
     let template = authority

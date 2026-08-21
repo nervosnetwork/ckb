@@ -22,7 +22,6 @@ use crate::authority::state::{
 };
 use crate::authority::validation::FinalAdmissionValidationError;
 use crate::authority::worker::test_support::AuthorityTestWorkerOwner;
-use crate::mathematical_model::{ModelAcceptedValidity, model_accepted_validity};
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -85,7 +84,7 @@ fn runtime() -> AuthorityRuntime {
 }
 
 #[test]
-fn runtime_accepted_validity_refines_the_model_priority_function() {
+fn runtime_accepted_validity_obeys_the_complete_priority_truth_table() {
     let rules = [
         ScriptVerificationRules::V0,
         ScriptVerificationRules::V1,
@@ -96,20 +95,14 @@ fn runtime_accepted_validity_refines_the_model_priority_function() {
             for had_detached_chain in [false, true] {
                 let production =
                     accepted_validity_transition(old_rules, new_rules, had_detached_chain);
-                let model = model_accepted_validity(old_rules != new_rules, had_detached_chain);
-                assert!(matches!(
-                    (production, model),
-                    (
-                        AcceptedValidityTransition::Preserved,
-                        ModelAcceptedValidity::Preserved
-                    ) | (
-                        AcceptedValidityTransition::ContextChanged,
-                        ModelAcceptedValidity::ContextChanged
-                    ) | (
-                        AcceptedValidityTransition::RulesChanged,
-                        ModelAcceptedValidity::RulesChanged
-                    )
-                ));
+                let expected = if old_rules != new_rules {
+                    AcceptedValidityTransition::RulesChanged
+                } else if had_detached_chain {
+                    AcceptedValidityTransition::ContextChanged
+                } else {
+                    AcceptedValidityTransition::Preserved
+                };
+                assert_eq!(production, expected);
             }
         }
     }

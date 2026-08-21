@@ -10,7 +10,7 @@ pub(in crate::authority) struct EffectSnapshot {
 }
 
 /// Test-only extraction of the committed stream at one authority stable cut.
-/// It exposes production facts, not model-normalized values, so refinement
+/// It exposes production facts, not relation-normalized values, so refinement
 /// adapters must still perform their own independent semantic mapping.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct EffectTraceBatch {

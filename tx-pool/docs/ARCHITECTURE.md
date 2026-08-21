@@ -4,42 +4,38 @@
 
 The sole machine authority is
 [`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
-For the fixed release basis `B`, let `N_B` be the covered admissible normal
-forms and `H` the conjunction of the declared hard constraints, concurrency law
-and minimum-coupling law. The required selection is:
+Let `A_CKB` be the open class of CKB-compatible tx-pool architectures and `H`
+the conjunction of consensus, dependency/conflict, compatibility, bounded
+resource, concurrency and minimum-coupling constraints. The literal selection
+is:
 
 ```text
-X0 = {x in N_B | H(x)}
-X1 = argmin_lex J_static(x)       over X0
-X2 = argmin_noise_gated J_perf(x) over X1 on the declared matrix
-X3 = argmin_lex J_complexity(x)   over X2
+feasible_set = {x in A_CKB | H(x)}
+static_minima = argmin_lex J_static(x)       over feasible_set
+empirical_survivors = argmin_noise_gated J_perf(x) over static_minima on the declared matrix
+complexity_minima = argmin_lex J_complexity(x)   over empirical_survivors
 ```
 
-For the current finite quotient, the executable static proof establishes
-`|X1| = 1`. Hence `argmin J_perf over X1 = X1` for every empirical objective:
-the Construction measurement universe is empty and `X2 = X1`. The declared
-matrix remains mandatory for later fixed-release-binary Acceptance; it cannot
-retroactively select or repair this topology.
+A finite normal-form quotient may expose a counterexample or establish a
+scoped result over its declared members. It does not establish that `H` is
+closed over `A_CKB`, that every feasible architecture has a total
+objective/cost-preserving representation, or that `static_minima` is a global
+singleton. Those obligations remain OPEN. An empirical matrix cannot repair a
+missing static quantifier.
 
 The witness must maximize independent validation and computation without
 weakening an earlier coordinate, and order dependency/conflict, replacement,
 budget, ownership and effect facts only at the sole authority's minimum atomic
 commit cut. This document refines that target into architecture and proof
-obligations; it does not redefine the constraint or objective order. Until the
-content-addressed certificate closes, the selected topology is only a
-candidate. The live claim and certificate are single-owned by
-`architecture-contract.json#optimality_protocol`; the generated
-`optimization-evidence/complexity-certificate.json` must reproduce its
-absolute semantic `Kappa`, conditional lower bounds, witness equality,
-production refinement and negative canaries exactly.
-The claim is conditional on the finite declared release basis and its trusted
-completeness boundary, not on all imaginable future protocols. Within that
-scope, coverage is an executable finite quotient rather than a prose survey;
-without the complete certificate the result remains a release blocker, and it
-cannot silently degrade to a `best known` claim.
+obligations; it does not redefine the constraint or objective order. Until a
+total static reduction or a general CKB outsider resolves the open quantifier,
+the selected topology is a production candidate rather than a proved global
+optimum. No generated certificate, executable comparison model or finite
+catalog has independent semantic authority. The target cannot silently degrade
+to a `best known` claim.
 
 This document is the normative design of the current tx-pool. It describes
-the surviving production model, not the migration history. Executable behavior
+the surviving production architecture, not the migration history. Executable behavior
 and attack regressions are indexed by [REVIEW_GUIDE.md](REVIEW_GUIDE.md);
 machine-contract maintenance is documented by [VALIDATION.md](VALIDATION.md);
 performance evidence and measurement rules live in
@@ -1472,12 +1468,9 @@ site.
 
 The backward constructor contract classifies each integrity family as follows.
 The table states the premise every production constructor must establish.
-`check_production_contracts.py::validate_authority_failure_algebra` derives the
-model/production constructor bijections, exact conversion topology, sealed
-ingress evidence flow and both recovery contexts; its negative canary removes
-one route and must fail. The executable model exhausts every ordinary and
-structural variant. Release status remains machine-owned by the convergence
-manifest rather than inferred from this table:
+Production exhaustive matches and focused negative property tests own these
+claims; no generated constructor bijection or executable comparison model has
+semantic authority. Release status cannot be inferred from this table:
 
 | Integrity class | Only legal constructor premise | Why valid/hostile input cannot reach it |
 |---|---|---|
@@ -1771,9 +1764,9 @@ rebinding and a permanently red Construction aggregate gate.
 | bounded relay projection | `authority/relay.rs` |
 
 Production tests belong under dedicated `tests/` modules. Any irreducible
-`cfg(test)` field or observation hook must be a named seam in
-`test-layout-manifest.json`; an entire production directory may never be
-excluded from static safety review.
+`cfg(test)` field or observation hook must expose production facts without
+owning policy; an entire production directory may never be excluded from
+static safety review.
 
 ## 19. Change rules
 

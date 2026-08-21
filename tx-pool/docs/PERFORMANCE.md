@@ -15,28 +15,18 @@ model, reproducible profiling method, evidence strength and final acceptance
 matrix. Machine-contract maintenance is defined by
 [`VALIDATION.md`](VALIDATION.md). It is not an implementation diary.
 
-The matrix has two disjoint record types. A Construction record is admissible
-only when `X1` has multiple static minimizers and can only select `X2`; it never
-counts as release evidence. An Acceptance record binds the frozen evidence
-universe and release-binary hash after complete correctness; it can confirm but
-never select or repair topology. The checker rejects substitution in either
-direction.
+The static frontier over the open architecture class is not closed, so no
+current result establishes a global singleton `static_minima` and no candidate
+ranking is authorized. The historical finite P3 matrix is invalid and frozen
+after exhausting its instrument budget; no product-performance outcome from it
+is admissible.
 
-The current executable frontier has one `X1` member. Therefore, for every
-empirical objective, `argmin over X1 = X1`; no Construction timing record is
-admissible or needed and `X2 = X1`. This is not a performance waiver: the full
-fixed-binary matrix remains an Acceptance obligation after complete
-correctness.
-
-The current architecture has passed the scoped finite normal-form `X0/X1/X2`
-synthesis, registered semantic-root closure, production refinement and
-constructive simplification. Construction timing is therefore closed; the
-remaining fixed-binary matrix is an Acceptance confirmation after the complete
-correctness lane. Benchmark results cannot repair a missing semantic mechanism.
-Historical profiles below explain why mechanisms were considered or rejected,
-but they are not a release verdict for the final source. Any later semantic
-change reopens its affected Construction and correctness gates before
-performance evidence can be accepted.
+Future Construction measurements may compare only candidates admitted by the
+owning static gate. Future Acceptance measurements must bind the final source,
+binary, workload, environment and noise rule after correctness. Neither record
+type can repair a missing semantic mechanism or prove an open static
+quantifier. Historical profiles below are design diagnostics only, not a
+release verdict or G0 progress.
 
 ## 1. Performance contract
 
@@ -454,7 +444,7 @@ attempts expose multi-minute host scheduling regimes, including one baseline
 window at 3.23 average CPU parallelism immediately followed by a candidate
 window at 3.76. Removing the outlier, increasing aggregation, weakening the
 gate or repeating until a pass would bias the verdict. P10 therefore remains
-open for a controlled-host run of this exact protocol before current-branch X3 is
+open for a controlled-host run of this exact protocol before current-branch complexity_minima is
 measured. This is an evidence-environment blocker, not a demonstrated product
 regression or improvement.
 

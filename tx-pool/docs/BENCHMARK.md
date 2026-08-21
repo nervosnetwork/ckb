@@ -2,10 +2,13 @@
 
 The benchmark is evidence for, not an alternative definition of, the canonical
 [`architecture-contract.json#/optimization_goal`](../architecture-contract.json#/optimization_goal).
-It measures the empirical coordinates of the frozen static-minimum candidate on
-the declared workload/environment matrix. A result from another binary, matrix
-or environment cannot select `X2`, and timing cannot weaken the hard constraints
-or the minimum unique-authority coupling cut.
+When an owning static gate admits candidates, it measures their empirical
+coordinates on one frozen workload/environment matrix. The current
+open-architecture static frontier is not closed, so these commands are
+diagnostic and do not presently authorize candidate ranking. A result from
+another binary, matrix or environment cannot select `empirical_survivors`, and
+timing cannot weaken the hard constraints or the minimum unique-authority
+coupling cut.
 
 This module measures the throughput of the CKB tx-pool pipeline.
 

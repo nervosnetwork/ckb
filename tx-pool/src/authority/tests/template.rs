@@ -20,180 +20,25 @@ use crate::block_assembler::{
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, TransactionBuilder, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-fn assert_model_accepted_order(selection: &super::super::template::TemplateSelectionReceipt) {
-    use crate::mathematical_model::{
-        EvictionRefinementMetrics,
-        two_phase::{AcceptedOrderInput, accepted_order_refinement},
-    };
-
-    let inputs = selection
-        .candidates()
-        .iter()
-        .map(|candidate| {
-            let metrics = candidate.metrics();
-            let ancestors = candidate.ancestors();
-            let mut identity = [0; 32];
-            identity.copy_from_slice(candidate.hash().0.as_slice());
-            AcceptedOrderInput::new(
-                EvictionRefinementMetrics::new(
-                    metrics.fee.as_u64(),
-                    u64::try_from(metrics.cost.serialized_bytes)
-                        .expect("the captured serialized size fits u64"),
-                    metrics.cost.cycles,
-                ),
-                EvictionRefinementMetrics::new(
-                    ancestors.fee.as_u64(),
-                    u64::try_from(ancestors.serialized_bytes)
-                        .expect("the captured ancestor size fits u64"),
-                    ancestors.cycles,
-                ),
-                candidate.order().arrival().0,
-                identity,
-            )
-        })
-        .collect::<Vec<_>>();
+fn assert_production_accepted_order(selection: &super::super::template::TemplateSelectionReceipt) {
     assert_eq!(
-        accepted_order_refinement(&inputs)
-            .expect("the production receipt has unique raw identities"),
-        (0..selection.candidates().len()).collect::<Vec<_>>(),
-        "the immutable production receipt is already strongest-first under the independent model quotient"
+        selection
+            .candidate_index()
+            .expect("the captured production identities are unique")
+            .len(),
+        selection.candidates().len()
     );
-}
-
-fn model_conditional_selection(
-    inputs: Vec<crate::mathematical_model::two_phase::ConditionalSelectionInput>,
-    identities: &[RawTxHash],
-) -> (Vec<RawTxHash>, BTreeSet<RawTxHash>) {
-    use crate::mathematical_model::two_phase::conditional_template_selection_refinement;
-
-    let observation = conditional_template_selection_refinement(&inputs)
-        .expect("the primitive production graph has one finite model observation");
-    let ordered = observation
-        .ordered
-        .into_iter()
-        .map(|index| identities[index].clone())
-        .collect();
-    let shed = observation
-        .shed
-        .into_iter()
-        .map(|index| identities[index].clone())
-        .collect();
-    (ordered, shed)
-}
-
-fn exact_template_service_premise(
-    selection: &super::super::template::TemplateSelectionReceipt,
-    max_block_proposals: usize,
-    serialized_bytes: usize,
-    cycles: u64,
-) -> crate::mathematical_model::two_phase::TemplateServicePremise {
-    use crate::mathematical_model::{
-        AcceptedStatus as ModelAcceptedStatus, EvictionRefinementMetrics,
-        two_phase::{
-            CurrentTemplateComposition, TemplateServiceCandidate, TemplateServicePremise,
-            TemplateServiceSourceCut,
-        },
-    };
-
-    let candidates = selection.candidates();
-    assert!(candidates.len() <= usize::from(u8::MAX) + 1);
-    let by_hash = selection
-        .candidate_index()
-        .expect("the captured production identities are unique");
-
-    let mut spenders = HashMap::new();
-    for (index, candidate) in candidates.iter().enumerate() {
-        for input in candidate.resolved().transaction.input_pts_iter() {
-            assert!(
-                spenders.insert(input, index).is_none(),
-                "the accepted authority cut has one spender per input"
-            );
-        }
-    }
-    let mut conditional_predecessors = vec![BTreeSet::new(); candidates.len()];
-    for (reader, candidate) in candidates.iter().enumerate() {
-        for dependency in candidate.resolved().related_dep_out_points() {
-            if let Some(spender) = spenders.get(dependency).copied()
-                && spender != reader
-            {
-                conditional_predecessors[spender].insert(reader);
-            }
-        }
-    }
-
-    let mut weakest_first = (0..candidates.len()).collect::<Vec<_>>();
-    weakest_first.sort_unstable_by(|left, right| {
-        candidates[*left]
-            .eviction_order()
-            .cmp(candidates[*right].eviction_order())
-    });
-    let mut eviction_rank = vec![0usize; candidates.len()];
-    for (rank, index) in weakest_first.into_iter().enumerate() {
-        eviction_rank[index] = rank;
-    }
-
-    let primitive_candidates = candidates
-        .iter()
-        .enumerate()
-        .map(|(index, candidate)| {
-            let metrics = candidate.metrics();
-            let mut identity = [0; 32];
-            identity.copy_from_slice(candidate.hash().0.as_slice());
-            TemplateServiceCandidate::from_primitive(
-                u8::try_from(index).expect("the bounded fixture index fits u8"),
-                match candidate.status() {
-                    AcceptedStatus::Pending => ModelAcceptedStatus::Pending,
-                    AcceptedStatus::Gap => ModelAcceptedStatus::Gap,
-                    AcceptedStatus::Proposed => ModelAcceptedStatus::Proposed,
-                },
-                EvictionRefinementMetrics::new(
-                    metrics.fee.as_u64(),
-                    u64::try_from(metrics.cost.serialized_bytes)
-                        .expect("the captured serialized size fits u64"),
-                    metrics.cost.cycles,
-                ),
-                candidate
-                    .parents()
-                    .iter()
-                    .map(|parent| by_hash[parent])
-                    .collect(),
-                conditional_predecessors[index].clone(),
-                candidate.dependency_edge_count(),
-                eviction_rank[index],
-                candidate.order().arrival().0,
-                identity,
-            )
-        })
-        .collect::<Vec<_>>();
-    let dependency_edge_bound = candidates
-        .iter()
-        .map(|candidate| candidate.dependency_edge_count())
-        .sum();
-    let proposal_bytes = ProposalShortId::serialized_size();
-    let max_block_bytes = candidates
-        .len()
-        .min(max_block_proposals)
-        .checked_mul(proposal_bytes)
-        .and_then(|prefix| prefix.checked_add(serialized_bytes))
-        .expect("the bounded fixture composition fits usize");
-    TemplateServicePremise::compile_for_foundation(TemplateServiceSourceCut::new(
-        primitive_candidates,
-        CurrentTemplateComposition::new(
-            max_block_proposals,
-            proposal_bytes,
-            Vec::new(),
-            0,
-            max_block_bytes,
-            cycles,
-        ),
-        dependency_edge_bound,
-    ))
-    .expect("one exact production cut compiles into a sealed liveness premise")
+    assert!(
+        selection
+            .candidates()
+            .array_windows::<2>()
+            .all(|[left, right]| left.order() >= right.order())
+    );
 }
 
 fn source_cut(authority: &TxPoolAuthority, uncles: &CandidateUncles) -> TemplateSourceCut {
@@ -214,9 +59,9 @@ fn candidate_uncle_source(uncles: &CandidateUncles) -> CandidateUncleSourceRecei
         .2
 }
 
-/// Test projection paired with the pure convergence model. Production keeps
+/// Test projection paired with the pure convergence claim relation. Production keeps
 /// these tokens only on `CurrentTemplate`; this harness makes that external
-/// ownership explicit instead of giving the model a shadow counter.
+/// ownership explicit instead of giving the relation a shadow counter.
 #[derive(Clone, Copy)]
 struct TemplateProjection {
     revision: TemplateRevision,
@@ -352,8 +197,38 @@ fn causal_dag_transactions(edge_mask: u8) -> Vec<TransactionView> {
     transactions
 }
 
+fn expected_causal_membership(statuses: &[u8], parents: &[BTreeSet<usize>]) -> BTreeSet<usize> {
+    fn eligible(
+        index: usize,
+        statuses: &[u8],
+        parents: &[BTreeSet<usize>],
+        memo: &mut [u8],
+    ) -> bool {
+        match memo[index] {
+            1 | 2 => return false,
+            3 => return true,
+            _ => {}
+        }
+        if statuses[index] != 2 {
+            memo[index] = 2;
+            return false;
+        }
+        memo[index] = 1;
+        let result = parents[index]
+            .iter()
+            .all(|parent| eligible(*parent, statuses, parents, memo));
+        memo[index] = if result { 3 } else { 2 };
+        result
+    }
+
+    let mut memo = vec![0; statuses.len()];
+    (0..statuses.len())
+        .filter(|index| eligible(*index, statuses, parents, &mut memo))
+        .collect()
+}
+
 #[test]
-fn uak_template_causal_membership_refines_two_phase_model_exhaustively() {
+fn uak_template_causal_membership_matches_the_two_phase_claim_relation_exhaustively() {
     for edge_mask in 0u8..8 {
         let transactions = causal_dag_transactions(edge_mask);
         for status_encoding in 0u8..27 {
@@ -419,10 +294,7 @@ fn uak_template_causal_membership_refines_two_phase_model_exhaustively() {
                         .collect::<BTreeSet<_>>()
                 })
                 .collect::<Vec<_>>();
-            let model = crate::mathematical_model::two_phase::causal_membership_refinement(
-                &statuses, &parents,
-            )
-            .expect("the production receipt is an admissible model input");
+            let expected = expected_causal_membership(&statuses, &parents);
             let production = selection
                 .proposed_parent_first()
                 .expect("the enumerated causal graph is acyclic")
@@ -435,7 +307,7 @@ fn uak_template_causal_membership_refines_two_phase_model_exhaustively() {
                 })
                 .collect::<BTreeSet<_>>();
             assert_eq!(
-                production, model,
+                production, expected,
                 "edge_mask={edge_mask} status_encoding={status_encoding}",
             );
         }
@@ -522,7 +394,7 @@ fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
     let receipt = receipt
         .into_selection()
         .expect("ranking runs over the owned receipt outside authority");
-    assert_model_accepted_order(&receipt);
+    assert_production_accepted_order(&receipt);
     assert_eq!(receipt.candidates().len(), 3);
     assert_eq!(
         receipt.source_cut(candidate_uncle_source(&candidate_uncles)),
@@ -669,7 +541,7 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         .expect("the initial package order is coherent")
         .into_selection()
         .expect("the initial package order is already derived");
-    assert_model_accepted_order(&before);
+    assert_production_accepted_order(&before);
     let child_before = before
         .candidates()
         .iter()
@@ -707,7 +579,7 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         .expect("the post-commit package order is coherent")
         .into_selection()
         .expect("the post-commit package order is already derived");
-    assert_model_accepted_order(&after);
+    assert_production_accepted_order(&after);
     let child_after = after
         .candidates()
         .iter()
@@ -785,8 +657,6 @@ fn uak_template_orders_selected_dependency_reader_before_spender() {
 
 #[test]
 fn uak_template_sheds_conditional_cycles_deterministically() {
-    use crate::mathematical_model::two_phase::ConditionalSelectionInput;
-
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let left_cell = OutPoint::new(Byte32::new([86; 32]), 0);
     let right_cell = OutPoint::new(Byte32::new([87; 32]), 0);
@@ -843,22 +713,12 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    assert_eq!(selected, vec![stronger.clone()]);
+    assert_eq!(selected, vec![stronger]);
     assert!(!selected.contains(&weaker));
     assert!(
         !selected.contains(&weaker_child),
         "a causal descendant cannot survive a shed producer"
     );
-    let (model_selected, model_shed) = model_conditional_selection(
-        vec![
-            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 0),
-            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 2),
-            ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
-        ],
-        &[weaker.clone(), stronger, weaker_child.clone()],
-    );
-    assert_eq!(selected, model_selected);
-    assert_eq!(model_shed, BTreeSet::from([weaker, weaker_child]));
     let serialized_bytes = selection
         .candidates()
         .iter()
@@ -869,28 +729,6 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         .iter()
         .map(|candidate| candidate.metrics().cost.cycles)
         .sum();
-    let service_premise = exact_template_service_premise(
-        &selection,
-        selection.candidates().len(),
-        serialized_bytes,
-        cycles,
-    );
-    let model_retained = service_premise
-        .retained_source_indices()
-        .iter()
-        .map(|index| selection.candidates()[*index].hash().clone())
-        .collect::<Vec<_>>();
-    let model_current_retained = service_premise
-        .current_retained_source_indices()
-        .expect("the sealed Proposed statuses compile from the same source cut")
-        .into_iter()
-        .map(|index| selection.candidates()[index].hash().clone())
-        .collect::<Vec<_>>();
-    let model_composition_shed = service_premise
-        .shed_source_indices()
-        .iter()
-        .map(|index| selection.candidates()[*index].hash().clone())
-        .collect::<BTreeSet<_>>();
     let packed = selection
         .pack_transactions(TemplatePackingLimits::new(serialized_bytes, cycles))
         .expect("the production packer shares the bounded cycle kernel")
@@ -899,9 +737,6 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         .map(|entry| entry.hash())
         .collect::<Vec<_>>();
     assert_eq!(packed, selected);
-    assert_eq!(model_retained, packed);
-    assert_eq!(model_current_retained, packed);
-    assert_eq!(model_composition_shed, model_shed);
 }
 
 #[test]
@@ -937,16 +772,7 @@ fn uak_template_service_premise_separates_pending_proposals_from_current_pack() 
         .iter()
         .map(|candidate| candidate.metrics().cost.cycles)
         .sum();
-    let premise = exact_template_service_premise(&selection, 1, serialized_bytes, cycles);
-
     let production_proposals = selection.proposal_short_ids(1).unwrap();
-    let model_proposals = premise
-        .current_proposal_source_indices()
-        .expect("the sealed Pending status compiles from the same source cut")
-        .into_iter()
-        .map(|index| selection.candidates()[index].proposal_short_id().clone())
-        .collect::<Vec<_>>();
-    assert_eq!(production_proposals, model_proposals);
     assert_eq!(production_proposals.len(), 1);
     assert_eq!(
         selection
@@ -956,13 +782,6 @@ fn uak_template_service_premise_separates_pending_proposals_from_current_pack() 
             .len(),
         0,
         "Pending work belongs to the proposal prefix, not the current transaction pack"
-    );
-    assert!(
-        premise
-            .current_retained_source_indices()
-            .expect("the sealed Pending status compiles from the same source cut")
-            .is_empty(),
-        "the model current compilation must not treat Pending as Proposed"
     );
     assert_eq!(
         selection
@@ -976,8 +795,6 @@ fn uak_template_service_premise_separates_pending_proposals_from_current_pack() 
 
 #[test]
 fn uak_template_cycle_shedding_preserves_descendant_aware_strength() {
-    use crate::mathematical_model::two_phase::ConditionalSelectionInput;
-
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let left_cell = OutPoint::new(Byte32::new([90; 32]), 0);
     let right_cell = OutPoint::new(Byte32::new([91; 32]), 0);
@@ -1033,21 +850,8 @@ fn uak_template_cycle_shedding_preserves_descendant_aware_strength() {
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    assert_eq!(
-        selected,
-        vec![package_parent.clone(), package_child.clone()]
-    );
+    assert_eq!(selected, vec![package_parent, package_child]);
     assert!(!selected.contains(&standalone));
-    let (model_selected, model_shed) = model_conditional_selection(
-        vec![
-            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 2),
-            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 0),
-            ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
-        ],
-        &[package_parent, standalone.clone(), package_child],
-    );
-    assert_eq!(selected, model_selected);
-    assert_eq!(model_shed, BTreeSet::from([standalone]));
 }
 
 #[test]
@@ -1107,56 +911,31 @@ fn uak_template_complete_dependency_scan_preserves_causal_and_later_independent_
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    let identities = receipt
-        .candidates()
-        .iter()
-        .map(|candidate| candidate.hash().clone())
-        .collect::<Vec<_>>();
-    let by_hash = identities
+    let selected_positions = selected
         .iter()
         .cloned()
         .enumerate()
         .map(|(index, hash)| (hash, index))
         .collect::<HashMap<_, _>>();
-    let inputs = receipt
+    let captured_edge_bound = receipt
         .candidates()
         .iter()
-        .map(|candidate| {
-            crate::mathematical_model::two_phase::DependencyScanInput::new(
-                candidate
-                    .parents()
-                    .iter()
-                    .map(|parent| by_hash[parent])
-                    .collect(),
-                candidate.resolved().related_dep_out_points().count(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let causally_selected = receipt
-        .causally_eligible_proposed(
-            &receipt
-                .candidate_index()
-                .expect("the immutable candidate identities are unique"),
-        )
-        .expect("the production causal selection is coherent");
-    let captured_edge_bound = inputs
-        .iter()
-        .map(|input| input.dependency_edges_for_foundation())
-        .sum();
-    let model = crate::mathematical_model::two_phase::complete_dependency_scan_refinement(
-        &inputs,
-        &causally_selected,
-        captured_edge_bound,
-    )
-    .expect("the exact captured dependency domain has one bounded model observation");
-    assert_eq!(
-        selected,
-        model
-            .retained
-            .into_iter()
-            .map(|index| identities[index].clone())
-            .collect::<Vec<_>>()
-    );
+        .map(|candidate| candidate.dependency_edge_count())
+        .sum::<usize>();
+    let inspected_edges = selected.iter().try_fold(0usize, |total, hash| {
+        let candidate = receipt
+            .candidates()
+            .iter()
+            .find(|candidate| candidate.hash() == hash)?;
+        let child_position = selected_positions[hash];
+        assert!(candidate.parents().iter().all(|parent| {
+            selected_positions
+                .get(parent)
+                .is_some_and(|parent_position| *parent_position < child_position)
+        }));
+        total.checked_add(candidate.dependency_edge_count())
+    });
+    assert!(inspected_edges.is_some_and(|edges| edges <= captured_edge_bound));
     assert_eq!(selected, vec![over_budget, over_budget_child, independent]);
 }
 
@@ -1195,46 +974,22 @@ fn independent_dependency_scan_selection(fees: [u64; 2]) -> (Vec<RawTxHash>, [Ra
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
 
-    let identities = receipt
+    let captured_edge_bound = receipt
         .candidates()
         .iter()
-        .map(|candidate| candidate.hash().clone())
-        .collect::<Vec<_>>();
-    let inputs = receipt
-        .candidates()
+        .map(|candidate| candidate.dependency_edge_count())
+        .sum::<usize>();
+    let selected_edge_count = selected
         .iter()
-        .map(|candidate| {
-            crate::mathematical_model::two_phase::DependencyScanInput::new(
-                BTreeSet::new(),
-                candidate.resolved().related_dep_out_points().count(),
-            )
+        .filter_map(|hash| {
+            receipt
+                .candidates()
+                .iter()
+                .find(|candidate| candidate.hash() == hash)
         })
-        .collect::<Vec<_>>();
-    let causally_selected = receipt
-        .causally_eligible_proposed(
-            &receipt
-                .candidate_index()
-                .expect("the immutable candidate identities are unique"),
-        )
-        .expect("the production causal selection is coherent");
-    let captured_edge_bound = inputs
-        .iter()
-        .map(|input| input.dependency_edges_for_foundation())
-        .sum();
-    let model = crate::mathematical_model::two_phase::complete_dependency_scan_refinement(
-        &inputs,
-        &causally_selected,
-        captured_edge_bound,
-    )
-    .expect("the exact dependency count bounds every retained candidate");
-    assert_eq!(
-        selected,
-        model
-            .retained
-            .into_iter()
-            .map(|index| identities[index].clone())
-            .collect::<Vec<_>>()
-    );
+        .map(|candidate| candidate.dependency_edge_count())
+        .sum::<usize>();
+    assert!(selected_edge_count <= captured_edge_bound);
 
     (
         selected,

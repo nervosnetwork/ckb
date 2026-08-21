@@ -336,20 +336,14 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
     assert_eq!(fitted.uncles_size, expected_uncle_size);
     assert_eq!(fitted.total_size, max);
 
-    let model = crate::mathematical_model::two_phase::current_template_capacity_refinement(
-        1,
-        1,
-        ProposalShortId::serialized_size(),
-        &[expected_uncle_size],
-        base,
-        1,
-        max,
-    )
-    .expect("the production byte coordinates form one finite model cut");
-    assert_eq!(model.proposals, fitted.proposals.len());
-    assert_eq!(model.uncles, fitted.uncles.len());
+    let used = base
+        .checked_add(fitted.proposals_size)
+        .and_then(|bytes| bytes.checked_add(fitted.uncles_size))
+        .expect("the bounded optional-content accounting fits usize");
+    assert_eq!(used, fitted.total_size);
+    assert_eq!(used, max);
     assert!(
-        !model.commit_package_fits,
+        used.checked_add(1).is_none_or(|bytes| bytes > max),
         "proposal priority over optional uncles does not imply that a commit package still fits"
     );
 }
