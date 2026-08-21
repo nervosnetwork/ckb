@@ -452,7 +452,7 @@ def canaries(plan, contract, control, identity):
         "strongest_counterexamples": ["counterexample"],
         "subject": {"commit": RECOVERY["commit"], "tree": RECOVERY["tree"],
                     "bundle_sha256": "0" * 64, "authority_hashes": identity["authority_hashes"]},
-        "report": {"path": next(iter(REPORTS)), "sha256": next(iter(REPORTS.values()))},
+        "report": {"path": "missing-canary-report", "sha256": "0" * 64},
     }
     caught = []
     validate_review(forged, "internal", identity, caught, verify_files=False)
