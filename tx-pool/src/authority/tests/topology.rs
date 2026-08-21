@@ -26,6 +26,7 @@ use ckb_types::{
     packed::Byte32,
 };
 use ckb_verification::cache::init_cache;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{RwLock, watch};
 
@@ -434,7 +435,7 @@ async fn uak_topology_forbids_persistence_only_after_authority_integrity_loss() 
         "unexpected generation fault: {fault:?}"
     );
 
-    let report = topology.invalidate_generation(fault);
+    let report = topology.invalidate_generation(fault).await;
     assert!(matches!(
         report.status(),
         AuthorityShutdownStatus::PersistenceForbidden(AuthorityGenerationFault::Worker {
@@ -445,4 +446,48 @@ async fn uak_topology_forbids_persistence_only_after_authority_integrity_loss() 
             PlanError::Fault(AuthorityFault::CounterExhausted)
         )
     ));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn uak_invalid_generation_joins_every_aborted_task_before_returning() {
+    struct DropObservation(Arc<AtomicBool>);
+
+    impl Drop for DropObservation {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    let runtime = runtime();
+    let (relay, _receiver) = relay_mailbox(2);
+    let mut topology = start(runtime, relay, ChunkCommand::Resume)
+        .expect("the complete task topology starts atomically");
+    let dropped = Arc::new(AtomicBool::new(false));
+    let task_dropped = Arc::clone(&dropped);
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    topology.install_template_task_for_foundation(AuthorityTemplateTask {
+        role: AuthorityTemplateRole::Replacement,
+        handle: tokio::spawn(async move {
+            let _observation = DropObservation(task_dropped);
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+            Ok(())
+        }),
+    });
+    started_rx
+        .await
+        .expect("the injected task reaches its owned pending state");
+
+    let report = topology
+        .invalidate_generation(AuthorityGenerationFault::ShutdownTimeout)
+        .await;
+
+    assert!(matches!(
+        report.status(),
+        AuthorityShutdownStatus::PersistenceForbidden(AuthorityGenerationFault::ShutdownTimeout)
+    ));
+    assert!(
+        dropped.load(Ordering::Acquire),
+        "an invalid-generation outcome must not precede retirement of an aborted task owner"
+    );
 }

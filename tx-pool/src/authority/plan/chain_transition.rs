@@ -1,20 +1,19 @@
 use super::*;
 use crate::authority::chain::{
-    ChainCommittedOwner, ChainConflictOwner, ChainPackagingMode, ChainProposalSubject,
-    ChainRecoveryOwner, ChainRecoveryReceipt, ChainRecoveryWork, ChainRemoval, ChainStatusSubject,
+    ChainCommittedOwner, ChainConflictOwner, ChainProposalSubject, ChainRecoveryOwner,
+    ChainRecoveryReceipt, ChainRecoveryWork, ChainRemoval, ChainStatusSubject,
     ChainTransitionFactsView, ChainTransitionReceipt, ChainValidationWork,
-    ExpectedPreAcceptedOwner, ProposalContextReceipt,
+    ExpectedPreAcceptedOwner,
 };
-use crate::authority::state::{AcceptedStatus, DependencySetError, RemoteBase};
+use crate::authority::state::{DependencySetError, RemoteBase};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
-    collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum CausalDisposition {
-    ForcePending,
     Recovery,
     ChainConflictRemoval { out_point: OutPoint },
 }
@@ -56,21 +55,14 @@ impl CausalDisposition {
     /// outpoint ordering makes the externally reported conflict deterministic.
     fn join(&self, incoming: &Self) -> Self {
         match self {
-            Self::ForcePending => match incoming {
-                Self::ForcePending => Self::ForcePending,
+            Self::Recovery => match incoming {
                 Self::Recovery => Self::Recovery,
                 Self::ChainConflictRemoval { out_point } => Self::ChainConflictRemoval {
                     out_point: out_point.clone(),
                 },
             },
-            Self::Recovery => match incoming {
-                Self::ForcePending | Self::Recovery => Self::Recovery,
-                Self::ChainConflictRemoval { out_point } => Self::ChainConflictRemoval {
-                    out_point: out_point.clone(),
-                },
-            },
             Self::ChainConflictRemoval { out_point } => match incoming {
-                Self::ForcePending | Self::Recovery => Self::ChainConflictRemoval {
+                Self::Recovery => Self::ChainConflictRemoval {
                     out_point: out_point.clone(),
                 },
                 Self::ChainConflictRemoval {
@@ -89,10 +81,6 @@ impl CausalDisposition {
     fn preaccepted_action(&self, phase: &PreAcceptedPhase) -> PreacceptedCausalAction {
         match (self, PreacceptedCapability::from_phase(phase)) {
             (
-                Self::ForcePending,
-                PreacceptedCapability::Inactive | PreacceptedCapability::ActiveCompute,
-            )
-            | (
                 Self::Recovery | Self::ChainConflictRemoval { .. },
                 PreacceptedCapability::ActiveCompute,
             ) => PreacceptedCausalAction::PreserveOwner,
@@ -397,16 +385,6 @@ impl TxPoolAuthority {
             }
         }
 
-        // A detached proposal demotes its accepted causal subtree before the
-        // final proposal positions are reconciled against the new snapshot.
-        for proposal in facts.detached_proposals {
-            if let Some(hash) = self.indexes.proposal_owner(proposal)
-                && matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_)))
-            {
-                causal.seed_accepted(hash.clone(), CausalDisposition::ForcePending)?;
-            }
-        }
-
         // One priority-tagged traversal computes all dependency consequences.
         // The owner-derived frontier covers both input children and cell-dep
         // readers, while also requeueing affected PreAccepted consumers.
@@ -447,7 +425,6 @@ impl TxPoolAuthority {
         }
         for (hash, disposition) in &dispositions {
             let removal = match disposition {
-                CausalDisposition::ForcePending => continue,
                 CausalDisposition::Recovery => {
                     let Some(OwnedTx::Accepted(entry)) = self.entries.get(hash) else {
                         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -504,53 +481,15 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         non_status_hashes.extend(removals.iter().map(|removal| removal.hash().clone()));
         non_status_hashes.extend(detached_hashes.iter().cloned());
-        let indexed_proposal_count = self
-            .indexes
-            .accepted_proposals(AcceptedStatus::Gap)
-            .len()
-            .checked_add(match facts.packaging {
-                ChainPackagingMode::Package => self
-                    .indexes
-                    .accepted_proposals(AcceptedStatus::Pending)
-                    .len(),
-                ChainPackagingMode::ObserveOnly => 0,
-            })
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let proposal_capacity = facts
-            .changed_proposals
-            .len()
-            .checked_add(indexed_proposal_count)
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         let mut proposal_candidates = Vec::new();
         proposal_candidates
-            .try_reserve(proposal_capacity)
+            .try_reserve(facts.changed_proposals.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         proposal_candidates.extend(facts.changed_proposals.iter().cloned());
-        proposal_candidates.extend(
-            self.indexes
-                .accepted_proposals(AcceptedStatus::Gap)
-                .iter()
-                .cloned(),
-        );
-        if facts.packaging == ChainPackagingMode::Package {
-            proposal_candidates.extend(
-                self.indexes
-                    .accepted_proposals(AcceptedStatus::Pending)
-                    .iter()
-                    .cloned(),
-            );
-        }
-        proposal_candidates.sort_unstable();
-        proposal_candidates.dedup();
 
         let mut status_subjects = HashMap::<RawTxHash, ChainStatusSubject>::new();
         status_subjects
-            .try_reserve(
-                proposal_candidates
-                    .len()
-                    .checked_add(dispositions.len())
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
-            )
+            .try_reserve(proposal_candidates.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         let mut proposal_subjects = Vec::new();
         proposal_subjects
@@ -572,7 +511,6 @@ impl TxPoolAuthority {
                             expected: entry.record.version,
                             proposal: proposal.clone(),
                             before: entry.status(),
-                            baseline: super::super::chain::ProposalStatusBaseline::Current,
                         },
                     );
                 }
@@ -590,36 +528,6 @@ impl TxPoolAuthority {
                 Some(OwnedTx::ReplacementHistory(_)) => {}
                 None => return Err(PlanError::Fault(AuthorityFault::IndexProjection)),
             }
-        }
-        for (hash, disposition) in &dispositions {
-            match disposition {
-                CausalDisposition::ForcePending => {}
-                CausalDisposition::Recovery | CausalDisposition::ChainConflictRemoval { .. } => {
-                    continue;
-                }
-            }
-            if non_status_hashes.contains(hash) {
-                continue;
-            }
-            let entry = match self.entries.get(hash) {
-                Some(OwnedTx::Accepted(entry)) => entry,
-                Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
-                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                }
-            };
-            status_subjects
-                .entry(hash.clone())
-                .and_modify(|subject| {
-                    subject.baseline =
-                        super::super::chain::ProposalStatusBaseline::DetachedProposal;
-                })
-                .or_insert_with(|| ChainStatusSubject {
-                    hash: hash.clone(),
-                    expected: entry.record.version,
-                    proposal: entry.record.identity.proposal.clone(),
-                    before: entry.status(),
-                    baseline: super::super::chain::ProposalStatusBaseline::DetachedProposal,
-                });
         }
         let mut ordered_status_subjects = Vec::new();
         ordered_status_subjects
@@ -690,7 +598,6 @@ impl TxPoolAuthority {
             proposal_subjects,
             chain_available: available,
             chain_lost: lost,
-            packaging: facts.packaging,
         })
     }
 
@@ -779,8 +686,7 @@ impl TxPoolAuthority {
         for (hash, disposition) in dispositions {
             match disposition {
                 CausalDisposition::Recovery => {}
-                CausalDisposition::ForcePending
-                | CausalDisposition::ChainConflictRemoval { .. } => {
+                CausalDisposition::ChainConflictRemoval { .. } => {
                     continue;
                 }
             }
@@ -1052,7 +958,8 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for change in receipt.statuses {
             let hash = change.hash;
-            let status = change.after;
+            let proposal = change.after;
+            let status = proposal.status();
             let before = self
                 .entries
                 .get(&hash)
@@ -1067,7 +974,7 @@ impl TxPoolAuthority {
             let (version, next_clocks) = clocks.replacement()?;
             clocks = next_clocks;
             after.record.version = version;
-            after.proposal = ProposalContextReceipt::from_validation(status);
+            after.proposal = proposal;
             status_after.insert(hash.clone(), after.clone());
             changes.push(PreparedOwnerChange {
                 key: hash,
@@ -1076,10 +983,10 @@ impl TxPoolAuthority {
             });
         }
         changes.sort_unstable_by(|left, right| left.key.cmp(&right.key));
-        if changes.windows(2).any(|pair| match pair {
-            [left, right] => left.key == right.key,
-            _ => false,
-        }) {
+        if changes
+            .array_windows::<2>()
+            .any(|[left, right]| left.key == right.key)
+        {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
         let new_owner_count = changes
@@ -1087,14 +994,17 @@ impl TxPoolAuthority {
             .filter(|change| change.before.is_none() && change.after.is_some())
             .count();
 
-        let mut accepted_removals = BTreeSet::new();
+        let mut accepted_removals = Vec::new();
+        accepted_removals
+            .try_reserve_exact(changes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for change in &changes {
             match (&change.before, &change.after) {
                 (
                     Some(OwnedTx::Accepted(_)),
                     Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None,
                 ) => {
-                    accepted_removals.insert(change.key.clone());
+                    accepted_removals.push(change.key.clone());
                 }
                 (Some(OwnedTx::Accepted(_)), Some(OwnedTx::Accepted(_)))
                 | (
@@ -1107,6 +1017,7 @@ impl TxPoolAuthority {
                 ) => {}
             }
         }
+        let accepted_removals = AcceptedRemovalSet::try_from_vec(accepted_removals)?;
         let membership = self.prepare_chain_projection(&accepted_removals, &status_after)?;
 
         let mut resource_changes = Vec::new();
@@ -1438,11 +1349,10 @@ impl TxPoolAuthority {
         for transaction in ordered {
             let admission = ValidatedAdmission::recovery(transaction, generation).map_err(
                 |error| match error {
-                    super::super::state::AdmissionValidationError::ResourceAllocation => {
+                    super::super::state::RecoveryAdmissionError::ResourceUnavailable => {
                         PlanError::Backpressure(Backpressure::Allocation)
                     }
-                    super::super::state::AdmissionValidationError::EmptyTransaction
-                    | super::super::state::AdmissionValidationError::ResourceArithmetic => {
+                    super::super::state::RecoveryAdmissionError::InvalidTransaction => {
                         PlanError::Fault(AuthorityFault::ResourceProjection)
                     }
                 },

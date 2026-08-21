@@ -1,6 +1,16 @@
 use super::*;
 use ckb_verification::cache::ScriptVerificationRules;
 
+impl PayloadPolicy {
+    pub(in crate::authority) const fn remote_for_foundation(
+        declared: ckb_types::core::Cycle,
+    ) -> Self {
+        Self::RemoteDeclaredCycles(super::super::ingress::RemoteCycleLimit::for_foundation(
+            declared,
+        ))
+    }
+}
+
 pub(in crate::authority) struct FoundationResolution {
     payload: ResolvedPayload,
     location: CellLocationReceipt,
@@ -137,7 +147,8 @@ impl ResolvedPayload {
         }
         let payload =
             Self::from_resolved_parts(Arc::new(resolved), max_edges, fee, resolved_resident_bytes)?;
-        let location = CellLocationReceipt::from_resolution(ChainViewId::initial(), &payload);
+        let location = CellLocationReceipt::from_resolution(ChainViewId::initial(), &payload)
+            .expect("foundation location scratch is available");
         Ok(FoundationResolution { payload, location })
     }
 }
@@ -358,7 +369,7 @@ impl ValidatedAdmission {
     pub(in crate::authority) fn remote(
         tx: TransactionView,
         peer: PeerIndex,
-    ) -> Result<Self, AdmissionValidationError> {
+    ) -> Result<Self, RecoveryAdmissionError> {
         Self::remote_with_lease(tx, RemoteResidencyLease::for_foundation(peer), 0)
     }
 
@@ -366,22 +377,47 @@ impl ValidatedAdmission {
         tx: TransactionView,
         residency: RemoteResidencyLease,
         declared_cycles: ckb_types::core::Cycle,
-    ) -> Result<Self, AdmissionValidationError> {
+    ) -> Result<Self, RecoveryAdmissionError> {
+        let tx = super::super::ingress::BoundedTransaction::try_new(tx).map_err(
+            |error| match error {
+                super::super::ingress::BoundedTransactionError::Allocation => {
+                    RecoveryAdmissionError::ResourceUnavailable
+                }
+                super::super::ingress::BoundedTransactionError::TooLarge { .. } => {
+                    RecoveryAdmissionError::InvalidTransaction
+                }
+            },
+        )?;
         Self::new(
             tx,
-            PreAcceptedSource::Remote(RemoteBase::ingress(residency, declared_cycles)),
+            PreAcceptedSource::Remote(RemoteBase::ingress(
+                residency,
+                super::super::ingress::RemoteCycleLimit::for_foundation(declared_cycles),
+            )),
         )
+        .map_err(|_| RecoveryAdmissionError::ResourceUnavailable)
     }
 
     pub(in crate::authority) fn proposal(
         tx: TransactionView,
-    ) -> Result<Self, AdmissionValidationError> {
+    ) -> Result<Self, RecoveryAdmissionError> {
+        let tx = super::super::ingress::BoundedTransaction::try_new(tx).map_err(
+            |error| match error {
+                super::super::ingress::BoundedTransactionError::Allocation => {
+                    RecoveryAdmissionError::ResourceUnavailable
+                }
+                super::super::ingress::BoundedTransactionError::TooLarge { .. } => {
+                    RecoveryAdmissionError::InvalidTransaction
+                }
+            },
+        )?;
         Self::new(
             tx,
             PreAcceptedSource::Proposal {
                 base: ProposalBase::Trusted,
             },
         )
+        .map_err(|_| RecoveryAdmissionError::ResourceUnavailable)
     }
 }
 impl KnownDependencies {

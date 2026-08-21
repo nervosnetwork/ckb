@@ -1,6 +1,6 @@
 use super::super::service::{
-    AuthorityDerivedError, AuthorityIntegrityFault, AuthorityProjectionFault, AuthorityRelayDrain,
-    AuthorityService, AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
+    AuthorityDerivedError, AuthorityIntegrityFault, AuthorityRelayDrain, AuthorityService,
+    AuthorityServiceAssembly, AuthorityServiceError, AuthorityServiceInputs,
     AuthorityShutdownOutcome, AuthorityVerificationControl, authority_failure_boundary,
     derived_failure_boundary, map_chain_integrity, map_recent_reject_read_error,
     record_candidate_uncle_observation,
@@ -16,9 +16,12 @@ use super::super::{
 };
 use super::foundation::{genesis_snapshot, runtime_config};
 use crate::{
-    PlugTarget, TxEntry, block_assembler::CandidateUncleMutationError, callback::Callbacks,
-    component::recent_reject::RecentReject, network::DummyTxPoolNetwork,
-    service::TxVerificationResult,
+    PlugTarget, TxEntry,
+    block_assembler::CandidateUncleMutationError,
+    callback::Callbacks,
+    component::recent_reject::RecentReject,
+    network::DummyTxPoolNetwork,
+    service::{ChainReorgArgs, ChainReorgPayloadLimit, TxVerificationResult},
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::Handle;
@@ -27,15 +30,16 @@ use ckb_network::PeerIndex;
 use ckb_script::ChunkCommand;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::{
-    core::{Capacity, FeeRate, TransactionBuilder},
+    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
     packed::{Byte32, CellInput, OutPoint},
 };
 use ckb_verification::cache::init_cache;
-use std::{
-    collections::{HashSet, VecDeque},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
+
+fn bounded_transaction(transaction: TransactionView) -> super::super::ingress::BoundedTransaction {
+    super::super::ingress::BoundedTransaction::try_new(transaction)
+        .expect("service fixture transaction is bounded")
+}
 use tokio::sync::{RwLock, mpsc};
 
 #[test]
@@ -71,6 +75,7 @@ fn uak_only_integrity_faults_invalidate_a_generation() {
     for operational in [
         AuthorityServiceError::Cancelled,
         AuthorityServiceError::BlockAssemblerDisabled,
+        AuthorityServiceError::TemplateUnavailable,
         AuthorityServiceError::ResourceUnavailable,
         AuthorityServiceError::EffectCapacity,
         AuthorityServiceError::LifecycleClosed,
@@ -78,8 +83,8 @@ fn uak_only_integrity_faults_invalidate_a_generation() {
         assert!(AuthorityService::settle_operation_error(operational).is_ok());
     }
     assert!(
-        AuthorityService::settle_operation_error(AuthorityServiceError::Integrity(
-            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Membership),
+        AuthorityService::settle_operation_error(AuthorityServiceError::from(
+            AuthorityFault::MembershipProjection,
         ))
         .is_err()
     );
@@ -94,7 +99,9 @@ fn uak_ordered_chain_update_has_no_droppable_operational_error() {
     );
     assert_eq!(
         map_chain_integrity(ChainBoundaryError::CounterExhausted),
-        Some(AuthorityIntegrityFault::CounterExhausted)
+        Some(AuthorityIntegrityFault::Authority(
+            AuthorityFault::CounterExhausted
+        ))
     );
     assert_eq!(
         map_chain_integrity(ChainBoundaryError::InvalidFacts),
@@ -106,8 +113,8 @@ fn uak_ordered_chain_update_has_no_droppable_operational_error() {
     );
     assert_eq!(
         map_chain_integrity(ChainBoundaryError::Fault(AuthorityFault::EffectProjection)),
-        Some(AuthorityIntegrityFault::Projection(
-            AuthorityProjectionFault::Effect
+        Some(AuthorityIntegrityFault::Authority(
+            AuthorityFault::EffectProjection
         ))
     );
 }
@@ -169,12 +176,15 @@ async fn service_assembly_with_config_and_recent_reject(
 
 #[test]
 fn uak_recent_reject_encoding_failure_remains_outside_authority_invalidity() {
-    assert!(matches!(
-        map_recent_reject_read_error(AuthorityRecentRejectReadError::Projection),
-        AuthorityDerivedError::Authority(AuthorityServiceError::Integrity(
-            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Effect)
-        ))
-    ));
+    let AuthorityDerivedError::Authority(error) =
+        map_recent_reject_read_error(AuthorityRecentRejectReadError::Projection)
+    else {
+        panic!("a projection contradiction must remain authority-owned");
+    };
+    assert_eq!(
+        error,
+        AuthorityServiceError::from(AuthorityFault::EffectProjection)
+    );
     assert!(matches!(
         map_recent_reject_read_error(AuthorityRecentRejectReadError::Encoding(
             RecentRejectEncodingError::FixedFallbackExceedsBound,
@@ -353,7 +363,7 @@ async fn uak_service_boundary_preserves_direct_mutation_and_read_only_semantics(
     let malformed = TransactionBuilder::default().version(1u32).build();
     let test_result = assembly
         .service
-        .test_accept(malformed.clone())
+        .test_accept(bounded_transaction(malformed.clone()))
         .await
         .expect("read-only validation has no service fault");
     assert!(test_result.is_err());
@@ -369,7 +379,7 @@ async fn uak_service_boundary_preserves_direct_mutation_and_read_only_semantics(
 
     let local_result = assembly
         .service
-        .submit_local(malformed.clone())
+        .submit_local(bounded_transaction(malformed.clone()))
         .await
         .expect("Local rejection commits through the effect authority");
     assert!(local_result.is_err());
@@ -395,7 +405,7 @@ async fn uak_service_relay_receiver_drains_the_committed_effect_stream_directly(
         .build();
     assembly
         .service
-        .submit_remote(malformed, 0, PeerIndex::from(41))
+        .submit_remote(bounded_transaction(malformed), 0, PeerIndex::from(41))
         .await
         .expect("malformed Remote ingress commits its terminal disposition");
     let result = tokio::time::timeout(Duration::from_secs(2), async {
@@ -433,11 +443,11 @@ async fn uak_service_boundary_closes_administration_and_ordered_chain_commands()
         .expect("pipeline clear commits without a drain protocol");
     assembly
         .service
-        .apply_chain_update((
+        .apply_chain_update(ChainReorgArgs::bounded(
             VecDeque::new(),
             VecDeque::new(),
-            HashSet::new(),
             Arc::clone(&snapshot),
+            ChainReorgPayloadLimit::for_test(usize::MAX),
         ))
         .await
         .expect("the ordered command binds and commits one paired chain cut");

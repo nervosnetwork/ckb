@@ -492,14 +492,14 @@ fn measure_cycles(
                 }
                 let ids = txs
                     .iter()
-                    .map(TransactionView::proposal_short_id)
+                    .map(TransactionView::hash)
                     .collect::<HashSet<_>>();
                 let measured = handle
                     .controller
                     .fetch_txs_with_cycles(ids)
                     .await
                     .expect("fetch measured dependent transactions");
-                for (_, (tx, measured_cycles)) in measured {
+                for (tx, measured_cycles) in measured {
                     cycles.insert(tx.hash(), measured_cycles);
                 }
                 assert_eq!(

@@ -15,7 +15,8 @@ use crate::{
         },
         state::{
             OwnedTx, PayloadPolicy, PayloadPolicyEvolution, PreAcceptedPhase, QueuedWork,
-            ValidatedAdmission, VerifyCapability, WorkPermit, test_support::RejectionKind,
+            ValidatedAdmission, VerifyCapability, VerifyCycleClass, WorkPermit,
+            test_support::RejectionKind,
         },
         work::{CheckedOutWork, ComputeSettlement},
     },
@@ -25,7 +26,7 @@ use crate::{
         ModelPayloadPolicy, ModelPayloadPolicyEvolution, ModelRawTransaction, ModelSettlementCut,
         ModelSettlementEvidence, ModelSettlementFault, ModelSettlementNext,
         ModelSettlementObservation, ModelSettlementOrigin, ModelSettlementRejection,
-        ModelUnindexedDependencyLevel,
+        ModelUnindexedDependencyLevel, ModelVerifyCycleClass,
     },
 };
 use ckb_network::PeerIndex;
@@ -37,7 +38,7 @@ use ckb_types::{
 };
 
 fn stale_reference_cut() -> ModelSettlementCut {
-    let key = crate::mathematical_model::ModelDependencyKey(1);
+    let key = crate::mathematical_model::ModelDependencyKey::cell(1);
     let baseline: ModelKnownDependencies = [key].into_iter().collect();
     ModelSettlementCut {
         authority_view: ModelEvidenceView(1),
@@ -285,7 +286,7 @@ fn apply_settlement_scenario(case: &mut ProductionSettlementCase, scenario: Sett
 fn settlement_model_frontier(stale_baseline: bool) -> ModelEvidenceFrontier {
     ModelEvidenceFrontier::new(
         [(
-            ModelDependencyKey(1),
+            ModelDependencyKey::cell(1),
             ModelDependencyLevel::new(
                 ModelDependencyCut(if stale_baseline { 2 } else { 1 }),
                 stale_baseline.then_some(ModelDependencyCut(2)),
@@ -310,7 +311,7 @@ fn model_settlement_cut(scenario: SettlementScenario) -> ModelSettlementCut {
             1
         }),
         owner_identity: identity,
-        baseline_dependencies: [ModelDependencyKey(1)].into_iter().collect(),
+        baseline_dependencies: [ModelDependencyKey::cell(1)].into_iter().collect(),
         current_policy: if scenario == SettlementScenario::TrustedPromotion {
             ModelPayloadPolicy::Trusted
         } else {
@@ -328,7 +329,7 @@ fn model_settlement_cut(scenario: SettlementScenario) -> ModelSettlementCut {
 
 fn model_settlement_evidence(cut: &ModelSettlementCut) -> ModelSettlementEvidence {
     cut.active
-        .evidence([ModelDependencyKey(1)].into_iter().collect())
+        .evidence([ModelDependencyKey::cell(1)].into_iter().collect())
 }
 
 fn model_settlement_next(kind: SettlementKind, cut: &ModelSettlementCut) -> ModelSettlementNext {
@@ -337,8 +338,8 @@ fn model_settlement_next(kind: SettlementKind, cut: &ModelSettlementCut) -> Mode
             ModelSettlementNext::QueuedVerify(model_settlement_evidence(cut))
         }
         SettlementKind::Waiting => ModelSettlementNext::Waiting(ModelMissingSettlement {
-            dependencies: [ModelDependencyKey(1)].into_iter().collect(),
-            missing: [ModelDependencyKey(1)].into_iter().collect(),
+            dependencies: [ModelDependencyKey::cell(1)].into_iter().collect(),
+            missing: [ModelDependencyKey::cell(1)].into_iter().collect(),
         }),
         SettlementKind::Ready => ModelSettlementNext::Ready(model_settlement_evidence(cut)),
         SettlementKind::ChainRejected => {
@@ -418,11 +419,11 @@ impl From<ModelPayloadPolicyEvolution> for PayloadPolicyEvolutionObservation {
 fn uak_payload_policy_evolution_refines_every_declared_cycle_pair() {
     let policies = [
         (
-            PayloadPolicy::RemoteDeclaredCycles(1),
+            PayloadPolicy::remote_for_foundation(1),
             ModelPayloadPolicy::RemoteDeclaredCycles(1),
         ),
         (
-            PayloadPolicy::RemoteDeclaredCycles(2),
+            PayloadPolicy::remote_for_foundation(2),
             ModelPayloadPolicy::RemoteDeclaredCycles(2),
         ),
         (PayloadPolicy::Trusted, ModelPayloadPolicy::Trusted),
@@ -438,6 +439,37 @@ fn uak_payload_policy_evolution_refines_every_declared_cycle_pair() {
             );
         }
     }
+}
+
+#[test]
+fn uak_verify_cycle_class_refines_payload_policy_and_threshold() {
+    for declared in 0u8..=u8::MAX {
+        for threshold in 0u8..=u8::MAX {
+            let production = PayloadPolicy::remote_for_foundation(u64::from(declared))
+                .verify_cycle_class(u64::from(threshold));
+            let model =
+                ModelPayloadPolicy::RemoteDeclaredCycles(declared).verify_cycle_class(threshold);
+            assert_eq!(
+                matches!(production, VerifyCycleClass::Large),
+                matches!(model, ModelVerifyCycleClass::Large),
+                "declared={declared}, threshold={threshold}"
+            );
+        }
+    }
+    for threshold in [0, 1, u64::MAX] {
+        assert_eq!(
+            PayloadPolicy::Trusted.verify_cycle_class(threshold),
+            VerifyCycleClass::Small
+        );
+    }
+    assert_eq!(
+        PayloadPolicy::remote_for_foundation(u64::MAX).verify_cycle_class(u64::MAX),
+        VerifyCycleClass::Small
+    );
+    assert_eq!(
+        PayloadPolicy::remote_for_foundation(u64::MAX).verify_cycle_class(u64::MAX - 1),
+        VerifyCycleClass::Large
+    );
 }
 
 #[test]

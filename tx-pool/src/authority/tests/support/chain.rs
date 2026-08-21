@@ -1,4 +1,5 @@
 use super::*;
+use crate::authority::state::ApplySequence;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AdmissionEvidenceError {
@@ -56,8 +57,8 @@ impl CellLocationReceipt {
     pub(in crate::authority) fn empty_for_foundation(view: &ChainViewId) -> Self {
         Self {
             view: view.clone(),
-            chain_inputs: Arc::from([]),
-            chain_dependencies: Arc::from([]),
+            chain_inputs: Arc::new(Vec::new()),
+            chain_dependencies: Arc::new(Vec::new()),
         }
     }
 }
@@ -69,8 +70,8 @@ impl VerificationContextReceipt {
     ) -> Self {
         Self {
             view,
-            chain_inputs: Arc::from([]),
-            chain_dependencies: Arc::from([]),
+            chain_inputs: Arc::new(Vec::new()),
+            chain_dependencies: Arc::new(Vec::new()),
             time: TimeContextReceipt::from_validation(rules),
         }
     }
@@ -139,7 +140,7 @@ impl MembershipValidationWork {
                 verified,
                 sensitivity,
             },
-            proposal: ProposalContextReceipt::from_validation(status),
+            proposal: ProposalContextReceipt::from_internal_status(status),
             accepted_at,
             async_process_start,
         })
@@ -237,8 +238,8 @@ impl ChainBlockChanges {
 pub(in crate::authority) struct ChainTransitionFacts {
     new_view: ChainViewId,
     canonical: CanonicalChainFacts,
+    proposals: ProposalTransitionFacts,
     accepted_validity: AcceptedValidityTransition,
-    packaging: ChainPackagingMode,
 }
 
 impl ChainTransitionFacts {
@@ -246,22 +247,20 @@ impl ChainTransitionFacts {
         new_view: ChainViewId,
         blocks: ChainBlockChanges,
         changed_proposals: Vec<ProposalId>,
-        detached_proposals: Vec<ProposalId>,
-        packaging: ChainPackagingMode,
     ) -> Result<Self, ChainFactsError> {
         let had_detached_transactions = !blocks.detached.is_empty();
         let had_detached_headers = !blocks.detached_headers.is_empty();
-        let canonical =
-            CanonicalChainFacts::from_chain_update(blocks, changed_proposals, detached_proposals)?;
+        let changed = canonical_proposals(changed_proposals);
+        let canonical = CanonicalChainFacts::from_chain_update(blocks)?;
         Ok(Self {
             new_view,
             canonical,
+            proposals: ProposalTransitionFacts { changed },
             accepted_validity: if had_detached_transactions || had_detached_headers {
                 AcceptedValidityTransition::ContextChanged
             } else {
                 AcceptedValidityTransition::Preserved
             },
-            packaging,
         })
     }
 
@@ -274,7 +273,7 @@ impl ChainTransitionFacts {
         self.canonical.bind(
             self.new_view.clone(),
             self.accepted_validity,
-            self.packaging,
+            &self.proposals,
         )
     }
 }

@@ -70,8 +70,8 @@ impl SchedulerEntry {
                 WorkStage::Resolve => SchedulerEntryStage::Resolve,
                 WorkStage::Verify(evidence) => SchedulerEntryStage::Verify(evidence.verify_class),
             },
-            fee: owner.transaction.fee,
-            bytes: owner.transaction.bytes,
+            fee: owner.transaction.cost.fee(),
+            bytes: owner.transaction.cost.serialized_bytes(),
         })
     }
 

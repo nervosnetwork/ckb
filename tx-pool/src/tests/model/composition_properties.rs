@@ -18,7 +18,8 @@ use super::scheduler_quotient::SchedulerQuotient;
 use super::state::{
     ApplyStamp, CellId, EffectClass, HeaderId, InputOrigin, LogicalEffect, ModelLimits, Omega,
     OwnerLocation, PeerId, ProposalBase, RemoteDeadline, RemoteResidency, ResolvedEvidence,
-    RetainedSource, RulesId, Source, Transaction, TxId, ViewId, WorkCapability,
+    RetainedOwner, RetainedPhase, RetainedSource, RulesId, Source, Transaction, TxId, ViewId,
+    WorkCapability,
 };
 
 fn model() -> Omega {
@@ -115,7 +116,8 @@ fn computing_verify_chain(omega: &mut Omega, transaction: Transaction) -> WorkCa
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     computing_verify(omega, transaction, evidence)
 }
 
@@ -160,7 +162,8 @@ fn accept(omega: &mut Omega, transaction: Transaction) {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     ready(omega, transaction, evidence);
     assert!(matches!(
         omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 1 }),
@@ -177,16 +180,20 @@ fn accept(omega: &mut Omega, transaction: Transaction) {
 #[test]
 fn model_dynamic_footprint_keeps_reads_writes_headers_and_pool_origin_distinct() {
     let mut transaction = Transaction::independent(1, 1, 10, 20);
-    transaction.deps.insert(CellId(11));
+    transaction.cell_deps.insert(CellId(11));
     transaction.header_deps.insert(HeaderId(7));
     let mut evidence = ResolvedEvidence::for_transaction(
         &transaction,
         super::state::ChainView::initial(ViewId(1)),
         RulesId(1),
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     evidence
         .input_origins
         .insert(CellId(10), InputOrigin::Pool(super::state::TxId(9)));
+    let evidence = evidence
+        .with_pool_dependency(CellId(11), super::state::TxId(8))
+        .expect("the direct conditional read can name its pool producer");
     let footprint = transaction_footprint(
         &transaction,
         &evidence,
@@ -204,7 +211,10 @@ fn model_dynamic_footprint_keeps_reads_writes_headers_and_pool_origin_distinct()
         footprint.pool_inputs,
         [(CellId(10), super::state::TxId(9))].into_iter().collect()
     );
-    assert!(footprint.pool_reads.is_empty());
+    assert_eq!(
+        footprint.pool_reads,
+        [(CellId(11), super::state::TxId(8))].into_iter().collect()
+    );
     assert_eq!(footprint.context, evidence.context);
 }
 
@@ -212,17 +222,18 @@ fn model_dynamic_footprint_keeps_reads_writes_headers_and_pool_origin_distinct()
 fn model_shared_read_only_dependencies_and_headers_remain_composable() {
     let mut omega = model();
     let mut first = Transaction::independent(1, 1, 10, 20);
-    first.deps.insert(CellId(50));
+    first.cell_deps.insert(CellId(50));
     first.header_deps.insert(HeaderId(5));
     let mut second = Transaction::independent(2, 2, 11, 21);
-    second.deps.insert(CellId(50));
+    second.cell_deps.insert(CellId(50));
     second.header_deps.insert(HeaderId(5));
     for transaction in [first, second] {
         let evidence = ResolvedEvidence::for_transaction(
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -244,7 +255,8 @@ fn model_shared_input_stops_at_the_first_coupled_ready_member() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -263,14 +275,15 @@ fn model_shared_input_stops_at_the_first_coupled_ready_member() {
 fn model_reader_spender_relation_is_coupled_but_shared_readers_are_not() {
     let mut omega = model();
     let mut reader = Transaction::independent(1, 1, 11, 20);
-    reader.deps.insert(CellId(10));
+    reader.cell_deps.insert(CellId(10));
     let spender = Transaction::independent(2, 2, 10, 21);
     for transaction in [reader, spender] {
         let evidence = ResolvedEvidence::for_transaction(
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -285,6 +298,48 @@ fn model_reader_spender_relation_is_coupled_but_shared_readers_are_not() {
 }
 
 #[test]
+fn model_dep_group_member_reader_spender_relation_is_coupled_in_both_orders() {
+    for reader_first in [true, false] {
+        let mut omega = model();
+        let mut reader = Transaction::independent(1, 1, 11, 20);
+        reader.cell_deps.insert(CellId(50));
+        reader.dep_groups.insert(CellId(50));
+        reader = reader.with_fee(if reader_first { 30 } else { 5 });
+        let mut spender = Transaction::independent(2, 2, 10, 21);
+        spender = spender.with_fee(10);
+
+        let reader_evidence = ResolvedEvidence::with_dep_group_members(
+            &reader,
+            omega.authority.chain,
+            omega.authority.rules,
+            [(CellId(50), [CellId(10)].into_iter().collect())]
+                .into_iter()
+                .collect(),
+        )
+        .expect("the group container expands to the spender's input");
+        ready(&mut omega, reader, reader_evidence);
+        let spender_evidence = ResolvedEvidence::for_transaction(
+            &spender,
+            omega.authority.chain,
+            omega.authority.rules,
+        )
+        .expect("the spender has no dep-group expansion");
+        ready(&mut omega, spender, spender_evidence);
+
+        let analysis = analyze_ready_prefix(&omega, 2);
+        assert_eq!(analysis.prefix.len(), 1);
+        assert!(matches!(
+            analysis.stopped_by,
+            Some(CouplingReason::CandidateRelation {
+                cell: Some(CellId(10)),
+                kind: RelationKind::CandidateSpendsRead,
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
 fn model_candidate_parent_child_relation_is_coupled() {
     let mut omega = model();
     let parent = Transaction::independent(1, 1, 10, 20);
@@ -294,7 +349,8 @@ fn model_candidate_parent_child_relation_is_coupled() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -320,7 +376,8 @@ fn model_pool_origin_routes_the_ready_head_to_the_coupled_planner() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     ready(&mut omega, child.clone(), evidence);
     let analysis = analyze_ready_prefix(&omega, 1);
     assert!(matches!(
@@ -336,11 +393,12 @@ fn model_pool_origin_routes_the_ready_head_to_the_coupled_planner() {
 fn model_accepted_reader_relation_is_visible_before_ready_apply() {
     let mut omega = model();
     let mut reader = Transaction::independent(1, 1, 11, 20);
-    reader.deps.insert(CellId(10));
+    reader.cell_deps.insert(CellId(10));
     accept(&mut omega, reader);
     let spender = Transaction::independent(2, 2, 10, 21);
     let evidence =
-        ResolvedEvidence::for_transaction(&spender, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&spender, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     ready(&mut omega, spender, evidence);
     let analysis = analyze_ready_prefix(&omega, 1);
     assert!(matches!(
@@ -371,7 +429,8 @@ fn model_ready_prefix_stops_before_aggregate_accepted_capacity_exclusion() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -395,7 +454,8 @@ fn model_ready_footprint_cost_is_linear_in_scanned_owners_and_keys() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let analysis = analyze_ready_prefix(&omega, 2);
@@ -432,7 +492,8 @@ fn model_ready_prefix_stops_at_the_first_effect_control_class_boundary() {
     let trusted = Transaction::independent(1, 1, 10, 20);
     let remote_transaction = Transaction::independent(2, 2, 11, 21);
     let trusted_evidence =
-        ResolvedEvidence::for_transaction(&trusted, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&trusted, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     ready(&mut omega, trusted.clone(), trusted_evidence);
 
     assert!(matches!(
@@ -450,7 +511,8 @@ fn model_ready_prefix_stops_at_the_first_effect_control_class_boundary() {
         &remote_transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert!(matches!(
         omega.kernel_step(KernelCommand::Complete(Completion {
             capability: resolve.id,
@@ -590,7 +652,8 @@ fn model_ready_batch_equals_the_canonical_no_interleave_fold_with_one_stamp() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         ready(&mut omega, transaction, evidence);
     }
     let before_stamp = omega.authority.last_apply;
@@ -640,7 +703,7 @@ fn model_compute_exchange_settles_and_refills_all_available_slots_in_one_apply()
     let third = Transaction::independent(3, 3, 12, 22);
     let fourth = Transaction::independent(4, 4, 13, 23);
     let first_capability = computing_verify_chain(&mut omega, first.clone());
-    let second_capability = computing_verify_chain(&mut omega, second.clone());
+    let second_capability = computing_verify_chain(&mut omega, second);
     assert!(matches!(
         omega.kernel_step(KernelCommand::Admit(proposal(third.clone()))),
         KernelStep::AuthorityCommit { .. }
@@ -807,8 +870,8 @@ fn model_compute_exchange_is_invariant_to_worker_completion_order() {
     let mut omega = model();
     let first = Transaction::independent(1, 1, 10, 20);
     let second = Transaction::independent(2, 2, 11, 21);
-    let first_capability = computing_verify_chain(&mut omega, first.clone());
-    let second_capability = computing_verify_chain(&mut omega, second.clone());
+    let first_capability = computing_verify_chain(&mut omega, first);
+    let second_capability = computing_verify_chain(&mut omega, second);
     for capability in [&first_capability, &second_capability] {
         assert_eq!(
             omega.kernel_step(KernelCommand::FinishExecution(Completion {
@@ -893,7 +956,7 @@ fn model_stale_compute_exchange_returns_every_fair_grant_without_mutation() {
 }
 
 #[test]
-fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_work() {
+fn model_chain_race_settles_finished_ready_and_returns_the_unused_grant() {
     let mut limits = ModelLimits::small();
     limits.compute_permits = 1;
     let mut omega = Omega::new(
@@ -937,6 +1000,10 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
     assert!(matches!(
         omega.kernel_step(KernelCommand::ReconcileChain(
             super::kernel::ChainTransition {
+                context: super::kernel::ChainContextTransition::from_primitives(
+                    super::state::RulesId(1),
+                    false,
+                ),
                 from,
                 to_tip: ViewId(2),
                 committed: Default::default(),
@@ -946,8 +1013,12 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
                 lost_headers: Default::default(),
                 conflicting_cells: Default::default(),
                 recovered: Vec::new(),
-                proposed: [transaction.id].into_iter().collect(),
-                gap: Default::default(),
+                proposals: super::proposal::ProposalContext::status_witness(
+                    [transaction.proposal].into_iter().collect(),
+                    Default::default(),
+                )
+                .expect("the proposal witness sets are disjoint")
+                .view(),
             },
         )),
         KernelStep::AuthorityCommit { .. }
@@ -965,7 +1036,7 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
         "exchange dispositions: {:?}",
         exchange.batch.dispositions
     );
-    let assignments = match exchange.apply(&mut omega, &mut scheduler) {
+    match exchange.apply(&mut omega, &mut scheduler) {
         ComputeExchangeApplyDisposition::Applied {
             settled,
             assignments,
@@ -973,16 +1044,19 @@ fn model_chain_race_retires_finished_evidence_and_rechecks_out_current_resolve_w
             ..
         } => {
             assert_eq!(settled, vec![capability.id]);
-            assert!(unused_grants.is_empty());
-            assignments
+            assert!(assignments.is_empty());
+            assert_eq!(unused_grants.len(), 1);
+            assert_eq!(unused_grants[0].request().id, next_request_id);
         }
-        other => panic!("expected current re-checkout, got {other:?}"),
-    };
-    assert_eq!(assignments.len(), 1);
-    assert_eq!(assignments[0].0.request().id, next_request_id);
-    assert_eq!(assignments[0].1.transaction, transaction.id);
-    assert_eq!(assignments[0].1.kind(), super::state::WorkKind::Resolve);
-    assert_eq!(assignments[0].1.chain, omega.authority.chain);
+        other => panic!("expected exact Ready settlement, got {other:?}"),
+    }
+    assert!(matches!(
+        omega.authority.owners[&transaction.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Ready(_),
+            ..
+        })
+    ));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -1007,7 +1081,7 @@ fn model_effect_pressure_retries_the_bounded_finished_slot_after_capacity_frees(
                 permit: first_token,
                 completion: Completion {
                     capability: first_capability.id,
-                    result: WorkResult::Rejected,
+                    result: first_capability.stage_rejection_result(),
                 },
             },
             ExecutionCompletion {
@@ -1164,16 +1238,18 @@ fn model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_pri
     let older = Transaction::independent(1, 1, 10, 20);
     let newer = Transaction::independent(2, 2, 11, 21);
     let older_evidence =
-        ResolvedEvidence::for_transaction(&older, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&older, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     let older_capability =
-        computing_verify_from_admission(&mut omega, proposal(older.clone()), older_evidence);
+        computing_verify_from_admission(&mut omega, proposal(older), older_evidence);
     let newer_evidence =
-        ResolvedEvidence::for_transaction(&newer, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&newer, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     let generation = omega.authority.generation;
     let newer_capability = computing_verify_from_admission(
         &mut omega,
         Admission {
-            transaction: newer.clone(),
+            transaction: newer,
             source: RetainedSource::Recovery(generation),
             observed_at: super::state::MonotonicTick(2),
         },
@@ -1184,7 +1260,7 @@ fn model_effect_capacity_serves_the_oldest_effectful_capability_before_newer_pri
         assert!(matches!(
             omega.kernel_step(KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
-                result: WorkResult::Rejected,
+                result: capability.stage_rejection_result(),
             })),
             KernelStep::NoAuthorityCommit(KernelDisposition::Finished(observed))
                 if observed == capability.id
@@ -1264,7 +1340,7 @@ fn model_local_waiter_receives_the_released_permit_before_retained_reuse() {
     );
     let first = Transaction::independent(1, 1, 10, 20);
     let second = Transaction::independent(2, 2, 11, 21);
-    let capability = computing_verify_chain(&mut omega, first.clone());
+    let capability = computing_verify_chain(&mut omega, first);
     assert!(matches!(
         omega.kernel_step(KernelCommand::Admit(proposal(second))),
         KernelStep::AuthorityCommit { .. }

@@ -24,7 +24,18 @@ pub struct BlockingTxPoolTestScope {
     signal: CancellationToken,
     runtime: Handle,
     dispatcher: Option<JoinHandle<()>>,
-    _relay_results: TxVerificationResultReceiver,
+    relay_results: Option<TxVerificationResultReceiver>,
+}
+
+impl BlockingTxPoolTestScope {
+    /// Move the sole relay-result capability to an external test consumer.
+    ///
+    /// The returned receiver must remain alive until this scope has quiesced
+    /// the dispatcher. Cross-crate fixtures retain it in the same aggregate
+    /// owner, so endpoint lifetime and database lifetime remain ordered.
+    pub fn take_relay_results(&mut self) -> Option<TxVerificationResultReceiver> {
+        self.relay_results.take()
+    }
 }
 
 impl Drop for BlockingTxPoolTestScope {
@@ -63,6 +74,6 @@ pub fn start_blocking_test_service(
         signal,
         runtime,
         dispatcher: Some(dispatcher),
-        _relay_results: relay_results,
+        relay_results: Some(relay_results),
     }
 }

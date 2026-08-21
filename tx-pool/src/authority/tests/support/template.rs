@@ -71,24 +71,21 @@ impl TemplateSelectionReceipt {
     pub(in crate::authority) fn proposed_parent_first(
         &self,
     ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
-        self.proposed_parent_first_with_dependency_budget(SELECTED_DEP_ORDERING_BUDGET)
+        self.proposed_parent_first_complete_scan()
     }
 
     pub(in crate::authority) fn proposed_parent_first_for_foundation(
         &self,
-        dependency_budget: usize,
     ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
-        self.proposed_parent_first_with_dependency_budget(dependency_budget)
+        self.proposed_parent_first_complete_scan()
     }
 
-    fn proposed_parent_first_with_dependency_budget(
+    fn proposed_parent_first_complete_scan(
         &self,
-        dependency_budget: usize,
     ) -> Result<Vec<&TemplateCandidate>, TemplateReadError> {
         let by_hash = self.candidate_index()?;
         let causally_selected = self.causally_eligible_proposed(&by_hash)?;
-        let selected =
-            self.order_conditionally_safe(causally_selected, &by_hash, dependency_budget)?;
+        let selected = self.order_conditionally_safe(causally_selected, &by_hash)?;
         let mut ordered = Vec::new();
         ordered
             .try_reserve(selected.len())

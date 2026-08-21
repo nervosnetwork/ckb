@@ -11,7 +11,8 @@ use super::{
     plan::AuthorityFault,
     resolver::VerificationCacheUpdate,
     runtime::{
-        AuthorityDriverError, AuthorityPendingSettlement, AuthorityReadyOutcome, AuthorityRuntime,
+        AuthorityDriverError, AuthorityGenerationReplacementError, AuthorityPendingSettlement,
+        AuthorityReadyOutcome, AuthorityRuntime,
     },
 };
 use ckb_async_runtime::Handle;
@@ -21,7 +22,6 @@ use ckb_verification::cache::TxVerificationCache;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{RwLock, mpsc, watch};
 
-pub(super) const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(1);
 const MAINTENANCE_EXPIRY_TICK: Duration = Duration::from_secs(1);
 
 /// Background tasks owned by one authority generation. Their `Result` is
@@ -139,7 +139,6 @@ enum WorkerStep {
     Progress,
     WaitForRunnable,
     WaitForEffectCapacity,
-    Backoff,
 }
 
 impl AuthorityRuntime {
@@ -184,24 +183,39 @@ async fn run_ready_driver(
     runtime: AuthorityRuntime,
     cancel: CancellationToken,
 ) -> Result<(), AuthorityWorkerFault> {
+    run_ready_driver_loop(runtime, cancel, || {}).await
+}
+
+async fn run_ready_driver_loop(
+    runtime: AuthorityRuntime,
+    cancel: CancellationToken,
+    mut observe_attempt: impl FnMut(),
+) -> Result<(), AuthorityWorkerFault> {
     loop {
+        if cancel.is_cancelled() {
+            return Ok(());
+        }
         let work_notified = runtime.ready_signal().notified();
         let capacity_notified = runtime.effect_capacity_signal().notified();
         tokio::pin!(capacity_notified);
         let _ = capacity_notified.as_mut().enable();
+        observe_attempt();
         let step = match runtime.try_drive_ready() {
             Ok(AuthorityReadyOutcome::Applied) => WorkerStep::Progress,
             Ok(AuthorityReadyOutcome::Idle) => WorkerStep::WaitForRunnable,
-            Err(error) => classify_driver_error(error)?,
+            Err(error) => classify_driver_error(&runtime, error)?,
         };
         if step == WorkerStep::Progress {
+            // One attempt owns at most one bounded Ready Apply or one changed
+            // OCC cut. Relinquish the executor before observing another cut,
+            // so continuous Ready input cannot hide cancellation or peers.
+            tokio::task::yield_now().await;
             continue;
         }
         let wait = async {
             match step {
                 WorkerStep::WaitForRunnable => work_notified.await,
                 WorkerStep::WaitForEffectCapacity => capacity_notified.as_mut().await,
-                WorkerStep::Backoff => tokio::time::sleep(TRANSIENT_RETRY_DELAY).await,
                 WorkerStep::Progress => {}
             }
         };
@@ -270,12 +284,6 @@ async fn run_maintenance_driver_loop(
                         _ = capacity_notified.as_mut() => {}
                     }
                 }
-                WorkerStep::Backoff => {
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Ok(()),
-                        _ = tokio::time::sleep(TRANSIENT_RETRY_DELAY) => {}
-                    }
-                }
             }
         }
     }
@@ -285,9 +293,9 @@ async fn run_maintenance_driver_loop(
 }
 
 fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, AuthorityWorkerFault> {
-    let remote = classify_maintenance_result(runtime.expire_remote_due())?;
-    let accepted = classify_maintenance_result(runtime.expire_accepted_due())?;
-    let dependency = classify_maintenance_result(runtime.maintain_dependency())?;
+    let remote = classify_maintenance_result(runtime, runtime.expire_remote_due())?;
+    let accepted = classify_maintenance_result(runtime, runtime.expire_accepted_due())?;
+    let dependency = classify_maintenance_result(runtime, runtime.maintain_dependency())?;
     Ok(merge_maintenance_steps(
         merge_maintenance_steps(remote, accepted),
         dependency,
@@ -295,19 +303,19 @@ fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, Autho
 }
 
 fn classify_maintenance_result(
+    runtime: &AuthorityRuntime,
     result: Result<super::runtime::AuthorityMaintenanceOutcome, AuthorityDriverError>,
 ) -> Result<WorkerStep, AuthorityWorkerFault> {
     match result {
         Ok(super::runtime::AuthorityMaintenanceOutcome::Applied) => Ok(WorkerStep::Progress),
         Ok(super::runtime::AuthorityMaintenanceOutcome::Idle) => Ok(WorkerStep::WaitForRunnable),
-        Err(error) => classify_driver_error(error),
+        Err(error) => classify_driver_error(runtime, error),
     }
 }
 
 fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     match (left, right) {
         (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
-        (WorkerStep::Backoff, _) | (_, WorkerStep::Backoff) => WorkerStep::Backoff,
         (WorkerStep::WaitForEffectCapacity, _) | (_, WorkerStep::WaitForEffectCapacity) => {
             WorkerStep::WaitForEffectCapacity
         }
@@ -315,13 +323,32 @@ fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     }
 }
 
-fn classify_driver_error(error: AuthorityDriverError) -> Result<WorkerStep, AuthorityWorkerFault> {
+fn classify_driver_error(
+    runtime: &AuthorityRuntime,
+    error: AuthorityDriverError,
+) -> Result<WorkerStep, AuthorityWorkerFault> {
     match error {
         AuthorityDriverError::Stale => Ok(WorkerStep::Progress),
-        AuthorityDriverError::Allocation => Ok(WorkerStep::Backoff),
+        AuthorityDriverError::Allocation => {
+            runtime
+                .replace_current_generation_after_allocation()
+                .map_err(map_generation_replacement_error)?;
+            Ok(WorkerStep::Progress)
+        }
         AuthorityDriverError::EffectCapacity => Ok(WorkerStep::WaitForEffectCapacity),
         AuthorityDriverError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
         AuthorityDriverError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
+    }
+}
+
+fn map_generation_replacement_error(
+    error: AuthorityGenerationReplacementError,
+) -> AuthorityWorkerFault {
+    match error {
+        AuthorityGenerationReplacementError::LifecycleClosed => {
+            AuthorityWorkerFault::lifecycle_closed()
+        }
+        AuthorityGenerationReplacementError::Fault(fault) => AuthorityWorkerFault::authority(fault),
     }
 }
 

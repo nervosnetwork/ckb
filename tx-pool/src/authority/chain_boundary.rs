@@ -6,33 +6,26 @@
 //! classification.
 
 use super::{
-    chain::{CanonicalChainFacts, ChainBlockChanges, ChainFactsError, ChainPackagingMode},
+    chain::{CanonicalChainFacts, ChainBlockChanges, ChainFactsError},
     plan::{AuthorityFault, Backpressure, PlanError},
-    state::ProposalId,
 };
+use crate::block_assembler::{BoundedCandidateUncle, CandidateUncleMutationError};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
-    core::{BlockView, UncleBlockView},
+    core::BlockView,
     packed::{Byte32, ProposalShortId},
 };
-use std::{collections::HashSet, collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ChainPackaging {
-    Package,
-    ObserveOnly,
+pub(super) enum CandidateUncleCollection {
+    CollectCandidateUncles,
+    SkipCandidateUncles,
 }
 
-impl ChainPackaging {
-    pub(super) fn authority_mode(self) -> ChainPackagingMode {
-        match self {
-            Self::Package => ChainPackagingMode::Package,
-            Self::ObserveOnly => ChainPackagingMode::ObserveOnly,
-        }
-    }
-
-    fn packages(self) -> bool {
-        matches!(self, Self::Package)
+impl CandidateUncleCollection {
+    fn collects_candidate_uncles(self) -> bool {
+        matches!(self, Self::CollectCandidateUncles)
     }
 }
 
@@ -87,32 +80,25 @@ impl From<PlanError> for ChainBoundaryError {
 pub(super) struct ChainUpdateRequest {
     detached_blocks: VecDeque<BlockView>,
     attached_blocks: VecDeque<BlockView>,
-    detached_proposals: HashSet<ProposalShortId>,
     snapshot: Arc<Snapshot>,
-    packaging: ChainPackaging,
+    candidate_uncles: CandidateUncleCollection,
 }
 
 impl ChainUpdateRequest {
     pub(super) fn new(
         detached_blocks: VecDeque<BlockView>,
         attached_blocks: VecDeque<BlockView>,
-        detached_proposals: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
-        packaging: ChainPackaging,
+        candidate_uncles: CandidateUncleCollection,
     ) -> Self {
         Self {
             detached_blocks,
             attached_blocks,
-            detached_proposals,
             snapshot,
-            packaging,
+            candidate_uncles,
         }
     }
 
-    #[expect(
-        clippy::result_large_err,
-        reason = "preparation failure returns the exact attacker-bounded request for deterministic retry; boxing would add an avoidable allocation on that boundary"
-    )]
     pub(super) fn prepare(self) -> Result<ChainUpdateCommand, ChainUpdatePreparationFailure> {
         match self.prepare_borrowed() {
             Ok(mut command) => {
@@ -173,52 +159,51 @@ impl ChainUpdateRequest {
                 .map_err(|_| ChainBoundaryError::Allocation)?;
             detached_transactions.extend(transactions.iter().cloned());
             detached_headers.push(crate::util::compact_packed(&block.header().hash()));
-            if self.packaging.packages() {
+            if self.candidate_uncles.collects_candidate_uncles() {
                 // This is a fresh, bounded template projection rather than
                 // authoritative chain evidence. Source exhaustion can only
                 // underfill its derived candidate prefix; it must not reject
                 // the exact chain transition or invalidate tx-pool state.
-                candidate_uncles.insert(block.as_uncle());
+                match candidate_uncles.try_insert(block.as_uncle()) {
+                    Ok(_) | Err(CandidateUncleMutationError::SourceVersionExhausted) => {}
+                    Err(CandidateUncleMutationError::Allocation) => {
+                        return Err(ChainBoundaryError::Allocation);
+                    }
+                    Err(
+                        CandidateUncleMutationError::Arithmetic
+                        | CandidateUncleMutationError::TooLarge { .. },
+                    ) => return Err(ChainBoundaryError::InvalidFacts),
+                }
             }
         }
 
-        let mut detached_proposals = Vec::new();
-        detached_proposals
-            .try_reserve(self.detached_proposals.len())
-            .map_err(|_| ChainBoundaryError::Allocation)?;
-        detached_proposals.extend(
-            self.detached_proposals
-                .iter()
-                .map(|proposal| ProposalId(crate::util::compact_packed(proposal))),
-        );
-        detached_proposals.sort_unstable();
-        detached_proposals.dedup();
-        let mut changed_proposals = Vec::new();
-        changed_proposals
-            .try_reserve(detached_proposals.len())
-            .map_err(|_| ChainBoundaryError::Allocation)?;
-        changed_proposals.extend(detached_proposals.iter().cloned());
-        let facts = CanonicalChainFacts::from_chain_update(
-            ChainBlockChanges::from_chain_update(
-                attached_transactions,
-                detached_transactions,
-                attached_headers,
-                detached_headers,
-            ),
-            changed_proposals,
-            detached_proposals,
-        )
+        let facts = CanonicalChainFacts::from_chain_update(ChainBlockChanges::from_chain_update(
+            attached_transactions,
+            detached_transactions,
+            attached_headers,
+            detached_headers,
+        ))
         .map_err(map_chain_facts_error)?;
 
         Ok(ChainUpdateCommand {
             facts,
             committed_hashes,
-            candidate_uncles: candidate_uncles.into_values(),
+            candidate_uncles: candidate_uncles
+                .into_values()
+                .map_err(|_| ChainBoundaryError::Allocation)?,
             attached_blocks: VecDeque::new(),
             had_detached_chain: !self.detached_blocks.is_empty(),
-            packaging: self.packaging,
             snapshot: Arc::clone(&self.snapshot),
         })
+    }
+
+    /// Allocation pressure cannot postpone the authoritative snapshot change.
+    /// Discard the optional detailed reconciliation and retain only the exact
+    /// snapshot needed for an empty-generation replacement.
+    pub(super) fn into_generation_replacement(self) -> ChainGenerationReplacement {
+        ChainGenerationReplacement {
+            snapshot: self.snapshot,
+        }
     }
 }
 
@@ -247,14 +232,40 @@ impl std::fmt::Debug for ChainUpdatePreparationFailure {
 pub(super) struct ChainUpdateCommand {
     pub(super) facts: CanonicalChainFacts,
     pub(super) committed_hashes: Vec<(ProposalShortId, Byte32)>,
-    pub(super) candidate_uncles: Vec<UncleBlockView>,
+    pub(super) candidate_uncles: Vec<BoundedCandidateUncle>,
     /// Ordered evidence consumed by the fee-estimator projection only after
     /// this command commits. Empty during borrowed preparation and filled by
     /// `prepare` through ownership transfer from the raw request.
     pub(super) attached_blocks: VecDeque<BlockView>,
     pub(super) had_detached_chain: bool,
-    pub(super) packaging: ChainPackaging,
     pub(super) snapshot: Arc<Snapshot>,
+}
+
+impl ChainUpdateCommand {
+    pub(super) fn into_generation_replacement(self) -> ChainGenerationReplacement {
+        ChainGenerationReplacement {
+            snapshot: self.snapshot,
+        }
+    }
+}
+
+/// Minimum allocation-free ordered-chain consequence. It installs the exact
+/// new snapshot while replacing all tx-pool ownership with an empty generation;
+/// detached recovery, fee-estimator input and candidate uncles are derived
+/// optimizations and cannot veto this safety transition.
+#[must_use = "a chain generation replacement must be committed or explicitly discarded"]
+pub(super) struct ChainGenerationReplacement {
+    snapshot: Arc<Snapshot>,
+}
+
+impl ChainGenerationReplacement {
+    pub(super) fn from_snapshot(snapshot: Arc<Snapshot>) -> Self {
+        Self { snapshot }
+    }
+
+    pub(super) fn into_snapshot(self) -> Arc<Snapshot> {
+        self.snapshot
+    }
 }
 
 #[must_use = "a failed chain Apply still owns the prepared command"]
@@ -293,7 +304,7 @@ fn map_chain_facts_error(error: ChainFactsError) -> ChainBoundaryError {
 
 #[must_use = "post-commit chain projections must consume this exact committed cut"]
 pub(super) struct CommittedChainUpdate {
-    pub(super) candidate_uncles: Vec<UncleBlockView>,
+    pub(super) candidate_uncles: Vec<BoundedCandidateUncle>,
     pub(super) attached_blocks: VecDeque<BlockView>,
     pub(super) snapshot: Arc<Snapshot>,
 }

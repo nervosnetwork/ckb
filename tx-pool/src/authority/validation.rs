@@ -9,31 +9,32 @@
 
 use super::{
     chain::{
-        AcceptedChainSensitivity, DirectAdmissionReceipt, DirectAdmissionRejection,
-        DirectAdmissionRetry, DirectAdmissionSubject, DirectAdmissionWork, FinalAdmissionReceipt,
-        FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
-        MembershipReceipt, MembershipValidationWork, ReadyPayloadRelation, TimeContextReceipt,
-        VerificationContextReceipt,
+        AcceptedChainSensitivity, CellLocationReceiptError, DirectAdmissionReceipt,
+        DirectAdmissionRejection, DirectAdmissionRetry, DirectAdmissionSubject,
+        DirectAdmissionWork, FinalAdmissionReceipt, FinalAdmissionRejection, FinalAdmissionRetry,
+        FinalAdmissionSubject, FinalAdmissionWork, MembershipReceipt, MembershipValidationWork,
+        ReadyPayloadRelation, TimeContextReceipt, VerificationContextReceipt,
+        proposal_context_receipt,
     },
     plan::TxPoolAuthority,
     rejection::CommittedPublicReject,
+    resolver::AcceptedOverlay,
     runtime::AuthorityStoreCaptureSeal,
-    state::{AcceptedAtMillis, AcceptedStatus, OwnedTx, RawTxHash, ResolvedPayload},
+    state::{AcceptedAtMillis, AcceptedStatus, RawTxHash, ResolvedPayload},
 };
 use crate::{
-    constants::{GAP_PROPOSAL_INDEX, PROPOSED_PROPOSAL_INDEX},
+    constants::GAP_PROPOSAL_INDEX,
     error::Reject,
-    util::{block_offload, revalidate_tx_context},
+    util::{block_offload, check_tx_fee_with_min_fee_rate, revalidate_tx_context},
 };
 use ckb_script::TxVerifyEnv;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
-        TransactionInfo,
+        FeeRate, TransactionInfo,
         cell::{CellMeta, CellProvider, CellStatus, HeaderChecker, ResolvedTransaction},
     },
     packed::OutPoint,
-    prelude::Unpack,
 };
 use ckb_verification::cache::ScriptVerificationRules;
 use std::sync::Arc;
@@ -102,78 +103,13 @@ impl From<FinalAdmissionValidationError> for CandidateValidationError {
     }
 }
 
-/// The exact Accepted-output projection needed by one candidate.
-///
-/// It is immutable, bounded by the resolved footprint, and has no independent
-/// publication or invalidation protocol. Dependency cuts and final membership
-/// OCC make a later owner change stale.
-#[derive(Debug)]
-struct AcceptedOriginOverlay {
-    // One bit per resolved input/cell-dep/expanded dep-group cell, in that
-    // exact order. This avoids cloning and sorting peer-controlled outpoints
-    // while the authority guard is held.
-    pool_origin: Vec<bool>,
-}
-
-impl AcceptedOriginOverlay {
-    fn prepare(payload: &ResolvedPayload) -> Result<Self, FinalAdmissionValidationError> {
-        let resolved = payload.resolved_transaction();
-        let total_cells = resolved
-            .resolved_inputs
-            .len()
-            .checked_add(resolved.resolved_cell_deps.len())
-            .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
-            .ok_or(FinalAdmissionValidationError::Arithmetic)?;
-        let mut pool_origin = Vec::new();
-        pool_origin
-            .try_reserve_exact(total_cells)
-            .map_err(|_| FinalAdmissionValidationError::Allocation)?;
-        pool_origin.resize(total_cells, false);
-        Ok(Self { pool_origin })
-    }
-
-    /// Populate a preallocated bit projection from one coherent authority
-    /// cut. No allocation or payload destruction occurs under the guard.
-    fn populate(
-        &mut self,
-        authority: &TxPoolAuthority,
-        payload: &ResolvedPayload,
-    ) -> Result<(), FinalAdmissionValidationError> {
-        let resolved = payload.resolved_transaction();
-        let total_cells = resolved
-            .resolved_inputs
-            .len()
-            .checked_add(resolved.resolved_cell_deps.len())
-            .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
-            .ok_or(FinalAdmissionValidationError::Arithmetic)?;
-        if total_cells != self.pool_origin.len() {
-            return Err(FinalAdmissionValidationError::Arithmetic);
-        }
-        let cells = resolved
-            .resolved_inputs
-            .iter()
-            .chain(&resolved.resolved_cell_deps)
-            .chain(&resolved.resolved_dep_groups);
-        for (origin, cell) in self.pool_origin.iter_mut().zip(cells) {
-            *origin = is_accepted_output(authority, &cell.out_point);
-        }
-        Ok(())
-    }
-
-    fn origins(&self) -> impl Iterator<Item = bool> + '_ {
-        self.pool_origin.iter().copied()
-    }
-}
-
-fn is_accepted_output(authority: &TxPoolAuthority, out_point: &OutPoint) -> bool {
-    let producer = RawTxHash(out_point.tx_hash());
-    let Some(OwnedTx::Accepted(entry)) = authority.entry(&producer) else {
-        return false;
-    };
-    let index: u32 = out_point.index().unpack();
-    usize::try_from(index)
-        .ok()
-        .is_some_and(|index| index < entry.record.tx.outputs().len())
+fn prepare_accepted_overlay(
+    payload: &ResolvedPayload,
+) -> Result<AcceptedOverlay, FinalAdmissionValidationError> {
+    AcceptedOverlay::prepare_resolved(payload).map_err(|error| match error {
+        CellLocationReceiptError::Allocation => FinalAdmissionValidationError::Allocation,
+        CellLocationReceiptError::Arithmetic => FinalAdmissionValidationError::Arithmetic,
+    })
 }
 
 /// A complete lock-external final-admission validation job.
@@ -184,7 +120,8 @@ fn is_accepted_output(authority: &TxPoolAuthority, out_point: &OutPoint) -> bool
 pub(super) struct FinalAdmissionValidation {
     work: FinalAdmissionWork,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
+    overlay: AcceptedOverlay,
+    min_fee_rate: FeeRate,
 }
 
 /// A complete lock-external validation job shared by synchronous Local and
@@ -193,9 +130,9 @@ pub(super) struct FinalAdmissionValidation {
 pub(super) struct DirectAdmissionValidation {
     work: DirectAdmissionWork,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
-    accepted_source: super::state::ApplySequence,
+    overlay: AcceptedOverlay,
     dependency_cut: super::state::DependencyCut,
+    min_fee_rate: FeeRate,
 }
 
 /// First half of an OCC capture. The candidate identifies how much overlay
@@ -206,7 +143,8 @@ pub(super) struct PreparedFinalAdmissionValidation {
     key: RawTxHash,
     expected: super::state::EntryVersion,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
+    overlay: AcceptedOverlay,
+    min_fee_rate: FeeRate,
 }
 
 /// Preallocated direct-validation capture. The resolved transaction defines
@@ -216,7 +154,8 @@ pub(super) struct PreparedFinalAdmissionValidation {
 pub(super) struct PreparedDirectAdmissionValidation {
     work: DirectAdmissionWork,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
+    overlay: AcceptedOverlay,
+    min_fee_rate: FeeRate,
 }
 
 enum MembershipValidationOutcome {
@@ -224,7 +163,10 @@ enum MembershipValidationOutcome {
         membership: MembershipReceipt,
         payload_relation: ReadyPayloadRelation,
     },
-    Rejected(CommittedPublicReject),
+    Rejected {
+        reason: CommittedPublicReject,
+        accepted_reads: AcceptedOverlay,
+    },
     Reresolve,
 }
 
@@ -258,11 +200,12 @@ impl PreparedFinalAdmissionValidation {
         {
             return Err(FinalAdmissionValidationError::StaleView);
         }
-        self.overlay.populate(authority, work.payload())?;
+        self.overlay.populate(authority);
         Ok(FinalAdmissionValidation {
             work,
             snapshot: self.snapshot,
             overlay: self.overlay,
+            min_fee_rate: self.min_fee_rate,
         })
     }
 }
@@ -285,13 +228,13 @@ impl PreparedDirectAdmissionValidation {
         {
             return Err(FinalAdmissionValidationError::StaleView);
         }
-        self.overlay.populate(authority, self.work.payload())?;
+        self.overlay.populate(authority);
         Ok(DirectAdmissionValidation {
             work: self.work,
             snapshot: self.snapshot,
             overlay: self.overlay,
-            accepted_source: authority.accepted_source_cut(),
             dependency_cut: authority.dependency_observation_cut(),
+            min_fee_rate: self.min_fee_rate,
         })
     }
 }
@@ -300,16 +243,18 @@ impl FinalAdmissionValidation {
     pub(super) fn prepare(
         snapshot: Arc<Snapshot>,
         work: FinalAdmissionWork,
+        min_fee_rate: FeeRate,
     ) -> Result<PreparedFinalAdmissionValidation, FinalAdmissionValidationError> {
         if snapshot.tip_hash() != work.view().tip().0 {
             return Err(FinalAdmissionValidationError::StaleView);
         }
-        let overlay = AcceptedOriginOverlay::prepare(work.payload())?;
+        let overlay = prepare_accepted_overlay(work.payload())?;
         Ok(PreparedFinalAdmissionValidation {
             key: work.key().clone(),
             expected: work.expected(),
             snapshot,
             overlay,
+            min_fee_rate,
         })
     }
 
@@ -322,14 +267,14 @@ impl FinalAdmissionValidation {
             work,
             snapshot,
             overlay,
+            min_fee_rate,
         } = self;
         let (key, expected, validation) = work.into_validation_parts();
         let view = validation.view().clone();
         let dependency_cut = validation.dependency_cut();
         let seal = AdmissionValidationSeal(());
-        let subject =
-            FinalAdmissionSubject::new(seal, key.clone(), expected, view.clone(), dependency_cut);
-        match validate_membership(validation, snapshot, overlay, seal)? {
+        let subject = FinalAdmissionSubject::new(seal, key, expected, view, dependency_cut);
+        match validate_membership(validation, snapshot, overlay, min_fee_rate, seal)? {
             MembershipValidationOutcome::Candidate {
                 membership,
                 payload_relation,
@@ -341,7 +286,11 @@ impl FinalAdmissionValidation {
                     payload_relation,
                 ),
             )),
-            MembershipValidationOutcome::Rejected(reason) => {
+            MembershipValidationOutcome::Rejected {
+                reason,
+                accepted_reads,
+            } => {
+                drop(accepted_reads);
                 Ok(FinalAdmissionValidationOutcome::Rejected(
                     FinalAdmissionRejection::new(seal, subject, reason),
                 ))
@@ -357,15 +306,17 @@ impl DirectAdmissionValidation {
     pub(super) fn prepare(
         snapshot: Arc<Snapshot>,
         work: DirectAdmissionWork,
+        min_fee_rate: FeeRate,
     ) -> Result<PreparedDirectAdmissionValidation, FinalAdmissionValidationError> {
         if snapshot.tip_hash() != work.view().tip().0 {
             return Err(FinalAdmissionValidationError::StaleView);
         }
-        let overlay = AcceptedOriginOverlay::prepare(work.payload())?;
+        let overlay = prepare_accepted_overlay(work.payload())?;
         Ok(PreparedDirectAdmissionValidation {
             work,
             snapshot,
             overlay,
+            min_fee_rate,
         })
     }
 
@@ -376,34 +327,32 @@ impl DirectAdmissionValidation {
             work,
             snapshot,
             overlay,
-            accepted_source,
             dependency_cut,
+            min_fee_rate,
         } = self;
         let (tx, validation) = work.into_validation_parts();
         let seal = AdmissionValidationSeal(());
         let validation = validation.with_validated_dependency_cut(seal, dependency_cut);
-        let subject = DirectAdmissionSubject::new(
-            seal,
-            Arc::clone(&tx),
-            validation.view().clone(),
-            accepted_source,
-        );
-        match validate_membership(validation, snapshot, overlay, seal)? {
+        let view = validation.view().clone();
+        match validate_membership(validation, snapshot, overlay, min_fee_rate, seal)? {
             MembershipValidationOutcome::Candidate { membership, .. } => {
                 Ok(DirectAdmissionValidationOutcome::Candidate(
                     DirectAdmissionReceipt::from_validation(seal, tx, membership),
                 ))
             }
-            MembershipValidationOutcome::Rejected(reason) => {
+            MembershipValidationOutcome::Rejected {
+                reason,
+                accepted_reads,
+            } => {
+                let subject =
+                    DirectAdmissionSubject::new(seal, Arc::clone(&tx), view, accepted_reads);
                 Ok(DirectAdmissionValidationOutcome::Rejected(
                     DirectAdmissionRejection::new(seal, subject, reason),
                 ))
             }
-            MembershipValidationOutcome::Reresolve => {
-                Ok(DirectAdmissionValidationOutcome::Reresolve(
-                    DirectAdmissionRetry::new(seal, subject),
-                ))
-            }
+            MembershipValidationOutcome::Reresolve => Ok(
+                DirectAdmissionValidationOutcome::Reresolve(DirectAdmissionRetry::new(seal, tx)),
+            ),
         }
     }
 }
@@ -415,14 +364,16 @@ mod test_support;
 fn validate_membership(
     validation: MembershipValidationWork,
     snapshot: Arc<Snapshot>,
-    overlay: AcceptedOriginOverlay,
+    overlay: AcceptedOverlay,
+    min_fee_rate: FeeRate,
     seal: AdmissionValidationSeal,
 ) -> Result<MembershipValidationOutcome, FinalAdmissionValidationError> {
     let (view, verified) = validation.into_parts();
     if snapshot.tip_hash() != view.tip().0 {
         return Err(FinalAdmissionValidationError::StaleView);
     }
-    let status = proposal_status(&snapshot, &verified.payload().identity().proposal.0);
+    let proposal = proposal_context_receipt(&snapshot, &verified.payload().identity().proposal.0);
+    let status = proposal.status();
     let environment = verification_environment(status, &snapshot);
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     if verified.verification_context().rules() != rules {
@@ -433,21 +384,34 @@ fn validate_membership(
 
     let same_chain_state = verified.chain_view().has_same_chain_state(&view);
     let location_result = if same_chain_state {
-        refresh_locations(verified.payload_arc(), true, &snapshot, &overlay)
+        refresh_locations(
+            verified.payload_arc(),
+            true,
+            &snapshot,
+            &overlay,
+            min_fee_rate,
+        )
     } else {
         // Header/cell reads can hit RocksDB. No authority guard is held while
         // the complete changed-tip lookup slice runs off the async executor.
         block_offload(|| {
             validate_header_dependencies(verified.payload(), &snapshot)?;
-            refresh_locations(verified.payload_arc(), false, &snapshot, &overlay)
+            refresh_locations(
+                verified.payload_arc(),
+                false,
+                &snapshot,
+                &overlay,
+                min_fee_rate,
+            )
         })
     };
     let (payload, payload_relation) = match location_result {
         Ok(value) => value,
         Err(CandidateValidationError::Rejected(reason)) => {
-            return Ok(MembershipValidationOutcome::Rejected(
-                CommittedPublicReject::new(reason),
-            ));
+            return Ok(MembershipValidationOutcome::Rejected {
+                reason: CommittedPublicReject::new(reason),
+                accepted_reads: overlay,
+            });
         }
         Err(CandidateValidationError::Fault(error)) => return Err(error),
     };
@@ -460,12 +424,19 @@ fn validate_membership(
             Arc::new(environment),
         )
     {
-        return Ok(MembershipValidationOutcome::Rejected(
-            CommittedPublicReject::new(reason),
-        ));
+        return Ok(MembershipValidationOutcome::Rejected {
+            reason: CommittedPublicReject::new(reason),
+            accepted_reads: overlay,
+        });
     }
 
-    let location = super::chain::CellLocationReceipt::from_resolution(view, &payload);
+    let location =
+        super::chain::CellLocationReceipt::from_resolution(view, &payload).map_err(|error| {
+            match error {
+                CellLocationReceiptError::Allocation => FinalAdmissionValidationError::Allocation,
+                CellLocationReceiptError::Arithmetic => FinalAdmissionValidationError::Arithmetic,
+            }
+        })?;
     let context = VerificationContextReceipt::from_validation(
         location,
         TimeContextReceipt::from_validation(rules),
@@ -478,7 +449,7 @@ fn validate_membership(
         seal,
         verified,
         sensitivity,
-        status,
+        proposal,
         AcceptedAtMillis(ckb_systemtime::unix_time_as_millis()),
     );
     Ok(MembershipValidationOutcome::Candidate {
@@ -507,26 +478,28 @@ pub(super) fn proposal_status(
     snapshot: &Snapshot,
     proposal: &ckb_types::packed::ProposalShortId,
 ) -> AcceptedStatus {
-    if snapshot.proposals().contains_proposed(proposal) {
-        AcceptedStatus::Proposed
-    } else if snapshot.proposals().contains_gap(proposal) {
-        AcceptedStatus::Gap
-    } else {
-        AcceptedStatus::Pending
-    }
+    proposal_context_receipt(snapshot, proposal).status()
 }
 
 pub(super) fn verification_environment(status: AcceptedStatus, snapshot: &Snapshot) -> TxVerifyEnv {
+    let header = snapshot.tip_header();
     match status {
-        AcceptedStatus::Pending => TxVerifyEnv::new_submit(snapshot.tip_header()),
-        AcceptedStatus::Gap => TxVerifyEnv::new_proposed(snapshot.tip_header(), GAP_PROPOSAL_INDEX),
-        AcceptedStatus::Proposed => {
-            TxVerifyEnv::new_proposed(snapshot.tip_header(), PROPOSED_PROPOSAL_INDEX)
-        }
+        AcceptedStatus::Pending => TxVerifyEnv::new_submit(header),
+        AcceptedStatus::Gap => TxVerifyEnv::new_proposed(header, GAP_PROPOSAL_INDEX),
+        // Proposed proves that the next block may commit the transaction. The
+        // age coordinate is closest - 1, not a default-window constant.
+        AcceptedStatus::Proposed => TxVerifyEnv::new_proposed(
+            header,
+            snapshot
+                .consensus()
+                .tx_proposal_window()
+                .closest()
+                .saturating_sub(1),
+        ),
     }
 }
 
-fn chain_sensitivity(resolved: &ResolvedTransaction) -> AcceptedChainSensitivity {
+pub(super) fn chain_sensitivity(resolved: &ResolvedTransaction) -> AcceptedChainSensitivity {
     let has_since = resolved
         .transaction
         .inputs()
@@ -536,7 +509,6 @@ fn chain_sensitivity(resolved: &ResolvedTransaction) -> AcceptedChainSensitivity
         .resolved_inputs
         .iter()
         .chain(&resolved.resolved_cell_deps)
-        .chain(&resolved.resolved_dep_groups)
         .any(|cell| {
             cell.transaction_info
                 .as_ref()
@@ -553,7 +525,8 @@ fn refresh_locations(
     payload: &Arc<ResolvedPayload>,
     same_chain_state: bool,
     snapshot: &Snapshot,
-    overlay: &AcceptedOriginOverlay,
+    overlay: &AcceptedOverlay,
+    min_fee_rate: FeeRate,
 ) -> Result<(Arc<ResolvedPayload>, ReadyPayloadRelation), CandidateValidationError> {
     let resolved = payload.resolved_transaction();
     let total_cells = resolved
@@ -563,7 +536,6 @@ fn refresh_locations(
         .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
         .ok_or(FinalAdmissionValidationError::Arithmetic)?;
     let mut changes = Vec::new();
-    let mut origins = overlay.origins();
 
     for (role, cells) in [
         (ResolvedCellRole::Input, resolved.resolved_inputs.as_slice()),
@@ -577,9 +549,7 @@ fn refresh_locations(
         ),
     ] {
         for (index, cell) in cells.iter().enumerate() {
-            let pool_origin = origins
-                .next()
-                .ok_or(FinalAdmissionValidationError::ContextReceipt)?;
+            let pool_origin = overlay.is_accepted_output(&cell.out_point);
             let current = current_location(cell, role, pool_origin, same_chain_state, snapshot)?;
             if current != cell.transaction_info {
                 if changes.is_empty() {
@@ -595,15 +565,13 @@ fn refresh_locations(
             }
         }
     }
-    if origins.next().is_some() {
-        return Err(FinalAdmissionValidationError::ContextReceipt.into());
-    }
 
     if changes.is_empty() {
         return Ok((Arc::clone(payload), ReadyPayloadRelation::Shared));
     }
 
-    let mut refreshed = resolved.as_ref().clone();
+    let mut refreshed = super::residency::try_clone_for_location_refresh(resolved)
+        .map_err(|_| FinalAdmissionValidationError::Allocation)?;
     for change in changes {
         let cell = match change.role {
             ResolvedCellRole::Input => refreshed.resolved_inputs.get_mut(change.index),
@@ -615,7 +583,15 @@ fn refresh_locations(
         .ok_or(FinalAdmissionValidationError::ContextReceipt)?;
         cell.transaction_info = change.current;
     }
-    let payload = payload.with_refreshed_locations(LocationRefreshSeal(()), Arc::new(refreshed));
+    let fee = check_tx_fee_with_min_fee_rate(
+        snapshot,
+        &refreshed,
+        payload.serialized_bytes(),
+        min_fee_rate,
+    )
+    .map_err(CandidateValidationError::Rejected)?;
+    let payload =
+        payload.with_refreshed_locations(LocationRefreshSeal(()), Arc::new(refreshed), fee);
     Ok((Arc::new(payload), ReadyPayloadRelation::LocationRefreshed))
 }
 

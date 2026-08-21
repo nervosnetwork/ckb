@@ -1,14 +1,12 @@
 use super::super::{
-    chain::{
-        ChainBlockChanges, ChainPackagingMode, ProposalWindowPosition,
-        test_support::ChainTransitionFacts,
-    },
+    chain::{ChainBlockChanges, ProposalWindowPosition, test_support::ChainTransitionFacts},
     packing::TemplatePackingLimits,
     plan::TxPoolAuthority,
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, ProposalId, RawTxHash},
     template::{
-        FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild, TemplateComponent,
-        TemplateConvergence, TemplateConvergenceError, TemplatePublication, TemplateSourceCut,
+        FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild, TemplateChainReadState,
+        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
+        TemplateSourceCut,
     },
 };
 use super::foundation::{
@@ -22,10 +20,181 @@ use crate::block_assembler::{
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, TransactionBuilder, TransactionView},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, ProposalShortId},
     prelude::{Builder, Entity, Pack},
 };
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+fn assert_model_accepted_order(selection: &super::super::template::TemplateSelectionReceipt) {
+    use crate::mathematical_model::{
+        EvictionRefinementMetrics,
+        two_phase::{AcceptedOrderInput, accepted_order_refinement},
+    };
+
+    let inputs = selection
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let metrics = candidate.metrics();
+            let ancestors = candidate.ancestors();
+            let mut identity = [0; 32];
+            identity.copy_from_slice(candidate.hash().0.as_slice());
+            AcceptedOrderInput::new(
+                EvictionRefinementMetrics::new(
+                    metrics.fee.as_u64(),
+                    u64::try_from(metrics.cost.serialized_bytes)
+                        .expect("the captured serialized size fits u64"),
+                    metrics.cost.cycles,
+                ),
+                EvictionRefinementMetrics::new(
+                    ancestors.fee.as_u64(),
+                    u64::try_from(ancestors.serialized_bytes)
+                        .expect("the captured ancestor size fits u64"),
+                    ancestors.cycles,
+                ),
+                candidate.order().arrival().0,
+                identity,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        accepted_order_refinement(&inputs)
+            .expect("the production receipt has unique raw identities"),
+        (0..selection.candidates().len()).collect::<Vec<_>>(),
+        "the immutable production receipt is already strongest-first under the independent model quotient"
+    );
+}
+
+fn model_conditional_selection(
+    inputs: Vec<crate::mathematical_model::two_phase::ConditionalSelectionInput>,
+    identities: &[RawTxHash],
+) -> (Vec<RawTxHash>, BTreeSet<RawTxHash>) {
+    use crate::mathematical_model::two_phase::conditional_template_selection_refinement;
+
+    let observation = conditional_template_selection_refinement(&inputs)
+        .expect("the primitive production graph has one finite model observation");
+    let ordered = observation
+        .ordered
+        .into_iter()
+        .map(|index| identities[index].clone())
+        .collect();
+    let shed = observation
+        .shed
+        .into_iter()
+        .map(|index| identities[index].clone())
+        .collect();
+    (ordered, shed)
+}
+
+fn exact_template_service_premise(
+    selection: &super::super::template::TemplateSelectionReceipt,
+    max_block_proposals: usize,
+    serialized_bytes: usize,
+    cycles: u64,
+) -> crate::mathematical_model::two_phase::TemplateServicePremise {
+    use crate::mathematical_model::{
+        AcceptedStatus as ModelAcceptedStatus, EvictionRefinementMetrics,
+        two_phase::{
+            CurrentTemplateComposition, TemplateServiceCandidate, TemplateServicePremise,
+            TemplateServiceSourceCut,
+        },
+    };
+
+    let candidates = selection.candidates();
+    assert!(candidates.len() <= usize::from(u8::MAX) + 1);
+    let by_hash = selection
+        .candidate_index()
+        .expect("the captured production identities are unique");
+
+    let mut spenders = HashMap::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        for input in candidate.resolved().transaction.input_pts_iter() {
+            assert!(
+                spenders.insert(input, index).is_none(),
+                "the accepted authority cut has one spender per input"
+            );
+        }
+    }
+    let mut conditional_predecessors = vec![BTreeSet::new(); candidates.len()];
+    for (reader, candidate) in candidates.iter().enumerate() {
+        for dependency in candidate.resolved().related_dep_out_points() {
+            if let Some(spender) = spenders.get(dependency).copied()
+                && spender != reader
+            {
+                conditional_predecessors[spender].insert(reader);
+            }
+        }
+    }
+
+    let mut weakest_first = (0..candidates.len()).collect::<Vec<_>>();
+    weakest_first.sort_unstable_by(|left, right| {
+        candidates[*left]
+            .eviction_order()
+            .cmp(candidates[*right].eviction_order())
+    });
+    let mut eviction_rank = vec![0usize; candidates.len()];
+    for (rank, index) in weakest_first.into_iter().enumerate() {
+        eviction_rank[index] = rank;
+    }
+
+    let primitive_candidates = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            let metrics = candidate.metrics();
+            let mut identity = [0; 32];
+            identity.copy_from_slice(candidate.hash().0.as_slice());
+            TemplateServiceCandidate::from_primitive(
+                u8::try_from(index).expect("the bounded fixture index fits u8"),
+                match candidate.status() {
+                    AcceptedStatus::Pending => ModelAcceptedStatus::Pending,
+                    AcceptedStatus::Gap => ModelAcceptedStatus::Gap,
+                    AcceptedStatus::Proposed => ModelAcceptedStatus::Proposed,
+                },
+                EvictionRefinementMetrics::new(
+                    metrics.fee.as_u64(),
+                    u64::try_from(metrics.cost.serialized_bytes)
+                        .expect("the captured serialized size fits u64"),
+                    metrics.cost.cycles,
+                ),
+                candidate
+                    .parents()
+                    .iter()
+                    .map(|parent| by_hash[parent])
+                    .collect(),
+                conditional_predecessors[index].clone(),
+                candidate.dependency_edge_count(),
+                eviction_rank[index],
+                candidate.order().arrival().0,
+                identity,
+            )
+        })
+        .collect::<Vec<_>>();
+    let dependency_edge_bound = candidates
+        .iter()
+        .map(|candidate| candidate.dependency_edge_count())
+        .sum();
+    let proposal_bytes = ProposalShortId::serialized_size();
+    let max_block_bytes = candidates
+        .len()
+        .min(max_block_proposals)
+        .checked_mul(proposal_bytes)
+        .and_then(|prefix| prefix.checked_add(serialized_bytes))
+        .expect("the bounded fixture composition fits usize");
+    TemplateServicePremise::compile_for_foundation(TemplateServiceSourceCut::new(
+        primitive_candidates,
+        CurrentTemplateComposition::new(
+            max_block_proposals,
+            proposal_bytes,
+            Vec::new(),
+            0,
+            max_block_bytes,
+            cycles,
+        ),
+        dependency_edge_bound,
+    ))
+    .expect("one exact production cut compiles into a sealed liveness premise")
+}
 
 fn source_cut(authority: &TxPoolAuthority, uncles: &CandidateUncles) -> TemplateSourceCut {
     let receipt = authority
@@ -38,7 +207,11 @@ fn source_cut(authority: &TxPoolAuthority, uncles: &CandidateUncles) -> Template
 fn candidate_uncle_source(uncles: &CandidateUncles) -> CandidateUncleSourceReceipt {
     let snapshot = genesis_snapshot();
     let epoch = snapshot.consensus().genesis_epoch_ext().clone();
-    uncles.prepare_uncles(&snapshot, &epoch).into_parts().2
+    uncles
+        .prepare_uncles(&snapshot, &epoch)
+        .expect("bounded candidate fixture snapshot is allocatable")
+        .into_parts()
+        .2
 }
 
 /// Test projection paired with the pure convergence model. Production keeps
@@ -155,14 +328,126 @@ fn set_status(authority: &mut TxPoolAuthority, hash: &RawTxHash, status: Accepte
     );
 }
 
+fn causal_dag_transactions(edge_mask: u8) -> Vec<TransactionView> {
+    let edges = [(0usize, 1usize), (0, 2), (1, 2)];
+    let mut transactions = Vec::<TransactionView>::new();
+    for child in 0..3 {
+        let mut builder =
+            TransactionBuilder::default().version(1_900 + u32::from(edge_mask) * 3 + child as u32);
+        for (edge_index, (parent, edge_child)) in edges.into_iter().enumerate() {
+            if edge_child == child && edge_mask & (1 << edge_index) != 0 {
+                builder = builder.input(CellInput::new(
+                    OutPoint::new(transactions[parent].hash(), child as u32),
+                    0,
+                ));
+            }
+        }
+        for _ in 0..3 {
+            builder = builder
+                .output(CellOutput::default())
+                .output_data(Bytes::new().pack());
+        }
+        transactions.push(builder.build());
+    }
+    transactions
+}
+
+#[test]
+fn uak_template_causal_membership_refines_two_phase_model_exhaustively() {
+    for edge_mask in 0u8..8 {
+        let transactions = causal_dag_transactions(edge_mask);
+        for status_encoding in 0u8..27 {
+            let mut authority = TxPoolAuthority::for_foundation(limits());
+            let mut digits = status_encoding;
+            for (index, transaction) in transactions.iter().enumerate() {
+                let status = match digits % 3 {
+                    0 => AcceptedStatus::Pending,
+                    1 => AcceptedStatus::Gap,
+                    2 => AcceptedStatus::Proposed,
+                    _ => unreachable!("base-three digit is total"),
+                };
+                digits /= 3;
+                accept_remote_transaction_with_payload(
+                    &mut authority,
+                    transaction.clone(),
+                    index + 1,
+                    status,
+                    resolved_payload_with_facts(
+                        transaction,
+                        Vec::new(),
+                        Vec::new(),
+                        Capacity::shannons(index as u64 + 1),
+                    ),
+                );
+            }
+
+            let selection = authority
+                .read_view()
+                .capture_template()
+                .expect("the exhaustive fixture has one coherent authority cut")
+                .into_selection()
+                .expect("selection is derived outside the authority cut");
+            assert_eq!(selection.candidates().len(), 3);
+            let by_hash = selection
+                .candidates()
+                .iter()
+                .enumerate()
+                .map(|(index, candidate)| (candidate.hash().clone(), index))
+                .collect::<HashMap<_, _>>();
+            let statuses = selection
+                .candidates()
+                .iter()
+                .map(|candidate| match candidate.status() {
+                    AcceptedStatus::Pending => 0,
+                    AcceptedStatus::Gap => 1,
+                    AcceptedStatus::Proposed => 2,
+                })
+                .collect::<Vec<_>>();
+            let parents = selection
+                .candidates()
+                .iter()
+                .map(|candidate| {
+                    candidate
+                        .parents()
+                        .iter()
+                        .map(|parent| {
+                            by_hash
+                                .get(parent)
+                                .copied()
+                                .expect("every captured parent shares the receipt")
+                        })
+                        .collect::<BTreeSet<_>>()
+                })
+                .collect::<Vec<_>>();
+            let model = crate::mathematical_model::two_phase::causal_membership_refinement(
+                &statuses, &parents,
+            )
+            .expect("the production receipt is an admissible model input");
+            let production = selection
+                .proposed_parent_first()
+                .expect("the enumerated causal graph is acyclic")
+                .into_iter()
+                .map(|candidate| {
+                    by_hash
+                        .get(candidate.hash())
+                        .copied()
+                        .expect("selected candidates come from the same receipt")
+                })
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                production, model,
+                "edge_mask={edge_mask} status_encoding={status_encoding}",
+            );
+        }
+    }
+}
+
 #[test]
 fn uak_apply_advances_exact_template_source_versions() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let initial_accepted = authority.accepted_source_for_reference();
     let initial = authority.template_source_versions_for_reference();
 
     let _queued = admit_remote(&mut authority, 1_801, 1);
-    assert_eq!(authority.accepted_source_for_reference(), initial_accepted);
     assert_eq!(
         authority.template_source_versions_for_reference(),
         initial,
@@ -176,31 +461,23 @@ fn uak_apply_advances_exact_template_source_versions() {
         AcceptedStatus::Pending,
         Vec::new(),
     );
-    let pending_accepted = authority.accepted_source_for_reference();
     let pending = authority.template_source_versions_for_reference();
-    assert!(pending_accepted > initial_accepted);
-    assert_eq!(pending_accepted, pending.proposals);
-    assert_eq!(pending_accepted, pending.transactions);
+    assert!(pending.proposals > initial.proposals);
+    assert_eq!(pending.proposals, pending.transactions);
     assert_eq!(pending.chain, initial.chain);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Gap);
-    let gap_accepted = authority.accepted_source_for_reference();
     let gap = authority.template_source_versions_for_reference();
-    assert_eq!(gap_accepted, pending_accepted);
     assert!(gap.proposals > pending.proposals);
     assert_eq!(gap.transactions, pending.transactions);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Proposed);
-    let proposed_accepted = authority.accepted_source_for_reference();
     let proposed = authority.template_source_versions_for_reference();
-    assert_eq!(proposed_accepted, pending_accepted);
     assert_eq!(proposed.proposals, gap.proposals);
     assert!(proposed.transactions > gap.transactions);
 
     set_status(&mut authority, &accepted, AcceptedStatus::Pending);
-    let pending_again_accepted = authority.accepted_source_for_reference();
     let pending_again = authority.template_source_versions_for_reference();
-    assert_eq!(pending_again_accepted, pending_accepted);
     assert!(pending_again.proposals > proposed.proposals);
     assert_eq!(pending_again.proposals, pending_again.transactions);
 }
@@ -245,6 +522,7 @@ fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
     let receipt = receipt
         .into_selection()
         .expect("ranking runs over the owned receipt outside authority");
+    assert_model_accepted_order(&receipt);
     assert_eq!(receipt.candidates().len(), 3);
     assert_eq!(
         receipt.source_cut(candidate_uncle_source(&candidate_uncles)),
@@ -391,6 +669,7 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         .expect("the initial package order is coherent")
         .into_selection()
         .expect("the initial package order is already derived");
+    assert_model_accepted_order(&before);
     let child_before = before
         .candidates()
         .iter()
@@ -407,8 +686,6 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         ChainViewId::new(ChainRevision(1), Byte32::new([83; 32])),
         ChainBlockChanges::for_foundation(vec![parent_tx], Vec::new(), Vec::new(), Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("the attached parent is one canonical chain fact");
     let receipt = authority
@@ -430,6 +707,7 @@ fn uak_chain_commit_updates_only_affected_template_package_scores() {
         .expect("the post-commit package order is coherent")
         .into_selection()
         .expect("the post-commit package order is already derived");
+    assert_model_accepted_order(&after);
     let child_after = after
         .candidates()
         .iter()
@@ -507,6 +785,8 @@ fn uak_template_orders_selected_dependency_reader_before_spender() {
 
 #[test]
 fn uak_template_sheds_conditional_cycles_deterministically() {
+    use crate::mathematical_model::two_phase::ConditionalSelectionInput;
+
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let left_cell = OutPoint::new(Byte32::new([86; 32]), 0);
     let right_cell = OutPoint::new(Byte32::new([87; 32]), 0);
@@ -563,24 +843,141 @@ fn uak_template_sheds_conditional_cycles_deterministically() {
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    assert_eq!(selected, vec![stronger]);
+    assert_eq!(selected, vec![stronger.clone()]);
     assert!(!selected.contains(&weaker));
     assert!(
         !selected.contains(&weaker_child),
         "a causal descendant cannot survive a shed producer"
     );
+    let (model_selected, model_shed) = model_conditional_selection(
+        vec![
+            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 0),
+            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 2),
+            ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
+        ],
+        &[weaker.clone(), stronger, weaker_child.clone()],
+    );
+    assert_eq!(selected, model_selected);
+    assert_eq!(model_shed, BTreeSet::from([weaker, weaker_child]));
+    let serialized_bytes = selection
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.metrics().cost.serialized_bytes)
+        .sum();
+    let cycles = selection
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.metrics().cost.cycles)
+        .sum();
+    let service_premise = exact_template_service_premise(
+        &selection,
+        selection.candidates().len(),
+        serialized_bytes,
+        cycles,
+    );
+    let model_retained = service_premise
+        .retained_source_indices()
+        .iter()
+        .map(|index| selection.candidates()[*index].hash().clone())
+        .collect::<Vec<_>>();
+    let model_current_retained = service_premise
+        .current_retained_source_indices()
+        .expect("the sealed Proposed statuses compile from the same source cut")
+        .into_iter()
+        .map(|index| selection.candidates()[index].hash().clone())
+        .collect::<Vec<_>>();
+    let model_composition_shed = service_premise
+        .shed_source_indices()
+        .iter()
+        .map(|index| selection.candidates()[*index].hash().clone())
+        .collect::<BTreeSet<_>>();
     let packed = selection
-        .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
+        .pack_transactions(TemplatePackingLimits::new(serialized_bytes, cycles))
         .expect("the production packer shares the bounded cycle kernel")
         .entries()
         .iter()
         .map(|entry| entry.hash())
         .collect::<Vec<_>>();
     assert_eq!(packed, selected);
+    assert_eq!(model_retained, packed);
+    assert_eq!(model_current_retained, packed);
+    assert_eq!(model_composition_shed, model_shed);
+}
+
+#[test]
+fn uak_template_service_premise_separates_pending_proposals_from_current_pack() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let earlier = accept_remote_transaction(
+        &mut authority,
+        tx(1_818),
+        18,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let later = accept_remote_transaction(
+        &mut authority,
+        tx(1_819),
+        19,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let selection = authority
+        .read_view()
+        .capture_template()
+        .expect("the Pending candidate shares one authority cut")
+        .into_selection()
+        .expect("the immutable selection receipt is coherent");
+    let serialized_bytes = selection
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.metrics().cost.serialized_bytes)
+        .sum();
+    let cycles = selection
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.metrics().cost.cycles)
+        .sum();
+    let premise = exact_template_service_premise(&selection, 1, serialized_bytes, cycles);
+
+    let production_proposals = selection.proposal_short_ids(1).unwrap();
+    let model_proposals = premise
+        .current_proposal_source_indices()
+        .expect("the sealed Pending status compiles from the same source cut")
+        .into_iter()
+        .map(|index| selection.candidates()[index].proposal_short_id().clone())
+        .collect::<Vec<_>>();
+    assert_eq!(production_proposals, model_proposals);
+    assert_eq!(production_proposals.len(), 1);
+    assert_eq!(
+        selection
+            .pack_transactions(TemplatePackingLimits::new(serialized_bytes, cycles))
+            .expect("the bounded current pack is valid")
+            .entries()
+            .len(),
+        0,
+        "Pending work belongs to the proposal prefix, not the current transaction pack"
+    );
+    assert!(
+        premise
+            .current_retained_source_indices()
+            .expect("the sealed Pending status compiles from the same source cut")
+            .is_empty(),
+        "the model current compilation must not treat Pending as Proposed"
+    );
+    assert_eq!(
+        selection
+            .candidates()
+            .iter()
+            .map(|candidate| candidate.hash().clone())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([earlier, later])
+    );
 }
 
 #[test]
 fn uak_template_cycle_shedding_preserves_descendant_aware_strength() {
+    use crate::mathematical_model::two_phase::ConditionalSelectionInput;
+
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let left_cell = OutPoint::new(Byte32::new([90; 32]), 0);
     let right_cell = OutPoint::new(Byte32::new([91; 32]), 0);
@@ -636,12 +1033,25 @@ fn uak_template_cycle_shedding_preserves_descendant_aware_strength() {
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    assert_eq!(selected, vec![package_parent, package_child]);
+    assert_eq!(
+        selected,
+        vec![package_parent.clone(), package_child.clone()]
+    );
     assert!(!selected.contains(&standalone));
+    let (model_selected, model_shed) = model_conditional_selection(
+        vec![
+            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 2),
+            ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 0),
+            ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
+        ],
+        &[package_parent, standalone.clone(), package_child],
+    );
+    assert_eq!(selected, model_selected);
+    assert_eq!(model_shed, BTreeSet::from([standalone]));
 }
 
 #[test]
-fn uak_template_dependency_budget_cannot_censor_later_independent_work() {
+fn uak_template_complete_dependency_scan_preserves_causal_and_later_independent_work() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let shared = OutPoint::new(Byte32::new([88; 32]), 0);
     let input = OutPoint::new(Byte32::new([89; 32]), 0);
@@ -685,20 +1095,167 @@ fn uak_template_dependency_budget_cannot_censor_later_independent_work() {
         ),
     );
 
-    let selected = authority
+    let receipt = authority
         .read_view()
         .capture_template()
         .expect("the bounded selection shares one authority cut")
         .into_selection()
-        .expect("the immutable selection receipt is coherent")
-        .proposed_parent_first_for_foundation(0)
-        .expect("the zero dependency budget is a deterministic selection bound")
+        .expect("the immutable selection receipt is coherent");
+    let selected = receipt
+        .proposed_parent_first_for_foundation()
+        .expect("the complete dependency scan is bounded by the captured footprint")
         .into_iter()
         .map(|candidate| candidate.hash().clone())
         .collect::<Vec<_>>();
-    assert_eq!(selected, vec![independent]);
-    assert!(!selected.contains(&over_budget));
-    assert!(!selected.contains(&over_budget_child));
+    let identities = receipt
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.hash().clone())
+        .collect::<Vec<_>>();
+    let by_hash = identities
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, hash)| (hash, index))
+        .collect::<HashMap<_, _>>();
+    let inputs = receipt
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            crate::mathematical_model::two_phase::DependencyScanInput::new(
+                candidate
+                    .parents()
+                    .iter()
+                    .map(|parent| by_hash[parent])
+                    .collect(),
+                candidate.resolved().related_dep_out_points().count(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let causally_selected = receipt
+        .causally_eligible_proposed(
+            &receipt
+                .candidate_index()
+                .expect("the immutable candidate identities are unique"),
+        )
+        .expect("the production causal selection is coherent");
+    let captured_edge_bound = inputs
+        .iter()
+        .map(|input| input.dependency_edges_for_foundation())
+        .sum();
+    let model = crate::mathematical_model::two_phase::complete_dependency_scan_refinement(
+        &inputs,
+        &causally_selected,
+        captured_edge_bound,
+    )
+    .expect("the exact captured dependency domain has one bounded model observation");
+    assert_eq!(
+        selected,
+        model
+            .retained
+            .into_iter()
+            .map(|index| identities[index].clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(selected, vec![over_budget, over_budget_child, independent]);
+}
+
+fn independent_dependency_scan_selection(fees: [u64; 2]) -> (Vec<RawTxHash>, [RawTxHash; 2]) {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let mut hashes = Vec::with_capacity(2);
+    for (index, fee) in fees.into_iter().enumerate() {
+        let tag = u8::try_from(index).expect("the two-candidate index fits u8");
+        let input = OutPoint::new(Byte32::new([90 + tag; 32]), 0);
+        let dependency = OutPoint::new(Byte32::new([100 + tag; 32]), 0);
+        let transaction = conditional_transaction(1_821 + index as u32, input.clone(), dependency);
+        hashes.push(accept_remote_transaction_with_payload(
+            &mut authority,
+            transaction.clone(),
+            21 + index,
+            AcceptedStatus::Proposed,
+            resolved_payload_with_facts(
+                &transaction,
+                Vec::new(),
+                vec![input],
+                Capacity::shannons(fee),
+            ),
+        ));
+    }
+
+    let receipt = authority
+        .read_view()
+        .capture_template()
+        .expect("the bounded selection shares one authority cut")
+        .into_selection()
+        .expect("the immutable selection receipt is coherent");
+    let selected = receipt
+        .proposed_parent_first_for_foundation()
+        .expect("the complete scan preserves every independent selected candidate")
+        .into_iter()
+        .map(|candidate| candidate.hash().clone())
+        .collect::<Vec<_>>();
+
+    let identities = receipt
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.hash().clone())
+        .collect::<Vec<_>>();
+    let inputs = receipt
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            crate::mathematical_model::two_phase::DependencyScanInput::new(
+                BTreeSet::new(),
+                candidate.resolved().related_dep_out_points().count(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let causally_selected = receipt
+        .causally_eligible_proposed(
+            &receipt
+                .candidate_index()
+                .expect("the immutable candidate identities are unique"),
+        )
+        .expect("the production causal selection is coherent");
+    let captured_edge_bound = inputs
+        .iter()
+        .map(|input| input.dependency_edges_for_foundation())
+        .sum();
+    let model = crate::mathematical_model::two_phase::complete_dependency_scan_refinement(
+        &inputs,
+        &causally_selected,
+        captured_edge_bound,
+    )
+    .expect("the exact dependency count bounds every retained candidate");
+    assert_eq!(
+        selected,
+        model
+            .retained
+            .into_iter()
+            .map(|index| identities[index].clone())
+            .collect::<Vec<_>>()
+    );
+
+    (
+        selected,
+        hashes.try_into().expect("the fixture has two hashes"),
+    )
+}
+
+#[test]
+fn uak_template_complete_dependency_scan_does_not_censor_independent_dependency_work() {
+    let (first_selected, first_hashes) = independent_dependency_scan_selection([200_000, 100_000]);
+    assert_eq!(
+        first_selected,
+        vec![first_hashes[0].clone(), first_hashes[1].clone()]
+    );
+
+    let (second_selected, second_hashes) =
+        independent_dependency_scan_selection([100_000, 200_000]);
+    assert_eq!(
+        second_selected,
+        vec![second_hashes[1].clone(), second_hashes[0].clone()]
+    );
 }
 
 #[test]
@@ -863,6 +1420,87 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
 }
 
 #[test]
+fn uak_template_chain_read_requires_one_coherent_component_cut() {
+    let authority = TxPoolAuthority::for_foundation(limits());
+    let candidate_uncles = CandidateUncles::new();
+    let sources = source_cut(&authority, &candidate_uncles);
+    let required = sources.chain_source();
+    let mut convergence = TemplateConvergence::for_foundation(sources);
+    let mut projection = TemplateProjection::initial();
+
+    assert_eq!(
+        convergence.chain_read_state(required),
+        TemplateChainReadState::Published,
+        "the initial base template has one coherent source cut"
+    );
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Transactions,
+        TemplateComponent::Uncles,
+    ] {
+        assert!(
+            convergence.is_pending(component),
+            "chain-only initial coverage cannot impersonate an exact component receipt"
+        );
+    }
+
+    let reset = convergence
+        .mark_reset(sources)
+        .expect("fixture reset epoch has capacity");
+    assert_eq!(
+        projection
+            .publish_reset(&mut convergence, reset)
+            .expect("fixture revision has capacity"),
+        TemplatePublication::Published
+    );
+    assert_eq!(
+        convergence.chain_read_state(required),
+        TemplateChainReadState::Pending,
+        "a base reset does not fabricate proposal/transaction/uncle receipts"
+    );
+
+    convergence.record_replacement_failure(required);
+    assert_eq!(
+        convergence.chain_read_state(required),
+        TemplateChainReadState::Failed
+    );
+    let retry_reset = convergence
+        .mark_reset(sources)
+        .expect("fixture reset epoch has capacity");
+    assert_eq!(
+        projection
+            .publish_reset(&mut convergence, retry_reset)
+            .expect("fixture revision has capacity"),
+        TemplatePublication::Published
+    );
+    assert_eq!(
+        convergence.chain_read_state(required),
+        TemplateChainReadState::Pending,
+        "successful replacement progress retires failure but is not readiness"
+    );
+
+    for component in [
+        TemplateComponent::Proposals,
+        TemplateComponent::Uncles,
+        TemplateComponent::Transactions,
+    ] {
+        let build = projection.begin_partial(&mut convergence, component, sources);
+        assert_eq!(
+            projection
+                .publish_partial(&mut convergence, build)
+                .expect("fixture revision has capacity"),
+            TemplatePublication::Published
+        );
+        let expected = if component == TemplateComponent::Transactions {
+            TemplateChainReadState::Published
+        } else {
+            TemplateChainReadState::Pending
+        };
+        assert_eq!(convergence.chain_read_state(required), expected);
+    }
+}
+
+#[test]
 fn uak_template_reset_counter_exhaustion_is_typed_and_mutation_free() {
     let authority = TxPoolAuthority::for_foundation(limits());
     let candidate_uncles = CandidateUncles::new();
@@ -1007,8 +1645,6 @@ fn uak_recovered_tree_has_normal_template_proposal_path() {
         ChainViewId::new(ChainRevision(1), Byte32::new([81; 32])),
         ChainBlockChanges::for_foundation(Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         proposals.to_vec(),
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("reorg proposal facts are canonical");
     let receipt = authority

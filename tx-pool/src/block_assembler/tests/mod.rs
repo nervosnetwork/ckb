@@ -80,6 +80,20 @@ fn block_template_preserves_consensus_uncle_limit_above_u8() {
 }
 
 #[test]
+fn candidate_uncle_scratch_is_bounded_by_the_candidate_population() {
+    let mut consensus = ConsensusBuilder::default().build();
+    consensus.max_uncles_num = usize::MAX;
+    let snapshot = snapshot_with_consensus(Arc::new(consensus));
+    let epoch = snapshot.consensus().genesis_epoch_ext();
+    let candidates = CandidateUncles::new();
+
+    let prepared = candidates
+        .prepare_uncles(&snapshot, epoch)
+        .expect("an empty candidate population requires no configured-limit allocation");
+    assert!(prepared.into_parts().0.is_empty());
+}
+
+#[test]
 fn cell_liveness_memo_caches_and_invalidates_on_tip_change() {
     let snapshot = genesis_snapshot();
     // The cellbase output of the genesis block is live in the snapshot.
@@ -131,7 +145,7 @@ fn uncle_size_matches_the_canonical_block_size_basis() {
     let with_proposals = BlockBuilder::default()
         .number(2)
         .epoch(EpochNumberWithFraction::new(0, 0, 1))
-        .proposals(proposals.clone())
+        .proposals(proposals)
         .build()
         .as_uncle();
     let base = super::BlockAssembler::basic_block_size(
@@ -180,10 +194,13 @@ fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral
     candidate_uncles.insert(off_chain.clone());
     assert_eq!(candidate_uncles.len(), 2);
 
-    let prepared = candidate_uncles.prepare_uncles(&snapshot, &epoch_ext);
+    let prepared = candidate_uncles
+        .prepare_uncles(&snapshot, &epoch_ext)
+        .expect("bounded candidate fixture snapshot is allocatable");
     let (uncles, stale, captured_source) = prepared.into_parts();
     let current_source = candidate_uncles
         .prepare_uncles(&snapshot, &epoch_ext)
+        .expect("bounded candidate fixture snapshot is allocatable")
         .into_parts()
         .2;
     assert_eq!(captured_source, current_source);
@@ -196,6 +213,7 @@ fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral
     assert_eq!(
         candidate_uncles
             .prepare_uncles(&snapshot, &epoch_ext)
+            .expect("bounded candidate fixture snapshot is allocatable")
             .into_parts()
             .2,
         captured_source,
@@ -317,6 +335,23 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
     assert_eq!(fitted.proposals_size, ProposalShortId::serialized_size());
     assert_eq!(fitted.uncles_size, expected_uncle_size);
     assert_eq!(fitted.total_size, max);
+
+    let model = crate::mathematical_model::two_phase::current_template_capacity_refinement(
+        1,
+        1,
+        ProposalShortId::serialized_size(),
+        &[expected_uncle_size],
+        base,
+        1,
+        max,
+    )
+    .expect("the production byte coordinates form one finite model cut");
+    assert_eq!(model.proposals, fitted.proposals.len());
+    assert_eq!(model.uncles, fitted.uncles.len());
+    assert!(
+        !model.commit_package_fits,
+        "proposal priority over optional uncles does not imply that a commit package still fits"
+    );
 }
 
 #[test]

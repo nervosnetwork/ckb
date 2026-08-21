@@ -8,9 +8,8 @@ use crate::{
             PublicPoolStatus,
         },
         service::{
-            AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityIntegrityFault,
-            AuthorityPersistenceError, AuthorityProjectionFault, AuthorityService,
-            AuthorityServiceError,
+            AuthorityDerivedError, AuthorityGenerationInvalidity, AuthorityPersistenceError,
+            AuthorityService, AuthorityServiceError,
         },
     },
     service::{
@@ -128,7 +127,7 @@ pub(crate) async fn process(
             } = request;
             respond_outer(
                 responder,
-                service.filter_fresh_proposals(arguments),
+                service.filter_fresh_proposals(arguments.into_vec()),
                 "fresh_proposals_filter",
             )
         }
@@ -139,7 +138,7 @@ pub(crate) async fn process(
             } = request;
             respond_outer(
                 responder,
-                service.compact_transactions(arguments.into_iter().collect()),
+                service.compact_transactions(arguments.into_vec()),
                 "fetch_txs",
             )
         }
@@ -148,9 +147,7 @@ pub(crate) async fn process(
                 responder,
                 arguments,
             } = request;
-            let result = service
-                .accepted_with_cycles(arguments.into_iter().collect())
-                .map(|entries| entries.into_iter().collect());
+            let result = service.accepted_with_cycles(arguments.into_vec());
             respond_outer(responder, result, "fetch_txs_with_cycles")
         }
         Message::GetTxStatus(request) => handle_get_tx_status(&service, request),
@@ -280,7 +277,7 @@ pub(super) async fn process_retained_ingress_batch(
             let (completed, error) = service
                 .submit_remote_batch(peer, submissions)
                 .await
-                .into_parts();
+                .into_checked_parts(responders.len());
             settle_remote_responder_prefix(responders, completed, error)
         }
         RetainedIngressBatch::Proposal { transactions, .. } => {
@@ -295,14 +292,9 @@ pub(super) async fn process_retained_ingress_batch(
 fn settle_remote_responder_prefix(
     responders: Vec<tokio::sync::oneshot::Sender<()>>,
     completed: usize,
-    mut error: Option<AuthorityServiceError>,
+    error: Option<AuthorityServiceError>,
 ) -> Result<(), AuthorityGenerationInvalidity> {
     let expected = responders.len();
-    if completed > expected || (error.is_none() && completed != expected) {
-        error = Some(AuthorityServiceError::Integrity(
-            AuthorityIntegrityFault::Projection(AuthorityProjectionFault::Membership),
-        ));
-    }
     let mut responders = responders.into_iter();
     for responder in responders.by_ref().take(completed.min(expected)) {
         respond(responder, (), "submit_remote_tx");
@@ -448,7 +440,7 @@ where
             Ok(())
         }
         Err(error) => {
-            respond(responder, Err(authority_error_as_any(error)), message);
+            respond(responder, Err(authority_error_as_any(&error)), message);
             settle_service_error(error)
         }
     }
@@ -473,7 +465,7 @@ where
             Ok(())
         }
         Err(AuthorityDerivedError::Authority(error)) => {
-            respond(responder, Err(authority_error_as_any(error)), message);
+            respond(responder, Err(authority_error_as_any(&error)), message);
             settle_service_error(error)
         }
     }
@@ -483,7 +475,7 @@ fn settle_service_error(error: AuthorityServiceError) -> Result<(), AuthorityGen
     AuthorityService::settle_operation_error(error)
 }
 
-fn authority_error_as_any(error: AuthorityServiceError) -> AnyError {
+fn authority_error_as_any(error: &AuthorityServiceError) -> AnyError {
     OtherError::new(format!("tx-pool authority service failed: {error:?}")).into()
 }
 

@@ -47,7 +47,8 @@ fn process_block(
 fn test_find_fork_case1() {
     let builder = SharedBuilder::with_temp_db();
     let consensus = Consensus::default();
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window())
+        .expect("consensus proposal window is valid");
     let (shared, mut pack) = builder.consensus(consensus).build().unwrap();
     let _tx_pool = start_tx_pool(&shared, &mut pack);
 
@@ -154,7 +155,8 @@ fn test_find_fork_case2() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_diff(90u64, &mock_store);
     }
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window())
+        .expect("consensus proposal window is valid");
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         is_pending_verify: Arc::new(DashSet::new()),
@@ -238,7 +240,8 @@ fn test_find_fork_case3() {
     for _ in 0..5 {
         fork2.gen_empty_block_with_diff(40u64, &mock_store)
     }
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window())
+        .expect("consensus proposal window is valid");
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         is_pending_verify: Arc::new(DashSet::new()),
@@ -320,7 +323,8 @@ fn test_find_fork_case4() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_diff(80u64, &mock_store);
     }
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window())
+        .expect("consensus proposal window is valid");
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         is_pending_verify: Arc::new(DashSet::new()),
@@ -404,7 +408,8 @@ fn repeatedly_switch_fork() {
     for _ in 0..2 {
         fork2.gen_empty_block_with_nonce(2u128, &mock_store);
     }
-    let proposal_table = ProposalTable::new(consensus.tx_proposal_window());
+    let proposal_table = ProposalTable::new(consensus.tx_proposal_window())
+        .expect("consensus proposal window is valid");
     let mut consume_unverified_block_processor = ConsumeUnverifiedBlockProcessor {
         shared: shared.clone(),
         is_pending_verify: Arc::new(DashSet::new()),
@@ -578,21 +583,21 @@ fn test_fork_proposal_table() {
     let proposals = snapshot.proposals();
 
     assert_eq!(
-        &vec![
+        vec![
             packed::ProposalShortId::new([0u8, 0, 0, 0, 0, 0, 0, 0, 0, 3]),
             packed::ProposalShortId::new([1u8, 0, 0, 0, 0, 0, 0, 0, 0, 4]),
         ]
         .into_iter()
         .collect::<HashSet<_>>(),
-        proposals.set()
+        proposals.proposed_ids().collect::<HashSet<_>>()
     );
 
     assert_eq!(
-        &vec![packed::ProposalShortId::new([
+        vec![packed::ProposalShortId::new([
             1u8, 0, 0, 0, 0, 0, 0, 0, 0, 5
         ])]
         .into_iter()
         .collect::<HashSet<_>>(),
-        proposals.gap()
+        proposals.gap_ids().collect::<HashSet<_>>()
     );
 }

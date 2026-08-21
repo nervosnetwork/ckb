@@ -989,13 +989,13 @@ impl Spec for RbfConcurrency {
             .iter()
             .zip(&statuses)
             .take(4)
-            .filter_map(|(tx, status)| {
+            .filter(|(_, status)| {
                 status
                     .reason
                     .as_deref()
                     .is_some_and(|reason| reason.contains("replaced by tx"))
-                    .then(|| tx.hash().into())
             })
+            .map(|(tx, _)| tx.hash().into())
             .collect();
         expected.sort_unstable();
         assert_eq!(get_tx_pool_conflicts(node0), expected);

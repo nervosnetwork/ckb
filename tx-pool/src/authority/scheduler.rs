@@ -343,8 +343,8 @@ pub(super) struct SchedulerDelta {
 }
 
 pub(super) struct SchedulerBatchDelta {
-    removed: BTreeSet<SchedulerSlot>,
-    added: BTreeSet<SchedulerSlot>,
+    removed: Vec<SchedulerSlot>,
+    added: Vec<SchedulerSlot>,
     resolve_cursor: Option<WorkOwner>,
     verify_cursor: Option<WorkOwner>,
 }
@@ -893,36 +893,58 @@ impl FairFrontier {
         &self,
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
     ) -> Result<SchedulerBatchDelta, SchedulerError> {
-        let changes = changes
-            .into_iter()
-            .map(|(before, after)| {
-                Ok(SchedulerDelta {
-                    before: before.map(|owner| self.slot(owner)).transpose()?.flatten(),
-                    after: after.map(|owner| self.slot(owner)).transpose()?.flatten(),
-                    owner_cursor: None,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut input = changes.into_iter();
+        let mut changes = Vec::new();
+        if let Some(capacity) = input.size_hint().1 {
+            changes
+                .try_reserve_exact(capacity)
+                .map_err(|_| SchedulerError::Allocation)?;
+        }
+        for (before, after) in input.by_ref() {
+            if changes.len() == changes.capacity() {
+                changes
+                    .try_reserve(1)
+                    .map_err(|_| SchedulerError::Allocation)?;
+            }
+            changes.push(SchedulerDelta {
+                before: before.map(|owner| self.slot(owner)).transpose()?.flatten(),
+                after: after.map(|owner| self.slot(owner)).transpose()?.flatten(),
+                owner_cursor: None,
+            });
+        }
 
-        let mut removed = BTreeSet::new();
-        let mut added = BTreeSet::new();
+        let mut removed = Vec::new();
+        let mut added = Vec::new();
+        removed
+            .try_reserve_exact(changes.len())
+            .map_err(|_| SchedulerError::Allocation)?;
+        added
+            .try_reserve_exact(changes.len())
+            .map_err(|_| SchedulerError::Allocation)?;
         for change in &changes {
             match &change.before {
-                Some(before) if !self.contains(before) || !removed.insert(before.clone()) => {
-                    return Err(SchedulerError::Projection);
-                }
+                Some(before) if !self.contains(before) => return Err(SchedulerError::Projection),
+                Some(before) => removed.push(before.clone()),
                 _ => {}
             }
-            match &change.after {
-                Some(after) if !added.insert(after.clone()) => {
-                    return Err(SchedulerError::Projection);
-                }
-                _ => {}
+            if let Some(after) = &change.after {
+                added.push(after.clone());
             }
+        }
+        removed.sort_unstable();
+        added.sort_unstable();
+        if removed
+            .array_windows::<2>()
+            .any(|[left, right]| left == right)
+            || added
+                .array_windows::<2>()
+                .any(|[left, right]| left == right)
+        {
+            return Err(SchedulerError::Projection);
         }
         if added
             .iter()
-            .any(|slot| self.contains(slot) && !removed.contains(slot))
+            .any(|slot| self.contains(slot) && removed.binary_search(slot).is_err())
         {
             return Err(SchedulerError::Projection);
         }
@@ -1064,13 +1086,38 @@ impl FairFrontier {
         }
     }
 
-    pub(super) fn ready(&self) -> Vec<(RawTxHash, EntryVersion)> {
+    pub(super) fn ready(&self) -> Result<Vec<(RawTxHash, EntryVersion)>, SchedulerError> {
+        let count = self.ready.len().min(MAX_READY_BATCH);
+        let mut ready = Vec::new();
+        ready
+            .try_reserve_exact(count)
+            .map_err(|_| SchedulerError::Allocation)?;
+        ready.extend(
+            self.ready
+                .iter()
+                .rev()
+                .take(MAX_READY_BATCH)
+                .map(|key| (key.hash().clone(), key.version())),
+        );
+        Ok(ready)
+    }
+
+    /// Length of the longest captured prefix that is still the exact current
+    /// strongest-first Ready prefix. This is one linear pass over the bounded
+    /// scheduler frontier and allocates no second projection.
+    pub(super) fn ready_common_prefix_len<'a>(
+        &self,
+        captured: impl IntoIterator<Item = (&'a RawTxHash, EntryVersion)>,
+    ) -> usize {
         self.ready
             .iter()
             .rev()
             .take(MAX_READY_BATCH)
-            .map(|key| (key.hash().clone(), key.version()))
-            .collect()
+            .zip(captured)
+            .take_while(|(current, captured)| {
+                current.hash() == captured.0 && current.version() == captured.1
+            })
+            .count()
     }
 
     pub(super) fn apply(&mut self, delta: SchedulerDelta) {

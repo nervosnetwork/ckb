@@ -52,13 +52,16 @@ impl ResolveWork {
             ));
         }
         let next = if resolved_within_grant(self.token.grant, &payload) {
-            SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
-                ResolutionSeal(()),
-                self.token.chain_view().clone(),
-                self.token.dependency_cut,
-                Arc::new(payload),
-                verify_class,
-            ))
+            SettlementNext::QueuedVerify(
+                ResolvedFacts::from_resolution(
+                    ResolutionSeal(()),
+                    self.token.chain_view().clone(),
+                    self.token.dependency_cut,
+                    Arc::new(payload),
+                    verify_class,
+                )
+                .expect("foundation location scratch is available"),
+            )
         } else {
             return Ok(budget_denied(self.token));
         };
@@ -96,7 +99,8 @@ impl ContinuousResolveWork {
             self.token.dependency_cut,
             Arc::new(payload),
             verify_class,
-        );
+        )
+        .expect("foundation location scratch is available");
         if self.capability.permits(verify_class) {
             Ok(ContinuousResolution::Verify(ContinuousVerifyWork {
                 token: self.token,

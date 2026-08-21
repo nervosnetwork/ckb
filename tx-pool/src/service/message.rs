@@ -1,6 +1,10 @@
 //! Tx-pool service message definitions.
 
-use crate::service::{AdmittedAdministration, ChainReorgArgs, Notify, Request};
+use crate::{
+    authority::{BoundedTransaction, BoundedTransactionError},
+    block_assembler::BoundedCandidateUncle,
+    service::{AdmittedAdministration, ChainReorgArgs, Notify, Request},
+};
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate;
@@ -8,7 +12,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
-        Cycle, EstimateMode, FeeRate, TransactionView, UncleBlockView, Version,
+        Cycle, EstimateMode, FeeRate, TransactionView, Version,
         cell::CellStatus,
         tx_pool::{
             EntryCompleted, PoolTxDetailInfo, Reject, TransactionWithStatus, TxPoolEntryInfo,
@@ -32,9 +36,129 @@ pub(crate) type TestAcceptTxResult = Result<EntryCompleted, Reject>;
 
 pub(crate) type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 pub(crate) type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
-pub(crate) type FetchTxsWithCyclesResult = Vec<(ProposalShortId, (TransactionView, Cycle))>;
+pub(crate) type FetchTxsWithCyclesResult = crate::authority::query::AcceptedTransactionsWithCycles;
 
 pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
+
+/// Canonical finite proposal-ID carrier. Public APIs keep their existing
+/// collection signatures, but arbitrary-capacity caller containers never
+/// cross the bounded service channel.
+#[derive(Debug)]
+pub(crate) struct BoundedProposalIds(Vec<ProposalShortId>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundedIdentifierSequenceError {
+    TooMany { actual: usize, maximum: usize },
+    Arithmetic,
+    Allocation,
+}
+
+impl std::fmt::Display for BoundedIdentifierSequenceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooMany { actual, maximum } => write!(
+                formatter,
+                "identifier request has {actual} items; maximum is {maximum}"
+            ),
+            Self::Arithmetic => formatter.write_str("identifier request size is not representable"),
+            Self::Allocation => formatter.write_str("identifier request allocation unavailable"),
+        }
+    }
+}
+
+impl std::error::Error for BoundedIdentifierSequenceError {}
+
+impl BoundedProposalIds {
+    pub(crate) fn try_from_vec(
+        ids: Vec<ProposalShortId>,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        Self::try_from_vec_with_limit(ids, ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH)
+    }
+
+    pub(crate) fn try_from_set(
+        ids: HashSet<ProposalShortId>,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        let mut bounded = Self::try_from_iter_with_limit(
+            ids.into_iter(),
+            ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
+        )?;
+        bounded.0.sort_unstable();
+        Ok(bounded)
+    }
+
+    fn try_from_vec_with_limit(
+        ids: Vec<ProposalShortId>,
+        maximum: usize,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        Self::try_from_iter_with_limit(ids.into_iter(), maximum)
+    }
+
+    fn try_from_iter_with_limit(
+        ids: impl ExactSizeIterator<Item = ProposalShortId>,
+        maximum: usize,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        let actual = ids.len();
+        if actual > maximum {
+            return Err(BoundedIdentifierSequenceError::TooMany { actual, maximum });
+        }
+        let normalized =
+            crate::util::try_compact_proposal_ids(ids).map_err(|error| match error {
+                crate::util::FixedPackedSequenceError::Arithmetic => {
+                    BoundedIdentifierSequenceError::Arithmetic
+                }
+                crate::util::FixedPackedSequenceError::Allocation => {
+                    BoundedIdentifierSequenceError::Allocation
+                }
+            })?;
+        Ok(Self(normalized))
+    }
+
+    pub(super) fn into_vec(self) -> Vec<ProposalShortId> {
+        self.0
+    }
+}
+
+/// Canonical finite full-transaction-hash carrier for relay lookup. The raw
+/// 32-byte identity is preserved end to end; proposal short IDs belong only to
+/// compact-block and proposal protocol paths and cannot cross this boundary.
+#[derive(Debug)]
+pub(crate) struct BoundedTransactionHashes(Vec<Byte32>);
+
+impl BoundedTransactionHashes {
+    pub(crate) fn try_from_set(
+        hashes: HashSet<Byte32>,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        Self::try_from_iter_with_limit(
+            hashes.into_iter(),
+            ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
+        )
+    }
+
+    fn try_from_iter_with_limit(
+        hashes: impl ExactSizeIterator<Item = Byte32>,
+        maximum: usize,
+    ) -> Result<Self, BoundedIdentifierSequenceError> {
+        let actual = hashes.len();
+        if actual > maximum {
+            return Err(BoundedIdentifierSequenceError::TooMany { actual, maximum });
+        }
+        let mut normalized =
+            crate::util::try_compact_transaction_hashes(hashes).map_err(|error| match error {
+                crate::util::FixedPackedSequenceError::Arithmetic => {
+                    BoundedIdentifierSequenceError::Arithmetic
+                }
+                crate::util::FixedPackedSequenceError::Allocation => {
+                    BoundedIdentifierSequenceError::Allocation
+                }
+            })?;
+        normalized.sort_unstable();
+        Ok(Self(normalized))
+    }
+
+    pub(super) fn into_vec(self) -> Vec<Byte32> {
+        self.0
+    }
+}
 
 /// Relay transaction batch proven safe to retain in the tx-pool dispatcher.
 ///
@@ -44,7 +168,7 @@ pub(crate) type FeeEstimatesResult = Result<FeeRate, AnyError>;
 /// upstream network proof cannot be lost at the tx-pool boundary.
 #[derive(Debug)]
 pub(crate) struct NotifyTxBatch {
-    pub(super) transactions: Vec<TransactionView>,
+    pub(super) transactions: Vec<BoundedTransaction>,
     pub(super) total_bytes: usize,
 }
 
@@ -52,7 +176,9 @@ pub(crate) struct NotifyTxBatch {
 enum NotifyTxBatchError {
     TooMany { actual: usize, maximum: usize },
     TooLarge { actual: usize, maximum: usize },
+    TransactionTooLarge { actual: u64, maximum: u64 },
     SizeOverflow,
+    Allocation,
 }
 
 impl std::fmt::Display for NotifyTxBatchError {
@@ -70,7 +196,14 @@ impl std::fmt::Display for NotifyTxBatchError {
                     "relay transaction batch has {actual} bytes; maximum is {maximum}"
                 )
             }
+            Self::TransactionTooLarge { actual, maximum } => write!(
+                formatter,
+                "relay transaction has {actual} serialized bytes; maximum is {maximum}"
+            ),
             Self::SizeOverflow => formatter.write_str("relay transaction batch size overflowed"),
+            Self::Allocation => {
+                formatter.write_str("relay transaction batch allocation unavailable")
+            }
         }
     }
 }
@@ -109,8 +242,22 @@ impl NotifyTxBatch {
                 maximum: max_bytes,
             });
         }
+        let mut transactions = Vec::new();
+        transactions
+            .try_reserve_exact(txs.len())
+            .map_err(|_| NotifyTxBatchError::Allocation)?;
+        for tx in txs {
+            transactions.push(
+                BoundedTransaction::try_new(tx).map_err(|error| match error {
+                    BoundedTransactionError::TooLarge { actual, maximum } => {
+                        NotifyTxBatchError::TransactionTooLarge { actual, maximum }
+                    }
+                    BoundedTransactionError::Allocation => NotifyTxBatchError::Allocation,
+                })?,
+            );
+        }
         Ok(Self {
-            transactions: txs,
+            transactions,
             total_bytes: bytes,
         })
     }
@@ -123,7 +270,7 @@ impl NotifyTxBatch {
         self.total_bytes
     }
 
-    pub(super) fn into_transactions(self) -> Vec<TransactionView> {
+    pub(super) fn into_transactions(self) -> Vec<BoundedTransaction> {
         self.transactions
     }
 }
@@ -131,14 +278,14 @@ impl NotifyTxBatch {
 /// A remote controller submission whose origin cannot be confused with Local
 /// or Proposal admission at the service boundary.
 pub(crate) struct RemoteTxSubmission {
-    pub(crate) transaction: TransactionView,
+    pub(crate) transaction: BoundedTransaction,
     pub(crate) declared_cycles: Cycle,
     pub(crate) peer: PeerIndex,
 }
 
 impl RemoteTxSubmission {
     pub(crate) fn new(
-        transaction: TransactionView,
+        transaction: BoundedTransaction,
         declared_cycles: Cycle,
         peer: PeerIndex,
     ) -> Self {
@@ -152,19 +299,19 @@ impl RemoteTxSubmission {
 
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<BlockTemplateArgs, BlockTemplateResult>),
-    SubmitLocalTx(SyncRequest<TransactionView, SubmitTxResult>),
+    SubmitLocalTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, bool>),
-    TestAcceptTx(SyncRequest<TransactionView, TestAcceptTxResult>),
+    TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
     SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
     NotifyTxs(Notify<NotifyTxBatch>),
-    FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
-    FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(AsyncRequest<HashSet<ProposalShortId>, FetchTxsWithCyclesResult>),
+    FreshProposalsFilter(AsyncRequest<BoundedProposalIds, Vec<ProposalShortId>>),
+    FetchTxs(AsyncRequest<BoundedProposalIds, HashMap<ProposalShortId, TransactionView>>),
+    FetchTxsWithCycles(AsyncRequest<BoundedTransactionHashes, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(SyncRequest<(), TxPoolInfo>),
     GetLiveCell(SyncRequest<(OutPoint, bool), CellStatus>),
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
-    NewUncle(Notify<UncleBlockView>),
+    NewUncle(Notify<BoundedCandidateUncle>),
     GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
     GetAllIds(SyncRequest<(), TxPoolIds>),
     SavePool(SyncRequest<(), ()>),
@@ -179,7 +326,7 @@ pub(crate) enum Message {
     PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), Reject>>),
     #[cfg(feature = "internal")]
     PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
-    SubmitLocalTestTx(SyncRequest<TransactionView, SubmitTxResult>),
+    SubmitLocalTestTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
 }
 
 /// Rare generation controls that must preserve producer order with chain
@@ -190,7 +337,7 @@ pub(crate) enum Message {
 /// detached-transaction recovery. Ordinary admission and read traffic remain
 /// on the concurrent dispatcher.
 pub(crate) enum ChainControl {
-    Reconcile(ChainReorgArgs),
+    Reconcile(SyncRequest<ChainReorgArgs, ()>),
     /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
     /// every pre-pool location as one generation.
     ClearPool(AdmittedAdministration<SyncRequest<Arc<Snapshot>, ()>>),

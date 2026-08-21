@@ -13,8 +13,14 @@ import subprocess
 import sys
 
 from check_mutation_adjudication import (
+    classify_mutation_evidence,
+    convergence_state,
     equivalence_proof_index,
+    mutation_evidence_required,
+    mutation_input_differences,
     run_equivalence_canaries,
+    run_mutation_evidence_state_canaries,
+    validate_historical_mutation_pair,
 )
 from check_review_guide import load_registry, target_invariant_ids
 from check_security_manifest import (
@@ -39,6 +45,7 @@ MUTANT_OUTCOME_SUMMARIES = {
     "Timeout",
     "Unviable",
 }
+MUTATION_JOBS = 4
 
 
 def parse_args() -> argparse.Namespace:
@@ -162,6 +169,54 @@ def bare_symbol(symbol: str) -> str:
     return symbol
 
 
+def canonical_function_name(function_name: str) -> str:
+    """Erase impl-owner generic arguments from cargo-mutants method names.
+
+    Rust source owners are registered by their nominal type (for example
+    ``OwnerClockBranch``), while cargo-mutants reports an impl's instantiated
+    syntax (``OwnerClockBranch<'_>``).  The method name starts at the first
+    top-level ``::``; only balanced angle-bracket text in its owner prefix is
+    erased.  Trait-impl pseudo owners remain unmatched and fall through to the
+    path remainder rather than being guessed into a nominal owner.
+    """
+
+    depth = 0
+    separator: int | None = None
+    for index, character in enumerate(function_name):
+        if character == "<":
+            depth += 1
+        elif character == ">":
+            if depth == 0:
+                return function_name
+            depth -= 1
+        elif (
+            character == ":"
+            and depth == 0
+            and function_name[index : index + 2] == "::"
+        ):
+            separator = index
+            break
+    if separator is None or depth != 0:
+        return function_name
+    owner = function_name[:separator]
+    if owner.startswith("<impl "):
+        return function_name
+    canonical_owner: list[str] = []
+    depth = 0
+    for character in owner:
+        if character == "<":
+            depth += 1
+        elif character == ">":
+            if depth == 0:
+                return function_name
+            depth -= 1
+        elif depth == 0:
+            canonical_owner.append(character)
+    if depth != 0:
+        return function_name
+    return "".join(canonical_owner) + function_name[separator:]
+
+
 def load_inputs(manifest_path: Path) -> tuple[dict, dict, dict, dict]:
     manifest = load_manifest(manifest_path)
     contract, contract_errors = load_repo_json(
@@ -235,7 +290,7 @@ def list_candidates(
 
 
 def obligation_matches(candidate: dict, obligation: dict) -> bool:
-    function_name = candidate["function"]["function_name"]
+    function_name = canonical_function_name(candidate["function"]["function_name"])
     symbol = bare_symbol(obligation["owner"]["symbol"])
     selector = obligation["selector"]
     if selector["kind"] == "all_methods":
@@ -353,6 +408,26 @@ def run_selection_canaries() -> None:
     selected_by_name = {row[0]["name"]: row[1]["id"] for row in selected}
     if selected_by_name[candidate["name"]] != exact["id"]:
         fail("mutation selector primary owner did not precede the path remainder")
+    generic_candidate = {
+        **candidate,
+        "name": "canary.rs:3:1: replace Owner<'_>::method",
+        "function": {"function_name": "Owner<'_>::method"},
+    }
+    generic_selected = select_candidates([generic_candidate], [obligation])
+    if generic_selected[0][1]["id"] != obligation["id"]:
+        fail("mutation selector did not normalize a generic impl owner")
+    trait_candidate = {
+        **candidate,
+        "name": "canary.rs:4:1: replace <impl Trait for Owner>::method",
+        "function": {"function_name": "<impl Trait for Owner>::method"},
+    }
+    try:
+        select_candidates([trait_candidate], [obligation])
+    except SystemExit as error:
+        if "zero-match mutation obligations" not in str(error):
+            raise
+    else:
+        fail("mutation selector guessed a trait impl into a nominal owner")
 
 
 def config_text(
@@ -489,11 +564,17 @@ def input_record(path: Path) -> dict:
     return {"path": repo_relative(path), "sha256": file_digest(path)}
 
 
-def production_source_revision(paths: list[str]) -> str:
-    revision = run(["git", "log", "-1", "--format=%H", "--", *paths]).strip()
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        fail(f"cannot derive production source revision for {paths}")
-    return revision
+def mutation_manifest_projection(manifest: dict) -> dict:
+    """Return only manifest coordinates consumed by mutation selection."""
+
+    return {
+        "package": manifest.get("package"),
+        "features": manifest.get("features"),
+        "architecture_contract": manifest.get("architecture_contract"),
+        "behavior_registry": manifest.get("behavior_registry"),
+        "test_inventory": manifest.get("test_inventory"),
+        "mutation_acceptance": manifest.get("mutation_acceptance"),
+    }
 
 
 def command_template(
@@ -508,8 +589,10 @@ def command_template(
             "nextest",
             "--baseline",
             "run",
+            "--copy-target",
+            "true",
             "-j",
-            "1",
+            str(MUTATION_JOBS),
             "--minimum-test-timeout",
             "120",
             "--timeout-multiplier",
@@ -523,6 +606,31 @@ def command_template(
         argv.extend(["-f", path])
     argv.extend(["-o", "<OUTPUT>", "--", f"--{target}"])
     return argv
+
+
+def run_command_template_canaries() -> None:
+    command = command_template("canary", ["internal"], ["canary.rs"], "lib")
+    jobs = command.index("-j")
+    if command[jobs + 1] != str(MUTATION_JOBS) or not 1 < MUTATION_JOBS <= 4:
+        fail("mutation command lost its bounded independent parallelism")
+    copy_target = command.index("--copy-target")
+    if command[copy_target + 1] != "true":
+        fail("mutation command stopped cloning the prewarmed target per worker")
+    if "--in-place" in command:
+        fail("parallel mutation command stopped using isolated worker source trees")
+    if "--jobserver" in command or "--jobserver-tasks" in command:
+        fail("mutation command bypassed cargo-mutants shared jobserver bounds")
+    historical = [*command]
+    historical[jobs + 1] = "1"
+    execution = {
+        "candidate_count": 1,
+        "candidate_sha256": "0" * 64,
+        "config_sha256": "0" * 64,
+        "command_template": historical,
+        "command_sha256": digest(historical),
+    }
+    if execution["command_sha256"] != digest(execution["command_template"]):
+        fail("historical mutation command lost its content identity")
 
 
 def build_lock(
@@ -566,22 +674,23 @@ def build_lock(
     contract_path = REPO_ROOT / manifest["architecture_contract"]
     behavior_path = registry_path(manifest)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "generator": GENERATOR_PATH,
         "cargo_mutants_version": version,
         "inputs": {
+            "manifest_projection_sha256": digest(
+                mutation_manifest_projection(manifest)
+            ),
             "tools": [
                 input_record(REPO_ROOT / GENERATOR_PATH),
                 input_record(REPO_ROOT / "tx-pool/scripts/check_security_manifest.py"),
             ],
-            "manifest": input_record(manifest_path),
             "architecture_contract": input_record(contract_path),
             "behavior_registry": input_record(behavior_path),
             "test_inventory": input_record(inventory),
             "production_sources": [
                 input_record(REPO_ROOT / path) for path in paths
             ],
-            "production_source_revision": production_source_revision(paths),
         },
         "test_universe": {
             "id": universe_id,
@@ -675,7 +784,7 @@ def validate_lock_without_discovery(
     acceptance: dict,
 ) -> tuple[dict, list[dict], list[tuple[dict, dict]], str]:
     observed = read_json_object(lock_path, "generated mutation lock")
-    if observed.get("schema_version") != 3:
+    if observed.get("schema_version") != 4:
         fail(f"generated mutation lock has unsupported schema: {lock_path}")
     universe = observed.get("candidate_universe")
     rows = observed.get("rows")
@@ -703,6 +812,65 @@ def validate_lock_without_discovery(
             f"generated mutation lock is stale or internally inconsistent: {lock_path}; "
             "review then run --rediscover --write-lock from a clean checkpoint"
         )
+    return observed, candidates, selected, exact_config
+
+
+def validate_historical_lock_without_discovery(
+    lock_path: Path,
+    observed: dict,
+) -> tuple[dict, list[dict], list[tuple[dict, dict]], str]:
+    """Check frozen row/config identities without joining them to current inputs."""
+
+    rows = observed.get("rows")
+    if not isinstance(rows, list) or not rows:
+        fail(f"historical mutation lock has no candidate rows: {lock_path}")
+    candidates = [candidate_from_lock_row(row) for row in rows]
+    selected = [
+        (candidate, {"id": row["obligation_id"]})
+        for candidate, row in zip(candidates, rows, strict=True)
+    ]
+    exact_config = config_text(selected, candidates)
+    execution = observed.get("execution")
+    test_universe = observed.get("test_universe")
+    if not isinstance(execution, dict) or not isinstance(test_universe, dict):
+        fail("historical mutation lock lacks execution or test-universe projections")
+    package = test_universe.get("package")
+    features = test_universe.get("features")
+    target = test_universe.get("target")
+    if (
+        not isinstance(package, str)
+        or not package
+        or not isinstance(features, list)
+        or not all(isinstance(feature, str) and feature for feature in features)
+        or not isinstance(target, str)
+        or not target
+    ):
+        fail("historical mutation lock has invalid test-universe coordinates")
+    command = execution.get("command_template")
+    if execution.get("config_sha256") != hashlib.sha256(exact_config.encode()).hexdigest():
+        fail("historical mutation lock config digest is internally inconsistent")
+    if (
+        not isinstance(command, list)
+        or not command
+        or not all(isinstance(argument, str) for argument in command)
+        or execution.get("command_sha256") != digest(command)
+    ):
+        fail("historical mutation lock command projection is internally inconsistent")
+    expected_nextest = [
+        "cargo",
+        "nextest",
+        "run",
+        "-p",
+        package,
+        "--features",
+        ",".join(features),
+        f"--{target}",
+    ]
+    if (
+        test_universe.get("id") != f"{package}:{','.join(features)}:{target}"
+        or test_universe.get("nextest_argv") != expected_nextest
+    ):
+        fail("historical mutation lock test command is internally inconsistent")
     return observed, candidates, selected, exact_config
 
 
@@ -848,7 +1016,7 @@ def build_result_lock(
     )
     execution_count = sum(entry["candidate_count"] for entry in inputs)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "mutation_lock": input_record(mutation_lock_path),
         "candidate_count": len(expected),
         "execution_count": execution_count,
@@ -876,7 +1044,7 @@ def validate_result_lock(
     require_accepted: bool,
 ) -> dict:
     result = read_json_object(path, "mutation result lock")
-    if result.get("schema_version") != 3:
+    if result.get("schema_version") != 4:
         fail(f"mutation result lock has unsupported schema: {path}")
     if result.get("mutation_lock") != input_record(mutation_lock_path):
         fail("mutation result lock is not bound to the current candidate lock")
@@ -981,9 +1149,14 @@ def main() -> int:
     if args.write_lock:
         require_clean_worktree({repo_relative(args.lock)})
     run_selection_canaries()
+    run_command_template_canaries()
     run_equivalence_canaries()
+    run_mutation_evidence_state_canaries()
     run_result_disposition_canaries()
     manifest, contract, registry, acceptance = load_inputs(args.manifest)
+    state = convergence_state(manifest)
+    if args.rediscover and state == "accepted":
+        fail("an Accepted universe cannot rediscover a new mutation candidate lock")
     if args.rediscover:
         obligations = resolve_obligations(acceptance, contract, registry)
         paths = sorted({obligation["owner"]["path"] for obligation in obligations})
@@ -1003,21 +1176,56 @@ def main() -> int:
             exact_config,
         )
         reconcile_lock(args.lock, lock, args.write_lock)
-    else:
-        lock, candidates, selected, exact_config = validate_lock_without_discovery(
-            args.manifest,
-            args.lock,
-            manifest,
-            contract,
-            registry,
-            acceptance,
+        differences = mutation_input_differences(lock, manifest)
+        evidence_state = classify_mutation_evidence(
+            state,
+            differences,
+            require_current=mutation_evidence_required(manifest),
         )
+        if evidence_state != "current":
+            fail("fresh mutation discovery did not bind the current input vector")
+    else:
+        observed_lock = read_json_object(args.lock, "generated mutation lock")
+        differences = mutation_input_differences(observed_lock, manifest)
+        evidence_state = classify_mutation_evidence(
+            state,
+            differences,
+            require_current=mutation_evidence_required(manifest),
+        )
+        if evidence_state == "current":
+            lock, candidates, selected, exact_config = validate_lock_without_discovery(
+                args.manifest,
+                args.lock,
+                manifest,
+                contract,
+                registry,
+                acceptance,
+            )
+        else:
+            if (
+                args.write_config is not None
+                or args.resume_outcomes
+                or args.verify_outcomes
+                or args.write_result_lock
+                or args.require_accepted
+            ):
+                fail(
+                    "historical mutation evidence is read-only and non-release; "
+                    "rediscover a current candidate lock before execution or acceptance"
+                )
+            lock, candidates, selected, exact_config = (
+                validate_historical_lock_without_discovery(args.lock, observed_lock)
+            )
     equivalence = equivalence_proof_index(
         contract,
         registry,
         set(read_unit_universe(inventory_path(manifest))),
-        lock["rows"],
+        lock["rows"] if evidence_state == "current" else None,
     )
+    declared_proof_ids = {
+        proof["id"] for proof in contract["mutation_equivalence"]["proofs"]
+    }
+    require_accepted = args.require_accepted or mutation_evidence_required(manifest)
 
     if args.write_config is not None:
         run_selected = selected
@@ -1057,34 +1265,51 @@ def main() -> int:
                     f"mutation result lock is stale: {args.result_lock}; "
                     "review then use --write-result-lock"
                 )
-        if args.require_accepted and not result["accepted"]:
+        if require_accepted and not result["accepted"]:
             unacceptable = [
                 row["candidate"]
                 for row in result["rows"]
                 if row["disposition"]["kind"] == "unaccepted"
             ]
             fail(f"mutation outcomes lack an accepted disposition: {unacceptable}")
-    elif args.result_lock.is_file():
-        result = validate_result_lock(
-            args.result_lock,
-            args.lock,
-            lock,
-            equivalence,
-            args.require_accepted,
-        )
-    elif args.require_accepted:
+    elif args.result_lock.is_file() and not args.rediscover:
+        if evidence_state == "current":
+            result = validate_result_lock(
+                args.result_lock,
+                args.lock,
+                lock,
+                equivalence,
+                require_accepted,
+            )
+        else:
+            result = read_json_object(args.result_lock, "historical mutation result lock")
+            validate_historical_mutation_pair(
+                args.lock,
+                args.result_lock,
+                lock,
+                result,
+                declared_proof_ids,
+            )
+    elif require_accepted or evidence_state == "historical_non_release":
         fail(f"mutation result lock does not exist: {args.result_lock}")
 
     if args.print_json:
         print(json.dumps(lock, indent=2, sort_keys=True))
     else:
         execution = lock["execution"]
-        print(
-            f"validated {execution['candidate_count']} complete mutation rows "
-            f"({execution['candidate_sha256']}) against "
-            f"{lock['test_universe']['count']} library tests"
-        )
-        print(f"command: {shlex.join(execution['command_template'])}")
+        if evidence_state == "current":
+            print(
+                f"validated {execution['candidate_count']} complete current mutation rows "
+                f"({execution['candidate_sha256']}) against "
+                f"{lock['test_universe']['count']} library tests"
+            )
+            print(f"command: {shlex.join(execution['command_template'])}")
+        else:
+            print(
+                "validated historical mutation evidence (read-only, non-release): "
+                f"rows={execution['candidate_count']}, differing_inputs={len(differences)}, "
+                f"candidate_sha256={execution['candidate_sha256']}"
+            )
         if args.write_config is not None:
             print(
                 f"config: {args.write_config} selects {len(run_selected)} "

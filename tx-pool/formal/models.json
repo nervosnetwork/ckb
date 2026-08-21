@@ -11,6 +11,17 @@
       "config": "PermitEffectReachability.cfg",
       "expected": "invariant_violation",
       "invariant": "NoEffectBlockedDirectHandoff"
+    },
+    {
+      "module": "ProposalLiveness.tla",
+      "config": "ProposalLiveness.cfg",
+      "expected": "success"
+    },
+    {
+      "module": "ProposalLiveness.tla",
+      "config": "ProposalLivenessReproposal.cfg",
+      "expected": "invariant_violation",
+      "invariant": "NoQualitativeServicePhaseMiss"
     }
   ]
 }

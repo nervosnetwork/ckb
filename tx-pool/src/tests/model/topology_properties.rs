@@ -1,8 +1,12 @@
 use super::topology::{
-    CachePublicationInput, CachePublicationTopology, CompleteTopology, CompleteTopologyGap,
-    ExchangePermitAcquisition, ExchangePermitState, ExecutionTopology, FeasibilityLaw,
-    IndependentWaveInput, OrderedBoundaryInput, OrderedBoundaryTopology, ProducerResidencyBound,
-    QueryScratch, QueryScratchStep, QueryTopology, QueryTopologyInput, RetainedIngressTopology,
+    AllocationNormalForm, AuthorityNormalForm, CachePublicationInput, CachePublicationTopology,
+    ChainCompletionProtocol, ChainCompletionStep, ChainCompletionTopology, CompatibilityNormalForm,
+    CompleteTopology, CompleteTopologyGap, CouplingNormalForm, ExchangePermitAcquisition,
+    ExchangePermitState, ExecutionTopology, FeasibilityLaw, GlobalFeasibilityGap, GlobalNormalForm,
+    IndependentWaveInput, LifecycleNormalForm, OrderedBoundaryInput, OrderedBoundaryTopology,
+    ProducerResidencyBound, ProgressNormalForm, ProjectionNormalForm, ProposalHistoryNormalForm,
+    QueryScratch, QueryScratchStep, QueryTopology, QueryTopologyInput, ResourceNormalForm,
+    RetainedIngressTopology, TaskNormalForm, TemplateChainReadStep, TemplateChainReadTopology,
     exchange_permit_acquisition, global_optimality_summary, retained_ingress_surface,
     visit_global_normal_forms,
 };
@@ -253,6 +257,112 @@ fn model_typed_ordered_boundary_bounds_external_admin_residency_without_dropping
 }
 
 #[test]
+fn model_chain_publish_return_requires_the_exact_authority_apply_before_template_read() {
+    let mut enqueue_only = ChainCompletionProtocol::new(0);
+    assert_eq!(
+        enqueue_only.install(1, ChainCompletionTopology::EnqueueOnly),
+        Some(ChainCompletionStep::ReturnedBeforeApply)
+    );
+    assert_eq!(enqueue_only.chain_view, 1);
+    assert_eq!(
+        enqueue_only.template_read_after_return(TemplateChainReadTopology::UngatedLastPublished),
+        Some(TemplateChainReadStep::Stale {
+            required: 1,
+            returned: 0,
+        }),
+        "enqueue acknowledgement admits the repeated block-1 template counterexample"
+    );
+    assert_eq!(
+        enqueue_only.apply(ChainCompletionTopology::EnqueueOnly),
+        Some(ChainCompletionStep::AppliedAfterReturn)
+    );
+
+    let mut acknowledged = ChainCompletionProtocol::new(0);
+    assert_eq!(
+        acknowledged.install(1, ChainCompletionTopology::ApplyAcknowledged),
+        Some(ChainCompletionStep::AwaitingApply)
+    );
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        None,
+        "the publisher cannot return while the coupled authority fact is stale"
+    );
+    assert_eq!(
+        acknowledged.apply(ChainCompletionTopology::ApplyAcknowledged),
+        Some(ChainCompletionStep::AppliedAndReturned)
+    );
+    assert_eq!(acknowledged.authority_view, acknowledged.chain_view);
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::UngatedLastPublished),
+        Some(TemplateChainReadStep::Stale {
+            required: 1,
+            returned: 0,
+        }),
+        "Apply acknowledgement alone does not make the derived template current"
+    );
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Pending(1))
+    );
+    acknowledged.publish_template_reset();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Pending(1)),
+        "publishing a current-chain blank reset does not publish a coherent mining template"
+    );
+    assert_eq!(
+        acknowledged
+            .template_read_after_return(TemplateChainReadTopology::SourceScalarGatedTerminal),
+        Some(TemplateChainReadStep::Incoherent {
+            required: 1,
+            proposals: None,
+            transactions: None,
+            uncles: None,
+        }),
+        "one scalar chain level admits the reset-before-components counterexample"
+    );
+    acknowledged.publish_template_proposals();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Pending(1)),
+        "proposal publication alone cannot release a transaction-bearing template read"
+    );
+    acknowledged.publish_template_uncles();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Pending(1))
+    );
+    acknowledged.publish_template_transactions();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Current(1)),
+        "the componentwise gate releases exactly when all published components share the source"
+    );
+    acknowledged.publish_template_reset();
+    acknowledged.fail_template();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Unavailable(1)),
+        "a same-source rebuild failure is terminal rather than an infinite wait"
+    );
+    assert_eq!(
+        acknowledged
+            .template_read_after_return(TemplateChainReadTopology::SourceGatedUnboundedWait),
+        Some(TemplateChainReadStep::Pending(1)),
+        "a source gate without a failure terminal has no named releaser"
+    );
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::TimerOrPollingFreshness),
+        Some(TemplateChainReadStep::RetryWithoutChange(1))
+    );
+    acknowledged.publish_template();
+    assert_eq!(
+        acknowledged.template_read_after_return(TemplateChainReadTopology::SourceGatedTerminal),
+        Some(TemplateChainReadStep::Current(1))
+    );
+}
+
+#[test]
 fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions() {
     let execution = workload(32, 8);
     let query = QueryTopologyInput {
@@ -272,6 +382,8 @@ fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exc
         query: QueryTopology::CurrentGuarded,
         cache: CachePublicationTopology::BoundedWriter,
         ordered: OrderedBoundaryTopology::SharedReliableSender,
+        chain_completion: ChainCompletionTopology::EnqueueOnly,
+        template_chain_read: TemplateChainReadTopology::UngatedLastPublished,
     };
     let self_fused = CompleteTopology {
         execution: ExecutionTopology::SelfFusedWorkers,
@@ -283,6 +395,12 @@ fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exc
         query: QueryTopology::PreparedScratch { permits: 1 },
         cache: CachePublicationTopology::BoundedWriter,
         ordered: OrderedBoundaryTopology::TypedReorgAndBoundedAdmin,
+        chain_completion: ChainCompletionTopology::ApplyAcknowledged,
+        template_chain_read: TemplateChainReadTopology::SourceGatedTerminal,
+    };
+    let scalar_gated = CompleteTopology {
+        template_chain_read: TemplateChainReadTopology::SourceScalarGatedTerminal,
+        ..selected
     };
 
     let current_gaps = current
@@ -292,12 +410,20 @@ fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exc
     assert!(current_gaps.contains(&CompleteTopologyGap::PerRequestRetainedIngress));
     assert!(current_gaps.contains(&CompleteTopologyGap::GuardHeldFallibleQueryWork));
     assert!(current_gaps.contains(&CompleteTopologyGap::UnboundedOrderedProducerResidency));
+    assert!(current_gaps.contains(&CompleteTopologyGap::ChainReturnBeforeAuthorityApply));
+    assert!(current_gaps.contains(&CompleteTopologyGap::StaleChainTemplateRead));
     assert_eq!(
         self_fused
             .gaps(execution, query, cache, ordered)
             .expect("the self-fused complete topology is representable"),
         current_gaps,
         "worker-local fusion does not close a whole-system architecture gap"
+    );
+    assert_eq!(
+        scalar_gated
+            .gaps(execution, query, cache, ordered)
+            .expect("the scalar-gated topology is representable"),
+        vec![CompleteTopologyGap::IncoherentChainTemplateRead]
     );
     assert_eq!(
         selected
@@ -308,11 +434,10 @@ fn model_complete_topology_selection_rejects_partial_fixes_without_stitching_exc
 }
 
 #[test]
-fn model_global_normal_form_partition_is_finite_unique_and_total() {
-    const EXPECTED_NORMAL_FORMS: usize = 4 * 3 * 3 * 4 * 4 * 4 * 4 * 4;
-    const EXPECTED_FEASIBLE_FORMS: usize = 2 * 2 * 2 * 2 * 2 * 2;
-
+fn model_declared_semantic_signature_partition_is_finite_unique_and_total() {
     let mut seen = HashSet::new();
+    let mut observed_variants: [HashSet<&'static str>; 12] =
+        std::array::from_fn(|_| HashSet::new());
     let mut feasible = 0;
     let mut observed_hard_constraint = false;
     let mut observed_concurrency_law = false;
@@ -322,6 +447,9 @@ fn model_global_normal_form_partition_is_finite_unique_and_total() {
             seen.insert(normal_form),
             "the Cartesian partition repeated a normal form"
         );
+        for (observed, variant) in observed_variants.iter_mut().zip(normal_form.signature()) {
+            observed.insert(variant);
+        }
         let gaps = normal_form.feasibility_gaps();
         if gaps.is_empty() {
             feasible += 1;
@@ -335,25 +463,42 @@ fn model_global_normal_form_partition_is_finite_unique_and_total() {
         }
     });
 
-    assert_eq!(seen.len(), EXPECTED_NORMAL_FORMS);
-    assert_eq!(feasible, EXPECTED_FEASIBLE_FORMS);
+    let summary = global_optimality_summary();
+    let expected_normal_forms = summary
+        .axis_cardinalities
+        .into_iter()
+        .try_fold(1usize, usize::checked_mul)
+        .expect("the finite declared Cartesian product is representable");
+    assert_eq!(seen.len(), expected_normal_forms);
+    assert_ne!(feasible, 0);
+    assert!(feasible < expected_normal_forms);
     assert!(observed_hard_constraint);
     assert!(observed_concurrency_law);
     assert!(observed_coupling_law);
 
-    let summary = global_optimality_summary();
-    assert_eq!(summary.axis_cardinalities, [4, 3, 3, 4, 4, 4, 4, 4]);
-    assert_eq!(summary.total_normal_forms, EXPECTED_NORMAL_FORMS);
-    assert_eq!(summary.feasible_normal_forms, EXPECTED_FEASIBLE_FORMS);
+    assert_eq!(
+        summary.axis_cardinalities,
+        summary.axis_variants.map(|variants| variants.len()),
+        "axis cardinalities must derive from the declared variant universes"
+    );
+    assert_eq!(summary.total_normal_forms, expected_normal_forms);
+    assert_eq!(summary.feasible_normal_forms, feasible);
     assert_eq!(
         summary.rejected_normal_forms,
-        EXPECTED_NORMAL_FORMS - EXPECTED_FEASIBLE_FORMS
+        expected_normal_forms - feasible
     );
     assert!(summary.rejected_by_law.into_iter().all(|count| count > 0));
+    for (observed, declared) in observed_variants.into_iter().zip(summary.axis_variants) {
+        assert_eq!(
+            observed,
+            declared.iter().copied().collect(),
+            "each declared variant is reached by the exact Cartesian product"
+        );
+    }
 }
 
 #[test]
-fn model_global_static_objective_has_one_zero_extra_cost_witness() {
+fn model_static_frontier_is_derived_without_a_selected_witness_predicate() {
     let mut feasible = Vec::new();
     visit_global_normal_forms(|normal_form| {
         if normal_form.feasibility_gaps().is_empty() {
@@ -373,12 +518,28 @@ fn model_global_static_objective_has_one_zero_extra_cost_witness() {
 
     assert_eq!(minimum, [0; 7]);
     assert_eq!(minimizers.len(), 1);
-    assert!(minimizers[0].is_selected_witness());
+    assert_eq!(
+        minimizers[0].signature(),
+        [
+            "unique_minimum_apply",
+            "sealed_linear_exact",
+            "exact_canonical_available_cut",
+            "apply_acknowledged",
+            "bounded_persistent_sparse_exact_view_independent_verifier",
+            "source_gated_terminal",
+            "same_apply_derived_finite_rank",
+            "unified_bounded_fallible",
+            "allocation_free_generation_terminal",
+            "post_commit_derived_prepared",
+            "bounded_owned_minimal_lanes",
+            "forward_legacy_intentional_major",
+        ]
+    );
 
     let summary = global_optimality_summary();
     assert_eq!(summary.minimum_static_extra_cost, minimum);
     assert_eq!(summary.static_minimizers, minimizers.len());
-    assert_eq!(summary.selected_static_minimizers, 1);
+    assert_eq!(summary.minimum_static_signature, minimizers[0].signature());
     assert_eq!(
         summary.minimum_facade_static_extra_cost,
         [1, 0, 0, 0, 0, 0, 0]
@@ -386,5 +547,70 @@ fn model_global_static_objective_has_one_zero_extra_cost_witness() {
     assert_eq!(
         summary.minimum_partitioned_resource_static_extra_cost,
         [0, 0, 0, 0, 1, 0, 1]
+    );
+    assert_eq!(
+        summary.minimum_scoped_allocation_static_extra_cost,
+        [0, 0, 0, 1, 1, 0, 0]
+    );
+}
+
+#[test]
+fn model_proposal_history_keeps_consensus_independent_and_selects_delta_work() {
+    let base = GlobalNormalForm {
+        authority: AuthorityNormalForm::UniqueMinimumApply,
+        lifecycle: LifecycleNormalForm::SealedLinearExact,
+        coupling: CouplingNormalForm::ExactCanonicalAvailableCut,
+        chain_completion: ChainCompletionTopology::ApplyAcknowledged,
+        proposal_history:
+            ProposalHistoryNormalForm::BoundedPersistentSparseExactViewIndependentVerifier,
+        template_chain_read: TemplateChainReadTopology::SourceGatedTerminal,
+        progress: ProgressNormalForm::SameApplyDerivedFiniteRank,
+        resources: ResourceNormalForm::UnifiedBoundedFallible,
+        allocation: AllocationNormalForm::AllocationFreeGenerationTerminal,
+        projections: ProjectionNormalForm::PostCommitDerivedPrepared,
+        tasks: TaskNormalForm::BoundedOwnedMinimalLanes,
+        compatibility: CompatibilityNormalForm::ForwardLegacyIntentionalMajor,
+    };
+    let expected_bound = GlobalNormalForm {
+        proposal_history:
+            ProposalHistoryNormalForm::ExpectedBoundPersistentSparseExactViewIndependentVerifier,
+        ..base
+    };
+    let materialized = GlobalNormalForm {
+        proposal_history:
+            ProposalHistoryNormalForm::MaterializedIncrementalExactViewIndependentVerifier,
+        ..base
+    };
+    let recomputed = GlobalNormalForm {
+        proposal_history: ProposalHistoryNormalForm::RecomputedExactViewIndependentVerifier,
+        ..base
+    };
+    let shared = GlobalNormalForm {
+        proposal_history: ProposalHistoryNormalForm::SharedMutableVerifierView,
+        ..base
+    };
+    let scalar = GlobalNormalForm {
+        proposal_history: ProposalHistoryNormalForm::ScalarOrCurrentHistory,
+        ..base
+    };
+
+    assert!(base.feasibility_gaps().is_empty());
+    assert_eq!(
+        expected_bound.feasibility_gaps(),
+        vec![GlobalFeasibilityGap::HostileResourceUnbounded]
+    );
+    assert!(materialized.feasibility_gaps().is_empty());
+    assert!(recomputed.feasibility_gaps().is_empty());
+    assert_eq!(materialized.static_extra_cost(), [0, 0, 0, 0, 1, 0, 0]);
+    assert_eq!(recomputed.static_extra_cost(), [0, 0, 0, 1, 1, 0, 0]);
+    assert!(base.static_extra_cost() < materialized.static_extra_cost());
+    assert!(materialized.static_extra_cost() < recomputed.static_extra_cost());
+    assert_eq!(
+        shared.feasibility_gaps(),
+        vec![GlobalFeasibilityGap::ConsensusUsesMutableProposalProjection]
+    );
+    assert_eq!(
+        scalar.feasibility_gaps(),
+        vec![GlobalFeasibilityGap::IncompleteProposalHistory]
     );
 }

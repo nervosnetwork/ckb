@@ -11,11 +11,11 @@ use super::{
     },
     state::{
         AcceptanceEffect, AcceptedProvenance, AcceptedStatus, Arrival, CapabilityId,
-        EffectClaimSource, EffectClass, EntryVersion, LogicalEffect, ModelLimits, Omega,
-        OwnerLocation, PeerId, ProposalBase, ProposalId, RemoteDeadline, RemoteResidency,
-        ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource, RulesId, Source,
-        Transaction, TxId, VerifyCapability, VerifyCycleClass, ViewId, WitnessId, WorkPermit,
-        WorkStage,
+        EffectClaimSource, EffectClass, EntryVersion, LogicalEffect, ModelLimits,
+        ModelTransactionCost, Omega, OwnerLocation, PeerId, ProposalBase, ProposalId,
+        RemoteDeadline, RemoteResidency, ResolvedEvidence, RetainedOwner, RetainedPhase,
+        RetainedSource, RulesId, Source, Transaction, TxId, VerifyCapability, VerifyCycleClass,
+        ViewId, WitnessId, WorkPermit, WorkStage,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -318,6 +318,7 @@ pub(crate) fn replay_reference_trace(
 struct ReferenceTrace {
     omega: Omega,
     transactions: BTreeMap<TraceTxId, Transaction>,
+    resolved_classes: BTreeMap<TraceTxId, VerifyCycleClass>,
     capability_ranks: BTreeMap<CapabilityId, u16>,
     version_ranks: BTreeMap<EntryVersion, u16>,
     arrival_ranks: BTreeMap<Arrival, u16>,
@@ -333,17 +334,21 @@ impl ReferenceTrace {
             witness: WitnessId(scenario.transaction.id.0),
             proposal: ProposalId(scenario.transaction.id.0),
             inputs: BTreeSet::new(),
-            deps: BTreeSet::new(),
+            since_inputs: BTreeSet::new(),
+            cell_deps: BTreeSet::new(),
+            dep_groups: BTreeSet::new(),
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::new(),
-            bytes: 4,
-            cycles: 0,
-            fee: 10,
-            verify_class: model_verify_class(scenario.transaction.verify_class),
+            cost: ModelTransactionCost::new(4, 10, 0)
+                .expect("the fixed trace cost is representable"),
         };
         Ok(Self {
             omega: Omega::new(limits, ViewId(1), RulesId(1)),
             transactions: BTreeMap::from([(scenario.transaction.id, transaction)]),
+            resolved_classes: BTreeMap::from([(
+                scenario.transaction.id,
+                model_verify_class(scenario.transaction.verify_class),
+            )]),
             capability_ranks: BTreeMap::new(),
             version_ranks: BTreeMap::new(),
             arrival_ranks: BTreeMap::new(),
@@ -416,6 +421,13 @@ impl ReferenceTrace {
                     owner,
                     self.omega.authority.chain,
                     self.omega.authority.rules,
+                )
+                .expect("direct transaction has no dep-group expansion")
+                .with_verify_class(
+                    *self
+                        .resolved_classes
+                        .get(&transaction)
+                        .ok_or(ReferenceTraceError::UnknownTransaction(transaction))?,
                 );
                 let continuous = matches!(
                     capability.permit(),
@@ -517,13 +529,9 @@ impl ReferenceTrace {
                             phase: trace_retained_phase(phase),
                         }
                     }
-                    OwnerLocation::Accepted {
-                        provenance,
-                        evidence,
-                        ..
-                    } => TraceOwnerLocation::Accepted {
+                    OwnerLocation::Accepted { provenance, .. } => TraceOwnerLocation::Accepted {
                         provenance: trace_provenance(*provenance),
-                        status: trace_status(evidence.proposal_status),
+                        status: trace_status(self.omega.proposal_status(&owner.transaction)),
                     },
                     OwnerLocation::ReplacementHistory { .. } => {
                         TraceOwnerLocation::ReplacementHistory
@@ -849,7 +857,9 @@ fn trace_retained_phase(phase: &RetainedPhase) -> TraceRetainedPhase {
         RetainedPhase::Queued(WorkStage::Verify(evidence)) => {
             TraceRetainedPhase::QueuedVerify(trace_verify_class(evidence.verify_class))
         }
-        RetainedPhase::Computing(permit) => TraceRetainedPhase::Computing(trace_permit(*permit)),
+        RetainedPhase::Computing(active) => {
+            TraceRetainedPhase::Computing(trace_permit(active.permit))
+        }
         RetainedPhase::Waiting { .. } => TraceRetainedPhase::Waiting,
         RetainedPhase::Ready(_) => TraceRetainedPhase::Ready,
     }

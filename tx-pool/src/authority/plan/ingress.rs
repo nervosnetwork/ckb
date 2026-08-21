@@ -304,16 +304,17 @@ impl TxPoolAuthority {
                 .filter(|change| change.before.is_none())
                 .count(),
         )?;
-        let resource_changes = changes
-            .iter()
-            .map(|change| {
-                (
-                    change.key.clone(),
-                    change.before.as_ref().map(OwnedTx::charge_record),
-                    Some(change.after.charge_record()),
-                )
-            })
-            .collect();
+        let mut resource_changes = Vec::new();
+        resource_changes
+            .try_reserve_exact(changes.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        resource_changes.extend(changes.iter().map(|change| {
+            (
+                change.key.clone(),
+                change.before.as_ref().map(OwnedTx::charge_record),
+                Some(change.after.charge_record()),
+            )
+        }));
         let resources = self.resources.plan_batch(resource_changes)?;
         let scheduler = self.scheduler.plan_batch(
             changes
@@ -337,13 +338,14 @@ impl TxPoolAuthority {
                 .map(|change| (&change.key, change.before.as_ref(), Some(&change.after))),
         )?;
         let retired = super::retired_buffer(changes.len())?;
-        let updates = changes
-            .into_iter()
-            .map(|change| RetainedIngressUpdate {
-                key: change.key,
-                after: change.after,
-            })
-            .collect();
+        let mut updates = Vec::new();
+        updates
+            .try_reserve_exact(changes.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        updates.extend(changes.into_iter().map(|change| RetainedIngressUpdate {
+            key: change.key,
+            after: change.after,
+        }));
         let owners = DerivedOwnerDelta { indexes, sources };
         Ok(PreparedRetainedAdmissionBatch {
             plan: Some(PreparedApply {

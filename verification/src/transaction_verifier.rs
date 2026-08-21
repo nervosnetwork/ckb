@@ -1,4 +1,7 @@
-use crate::cache::Completed;
+use crate::cache::{
+    ScriptVerificationOutcome, ScriptVerificationProof, ScriptVerificationRules,
+    TxVerificationCacheKey,
+};
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
@@ -8,7 +11,7 @@ use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
 use ckb_script::ChunkCommand;
-use ckb_script::TransactionScriptsVerifier;
+use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
 };
@@ -117,6 +120,7 @@ where
     pub(crate) capacity: CapacityVerifier,
     pub(crate) script: ScriptVerifier<DL>,
     pub(crate) fee_calculator: FeeCalculator<DL>,
+    cache_key: TxVerificationCacheKey,
 }
 
 impl<DL> ContextualTransactionVerifier<DL>
@@ -138,6 +142,8 @@ where
         data_loader: DL,
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
+        let script_rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
+        let cache_key = TxVerificationCacheKey::from_transaction(&rtx.transaction, script_rules);
         ContextualTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
@@ -153,22 +159,67 @@ where
             ),
             capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
+            cache_key,
         }
     }
 
-    /// Perform context-dependent verification, return a `Result` to `CacheEntry`
-    ///
-    /// skip script verify will result in the return value cycle always is zero
-    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
+    fn verify_or_reuse_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<ScriptVerificationOutcome, Error> {
         self.time_relative.verify()?;
         self.capacity.verify()?;
-        let cycles = if skip_script_verify {
-            0
-        } else {
-            self.script.verify(max_cycles)?
+        if let Some(outcome) = self.reuse_script(max_cycles, cached)? {
+            return Ok(outcome);
+        }
+        let cycles = self.script.verify(max_cycles)?;
+        Ok(ScriptVerificationOutcome::Executed(
+            ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+        ))
+    }
+
+    fn reuse_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<Option<ScriptVerificationOutcome>, Error> {
+        let Some(proof) = cached.filter(|proof| proof.key() == self.cache_key) else {
+            return Ok(None);
         };
+        if proof.cycles() > max_cycles {
+            return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .unknown_source()
+                .into());
+        }
+        Ok(Some(ScriptVerificationOutcome::Reused(proof)))
+    }
+
+    /// Verify time, capacity and scripts, substituting only an exact sealed proof.
+    pub fn verify_scripts(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<ScriptVerificationOutcome, Error> {
+        self.verify_or_reuse_script(max_cycles, cached)
+    }
+
+    /// Verify a normal block transaction and freshly calculate its fee.
+    pub fn verify_block(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<(ScriptVerificationOutcome, Capacity), Error> {
+        let outcome = self.verify_or_reuse_script(max_cycles, cached)?;
         let fee = self.fee_calculator.transaction_fee()?;
-        Ok(Completed { cycles, fee })
+        Ok((outcome, fee))
+    }
+
+    /// Verify the non-script block rules for an assume-valid block.
+    pub fn verify_block_assume_valid(&self) -> Result<Capacity, Error> {
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        Ok(self.fee_calculator.transaction_fee()?)
     }
 
     /// Perform context-dependent verification with command
@@ -177,16 +228,21 @@ where
     pub async fn verify_with_pause(
         &self,
         max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
-    ) -> Result<Completed, Error> {
+    ) -> Result<ScriptVerificationOutcome, Error> {
         self.time_relative.verify()?;
         self.capacity.verify()?;
-        let fee = self.fee_calculator.transaction_fee()?;
+        if let Some(outcome) = self.reuse_script(max_cycles, cached)? {
+            return Ok(outcome);
+        }
         let cycles = self
             .script
             .resumable_verify_with_signal(max_cycles, command_rx)
             .await?;
-        Ok(Completed { cycles, fee })
+        Ok(ScriptVerificationOutcome::Executed(
+            ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+        ))
     }
 }
 

@@ -321,6 +321,35 @@ impl TransactionView {
         }
     }
 
+    /// Fallibly move this view into allocations that contain only the
+    /// transaction and its cached hashes.
+    ///
+    /// This is the allocation-aware counterpart of [`Self::into_compact`].
+    /// Boundaries which accept hostile or externally owned views can use it
+    /// before transferring residency, so allocation pressure remains an
+    /// ordinary typed outcome instead of an infallible process allocation.
+    pub fn try_into_compact(self) -> Result<Self, std::collections::TryReserveError> {
+        let data_len = self.data.as_slice().len();
+        let hash_len = self.hash.as_slice().len();
+        let witness_hash_len = self.witness_hash.as_slice().len();
+        let total_len = data_len
+            .saturating_add(hash_len)
+            .saturating_add(witness_hash_len);
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(total_len)?;
+        owned.extend_from_slice(self.data.as_slice());
+        let data_end = owned.len();
+        owned.extend_from_slice(self.hash.as_slice());
+        let hash_end = owned.len();
+        owned.extend_from_slice(self.witness_hash.as_slice());
+        let owned = Bytes::from(owned);
+        Ok(Self {
+            data: packed::Transaction::new_unchecked(owned.slice(..data_end)),
+            hash: packed::Byte32::new_unchecked(owned.slice(data_end..hash_end)),
+            witness_hash: packed::Byte32::new_unchecked(owned.slice(hash_end..)),
+        })
+    }
+
     /// Gets `raw.version`.
     pub fn version(&self) -> Version {
         self.data().raw().version().into()
@@ -540,6 +569,24 @@ impl UncleBlockView {
             data: packed::UncleBlock::new_unchecked(Bytes::copy_from_slice(self.data.as_slice())),
             hash: packed::Byte32::new_unchecked(Bytes::copy_from_slice(self.hash.as_slice())),
         }
+    }
+
+    /// Fallibly move this view into one allocation containing only the uncle
+    /// and its cached hash. This is the allocation-aware residency-boundary
+    /// counterpart of [`Self::into_compact`].
+    pub fn try_into_compact(self) -> Result<Self, std::collections::TryReserveError> {
+        let data_len = self.data.as_slice().len();
+        let total_len = data_len.saturating_add(self.hash.as_slice().len());
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(total_len)?;
+        owned.extend_from_slice(self.data.as_slice());
+        let data_end = owned.len();
+        owned.extend_from_slice(self.hash.as_slice());
+        let owned = Bytes::from(owned);
+        Ok(Self {
+            data: packed::UncleBlock::new_unchecked(owned.slice(..data_end)),
+            hash: packed::Byte32::new_unchecked(owned.slice(data_end..)),
+        })
     }
 
     define_inner_getter!(uncle, unpacked, version, Version);

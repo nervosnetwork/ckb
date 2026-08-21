@@ -4,6 +4,7 @@
 //! never stored in `Omega`, and this module owns no transaction lifecycle
 //! state. Failure to construct a proof is an ordinary coupled disposition.
 
+use super::dependency_progress::ModelDependencyCut;
 use super::kernel::{Completion, KernelCommand, KernelDisposition, KernelStep, ReadyCapture};
 use super::permit::{
     FairPermitScheduler, ImmediatePermitDisposition, PermitClass, PermitGrant, PermitRequest,
@@ -14,8 +15,9 @@ use super::scheduler_quotient::{SchedulerCursorPlan, SchedulerQuotient};
 use super::state::{
     ApplyStamp, Arrival, CapabilityId, CellId, EffectClass, EffectRecord, EntryVersion,
     EvidenceContext, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
-    ModelInvariantError, Omega, Owner, OwnerLocation, ProposalId, ResolvedEvidence, ResourceVector,
-    RetainedOwner, RetainedPhase, Source, Transaction, TxId, WorkCapability,
+    ModelInvariantError, Omega, Owner, OwnerLocation, ProposalId, ResolvedEvidence,
+    ResolvedEvidenceAtCut, ResourceVector, RetainedOwner, RetainedPhase, Source, Transaction, TxId,
+    WorkCapability,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -157,8 +159,8 @@ impl RetainedPermitGrant {
                 tokens,
             });
         }
-        if let Some(request) = tokens.windows(2).find_map(|pair| {
-            (pair[0].identity() == pair[1].identity()).then(|| pair[0].request().id)
+        if let Some(request) = tokens.array_windows::<2>().find_map(|[left, right]| {
+            (left.identity() == right.identity()).then(|| left.request().id)
         }) {
             return Err(RetainedPermitGrantError {
                 kind: RetainedPermitGrantErrorKind::DuplicateIdentity { request },
@@ -627,11 +629,11 @@ impl DynamicFootprint {
             version: owner.version,
             context: evidence.context,
             source_priority: source.priority(),
-            fee: owner.transaction.fee,
+            fee: owner.transaction.cost.fee(),
             arrival: owner.arrival,
             consumes: owner.transaction.inputs.clone(),
             produces: owner.transaction.outputs.clone(),
-            reads: owner.transaction.deps.clone(),
+            reads: evidence.conditional_reads(),
             header_reads: owner.transaction.header_deps.clone(),
             pool_inputs,
             pool_reads,
@@ -718,7 +720,7 @@ impl AcceptedIndex {
     fn build(omega: &Omega, cost: &mut CompositionCost) -> Result<Self, CouplingReason> {
         let mut index = Self::default();
         for (id, owner) in &omega.authority.owners {
-            let OwnerLocation::Accepted { .. } = owner.location else {
+            let OwnerLocation::Accepted { ref evidence, .. } = owner.location else {
                 continue;
             };
             cost.accepted_owners_scanned = cost
@@ -730,7 +732,7 @@ impl AcceptedIndex {
                 .inputs
                 .len()
                 .checked_add(owner.transaction.outputs.len())
-                .and_then(|count| count.checked_add(owner.transaction.deps.len()))
+                .and_then(|count| count.checked_add(evidence.dep_origins.len()))
                 .ok_or(CouplingReason::Arithmetic)?;
             cost.accepted_edges_scanned =
                 CompositionCost::checked_add_count(cost.accepted_edges_scanned, edges)?;
@@ -740,7 +742,7 @@ impl AcceptedIndex {
             for cell in &owner.transaction.outputs {
                 index.producers.insert(*cell, *id);
             }
-            for cell in &owner.transaction.deps {
+            for cell in evidence.dep_origins.keys() {
                 index.readers.entry(*cell).or_default().insert(*id);
             }
         }
@@ -1224,6 +1226,12 @@ fn compact_live_stamps(
         )
         .chain(omega.authority.peer_bans.values().map(|ban| ban.order))
         .chain(omega.linear.effect_claim.map(|claim| claim.stamp))
+        .chain(
+            omega
+                .dependency_cuts()
+                .into_iter()
+                .map(|cut| ApplyStamp(cut.0)),
+        )
         .collect::<BTreeSet<_>>();
     live.remove(&ApplyStamp(0));
     let mut compact_to_original = BTreeMap::new();
@@ -1257,6 +1265,18 @@ fn compact_live_stamps(
         claim.stamp = *original_to_compact
             .get(&claim.stamp)
             .ok_or(BatchPlanError::StampNormalization)?;
+    }
+    let dependency_mapping = original_to_compact
+        .iter()
+        .map(|(original, compact)| {
+            (
+                ModelDependencyCut(original.0),
+                ModelDependencyCut(compact.0),
+            )
+        })
+        .collect();
+    if !omega.remap_dependency_cuts(&dependency_mapping) {
+        return Err(BatchPlanError::StampNormalization);
     }
     omega.authority.last_apply = ApplyStamp(
         u16::try_from(compact_to_original.len()).map_err(|_| BatchPlanError::StampNormalization)?,
@@ -1293,6 +1313,18 @@ fn restore_collapsed_stamps(
             claim.stamp = *compact_to_original
                 .get(&claim.stamp)
                 .ok_or(BatchPlanError::StampNormalization)?;
+        }
+        let dependency_mapping = compact_to_original
+            .iter()
+            .map(|(compact, original)| {
+                (
+                    ModelDependencyCut(compact.0),
+                    ModelDependencyCut(original.0),
+                )
+            })
+            .collect();
+        if !planned.remap_dependency_cuts(&dependency_mapping) {
+            return Err(BatchPlanError::StampNormalization);
         }
         planned.authority.last_apply = original.authority.last_apply;
         return Ok((planned, None));
@@ -1359,6 +1391,25 @@ fn restore_collapsed_stamps(
         } else {
             return Err(BatchPlanError::UnsupportedCommand);
         }
+    }
+    let dependency_mapping = planned
+        .dependency_cuts()
+        .into_iter()
+        .filter(|cut| cut.0 != 0)
+        .map(|cut| {
+            let compact = ApplyStamp(cut.0);
+            let restored = if compact <= compact_cut {
+                *compact_to_original
+                    .get(&compact)
+                    .ok_or(BatchPlanError::StampNormalization)?
+            } else {
+                stamp
+            };
+            Ok((cut, ModelDependencyCut(restored.0)))
+        })
+        .collect::<Result<BTreeMap<_, _>, BatchPlanError>>()?;
+    if !planned.remap_dependency_cuts(&dependency_mapping) {
+        return Err(BatchPlanError::StampNormalization);
     }
     planned.authority.last_apply = stamp;
     planned
@@ -1448,9 +1499,7 @@ pub(super) fn plan_ready_batch(
 
     let mut batch_after = omega.clone();
     let batch_step = batch_after.kernel_step(KernelCommand::FinalizeCaptured {
-        capture: ReadyCapture {
-            keys: capture.keys.clone(),
-        },
+        capture: ReadyCapture { keys: capture.keys },
         wall_time,
     });
     let KernelStep::AuthorityCommit { stamp, .. } = batch_step else {
@@ -1733,19 +1782,22 @@ pub(super) fn transaction_footprint(
     version: EntryVersion,
     source: Source,
 ) -> Result<DynamicFootprint, CouplingReason> {
+    let limits = super::state::ModelLimits::small()
+        .validate()
+        .map_err(|_| CouplingReason::Arithmetic)?;
+    let mut omega = Omega::new(limits, evidence.context.chain.tip, evidence.context.rules);
+    omega.authority.chain = evidence.context.chain;
     let owner = Owner {
         version,
         arrival: super::state::Arrival(1),
         transaction: transaction.clone(),
         location: OwnerLocation::Retained(RetainedOwner {
             source,
-            phase: RetainedPhase::Ready(evidence.clone()),
+            phase: RetainedPhase::Ready(ResolvedEvidenceAtCut::new(
+                evidence.clone(),
+                ModelDependencyCut(omega.authority.last_apply.0),
+            )),
         }),
     };
-    let limits = super::state::ModelLimits::small()
-        .validate()
-        .map_err(|_| CouplingReason::Arithmetic)?;
-    let mut omega = Omega::new(limits, evidence.context.chain.tip, evidence.context.rules);
-    omega.authority.chain = evidence.context.chain;
     DynamicFootprint::from_ready(&owner, &omega)
 }

@@ -15,6 +15,8 @@ import resource
 import shlex
 import statistics
 import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,11 +24,24 @@ RESULT = re.compile(
     r"^BENCH_RESULT scenario=(?P<scenario>\S+) target=(?P<target>\d+) "
     r"warm=(?P<warm>\d+) workers=(?P<workers>\d+) peers=(?P<peers>\d+) "
     r"elapsed_ns=(?P<elapsed_ns>\d+) throughput_tps=(?P<throughput>[0-9.]+) "
-    r"accepted=(?P<accepted>\d+)$",
+    r"accepted=(?P<accepted>\d+) p99_latency_ns=(?P<p99_latency_ns>\d+) "
+    r"target_cpu_ns=(?P<target_cpu_ns>\d+) "
+    r"allocation_calls=(?P<allocation_calls>\d+) "
+    r"allocated_bytes=(?P<allocated_bytes>\d+) "
+    r"reorg_latency_ns=(?P<reorg_latency_ns>\d+) "
+    r"reorg_overlap_callbacks=(?P<reorg_overlap_callbacks>\d+) "
+    r"shutdown_latency_ns=(?P<shutdown_latency_ns>\d+)$",
     re.MULTILINE,
 )
 WINDOW = re.compile(
     r"^PROFILE_WINDOW start_unix_ns=(?P<start>\d+) end_unix_ns=(?P<end>\d+)$",
+    re.MULTILINE,
+)
+RESOURCE_RESULT = re.compile(
+    r"^RESOURCE_RESULT user_cpu_ns=(?P<user_cpu_ns>\d+) "
+    r"system_cpu_ns=(?P<system_cpu_ns>\d+) max_rss_bytes=(?P<max_rss_bytes>\d+) "
+    r"voluntary_context_switches=(?P<voluntary_context_switches>\d+) "
+    r"involuntary_context_switches=(?P<involuntary_context_switches>\d+)$",
     re.MULTILINE,
 )
 MIN_CLOCK_TOLERANCE_NS = 1_000_000
@@ -53,6 +68,33 @@ def command_output(command: list[str], root: Path | None = None) -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         return f"unavailable: {type(error).__name__}"
+
+
+def measure_child() -> int:
+    """Isolate per-attempt descendant CPU/RSS accounting in one short process."""
+
+    command = sys.argv[2:]
+    if not command:
+        raise RuntimeError("resource measurement wrapper has no child command")
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    completed = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    sys.stdout.buffer.write(completed.stdout)
+    rss_scale = 1 if sys.platform == "darwin" else 1024
+    print(
+        "RESOURCE_RESULT "
+        f"user_cpu_ns={round((after.ru_utime - before.ru_utime) * 1e9)} "
+        f"system_cpu_ns={round((after.ru_stime - before.ru_stime) * 1e9)} "
+        f"max_rss_bytes={round(after.ru_maxrss * rss_scale)} "
+        f"voluntary_context_switches={after.ru_nvcsw - before.ru_nvcsw} "
+        f"involuntary_context_switches={after.ru_nivcsw - before.ru_nivcsw}"
+    )
+    return completed.returncode
 
 
 def git_record(root: Path) -> dict[str, str]:
@@ -349,7 +391,7 @@ def run_attempt(
     path = Path(str(binary["path"]))
     if sha256(path) != binary["sha256"]:
         raise RuntimeError(f"{side} binary changed before {phase}")
-    command = [
+    benchmark_command = [
         str(path),
         str(scenario["name"]),
         str(scenario["target"]),
@@ -357,7 +399,16 @@ def run_attempt(
         str(scenario["workers"]),
         str(scenario["peers"]),
     ]
-    usage_before = resource.getrusage(resource.RUSAGE_CHILDREN)
+    trace_directory = tempfile.TemporaryDirectory(prefix="ckb-txpool-span-")
+    span_path = Path(trace_directory.name) / "spans.json"
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "__measure_child__",
+        *benchmark_command,
+    ]
+    child_environment = os.environ.copy()
+    child_environment["TX_POOL_PROFILE_TRACE_PATH"] = str(span_path)
     started = time.time_ns()
     monotonic_started = time.monotonic_ns()
     try:
@@ -368,7 +419,7 @@ def run_attempt(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=timeout,
-            env=os.environ.copy(),
+            env=child_environment,
         )
     except subprocess.TimeoutExpired as error:
         ended = time.time_ns()
@@ -396,8 +447,8 @@ def run_attempt(
         )
     monotonic_ended = time.monotonic_ns()
     ended = time.time_ns()
-    usage_after = resource.getrusage(resource.RUSAGE_CHILDREN)
     if completed.returncode != 0:
+        trace_directory.cleanup()
         return failure_attempt(
             side=side,
             phase=phase,
@@ -410,7 +461,18 @@ def run_attempt(
         )
     results = list(RESULT.finditer(completed.stdout))
     windows = list(WINDOW.finditer(completed.stdout))
-    if len(results) != 1 or len(windows) != 1:
+    resources = list(RESOURCE_RESULT.finditer(completed.stdout))
+    try:
+        spans = json.loads(span_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        spans = None
+    trace_directory.cleanup()
+    if (
+        len(results) != 1
+        or len(windows) != 1
+        or len(resources) != 1
+        or not isinstance(spans, dict)
+    ):
         return failure_attempt(
             side=side,
             phase=phase,
@@ -418,7 +480,11 @@ def run_attempt(
             started=started,
             ended=ended,
             category="invalid_evidence",
-            detail=f"observed {len(results)} results and {len(windows)} windows",
+            detail=(
+                f"observed {len(results)} results, {len(windows)} windows and "
+                f"{len(resources)} resource records and "
+                f"{'one' if isinstance(spans, dict) else 'no'} span record"
+            ),
             output=completed.stdout,
         )
     parsed = results[0].groupdict()
@@ -431,6 +497,32 @@ def run_attempt(
     }
     expected_accepted = int(scenario["target"]) + int(scenario["warm"])
     accepted = int(parsed["accepted"])
+    p99_latency_ns = int(parsed["p99_latency_ns"])
+    target_cpu_ns = int(parsed["target_cpu_ns"])
+    allocation_calls = int(parsed["allocation_calls"])
+    allocated_bytes = int(parsed["allocated_bytes"])
+    reorg_latency_ns = int(parsed["reorg_latency_ns"])
+    reorg_overlap_callbacks = int(parsed["reorg_overlap_callbacks"])
+    shutdown_latency_ns = int(parsed["shutdown_latency_ns"])
+    resource_record = resources[0].groupdict()
+    peak_rss_bytes = int(resource_record["max_rss_bytes"])
+    span_rows = spans.get("spans") if isinstance(spans, dict) else None
+    authority_span_elapsed_nanos = {
+        row.get("name"): row.get("elapsed_nanos")
+        for row in span_rows or []
+        if isinstance(row, dict)
+    }
+    authority_span_start_counts = {
+        row.get("name"): row.get("start_count")
+        for row in span_rows or []
+        if isinstance(row, dict)
+    }
+    required_lock_spans = {
+        "tx_pool.authority.read_wait",
+        "tx_pool.authority.read_hold",
+        "tx_pool.authority.write_wait",
+        "tx_pool.authority.write_hold",
+    }
     window = windows[0].groupdict()
     elapsed_ns = int(parsed["elapsed_ns"])
     wall_window_ns = int(window["end"]) - int(window["start"])
@@ -450,6 +542,34 @@ def run_attempt(
         evidence_error = f"accepted {accepted}, expected {expected_accepted}"
     elif wall_window_ns <= 0:
         evidence_error = "target wall-clock window is not monotonic"
+    elif p99_latency_ns <= 0:
+        evidence_error = "target p99 latency is not positive"
+    elif target_cpu_ns <= 0:
+        evidence_error = "target-window process CPU time is not positive"
+    elif allocation_calls <= 0 or allocated_bytes <= 0:
+        evidence_error = "target allocation observation is not positive"
+    elif peak_rss_bytes <= 0:
+        evidence_error = "process peak RSS is not positive"
+    elif reorg_latency_ns <= 0 or shutdown_latency_ns <= 0:
+        evidence_error = "reorg/shutdown latency observation is not positive"
+    elif (observed["name"] == "reorg_in_flight") != (reorg_overlap_callbacks > 0):
+        evidence_error = "reorg/callback overlap observation differs from the scenario"
+    elif spans.get("schema_version") != 2 or spans.get(
+        "measurement"
+    ) != "span_lifetimes_started_during_target_work":
+        evidence_error = "authority span observation uses an unsupported schema"
+    elif not required_lock_spans.issubset(authority_span_elapsed_nanos):
+        evidence_error = "authority lock span observation is incomplete"
+    elif any(
+        not isinstance(authority_span_start_counts.get(name), int)
+        or isinstance(authority_span_start_counts.get(name), bool)
+        or authority_span_start_counts[name] <= 0
+        or not isinstance(authority_span_elapsed_nanos.get(name), int)
+        or isinstance(authority_span_elapsed_nanos.get(name), bool)
+        or authority_span_elapsed_nanos[name] <= 0
+        for name in required_lock_spans
+    ):
+        evidence_error = "authority lock span observation is empty or invalid"
     elif clock_delta_ns < -clock_tolerance_ns:
         evidence_error = (
             f"target wall-clock window is shorter by {-clock_delta_ns}ns, exceeding "
@@ -466,12 +586,12 @@ def run_attempt(
             detail=evidence_error,
             output=completed.stdout,
         )
-    child_user_cpu_ns = round((usage_after.ru_utime - usage_before.ru_utime) * 1e9)
-    child_system_cpu_ns = round((usage_after.ru_stime - usage_before.ru_stime) * 1e9)
+    child_user_cpu_ns = int(resource_record["user_cpu_ns"])
+    child_system_cpu_ns = int(resource_record["system_cpu_ns"])
     child_cpu_ns = child_user_cpu_ns + child_system_cpu_ns
     process_wall_ns = monotonic_ended - monotonic_started
-    voluntary_context_switches = usage_after.ru_nvcsw - usage_before.ru_nvcsw
-    involuntary_context_switches = usage_after.ru_nivcsw - usage_before.ru_nivcsw
+    voluntary_context_switches = int(resource_record["voluntary_context_switches"])
+    involuntary_context_switches = int(resource_record["involuntary_context_switches"])
     return {
         "outcome": "success",
         "side": side,
@@ -484,6 +604,8 @@ def run_attempt(
         "child_system_cpu_ns": child_system_cpu_ns,
         "child_cpu_ns": child_cpu_ns,
         "child_cpu_parallelism": child_cpu_ns / process_wall_ns,
+        "target_cpu_ns": target_cpu_ns,
+        "cpu_time_per_transaction_ns": target_cpu_ns / int(scenario["target"]),
         "child_voluntary_context_switches": voluntary_context_switches,
         "child_involuntary_context_switches": involuntary_context_switches,
         "child_voluntary_context_switches_per_second": (
@@ -501,6 +623,17 @@ def run_attempt(
         "profile_window_status": profile_window_status,
         "throughput_tps": float(parsed["throughput"]),
         "accepted": accepted,
+        "p99_latency_ns": p99_latency_ns,
+        "allocation_calls": allocation_calls,
+        "allocated_bytes": allocated_bytes,
+        "peak_rss_bytes": peak_rss_bytes,
+        "reorg_latency_ns": reorg_latency_ns,
+        "reorg_overlap_callbacks": reorg_overlap_callbacks,
+        "shutdown_latency_ns": shutdown_latency_ns,
+        "authority_span_elapsed_nanos": authority_span_elapsed_nanos,
+        "authority_span_start_counts": authority_span_start_counts,
+        "allocation_calls_per_transaction": allocation_calls / int(scenario["target"]),
+        "allocated_bytes_per_transaction": allocated_bytes / int(scenario["target"]),
         "output": completed.stdout,
     }
 
@@ -517,6 +650,7 @@ def aggregate_side(
         int(attempt["child_system_cpu_ns"]) for attempt in attempts
     )
     child_cpu_ns = child_user_cpu_ns + child_system_cpu_ns
+    target_cpu_ns = sum(int(attempt["target_cpu_ns"]) for attempt in attempts)
     voluntary_context_switches = sum(
         int(attempt["child_voluntary_context_switches"]) for attempt in attempts
     )
@@ -524,6 +658,21 @@ def aggregate_side(
         int(attempt["child_involuntary_context_switches"]) for attempt in attempts
     )
     target = target_per_attempt * len(attempts)
+    p99_latency_ns = max(int(attempt["p99_latency_ns"]) for attempt in attempts)
+    allocation_calls = sum(int(attempt["allocation_calls"]) for attempt in attempts)
+    allocated_bytes = sum(int(attempt["allocated_bytes"]) for attempt in attempts)
+    peak_rss_bytes = max(int(attempt["peak_rss_bytes"]) for attempt in attempts)
+    reorg_latency_ns = max(int(attempt["reorg_latency_ns"]) for attempt in attempts)
+    reorg_overlap_callbacks = max(
+        int(attempt["reorg_overlap_callbacks"]) for attempt in attempts
+    )
+    shutdown_latency_ns = max(int(attempt["shutdown_latency_ns"]) for attempt in attempts)
+    authority_span_elapsed_nanos: dict[str, int] = {}
+    for attempt in attempts:
+        for name, elapsed in attempt["authority_span_elapsed_nanos"].items():
+            authority_span_elapsed_nanos[name] = (
+                authority_span_elapsed_nanos.get(name, 0) + int(elapsed)
+            )
     return {
         "attempts": len(attempts),
         "target": target,
@@ -534,6 +683,8 @@ def aggregate_side(
         "child_system_cpu_ns": child_system_cpu_ns,
         "child_cpu_ns": child_cpu_ns,
         "child_cpu_parallelism": child_cpu_ns / process_wall_ns,
+        "target_cpu_ns": target_cpu_ns,
+        "cpu_time_per_transaction_ns": target_cpu_ns / target,
         "child_voluntary_context_switches": voluntary_context_switches,
         "child_involuntary_context_switches": involuntary_context_switches,
         "child_voluntary_context_switches_per_second": (
@@ -542,6 +693,16 @@ def aggregate_side(
         "child_involuntary_context_switches_per_second": (
             involuntary_context_switches * 1e9 / process_wall_ns
         ),
+        "p99_latency_ns": p99_latency_ns,
+        "allocation_calls": allocation_calls,
+        "allocated_bytes": allocated_bytes,
+        "peak_rss_bytes": peak_rss_bytes,
+        "reorg_latency_ns": reorg_latency_ns,
+        "reorg_overlap_callbacks": reorg_overlap_callbacks,
+        "shutdown_latency_ns": shutdown_latency_ns,
+        "authority_span_elapsed_nanos": dict(sorted(authority_span_elapsed_nanos.items())),
+        "allocation_calls_per_transaction": allocation_calls / target,
+        "allocated_bytes_per_transaction": allocated_bytes / target,
     }
 
 
@@ -674,6 +835,12 @@ def main() -> None:
 
         paired_ratios: list[float] = []
         paired_cpu_ratios: list[float] = []
+        paired_p99_ratios: list[float] = []
+        paired_allocation_call_ratios: list[float] = []
+        paired_allocation_byte_ratios: list[float] = []
+        paired_peak_rss_ratios: list[float] = []
+        paired_reorg_latency_ratios: list[float] = []
+        paired_shutdown_latency_ratios: list[float] = []
         baseline_rates: list[float] = []
         candidate_rates: list[float] = []
         baseline_cpu_parallelism: list[float] = []
@@ -738,11 +905,35 @@ def main() -> None:
             baseline_rates.append(baseline_rate)
             candidate_rates.append(candidate_rate)
             throughput_ratio = candidate_rate / baseline_rate
-            child_cpu_ratio = float(candidate_sample["child_cpu_ns"]) / float(
-                baseline_sample["child_cpu_ns"]
+            target_cpu_ratio = float(candidate_sample["target_cpu_ns"]) / float(
+                baseline_sample["target_cpu_ns"]
             )
             paired_ratios.append(throughput_ratio)
-            paired_cpu_ratios.append(child_cpu_ratio)
+            paired_cpu_ratios.append(target_cpu_ratio)
+            paired_p99_ratios.append(
+                float(candidate_sample["p99_latency_ns"])
+                / float(baseline_sample["p99_latency_ns"])
+            )
+            paired_allocation_call_ratios.append(
+                float(candidate_sample["allocation_calls_per_transaction"])
+                / float(baseline_sample["allocation_calls_per_transaction"])
+            )
+            paired_allocation_byte_ratios.append(
+                float(candidate_sample["allocated_bytes_per_transaction"])
+                / float(baseline_sample["allocated_bytes_per_transaction"])
+            )
+            paired_peak_rss_ratios.append(
+                float(candidate_sample["peak_rss_bytes"])
+                / float(baseline_sample["peak_rss_bytes"])
+            )
+            paired_reorg_latency_ratios.append(
+                float(candidate_sample["reorg_latency_ns"])
+                / float(baseline_sample["reorg_latency_ns"])
+            )
+            paired_shutdown_latency_ratios.append(
+                float(candidate_sample["shutdown_latency_ns"])
+                / float(baseline_sample["shutdown_latency_ns"])
+            )
             baseline_cpu_parallelism.append(
                 float(baseline_sample["child_cpu_parallelism"])
             )
@@ -770,7 +961,7 @@ def main() -> None:
                     "baseline": baseline_sample,
                     "candidate": candidate_sample,
                     "candidate_over_baseline": throughput_ratio,
-                    "candidate_over_baseline_child_cpu": child_cpu_ratio,
+                    "candidate_over_baseline_target_cpu": target_cpu_ratio,
                 }
             )
         if measurement_failed:
@@ -789,11 +980,32 @@ def main() -> None:
             "median_candidate_over_baseline": median_ratio,
             "median_delta_percent": (median_ratio - 1.0) * 100.0,
             "paired_ratio_relative_mad_percent": paired_mad,
-            "median_candidate_over_baseline_child_cpu": statistics.median(
+            "median_candidate_over_baseline_target_cpu": statistics.median(
                 paired_cpu_ratios
             ),
-            "paired_child_cpu_relative_mad_percent": relative_mad(
+            "paired_target_cpu_relative_mad_percent": relative_mad(
                 paired_cpu_ratios
+            ),
+            "median_candidate_over_baseline_p99_latency": statistics.median(
+                paired_p99_ratios
+            ),
+            "paired_p99_latency_relative_mad_percent": relative_mad(
+                paired_p99_ratios
+            ),
+            "median_candidate_over_baseline_allocation_calls": statistics.median(
+                paired_allocation_call_ratios
+            ),
+            "median_candidate_over_baseline_allocated_bytes": statistics.median(
+                paired_allocation_byte_ratios
+            ),
+            "median_candidate_over_baseline_peak_rss": statistics.median(
+                paired_peak_rss_ratios
+            ),
+            "median_candidate_over_baseline_reorg_latency": statistics.median(
+                paired_reorg_latency_ratios
+            ),
+            "median_candidate_over_baseline_shutdown_latency": statistics.median(
+                paired_shutdown_latency_ratios
             ),
             "baseline_median_child_cpu_parallelism": statistics.median(
                 baseline_cpu_parallelism
@@ -811,6 +1023,84 @@ def main() -> None:
             "candidate_throughput_spread_percent": spread(candidate_rates),
             "baseline_median_tps": statistics.median(baseline_rates),
             "candidate_median_tps": statistics.median(candidate_rates),
+            "baseline_median_p99_latency_ns": statistics.median(
+                float(sample["baseline"]["p99_latency_ns"])
+                for sample in paired_samples
+            ),
+            "candidate_median_p99_latency_ns": statistics.median(
+                float(sample["candidate"]["p99_latency_ns"])
+                for sample in paired_samples
+            ),
+            "baseline_median_cpu_time_per_transaction_ns": statistics.median(
+                float(sample["baseline"]["cpu_time_per_transaction_ns"])
+                for sample in paired_samples
+            ),
+            "candidate_median_cpu_time_per_transaction_ns": statistics.median(
+                float(sample["candidate"]["cpu_time_per_transaction_ns"])
+                for sample in paired_samples
+            ),
+            "baseline_median_peak_rss_bytes": statistics.median(
+                float(sample["baseline"]["peak_rss_bytes"])
+                for sample in paired_samples
+            ),
+            "candidate_median_peak_rss_bytes": statistics.median(
+                float(sample["candidate"]["peak_rss_bytes"])
+                for sample in paired_samples
+            ),
+            "baseline_median_allocation_calls_per_transaction": statistics.median(
+                float(sample["baseline"]["allocation_calls_per_transaction"])
+                for sample in paired_samples
+            ),
+            "candidate_median_allocation_calls_per_transaction": statistics.median(
+                float(sample["candidate"]["allocation_calls_per_transaction"])
+                for sample in paired_samples
+            ),
+            "baseline_median_allocated_bytes_per_transaction": statistics.median(
+                float(sample["baseline"]["allocated_bytes_per_transaction"])
+                for sample in paired_samples
+            ),
+            "candidate_median_allocated_bytes_per_transaction": statistics.median(
+                float(sample["candidate"]["allocated_bytes_per_transaction"])
+                for sample in paired_samples
+            ),
+            "baseline_median_reorg_latency_ns": statistics.median(
+                float(sample["baseline"]["reorg_latency_ns"])
+                for sample in paired_samples
+            ),
+            "candidate_median_reorg_latency_ns": statistics.median(
+                float(sample["candidate"]["reorg_latency_ns"])
+                for sample in paired_samples
+            ),
+            "baseline_median_shutdown_latency_ns": statistics.median(
+                float(sample["baseline"]["shutdown_latency_ns"])
+                for sample in paired_samples
+            ),
+            "candidate_median_shutdown_latency_ns": statistics.median(
+                float(sample["candidate"]["shutdown_latency_ns"])
+                for sample in paired_samples
+            ),
+            "baseline_median_authority_span_elapsed_nanos": {
+                name: statistics.median(
+                    float(
+                        sample["baseline"]["authority_span_elapsed_nanos"][name]
+                    )
+                    for sample in paired_samples
+                )
+                for name in sorted(
+                    paired_samples[0]["baseline"]["authority_span_elapsed_nanos"]
+                )
+            },
+            "candidate_median_authority_span_elapsed_nanos": {
+                name: statistics.median(
+                    float(
+                        sample["candidate"]["authority_span_elapsed_nanos"][name]
+                    )
+                    for sample in paired_samples
+                )
+                for name in sorted(
+                    paired_samples[0]["candidate"]["authority_span_elapsed_nanos"]
+                )
+            },
         }
         record["summary"] = summaries
         write_checkpoint(args.output, record)
@@ -856,4 +1146,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "__measure_child__":
+        raise SystemExit(measure_child())
     main()

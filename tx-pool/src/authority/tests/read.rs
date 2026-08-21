@@ -75,7 +75,7 @@ fn uak_query_never_splices_two_authority_cuts() {
             .expect("proposal index finds the owner");
         assert_eq!(by_proposal.identity().raw, hash);
         let compact = view
-            .compact_transactions(std::slice::from_ref(&proposal))
+            .compact_transactions(std::slice::from_ref(&proposal.0))
             .expect("compact lookup is one coherent cut");
         let first = compact.first().expect("the requested transaction exists");
         assert_eq!(compact.len(), 1);
@@ -156,7 +156,7 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
     assert_eq!(summary.replacement_history, 0);
     assert_eq!(summary.ready, 0);
     let compact = view
-        .compact_transactions(std::slice::from_ref(&proposal))
+        .compact_transactions(std::slice::from_ref(&proposal.0))
         .expect("compact lookup includes every owner phase");
     let first = compact.first().expect("the requested transaction exists");
     assert_eq!(compact.len(), 1);

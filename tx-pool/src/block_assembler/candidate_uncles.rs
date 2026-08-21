@@ -1,4 +1,5 @@
 use ckb_types::core::{BlockNumber, EpochExt, UncleBlockView};
+use ckb_types::prelude::Entity;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 
 use ckb_snapshot::Snapshot;
@@ -26,7 +27,49 @@ impl CandidateUncleVersion {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CandidateUncleMutationError {
+    Allocation,
+    Arithmetic,
+    TooLarge { actual: usize, maximum: usize },
     SourceVersionExhausted,
+}
+
+/// One candidate whose serialized view has been copied into an exact backing
+/// allocation before a bounded service channel may retain it.
+#[derive(Debug)]
+pub(crate) struct BoundedCandidateUncle(UncleBlockView);
+
+impl BoundedCandidateUncle {
+    pub(crate) fn try_new(
+        uncle: UncleBlockView,
+        maximum: usize,
+    ) -> Result<Self, CandidateUncleMutationError> {
+        let actual = uncle
+            .data()
+            .total_size()
+            .checked_add(uncle.hash().as_slice().len())
+            .ok_or(CandidateUncleMutationError::Arithmetic)?;
+        if actual > maximum {
+            return Err(CandidateUncleMutationError::TooLarge { actual, maximum });
+        }
+        uncle
+            .try_into_compact()
+            .map(Self)
+            .map_err(|_| CandidateUncleMutationError::Allocation)
+    }
+
+    fn as_uncle(&self) -> &UncleBlockView {
+        &self.0
+    }
+
+    pub(crate) fn into_uncle(self) -> UncleBlockView {
+        self.0
+    }
+}
+
+struct CandidateInsertion {
+    number: BlockNumber,
+    evict: Option<BlockNumber>,
+    next_version: CandidateUncleVersion,
 }
 
 /// Opaque read token for the exact candidate source observed by one build.
@@ -60,6 +103,14 @@ pub(crate) struct PreparedUncles {
 /// read receipt. Applying it cannot remove a candidate selected by that read.
 pub(crate) struct CandidateUnclePrune {
     stale: Vec<UncleBlockView>,
+}
+
+/// Fallibly captured, read-only candidate population.  The live map remains
+/// the sole mutation authority; template preparation needs only this bounded
+/// value sequence and its exact monotonic source receipt.
+pub(crate) struct CandidateUncleSnapshot {
+    candidates: Vec<UncleBlockView>,
+    source: CandidateUncleSourceReceipt,
 }
 
 impl PreparedUncles {
@@ -97,8 +148,8 @@ impl CandidateUncles {
     /// If the map did have this value present, false is returned.
     pub fn insert(&mut self, uncle: UncleBlockView) -> bool {
         // Compatibility adapter for the historical public container API. The
-        // production topology consumes `try_insert` and therefore preserves
-        // the typed counter-exhaustion outcome.
+        // production channel consumes `try_insert_bounded`; ordered-chain
+        // recovery uses the fallible raw adapter before any retained await.
         self.try_insert(uncle).is_ok_and(|inserted| inserted)
     }
 
@@ -106,6 +157,27 @@ impl CandidateUncles {
         &mut self,
         uncle: UncleBlockView,
     ) -> Result<bool, CandidateUncleMutationError> {
+        let Some(insertion) = self.plan_insert(&uncle)? else {
+            return Ok(false);
+        };
+        let uncle = BoundedCandidateUncle::try_new(uncle, usize::MAX)?;
+        self.apply_insert(insertion, uncle.into_uncle())
+    }
+
+    pub(crate) fn try_insert_bounded(
+        &mut self,
+        uncle: BoundedCandidateUncle,
+    ) -> Result<bool, CandidateUncleMutationError> {
+        let Some(insertion) = self.plan_insert(uncle.as_uncle())? else {
+            return Ok(false);
+        };
+        self.apply_insert(insertion, uncle.into_uncle())
+    }
+
+    fn plan_insert(
+        &self,
+        uncle: &UncleBlockView,
+    ) -> Result<Option<CandidateInsertion>, CandidateUncleMutationError> {
         let number: BlockNumber = uncle.header().number();
         // Validate the target bucket before changing global capacity. The old
         // order evicted the lowest-height set first, then discovered that a
@@ -115,21 +187,21 @@ impl CandidateUncles {
         if self
             .map
             .get(&number)
-            .is_some_and(|set| set.contains(&uncle) || set.len() >= MAX_PER_HEIGHT)
+            .is_some_and(|set| set.contains(uncle) || set.len() >= MAX_PER_HEIGHT)
         {
-            return Ok(false);
+            return Ok(None);
         }
         let mut evict = None;
         if self.len() >= MAX_CANDIDATE_UNCLES {
             let Some(first_key) = self.map.keys().next().copied() else {
                 // `len` is derived from `map`, so this branch is
                 // unconstructible through the type's private mutation API.
-                return Ok(false);
+                return Ok(None);
             };
             if number > first_key {
                 evict = Some(first_key);
             } else {
-                return Ok(false);
+                return Ok(None);
             }
         }
 
@@ -138,12 +210,26 @@ impl CandidateUncles {
             .next()
             .ok_or(CandidateUncleMutationError::SourceVersionExhausted)?;
 
+        Ok(Some(CandidateInsertion {
+            number,
+            evict,
+            next_version,
+        }))
+    }
+
+    fn apply_insert(
+        &mut self,
+        insertion: CandidateInsertion,
+        uncle: UncleBlockView,
+    ) -> Result<bool, CandidateUncleMutationError> {
+        let CandidateInsertion {
+            number,
+            evict,
+            next_version,
+        } = insertion;
         let set = self.map.entry(number).or_default();
         if set.len() < MAX_PER_HEIGHT {
-            // `BlockView::uncles()` yields a slice into the complete block.
-            // Copy only after all rejection checks so retained uncle bytes
-            // are charged independently without taxing duplicate floods.
-            if !set.insert(uncle.into_compact()) {
+            if !set.insert(uncle) {
                 return Ok(false);
             }
             if let Some(first_key) = evict {
@@ -180,11 +266,35 @@ impl CandidateUncles {
         self.map.values().flat_map(HashSet::iter)
     }
 
+    pub(crate) fn try_snapshot(
+        &self,
+    ) -> Result<CandidateUncleSnapshot, CandidateUncleMutationError> {
+        let mut candidates = Vec::new();
+        candidates
+            .try_reserve_exact(self.len())
+            .map_err(|_| CandidateUncleMutationError::Allocation)?;
+        candidates.extend(self.values().cloned());
+        Ok(CandidateUncleSnapshot {
+            candidates,
+            source: self.source_receipt(),
+        })
+    }
+
     /// Consume the bounded container into compact candidate values. Reorg
     /// phase handoff uses this to release transaction-bearing detached blocks
     /// before retained recovery awaits.
-    pub(crate) fn into_values(self) -> Vec<UncleBlockView> {
-        self.map.into_values().flatten().collect()
+    pub(crate) fn into_values(
+        self,
+    ) -> Result<Vec<BoundedCandidateUncle>, CandidateUncleMutationError> {
+        let count = self.len();
+        let mut uncles = Vec::new();
+        uncles
+            .try_reserve_exact(count)
+            .map_err(|_| CandidateUncleMutationError::Allocation)?;
+        for uncle in self.map.into_values().flatten() {
+            uncles.push(BoundedCandidateUncle(uncle));
+        }
+        Ok(uncles)
     }
 
     /// Removes uncles from the container by specified uncle's number
@@ -233,26 +343,69 @@ impl CandidateUncles {
     // (2) height(B2) > height(B1);
     // (3) B1's parent is either B2's ancestor or embedded in B2 or its ancestors as an uncle;
     // and (4) B2 is the first block in its chain to refer to B1.
+    #[cfg(any(test, feature = "internal"))]
     pub(crate) fn prepare_uncles(
         &self,
         snapshot: &Snapshot,
         current_epoch_ext: &EpochExt,
-    ) -> PreparedUncles {
+    ) -> Result<PreparedUncles, CandidateUncleMutationError> {
+        self.try_snapshot()?
+            .prepare_uncles(snapshot, current_epoch_ext)
+    }
+
+    /// Apply stale-candidate cleanup from a plan whose template publication
+    /// token is still current. Removal is idempotent because another committed
+    /// update may already have pruned the same bounded candidates.
+    pub(crate) fn prune(&mut self, plan: CandidateUnclePrune) {
+        for uncle in plan.stale {
+            self.remove_without_version(&uncle);
+        }
+    }
+
+    /// Exercise the complete successful-publication behavior from a
+    /// cross-crate test without exposing the internal read-only Plan or its
+    /// token-sensitive Apply primitives in production builds.
+    #[cfg(feature = "internal")]
+    #[doc(hidden)]
+    pub fn prepare_and_commit_for_test(
+        &mut self,
+        snapshot: &Snapshot,
+        current_epoch_ext: &EpochExt,
+    ) -> Option<Vec<UncleBlockView>> {
+        let (selected, prune, _source) = self
+            .prepare_uncles(snapshot, current_epoch_ext)
+            .ok()?
+            .into_parts();
+        self.prune(prune);
+        Some(selected)
+    }
+}
+
+impl CandidateUncleSnapshot {
+    pub(crate) fn prepare_uncles(
+        self,
+        snapshot: &Snapshot,
+        current_epoch_ext: &EpochExt,
+    ) -> Result<PreparedUncles, CandidateUncleMutationError> {
         let Some(candidate_number) = snapshot.tip_number().checked_add(1) else {
-            return PreparedUncles {
+            return Ok(PreparedUncles {
                 selected: Vec::new(),
                 prune: CandidateUnclePrune { stale: Vec::new() },
-                source: CandidateUncleSourceReceipt {
-                    version: self.source_version,
-                },
-            };
+                source: self.source,
+            });
         };
         let epoch_number = current_epoch_ext.number();
         let max_uncles_num = snapshot.consensus().max_uncles_num();
-        let mut uncles: Vec<UncleBlockView> = Vec::with_capacity(max_uncles_num);
-        let mut removed = Vec::new();
+        let mut uncles: Vec<UncleBlockView> = Vec::new();
+        let mut removed: Vec<UncleBlockView> = Vec::new();
+        uncles
+            .try_reserve_exact(max_uncles_num.min(self.candidates.len()))
+            .map_err(|_| CandidateUncleMutationError::Allocation)?;
+        removed
+            .try_reserve_exact(self.candidates.len())
+            .map_err(|_| CandidateUncleMutationError::Allocation)?;
 
-        for uncle in self.values() {
+        for uncle in &self.candidates {
             if uncles.len() == max_uncles_num {
                 break;
             }
@@ -277,39 +430,11 @@ impl CandidateUncles {
             }
         }
 
-        PreparedUncles {
+        Ok(PreparedUncles {
             selected: uncles,
             prune: CandidateUnclePrune { stale: removed },
-            source: CandidateUncleSourceReceipt {
-                version: self.source_version,
-            },
-        }
-    }
-
-    /// Apply stale-candidate cleanup from a plan whose template publication
-    /// token is still current. Removal is idempotent because another committed
-    /// update may already have pruned the same bounded candidates.
-    pub(crate) fn prune(&mut self, plan: CandidateUnclePrune) {
-        for uncle in plan.stale {
-            self.remove_without_version(&uncle);
-        }
-    }
-
-    /// Exercise the complete successful-publication behavior from a
-    /// cross-crate test without exposing the internal read-only Plan or its
-    /// token-sensitive Apply primitives in production builds.
-    #[cfg(feature = "internal")]
-    #[doc(hidden)]
-    pub fn prepare_and_commit_for_test(
-        &mut self,
-        snapshot: &Snapshot,
-        current_epoch_ext: &EpochExt,
-    ) -> Vec<UncleBlockView> {
-        let (selected, prune, _source) = self
-            .prepare_uncles(snapshot, current_epoch_ext)
-            .into_parts();
-        self.prune(prune);
-        selected
+            source: self.source,
+        })
     }
 }
 

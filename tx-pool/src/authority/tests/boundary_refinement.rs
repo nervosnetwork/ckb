@@ -24,8 +24,8 @@ use crate::{
     },
     network::DummyTxPoolNetwork,
     service::{
-        AdministrationGate, AsyncRequest, Message, Notify, RemoteTxSubmission, TxPoolController,
-        TxVerificationResult,
+        AdministrationGate, AsyncRequest, ChainReorgPayloadLimit, Message, Notify,
+        RemoteTxSubmission, TxPoolController, TxVerificationResult,
     },
 };
 use ckb_async_runtime::Handle;
@@ -65,6 +65,8 @@ fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
         handle: Handle::new(tokio::runtime::Handle::current(), None),
         started: Arc::new(AtomicBool::new(true)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     }
 }
@@ -130,7 +132,10 @@ async fn uak_controller_remote_handoff_refines_queued_handler_and_response_cuts(
         panic!("the remote controller fixture must retain the exact request variant");
     };
     let RemoteTxSubmission { transaction, .. } = arguments;
-    assert_eq!(transaction, expected_transaction);
+    assert_eq!(
+        transaction.into_transaction().as_ref(),
+        &expected_transaction
+    );
     actual.push(BoundaryCheckpoint::Controller {
         key,
         state: BoundaryControllerState::HandlerOwned,

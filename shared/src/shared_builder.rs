@@ -33,7 +33,6 @@ use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;
 use dashmap::DashMap;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -268,29 +267,29 @@ impl SharedBuilder {
     fn init_proposal_table(
         store: &ChainDB,
         consensus: &Consensus,
-    ) -> (ProposalTable, ProposalView) {
+    ) -> Result<(ProposalTable, ProposalView), Error> {
         let proposal_window = consensus.tx_proposal_window();
         let tip_number = store.get_tip_header().expect("store inited").number();
-        let mut proposal_ids = ProposalTable::new(proposal_window);
+        let mut proposal_ids = ProposalTable::new(proposal_window)
+            .map_err(|error| InternalErrorKind::Config.other(error))?;
         let proposal_start = tip_number.saturating_sub(proposal_window.farthest());
         for bn in proposal_start..=tip_number {
             if let Some(hash) = store.get_block_hash(bn) {
-                let mut ids_set = HashSet::new();
-                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
-                    ids_set.extend(ids)
-                }
-
-                if let Some(us) = store.get_block_uncles(&hash) {
-                    for u in us.data().into_iter() {
-                        ids_set.extend(u.proposals());
-                    }
-                }
-                proposal_ids.insert(bn, ids_set);
+                let block_ids = store
+                    .get_block_proposal_txs_ids(&hash)
+                    .into_iter()
+                    .flatten();
+                let uncle_ids = store
+                    .get_block_uncles(&hash)
+                    .into_iter()
+                    .flat_map(|uncles| uncles.data().into_iter())
+                    .flat_map(|uncle| uncle.proposals().into_iter());
+                proposal_ids.insert(bn, block_ids.chain(uncle_ids));
             }
         }
         let dummy_proposals = ProposalView::default();
-        let (_, proposals) = proposal_ids.finalize(&dummy_proposals, tip_number);
-        (proposal_ids, proposals)
+        let proposals = proposal_ids.finalize(&dummy_proposals, tip_number);
+        Ok((proposal_ids, proposals))
     }
 
     fn init_store(store: &ChainDB, consensus: &Consensus) -> Result<(HeaderView, EpochExt), Error> {
@@ -334,7 +333,7 @@ impl SharedBuilder {
             .get_block_ext(&tip_header.hash())
             .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
             .total_difficulty;
-        let (proposal_table, proposal_view) = Self::init_proposal_table(store, &consensus);
+        let (proposal_table, proposal_view) = Self::init_proposal_table(store, &consensus)?;
 
         let snapshot = Snapshot::new(
             tip_header,

@@ -20,7 +20,7 @@ pub(crate) struct ModelEvidenceIdentity {
     pub(crate) witness: u8,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ModelDependencyLevel {
     pub(crate) last_change: ModelDependencyCut,
     pub(crate) last_definitive_loss: Option<ModelDependencyCut>,
@@ -40,7 +40,7 @@ impl ModelDependencyLevel {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct ModelUnindexedDependencyLevel {
     pub(crate) last_change: Option<ModelDependencyCut>,
     pub(crate) last_definitive_loss: Option<ModelDependencyCut>,
@@ -62,7 +62,7 @@ impl ModelUnindexedDependencyLevel {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct ModelEvidenceFrontier {
     levels: BTreeMap<ModelDependencyKey, ModelDependencyLevel>,
     unindexed: ModelUnindexedDependencyLevel,
@@ -83,6 +83,150 @@ impl ModelEvidenceFrontier {
             levels: collected,
             unindexed,
         })
+    }
+
+    fn retire_level(&mut self, level: ModelDependencyLevel) {
+        self.unindexed.last_change = Some(
+            self.unindexed
+                .last_change
+                .map_or(level.last_change, |current| current.max(level.last_change)),
+        );
+        if let Some(loss) = level.last_definitive_loss {
+            self.unindexed.last_definitive_loss = Some(
+                self.unindexed
+                    .last_definitive_loss
+                    .map_or(loss, |current| current.max(loss)),
+            );
+        }
+    }
+
+    /// Apply one primitive availability/loss cut using the exact current
+    /// consumer projection.  Indexed keys retain their precise level;
+    /// unindexed keys collapse into the same two conservative maxima used by
+    /// production.  Thus late dep-group discovery cannot smuggle an event
+    /// past checkout merely because the member was not yet known.
+    pub(crate) fn apply_events(
+        &mut self,
+        available: &BTreeSet<ModelDependencyKey>,
+        lost: &BTreeSet<ModelDependencyKey>,
+        indexed: &BTreeSet<ModelDependencyKey>,
+        cut: ModelDependencyCut,
+    ) -> bool {
+        if available.iter().any(|key| lost.contains(key)) {
+            return false;
+        }
+        for (key, definitive_loss) in available
+            .iter()
+            .copied()
+            .map(|key| (key, false))
+            .chain(lost.iter().copied().map(|key| (key, true)))
+        {
+            let previous = self.levels.get(&key).copied();
+            if previous.is_some_and(|level| level.last_change >= cut) {
+                return false;
+            }
+            let level = ModelDependencyLevel {
+                last_change: cut,
+                last_definitive_loss: if definitive_loss {
+                    Some(cut)
+                } else {
+                    previous.and_then(|level| level.last_definitive_loss)
+                },
+            };
+            if indexed.contains(&key) {
+                self.levels.insert(key, level);
+            } else {
+                self.retire_level(level);
+                if let Some(previous) = self.levels.remove(&key) {
+                    self.retire_level(previous);
+                }
+            }
+        }
+        true
+    }
+
+    /// Dependency levels have no independent lifetime.  When the last owner
+    /// edge disappears, fold the level into the bounded unindexed summary so
+    /// a later owner observes the same conservative production cut.
+    pub(crate) fn prune_to(&mut self, indexed: &BTreeSet<ModelDependencyKey>) {
+        let retired = self
+            .levels
+            .keys()
+            .filter(|key| !indexed.contains(key))
+            .copied()
+            .collect::<Vec<_>>();
+        for key in retired {
+            if let Some(level) = self.levels.remove(&key) {
+                self.retire_level(level);
+            }
+        }
+    }
+
+    pub(crate) fn dependency_cuts(&self) -> BTreeSet<ModelDependencyCut> {
+        self.levels
+            .values()
+            .flat_map(|level| std::iter::once(level.last_change).chain(level.last_definitive_loss))
+            .chain(self.unindexed.last_change)
+            .chain(self.unindexed.last_definitive_loss)
+            .collect()
+    }
+
+    pub(crate) fn remap_dependency_cuts(
+        &mut self,
+        mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+    ) -> bool {
+        fn remap(
+            cut: &mut ModelDependencyCut,
+            mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+        ) -> bool {
+            if cut.0 == 0 {
+                return true;
+            }
+            let Some(mapped) = mapping.get(cut).copied() else {
+                return false;
+            };
+            *cut = mapped;
+            true
+        }
+
+        let mut next = self.clone();
+        for level in next.levels.values_mut() {
+            if !remap(&mut level.last_change, mapping)
+                || level
+                    .last_definitive_loss
+                    .as_mut()
+                    .is_some_and(|loss| !remap(loss, mapping))
+                || level
+                    .last_definitive_loss
+                    .is_some_and(|loss| loss > level.last_change)
+            {
+                return false;
+            }
+        }
+        let unindexed_is_valid = match (
+            next.unindexed.last_change,
+            next.unindexed.last_definitive_loss,
+        ) {
+            (None, Some(_)) => false,
+            (Some(change), Some(loss)) => loss <= change,
+            (None | Some(_), None) => true,
+        };
+        if next
+            .unindexed
+            .last_change
+            .as_mut()
+            .is_some_and(|change| !remap(change, mapping))
+            || next
+                .unindexed
+                .last_definitive_loss
+                .as_mut()
+                .is_some_and(|loss| !remap(loss, mapping))
+            || !unindexed_is_valid
+        {
+            return false;
+        }
+        *self = next;
+        true
     }
 
     pub(crate) fn proof_is_current(
@@ -438,44 +582,6 @@ pub(crate) fn validate_final_subject(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ModelDirectRejectionValidity {
-    Stable,
-    AcceptedCut {
-        view: ModelEvidenceView,
-        accepted_source: u8,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ModelDirectRejectionObservation {
-    Current,
-    StaleChain,
-    StaleSource,
-}
-
-pub(crate) fn validate_direct_rejection(
-    authority_view: ModelEvidenceView,
-    accepted_source: u8,
-    validity: ModelDirectRejectionValidity,
-) -> ModelDirectRejectionObservation {
-    match validity {
-        ModelDirectRejectionValidity::Stable => ModelDirectRejectionObservation::Current,
-        ModelDirectRejectionValidity::AcceptedCut {
-            view,
-            accepted_source: observed,
-        } => {
-            if view != authority_view {
-                ModelDirectRejectionObservation::StaleChain
-            } else if observed != accepted_source {
-                ModelDirectRejectionObservation::StaleSource
-            } else {
-                ModelDirectRejectionObservation::Current
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ModelPreAcceptedSource {
     Remote,
     Proposal,
@@ -663,6 +769,16 @@ pub(crate) enum ModelReadyPayloadRelation {
     LocationRefreshed,
 }
 
+/// Location-dependent accounting observed at final admission. These are
+/// values, not evidence constructors: the model keeps the current production
+/// carry-over observation distinct from a value independently recomputed for
+/// the refreshed cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModelLocationDependentMetrics {
+    pub(crate) fee: u64,
+    pub(crate) accepted_resident_bytes: usize,
+}
+
 /// One pointwise final-validation transition. Payload metadata is consumed by
 /// block construction while context provenance is consumed by policy; both
 /// must observe the same authoritative location cut.
@@ -671,6 +787,25 @@ pub(crate) struct ModelValidatedLocationTransition {
     pub(crate) payload_location: ModelCellLocation,
     pub(crate) context_location: ModelCellLocation,
     pub(crate) relation: ModelReadyPayloadRelation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ModelLocationRefreshObservation {
+    pub(crate) transition: ModelValidatedLocationTransition,
+    pub(crate) previous_metrics: ModelLocationDependentMetrics,
+    pub(crate) committed_metrics: ModelLocationDependentMetrics,
+    pub(crate) recomputed_metrics: ModelLocationDependentMetrics,
+}
+
+impl ModelLocationRefreshObservation {
+    /// A location change is one producer cut: the committed fee and resident
+    /// charge must equal an independent recomputation from the refreshed
+    /// resolved transaction.
+    pub(crate) const fn is_atomically_resealed(self) -> bool {
+        self.committed_metrics.fee == self.recomputed_metrics.fee
+            && self.committed_metrics.accepted_resident_bytes
+                == self.recomputed_metrics.accepted_resident_bytes
+    }
 }
 
 pub(crate) fn validated_location_transition(
@@ -685,5 +820,24 @@ pub(crate) fn validated_location_transition(
         } else {
             ModelReadyPayloadRelation::LocationRefreshed
         },
+    }
+}
+
+/// Exact refinement observation for the one location-refresh producer cut.
+/// Keeping previous, committed and independently recomputed metrics distinct
+/// makes stale carry-over an executable falsifier rather than an implicit
+/// assumption.
+pub(crate) fn location_refresh_observation(
+    previous: ModelCellLocation,
+    authoritative: ModelCellLocation,
+    previous_metrics: ModelLocationDependentMetrics,
+    committed_metrics: ModelLocationDependentMetrics,
+    recomputed_metrics: ModelLocationDependentMetrics,
+) -> ModelLocationRefreshObservation {
+    ModelLocationRefreshObservation {
+        transition: validated_location_transition(previous, authoritative),
+        previous_metrics,
+        committed_metrics,
+        recomputed_metrics,
     }
 }

@@ -7,19 +7,21 @@
 
 pub(crate) use super::relay::AuthorityRelaySink;
 use super::{
-    chain_boundary::{ChainBoundaryError, ChainPackaging, ChainUpdateRequest},
+    chain_boundary::{
+        CandidateUncleCollection, ChainBoundaryError, ChainGenerationReplacement,
+        ChainUpdateRequest, CommittedChainUpdate,
+    },
     effect::ParentTransactionRequest,
     ingress::{
-        RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngressAttempt,
-        RetainedIngressBackpressure, RetainedIngressBoundaryError, RetainedIngressError, proposal,
-        remote, remote_pressure_rejection,
+        BoundedTransaction, RetainedAdmissionBatch, RetainedIngressAttempt,
+        RetainedIngressBackpressure, RetainedIngressBoundaryError, proposal, remote,
     },
     plan::AuthorityFault,
     publisher::AuthorityEffectEndpoints,
     query::{
-        AuthorityPoolSummary, AuthorityQueryError, AuthorityTransactionLookup,
-        AuthorityTransactionStatusLookup, CompactBlockReadReceipt, FeeEstimateReadReceipt,
-        LiveCellReadReceipt, PersistenceReceipt,
+        AcceptedTransactionsWithCycles, AuthorityPoolSummary, AuthorityQueryError,
+        AuthorityTransactionLookup, AuthorityTransactionStatusLookup, CompactBlockReadReceipt,
+        FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
     },
     read::{RelayParentRebuildCursor, RelayParentRebuildError},
     relay::{
@@ -31,11 +33,13 @@ use super::{
         AuthorityAdministrationError, AuthorityDirectAdmissionError,
         AuthorityDirectAdmissionExecution, AuthorityDirectRejectionExecution,
         AuthorityDirectResolutionOutcome, AuthorityDirectVerificationOutcome,
-        AuthorityLocalAdmissionOutcome, AuthorityRecentRejectReadError, AuthorityRelayParentReader,
-        AuthorityRuntime, AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind,
-        RuntimeConfigError,
+        AuthorityGenerationReplacementError, AuthorityLocalAdmissionOutcome,
+        AuthorityRecentRejectReadError, AuthorityRelayParentReader, AuthorityRuntime,
+        AuthorityTestAcceptOutcome, DirectAdmissionRejectionKind, RuntimeConfigError,
     },
-    template_driver::{AuthorityBlockAssembler, AuthorityTemplateDriverFault},
+    template_driver::{
+        AuthorityBlockAssembler, AuthorityTemplateDriverFault, AuthorityTemplateReadFailure,
+    },
     topology::{
         AuthorityDerivedTaskFailure, AuthorityGenerationFault, AuthorityShutdownStatus,
         AuthorityTaskTopology, AuthorityTopologyEvent, AuthorityTopologyStartError,
@@ -71,7 +75,7 @@ use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::{
-    core::{EstimateMode, FeeRate, TransactionView, UncleBlockView, tx_pool::EntryCompleted},
+    core::{EstimateMode, FeeRate, TransactionView, tx_pool::EntryCompleted},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use ckb_util::Mutex;
@@ -102,14 +106,15 @@ pub(crate) enum AuthorityServiceStartError {
 /// Structural or operational failure after the caller supplied a valid
 /// service command. Legal policy rejection and bounded ingress pressure use
 /// their own outcome types instead of this fault domain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum AuthorityServiceError {
     Cancelled,
     BlockAssemblerDisabled,
+    TemplateUnavailable,
     ResourceUnavailable,
     EffectCapacity,
     LifecycleClosed,
-    Integrity(AuthorityIntegrityFault),
+    Integrity(AuthorityGenerationInvalidity),
 }
 
 /// Exact Remote responder prefix completed by authority. A later operational
@@ -139,35 +144,71 @@ impl RemoteIngressBatchProgress {
     pub(crate) fn into_parts(self) -> (usize, Option<AuthorityServiceError>) {
         (self.completed, self.error)
     }
+
+    pub(crate) fn into_checked_parts(
+        self,
+        expected: usize,
+    ) -> (usize, Option<AuthorityServiceError>) {
+        let (completed, error) = self.into_parts();
+        if completed > expected || (error.is_none() && completed != expected) {
+            (
+                completed,
+                Some(AuthorityServiceError::from(
+                    AuthorityFault::MembershipProjection,
+                )),
+            )
+        } else {
+            (completed, error)
+        }
+    }
 }
 
 /// Closed programmer-defect domain that alone can invalidate one authority
 /// generation. Keeping it out of [`AuthorityServiceError`]'s operational
 /// variants makes classification exhaustive when either enum evolves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthorityIntegrityFault {
+pub(in crate::authority) enum AuthorityIntegrityFault {
     InvalidChainEvidence,
-    CounterExhausted,
     EffectLifecycleClosed,
-    Projection(AuthorityProjectionFault),
+    Authority(AuthorityFault),
 }
 
 /// Exhaustive failure domain for the sole ordered chain-update consumer.
 ///
-/// Allocation pressure is retried while the exact request or command is still
-/// owned by the service. Consequently, once a chain update returns, it can
-/// only have observed generation cancellation or a structural contradiction.
+/// Allocation pressure consumes the exact returned request or command in one
+/// ordered empty-generation replacement at the requested snapshot. It is
+/// never retried against an unchanged allocator premise. Consequently, once a
+/// chain update returns, it can only have observed generation cancellation or
+/// a structural contradiction.
 /// Keeping this narrower than `AuthorityServiceError` prevents a future
 /// operational service variant from silently terminating the ordered driver.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum AuthorityChainUpdateError {
     Cancelled,
-    Integrity(AuthorityIntegrityFault),
+    Integrity(AuthorityGenerationInvalidity),
 }
 
-impl AuthorityServiceError {
-    fn integrity_projection(fault: AuthorityProjectionFault) -> Self {
-        Self::Integrity(AuthorityIntegrityFault::Projection(fault))
+impl AuthorityChainUpdateError {
+    fn integrity(fault: AuthorityIntegrityFault) -> Self {
+        Self::Integrity(AuthorityGenerationInvalidity::from_integrity(fault))
+    }
+}
+
+impl From<AuthorityFault> for AuthorityIntegrityFault {
+    fn from(fault: AuthorityFault) -> Self {
+        Self::Authority(fault)
+    }
+}
+
+impl From<AuthorityIntegrityFault> for AuthorityServiceError {
+    fn from(fault: AuthorityIntegrityFault) -> Self {
+        Self::Integrity(AuthorityGenerationInvalidity::from_integrity(fault))
+    }
+}
+
+impl From<AuthorityFault> for AuthorityServiceError {
+    fn from(fault: AuthorityFault) -> Self {
+        Self::from(AuthorityIntegrityFault::from(fault))
     }
 }
 
@@ -177,6 +218,12 @@ impl AuthorityServiceError {
 #[must_use = "generation invalidity must be retained until controlled shutdown"]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AuthorityGenerationInvalidity(AuthorityIntegrityFault);
+
+impl AuthorityGenerationInvalidity {
+    fn from_integrity(fault: AuthorityIntegrityFault) -> Self {
+        Self(fault)
+    }
+}
 
 /// Persistence failures are operational outcomes after a coherent read cut;
 /// none can invalidate or roll back authority state.
@@ -218,31 +265,6 @@ pub(crate) enum AuthorityDerivedError {
 pub(crate) struct AuthorityPersistenceReplay {
     pub(crate) loaded: usize,
     pub(crate) stale: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AuthorityProjectionFault {
-    Counter,
-    Resource,
-    Membership,
-    Index,
-    Scheduler,
-    Dependency,
-    Effect,
-}
-
-impl From<AuthorityFault> for AuthorityProjectionFault {
-    fn from(fault: AuthorityFault) -> Self {
-        match fault {
-            AuthorityFault::CounterExhausted => Self::Counter,
-            AuthorityFault::ResourceProjection => Self::Resource,
-            AuthorityFault::MembershipProjection => Self::Membership,
-            AuthorityFault::IndexProjection => Self::Index,
-            AuthorityFault::SchedulerProjection => Self::Scheduler,
-            AuthorityFault::DependencyProjection => Self::Dependency,
-            AuthorityFault::EffectProjection => Self::Effect,
-        }
-    }
 }
 
 /// Immutable construction inputs. This value exists only until the runtime,
@@ -665,13 +687,13 @@ impl AuthorityGeneration {
         let failure_already_recorded = invalid.is_some();
         let report = match invalid {
             Some(AuthorityServiceGenerationFault::Authority(fault)) => {
-                topology.invalidate_generation(fault)
+                topology.invalidate_generation(fault).await
             }
             Some(fault) => {
                 ckb_logger::error!(
                     "tx-pool ordered chain-control generation failed; persistence is forbidden: {fault:?}"
                 );
-                drop(topology);
+                topology.retire_invalid_generation().await;
                 return AuthorityShutdownOutcome::PersistenceForbidden;
             }
             None => topology.shutdown(timeout).await,
@@ -776,9 +798,10 @@ impl AuthorityService {
         error: AuthorityServiceError,
     ) -> Result<(), AuthorityGenerationInvalidity> {
         match error {
-            AuthorityServiceError::Integrity(fault) => Err(AuthorityGenerationInvalidity(fault)),
+            AuthorityServiceError::Integrity(invalidity) => Err(invalidity),
             operational @ (AuthorityServiceError::Cancelled
             | AuthorityServiceError::BlockAssemblerDisabled
+            | AuthorityServiceError::TemplateUnavailable
             | AuthorityServiceError::ResourceUnavailable
             | AuthorityServiceError::EffectCapacity
             | AuthorityServiceError::LifecycleClosed) => {
@@ -910,19 +933,24 @@ impl AuthorityService {
 
     pub(crate) async fn submit_remote(
         &self,
-        tx: TransactionView,
+        tx: BoundedTransaction,
         declared_cycles: u64,
         peer: PeerIndex,
     ) -> Result<(), AuthorityServiceError> {
+        let mut submissions = Vec::new();
+        submissions
+            .try_reserve_exact(1)
+            .map_err(|_| AuthorityServiceError::ResourceUnavailable)?;
+        submissions.push((tx, declared_cycles));
         let (completed, error) = self
-            .submit_remote_batch(peer, vec![(tx, declared_cycles)])
+            .submit_remote_batch(peer, submissions)
             .await
             .into_parts();
         match (completed, error) {
             (1, None) => Ok(()),
             (_, Some(error)) => Err(error),
-            _ => Err(AuthorityServiceError::integrity_projection(
-                AuthorityProjectionFault::Membership,
+            _ => Err(AuthorityServiceError::from(
+                AuthorityFault::MembershipProjection,
             )),
         }
     }
@@ -930,7 +958,7 @@ impl AuthorityService {
     pub(crate) async fn submit_remote_batch(
         &self,
         peer: PeerIndex,
-        submissions: Vec<(TransactionView, u64)>,
+        submissions: Vec<(BoundedTransaction, u64)>,
     ) -> RemoteIngressBatchProgress {
         let bytes = retained_batch_bytes(submissions.iter().map(|(transaction, _)| transaction));
         if submissions.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES
@@ -951,32 +979,14 @@ impl AuthorityService {
             );
         }
         for (tx, declared_cycles) in submissions {
-            match remote(tx.clone(), declared_cycles, peer, &consensus) {
-                Ok(ingress) => attempts.push_back(RetainedIngressAttempt::Validated(ingress)),
-                Err(RetainedIngressError::Rejected(rejection)) => {
-                    attempts.push_back(RetainedIngressAttempt::Rejected(rejection));
-                }
-                Err(RetainedIngressError::Admission(
-                    super::state::AdmissionValidationError::ResourceAllocation,
-                )) => attempts.push_back(RetainedIngressAttempt::Rejected(
-                    remote_pressure_rejection(tx, peer, RemoteIngressPressure::Allocation),
-                )),
-                Err(RetainedIngressError::Admission(_)) => {
-                    return RemoteIngressBatchProgress::failed(
-                        0,
-                        AuthorityServiceError::integrity_projection(
-                            AuthorityProjectionFault::Membership,
-                        ),
-                    );
-                }
-            }
+            attempts.push_back(remote(tx, declared_cycles, peer, &consensus));
         }
         self.submit_retained_attempts(attempts).await
     }
 
     pub(crate) async fn submit_proposal_batch(
         &self,
-        transactions: Vec<TransactionView>,
+        transactions: Vec<BoundedTransaction>,
     ) -> Result<(), AuthorityServiceError> {
         if transactions.len() > ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH
             || (transactions.len() != 1
@@ -996,22 +1006,7 @@ impl AuthorityService {
                 let Some(tx) = transactions.next() else {
                     break;
                 };
-                match proposal(tx, &consensus) {
-                    Ok(ingress) => {
-                        attempts.push_back(RetainedIngressAttempt::Validated(ingress));
-                    }
-                    Err(RetainedIngressError::Rejected(rejection)) => {
-                        attempts.push_back(RetainedIngressAttempt::Rejected(rejection));
-                    }
-                    Err(RetainedIngressError::Admission(
-                        super::state::AdmissionValidationError::ResourceAllocation,
-                    )) => attempts.push_back(RetainedIngressAttempt::ProposalUnavailable),
-                    Err(RetainedIngressError::Admission(_)) => {
-                        return Err(AuthorityServiceError::integrity_projection(
-                            AuthorityProjectionFault::Membership,
-                        ));
-                    }
-                }
+                attempts.push_back(proposal(tx, &consensus));
             }
             if attempts.is_empty() {
                 return Ok(());
@@ -1022,8 +1017,8 @@ impl AuthorityService {
                 return Err(error);
             }
             if completed != expected {
-                return Err(AuthorityServiceError::integrity_projection(
-                    AuthorityProjectionFault::Membership,
+                return Err(AuthorityServiceError::from(
+                    AuthorityFault::MembershipProjection,
                 ));
             }
         }
@@ -1053,9 +1048,7 @@ impl AuthorityService {
                     let Some(next_completed) = completed.checked_add(consumed) else {
                         return RemoteIngressBatchProgress::failed(
                             completed,
-                            AuthorityServiceError::Integrity(
-                                AuthorityIntegrityFault::CounterExhausted,
-                            ),
+                            AuthorityServiceError::from(AuthorityFault::CounterExhausted),
                         );
                     };
                     completed = next_completed;
@@ -1091,7 +1084,7 @@ impl AuthorityService {
 
     pub(crate) async fn submit_local(
         &self,
-        transaction: TransactionView,
+        transaction: BoundedTransaction,
     ) -> Result<Result<EntryCompleted, Reject>, AuthorityServiceError> {
         let started_at = Instant::now();
         let result = self.execute_direct(transaction, false).await;
@@ -1107,16 +1100,17 @@ impl AuthorityService {
 
     pub(crate) async fn test_accept(
         &self,
-        transaction: TransactionView,
+        transaction: BoundedTransaction,
     ) -> Result<Result<EntryCompleted, Reject>, AuthorityServiceError> {
         self.execute_direct(transaction, true).await
     }
 
     async fn execute_direct(
         &self,
-        mut transaction: TransactionView,
+        transaction: BoundedTransaction,
         test_accept: bool,
     ) -> Result<Result<EntryCompleted, Reject>, AuthorityServiceError> {
+        let mut transaction = transaction.into_direct();
         loop {
             let Some(execution) = self.runtime.acquire_compute_execution(&self.cancel).await else {
                 return Err(AuthorityServiceError::Cancelled);
@@ -1135,8 +1129,8 @@ impl AuthorityService {
                     return Ok(Err(direct_pressure_reject()));
                 }
                 Err(DirectComputationError::InvalidEvidence) => {
-                    return Err(AuthorityServiceError::integrity_projection(
-                        AuthorityProjectionFault::Membership,
+                    return Err(AuthorityServiceError::from(
+                        AuthorityFault::MembershipProjection,
                     ));
                 }
             };
@@ -1159,8 +1153,8 @@ impl AuthorityService {
                             AuthorityDirectRejectionExecution::Local(_)
                             | AuthorityDirectRejectionExecution::TestAccept(_),
                         ) => {
-                            return Err(AuthorityServiceError::integrity_projection(
-                                AuthorityProjectionFault::Scheduler,
+                            return Err(AuthorityServiceError::from(
+                                AuthorityFault::SchedulerProjection,
                             ));
                         }
                         Err(error) => match classify_direct_error(error) {
@@ -1193,8 +1187,8 @@ impl AuthorityService {
                             return Ok(Err(direct_pressure_reject()));
                         }
                         Err(DirectComputationError::InvalidEvidence) => {
-                            return Err(AuthorityServiceError::integrity_projection(
-                                AuthorityProjectionFault::Membership,
+                            return Err(AuthorityServiceError::from(
+                                AuthorityFault::MembershipProjection,
                             ));
                         }
                     }
@@ -1219,8 +1213,8 @@ impl AuthorityService {
                             AuthorityDirectRejectionExecution::Local(_)
                             | AuthorityDirectRejectionExecution::TestAccept(_),
                         ) => {
-                            return Err(AuthorityServiceError::integrity_projection(
-                                AuthorityProjectionFault::Scheduler,
+                            return Err(AuthorityServiceError::from(
+                                AuthorityFault::SchedulerProjection,
                             ));
                         }
                         Err(error) => match classify_direct_error(error) {
@@ -1279,7 +1273,7 @@ impl AuthorityService {
                                     }));
                                 }
                                 AuthorityLocalAdmissionOutcome::Retry(retry) => {
-                                    transaction = retry.as_ref().clone();
+                                    transaction = retry;
                                 }
                             }
                         }
@@ -1302,8 +1296,8 @@ impl AuthorityService {
                         }
                         (false, AuthorityDirectAdmissionExecution::TestAccept(_))
                         | (true, AuthorityDirectAdmissionExecution::Local(_)) => {
-                            return Err(AuthorityServiceError::integrity_projection(
-                                AuthorityProjectionFault::Scheduler,
+                            return Err(AuthorityServiceError::from(
+                                AuthorityFault::SchedulerProjection,
                             ));
                         }
                     }
@@ -1313,17 +1307,19 @@ impl AuthorityService {
     }
 
     async fn publish_cache_update(&self, update: VerificationCacheUpdate) {
-        let (key, completed) = update.into_parts();
-        self.verification_cache.write().await.put(key, completed);
+        self.verification_cache
+            .write()
+            .await
+            .insert(update.into_proof());
     }
 
     pub(crate) async fn remove_local(&self, hash: &Byte32) -> Result<bool, AuthorityServiceError> {
-        self.retry_administration(|| self.runtime.remove_local_transaction(hash))
+        self.run_administration(|| self.runtime.remove_local_transaction(hash))
             .await
     }
 
     pub(crate) async fn clear_pipeline(&self) -> Result<(), AuthorityServiceError> {
-        self.retry_administration(|| self.runtime.clear_pipeline())
+        self.run_administration(|| self.runtime.clear_pipeline())
             .await
     }
 
@@ -1331,11 +1327,11 @@ impl AuthorityService {
         &self,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AuthorityServiceError> {
-        self.retry_administration(|| self.runtime.clear_pool(Arc::clone(&snapshot)))
+        self.run_administration(|| self.runtime.clear_pool(Arc::clone(&snapshot)))
             .await
     }
 
-    async fn retry_administration<T>(
+    async fn run_administration<T>(
         &self,
         mut attempt: impl FnMut() -> Result<T, AuthorityAdministrationError>,
     ) -> Result<T, AuthorityServiceError> {
@@ -1346,11 +1342,6 @@ impl AuthorityService {
             let _ = notified.as_mut().enable();
             match attempt() {
                 Ok(value) => return Ok(value),
-                Err(AuthorityAdministrationError::Allocation) => {
-                    if !allocation_backoff_or_cancel(&self.cancel).await {
-                        return Err(AuthorityServiceError::Cancelled);
-                    }
-                }
                 Err(AuthorityAdministrationError::EffectCapacity) => {
                     if !wait_or_cancel(&self.cancel, notified.as_mut()).await {
                         return Err(AuthorityServiceError::Cancelled);
@@ -1361,48 +1352,68 @@ impl AuthorityService {
         }
     }
 
-    pub(crate) async fn apply_chain_update(
+    fn commit_chain_update(
         &self,
         arguments: ChainReorgArgs,
-    ) -> Result<(), AuthorityChainUpdateError> {
-        let (detached, attached, proposals, snapshot) = arguments;
-        let packaging = if self.block_assembler.is_some() {
-            ChainPackaging::Package
-        } else {
-            ChainPackaging::ObserveOnly
-        };
-        let mut request =
-            ChainUpdateRequest::new(detached, attached, proposals, snapshot, packaging);
-        let mut command = loop {
-            match request.prepare() {
-                Ok(command) => break command,
-                Err(failure) => {
-                    let (error, returned) = failure.into_parts();
-                    if let Some(fault) = map_chain_integrity(error) {
-                        return Err(AuthorityChainUpdateError::Integrity(fault));
-                    }
-                    request = returned;
-                    if !allocation_backoff_or_cancel(&self.cancel).await {
-                        return Err(AuthorityChainUpdateError::Cancelled);
+    ) -> Result<CommittedChainUpdate, AuthorityChainUpdateError> {
+        let committed = match arguments {
+            ChainReorgArgs::ReplaceGeneration { snapshot } => self
+                .runtime
+                .apply_chain_generation_replacement(ChainGenerationReplacement::from_snapshot(
+                    snapshot,
+                ))
+                .map_err(map_chain_generation_replacement_error)?,
+            ChainReorgArgs::Detailed {
+                detached_blocks,
+                attached_blocks,
+                snapshot,
+            } => {
+                let packaging = if self.block_assembler.is_some() {
+                    CandidateUncleCollection::CollectCandidateUncles
+                } else {
+                    CandidateUncleCollection::SkipCandidateUncles
+                };
+                let request =
+                    ChainUpdateRequest::new(detached_blocks, attached_blocks, snapshot, packaging);
+                match request.prepare() {
+                    Ok(command) => match self.runtime.apply_chain_update(command) {
+                        Ok(committed) => committed,
+                        Err(failure) => {
+                            let (error, returned) = failure.into_parts();
+                            if let Some(fault) = map_chain_integrity(error) {
+                                return Err(AuthorityChainUpdateError::integrity(fault));
+                            }
+                            if self.cancel.is_cancelled() {
+                                return Err(AuthorityChainUpdateError::Cancelled);
+                            }
+                            self.runtime
+                                .apply_chain_generation_replacement(
+                                    returned.into_generation_replacement(),
+                                )
+                                .map_err(map_chain_generation_replacement_error)?
+                        }
+                    },
+                    Err(failure) => {
+                        let (error, returned) = failure.into_parts();
+                        if let Some(fault) = map_chain_integrity(error) {
+                            return Err(AuthorityChainUpdateError::integrity(fault));
+                        }
+                        if self.cancel.is_cancelled() {
+                            return Err(AuthorityChainUpdateError::Cancelled);
+                        }
+                        self.runtime
+                            .apply_chain_generation_replacement(
+                                returned.into_generation_replacement(),
+                            )
+                            .map_err(map_chain_generation_replacement_error)?
                     }
                 }
             }
         };
-        let committed = loop {
-            match self.runtime.apply_chain_update(command) {
-                Ok(committed) => break committed,
-                Err(failure) => {
-                    let (error, returned) = failure.into_parts();
-                    if let Some(fault) = map_chain_integrity(error) {
-                        return Err(AuthorityChainUpdateError::Integrity(fault));
-                    }
-                    command = returned;
-                    if !allocation_backoff_or_cancel(&self.cancel).await {
-                        return Err(AuthorityChainUpdateError::Cancelled);
-                    }
-                }
-            }
-        };
+        Ok(committed)
+    }
+
+    fn publish_chain_observers(&self, committed: CommittedChainUpdate) {
         // Fee estimation is a derived observer of the committed chain cut.
         // It must never run during preparation (a retried or rejected command
         // is not chain history), and candidate-uncle publication cannot veto
@@ -1416,10 +1427,12 @@ impl AuthorityService {
             }
         }
         drop(committed.snapshot);
-        Ok(())
     }
 
-    pub(crate) fn receive_candidate_uncle(&self, uncle: UncleBlockView) {
+    pub(crate) fn receive_candidate_uncle(
+        &self,
+        uncle: crate::block_assembler::BoundedCandidateUncle,
+    ) {
         if let Some(assembler) = &self.block_assembler {
             observe_candidate_uncle(assembler, uncle);
         }
@@ -1429,7 +1442,10 @@ impl AuthorityService {
         &self,
     ) -> Result<ckb_jsonrpc_types::BlockTemplate, AuthorityServiceError> {
         match &self.block_assembler {
-            Some(assembler) => Ok(assembler.current_template().await),
+            Some(assembler) => assembler
+                .current_template(&self.cancel)
+                .await
+                .map_err(map_template_availability),
             None => Err(AuthorityServiceError::BlockAssemblerDisabled),
         }
     }
@@ -1483,10 +1499,10 @@ impl AuthorityService {
 
     pub(crate) fn accepted_with_cycles(
         &self,
-        proposals: Vec<ProposalShortId>,
-    ) -> Result<HashMap<ProposalShortId, (TransactionView, u64)>, AuthorityServiceError> {
+        tx_hashes: Vec<ckb_types::packed::Byte32>,
+    ) -> Result<AcceptedTransactionsWithCycles, AuthorityServiceError> {
         self.runtime
-            .accepted_with_cycles(proposals)
+            .accepted_with_cycles(tx_hashes)
             .map_err(map_query_error)
     }
 
@@ -1533,9 +1549,23 @@ impl AuthorityService {
             .map_err(map_query_error)
             .map_err(AuthorityPersistenceError::Snapshot)?;
         let (accepted, recovery) = parent_first.into_transactions();
+        let mut accepted_transactions = Vec::new();
+        accepted_transactions
+            .try_reserve_exact(accepted.len())
+            .map_err(|_| {
+                AuthorityPersistenceError::Snapshot(AuthorityServiceError::ResourceUnavailable)
+            })?;
+        accepted_transactions.extend(accepted.into_iter().map(Arc::unwrap_or_clone));
+        let mut recovery_transactions = Vec::new();
+        recovery_transactions
+            .try_reserve_exact(recovery.len())
+            .map_err(|_| {
+                AuthorityPersistenceError::Snapshot(AuthorityServiceError::ResourceUnavailable)
+            })?;
+        recovery_transactions.extend(recovery.into_iter().map(Arc::unwrap_or_clone));
         let snapshot = crate::persisted::PersistenceSnapshot {
-            accepted: accepted.into_iter().map(Arc::unwrap_or_clone).collect(),
-            recovery: recovery.into_iter().map(Arc::unwrap_or_clone).collect(),
+            accepted: accepted_transactions,
+            recovery: recovery_transactions,
         };
         let base = self.persistence_base.clone();
         match tokio::task::spawn_blocking(move || writer.write(&base, snapshot)).await {
@@ -1557,6 +1587,21 @@ impl AuthorityService {
             .map_err(AuthorityPersistenceError::Sort)?;
         let mut replay = AuthorityPersistenceReplay::default();
         for transaction in transactions {
+            let transaction = match BoundedTransaction::try_new(transaction) {
+                Ok(transaction) => transaction,
+                Err(super::ingress::BoundedTransactionError::TooLarge { .. }) => {
+                    replay.stale = replay
+                        .stale
+                        .checked_add(1)
+                        .ok_or(AuthorityPersistenceError::Counter)?;
+                    continue;
+                }
+                Err(super::ingress::BoundedTransactionError::Allocation) => {
+                    return Err(AuthorityPersistenceError::Replay(
+                        AuthorityServiceError::ResourceUnavailable,
+                    ));
+                }
+            };
             match self
                 .submit_local(transaction)
                 .await
@@ -1703,7 +1748,7 @@ impl AuthorityService {
                 max_bytes,
                 input.snapshot().consensus().max_block_cycles(),
             ))
-            .map(|packed| packed.into_tx_entries())
+            .and_then(|packed| packed.into_tx_entries())
             .map_err(map_template_read_error)
     }
 }
@@ -1711,7 +1756,10 @@ impl AuthorityService {
 /// Candidate uncles are bounded, rebuildable template input. Failure to
 /// advance their private source counter must not veto an already-committed
 /// chain Apply or invalidate the independent transaction authority.
-fn observe_candidate_uncle(assembler: &AuthorityBlockAssembler, uncle: UncleBlockView) {
+fn observe_candidate_uncle(
+    assembler: &AuthorityBlockAssembler,
+    uncle: crate::block_assembler::BoundedCandidateUncle,
+) {
     record_candidate_uncle_observation(assembler.receive_candidate_uncle(uncle));
 }
 
@@ -1728,7 +1776,7 @@ pub(super) fn map_recent_reject_read_error(
 ) -> AuthorityDerivedError {
     match error {
         AuthorityRecentRejectReadError::Projection => AuthorityDerivedError::Authority(
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Effect),
+            AuthorityServiceError::from(AuthorityFault::EffectProjection),
         ),
         AuthorityRecentRejectReadError::Encoding(error) => {
             AuthorityDerivedError::External(error.into())
@@ -1767,13 +1815,13 @@ fn map_relay_start_error(_error: RelayMailboxConfigError) -> AuthorityServiceSta
 }
 
 fn retained_batch_bytes<'a>(
-    transactions: impl IntoIterator<Item = &'a TransactionView>,
+    transactions: impl IntoIterator<Item = &'a BoundedTransaction>,
 ) -> Result<usize, AuthorityServiceError> {
     transactions
         .into_iter()
         .try_fold(0usize, |total, transaction| {
             total
-                .checked_add(transaction.data().total_size())
+                .checked_add(transaction.payload_bytes())
                 .ok_or(AuthorityServiceError::ResourceUnavailable)
         })
 }
@@ -1791,7 +1839,7 @@ fn map_topology_start_error(error: AuthorityTopologyStartError) -> AuthorityServ
 fn map_retained_batch_error(error: RetainedIngressBoundaryError) -> AuthorityServiceError {
     match error {
         RetainedIngressBoundaryError::InvalidEvidence => {
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
+            AuthorityServiceError::from(AuthorityFault::MembershipProjection)
         }
         RetainedIngressBoundaryError::ResourceUnavailable
         | RetainedIngressBoundaryError::Backpressure(
@@ -1805,9 +1853,7 @@ fn map_retained_batch_error(error: RetainedIngressBoundaryError) -> AuthoritySer
             AuthorityServiceError::EffectCapacity
         }
         RetainedIngressBoundaryError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
-        RetainedIngressBoundaryError::Fault(fault) => {
-            AuthorityServiceError::integrity_projection(fault.into())
-        }
+        RetainedIngressBoundaryError::Fault(fault) => AuthorityServiceError::from(fault),
     }
 }
 
@@ -1829,9 +1875,9 @@ fn classify_direct_error(error: AuthorityDirectAdmissionError) -> DirectErrorDis
         AuthorityDirectAdmissionError::LifecycleClosed => {
             DirectErrorDisposition::Service(AuthorityServiceError::LifecycleClosed)
         }
-        AuthorityDirectAdmissionError::Fault(fault) => DirectErrorDisposition::Service(
-            AuthorityServiceError::integrity_projection(fault.into()),
-        ),
+        AuthorityDirectAdmissionError::Fault(fault) => {
+            DirectErrorDisposition::Service(AuthorityServiceError::from(fault))
+        }
     }
 }
 
@@ -1849,13 +1895,6 @@ async fn wait_or_cancel(
     }
 }
 
-async fn allocation_backoff_or_cancel(cancel: &CancellationToken) -> bool {
-    tokio::select! {
-        _ = cancel.cancelled() => false,
-        _ = tokio::time::sleep(Duration::from_millis(1)) => true,
-    }
-}
-
 async fn run_ordered_chain_control_driver(
     service: AuthorityService,
     mut receiver: mpsc::Receiver<ChainControl>,
@@ -1870,14 +1909,21 @@ async fn run_ordered_chain_control_driver(
             return Ok(());
         };
         match command {
-            ChainControl::Reconcile(arguments) => {
-                match service.apply_chain_update(arguments).await {
-                    Ok(()) => {}
+            ChainControl::Reconcile(Request {
+                responder,
+                arguments,
+            }) => {
+                match service.commit_chain_update(arguments) {
+                    Ok(committed) => {
+                        // This response is the exact chain-to-authority
+                        // visibility barrier.  Rebuildable fee/template
+                        // observers remain outside the coupled completion cut.
+                        respond(responder, (), "chain_reconcile_apply");
+                        service.publish_chain_observers(committed);
+                    }
                     Err(AuthorityChainUpdateError::Cancelled) => return Ok(()),
-                    Err(AuthorityChainUpdateError::Integrity(fault)) => {
-                        return AuthorityService::settle_operation_error(
-                            AuthorityServiceError::Integrity(fault),
-                        );
+                    Err(AuthorityChainUpdateError::Integrity(invalidity)) => {
+                        return Err(invalidity);
                     }
                 }
             }
@@ -1928,9 +1974,7 @@ fn map_administration_error(error: AuthorityAdministrationError) -> AuthoritySer
         AuthorityAdministrationError::Allocation => AuthorityServiceError::ResourceUnavailable,
         AuthorityAdministrationError::EffectCapacity => AuthorityServiceError::EffectCapacity,
         AuthorityAdministrationError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
-        AuthorityAdministrationError::Fault(fault) => {
-            AuthorityServiceError::integrity_projection(fault.into())
-        }
+        AuthorityAdministrationError::Fault(fault) => AuthorityServiceError::from(fault),
     }
 }
 
@@ -1938,11 +1982,31 @@ pub(super) fn map_chain_integrity(error: ChainBoundaryError) -> Option<Authority
     match error {
         ChainBoundaryError::Allocation => None,
         ChainBoundaryError::LifecycleClosed => Some(AuthorityIntegrityFault::EffectLifecycleClosed),
-        ChainBoundaryError::CounterExhausted => Some(AuthorityIntegrityFault::CounterExhausted),
+        ChainBoundaryError::CounterExhausted => Some(AuthorityIntegrityFault::from(
+            AuthorityFault::CounterExhausted,
+        )),
         ChainBoundaryError::InvalidFacts | ChainBoundaryError::InvalidSnapshotEvidence => {
             Some(AuthorityIntegrityFault::InvalidChainEvidence)
         }
-        ChainBoundaryError::Fault(fault) => Some(AuthorityIntegrityFault::Projection(fault.into())),
+        ChainBoundaryError::Fault(fault) => Some(AuthorityIntegrityFault::from(fault)),
+    }
+}
+
+fn map_chain_generation_replacement_error(
+    error: AuthorityGenerationReplacementError,
+) -> AuthorityChainUpdateError {
+    match error {
+        AuthorityGenerationReplacementError::LifecycleClosed => {
+            AuthorityChainUpdateError::integrity(AuthorityIntegrityFault::EffectLifecycleClosed)
+        }
+        AuthorityGenerationReplacementError::Fault(AuthorityFault::CounterExhausted) => {
+            AuthorityChainUpdateError::integrity(AuthorityIntegrityFault::from(
+                AuthorityFault::CounterExhausted,
+            ))
+        }
+        AuthorityGenerationReplacementError::Fault(fault) => {
+            AuthorityChainUpdateError::integrity(AuthorityIntegrityFault::from(fault))
+        }
     }
 }
 
@@ -1950,12 +2014,12 @@ fn map_query_error(error: AuthorityQueryError) -> AuthorityServiceError {
     match error {
         AuthorityQueryError::Allocation => AuthorityServiceError::ResourceUnavailable,
         AuthorityQueryError::Arithmetic => {
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Resource)
+            AuthorityServiceError::from(AuthorityFault::ResourceProjection)
         }
         AuthorityQueryError::Projection
         | AuthorityQueryError::AcceptedCycle
         | AuthorityQueryError::RecoveryCycle => {
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
+            AuthorityServiceError::from(AuthorityFault::MembershipProjection)
         }
     }
 }
@@ -1965,10 +2029,17 @@ fn map_template_read_error(error: TemplateReadError) -> AuthorityServiceError {
     match error {
         TemplateReadError::Allocation => AuthorityServiceError::ResourceUnavailable,
         TemplateReadError::Arithmetic => {
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Resource)
+            AuthorityServiceError::from(AuthorityFault::ResourceProjection)
         }
         TemplateReadError::Projection | TemplateReadError::CausalCycle => {
-            AuthorityServiceError::integrity_projection(AuthorityProjectionFault::Membership)
+            AuthorityServiceError::from(AuthorityFault::MembershipProjection)
         }
+    }
+}
+
+fn map_template_availability(error: AuthorityTemplateReadFailure) -> AuthorityServiceError {
+    match error {
+        AuthorityTemplateReadFailure::Cancelled => AuthorityServiceError::Cancelled,
+        AuthorityTemplateReadFailure::Unavailable => AuthorityServiceError::TemplateUnavailable,
     }
 }

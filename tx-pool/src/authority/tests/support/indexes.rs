@@ -5,7 +5,6 @@ pub(in crate::authority) struct IndexSnapshot {
     pub(in crate::authority) by_proposal: HashMap<ProposalId, RawTxHash>,
     pub(in crate::authority) preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
     pub(in crate::authority) context_sensitive_accepted: HashSet<RawTxHash>,
-    accepted_proposals: AcceptedProposalIndex,
     deadlines: BTreeSet<DeadlineKey>,
     accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
 }
@@ -16,7 +15,6 @@ impl AuthorityIndexes {
             by_proposal: self.by_proposal.clone(),
             preaccepted_by_peer: self.preaccepted_by_peer.clone(),
             context_sensitive_accepted: self.context_sensitive_accepted.clone(),
-            accepted_proposals: self.accepted_proposals.clone(),
             deadlines: self.deadlines.clone(),
             accepted_deadlines: self.accepted_deadlines.clone(),
         }
@@ -62,17 +60,12 @@ impl AuthorityIndexes {
                     if entry.proof.sensitivity().requires_reorg_revalidation() {
                         expected.context_sensitive_accepted.insert(key.clone());
                     }
-                    expected
-                        .accepted_proposals
-                        .for_status_mut(entry.status())
-                        .insert(entry.record.identity.proposal.clone());
                 }
             }
         }
         self.by_proposal == expected.by_proposal
             && self.preaccepted_by_peer == expected.preaccepted_by_peer
             && self.context_sensitive_accepted == expected.context_sensitive_accepted
-            && self.accepted_proposals == expected.accepted_proposals
             && self.deadlines == expected.deadlines
             && self.accepted_deadlines == expected.accepted_deadlines
     }

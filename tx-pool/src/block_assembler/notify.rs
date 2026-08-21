@@ -1,77 +1,12 @@
 //! Block template HTTP/script notification.
 
 use crate::block_assembler::BlockAssembler;
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use http_body_util::Full;
 use hyper::{Method, Request, header::HeaderValue};
 use std::{sync::Arc, time::Duration};
 use tokio::process::Command;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
-
-struct NotifyScript {
-    command: Arc<str>,
-    slot: Arc<Semaphore>,
-}
-
-impl NotifyScript {
-    fn try_claim(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.slot).try_acquire_owned().ok()
-    }
-}
-
-/// Process-lifecycle boundary for configured block-template scripts.
-///
-/// Notifications are observational and may be coalesced while the previous
-/// invocation of the same command is still running. This makes the maximum
-/// live child count a startup-configured constant instead of a function of
-/// transaction/template arrival rate.
-pub(super) struct NotifyScriptRunner {
-    scripts: Box<[NotifyScript]>,
-}
-
-impl NotifyScriptRunner {
-    pub(super) fn new(commands: &[String]) -> Self {
-        let scripts = commands
-            .iter()
-            .map(|command| NotifyScript {
-                command: Arc::from(command.as_str()),
-                slot: Arc::new(Semaphore::new(1)),
-            })
-            .collect();
-        Self { scripts }
-    }
-
-    fn notify(&self, template_json: &str, notify_timeout: Duration) {
-        for script in &self.scripts {
-            let Some(permit) = script.try_claim() else {
-                ckb_logger::debug!(
-                    "block assembler notification script {} is still running; coalescing update",
-                    script.command
-                );
-                continue;
-            };
-            let command = Arc::clone(&script.command);
-            let template_json = template_json.to_owned();
-            tokio::spawn(async move {
-                let _permit = permit;
-                let mut child = Command::new(command.as_ref());
-                child.arg(template_json).kill_on_drop(true);
-                match timeout(notify_timeout, child.status()).await {
-                    Ok(Ok(status)) => {
-                        ckb_logger::debug!("the command exited with: {status}")
-                    }
-                    Ok(Err(error)) => {
-                        ckb_logger::error!("the script {} failed to spawn: {error}", command)
-                    }
-                    Err(_) => ckb_logger::warn!(
-                        "block assembler notifying {} timed out and was terminated",
-                        command
-                    ),
-                }
-            });
-        }
-    }
-}
 
 impl BlockAssembler {
     pub(crate) fn notifications_enabled(&self) -> bool {
@@ -88,6 +23,13 @@ impl BlockAssembler {
         let template = self.get_current().await;
         if let Ok(template_json) = serde_json::to_string(&template) {
             let notify_timeout = Duration::from_millis(self.config.notify_timeout_millis);
+            // The existing Notification lane owns this complete batch. All
+            // configured endpoints run concurrently inside that one future;
+            // no nested task can outlive generation cancellation or its join.
+            // The resident concurrency bound is therefore exactly the number
+            // of configured HTTP endpoints plus commands, independent of the
+            // template publication rate.
+            let http_notifications = FuturesUnordered::new();
             for url in &self.config.notify {
                 let mut req_builder = Request::builder()
                     .method(Method::POST)
@@ -109,7 +51,7 @@ impl BlockAssembler {
                 if let Ok(req) = req_builder.body(Full::new(template_json.to_owned().into())) {
                     let client = Arc::clone(&self.poster);
                     let url = url.to_owned();
-                    tokio::spawn(async move {
+                    http_notifications.push(async move {
                         let _resp =
                             timeout(notify_timeout, client.request(req))
                                 .await
@@ -123,7 +65,30 @@ impl BlockAssembler {
                 }
             }
 
-            self.script_notifier.notify(&template_json, notify_timeout);
+            let script_notifications = FuturesUnordered::new();
+            for command in &self.config.notify_scripts {
+                let command = command.clone();
+                let template_json = template_json.clone();
+                script_notifications.push(async move {
+                    let mut child = Command::new(&command);
+                    child.arg(template_json).kill_on_drop(true);
+                    match timeout(notify_timeout, child.status()).await {
+                        Ok(Ok(status)) => {
+                            ckb_logger::debug!("the command exited with: {status}")
+                        }
+                        Ok(Err(error)) => {
+                            ckb_logger::error!("the script {command} failed to spawn: {error}")
+                        }
+                        Err(_) => ckb_logger::warn!(
+                            "block assembler notifying {command} timed out and was terminated"
+                        ),
+                    }
+                });
+            }
+
+            let mut notifications =
+                futures_util::stream::select(http_notifications, script_notifications);
+            while notifications.next().await.is_some() {}
         }
     }
 
@@ -131,7 +96,3 @@ impl BlockAssembler {
         self.notifications_enabled()
     }
 }
-
-#[cfg(test)]
-#[path = "tests/notify.rs"]
-mod tests;

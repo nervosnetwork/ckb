@@ -1,10 +1,11 @@
 use super::super::{
     chain::{
-        ChainBlockChanges, ChainPackagingMode, ProposalWindowPosition,
+        ChainBlockChanges, ProposalWindowPosition,
         test_support::{ChainTransitionFacts, FinalAdmissionError},
     },
     chain_boundary::{
-        ChainBoundaryError, ChainPackaging as RuntimeChainPackaging, ChainUpdateRequest,
+        CandidateUncleCollection, ChainBoundaryError, ChainGenerationReplacement,
+        ChainUpdateRequest,
     },
     effect::{CommittedEffect, CommittedRejection},
     plan::{
@@ -30,6 +31,9 @@ use super::foundation::{
     verify_remote_transaction_with_payload,
 };
 use ckb_network::PeerIndex;
+use ckb_proposal_table::ProposalView;
+use ckb_snapshot::Snapshot;
+use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, Capacity, FeeRate, TransactionBuilder, TransactionView},
@@ -42,6 +46,22 @@ use std::{
     num::NonZeroUsize,
     sync::Arc,
 };
+
+fn snapshot_with_proposals(
+    base: &Snapshot,
+    gap: HashSet<ProposalShortId>,
+    proposed: HashSet<ProposalShortId>,
+) -> Arc<Snapshot> {
+    let store = MockStore::default();
+    Arc::new(Snapshot::new(
+        base.tip_header().clone(),
+        base.total_difficulty().clone(),
+        base.epoch_ext().clone(),
+        store.store().get_snapshot(),
+        ProposalView::new(gap, proposed),
+        base.cloned_consensus(),
+    ))
+}
 
 #[test]
 fn uak_chain_boundary_closes_ordered_backpressure_without_open_plan_errors() {
@@ -188,7 +208,7 @@ fn uak_matching_resolution_completion_requeues_across_a_chain_view_change() {
         .yield_verify(payload)
         .expect("fixture resolution fits the checked-out work");
     let current_view = ChainViewId::new(ChainRevision(1), Byte32::new([15; 32]));
-    authority.force_chain_view(current_view.clone());
+    authority.force_chain_view(current_view);
     apply_plan(
         authority
             .apply_settlement(settlement)
@@ -369,8 +389,6 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
         next_view(67),
         block_changes(vec![winner_tx.clone()], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("winner commit facts are canonical");
     let committed = authority
@@ -393,8 +411,6 @@ fn uak_replacement_history_survives_winner_commit_and_wakes_after_reorg() {
         ChainViewId::new(ChainRevision(2), Byte32::new([68; 32])),
         block_changes(Vec::new(), vec![winner_tx]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("winner detach facts are canonical");
     let detached = authority
@@ -476,8 +492,6 @@ fn uak_chain_output_availability_respects_a_surviving_pool_spender() {
         next_view(69),
         block_changes(vec![parent_tx], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("the attached parent fact is canonical");
     let attached_parent = authority
@@ -525,8 +539,6 @@ fn empty_transition(
         next_view(byte),
         block_changes(Vec::new(), Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("empty chain facts are canonical");
     let work = authority
@@ -553,7 +565,6 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
         Vec::new(),
     );
     let child_tx = child_transaction(502, &parent_tx);
-    let child_proposal = ProposalId(child_tx.proposal_short_id());
     let child = accept_remote_transaction(
         &mut authority,
         child_tx,
@@ -566,15 +577,13 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
         next_view(51),
         block_changes(vec![parent_tx], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached facts are canonical");
     let receipt = authority
         .chain_validation_work(facts)
         .expect("committed parent produces one bounded work slice")
-        .validate_for_foundation(vec![(child_proposal, ProposalWindowPosition::Gap)])
-        .expect("the surviving Gap child is reconciled against the new window");
+        .validate_for_foundation(Vec::new())
+        .expect("an unchanged proposal position requires no cache work");
     apply_plan(
         authority
             .plan_chain_transition(receipt)
@@ -612,8 +621,6 @@ fn uak_chain_commit_closes_a_preaccepted_owner_with_exact_effect_semantics() {
         next_view(72),
         block_changes(vec![transaction.clone()], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached preaccepted fact is canonical");
     let receipt = authority
@@ -688,8 +695,6 @@ fn uak_chain_conflict_subtracts_a_deep_closure_from_its_surviving_ancestor() {
         next_view(52),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("conflict facts are canonical");
     let receipt = authority
@@ -759,8 +764,6 @@ fn uak_chain_conflict_closes_accepted_cell_dep_readers_in_the_same_apply() {
         next_view(76),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("cell-dep conflict facts are canonical");
     let receipt = authority
@@ -827,8 +830,6 @@ fn uak_conflict_dominates_simultaneous_recovery_for_accepted_and_preaccepted_own
         next_view(77),
         block_changes(vec![attached], vec![detached_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("conflict and recovery facts are canonical");
     let receipt = authority
@@ -882,8 +883,6 @@ fn uak_attached_conflict_terminalizes_preaccepted_without_trust_promotion() {
         next_view(62),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached conflict facts are canonical");
     let receipt = authority
@@ -926,9 +925,8 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         .input(CellInput::new(larger.clone(), 0))
         .input(CellInput::new(smaller.clone(), 0))
         .build();
-    let admission =
-        ValidatedAdmission::remote(candidate_tx.clone(), ckb_network::PeerIndex::from(520))
-            .expect("multi-conflict fixture is valid");
+    let admission = ValidatedAdmission::remote(candidate_tx, ckb_network::PeerIndex::from(520))
+        .expect("multi-conflict fixture is valid");
     let candidate = admission.identity.raw.clone();
     apply_plan(
         authority
@@ -947,8 +945,6 @@ fn uak_chain_conflict_commits_the_canonical_dead_outpoint() {
         next_view(64),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("multi-conflict facts are canonical");
     let receipt = authority
@@ -1030,8 +1026,6 @@ fn uak_chain_conflict_marks_a_removed_preaccepted_parents_active_child_stale() {
         next_view(63),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached conflict facts are canonical");
     let receipt = authority
@@ -1107,8 +1101,6 @@ fn uak_chain_projection_combines_status_and_aggregate_changes_once() {
         next_view(53),
         block_changes(vec![attached], Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("status and conflict facts are canonical");
     let work = authority
@@ -1165,8 +1157,6 @@ fn uak_detached_parent_and_accepted_child_recover_parent_first() {
         next_view(54),
         block_changes(Vec::new(), vec![detached_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached facts are canonical");
     let receipt = authority
@@ -1226,8 +1216,6 @@ fn uak_detached_provider_and_accepted_cell_dep_reader_recover_in_one_apply() {
         next_view(77),
         block_changes(Vec::new(), vec![detached_provider]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached provider facts are canonical");
     let receipt = authority
@@ -1290,8 +1278,6 @@ fn uak_detached_header_requeues_its_accepted_consumer_in_the_same_apply() {
             vec![detached_header],
         ),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached header facts are canonical");
     let receipt = authority
@@ -1353,8 +1339,6 @@ fn uak_recovery_orders_cell_dependencies_before_hash_tiebreaks() {
         next_view(68),
         block_changes(Vec::new(), vec![child_tx, parent_tx]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached dependency facts are canonical");
     let receipt = authority
@@ -1405,8 +1389,6 @@ fn uak_relocated_chain_producer_requeues_accepted_consumers() {
         next_view(70),
         block_changes(vec![relocated_parent.clone()], vec![relocated_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("same-raw cross-fork facts preserve relocation provenance");
     let receipt = authority
@@ -1444,8 +1426,6 @@ fn uak_direct_recovery_dominates_a_simultaneous_proposal_status_change() {
         next_view(73),
         block_changes(Vec::new(), vec![transaction]),
         vec![proposal],
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("detached recovery and proposal facts are canonical");
     let work = authority
@@ -1495,9 +1475,7 @@ fn uak_causal_recovery_dominates_a_detached_proposal_demotion() {
     let facts = ChainTransitionFacts::for_foundation(
         next_view(78),
         block_changes(Vec::new(), vec![detached_parent]),
-        Vec::new(),
         vec![proposal],
-        ChainPackagingMode::Package,
     )
     .expect("causal recovery and detached proposal facts are canonical");
     let work = authority
@@ -1557,8 +1535,6 @@ fn uak_reorg_requeues_only_context_sensitive_accepted_membership() {
             vec![Byte32::new([71; 32])],
         ),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("blank-fork detach facts are canonical");
     let receipt = authority
@@ -1609,8 +1585,6 @@ fn uak_rules_transition_cannot_claim_monotonic_accepted_validity() {
         next_view(75),
         block_changes(Vec::new(), Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("an extension without block deltas is canonical")
     .revalidate_all_for_foundation();
@@ -1661,8 +1635,6 @@ fn uak_chain_recovery_preserves_a_preaccepted_dependents_source_and_peer_budget(
         next_view(63),
         block_changes(Vec::new(), vec![detached_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached parent facts are canonical");
     let receipt = authority
@@ -1725,8 +1697,6 @@ fn uak_chain_recovery_keeps_affected_compute_settleable_across_the_cut() {
         next_view(81),
         block_changes(Vec::new(), vec![detached_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached parent facts are canonical");
     let receipt = authority
@@ -1809,8 +1779,6 @@ fn uak_preaccepted_recovery_does_not_publish_false_input_availability() {
         next_view(64),
         block_changes(Vec::new(), vec![detached_parent]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached facts are canonical");
     let receipt = authority
@@ -1884,8 +1852,6 @@ fn uak_accepted_chain_conflict_publishes_released_input_availability() {
         next_view(65),
         block_changes(vec![attached], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached conflict facts are canonical");
     let receipt = authority
@@ -1934,14 +1900,12 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
     let facts = ChainTransitionFacts::for_foundation(
         next_view(55),
         block_changes(Vec::new(), Vec::new()),
-        Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::Package,
+        vec![proposal.clone(), promoted_proposal.clone()],
     )
     .expect("proposal change is canonical");
     let receipt = authority
         .chain_validation_work(facts)
-        .expect("Gap owner is found through the proposal index")
+        .expect("the exact proposal delta selects both changed owners")
         .validate_for_foundation(vec![
             (proposal, ProposalWindowPosition::Outside),
             (promoted_proposal, ProposalWindowPosition::Proposed),
@@ -1964,7 +1928,7 @@ fn uak_chain_reconcile_demotes_gap_outside_the_new_window() {
 }
 
 #[test]
-fn uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint() {
+fn uak_chain_exact_proposal_delta_reconciles_the_selected_gap() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let transaction = output_transaction(1_754);
     let hash = accept_remote_transaction(
@@ -1978,14 +1942,12 @@ fn uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint() {
     let facts = ChainTransitionFacts::for_foundation(
         next_view(84),
         block_changes(Vec::new(), Vec::new()),
-        Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
+        vec![proposal.clone()],
     )
     .expect("proposal observation facts are canonical");
     let receipt = authority
         .chain_validation_work(facts)
-        .expect("the Accepted status index selects Gap membership")
+        .expect("the exact proposal delta selects Gap membership")
         .validate_for_foundation(vec![(proposal, ProposalWindowPosition::Outside)])
         .expect("the new window position covers the indexed Gap owner");
     apply_plan(
@@ -2002,30 +1964,32 @@ fn uak_chain_observation_reconciles_every_gap_without_changed_proposal_hint() {
 }
 
 #[test]
-fn uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot() {
+fn uak_runtime_proposal_status_is_independent_of_candidate_uncle_collection() {
     let snapshot = genesis_snapshot();
+    let transaction = output_transaction(1_755);
+    let proposal = transaction.proposal_short_id();
+    let proposed_snapshot =
+        snapshot_with_proposals(&snapshot, HashSet::new(), HashSet::from([proposal]));
     let runtime = AuthorityRuntime::new(
         &runtime_config(),
         snapshot.consensus(),
         Arc::clone(&snapshot),
     )
     .expect("the production runtime fixture is valid");
-    let transaction = output_transaction(1_755);
     let hash = runtime.with_authority_for_foundation(|authority| {
         accept_remote_transaction(
             authority,
             transaction,
             1_755,
-            AcceptedStatus::Gap,
+            AcceptedStatus::Pending,
             Vec::new(),
         )
     });
     let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::new(),
-        HashSet::new(),
-        Arc::clone(&snapshot),
-        RuntimeChainPackaging::Package,
+        Arc::clone(&proposed_snapshot),
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     .expect("empty block facts are a valid chain command");
@@ -2034,14 +1998,46 @@ fn uak_runtime_chain_boundary_reconciles_indexed_gap_against_paired_snapshot() {
         .expect("the paired snapshot and authority commit in one boundary");
 
     assert!(committed.candidate_uncles.is_empty());
-    assert_eq!(committed.snapshot.tip_hash(), snapshot.tip_hash());
+    assert!(Arc::ptr_eq(&committed.snapshot, &proposed_snapshot));
     runtime.with_authority_for_foundation(|authority| {
         assert!(matches!(
             authority.entry(&hash),
-            Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Pending
+            Some(OwnedTx::Accepted(entry)) if entry.status() == AcceptedStatus::Proposed
         ));
         assert_membership_reference(authority);
     });
+}
+
+#[test]
+fn uak_allocation_replacement_retires_the_complete_current_generation() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let transaction = child_transaction(0, &output_transaction(1_757));
+    assert!(matches!(
+        runtime.submit_remote_ingress(transaction, 0, PeerIndex::from(57)),
+        Ok(super::super::ingress::test_support::RetainedIngressCommit::Retained)
+    ));
+    let before_generation = runtime.with_authority_for_foundation(|authority| {
+        assert_eq!(authority.owner_count(), 1);
+        authority.generation()
+    });
+
+    runtime
+        .replace_current_generation_after_allocation()
+        .expect("the allocation terminal owns an allocation-free replacement");
+
+    runtime.with_authority_for_foundation(|authority| {
+        assert_eq!(authority.owner_count(), 0);
+        assert!(authority.generation().0 > before_generation.0);
+        assert_resource_reference(authority);
+    });
+    let (_view, paired_snapshot) = runtime.paired_chain_for_foundation();
+    assert!(Arc::ptr_eq(&paired_snapshot, &snapshot));
 }
 
 #[test]
@@ -2055,9 +2051,8 @@ fn uak_chain_request_returns_exact_input_after_preparation_failure() {
     let failure = match ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::from([invalid]),
-        HashSet::new(),
         Arc::clone(&snapshot),
-        RuntimeChainPackaging::ObserveOnly,
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     {
@@ -2083,9 +2078,8 @@ fn uak_chain_apply_failure_returns_the_same_prepared_command() {
     let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::from([attached]),
-        HashSet::new(),
         Arc::clone(&snapshot),
-        RuntimeChainPackaging::ObserveOnly,
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     .expect("attached block facts form one prepared command");
@@ -2142,9 +2136,8 @@ fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
     let command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::from([attached]),
-        HashSet::new(),
         Arc::clone(&snapshot),
-        RuntimeChainPackaging::ObserveOnly,
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     .expect("attached block facts are a valid chain command");
@@ -2168,6 +2161,19 @@ fn uak_runtime_chain_boundary_commits_compact_hash_cache_with_snapshot() {
     let (view, paired_snapshot) = runtime.paired_chain_for_foundation();
     assert_eq!(view.revision(), ChainRevision(1));
     assert_eq!(view.tip().0, paired_snapshot.tip_hash());
+
+    let replacement_snapshot = genesis_snapshot();
+    let replacement = runtime
+        .apply_chain_generation_replacement(ChainGenerationReplacement::from_snapshot(Arc::clone(
+            &replacement_snapshot,
+        )))
+        .expect("the minimum chain consequence cannot allocate fallible scratch");
+    assert!(replacement.attached_blocks.is_empty());
+    assert!(replacement.candidate_uncles.is_empty());
+    assert!(Arc::ptr_eq(&replacement.snapshot, &replacement_snapshot));
+    assert_eq!(runtime.committed_hash_for_foundation(&proposal), None);
+    let (_view, paired_snapshot) = runtime.paired_chain_for_foundation();
+    assert!(Arc::ptr_eq(&paired_snapshot, &replacement_snapshot));
 }
 
 #[test]
@@ -2185,9 +2191,8 @@ fn uak_runtime_chain_boundary_preserves_block_order_for_short_id_collisions() {
     let mut command = ChainUpdateRequest::new(
         VecDeque::new(),
         VecDeque::new(),
-        HashSet::new(),
         Arc::clone(&snapshot),
-        RuntimeChainPackaging::ObserveOnly,
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     .expect("empty block facts are a valid chain command");
@@ -2249,9 +2254,8 @@ fn uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch() {
     let command = ChainUpdateRequest::new(
         VecDeque::from([detached]),
         VecDeque::new(),
-        HashSet::new(),
         Arc::clone(&snapshot),
-        RuntimeChainPackaging::ObserveOnly,
+        CandidateUncleCollection::SkipCandidateUncles,
     )
     .prepare()
     .expect("detached block facts form one sealed chain command");
@@ -2296,8 +2300,6 @@ fn uak_chain_proposal_outside_demotes_remote_base_and_reactivates_its_deadline()
         next_view(83),
         block_changes(Vec::new(), Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("proposal transition facts are canonical");
     let work = authority
@@ -2392,8 +2394,6 @@ fn uak_chain_proposal_demotion_preserves_active_remote_compute_capability() {
         next_view(84),
         block_changes(Vec::new(), Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("proposal transition facts are canonical");
     let receipt = authority
@@ -2468,8 +2468,6 @@ fn uak_chain_trusted_proposal_expiry_publishes_definitive_parent_loss() {
         ChainViewId::new(ChainRevision(1), Byte32::zero()),
         block_changes(Vec::new(), Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("same-tip proposal transition facts are canonical");
     let receipt = authority
@@ -2533,8 +2531,6 @@ fn uak_chain_trusted_proposal_expiry_invalidates_active_work_without_a_drain() {
         next_view(85),
         block_changes(Vec::new(), Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("proposal transition facts are canonical");
     let receipt = authority
@@ -2578,8 +2574,6 @@ fn uak_repeated_proposal_has_no_synthetic_source_revision() {
         next_view(86),
         block_changes(Vec::new(), Vec::new()),
         vec![proposal.clone()],
-        Vec::new(),
-        ChainPackagingMode::Package,
     )
     .expect("proposal transition facts are canonical");
     let receipt = authority
@@ -2649,9 +2643,7 @@ fn uak_detached_proposal_does_not_cancel_preaccepted_compute() {
     let facts = ChainTransitionFacts::for_foundation(
         next_view(80),
         block_changes(Vec::new(), Vec::new()),
-        Vec::new(),
         vec![parent_proposal.clone()],
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached proposal facts are canonical");
     let receipt = authority
@@ -2698,8 +2690,6 @@ fn uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners() {
         next_view(56),
         block_changes(Vec::new(), Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("empty facts are canonical");
     let accepted_receipt = accepted_authority
@@ -2727,8 +2717,6 @@ fn uak_chain_receipt_ignores_unrelated_accepted_and_preaccepted_owners() {
         next_view(57),
         block_changes(Vec::new(), Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("empty facts are canonical");
     let receipt = compatible_authority
@@ -2754,8 +2742,6 @@ fn uak_chain_recovery_receipt_proves_targeted_vacancy() {
         next_view(74),
         block_changes(Vec::new(), vec![transaction.clone()]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached facts are canonical");
     let receipt = authority
@@ -2808,8 +2794,6 @@ fn uak_chain_commit_invalidates_targeted_active_work_without_a_prefix() {
         next_view(58),
         block_changes(vec![transaction], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("attached active owner is canonical");
     let receipt = authority
@@ -2861,8 +2845,6 @@ fn uak_chain_direct_recovery_replaces_active_owner_and_stales_old_work() {
         next_view(89),
         block_changes(Vec::new(), vec![transaction]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("the direct detached transaction is canonical");
     let receipt = authority
@@ -2903,8 +2885,6 @@ fn uak_large_independent_chain_facts_do_not_consume_the_causal_bound() {
         next_view(59),
         block_changes(attached, Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("the block facts themselves remain canonical");
     let work = authority
@@ -2949,8 +2929,6 @@ fn uak_direct_detached_owners_do_not_consume_the_causal_bound() {
         next_view(67),
         block_changes(Vec::new(), detached),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached block facts are canonical");
     let receipt = authority
@@ -3003,8 +2981,6 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
         next.clone(),
         block_changes(Vec::new(), vec![parent, child]),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("detached recovery facts are canonical");
     let receipt = authority
@@ -3100,8 +3076,6 @@ fn uak_chain_recovery_excludes_an_oversized_subtree_and_keeps_unrelated_work() {
                     vec![child.clone(), unrelated.clone(), oversized_parent.clone()],
                 ),
                 Vec::new(),
-                Vec::new(),
-                ChainPackagingMode::ObserveOnly,
             )
             .expect("detached recovery facts are canonical"),
         )
@@ -3181,8 +3155,6 @@ fn uak_over_bound_causal_union_requires_generation_replacement_without_a_prefix(
         next.clone(),
         block_changes(vec![attached.build()], Vec::new()),
         Vec::new(),
-        Vec::new(),
-        ChainPackagingMode::ObserveOnly,
     )
     .expect("large hostile block facts remain canonical");
     let before = authority.normalized_snapshot();
@@ -3205,14 +3177,11 @@ fn uak_over_bound_causal_union_requires_generation_replacement_without_a_prefix(
 #[test]
 fn uak_empty_chain_transition_updates_only_the_chain_cut() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let before_accepted = authority.accepted_source_for_reference();
     let before = authority.template_source_versions_for_reference();
     drop(empty_transition(&mut authority, 60));
-    let after_accepted = authority.accepted_source_for_reference();
     let after = authority.template_source_versions_for_reference();
     assert_eq!(authority.chain_revision(), ChainRevision(1));
     assert!(after.chain > before.chain);
-    assert_eq!(after_accepted, before_accepted);
     assert_eq!(after.proposals, before.proposals);
     assert_eq!(after.transactions, before.transactions);
     assert!(authority.primary_projection_consistent());

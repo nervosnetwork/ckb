@@ -1,15 +1,42 @@
-use super::super::state::{DependencyKey, ValidatedAdmission, WorkPermit};
+use super::super::state::{
+    AcceptedStatus, DependencyKey, RawTxHash, ValidatedAdmission, WorkPermit,
+};
 use super::super::{
     ingress::{
-        RemoteIngressPressure, RetainedIngress, RetainedIngressBoundaryError, RetainedIngressError,
-        RetainedIngressRejection, proposal, remote, remote_pressure_rejection,
+        RemoteIngressPressure, RetainedIngress, RetainedIngressAttempt,
+        RetainedIngressBoundaryError, RetainedIngressRejection, proposal, remote,
+        remote_pressure_rejection,
         test_support::{IngressRejectionCommit, RetainedIngressCommit},
     },
     plan::test_support::RetainedAdmissionDisposition,
 };
 use super::*;
+use crate::authority::ingress::{BoundedTransaction, BoundedTransactionError};
+use ckb_types::core::TransactionView;
 
 impl AuthorityRuntime {
+    pub(in crate::authority) fn set_accepted_status_for_foundation(
+        &self,
+        hash: &RawTxHash,
+        status: AcceptedStatus,
+    ) {
+        let committed = {
+            let mut store = self.store.write();
+            let version = store
+                .authority
+                .entry(hash)
+                .expect("the accepted fixture owner exists")
+                .record()
+                .version;
+            store
+                .authority
+                .plan_status_for_foundation(hash, version, status)
+                .expect("the fixture status transition plans")
+                .apply()
+        };
+        self.publish_committed(committed);
+    }
+
     pub(in crate::authority) async fn acquire_full_query_for_foundation(
         &self,
     ) -> super::super::query::FullQueryPermit {
@@ -127,19 +154,6 @@ impl AuthorityDirectRejection {
     }
 }
 
-impl AuthorityDirectVerifiedCandidate {
-    pub(in crate::authority) fn with_cache_update_for_foundation(
-        mut self,
-        key: ckb_verification::cache::TxVerificationCacheKey,
-        completed: ckb_verification::cache::Completed,
-    ) -> Self {
-        self.candidate = self
-            .candidate
-            .with_cache_update_for_foundation(key, completed);
-        self
-    }
-}
-
 impl AuthorityRuntime {
     pub(crate) fn new(
         config: &TxPoolConfig,
@@ -211,17 +225,25 @@ impl AuthorityRuntime {
         peer: PeerIndex,
     ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
         let consensus = self.paired_consensus();
+        let tx = BoundedTransaction::try_new(tx).map_err(|error| match error {
+            BoundedTransactionError::Allocation => {
+                RetainedIngressBoundaryError::ResourceUnavailable
+            }
+            BoundedTransactionError::TooLarge { .. } => {
+                RetainedIngressBoundaryError::InvalidEvidence
+            }
+        })?;
         match remote(tx, declared_cycles, peer, &consensus) {
-            Ok(ingress) => self
+            RetainedIngressAttempt::Validated(ingress) => self
                 .commit_retained_ingress(ingress)
                 .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Rejected(rejection)) => self
+            RetainedIngressAttempt::Rejected(rejection) => self
                 .commit_retained_ingress_rejection(rejection)
                 .map(|_| RetainedIngressCommit::Rejected)
                 .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Admission(error)) => Err(
-                RetainedIngressBoundaryError::from_admission_for_foundation(error),
-            ),
+            RetainedIngressAttempt::ProposalUnavailable => {
+                Err(RetainedIngressBoundaryError::InvalidEvidence)
+            }
         }
     }
 
@@ -230,17 +252,25 @@ impl AuthorityRuntime {
         tx: TransactionView,
     ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
         let consensus = self.paired_consensus();
+        let tx = BoundedTransaction::try_new(tx).map_err(|error| match error {
+            BoundedTransactionError::Allocation => {
+                RetainedIngressBoundaryError::ResourceUnavailable
+            }
+            BoundedTransactionError::TooLarge { .. } => {
+                RetainedIngressBoundaryError::InvalidEvidence
+            }
+        })?;
         match proposal(tx, &consensus) {
-            Ok(ingress) => self
+            RetainedIngressAttempt::Validated(ingress) => self
                 .commit_retained_ingress(ingress)
                 .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Rejected(rejection)) => self
+            RetainedIngressAttempt::Rejected(rejection) => self
                 .commit_retained_ingress_rejection(rejection)
                 .map(|_| RetainedIngressCommit::Rejected)
                 .map_err(RetainedIngressBoundaryError::from_plan),
-            Err(RetainedIngressError::Admission(error)) => Err(
-                RetainedIngressBoundaryError::from_admission_for_foundation(error),
-            ),
+            RetainedIngressAttempt::ProposalUnavailable => {
+                Err(RetainedIngressBoundaryError::ResourceUnavailable)
+            }
         }
     }
 
@@ -250,7 +280,15 @@ impl AuthorityRuntime {
         peer: PeerIndex,
         pressure: RemoteIngressPressure,
     ) -> Result<IngressRejectionCommit, RetainedIngressBoundaryError> {
-        let rejection = remote_pressure_rejection(tx, peer, pressure);
+        let tx = BoundedTransaction::try_new(tx).map_err(|error| match error {
+            BoundedTransactionError::Allocation => {
+                RetainedIngressBoundaryError::ResourceUnavailable
+            }
+            BoundedTransactionError::TooLarge { .. } => {
+                RetainedIngressBoundaryError::InvalidEvidence
+            }
+        })?;
+        let rejection = remote_pressure_rejection(tx.into_transaction(), peer, pressure);
         self.commit_retained_ingress_rejection(rejection)
             .map_err(RetainedIngressBoundaryError::from_plan)
     }
@@ -417,7 +455,8 @@ impl AuthorityRuntime {
         self.store
             .write()
             .committed_txs_hash_cache
-            .get(proposal)
+            .as_mut()
+            .and_then(|cache| cache.get(proposal))
             .cloned()
     }
 

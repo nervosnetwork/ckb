@@ -1120,50 +1120,7 @@ fn uak_owner_changes_compile_proposal_and_peer_indexes_together() {
 }
 
 #[test]
-fn uak_accepted_source_ignores_preaccepted_work_and_status_only_changes() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    assert_eq!(authority.accepted_source_for_reference(), ApplySequence(0));
-
-    let disposable = admit_remote(&mut authority, 1_704, 704);
-    assert_eq!(
-        authority.accepted_source_for_reference(),
-        ApplySequence(0),
-        "pre-acceptance owner changes cannot stale a ChainPlan"
-    );
-    let version = owner_version(&authority, &disposable);
-    apply_plan(
-        authority
-            .plan_terminalize_for_foundation(&disposable, version)
-            .expect("pre-accepted terminalization plans"),
-    );
-    assert_eq!(authority.accepted_source_for_reference(), ApplySequence(0));
-
-    let accepted = accept_remote_transaction(
-        &mut authority,
-        tx(1_705),
-        705,
-        AcceptedStatus::Gap,
-        Vec::new(),
-    );
-    let accepted_source = authority.accepted_source_for_reference();
-    assert_ne!(accepted_source, ApplySequence(0));
-
-    let version = owner_version(&authority, &accepted);
-    drop(apply_plan_for_delta(
-        authority
-            .plan_status_for_foundation(&accepted, version, AcceptedStatus::Pending)
-            .expect("status-only transition plans"),
-    ));
-    assert_eq!(
-        authority.accepted_source_for_reference(),
-        accepted_source,
-        "status-only mutation must not invalidate accepted-content work"
-    );
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_accepted_timestamp_is_part_of_the_immutable_source_cut() {
+fn uak_non_status_accepted_change_advances_both_template_sources() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = accept_remote_transaction(
         &mut authority,
@@ -1181,7 +1138,7 @@ fn uak_accepted_timestamp_is_part_of_the_immutable_source_cut() {
     };
     changed.accepted_at = AcceptedAtMillis(1);
     assert!(
-        super::super::source::test_support::replacement_changes_accepted_source_for_foundation(
+        super::super::source::test_support::replacement_changes_both_template_sources_for_foundation(
             &before,
             &OwnedTx::Accepted(changed),
         ),
@@ -1222,7 +1179,6 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
 
     let old_clocks = authority.clocks();
     let old_chain = authority.chain_view().clone();
-    let old_accepted_source = authority.accepted_source_for_reference();
     let committed = authority
         .plan_clear_pipeline()
         .expect("clear replans")
@@ -1237,10 +1193,6 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
     ));
     assert_eq!(authority.generation(), PoolGeneration(1));
     assert_eq!(authority.chain_view(), &old_chain);
-    assert_eq!(
-        authority.accepted_source_for_reference(),
-        old_accepted_source
-    );
     assert_eq!(authority.clocks().next_version, old_clocks.next_version);
     assert_eq!(authority.clocks().next_arrival, old_clocks.next_arrival);
     assert!(authority.primary_projection_consistent());
@@ -1443,6 +1395,26 @@ fn uak_local_accepted_removal_is_one_total_descendant_transition() {
         AcceptedAtMillis(10),
         AcceptedAtMillis(20),
     );
+
+    let mut alternate_bytes = parent.0.as_slice().to_vec();
+    alternate_bytes[31] ^= 1;
+    let alternate = RawTxHash(
+        Byte32::from_slice(&alternate_bytes).expect("the alternate raw hash is fixed-size"),
+    );
+    assert_eq!(
+        ckb_types::packed::ProposalShortId::from_tx_hash(&parent.0),
+        ckb_types::packed::ProposalShortId::from_tx_hash(&alternate.0)
+    );
+    let before = authority.normalized_snapshot();
+    assert!(
+        authority
+            .plan_local_removal(&alternate)
+            .expect("a colliding raw-hash miss is a normal lookup")
+            .is_none()
+    );
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(authority.entry(&parent).is_some());
+    assert!(authority.entry(&child).is_some());
 
     let committed = authority
         .plan_local_removal(&parent)
@@ -2109,7 +2081,7 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))
             if entry.source.payload_policy()
-                == PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+                == PayloadPolicy::remote_for_foundation(declared_cycles)
     ));
 
     let replacement =
@@ -2158,7 +2130,7 @@ fn uak_stale_remote_cycle_rejection_requeues_after_same_witness_proposal_promoti
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
     assert_eq!(
         verify.payload_policy(),
-        PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+        PayloadPolicy::remote_for_foundation(declared_cycles)
     );
     let stale_rejection = verify.verified(declared_cycles + 1);
 
@@ -2229,7 +2201,7 @@ fn uak_remote_verify_failure_requeues_after_same_witness_proposal_promotion() {
         checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, declared_cycles);
     assert_eq!(
         verify.payload_policy(),
-        PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+        PayloadPolicy::remote_for_foundation(declared_cycles)
     );
     let stale_rejection = verify.rejected(RejectionKind::Verification);
 
@@ -2540,7 +2512,7 @@ fn uak_direct_local_duplicate_commits_an_outcome_without_owner_mutation() {
     );
     let disposition = authority
         .plan_direct_admission_for_foundation(
-            Arc::new(transaction.clone()),
+            Arc::new(transaction),
             verified,
             AcceptedStatus::Pending,
         )
@@ -2929,7 +2901,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             permit: WorkPermit::ResolveOnly,
             grant: ComputeGrant::for_foundation(1, 1),
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
-            payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
+            payload_policy: PayloadPolicy::remote_for_foundation(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies.clone(),
         }),
@@ -2938,7 +2910,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             permit: WorkPermit::VerifyOnly(VerifyCapability::Any),
             grant: ComputeGrant::for_foundation(1, 1),
             attribution: ComputeAttribution::Peer(PeerIndex::from(17)),
-            payload_policy: PayloadPolicy::RemoteDeclaredCycles(0),
+            payload_policy: PayloadPolicy::remote_for_foundation(0),
             dependency_cut: DependencyCut(ApplySequence(1)),
             dependencies: declared_dependencies,
         }),
@@ -2978,7 +2950,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
             record: entry.record,
             provenance: entry.source.accepted_provenance(),
             proof: AcceptedProof::for_foundation(verified),
-            proposal: ProposalContextReceipt::from_validation(AcceptedStatus::Gap),
+            proposal: ProposalContextReceipt::from_internal_status(AcceptedStatus::Gap),
             accepted_at: AcceptedAtMillis::FOUNDATION,
         }),
         OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
@@ -3546,10 +3518,9 @@ fn uak_independent_batch_reserves_one_apply_sequence_and_distinct_versions() {
             before.next_version.0 + u128::try_from(hashes.len()).expect("fixture length fits u128")
         )
     );
-    assert_eq!(
-        authority.accepted_source_for_reference(),
-        before.next_sequence
-    );
+    let template = authority.template_source_versions_for_reference();
+    assert_eq!(template.proposals, before.next_sequence);
+    assert_eq!(template.transactions, before.next_sequence);
 
     let versions = hashes
         .iter()
@@ -3592,10 +3563,9 @@ fn uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free() {
         final_sequence.clocks().next_sequence,
         ApplySequence(u128::MAX)
     );
-    assert_eq!(
-        final_sequence.accepted_source_for_reference(),
-        ApplySequence(u128::MAX - 1)
-    );
+    let template = final_sequence.template_source_versions_for_reference();
+    assert_eq!(template.proposals, ApplySequence(u128::MAX - 1));
+    assert_eq!(template.transactions, ApplySequence(u128::MAX - 1));
 
     let (mut sequence_exhausted, hashes) = independent_fixture(2);
     sequence_exhausted.force_next_sequence(ApplySequence(u128::MAX));
@@ -3650,7 +3620,7 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
         resolved_payload_with_facts(
             &right_tx,
             Vec::new(),
-            vec![shared_input.clone()],
+            vec![shared_input],
             Capacity::shannons(2_000),
         ),
     );
@@ -3691,7 +3661,7 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
         214,
         resolved_payload_with_facts(
             &reader_tx,
-            vec![spent.clone()],
+            vec![spent],
             vec![independent_input],
             Capacity::shannons(2_000),
         ),
@@ -3793,7 +3763,7 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
         resolved_payload_with_facts(
             &spender_tx,
             Vec::new(),
-            vec![conditional_cell.clone()],
+            vec![conditional_cell],
             Capacity::shannons(2_000),
         ),
     );
@@ -4650,6 +4620,89 @@ fn uak_late_parent_cannot_bypass_the_descendant_ancestor_bound() {
 }
 
 #[test]
+fn uak_develop_stale_parent_eviction_shape_is_total_rejection_without_mutation() {
+    let bounded =
+        limits().with_accepted_for_foundation(AcceptedResources::new(4, 64 * 1024, 64 * 1024, 64));
+    let mut authority = TxPoolAuthority::with_max_ancestors_for_foundation(bounded, 2);
+    let dependency = OutPoint::new(Byte32::new([230; 32]), 0);
+
+    let reader_tx = TransactionBuilder::default()
+        .version(1_330u32)
+        .cell_dep(CellDep::new_builder().out_point(dependency.clone()).build())
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let reader = accept_remote_transaction_with_payload(
+        &mut authority,
+        reader_tx.clone(),
+        1_330,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(&reader_tx, Vec::new(), Vec::new(), Capacity::shannons(100)),
+    );
+
+    let descendant_tx = TransactionBuilder::default()
+        .version(1_331u32)
+        .input(CellInput::new(OutPoint::new(reader_tx.hash(), 0), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let descendant = accept_remote_transaction_with_payload(
+        &mut authority,
+        descendant_tx.clone(),
+        1_331,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &descendant_tx,
+            Vec::new(),
+            Vec::new(),
+            Capacity::shannons(100),
+        ),
+    );
+
+    // This is the exact legal shape that made develop's legacy pool_map evict
+    // the dependency reader and its descendant, then continue from a stale
+    // parent snapshot. V1 has no partial-eviction transition: the candidate
+    // still has both ancestors, so the total read-only Plan rejects it and
+    // leaves the coherent authority cut unchanged.
+    let candidate_tx = TransactionBuilder::default()
+        .version(1_332u32)
+        .input(CellInput::new(dependency.clone(), 0))
+        .input(CellInput::new(OutPoint::new(descendant_tx.hash(), 0), 0))
+        .build();
+    let candidate = verify_remote_transaction_with_payload(
+        &mut authority,
+        candidate_tx.clone(),
+        1_332,
+        resolved_payload_with_facts(
+            &candidate_tx,
+            Vec::new(),
+            vec![dependency],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let before = authority.normalized_snapshot();
+    let batch = independent_batch(&authority, &[candidate]);
+    let reason = rejected_coupled_reason_and_drop(
+        authority
+            .plan_settlement(&batch)
+            .expect("the legacy stale-parent shape has one total disposition"),
+    );
+
+    assert_eq!(reason, MembershipReject::TooManyAncestors);
+    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(matches!(
+        authority.entry(&reader),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert!(matches!(
+        authority.entry(&descendant),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_capacity_self_eviction_is_precomputed_and_mutation_free() {
     let bounded =
         limits().with_accepted_for_foundation(AcceptedResources::new(1, 64 * 1024, 64 * 1024, 64));
@@ -5007,7 +5060,7 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
     assert_eq!(entry.ancestors_count, 1);
     assert_eq!(entry.descendants_count, 1);
     assert_eq!(*peer, PeerIndex::from(60));
-    let expected_victims = HashSet::from([victim.clone(), child.clone()]);
+    let expected_victims = HashSet::from([victim, child]);
     assert_eq!(rejected.len(), expected_victims.len());
     for effect in rejected {
         let CommittedEffect::Rejected(CommittedRejection::Replaced { entry, winner }) = effect
@@ -5284,7 +5337,7 @@ fn uak_replacement_history_reserves_raw_edges_until_wake() {
         resolved_payload_with_facts(
             &middle_tx,
             Vec::new(),
-            vec![released_input.clone(), retained_input.clone()],
+            vec![released_input, retained_input.clone()],
             Capacity::shannons(10_000),
         ),
     );
@@ -5560,7 +5613,7 @@ fn uak_replacement_history_wakes_only_on_newer_projected_availability() {
         resolved_payload_with_facts(
             &middle_tx,
             Vec::new(),
-            vec![released_input.clone(), retained_input.clone()],
+            vec![released_input, retained_input.clone()],
             Capacity::shannons(10_000),
         ),
     );
@@ -8169,7 +8222,7 @@ fn uak_stale_dependency_head_cannot_abort_unrelated_checkout() {
     let stale_input = OutPoint::new(parent_tx.hash(), 0);
     let stale_tx = TransactionBuilder::default()
         .version(901u32)
-        .input(CellInput::new(stale_input.clone(), 0))
+        .input(CellInput::new(stale_input, 0))
         .build();
     let fresh_input = OutPoint::new(Byte32::new([0xd2; 32]), 0);
     let fresh_tx = TransactionBuilder::default()

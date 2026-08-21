@@ -152,6 +152,261 @@ pub(super) enum Lifecycle {
     StartupFailed,
 }
 
+/// Semantic task classes for one service generation. Dynamic handler and
+/// worker multiplicities refine these classes; they do not create new owners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum GenerationTaskRole {
+    DispatcherRoot,
+    MessageHandler,
+    ChainControl,
+    ComputeCoordinator,
+    ComputeWorker,
+    Ready,
+    Maintenance,
+    EffectPublisher,
+    VerificationCache,
+    TemplateLane,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GenerationTaskOwner {
+    ProcessRuntimeGuard,
+    DispatcherJoinSet,
+    AuthorityGeneration,
+    AuthorityTaskTopology,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GenerationTaskCriticality {
+    LifecycleRoot,
+    AuthorityCapability,
+    DerivedProjection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct GenerationTaskContract {
+    pub(super) role: GenerationTaskRole,
+    pub(super) owner: GenerationTaskOwner,
+    pub(super) criticality: GenerationTaskCriticality,
+    pub(super) join_cut: Option<ShutdownPhase>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GenerationTaskExit {
+    LifecycleCancellation,
+    OwnerClosed,
+    OrdinaryEndpointFailure,
+    StructuralFailure,
+    JoinFailure,
+    Timeout,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GenerationTaskDisposition {
+    Continue,
+    Join,
+    RequestShutdown,
+    DerivedDegraded,
+    PersistenceForbidden,
+}
+
+pub(super) const GENERATION_TASK_ROLES: [GenerationTaskRole; 10] = [
+    GenerationTaskRole::DispatcherRoot,
+    GenerationTaskRole::MessageHandler,
+    GenerationTaskRole::ChainControl,
+    GenerationTaskRole::ComputeCoordinator,
+    GenerationTaskRole::ComputeWorker,
+    GenerationTaskRole::Ready,
+    GenerationTaskRole::Maintenance,
+    GenerationTaskRole::EffectPublisher,
+    GenerationTaskRole::VerificationCache,
+    GenerationTaskRole::TemplateLane,
+];
+
+pub(super) const fn generation_task_contract(role: GenerationTaskRole) -> GenerationTaskContract {
+    use GenerationTaskCriticality::{AuthorityCapability, DerivedProjection, LifecycleRoot};
+    use GenerationTaskOwner::{
+        AuthorityGeneration, AuthorityTaskTopology, DispatcherJoinSet, ProcessRuntimeGuard,
+    };
+    match role {
+        GenerationTaskRole::DispatcherRoot => GenerationTaskContract {
+            role,
+            owner: ProcessRuntimeGuard,
+            criticality: LifecycleRoot,
+            join_cut: None,
+        },
+        GenerationTaskRole::MessageHandler => GenerationTaskContract {
+            role,
+            owner: DispatcherJoinSet,
+            criticality: AuthorityCapability,
+            join_cut: Some(ShutdownPhase::HandlersDrained),
+        },
+        GenerationTaskRole::ChainControl => GenerationTaskContract {
+            role,
+            owner: AuthorityGeneration,
+            criticality: AuthorityCapability,
+            join_cut: Some(ShutdownPhase::ChainControlJoined),
+        },
+        GenerationTaskRole::ComputeCoordinator
+        | GenerationTaskRole::ComputeWorker
+        | GenerationTaskRole::Ready
+        | GenerationTaskRole::Maintenance => GenerationTaskContract {
+            role,
+            owner: AuthorityTaskTopology,
+            criticality: AuthorityCapability,
+            join_cut: Some(ShutdownPhase::AuthorityWorkersJoined),
+        },
+        GenerationTaskRole::EffectPublisher => GenerationTaskContract {
+            role,
+            owner: AuthorityTaskTopology,
+            criticality: AuthorityCapability,
+            join_cut: Some(ShutdownPhase::EffectsDrained),
+        },
+        GenerationTaskRole::VerificationCache | GenerationTaskRole::TemplateLane => {
+            GenerationTaskContract {
+                role,
+                owner: AuthorityTaskTopology,
+                criticality: DerivedProjection,
+                join_cut: Some(ShutdownPhase::DerivedTasksJoined),
+            }
+        }
+    }
+}
+
+/// Total task-exit algebra. External endpoint failure is consumed inside the
+/// publisher or notification lane and therefore cannot become a task exit or
+/// a service-stop request. Structural task loss is classified only by the
+/// capability domain it owns.
+pub(super) const fn generation_task_disposition(
+    role: GenerationTaskRole,
+    exit: GenerationTaskExit,
+) -> GenerationTaskDisposition {
+    match exit {
+        GenerationTaskExit::LifecycleCancellation => GenerationTaskDisposition::Join,
+        GenerationTaskExit::OrdinaryEndpointFailure => GenerationTaskDisposition::Continue,
+        GenerationTaskExit::StructuralFailure
+        | GenerationTaskExit::JoinFailure
+        | GenerationTaskExit::Timeout => match generation_task_contract(role).criticality {
+            GenerationTaskCriticality::DerivedProjection => {
+                GenerationTaskDisposition::DerivedDegraded
+            }
+            GenerationTaskCriticality::LifecycleRoot
+            | GenerationTaskCriticality::AuthorityCapability => {
+                GenerationTaskDisposition::PersistenceForbidden
+            }
+        },
+        GenerationTaskExit::OwnerClosed => match role {
+            GenerationTaskRole::DispatcherRoot
+            | GenerationTaskRole::ChainControl
+            | GenerationTaskRole::ComputeCoordinator
+            | GenerationTaskRole::EffectPublisher => GenerationTaskDisposition::RequestShutdown,
+            GenerationTaskRole::VerificationCache | GenerationTaskRole::TemplateLane => {
+                GenerationTaskDisposition::DerivedDegraded
+            }
+            GenerationTaskRole::MessageHandler
+            | GenerationTaskRole::ComputeWorker
+            | GenerationTaskRole::Ready
+            | GenerationTaskRole::Maintenance => GenerationTaskDisposition::Continue,
+        },
+    }
+}
+
+/// Readiness of the completion input while one compute completion is already
+/// blocked behind the committed-effect frontier during shutdown.
+///
+/// An open empty receiver is pending. A disconnected receiver is permanently
+/// ready and returns `None`; those states therefore cannot be quotiented even
+/// though neither carries another completion value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ModelCoordinatorCompletionReadiness {
+    OpenPending,
+    DisconnectedReady,
+    Closed,
+}
+
+/// Exact wait cut for a nonempty set of finished compute capabilities blocked
+/// behind committed-effect publication during coordinator shutdown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ModelEffectBlockedShutdownCut {
+    completion: ModelCoordinatorCompletionReadiness,
+    effect_waiters: usize,
+    effect_notification_ready: bool,
+}
+
+impl ModelEffectBlockedShutdownCut {
+    pub(super) const fn new(
+        completion: ModelCoordinatorCompletionReadiness,
+        effect_waiters: usize,
+        effect_notification_ready: bool,
+    ) -> Self {
+        Self {
+            completion,
+            effect_waiters,
+            effect_notification_ready,
+        }
+    }
+
+    pub(super) const fn completion(self) -> ModelCoordinatorCompletionReadiness {
+        self.completion
+    }
+
+    pub(super) const fn effect_waiters(self) -> usize {
+        self.effect_waiters
+    }
+
+    pub(super) const fn with_effect_notification(self) -> Self {
+        Self {
+            effect_notification_ready: true,
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ModelCoordinatorShutdownObservation {
+    Pending,
+    CompletionIngressClosed,
+    EffectWaitersPromoted,
+}
+
+/// One corrected shutdown step. A disconnected receive has exactly one
+/// observation: it terminalizes the completion ingress. The absorbing Closed
+/// state can never compete in the next wait, so every later effect-capacity
+/// notification strictly removes one waiter from the finite drain rank.
+pub(super) const fn completion_ingress_shutdown_step(
+    cut: ModelEffectBlockedShutdownCut,
+) -> (
+    ModelEffectBlockedShutdownCut,
+    ModelCoordinatorShutdownObservation,
+) {
+    match cut.completion {
+        ModelCoordinatorCompletionReadiness::DisconnectedReady => (
+            ModelEffectBlockedShutdownCut {
+                completion: ModelCoordinatorCompletionReadiness::Closed,
+                ..cut
+            },
+            ModelCoordinatorShutdownObservation::CompletionIngressClosed,
+        ),
+        ModelCoordinatorCompletionReadiness::OpenPending
+        | ModelCoordinatorCompletionReadiness::Closed
+            if cut.effect_notification_ready && cut.effect_waiters > 0 =>
+        {
+            (
+                ModelEffectBlockedShutdownCut {
+                    effect_waiters: cut.effect_waiters - 1,
+                    effect_notification_ready: false,
+                    ..cut
+                },
+                ModelCoordinatorShutdownObservation::EffectWaitersPromoted,
+            )
+        }
+        ModelCoordinatorCompletionReadiness::OpenPending
+        | ModelCoordinatorCompletionReadiness::Closed => {
+            (cut, ModelCoordinatorShutdownObservation::Pending)
+        }
+    }
+}
+
 /// Ordered shutdown sub-protocol for the persistence eligibility cut.
 ///
 /// Cancellation may wake several tasks concurrently, but persistence is
@@ -172,6 +427,9 @@ pub(super) enum ShutdownPhase {
     PersistenceCaptured,
     Persisted,
     PersistenceFailed,
+    Invalidating,
+    AbortRequested,
+    InvalidTasksJoined,
     PersistenceForbidden,
 }
 
@@ -189,6 +447,9 @@ pub(super) enum ShutdownAction {
     PersistenceWriteFailed,
     DerivedTaskFailed,
     AuthorityCapabilityLost,
+    RequestAbort,
+    JoinAbortedTasks,
+    ReportPersistenceForbidden,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,12 +487,16 @@ impl ShutdownProtocol {
         if action == ShutdownAction::AuthorityCapabilityLost {
             if matches!(
                 self.phase,
-                ShutdownPhase::Persisted | ShutdownPhase::PersistenceFailed
+                ShutdownPhase::Persisted
+                    | ShutdownPhase::PersistenceFailed
+                    | ShutdownPhase::Invalidating
+                    | ShutdownPhase::AbortRequested
+                    | ShutdownPhase::InvalidTasksJoined
             ) {
                 return ShutdownDisposition::OutOfOrder(self.phase);
             }
-            self.phase = ShutdownPhase::PersistenceForbidden;
-            return ShutdownDisposition::PersistenceForbidden;
+            self.phase = ShutdownPhase::Invalidating;
+            return ShutdownDisposition::Advanced(ShutdownPhase::Invalidating);
         }
         if self.phase == ShutdownPhase::PersistenceForbidden {
             return ShutdownDisposition::PersistenceForbidden;
@@ -278,6 +543,16 @@ impl ShutdownProtocol {
             (ShutdownPhase::PersistenceCaptured, ShutdownAction::PersistenceWriteFailed) => {
                 self.phase = ShutdownPhase::PersistenceFailed;
                 return ShutdownDisposition::PersistenceFailed;
+            }
+            (ShutdownPhase::Invalidating, ShutdownAction::RequestAbort) => {
+                ShutdownPhase::AbortRequested
+            }
+            (ShutdownPhase::AbortRequested, ShutdownAction::JoinAbortedTasks) => {
+                ShutdownPhase::InvalidTasksJoined
+            }
+            (ShutdownPhase::InvalidTasksJoined, ShutdownAction::ReportPersistenceForbidden) => {
+                self.phase = ShutdownPhase::PersistenceForbidden;
+                return ShutdownDisposition::PersistenceForbidden;
             }
             _ => return ShutdownDisposition::OutOfOrder(self.phase),
         };
@@ -335,6 +610,10 @@ pub(super) enum SystemEvent {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+// Keeping the step inline makes allocation part of the modeled transition
+// explicit; boxing it would add an allocation that the production quotient
+// does not own.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum SystemDisposition {
     Enqueued(RequestId),
     QueueFull(RequestId),

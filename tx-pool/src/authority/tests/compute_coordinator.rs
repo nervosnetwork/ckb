@@ -298,3 +298,140 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
         .await
         .expect("the structured worker generation closes cleanly");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_shutdown_drains_effect_blocked_completion_after_ingress_closes() {
+    const EFFECT_BYTES: usize = 1024 * 1024;
+    let mut config = runtime_config();
+    config.max_tx_verify_workers = 1;
+    config.min_fee_rate = FeeRate::from_u64(1_000);
+    let snapshot = genesis_snapshot();
+    let effects = EffectLimits::partitioned(
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectBatchBounds::new(
+            EffectBatchBound::new(1, EFFECT_BYTES),
+            EffectBatchBound::new(1, EFFECT_BYTES),
+            EffectBatchBound::new(1, EFFECT_BYTES),
+        ),
+    )
+    .expect("the fixture admits one effect per region");
+    let runtime = AuthorityRuntime::new_with_effect_limits_for_foundation(
+        &config,
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+        effects,
+    )
+    .expect("the narrow effect runtime is valid");
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::for_foundation(
+                Arc::new(TransactionBuilder::default().version(90_011u32).build()),
+                RejectionAudience::foundation(),
+                RejectionKind::Policy,
+            )),
+        )
+        .expect("the occupied Remote effect commits");
+
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let cache = Arc::new(RwLock::new(ckb_verification::cache::init_cache()));
+    let (cache_tx, _cache_rx) = mpsc::channel(4);
+    let workers = AuthorityTestWorkerOwner::spawn_set(
+        runtime.clone(),
+        &handle,
+        cache,
+        cache_tx,
+        ChunkCommand::Resume,
+    )
+    .expect("the compute exchange topology starts");
+
+    let blocked = ValidatedAdmission::remote(tx(90_012), PeerIndex::from(4usize))
+        .expect("the effect-blocked fixture is valid");
+    let blocked_key = blocked.identity.raw.clone();
+    runtime.admit(blocked).expect("the admission commits");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !runtime.with_authority_for_foundation(|authority| {
+            matches!(
+                authority.entry(&blocked_key),
+                Some(OwnedTx::PreAccepted(entry))
+                    if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+            )
+        }) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the effect-blocked owner is checked out");
+
+    workers
+        .send(ChunkCommand::Suspend)
+        .expect("the fixture suspends new checkout");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while runtime.available_compute_permits_for_foundation() != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the finished capability parks behind effect capacity");
+
+    // Shutdown joins the workers before the coordinator. Therefore all
+    // completion senders retire while the finished capability is still
+    // effect-blocked. The old biased receive arm then returned `None`
+    // forever and could not observe the later capacity release.
+    let shutdown = tokio::spawn(workers.shutdown());
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+    }
+    let occupied = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("the occupied effect remains publishable");
+    runtime
+        .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+        .expect("effect capacity is released through its authority boundary");
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while runtime.with_authority_for_foundation(|authority| {
+            matches!(
+                authority.entry(&blocked_key),
+                Some(OwnedTx::PreAccepted(entry))
+                    if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+            )
+        }) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("closed completion ingress cannot starve the effect-drain rank");
+    shutdown
+        .await
+        .expect("the shutdown owner task joins")
+        .expect("the structured worker generation closes cleanly");
+    assert_eq!(runtime.available_compute_permits_for_foundation(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_completion_ingress_close_outside_shutdown_is_a_lifecycle_fault() {
+    let mut config = runtime_config();
+    config.max_tx_verify_workers = 1;
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
+        .expect("the isolated coordinator runtime is valid");
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let mut owner =
+        crate::authority::compute_coordinator::test_support::isolated_coordinator(runtime, &handle)
+            .expect("the isolated coordinator starts");
+
+    owner.close_completion_ingress();
+    let fault = tokio::time::timeout(Duration::from_secs(2), owner.join())
+        .await
+        .expect("the abnormal ingress close is observed")
+        .expect("the coordinator task joins")
+        .expect_err("an ingress close outside shutdown is not a clean drain");
+    assert!(matches!(
+        fault.into_kind(),
+        AuthorityWorkerFaultKind::LifecycleClosed
+    ));
+}

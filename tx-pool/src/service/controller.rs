@@ -1,11 +1,13 @@
 //! Tx-pool controller.
 
+use crate::block_assembler::BoundedCandidateUncle;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
 use crate::service::{
-    AdministrationGate, AdmittedAdministration, AsyncRequest, BlockTemplateResult, ChainControl,
-    FeeEstimatesResult, FetchTxsWithCyclesResult, GetTransactionWithStatusResult,
-    GetTxStatusResult, Message, Notify, NotifyTxBatch, RemoteTxSubmission, Request, SubmitTxResult,
-    TestAcceptTxResult,
+    AdministrationGate, AdmittedAdministration, AsyncRequest, BlockTemplateResult,
+    BoundedProposalIds, BoundedTransaction, BoundedTransactionError, BoundedTransactionHashes,
+    ChainControl, ChainReorgArgs, ChainReorgPayloadLimit, FeeEstimatesResult,
+    FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
+    NotifyTxBatch, RemoteTxSubmission, Request, SubmitTxResult, TestAcceptTxResult,
 };
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
@@ -44,6 +46,8 @@ pub struct TxPoolController {
     pub(crate) handle: Handle,
     pub(crate) started: Arc<AtomicBool>,
     pub(crate) administration_gate: AdministrationGate,
+    pub(crate) chain_reorg_payload_limit: ChainReorgPayloadLimit,
+    pub(crate) candidate_uncle_payload_limit: usize,
     pub(crate) signal: CancellationToken,
 }
 
@@ -117,6 +121,23 @@ macro_rules! reject_callback_mutation {
     };
 }
 
+fn ingress_allocation_error() -> AnyError {
+    ckb_error::OtherError::new("tx-pool transaction ingress allocation unavailable".to_owned())
+        .into()
+}
+
+fn bounded_direct_transaction(
+    transaction: TransactionView,
+) -> Result<Result<BoundedTransaction, ckb_types::core::tx_pool::Reject>, AnyError> {
+    match BoundedTransaction::try_new(transaction) {
+        Ok(transaction) => Ok(Ok(transaction)),
+        Err(BoundedTransactionError::TooLarge { actual, maximum }) => Ok(Err(
+            ckb_types::core::tx_pool::Reject::ExceededTransactionSizeLimit(actual, maximum),
+        )),
+        Err(BoundedTransactionError::Allocation) => Err(ingress_allocation_error()),
+    }
+}
+
 impl TxPoolController {
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
@@ -149,6 +170,12 @@ impl TxPoolController {
 
     /// Notify new uncle
     pub fn notify_new_uncle(&self, uncle: UncleBlockView) -> Result<(), AnyError> {
+        let uncle = BoundedCandidateUncle::try_new(uncle, self.candidate_uncle_payload_limit)
+            .map_err(|error| {
+                ckb_error::OtherError::new(format!(
+                    "tx-pool candidate-uncle ingress rejected: {error:?}"
+                ))
+            })?;
         send_notify!(self, NewUncle, uncle)
     }
 
@@ -164,11 +191,19 @@ impl TxPoolController {
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("update_tx_pool_for_reorg");
-        let command = ChainControl::Reconcile((
-            detached_blocks,
-            attached_blocks,
-            detached_proposal_id,
-            snapshot,
+        // Public compatibility facade only. Proposal position changes are
+        // derived inside the authority from its paired old/new snapshots; a
+        // caller-provided subset has no policy or cache-maintenance authority.
+        drop(detached_proposal_id);
+        let (responder, response) = oneshot::channel();
+        let command = ChainControl::Reconcile(Request::call(
+            ChainReorgArgs::bounded(
+                detached_blocks,
+                attached_blocks,
+                snapshot,
+                self.chain_reorg_payload_limit,
+            ),
+            responder,
         ));
         // Reorg messages are authoritative chain-state transitions, not
         // best-effort notifications. Dropping one when the bounded channel is
@@ -183,13 +218,22 @@ impl TxPoolController {
                 .block_on(self.chain_control_sender.send(command))
         })
         .map_err(|error| {
-            ckb_error::OtherError::new(format!("send chain reconciliation fails: {error}")).into()
-        })
+            AnyError::from(ckb_error::OtherError::new(format!(
+                "send chain reconciliation fails: {error}"
+            )))
+        })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         reject_callback_mutation!("submit_local_tx");
+        let tx = match bounded_direct_transaction(tx)? {
+            Ok(tx) => tx,
+            Err(reason) => return Ok(Err(reason)),
+        };
         send_message!(self, SubmitLocalTx, tx)
     }
 
@@ -197,6 +241,10 @@ impl TxPoolController {
     /// Won't be broadcasted to network
     /// won't be insert to tx-pool
     pub fn test_accept_tx(&self, tx: TransactionView) -> Result<TestAcceptTxResult, AnyError> {
+        let tx = match bounded_direct_transaction(tx)? {
+            Ok(tx) => tx,
+            Err(reason) => return Ok(Err(reason)),
+        };
         send_message!(self, TestAcceptTx, tx)
     }
 
@@ -215,8 +263,14 @@ impl TxPoolController {
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("submit_remote_tx");
         let (responder, response) = tokio::sync::oneshot::channel();
+        let transaction = BoundedTransaction::try_new(tx).map_err(|error| match error {
+            BoundedTransactionError::TooLarge { actual, maximum } => AnyError::from(
+                ckb_types::core::tx_pool::Reject::ExceededTransactionSizeLimit(actual, maximum),
+            ),
+            BoundedTransactionError::Allocation => ingress_allocation_error(),
+        })?;
         let request = AsyncRequest::call(
-            RemoteTxSubmission::new(tx, declared_cycles, peer),
+            RemoteTxSubmission::new(transaction, declared_cycles, peer),
             responder,
         );
         self.sender
@@ -264,7 +318,7 @@ impl TxPoolController {
         proposals: Vec<ProposalShortId>,
     ) -> Result<Vec<ProposalShortId>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(proposals, responder);
+        let request = AsyncRequest::call(BoundedProposalIds::try_from_vec(proposals)?, responder);
         self.sender
             .try_send(Message::FreshProposalsFilter(request))
             .map_err(|e| {
@@ -294,7 +348,7 @@ impl TxPoolController {
         short_ids: HashSet<ProposalShortId>,
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(short_ids, responder);
+        let request = AsyncRequest::call(BoundedProposalIds::try_from_set(short_ids)?, responder);
         self.sender
             .try_send(Message::FetchTxs(request))
             .map_err(|e| {
@@ -304,14 +358,17 @@ impl TxPoolController {
         response.await.map_err(Into::into)
     }
 
-    /// Return txs with cycles
-    /// Mainly for relay transactions
+    /// Return accepted transactions with cycles by complete raw transaction
+    /// hash. This identity is distinct from compact-block proposal IDs.
     pub async fn fetch_txs_with_cycles(
         &self,
-        short_ids: HashSet<ProposalShortId>,
+        tx_hashes: HashSet<Byte32>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(short_ids, responder);
+        let request = AsyncRequest::call(
+            BoundedTransactionHashes::try_from_set(tx_hashes)?,
+            responder,
+        );
         self.sender
             .try_send(Message::FetchTxsWithCycles(request))
             .map_err(|e| {
@@ -408,6 +465,10 @@ impl TxPoolController {
     /// its definitive validation/commit result synchronously.
     pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         reject_callback_mutation!("submit_local_test_tx");
+        let tx = match bounded_direct_transaction(tx)? {
+            Ok(tx) => tx,
+            Err(reason) => return Ok(Err(reason)),
+        };
         send_message!(self, SubmitLocalTestTx, tx)
     }
 

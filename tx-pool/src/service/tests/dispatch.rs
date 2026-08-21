@@ -31,8 +31,11 @@ fn remote_partial_commit_acknowledges_only_the_committed_prefix() {
 #[test]
 fn impossible_remote_progress_invalidates_the_generation_without_acknowledging_past_the_batch() {
     let (responder, response) = tokio::sync::oneshot::channel();
+    let progress =
+        crate::authority::service::RemoteIngressBatchProgress::complete_for_foundation(2);
+    let (completed, error) = progress.into_checked_parts(1);
     assert!(
-        settle_remote_responder_prefix(vec![responder], 2, None).is_err(),
+        settle_remote_responder_prefix(vec![responder], completed, error).is_err(),
         "completed progress outside the responder capability is structural",
     );
 

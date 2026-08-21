@@ -75,6 +75,237 @@ pub(super) fn prepare_bounded_scratch(
     }
 }
 
+/// Normal forms for an immutable variable-sized collection which must be
+/// shared across authority evidence after its hostile-sized backing has been
+/// reserved fallibly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SharedVariableResidencyNormalForm {
+    /// Store an owned Vec and deep-clone it for each evidence alias.
+    DeepOwnedClone,
+    /// Convert the prepared Vec into Arc<[T]>, requiring a second variable
+    /// allocation whose stable API cannot report pressure.
+    ReboxedArcSlice,
+    /// Move the prepared Vec behind a fixed-size Arc and share the backing.
+    SharedReservedVec,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct SharedVariableResidencyCost {
+    pub(super) variable_allocations: u8,
+    pub(super) variable_copies: u8,
+    pub(super) fixed_wrapper_objects: u8,
+}
+
+impl SharedVariableResidencyNormalForm {
+    /// Hard feasibility requires every hostile-sized allocation to remain
+    /// fallible and every later alias to allocate/copy O(1) variable data.
+    pub(super) const fn feasible(self) -> bool {
+        matches!(self, Self::SharedReservedVec)
+    }
+
+    pub(super) const fn static_cost(self) -> SharedVariableResidencyCost {
+        match self {
+            Self::DeepOwnedClone => SharedVariableResidencyCost {
+                variable_allocations: 2,
+                variable_copies: 1,
+                fixed_wrapper_objects: 0,
+            },
+            Self::ReboxedArcSlice => SharedVariableResidencyCost {
+                variable_allocations: 2,
+                variable_copies: 1,
+                fixed_wrapper_objects: 1,
+            },
+            Self::SharedReservedVec => SharedVariableResidencyCost {
+                variable_allocations: 1,
+                variable_copies: 0,
+                fixed_wrapper_objects: 1,
+            },
+        }
+    }
+}
+
+/// Ownership class of an obligation that encounters allocation pressure.
+///
+/// Allocator availability has no authority-owned monotonic level, so this
+/// enum deliberately contains no timer, delay or retry state.  The owner class
+/// alone determines the unique terminal conservation action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AllocationObligation {
+    /// No authority state or linear capability was created.
+    CallerOwnedRequest,
+    /// Authority owns a current-generation level, but no work capability has
+    /// left the authority cut.
+    CurrentGeneration,
+    /// A move-only compute capability must first be cancelled or made stale.
+    CheckedOutCapability,
+    /// The new chain snapshot must still become authoritative even when its
+    /// detailed reconciliation cannot be constructed.
+    OrderedChainTransition,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AllocationTerminal {
+    ReleaseCaller,
+    ReplaceCurrentGeneration,
+    CancelAndReplaceCurrentGeneration,
+    ReplaceChainGeneration,
+}
+
+/// Basis coefficients for the distinct linear objects present at an
+/// allocation cut. Magnitudes are intentionally absent: conservation is an
+/// equality of named coefficients and therefore holds for every bounded
+/// population, not just for sampled numeric fixtures.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CapabilityTerms {
+    caller_request: u8,
+    generation_token: u8,
+    checked_out_work: u8,
+    ordered_chain_command: u8,
+}
+
+impl CapabilityTerms {
+    const ZERO: Self = Self {
+        caller_request: 0,
+        generation_token: 0,
+        checked_out_work: 0,
+        ordered_chain_command: 0,
+    };
+    const CALLER_REQUEST: Self = Self {
+        caller_request: 1,
+        ..Self::ZERO
+    };
+    const GENERATION_TOKEN: Self = Self {
+        generation_token: 1,
+        ..Self::ZERO
+    };
+    const CHECKED_OUT_WORK: Self = Self {
+        checked_out_work: 1,
+        ..Self::ZERO
+    };
+    const ORDERED_CHAIN_COMMAND: Self = Self {
+        ordered_chain_command: 1,
+        ..Self::ZERO
+    };
+
+    const fn plus(self, other: Self) -> Self {
+        Self {
+            caller_request: self.caller_request + other.caller_request,
+            generation_token: self.generation_token + other.generation_token,
+            checked_out_work: self.checked_out_work + other.checked_out_work,
+            ordered_chain_command: self.ordered_chain_command + other.ordered_chain_command,
+        }
+    }
+
+    const fn equals(self, other: Self) -> bool {
+        self.caller_request == other.caller_request
+            && self.generation_token == other.generation_token
+            && self.checked_out_work == other.checked_out_work
+            && self.ordered_chain_command == other.ordered_chain_command
+    }
+}
+
+/// Homomorphic projection of the production allocation terminal onto linear
+/// capability conservation and the externally required terminal facts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AllocationConservation {
+    before: CapabilityTerms,
+    created: CapabilityTerms,
+    after: CapabilityTerms,
+    retired: CapabilityTerms,
+    consumed: CapabilityTerms,
+    released: CapabilityTerms,
+    ordered_snapshot_installed: bool,
+}
+
+impl AllocationConservation {
+    pub(super) const fn conserves_capabilities(self) -> bool {
+        self.before.plus(self.created).equals(
+            self.after
+                .plus(self.retired)
+                .plus(self.consumed)
+                .plus(self.released),
+        )
+    }
+
+    pub(super) const fn caller_released(self) -> bool {
+        self.released.equals(CapabilityTerms::CALLER_REQUEST)
+    }
+
+    pub(super) const fn generation_advanced(self) -> bool {
+        self.created.equals(CapabilityTerms::GENERATION_TOKEN)
+            && self.retired.equals(CapabilityTerms::GENERATION_TOKEN)
+    }
+
+    pub(super) const fn checked_out_work_consumed(self) -> bool {
+        self.consumed.equals(CapabilityTerms::CHECKED_OUT_WORK)
+    }
+
+    pub(super) const fn ordered_chain_command_consumed(self) -> bool {
+        self.consumed.equals(CapabilityTerms::ORDERED_CHAIN_COMMAND)
+    }
+
+    pub(super) const fn ordered_snapshot_installed(self) -> bool {
+        self.ordered_snapshot_installed
+    }
+}
+
+impl AllocationTerminal {
+    pub(super) const fn conservation(self) -> AllocationConservation {
+        match self {
+            Self::ReleaseCaller => AllocationConservation {
+                before: CapabilityTerms::GENERATION_TOKEN.plus(CapabilityTerms::CALLER_REQUEST),
+                created: CapabilityTerms::ZERO,
+                after: CapabilityTerms::GENERATION_TOKEN,
+                retired: CapabilityTerms::ZERO,
+                consumed: CapabilityTerms::ZERO,
+                released: CapabilityTerms::CALLER_REQUEST,
+                ordered_snapshot_installed: false,
+            },
+            Self::ReplaceCurrentGeneration => AllocationConservation {
+                before: CapabilityTerms::GENERATION_TOKEN,
+                created: CapabilityTerms::GENERATION_TOKEN,
+                after: CapabilityTerms::GENERATION_TOKEN,
+                retired: CapabilityTerms::GENERATION_TOKEN,
+                consumed: CapabilityTerms::ZERO,
+                released: CapabilityTerms::ZERO,
+                ordered_snapshot_installed: false,
+            },
+            Self::CancelAndReplaceCurrentGeneration => AllocationConservation {
+                before: CapabilityTerms::GENERATION_TOKEN.plus(CapabilityTerms::CHECKED_OUT_WORK),
+                created: CapabilityTerms::GENERATION_TOKEN,
+                after: CapabilityTerms::GENERATION_TOKEN,
+                retired: CapabilityTerms::GENERATION_TOKEN,
+                consumed: CapabilityTerms::CHECKED_OUT_WORK,
+                released: CapabilityTerms::ZERO,
+                ordered_snapshot_installed: false,
+            },
+            Self::ReplaceChainGeneration => AllocationConservation {
+                before: CapabilityTerms::GENERATION_TOKEN
+                    .plus(CapabilityTerms::ORDERED_CHAIN_COMMAND),
+                created: CapabilityTerms::GENERATION_TOKEN,
+                after: CapabilityTerms::GENERATION_TOKEN,
+                retired: CapabilityTerms::GENERATION_TOKEN,
+                consumed: CapabilityTerms::ORDERED_CHAIN_COMMAND,
+                released: CapabilityTerms::ZERO,
+                ordered_snapshot_installed: true,
+            },
+        }
+    }
+}
+
+pub(super) const fn terminal_allocation_disposition(
+    obligation: AllocationObligation,
+) -> AllocationTerminal {
+    match obligation {
+        AllocationObligation::CallerOwnedRequest => AllocationTerminal::ReleaseCaller,
+        AllocationObligation::CurrentGeneration => AllocationTerminal::ReplaceCurrentGeneration,
+        AllocationObligation::CheckedOutCapability => {
+            AllocationTerminal::CancelAndReplaceCurrentGeneration
+        }
+        AllocationObligation::OrderedChainTransition => AllocationTerminal::ReplaceChainGeneration,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct QueryCostInputs {
     pub(super) concurrent_queries: u32,
@@ -131,6 +362,12 @@ pub(super) struct ServiceIngressResidencyInputs {
     /// Public administrative payloads owning the unique admission capability
     /// while suspended before channel admission.
     pub(super) admitted_admin_waiting_senders: u32,
+    /// Maximum sealed payload retained by one ordinary request. Every message
+    /// variant must refine this common bound before entering the channel.
+    pub(super) ordinary_payload_bytes_per_request: u64,
+    /// Maximum sealed payload retained by one ordered request. An oversized
+    /// chain delta is represented by its constant-size generation replacement.
+    pub(super) ordered_payload_bytes_per_request: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,12 +375,15 @@ pub(super) struct ServiceIngressResidencyBound {
     pub(super) ordinary_handlers: u32,
     pub(super) ordinary_owned_requests: u32,
     pub(super) ordered_owned_requests: u32,
+    pub(super) ordinary_payload_bytes: u64,
+    pub(super) ordered_payload_bytes: u64,
+    pub(super) total_payload_bytes: u64,
 }
 
 impl ServiceIngressResidencyInputs {
-    /// Compile the exact count-only service terms. Payload bytes remain a
-    /// separate protocol term. Reliable send alone does not bound producer-
-    /// owned payloads, so the typed producer protocol is part of this bound.
+    /// Compile the complete count and payload-byte service terms. Reliable
+    /// send alone does not bound producer-owned payloads, so the sealed payload
+    /// constructors and typed producer protocol are both part of this bound.
     pub(super) fn compile(self) -> Option<ServiceIngressResidencyBound> {
         if self.handler_multiplier == 0
             || self.trusted_reorg_waiting_senders > 1
@@ -161,10 +401,18 @@ impl ServiceIngressResidencyInputs {
             .checked_add(1)?
             .checked_add(self.trusted_reorg_waiting_senders)?
             .checked_add(self.admitted_admin_waiting_senders)?;
+        let ordinary_payload_bytes = u64::from(ordinary_owned_requests)
+            .checked_mul(self.ordinary_payload_bytes_per_request)?;
+        let ordered_payload_bytes = u64::from(ordered_owned_requests)
+            .checked_mul(self.ordered_payload_bytes_per_request)?;
+        let total_payload_bytes = ordinary_payload_bytes.checked_add(ordered_payload_bytes)?;
         Some(ServiceIngressResidencyBound {
             ordinary_handlers,
             ordinary_owned_requests,
             ordered_owned_requests,
+            ordinary_payload_bytes,
+            ordered_payload_bytes,
+            total_payload_bytes,
         })
     }
 }

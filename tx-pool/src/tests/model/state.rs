@@ -1,3 +1,9 @@
+use super::{
+    dependency_progress::{ModelDependencyCut, ModelDependencyKey},
+    evidence_transition::{ModelEvidenceFrontier, ModelKnownDependencies},
+    proposal::{ProposalStatusReceipt, ProposalView},
+    time_context::{ModelContextSensitivity, model_context_sensitivity},
+};
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -41,8 +47,9 @@ pub(super) struct Arrival(pub(super) u16);
 
 /// Exact semantic order of production's Ready frontier, represented in
 /// strongest-first order for the reference model. `TxId` is the finite-domain
-/// abstraction of the raw transaction hash, and `Transaction::bytes` is the
-/// extraction of the verified serialized-byte metric at this cut.
+/// abstraction of the raw transaction hash; `serialized_bytes` is derived
+/// from the transaction's sealed cost quotient rather than aliased to its raw
+/// retained-payload charge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ReadyKey {
     pub(super) source_priority: u8,
@@ -461,19 +468,148 @@ pub(super) struct PeerBanRecord {
     pub(super) order: ApplyStamp,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ModelTransactionCost {
+    payload_bytes: u32,
+    fee: u64,
+    cycles: u64,
+}
+
+/// Exact `FeeRate` quotient used by the current tx-pool policy surface.
+///
+/// Production stores shannons per kilo-weight and computes a fee with a
+/// saturating multiplication followed by integer division. Keeping that
+/// arithmetic in one model type prevents RBF and minimum-fee relations from
+/// silently substituting `rate * bytes` or a fixed 1000-shannon rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ModelFeeRate(u64);
+
+impl ModelFeeRate {
+    const KILO_WEIGHT: u64 = 1_000;
+
+    pub(crate) const fn from_u64(shannons_per_kilo_weight: u64) -> Self {
+        Self(shannons_per_kilo_weight)
+    }
+
+    pub(crate) const fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    pub(crate) const fn fee(self, weight: u64) -> u64 {
+        self.0.saturating_mul(weight) / Self::KILO_WEIGHT
+    }
+}
+
+/// Runtime replacement policy is part of the descriptive model input. The
+/// default fixture matches the repository default, while the explicit
+/// constructor covers every configured rate and the disabled state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ModelReplacementPolicy {
+    Disabled,
+    Enabled { minimum_rate: ModelFeeRate },
+}
+
+impl ModelReplacementPolicy {
+    const DEFAULT_MINIMUM_RATE: ModelFeeRate = ModelFeeRate::from_u64(1_500);
+
+    pub(super) const fn default_enabled() -> Self {
+        Self::Enabled {
+            minimum_rate: Self::DEFAULT_MINIMUM_RATE,
+        }
+    }
+
+    pub(super) const fn minimum_rate(self) -> Option<ModelFeeRate> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled { minimum_rate } => Some(minimum_rate),
+        }
+    }
+}
+
+/// One transaction's minimum observation-and-cost quotient.
+///
+/// `payload_bytes` is the raw Molecule transaction size charged while the
+/// payload is retained. A transaction inside a block additionally occupies
+/// one Molecule `NUMBER_SIZE` offset, so economic ordering, block limits and
+/// eviction derive (and never independently supply) `serialized_bytes`.
+/// `fee` becomes observable only after resolution and `cycles` only after
+/// verification; storing their eventual sealed values here is a prophecy
+/// representation, not permission for an earlier transition to inspect them.
+impl ModelTransactionCost {
+    const BLOCK_VECTOR_OFFSET_BYTES: u32 = 4;
+    const FIXTURE: Self = Self {
+        payload_bytes: 4,
+        fee: 10,
+        cycles: 0,
+    };
+
+    pub(crate) const fn new(payload_bytes: u32, fee: u64, cycles: u64) -> Option<Self> {
+        if payload_bytes
+            .checked_add(Self::BLOCK_VECTOR_OFFSET_BYTES)
+            .is_none()
+        {
+            return None;
+        }
+        Some(Self {
+            payload_bytes,
+            fee,
+            cycles,
+        })
+    }
+
+    pub(crate) const fn payload_bytes(self) -> u32 {
+        self.payload_bytes
+    }
+
+    pub(crate) const fn serialized_bytes(self) -> u32 {
+        // `new` is the only constructor and proves this addition cannot
+        // overflow; keeping the derived coordinate unstored is the smaller
+        // normal form.
+        self.payload_bytes + Self::BLOCK_VECTOR_OFFSET_BYTES
+    }
+
+    pub(crate) const fn fee(self) -> u64 {
+        self.fee
+    }
+
+    pub(crate) const fn cycles(self) -> u64 {
+        self.cycles
+    }
+
+    pub(crate) const fn with_fee(self, fee: u64) -> Self {
+        Self { fee, ..self }
+    }
+
+    pub(crate) const fn with_cycles(self, cycles: u64) -> Self {
+        Self { cycles, ..self }
+    }
+
+    pub(crate) const fn with_payload_bytes(self, payload_bytes: u32) -> Option<Self> {
+        Self::new(payload_bytes, self.fee, self.cycles)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Transaction {
     pub(super) id: TxId,
     pub(super) witness: WitnessId,
     pub(super) proposal: ProposalId,
     pub(super) inputs: BTreeSet<CellId>,
-    pub(super) deps: BTreeSet<CellId>,
+    /// Exact subset of inputs whose packed `since` value is nonzero.  Keeping
+    /// the producer set, instead of a free boolean, makes malformed model
+    /// fibers mechanically rejectable.
+    pub(super) since_inputs: BTreeSet<CellId>,
+    /// Direct cell-dependency outpoints encoded by the transaction.  This is
+    /// intentionally not the resolved read footprint: dep-group members are
+    /// discovered from cell data under a resolution cut.
+    pub(super) cell_deps: BTreeSet<CellId>,
+    /// Exact subset of direct declarations whose encoded `dep_type` is
+    /// `DepGroup`.  Keeping the primitive tag separate prevents a model trace
+    /// from inventing group expansion for an ordinary code dependency.
+    pub(super) dep_groups: BTreeSet<CellId>,
     pub(super) header_deps: BTreeSet<HeaderId>,
     pub(super) outputs: BTreeSet<CellId>,
-    pub(super) bytes: u32,
-    pub(super) cycles: u64,
-    pub(super) fee: u64,
-    pub(super) verify_class: VerifyCycleClass,
+    pub(super) cost: ModelTransactionCost,
 }
 
 impl Transaction {
@@ -483,13 +619,12 @@ impl Transaction {
             witness: WitnessId(witness),
             proposal: ProposalId(id),
             inputs: BTreeSet::from([CellId(input)]),
-            deps: BTreeSet::new(),
+            since_inputs: BTreeSet::new(),
+            cell_deps: BTreeSet::new(),
+            dep_groups: BTreeSet::new(),
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::from([CellId(output)]),
-            bytes: 4,
-            cycles: 0,
-            fee: 10,
-            verify_class: VerifyCycleClass::Small,
+            cost: ModelTransactionCost::FIXTURE,
         }
     }
 
@@ -499,35 +634,78 @@ impl Transaction {
             witness: WitnessId(witness),
             proposal: ProposalId(id),
             inputs: BTreeSet::from([CellId(input)]),
-            deps: BTreeSet::new(),
+            since_inputs: BTreeSet::new(),
+            cell_deps: BTreeSet::new(),
+            dep_groups: BTreeSet::new(),
             header_deps: BTreeSet::new(),
             outputs: BTreeSet::from([CellId(output)]),
-            bytes: 4,
-            cycles: 0,
-            fee: 10,
-            verify_class: VerifyCycleClass::Small,
+            cost: ModelTransactionCost::FIXTURE,
         }
     }
 
-    pub(super) fn with_verify_class(mut self, verify_class: VerifyCycleClass) -> Self {
-        self.verify_class = verify_class;
+    pub(super) const fn with_cost(mut self, cost: ModelTransactionCost) -> Self {
+        self.cost = cost;
         self
     }
 
     pub(super) fn with_cycles(mut self, cycles: u64) -> Self {
-        self.cycles = cycles;
+        self.cost = self.cost.with_cycles(cycles);
         self
+    }
+
+    pub(super) fn with_fee(mut self, fee: u64) -> Self {
+        self.cost = self.cost.with_fee(fee);
+        self
+    }
+
+    pub(super) fn with_payload_bytes(mut self, payload_bytes: u32) -> Option<Self> {
+        self.cost = self.cost.with_payload_bytes(payload_bytes)?;
+        Some(self)
+    }
+
+    pub(super) fn with_since(mut self, input: CellId) -> Option<Self> {
+        self.inputs.contains(&input).then(|| {
+            self.since_inputs.insert(input);
+            self
+        })
+    }
+
+    pub(super) fn has_valid_time_shape(&self) -> bool {
+        self.since_inputs.is_subset(&self.inputs)
+    }
+
+    pub(super) fn has_valid_dependency_shape(&self) -> bool {
+        self.dep_groups.is_subset(&self.cell_deps)
+    }
+
+    pub(super) fn declared_dependencies(&self) -> Option<ModelKnownDependencies> {
+        self.has_valid_dependency_shape().then(|| {
+            self.inputs
+                .iter()
+                .map(|cell| ModelDependencyKey::cell(cell.0))
+                .chain(
+                    self.cell_deps
+                        .iter()
+                        .map(|cell| ModelDependencyKey::cell(cell.0)),
+                )
+                .chain(
+                    self.header_deps
+                        .iter()
+                        .map(|header| ModelDependencyKey::header(header.0)),
+                )
+                .collect()
+        })
     }
 
     pub(super) fn charge(&self) -> Option<ResourceVector> {
         let edges = self
             .inputs
             .len()
-            .checked_add(self.deps.len())?
+            .checked_add(self.cell_deps.len())?
             .checked_add(self.header_deps.len())?;
         Some(ResourceVector {
             entries: 1,
-            bytes: self.bytes,
+            bytes: self.cost.payload_bytes(),
             edges: u16::try_from(edges).ok()?,
         })
     }
@@ -590,6 +768,16 @@ impl Source {
             None => AcceptedProvenance::Trusted,
         }
     }
+
+    /// Verification-result validity follows the authority that owned the
+    /// payload at checkout, not immutable peer attribution retained for later
+    /// effects. A Proposal is trusted even when it preserves its remote base.
+    pub(super) const fn work_payload_policy(self) -> WorkPayloadPolicy {
+        match self {
+            Self::Remote(_) => WorkPayloadPolicy::Remote,
+            Self::Recovery(_) | Self::Proposal { .. } => WorkPayloadPolicy::Trusted,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -633,7 +821,7 @@ pub(super) enum WorkKind {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) enum VerifyCycleClass {
+pub(crate) enum VerifyCycleClass {
     #[default]
     Small,
     Large,
@@ -670,7 +858,7 @@ pub(super) enum DirectKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) enum AcceptedStatus {
+pub(crate) enum AcceptedStatus {
     Pending,
     Gap,
     Proposed,
@@ -687,12 +875,20 @@ pub(super) struct EvidenceContext {
 pub(super) struct ResolvedEvidence {
     pub(super) context: EvidenceContext,
     pub(super) verify_class: VerifyCycleClass,
-    /// Final proposal-window receipt consumed by membership Plan. Accepted
-    /// ownership derives its status from this one field, matching production's
-    /// `AcceptedEntry::status()` instead of storing a second mutable copy.
-    pub(super) proposal_status: AcceptedStatus,
     pub(super) input_origins: BTreeMap<CellId, InputOrigin>,
+    /// Exact dep-group container-to-member expansion read from resolved cell
+    /// data. Keys equal the transaction's `DepGroup` declarations and every
+    /// member set is nonempty.
+    pub(super) dep_group_members: BTreeMap<CellId, BTreeSet<CellId>>,
+    /// Origins of the canonical expanded conditional-read footprint: direct
+    /// cell deps plus group members, minus transaction inputs because the
+    /// input/spender role dominates an overlapping read.
     pub(super) dep_origins: BTreeMap<CellId, InputOrigin>,
+    /// Exact subset of chain-origin inputs and expanded cell dependencies
+    /// whose producer is a non-genesis cellbase.  Dep-group containers are
+    /// deliberately absent because the consensus maturity verifier does not
+    /// read that role.
+    pub(super) chain_cellbases: BTreeSet<CellId>,
     // Header dependencies are immutable chain-view reads. Keeping them in a
     // distinct set makes pool origin unrepresentable while still binding the
     // complete transaction footprint to this exact evidence cut.
@@ -700,33 +896,68 @@ pub(super) struct ResolvedEvidence {
 }
 
 impl ResolvedEvidence {
+    fn dependency_reads(
+        transaction: &Transaction,
+        dep_group_members: &BTreeMap<CellId, BTreeSet<CellId>>,
+    ) -> Option<BTreeSet<CellId>> {
+        if !transaction.has_valid_dependency_shape()
+            || dep_group_members.keys().copied().collect::<BTreeSet<_>>() != transaction.dep_groups
+            || dep_group_members.values().any(BTreeSet::is_empty)
+        {
+            return None;
+        }
+        Some(
+            transaction
+                .cell_deps
+                .iter()
+                .chain(dep_group_members.values().flatten())
+                .filter(|cell| !transaction.inputs.contains(cell))
+                .copied()
+                .collect(),
+        )
+    }
+
     pub(super) fn for_transaction(
         transaction: &Transaction,
         chain: ChainView,
         rules: RulesId,
-    ) -> Self {
-        Self {
+    ) -> Option<Self> {
+        Self::with_dep_group_members(transaction, chain, rules, BTreeMap::new())
+    }
+
+    pub(super) fn with_dep_group_members(
+        transaction: &Transaction,
+        chain: ChainView,
+        rules: RulesId,
+        dep_group_members: BTreeMap<CellId, BTreeSet<CellId>>,
+    ) -> Option<Self> {
+        let dependency_reads = Self::dependency_reads(transaction, &dep_group_members)?;
+        Some(Self {
             context: EvidenceContext {
                 chain,
                 rules,
                 witness: transaction.witness,
             },
-            verify_class: transaction.verify_class,
-            proposal_status: AcceptedStatus::Pending,
+            // The class is not a transaction primitive. Production derives
+            // it while sealing resolution evidence from the checkout payload
+            // policy and configured threshold. Fixtures default to the
+            // trusted/small quotient and may replace it only on this receipt.
+            verify_class: VerifyCycleClass::Small,
             input_origins: transaction
                 .inputs
                 .iter()
                 .copied()
                 .map(|cell| (cell, InputOrigin::Chain))
                 .collect(),
-            dep_origins: transaction
-                .deps
+            dep_group_members,
+            dep_origins: dependency_reads
                 .iter()
                 .copied()
                 .map(|cell| (cell, InputOrigin::Chain))
                 .collect(),
+            chain_cellbases: BTreeSet::new(),
             header_deps: transaction.header_deps.clone(),
-        }
+        })
     }
 
     pub(super) fn with_pool_input(
@@ -735,19 +966,83 @@ impl ResolvedEvidence {
         rules: RulesId,
         cell: CellId,
         parent: TxId,
-    ) -> Self {
-        let mut evidence = Self::for_transaction(transaction, chain, rules);
+    ) -> Option<Self> {
+        let mut evidence = Self::for_transaction(transaction, chain, rules)?;
         if evidence.input_origins.contains_key(&cell) {
             evidence
                 .input_origins
                 .insert(cell, InputOrigin::Pool(parent));
         }
-        evidence
+        Some(evidence)
     }
 
-    pub(super) fn with_proposal_status(mut self, status: AcceptedStatus) -> Self {
-        self.proposal_status = status;
+    pub(super) fn with_verify_class(mut self, verify_class: VerifyCycleClass) -> Self {
+        self.verify_class = verify_class;
         self
+    }
+
+    pub(super) fn with_pool_dependency(mut self, cell: CellId, parent: TxId) -> Option<Self> {
+        self.dep_origins.contains_key(&cell).then(|| {
+            self.dep_origins.insert(cell, InputOrigin::Pool(parent));
+            self
+        })
+    }
+
+    pub(super) fn with_chain_cellbase(mut self, cell: CellId) -> Option<Self> {
+        let chain_origin = self
+            .input_origins
+            .get(&cell)
+            .or_else(|| self.dep_origins.get(&cell))
+            == Some(&InputOrigin::Chain);
+        chain_origin.then(|| {
+            self.chain_cellbases.insert(cell);
+            self
+        })
+    }
+
+    pub(super) fn context_sensitivity(
+        &self,
+        transaction: &Transaction,
+    ) -> Option<ModelContextSensitivity> {
+        if !transaction.has_valid_time_shape()
+            || self.chain_cellbases.iter().any(|cell| {
+                self.input_origins
+                    .get(cell)
+                    .or_else(|| self.dep_origins.get(cell))
+                    != Some(&InputOrigin::Chain)
+            })
+        {
+            return None;
+        }
+        Some(model_context_sensitivity(
+            !transaction.since_inputs.is_empty(),
+            !self.chain_cellbases.is_empty(),
+        ))
+    }
+
+    pub(super) fn dependencies(&self, transaction: &Transaction) -> Option<ModelKnownDependencies> {
+        (Self::dependency_reads(transaction, &self.dep_group_members)?
+            == self.dep_origins.keys().copied().collect::<BTreeSet<_>>())
+        .then(|| {
+            self.input_origins
+                .keys()
+                .map(|cell| ModelDependencyKey::cell(cell.0))
+                .chain(
+                    self.dep_origins
+                        .keys()
+                        .map(|cell| ModelDependencyKey::cell(cell.0)),
+                )
+                .chain(
+                    self.header_deps
+                        .iter()
+                        .map(|header| ModelDependencyKey::header(header.0)),
+                )
+                .collect()
+        })
+    }
+
+    pub(super) fn conditional_reads(&self) -> BTreeSet<CellId> {
+        self.dep_origins.keys().copied().collect()
     }
 
     pub(super) fn is_for(
@@ -762,26 +1057,84 @@ impl ResolvedEvidence {
                 rules,
                 witness: transaction.witness,
             })
-            && self.verify_class == transaction.verify_class
             && self.input_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.inputs
-            && self.dep_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.deps
+            && self.dependencies(transaction).is_some()
+            && self.context_sensitivity(transaction).is_some()
             && self.header_deps == transaction.header_deps
     }
 
     pub(super) fn has_transaction_shape(&self, transaction: &Transaction, rules: RulesId) -> bool {
         self.context.rules == rules
             && self.context.witness == transaction.witness
-            && self.verify_class == transaction.verify_class
             && self.input_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.inputs
-            && self.dep_origins.keys().copied().collect::<BTreeSet<_>>() == transaction.deps
+            && self.dependencies(transaction).is_some()
+            && self.context_sensitivity(transaction).is_some()
             && self.header_deps == transaction.header_deps
+    }
+}
+
+/// Resolved content paired with the exact dependency cut that produced it.
+/// The wrapper is the model counterpart of production `ResolvedFacts`; it
+/// prevents checkout or Ready/Accepted storage from silently rebinding old
+/// dependency evidence to a newer authority sequence.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ResolvedEvidenceAtCut {
+    evidence: ResolvedEvidence,
+    pub(super) dependency_cut: ModelDependencyCut,
+}
+
+impl ResolvedEvidenceAtCut {
+    pub(super) const fn new(
+        evidence: ResolvedEvidence,
+        dependency_cut: ModelDependencyCut,
+    ) -> Self {
+        Self {
+            evidence,
+            dependency_cut,
+        }
+    }
+
+    pub(super) const fn verify_class(&self) -> VerifyCycleClass {
+        self.evidence.verify_class
+    }
+}
+
+impl std::ops::Deref for ResolvedEvidenceAtCut {
+    type Target = ResolvedEvidence;
+
+    fn deref(&self) -> &Self::Target {
+        &self.evidence
+    }
+}
+
+impl std::ops::DerefMut for ResolvedEvidenceAtCut {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.evidence
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum WorkStage {
     Resolve,
-    Verify(ResolvedEvidence),
+    Verify(ResolvedEvidenceAtCut),
+}
+
+/// Minimum validity domain of a terminal worker rejection. The public reason
+/// is observationally irrelevant to this model, but whether the reason remains
+/// valid after a chain change is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SettlementRejection {
+    ChainBound,
+    ResourceBound,
+}
+
+/// Checkout-time quotient of the production payload policy. Legal model
+/// traces permit only equality or Remote-to-Trusted promotion; the exact
+/// declared-cycle truth table remains owned by `settlement_transition`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum WorkPayloadPolicy {
+    Remote,
+    Trusted,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -789,14 +1142,28 @@ pub(super) enum WorkResult {
     Resolved(ResolvedEvidence),
     Verified,
     Missing(MissingDependencies),
-    Rejected,
+    Rejected(SettlementRejection),
+    VerificationRejected,
+    Retry,
+}
+
+impl WorkResult {
+    pub(super) const fn resolve_rejected() -> Self {
+        Self::Rejected(SettlementRejection::ChainBound)
+    }
+
+    pub(super) const fn resource_rejected() -> Self {
+        Self::Rejected(SettlementRejection::ResourceBound)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct MissingDependencies {
     transaction: TxId,
     cells: BTreeSet<CellId>,
-    headers: BTreeSet<HeaderId>,
+    /// Proof that every missing cell not named directly by the transaction
+    /// was discovered as a member of one declared dep-group container.
+    group_missing_members: BTreeMap<CellId, BTreeSet<CellId>>,
 }
 
 impl MissingDependencies {
@@ -804,64 +1171,118 @@ impl MissingDependencies {
         transaction: &Transaction,
         cells: BTreeSet<CellId>,
     ) -> Option<Self> {
-        Self::for_dependencies(transaction, cells, BTreeSet::new())
-    }
-
-    pub(super) fn for_headers(
-        transaction: &Transaction,
-        headers: BTreeSet<HeaderId>,
-    ) -> Option<Self> {
-        Self::for_dependencies(transaction, BTreeSet::new(), headers)
+        Self::for_dependencies(transaction, cells, BTreeMap::new())
     }
 
     pub(super) fn for_dependencies(
         transaction: &Transaction,
         cells: BTreeSet<CellId>,
-        headers: BTreeSet<HeaderId>,
+        group_missing_members: BTreeMap<CellId, BTreeSet<CellId>>,
     ) -> Option<Self> {
-        let referenced = transaction
+        let directly_referenced = transaction
             .inputs
             .iter()
-            .chain(&transaction.deps)
+            .chain(&transaction.cell_deps)
             .copied()
             .collect::<BTreeSet<_>>();
-        (!(cells.is_empty() && headers.is_empty())
-            && cells.is_subset(&referenced)
-            && headers.is_subset(&transaction.header_deps))
-        .then_some(Self {
-            transaction: transaction.id,
-            cells,
-            headers,
-        })
+        let discovered = group_missing_members
+            .values()
+            .flatten()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let extra = cells
+            .difference(&directly_referenced)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        (!cells.is_empty()
+            && transaction.has_valid_dependency_shape()
+            && group_missing_members
+                .keys()
+                .all(|container| transaction.dep_groups.contains(container))
+            && group_missing_members
+                .values()
+                .all(|members| !members.is_empty())
+            && discovered == extra)
+            .then_some(Self {
+                transaction: transaction.id,
+                cells,
+                group_missing_members,
+            })
+    }
+
+    pub(super) fn from_resolved(
+        transaction: &Transaction,
+        evidence: &ResolvedEvidence,
+        cells: BTreeSet<CellId>,
+    ) -> Option<Self> {
+        evidence.dependencies(transaction)?;
+        let directly_referenced = transaction
+            .inputs
+            .iter()
+            .chain(&transaction.cell_deps)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let extra = cells
+            .difference(&directly_referenced)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let group_missing_members = evidence
+            .dep_group_members
+            .iter()
+            .filter_map(|(container, members)| {
+                let missing = members
+                    .intersection(&extra)
+                    .copied()
+                    .collect::<BTreeSet<_>>();
+                (!missing.is_empty()).then_some((*container, missing))
+            })
+            .collect();
+        Self::for_dependencies(transaction, cells, group_missing_members)
     }
 
     pub(super) fn is_for(&self, transaction: &Transaction) -> bool {
-        self.transaction == transaction.id
-            && !(self.cells.is_empty() && self.headers.is_empty())
-            && self
-                .cells
-                .iter()
-                .all(|cell| transaction.inputs.contains(cell) || transaction.deps.contains(cell))
-            && self.headers.is_subset(&transaction.header_deps)
+        Self::for_dependencies(
+            transaction,
+            self.cells.clone(),
+            self.group_missing_members.clone(),
+        )
+        .as_ref()
+            == Some(self)
     }
 
     pub(super) fn cells(&self) -> &BTreeSet<CellId> {
         &self.cells
     }
 
-    pub(super) fn headers(&self) -> &BTreeSet<HeaderId> {
-        &self.headers
+    pub(super) fn dependencies(&self, transaction: &Transaction) -> Option<ModelKnownDependencies> {
+        self.is_for(transaction).then(|| {
+            transaction
+                .declared_dependencies()
+                .expect("validated transaction dependency shape")
+                .into_iter()
+                .chain(
+                    self.cells
+                        .iter()
+                        .map(|cell| ModelDependencyKey::cell(cell.0)),
+                )
+                .collect()
+        })
     }
 
-    pub(super) fn has_headers(&self) -> bool {
-        !self.headers.is_empty()
+    pub(super) fn missing_keys(&self) -> ModelKnownDependencies {
+        self.cells
+            .iter()
+            .map(|cell| ModelDependencyKey::cell(cell.0))
+            .collect()
     }
 
     pub(super) fn extend(&mut self, transaction: &Transaction, cells: &BTreeSet<CellId>) -> bool {
         if self.transaction != transaction.id
-            || cells
-                .iter()
-                .any(|cell| !transaction.inputs.contains(cell) && !transaction.deps.contains(cell))
+            || cells.iter().any(|cell| {
+                !self.dependencies(transaction).is_some_and(|dependencies| {
+                    dependencies.contains(&ModelDependencyKey::cell(cell.0))
+                })
+            })
         {
             return false;
         }
@@ -873,12 +1294,8 @@ impl MissingDependencies {
         self.cells.retain(|cell| !available.contains(cell));
     }
 
-    pub(super) fn retain_unavailable_headers(&mut self, available: &BTreeSet<HeaderId>) {
-        self.headers.retain(|header| !available.contains(header));
-    }
-
     pub(super) fn is_empty(&self) -> bool {
-        self.cells.is_empty() && self.headers.is_empty()
+        self.cells.is_empty()
     }
 }
 
@@ -892,11 +1309,18 @@ impl WorkStage {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ActiveWork {
+    pub(super) permit: WorkPermit,
+    pub(super) dependency_cut: ModelDependencyCut,
+    pub(super) dependencies: ModelKnownDependencies,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RetainedPhase {
     Queued(WorkStage),
-    Computing(WorkPermit),
+    Computing(ActiveWork),
     Waiting { missing: MissingDependencies },
-    Ready(ResolvedEvidence),
+    Ready(ResolvedEvidenceAtCut),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -911,7 +1335,10 @@ pub(super) enum OwnerLocation {
     Accepted {
         provenance: AcceptedProvenance,
         accepted_at_wall: u64,
-        evidence: ResolvedEvidence,
+        evidence: ResolvedEvidenceAtCut,
+        /// Sealed cache of the current chain proposal projection. This is part
+        /// of Accepted ownership and changes atomically with `proposals`.
+        proposal: ProposalStatusReceipt,
     },
     ReplacementHistory {
         missing: MissingDependencies,
@@ -939,6 +1366,28 @@ impl Owner {
             OwnerLocation::Retained(retained) => retained.source.ingress_peer(),
             OwnerLocation::Accepted { provenance, .. } => provenance.ingress_peer(),
             OwnerLocation::ReplacementHistory { .. } => None,
+        }
+    }
+
+    /// Canonical dependency slot for this exact lifecycle location.  This is
+    /// the sole model projection used by checkout, event indexing and
+    /// frontier pruning; callers cannot independently choose raw versus
+    /// expanded dependencies.
+    pub(super) fn dependencies(&self) -> Option<ModelKnownDependencies> {
+        match &self.location {
+            OwnerLocation::Retained(RetainedOwner { phase, .. }) => match phase {
+                RetainedPhase::Queued(WorkStage::Resolve) => {
+                    self.transaction.declared_dependencies()
+                }
+                RetainedPhase::Queued(WorkStage::Verify(evidence))
+                | RetainedPhase::Ready(evidence) => evidence.dependencies(&self.transaction),
+                RetainedPhase::Computing(active) => Some(active.dependencies.clone()),
+                RetainedPhase::Waiting { missing } => missing.dependencies(&self.transaction),
+            },
+            OwnerLocation::Accepted { evidence, .. } => evidence.dependencies(&self.transaction),
+            OwnerLocation::ReplacementHistory { missing } => {
+                missing.dependencies(&self.transaction)
+            }
         }
     }
 }
@@ -1016,7 +1465,7 @@ impl LogicalEffect {
     ) -> Self {
         Self::Accepted {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: AcceptanceEffect::Admission {
                 status,
                 ingress_peer,
@@ -1038,7 +1487,7 @@ impl LogicalEffect {
     pub(super) const fn status_changed(transaction: &Transaction, status: AcceptedStatus) -> Self {
         Self::Accepted {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: AcceptanceEffect::ChainStatusChange { status },
         }
     }
@@ -1049,7 +1498,7 @@ impl LogicalEffect {
     ) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::Validation { ingress_peer },
         }
     }
@@ -1061,7 +1510,7 @@ impl LogicalEffect {
     ) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::Membership {
                 ingress_peer,
                 reason,
@@ -1072,7 +1521,7 @@ impl LogicalEffect {
     pub(super) const fn replaced(transaction: &Transaction, winner: TxId) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::Replaced { winner },
         }
     }
@@ -1080,7 +1529,7 @@ impl LogicalEffect {
     pub(super) const fn capacity_evicted(transaction: &Transaction) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::CapacityEvicted,
         }
     }
@@ -1088,7 +1537,7 @@ impl LogicalEffect {
     pub(super) const fn expired(transaction: &Transaction) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::Expired,
         }
     }
@@ -1100,7 +1549,7 @@ impl LogicalEffect {
     ) -> Self {
         Self::Rejected {
             transaction: transaction.id,
-            payload_bytes: transaction.bytes,
+            payload_bytes: transaction.cost.payload_bytes(),
             cause: RejectionEffect::ChainConflict { cell, accepted },
         }
     }
@@ -1205,9 +1654,15 @@ pub(super) struct WorkCapability {
     stage: WorkStage,
     pub(super) chain: ChainView,
     pub(super) rules: RulesId,
+    pub(super) dependency_cut: ModelDependencyCut,
+    payload_policy: WorkPayloadPolicy,
 }
 
 impl WorkCapability {
+    // Every argument is an independent coordinate of the checked-out linear
+    // capability. Grouping them in a second input DTO would duplicate the
+    // model authority without reducing the state space.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn for_checkout(
         id: CapabilityId,
         transaction: TxId,
@@ -1216,6 +1671,8 @@ impl WorkCapability {
         stage: WorkStage,
         chain: ChainView,
         rules: RulesId,
+        dependency_cut: ModelDependencyCut,
+        payload_policy: WorkPayloadPolicy,
     ) -> Option<Self> {
         permit.permits_checkout(&stage).then_some(Self {
             id,
@@ -1225,6 +1682,8 @@ impl WorkCapability {
             stage,
             chain,
             rules,
+            dependency_cut,
+            payload_policy,
         })
     }
 
@@ -1240,6 +1699,20 @@ impl WorkCapability {
         self.stage.kind()
     }
 
+    pub(super) const fn payload_policy(&self) -> WorkPayloadPolicy {
+        self.payload_policy
+    }
+
+    /// The legal public validation-rejection result for this checked-out
+    /// stage. Resolve owns a chain-bound rejection; Verify owns the exact
+    /// resolved receipt already sealed in `WorkStage::Verify`.
+    pub(super) const fn stage_rejection_result(&self) -> WorkResult {
+        match self.stage {
+            WorkStage::Resolve => WorkResult::resolve_rejected(),
+            WorkStage::Verify(_) => WorkResult::VerificationRejected,
+        }
+    }
+
     pub(super) fn continue_resolve_then_verify(&mut self, evidence: ResolvedEvidence) -> bool {
         let WorkPermit::ResolveThenVerify(capability) = self.permit else {
             return false;
@@ -1247,7 +1720,7 @@ impl WorkCapability {
         if !matches!(self.stage, WorkStage::Resolve) || !capability.permits(evidence.verify_class) {
             return false;
         }
-        self.stage = WorkStage::Verify(evidence);
+        self.stage = WorkStage::Verify(ResolvedEvidenceAtCut::new(evidence, self.dependency_cut));
         true
     }
 
@@ -1261,7 +1734,7 @@ impl WorkPermit {
         match (self, stage) {
             (Self::ResolveOnly | Self::ResolveThenVerify(_), WorkStage::Resolve) => true,
             (Self::VerifyOnly(capability), WorkStage::Verify(evidence)) => {
-                capability.permits(evidence.verify_class)
+                capability.permits(evidence.verify_class())
             }
             _ => false,
         }
@@ -1271,7 +1744,7 @@ impl WorkPermit {
         self.permits_checkout(stage)
             || match (self, stage) {
                 (Self::ResolveThenVerify(capability), WorkStage::Verify(evidence)) => {
-                    capability.permits(evidence.verify_class)
+                    capability.permits(evidence.verify_class())
                 }
                 _ => false,
             }
@@ -1292,6 +1765,8 @@ pub(super) struct DirectCapability {
     pub(super) transaction: Transaction,
     pub(super) chain: ChainView,
     pub(super) rules: RulesId,
+    pub(super) dependency_cut: ModelDependencyCut,
+    pub(super) dependencies: ModelKnownDependencies,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1305,7 +1780,14 @@ pub(super) struct EffectClaim {
 pub(super) struct AuthorityState {
     pub(super) generation: PoolGeneration,
     pub(super) chain: ChainView,
+    /// Sole chain-derived proposal projection installed atomically with
+    /// `chain`; primitive per-height history remains outside tx-pool authority.
+    pub(super) proposals: ProposalView,
     pub(super) rules: RulesId,
+    /// Exact dependency event frontier shared with the settlement relation.
+    /// It is a derived projection of owner edges and primitive availability /
+    /// definitive-loss events, never a second lifecycle authority.
+    pub(super) dependency_frontier: ModelEvidenceFrontier,
     pub(super) owners: BTreeMap<TxId, Owner>,
     /// Capacity-charged immutable publication batches in commit order.
     pub(super) effects: VecDeque<EffectRecord>,
@@ -1316,6 +1798,7 @@ pub(super) struct AuthorityState {
     pub(super) last_apply: ApplyStamp,
     pub(super) next_version: u16,
     pub(super) next_arrival: u16,
+    pub(super) replacement_policy: ModelReplacementPolicy,
     pub(super) limits: ModelLimits,
 }
 
@@ -1338,6 +1821,7 @@ pub(super) struct Omega {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ModelInvariantError {
     CounterOrder,
+    DependencyCutOrder,
     OwnerKey,
     OwnerChargeOverflow,
     OwnerResourceLimit,
@@ -1348,7 +1832,10 @@ pub(super) enum ModelInvariantError {
     DuplicateOwnerVersion,
     DuplicateProposalId,
     InvalidMissingDependencies,
+    InvalidTransactionTimeFacts,
+    InvalidTransactionDependencyFacts,
     InvalidStoredEvidence,
+    InvalidProposalStatusReceipt,
     InvalidReplacementHistory,
     AcceptedDoubleSpend,
     DuplicateAcceptedOutput,
@@ -1373,12 +1860,28 @@ pub(super) enum ModelInvariantError {
 
 impl Omega {
     pub(super) fn new(limits: ValidatedLimits, view: ViewId, rules: RulesId) -> Self {
+        Self::new_with_replacement_policy(
+            limits,
+            view,
+            rules,
+            ModelReplacementPolicy::default_enabled(),
+        )
+    }
+
+    pub(super) fn new_with_replacement_policy(
+        limits: ValidatedLimits,
+        view: ViewId,
+        rules: RulesId,
+        replacement_policy: ModelReplacementPolicy,
+    ) -> Self {
         let limits = limits.get();
         Self {
             authority: AuthorityState {
                 generation: PoolGeneration(0),
                 chain: ChainView::initial(view),
+                proposals: ProposalView::empty(),
                 rules,
+                dependency_frontier: ModelEvidenceFrontier::default(),
                 owners: BTreeMap::new(),
                 effects: VecDeque::new(),
                 latest_generation_reset: None,
@@ -1386,6 +1889,7 @@ impl Omega {
                 last_apply: ApplyStamp(0),
                 next_version: 1,
                 next_arrival: 1,
+                replacement_policy,
                 limits,
             },
             linear: LinearState {
@@ -1397,6 +1901,128 @@ impl Omega {
                 effect_claim: None,
             },
         }
+    }
+
+    pub(super) fn dependency_cuts(&self) -> BTreeSet<ModelDependencyCut> {
+        fn record_evidence(
+            evidence: &ResolvedEvidenceAtCut,
+            cuts: &mut BTreeSet<ModelDependencyCut>,
+        ) {
+            cuts.insert(evidence.dependency_cut);
+        }
+
+        fn record_capability(capability: &WorkCapability, cuts: &mut BTreeSet<ModelDependencyCut>) {
+            cuts.insert(capability.dependency_cut);
+            if let WorkStage::Verify(evidence) = &capability.stage {
+                record_evidence(evidence, cuts);
+            }
+        }
+
+        let mut cuts = self.authority.dependency_frontier.dependency_cuts();
+        for owner in self.authority.owners.values() {
+            match &owner.location {
+                OwnerLocation::Retained(RetainedOwner { phase, .. }) => match phase {
+                    RetainedPhase::Queued(WorkStage::Verify(evidence))
+                    | RetainedPhase::Ready(evidence) => record_evidence(evidence, &mut cuts),
+                    RetainedPhase::Computing(active) => {
+                        cuts.insert(active.dependency_cut);
+                    }
+                    RetainedPhase::Queued(WorkStage::Resolve) | RetainedPhase::Waiting { .. } => {}
+                },
+                OwnerLocation::Accepted { evidence, .. } => record_evidence(evidence, &mut cuts),
+                OwnerLocation::ReplacementHistory { .. } => {}
+            }
+        }
+        for capability in self.linear.work.values() {
+            record_capability(capability, &mut cuts);
+        }
+        for finished in self.linear.finished_work.values() {
+            record_capability(&finished.capability, &mut cuts);
+        }
+        cuts.extend(
+            self.linear
+                .direct_work
+                .values()
+                .map(|capability| capability.dependency_cut),
+        );
+        cuts
+    }
+
+    pub(super) fn remap_dependency_cuts(
+        &mut self,
+        mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+    ) -> bool {
+        fn remap(
+            cut: &mut ModelDependencyCut,
+            mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+        ) {
+            if cut.0 != 0 {
+                *cut = mapping[cut];
+            }
+        }
+
+        fn remap_evidence(
+            evidence: &mut ResolvedEvidenceAtCut,
+            mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+        ) {
+            remap(&mut evidence.dependency_cut, mapping);
+        }
+
+        fn remap_capability(
+            capability: &mut WorkCapability,
+            mapping: &BTreeMap<ModelDependencyCut, ModelDependencyCut>,
+        ) {
+            remap(&mut capability.dependency_cut, mapping);
+            if let WorkStage::Verify(evidence) = &mut capability.stage {
+                remap_evidence(evidence, mapping);
+            }
+        }
+
+        let cuts = self.dependency_cuts();
+        let mut previous = None;
+        for cut in cuts.iter().copied().filter(|cut| cut.0 != 0) {
+            let Some(mapped) = mapping.get(&cut).copied() else {
+                return false;
+            };
+            if previous.is_some_and(|prior| prior > mapped) {
+                return false;
+            }
+            previous = Some(mapped);
+        }
+
+        let mut next = self.clone();
+        if !next
+            .authority
+            .dependency_frontier
+            .remap_dependency_cuts(mapping)
+        {
+            return false;
+        }
+        for owner in next.authority.owners.values_mut() {
+            match &mut owner.location {
+                OwnerLocation::Retained(RetainedOwner { phase, .. }) => match phase {
+                    RetainedPhase::Queued(WorkStage::Verify(evidence))
+                    | RetainedPhase::Ready(evidence) => remap_evidence(evidence, mapping),
+                    RetainedPhase::Computing(active) => {
+                        remap(&mut active.dependency_cut, mapping);
+                    }
+                    RetainedPhase::Queued(WorkStage::Resolve) | RetainedPhase::Waiting { .. } => {}
+                },
+                OwnerLocation::Accepted { evidence, .. } => remap_evidence(evidence, mapping),
+                OwnerLocation::ReplacementHistory { .. } => {}
+            }
+        }
+        for capability in next.linear.work.values_mut() {
+            remap_capability(capability, mapping);
+        }
+        for finished in next.linear.finished_work.values_mut() {
+            remap_capability(&mut finished.capability, mapping);
+        }
+        for capability in next.linear.direct_work.values_mut() {
+            remap(&mut capability.dependency_cut, mapping);
+        }
+        *self = next;
+        true
     }
 
     pub(super) fn owner_usage(&self) -> Result<ResourceVector, ModelInvariantError> {
@@ -1419,6 +2045,24 @@ impl Omega {
             .owners
             .iter()
             .find_map(|(id, owner)| (owner.transaction.proposal == proposal).then_some(*id))
+    }
+
+    pub(super) fn proposal_status(&self, transaction: &Transaction) -> AcceptedStatus {
+        self.proposal_status_receipt(transaction).value()
+    }
+
+    pub(super) fn proposal_status_receipt(
+        &self,
+        transaction: &Transaction,
+    ) -> ProposalStatusReceipt {
+        match self.authority.owners.get(&transaction.id) {
+            Some(Owner {
+                transaction: owned,
+                location: OwnerLocation::Accepted { proposal, .. },
+                ..
+            }) if owned == transaction => *proposal,
+            _ => self.authority.proposals.status(transaction.proposal),
+        }
     }
 
     pub(super) fn retained_usage(&self) -> Result<ResourceVector, ModelInvariantError> {
@@ -1597,6 +2241,13 @@ impl Omega {
     }
 
     pub(super) fn check_invariants(&self) -> Result<(), ModelInvariantError> {
+        if self
+            .dependency_cuts()
+            .iter()
+            .any(|cut| cut.0 > self.authority.last_apply.0)
+        {
+            return Err(ModelInvariantError::DependencyCutOrder);
+        }
         let usage = self.owner_usage()?;
         if !usage.fits(self.authority.limits.owners) {
             return Err(ModelInvariantError::OwnerResourceLimit);
@@ -1646,6 +2297,12 @@ impl Omega {
             if *id != owner.transaction.id {
                 return Err(ModelInvariantError::OwnerKey);
             }
+            if !owner.transaction.has_valid_time_shape() {
+                return Err(ModelInvariantError::InvalidTransactionTimeFacts);
+            }
+            if !owner.transaction.has_valid_dependency_shape() {
+                return Err(ModelInvariantError::InvalidTransactionDependencyFacts);
+            }
             if !versions.insert(owner.version) {
                 return Err(ModelInvariantError::DuplicateOwnerVersion);
             }
@@ -1667,9 +2324,14 @@ impl Omega {
                 }) if !evidence.has_transaction_shape(&owner.transaction, self.authority.rules) => {
                     return Err(ModelInvariantError::InvalidStoredEvidence);
                 }
-                OwnerLocation::Accepted { evidence, .. } => {
+                OwnerLocation::Accepted {
+                    evidence, proposal, ..
+                } => {
                     if !evidence.has_transaction_shape(&owner.transaction, self.authority.rules) {
                         return Err(ModelInvariantError::InvalidStoredEvidence);
+                    }
+                    if *proposal != self.authority.proposals.status(owner.transaction.proposal) {
+                        return Err(ModelInvariantError::InvalidProposalStatusReceipt);
                     }
                     for (cell, origin) in &evidence.input_origins {
                         if spenders.insert(*cell, *id).is_some() {
@@ -1726,7 +2388,7 @@ impl Omega {
                     }
                 }
                 OwnerLocation::ReplacementHistory { missing }
-                    if !missing.is_for(&owner.transaction) || missing.has_headers() =>
+                    if !missing.is_for(&owner.transaction) =>
                 {
                     return Err(ModelInvariantError::InvalidReplacementHistory);
                 }
@@ -1789,7 +2451,7 @@ impl Omega {
 
         for owner in self.authority.owners.values() {
             let OwnerLocation::Retained(RetainedOwner {
-                phase: RetainedPhase::Computing(permit),
+                phase: RetainedPhase::Computing(active),
                 ..
             }) = &owner.location
             else {
@@ -1808,9 +2470,8 @@ impl Omega {
                 .filter(|capability| {
                     capability.transaction == owner.transaction.id
                         && capability.version == owner.version
-                        && capability.permit() == *permit
-                        && capability.chain == self.authority.chain
-                        && capability.rules == self.authority.rules
+                        && capability.permit() == active.permit
+                        && capability.dependency_cut == active.dependency_cut
                 })
                 .count();
             match current {
@@ -1839,9 +2500,10 @@ impl Omega {
             if !matches!(
                 &owner.location,
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(permit),
+                    phase: RetainedPhase::Computing(active),
                     ..
-                }) if *permit == capability.permit()
+                }) if active.permit == capability.permit()
+                    && active.dependency_cut == capability.dependency_cut
             ) {
                 return Err(ModelInvariantError::DuplicateCurrentCapability);
             }
@@ -1879,9 +2541,10 @@ impl Omega {
             if !matches!(
                 &owner.location,
                 OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(permit),
+                    phase: RetainedPhase::Computing(active),
                     ..
-                }) if *permit == capability.permit()
+                }) if active.permit == capability.permit()
+                    && active.dependency_cut == capability.dependency_cut
             ) {
                 return Err(ModelInvariantError::InvalidFinishedCapability);
             }
@@ -1917,6 +2580,9 @@ impl Omega {
             }
             if !direct_requests.insert(capability.request) {
                 return Err(ModelInvariantError::DuplicateDirectRequest);
+            }
+            if !capability.transaction.has_valid_time_shape() {
+                return Err(ModelInvariantError::InvalidTransactionTimeFacts);
             }
             if capability.chain != self.authority.chain || capability.rules != self.authority.rules
             {
@@ -2060,8 +2726,8 @@ impl Omega {
                 )
                 .then_some(ReadyKey {
                     source_priority: owner.retained_source()?.priority(),
-                    fee: owner.transaction.fee,
-                    serialized_bytes: owner.transaction.bytes,
+                    fee: owner.transaction.cost.fee(),
+                    serialized_bytes: owner.transaction.cost.serialized_bytes(),
                     arrival: owner.arrival,
                     transaction: owner.transaction.id,
                     version: owner.version,

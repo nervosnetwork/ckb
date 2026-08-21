@@ -1,12 +1,11 @@
 //! TX verification cache
 
 use ckb_chain_spec::consensus::Consensus;
-use ckb_script::{TransactionState, TxVerifyEnv};
+use ckb_script::TxVerifyEnv;
 use ckb_types::{
-    core::{Capacity, Cycle, EntryCompleted, TransactionView},
+    core::{Capacity, Cycle, TransactionView},
     prelude::Unpack,
 };
-use std::sync::Arc;
 
 /// Script-rule generation under which a cached result was produced.
 ///
@@ -79,42 +78,111 @@ impl TxVerificationCacheKey {
     }
 }
 
-/// TX verification lru cache.
-pub type TxVerificationCache = lru::LruCache<TxVerificationCacheKey, CacheEntry>;
-
 const CACHE_SIZE: usize = 1000 * 30;
 
-/// Initialize cache
-pub fn init_cache() -> TxVerificationCache {
-    lru::LruCache::new(CACHE_SIZE)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VmSuccessSeal {
+    cycles: Cycle,
 }
 
-/// A completed script result. Its proof context is part of the cache key.
-pub type CacheEntry = Completed;
-
-/// Suspended state
-#[derive(Clone, Debug)]
-pub struct Suspended {
-    /// Cached tx fee
-    pub fee: Capacity,
-    /// State
-    pub state: Arc<TransactionState>,
+/// An unforgeable proof that the exact cache key completed script execution.
+///
+/// The private fields and crate-private constructor keep raw cycle counts from
+/// becoming script authority outside the canonical verifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScriptVerificationProof {
+    key: TxVerificationCacheKey,
+    seal: VmSuccessSeal,
 }
 
-/// Completed entry
+impl ScriptVerificationProof {
+    pub(crate) const fn from_vm_success(key: TxVerificationCacheKey, cycles: Cycle) -> Self {
+        Self {
+            key,
+            seal: VmSuccessSeal { cycles },
+        }
+    }
+
+    /// Return the semantic identity proved by VM execution.
+    pub const fn key(&self) -> TxVerificationCacheKey {
+        self.key
+    }
+
+    /// Return the successfully consumed cycles.
+    pub const fn cycles(&self) -> Cycle {
+        self.seal.cycles
+    }
+}
+
+/// Whether canonical verification executed the VM or reused a sealed proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptVerificationOutcome {
+    /// A cache proof matched the verifier-derived key and current limit.
+    Reused(ScriptVerificationProof),
+    /// This invocation executed the VM and produced a publishable proof.
+    Executed(ScriptVerificationProof),
+}
+
+/// Fresh contextual verification result returned to block consumers.
+///
+/// This is an ordinary result projection, not a reusable cache value. The
+/// shared cache stores only [`ScriptVerificationProof`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Completed {
-    /// Cached tx cycles
+    /// Successfully verified script cycles for this invocation.
     pub cycles: Cycle,
-    /// Cached tx fee
+    /// Fee freshly calculated from this invocation's resolved block view.
     pub fee: Capacity,
 }
 
-impl From<Completed> for EntryCompleted {
-    fn from(value: Completed) -> Self {
-        EntryCompleted {
-            cycles: value.cycles,
-            fee: value.fee,
+impl ScriptVerificationOutcome {
+    /// Return the verified cycle count independent of execution mode.
+    pub const fn cycles(&self) -> Cycle {
+        match self {
+            Self::Reused(proof) | Self::Executed(proof) => proof.cycles(),
         }
+    }
+
+    /// Return a cache update only for fresh VM success.
+    pub const fn executed_proof(self) -> Option<ScriptVerificationProof> {
+        match self {
+            Self::Executed(proof) => Some(proof),
+            Self::Reused(_) => None,
+        }
+    }
+
+    /// Report whether this observation reused resident proof.
+    pub const fn was_reused(&self) -> bool {
+        matches!(self, Self::Reused(_))
+    }
+}
+
+/// Opaque script-only verification cache.
+///
+/// Fee, capacity, time and DAO observations are deliberately unrepresentable
+/// here. Insertion consumes one proof so key and value cannot be mismatched.
+pub struct TxVerificationCache {
+    inner: lru::LruCache<TxVerificationCacheKey, VmSuccessSeal>,
+}
+
+impl TxVerificationCache {
+    /// Look up an exact script proof without changing LRU order under a read lock.
+    pub fn lookup(&self, key: &TxVerificationCacheKey) -> Option<ScriptVerificationProof> {
+        self.inner
+            .peek(key)
+            .copied()
+            .map(|seal| ScriptVerificationProof { key: *key, seal })
+    }
+
+    /// Publish one verifier-produced proof.
+    pub fn insert(&mut self, proof: ScriptVerificationProof) {
+        self.inner.put(proof.key, proof.seal);
+    }
+}
+
+/// Initialize cache.
+pub fn init_cache() -> TxVerificationCache {
+    TxVerificationCache {
+        inner: lru::LruCache::new(CACHE_SIZE),
     }
 }

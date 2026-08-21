@@ -10,18 +10,119 @@ use super::{
     plan::{AuthorityFault, Backpressure, PlanError},
     rejection::{CommittedPublicReject, DirectTransactionRejection},
     state::{
-        AdmissionValidationError, PreAcceptedSource, ProposalBase, RemoteBase, RemoteDeadline,
-        RemoteResidencyLease, ValidatedAdmission,
+        PreAcceptedSource, ProposalBase, RemoteBase, RemoteDeadline, RemoteResidencyLease,
+        ValidatedAdmission,
     },
 };
 use crate::util::non_contextual_verify;
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL};
 use ckb_network::PeerIndex;
-use ckb_types::core::{Cycle, TransactionView};
+use ckb_types::core::{Cycle, TransactionView, tx_pool::TRANSACTION_SIZE_LIMIT};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
 const REMOTE_RESIDENCY_BLOCKS: u64 = 100;
+
+/// Peer-declared script-cycle limit sealed against the paired consensus at
+/// the tx-pool ingress boundary.  Downstream authority code can transport and
+/// read the declaration, but cannot manufacture a declaration whose work
+/// bound exceeds the node's consensus maximum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RemoteCycleLimit(Cycle);
+
+impl RemoteCycleLimit {
+    fn checked(declared: Cycle, consensus: &Consensus) -> Option<Self> {
+        (declared <= consensus.max_block_cycles()).then_some(Self(declared))
+    }
+
+    pub(super) const fn declared(self) -> Cycle {
+        self.0
+    }
+}
+
+/// One externally supplied transaction after the authority-owned residency
+/// boundary has proved the protocol byte limit and copied all molecule slices
+/// into one bounded backing allocation. The type remains sealed across the
+/// controller channel, so no downstream path can accidentally compact the
+/// same payload a second time or admit an unproved raw view.
+#[derive(Debug)]
+pub(crate) struct BoundedTransaction {
+    transaction: Arc<TransactionView>,
+    payload_bytes: usize,
+    encoded_edges: usize,
+}
+
+#[derive(Debug)]
+pub(crate) enum BoundedTransactionError {
+    TooLarge { actual: u64, maximum: u64 },
+    Allocation,
+}
+
+impl BoundedTransaction {
+    pub(crate) fn try_new(transaction: TransactionView) -> Result<Self, BoundedTransactionError> {
+        let serialized_bytes = transaction.data().serialized_size_in_block();
+        let serialized_bytes_u64 =
+            u64::try_from(serialized_bytes).map_err(|_| BoundedTransactionError::Allocation)?;
+        if serialized_bytes_u64 > TRANSACTION_SIZE_LIMIT {
+            return Err(BoundedTransactionError::TooLarge {
+                actual: serialized_bytes_u64,
+                maximum: TRANSACTION_SIZE_LIMIT,
+            });
+        }
+        let payload_bytes = transaction.data().total_size();
+        let encoded_edges = transaction
+            .inputs()
+            .len()
+            .checked_add(transaction.cell_deps().len())
+            .and_then(|count| count.checked_add(transaction.header_deps().len()))
+            .ok_or(BoundedTransactionError::Allocation)?;
+        let transaction = transaction
+            .try_into_compact()
+            .map_err(|_| BoundedTransactionError::Allocation)?;
+        Ok(Self {
+            transaction: Arc::new(transaction),
+            payload_bytes,
+            encoded_edges,
+        })
+    }
+
+    pub(crate) const fn payload_bytes(&self) -> usize {
+        self.payload_bytes
+    }
+
+    pub(crate) fn into_transaction(self) -> Arc<TransactionView> {
+        self.transaction
+    }
+
+    fn transaction(&self) -> &Arc<TransactionView> {
+        &self.transaction
+    }
+
+    pub(super) fn into_admission_parts(self) -> (Arc<TransactionView>, usize, usize) {
+        (self.transaction, self.payload_bytes, self.encoded_edges)
+    }
+
+    pub(super) fn into_direct(self) -> DirectIngressTransaction {
+        DirectIngressTransaction(self.transaction)
+    }
+}
+
+/// Sealed owner-free direct payload retained across exact stale-view retries.
+/// The wrapper is borrowed while resolution clones only the fixed-size `Arc`
+/// handle, so a retry neither recopies bytes nor permits a raw transaction to
+/// bypass the one external residency constructor.
+#[derive(Debug)]
+pub(super) struct DirectIngressTransaction(Arc<TransactionView>);
+
+impl DirectIngressTransaction {
+    pub(super) fn from_retry(transaction: Arc<TransactionView>) -> Self {
+        Self(transaction)
+    }
+
+    fn clone_transaction(&self) -> Arc<TransactionView> {
+        Arc::clone(&self.0)
+    }
+}
 
 /// Construction proof private to this module. `ValidatedAdmission` accepts
 /// this capability instead of raw source fields, so sibling modules cannot
@@ -75,12 +176,6 @@ impl RetainedIngress {
     pub(super) fn admission(&self) -> &ValidatedAdmission {
         &self.admission
     }
-}
-
-#[derive(Debug)]
-pub(super) enum RetainedIngressError {
-    Rejected(RetainedIngressRejection),
-    Admission(AdmissionValidationError),
 }
 
 #[derive(Clone, Debug)]
@@ -243,13 +338,13 @@ impl RemoteIngressPressure {
 }
 
 pub(super) fn remote_pressure_rejection(
-    tx: TransactionView,
+    tx: Arc<TransactionView>,
     peer: PeerIndex,
     pressure: RemoteIngressPressure,
 ) -> RetainedIngressRejection {
     RetainedIngressRejection {
         kind: RetainedIngressKind::Remote(peer),
-        tx: Arc::new(tx.into_compact()),
+        tx,
         reason: CommittedPublicReject::new(crate::error::Reject::Full(
             pressure.reason().to_owned(),
         )),
@@ -313,11 +408,11 @@ impl RetainedIngressBoundaryError {
 /// Validate and seal one Remote admission using the production wall-clock
 /// policy. Time is sampled here, not supplied by the network or dispatcher.
 pub(super) fn remote(
-    tx: TransactionView,
+    tx: BoundedTransaction,
     declared_cycles: Cycle,
     peer: PeerIndex,
     consensus: &Consensus,
-) -> Result<RetainedIngress, RetainedIngressError> {
+) -> RetainedIngressAttempt {
     remote_at(
         tx,
         declared_cycles,
@@ -328,82 +423,105 @@ pub(super) fn remote(
 }
 
 fn remote_at(
-    tx: TransactionView,
+    tx: BoundedTransaction,
     declared_cycles: Cycle,
     peer: PeerIndex,
     admitted_at_secs: u64,
     consensus: &Consensus,
-) -> Result<RetainedIngress, RetainedIngressError> {
-    let tx = Arc::new(tx.into_compact());
-    validate_non_contextual(&tx, RetainedIngressKind::Remote(peer), consensus)?;
+) -> RetainedIngressAttempt {
+    let Some(declared_limit) = RemoteCycleLimit::checked(declared_cycles, consensus) else {
+        return RetainedIngressAttempt::Rejected(RetainedIngressRejection {
+            kind: RetainedIngressKind::Remote(peer),
+            tx: tx.into_transaction(),
+            reason: CommittedPublicReject::new(crate::error::Reject::Malformed(
+                "remote declared cycles".to_owned(),
+                format!(
+                    "declared cycles {declared_cycles} exceed consensus maximum {}",
+                    consensus.max_block_cycles()
+                ),
+            )),
+        });
+    };
+    let tx = match validate_non_contextual(tx, RetainedIngressKind::Remote(peer), consensus) {
+        Ok(tx) => tx,
+        Err(rejection) => return RetainedIngressAttempt::Rejected(rejection),
+    };
     let expires_at =
         admitted_at_secs.saturating_add(REMOTE_RESIDENCY_BLOCKS.saturating_mul(MAX_BLOCK_INTERVAL));
-    ValidatedAdmission::from_retained_ingress(
+    match ValidatedAdmission::from_retained_ingress(
         RetainedIngressSeal(()),
-        Arc::unwrap_or_clone(tx),
+        tx,
         PreAcceptedSource::Remote(RemoteBase::ingress(
             RemoteResidencyLease::new(peer, RemoteDeadline(expires_at)),
-            declared_cycles,
+            declared_limit,
         )),
-    )
-    .map(|admission| RetainedIngress {
-        kind: RetainedIngressKind::Remote(peer),
-        admission,
-    })
-    .map_err(RetainedIngressError::Admission)
+    ) {
+        Ok(admission) => RetainedIngressAttempt::Validated(RetainedIngress {
+            kind: RetainedIngressKind::Remote(peer),
+            admission,
+        }),
+        Err(failure) => RetainedIngressAttempt::Rejected(remote_pressure_rejection(
+            failure.into_transaction(),
+            peer,
+            RemoteIngressPressure::Allocation,
+        )),
+    }
 }
 
 /// Validate and seal one trusted Proposal admission. Proposal-window
 /// placement is derived later from the paired snapshot; there is no caller-
 /// supplied context or lease token to retain here.
-pub(super) fn proposal(
-    tx: TransactionView,
-    consensus: &Consensus,
-) -> Result<RetainedIngress, RetainedIngressError> {
-    let tx = Arc::new(tx.into_compact());
-    validate_non_contextual(&tx, RetainedIngressKind::Proposal, consensus)?;
-    ValidatedAdmission::from_retained_ingress(
+pub(super) fn proposal(tx: BoundedTransaction, consensus: &Consensus) -> RetainedIngressAttempt {
+    let tx = match validate_non_contextual(tx, RetainedIngressKind::Proposal, consensus) {
+        Ok(tx) => tx,
+        Err(rejection) => return RetainedIngressAttempt::Rejected(rejection),
+    };
+    match ValidatedAdmission::from_retained_ingress(
         RetainedIngressSeal(()),
-        Arc::unwrap_or_clone(tx),
+        tx,
         PreAcceptedSource::Proposal {
             base: ProposalBase::Trusted,
         },
-    )
-    .map(|admission| RetainedIngress {
-        kind: RetainedIngressKind::Proposal,
-        admission,
-    })
-    .map_err(RetainedIngressError::Admission)
+    ) {
+        Ok(admission) => RetainedIngressAttempt::Validated(RetainedIngress {
+            kind: RetainedIngressKind::Proposal,
+            admission,
+        }),
+        Err(_) => RetainedIngressAttempt::ProposalUnavailable,
+    }
 }
 
 /// Validate and compact a synchronous Local/TestAccept transaction before it
 /// can enter owner-free resolution. Rejection retains the exact transaction
 /// for Local publication without creating an authority owner.
+#[expect(
+    clippy::result_large_err,
+    reason = "the rejection retains exact source and sparse Accepted-read evidence inline; boxing would allocate on hostile direct ingress"
+)]
 pub(super) fn direct(
-    tx: &TransactionView,
+    tx: &DirectIngressTransaction,
     consensus: &Consensus,
     command: DirectCommand,
 ) -> Result<DirectTransaction, DirectTransactionRejection> {
-    let tx = Arc::new(tx.clone().into_compact());
+    let tx = tx.clone_transaction();
     non_contextual_verify(consensus, &tx)
         .map_err(|reason| DirectTransactionRejection::stable(Arc::clone(&tx), command, reason))?;
     Ok(DirectTransaction { tx, command })
 }
 
 fn validate_non_contextual(
-    tx: &Arc<TransactionView>,
+    tx: BoundedTransaction,
     kind: RetainedIngressKind,
     consensus: &Consensus,
-) -> Result<(), RetainedIngressError> {
-    non_contextual_verify(consensus, tx)
-        .map_err(CommittedPublicReject::new)
-        .map_err(|reason| {
-            RetainedIngressError::Rejected(RetainedIngressRejection {
-                kind,
-                tx: Arc::clone(tx),
-                reason,
-            })
-        })
+) -> Result<BoundedTransaction, RetainedIngressRejection> {
+    match non_contextual_verify(consensus, tx.transaction()) {
+        Ok(()) => Ok(tx),
+        Err(reason) => Err(RetainedIngressRejection {
+            kind,
+            tx: tx.into_transaction(),
+            reason: CommittedPublicReject::new(reason),
+        }),
+    }
 }
 
 #[cfg(test)]

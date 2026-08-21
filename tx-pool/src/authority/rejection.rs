@@ -7,8 +7,9 @@
 //! lossy class in between.
 
 use super::ingress::DirectCommand;
+use super::resolver::AcceptedOverlay;
+use super::state::ChainViewId;
 use super::state::RawTxHash;
-use super::state::{ApplySequence, ChainViewId};
 use crate::constants::MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
 use crate::error::Reject;
 use ckb_jsonrpc_types::PoolTransactionReject;
@@ -195,16 +196,15 @@ pub(super) struct DirectTransactionRejection {
 
 /// Exact authority evidence that keeps an owner-free rejection valid until a
 /// Local publication or a TestAccept return. Stable ingress facts need no
-/// chain fence. Chain-bound direct rejections use the existing Accepted source
-/// cut because owner-free work is deliberately absent from the resident
-/// dependency frontier; registering a synthetic consumer would turn this
-/// read-only path into another lifecycle owner.
-#[derive(Clone, Debug)]
+/// chain fence. Accepted-dependent work carries only its exact bounded read
+/// receipt; owner-free work deliberately remains absent from the resident
+/// dependency frontier and therefore creates no synthetic lifecycle owner.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum DirectRejectionValidity {
     Stable,
-    AcceptedCut {
+    AcceptedReads {
         view: ChainViewId,
-        accepted: ApplySequence,
+        reads: AcceptedOverlay,
     },
 }
 
@@ -218,18 +218,18 @@ impl DirectTransactionRejection {
         }
     }
 
-    pub(super) fn accepted_cut(
+    pub(super) fn accepted_reads(
         tx: Arc<TransactionView>,
         command: DirectCommand,
         reason: Reject,
         view: ChainViewId,
-        accepted: ApplySequence,
+        reads: AcceptedOverlay,
     ) -> Self {
         Self {
             tx,
             command,
             reason: CommittedPublicReject::new(reason),
-            validity: DirectRejectionValidity::AcceptedCut { view, accepted },
+            validity: DirectRejectionValidity::AcceptedReads { view, reads },
         }
     }
 

@@ -1,19 +1,23 @@
 use super::{
+    dependency_progress::{ModelDependencyCut, ModelDependencyKey},
     eviction_quotient::{
         EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementObservation,
-        EvictionRefinementStatus, eviction_observation,
+        eviction_observation,
     },
+    proposal::{ProposalStatusReceipt, ProposalView},
     scheduler_quotient::SchedulerAssignment,
     state::{
-        AcceptedProvenance, AcceptedStatus, ApplyStamp, Arrival, CapabilityId, CellId, ChainView,
-        DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectClaimSource, EffectClass,
-        EffectRecord, EntryVersion, FinishedWorkCapability, HeaderId, InputOrigin, LogicalEffect,
-        MembershipRejection, MissingDependencies, ModelInvariantError, MonotonicTick, Omega, Owner,
-        OwnerLocation, PeerBanDeadline, PeerBanRecord, PeerId, PoolGeneration, ProposalBase,
-        ReadyKey, RemoteDeadline, ResolvedEvidence, RetainedOwner, RetainedPhase, RetainedSource,
-        RulesId, Source, Transaction, TxId, VerifyCapability, ViewId, WorkCapability, WorkPermit,
-        WorkStage,
+        AcceptedProvenance, AcceptedStatus, ActiveWork, ApplyStamp, Arrival, CapabilityId, CellId,
+        ChainView, DirectCapability, DirectKind, DirectRequestId, EffectClaim, EffectClaimSource,
+        EffectClass, EffectRecord, EntryVersion, FinishedWorkCapability, HeaderId, InputOrigin,
+        LogicalEffect, MembershipRejection, MissingDependencies, ModelInvariantError,
+        ModelReplacementPolicy, MonotonicTick, Omega, Owner, OwnerLocation, PeerBanDeadline,
+        PeerBanRecord, PeerId, PoolGeneration, ProposalBase, ReadyKey, RemoteDeadline,
+        ResolvedEvidence, ResolvedEvidenceAtCut, RetainedOwner, RetainedPhase, RetainedSource,
+        RulesId, SettlementRejection, Source, Transaction, TxId, VerifyCapability, ViewId,
+        WorkCapability, WorkPayloadPolicy, WorkPermit, WorkStage,
     },
+    time_context::{ModelAcceptedValidity, model_accepted_validity},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
@@ -29,8 +33,8 @@ pub(super) struct Admission {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum WorkCompletionPlan {
-    ContinueVerify(ResolvedEvidence),
-    Ready(ResolvedEvidence),
+    ContinueVerify(ResolvedEvidenceAtCut),
+    Ready(ResolvedEvidenceAtCut),
     RequeueResolve,
     Wait(MissingDependencies),
     Reject,
@@ -137,11 +141,15 @@ struct OwnerLossPlan {
     terminal: BTreeSet<TxId>,
     remote_missing: BTreeMap<TxId, BTreeSet<CellId>>,
     released_cells: BTreeSet<CellId>,
+    lost_cells: BTreeSet<CellId>,
 }
 
 impl OwnerLossPlan {
     fn is_empty(&self) -> bool {
-        self.terminal.is_empty() && self.remote_missing.is_empty() && self.released_cells.is_empty()
+        self.terminal.is_empty()
+            && self.remote_missing.is_empty()
+            && self.released_cells.is_empty()
+            && self.lost_cells.is_empty()
     }
 
     fn terminal_dependents(&self, roots: &BTreeSet<TxId>) -> Vec<TxId> {
@@ -191,7 +199,7 @@ enum CapacitySelection {
 struct CapacitySelectionInput<'a> {
     candidate: &'a Transaction,
     arrival: Arrival,
-    status: AcceptedStatus,
+    status: ProposalStatusReceipt,
     charge: super::state::ResourceVector,
     mandatory: &'a BTreeSet<TxId>,
     protected_ancestors: &'a BTreeSet<TxId>,
@@ -204,7 +212,7 @@ struct EvictionScore(EvictionRefinementObservation);
 impl EvictionScore {
     fn for_component(authority: &Omega, root: TxId, component: &BTreeSet<TxId>) -> Option<Self> {
         let owner = authority.authority.owners.get(&root)?;
-        let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
+        let OwnerLocation::Accepted { .. } = &owner.location else {
             return None;
         };
         let (fee, bytes, cycles) =
@@ -213,13 +221,13 @@ impl EvictionScore {
                 .try_fold((0u64, 0u32, 0u64), |(fee, bytes, cycles), id| {
                     let transaction = &authority.authority.owners.get(id)?.transaction;
                     Some((
-                        fee.checked_add(transaction.fee)?,
-                        bytes.checked_add(transaction.bytes)?,
-                        cycles.checked_add(transaction.cycles)?,
+                        fee.checked_add(transaction.cost.fee())?,
+                        bytes.checked_add(transaction.cost.serialized_bytes())?,
+                        cycles.checked_add(transaction.cost.cycles())?,
                     ))
                 })?;
         Some(Self::new(
-            evidence.proposal_status,
+            authority.proposal_status_receipt(&owner.transaction),
             owner.arrival,
             &owner.transaction,
             EvictionRefinementMetrics::new(fee, u64::from(bytes), cycles),
@@ -228,7 +236,7 @@ impl EvictionScore {
     }
 
     fn for_candidate(
-        status: AcceptedStatus,
+        status: ProposalStatusReceipt,
         arrival: Arrival,
         candidate: &Transaction,
         descendants: EvictionRefinementMetrics,
@@ -238,7 +246,7 @@ impl EvictionScore {
     }
 
     fn new(
-        status: AcceptedStatus,
+        status: ProposalStatusReceipt,
         arrival: Arrival,
         transaction: &Transaction,
         descendants: EvictionRefinementMetrics,
@@ -247,15 +255,11 @@ impl EvictionScore {
         let mut identity = [0; 32];
         identity[31] = transaction.id.0;
         Self(eviction_observation(EvictionRefinementInput {
-            status: match status {
-                AcceptedStatus::Pending => EvictionRefinementStatus::Pending,
-                AcceptedStatus::Gap => EvictionRefinementStatus::Gap,
-                AcceptedStatus::Proposed => EvictionRefinementStatus::Proposed,
-            },
+            status,
             own: EvictionRefinementMetrics::new(
-                transaction.fee,
-                u64::from(transaction.bytes),
-                transaction.cycles,
+                transaction.cost.fee(),
+                u64::from(transaction.cost.serialized_bytes()),
+                transaction.cost.cycles(),
             ),
             descendants,
             descendants_count,
@@ -277,9 +281,34 @@ enum DirectAdmissionEvaluation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ChainContextTransition {
+    to_rules: RulesId,
+    had_detached_chain: bool,
+}
+
+impl ChainContextTransition {
+    /// Construct the exact primitive cut emitted by the chain boundary.  The
+    /// kernel derives the priority-ordered accepted-validity receipt; callers
+    /// cannot inject that conclusion directly.
+    pub(super) const fn from_primitives(to_rules: RulesId, had_detached_chain: bool) -> Self {
+        Self {
+            to_rules,
+            had_detached_chain,
+        }
+    }
+
+    const fn accepted_validity(&self, from_rules: RulesId) -> ModelAcceptedValidity {
+        model_accepted_validity(from_rules.0 != self.to_rules.0, self.had_detached_chain)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ChainTransition {
     /// Exact authority cut against which this move-only receipt was built.
     pub(super) from: ChainView,
+    /// Script-rule identity and detach fact captured from the same chain cut.
+    /// Rules change dominates detach when deriving accepted validity.
+    pub(super) context: ChainContextTransition,
     /// The next tip may equal `from.tip`; the new revision still distinguishes
     /// a later ordered chain/proposal-context installation.
     pub(super) to_tip: ViewId,
@@ -299,8 +328,9 @@ pub(super) struct ChainTransition {
     pub(super) lost_headers: BTreeSet<HeaderId>,
     pub(super) conflicting_cells: BTreeSet<CellId>,
     pub(super) recovered: Vec<Transaction>,
-    pub(super) proposed: BTreeSet<TxId>,
-    pub(super) gap: BTreeSet<TxId>,
+    /// Sole derived proposal view for `to_tip`. Primitive per-height history
+    /// and independently supplied status hints are absent from this boundary.
+    pub(super) proposals: ProposalView,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -504,7 +534,7 @@ impl KernelStep {
 
 impl Omega {
     pub(super) fn kernel_step(&mut self, command: KernelCommand) -> KernelStep {
-        match command {
+        let step = match command {
             KernelCommand::Admit(admission) => self.admit(admission),
             KernelCommand::Checkout => self.checkout(CheckoutRoute::Split),
             KernelCommand::CheckoutContinuous(capability) => {
@@ -542,7 +572,59 @@ impl Omega {
             }
             KernelCommand::ClaimEffect => self.claim_effect(),
             KernelCommand::SettleEffect(claim) => self.settle_effect(claim),
+        };
+        if matches!(step, KernelStep::AuthorityCommit { .. }) {
+            let indexed = self
+                .indexed_dependency_keys()
+                .expect("an authority commit preserves one valid dependency slot per owner");
+            self.authority.dependency_frontier.prune_to(&indexed);
         }
+        step
+    }
+
+    fn indexed_dependency_keys(&self) -> Option<BTreeSet<ModelDependencyKey>> {
+        self.authority
+            .owners
+            .values()
+            .try_fold(BTreeSet::new(), |mut indexed, owner| {
+                indexed.extend(owner.dependencies()?);
+                Some(indexed)
+            })
+    }
+
+    fn apply_dependency_events(
+        &mut self,
+        available_cells: &BTreeSet<CellId>,
+        available_headers: &BTreeSet<HeaderId>,
+        lost_cells: &BTreeSet<CellId>,
+        lost_headers: &BTreeSet<HeaderId>,
+        indexed_before: &BTreeSet<ModelDependencyKey>,
+        stamp: ApplyStamp,
+    ) -> bool {
+        let available = available_cells
+            .iter()
+            .map(|cell| ModelDependencyKey::cell(cell.0))
+            .chain(
+                available_headers
+                    .iter()
+                    .map(|header| ModelDependencyKey::header(header.0)),
+            )
+            .collect();
+        let lost = lost_cells
+            .iter()
+            .map(|cell| ModelDependencyKey::cell(cell.0))
+            .chain(
+                lost_headers
+                    .iter()
+                    .map(|header| ModelDependencyKey::header(header.0)),
+            )
+            .collect();
+        self.authority.dependency_frontier.apply_events(
+            &available,
+            &lost,
+            indexed_before,
+            ModelDependencyCut(stamp.0),
+        )
     }
 
     fn admit(&mut self, admission: Admission) -> KernelStep {
@@ -773,12 +855,13 @@ impl Omega {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
         let OwnerLocation::Retained(RetainedOwner {
+            source,
             phase: RetainedPhase::Queued(stage),
-            ..
         }) = &owner.location
         else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
+        let payload_policy = source.work_payload_policy();
         if let WorkStage::Verify(evidence) = stage
             && self.classify_evidence(transaction, evidence) != EvidenceValidity::Current
         {
@@ -797,6 +880,14 @@ impl Omega {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         }
         let stage = stage.clone();
+        let Some(dependencies) = (match &stage {
+            WorkStage::Resolve => owner.transaction.declared_dependencies(),
+            WorkStage::Verify(evidence) => evidence.dependencies(&owner.transaction),
+        }) else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::InvalidEvidenceRejected(
+                transaction,
+            ));
+        };
         let mut next = self.clone();
         let Some(capability_id) = next.reserve_capability() else {
             return counter_exhausted();
@@ -810,6 +901,10 @@ impl Omega {
         let Some(stamp) = next.reserve_apply() else {
             return counter_exhausted();
         };
+        let dependency_cut = match &stage {
+            WorkStage::Resolve => super::dependency_progress::ModelDependencyCut(stamp.0),
+            WorkStage::Verify(evidence) => evidence.dependency_cut,
+        };
         let Some(free) = next.linear.free_compute_permits.checked_sub(1) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
@@ -822,6 +917,8 @@ impl Omega {
             stage,
             next.authority.chain,
             next.authority.rules,
+            dependency_cut,
+            payload_policy,
         ) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
@@ -832,7 +929,11 @@ impl Omega {
         let OwnerLocation::Retained(retained) = &mut owner.location else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
-        retained.phase = RetainedPhase::Computing(permit);
+        retained.phase = RetainedPhase::Computing(ActiveWork {
+            permit,
+            dependency_cut,
+            dependencies,
+        });
         owner.version = version;
         *self = next;
         KernelStep::AuthorityCommit {
@@ -847,11 +948,12 @@ impl Omega {
                 continuation.capability,
             ));
         };
-        if !self.capability_is_current(capability)
+        if !self.capability_evidence_cut_is_current(capability)
             || !matches!(capability.permit(), WorkPermit::ResolveThenVerify(_))
             || !matches!(capability.stage(), WorkStage::Resolve)
             || self.classify_evidence(capability.transaction, &continuation.evidence)
                 != EvidenceValidity::Current
+            || !self.capability_resolution_is_current(capability, &continuation.evidence)
         {
             return KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
                 continuation.capability,
@@ -896,6 +998,11 @@ impl Omega {
         let Some(free) = next.linear.free_compute_permits.checked_sub(1) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Idle);
         };
+        let Some(dependencies) = transaction.declared_dependencies() else {
+            return KernelStep::NoAuthorityCommit(KernelDisposition::InvalidEvidenceRejected(
+                transaction.id,
+            ));
+        };
         next.linear.free_compute_permits = free;
         let capability = DirectCapability {
             id: capability_id,
@@ -904,6 +1011,10 @@ impl Omega {
             transaction,
             chain: next.authority.chain,
             rules: next.authority.rules,
+            dependency_cut: super::dependency_progress::ModelDependencyCut(
+                next.authority.last_apply.0,
+            ),
+            dependencies,
         };
         next.linear
             .direct_work
@@ -919,6 +1030,16 @@ impl Omega {
             ));
         };
         if capability.chain != self.authority.chain || capability.rules != self.authority.rules {
+            return self.retire_direct(
+                completion.capability,
+                KernelDisposition::DirectRelevantChange(capability.request),
+            );
+        }
+        if !self
+            .authority
+            .dependency_frontier
+            .owner_free_proof_is_current(&capability.dependencies, capability.dependency_cut)
+        {
             return self.retire_direct(
                 completion.capability,
                 KernelDisposition::DirectRelevantChange(capability.request),
@@ -969,6 +1090,15 @@ impl Omega {
             DirectWorkResult::Verified(evidence) => {
                 if self.classify_transaction_evidence(&capability.transaction, &evidence)
                     != EvidenceValidity::Current
+                    || !evidence
+                        .dependencies(&capability.transaction)
+                        .is_some_and(|dependencies| {
+                            self.authority.dependency_frontier.resolution_is_current(
+                                &capability.dependencies,
+                                &dependencies,
+                                capability.dependency_cut,
+                            )
+                        })
                 {
                     return self.retire_direct(
                         completion.capability,
@@ -1038,7 +1168,7 @@ impl Omega {
         location: CompletionLocation,
     ) -> KernelStep {
         let capability = work.id;
-        let current = self.capability_is_current(&work);
+        let current = self.capability_owner_is_current(&work);
         let effect_class = self
             .authority
             .owners
@@ -1080,7 +1210,7 @@ impl Omega {
             let Some(stamp) = next.reserve_apply() else {
                 return counter_exhausted();
             };
-            if !next.apply_owner_loss(&owner_loss) {
+            if !next.apply_owner_loss(&owner_loss, stamp) {
                 return counter_exhausted();
             }
             if !next.append_effects(effect_class, stamp, effect_plan) {
@@ -1102,25 +1232,58 @@ impl Omega {
         capability: &WorkCapability,
         result: &WorkResult,
     ) -> Option<WorkCompletionPlan> {
-        let permit = self
+        let owner = self.authority.owners.get(&capability.transaction)?;
+        let OwnerLocation::Retained(RetainedOwner {
+            source,
+            phase: RetainedPhase::Computing(active),
+        }) = &owner.location
+        else {
+            return None;
+        };
+        if active.permit != capability.permit()
+            || active.dependency_cut != capability.dependency_cut
+        {
+            return None;
+        }
+        let permit = active.permit;
+        let current_policy = source.work_payload_policy();
+        if !self
             .authority
-            .owners
-            .get(&capability.transaction)
-            .and_then(|owner| match &owner.location {
-                OwnerLocation::Retained(RetainedOwner {
-                    phase: RetainedPhase::Computing(permit),
-                    ..
-                }) if *permit == capability.permit() => Some(*permit),
-                OwnerLocation::Retained(_)
-                | OwnerLocation::Accepted { .. }
-                | OwnerLocation::ReplacementHistory { .. } => None,
-            })?;
+            .dependency_frontier
+            .proof_is_current(&active.dependencies, active.dependency_cut)
+        {
+            return Some(WorkCompletionPlan::RequeueResolve);
+        }
+        let evidence_cut_current =
+            capability.chain == self.authority.chain && capability.rules == self.authority.rules;
+        let classify_resolution = |evidence: &ResolvedEvidence, chain_bound: bool| {
+            let validity = if chain_bound {
+                self.classify_evidence(capability.transaction, evidence)
+            } else {
+                self.classify_evidence_dependencies(capability.transaction, evidence)
+            };
+            if validity != EvidenceValidity::Current {
+                return validity;
+            }
+            let Some(resolved) = evidence.dependencies(&owner.transaction) else {
+                return EvidenceValidity::Invalid;
+            };
+            if self.authority.dependency_frontier.resolution_is_current(
+                &active.dependencies,
+                &resolved,
+                active.dependency_cut,
+            ) {
+                EvidenceValidity::Current
+            } else {
+                EvidenceValidity::RelevantChange
+            }
+        };
         Some(match (permit, capability.stage(), result) {
             (WorkPermit::ResolveOnly, WorkStage::Resolve, WorkResult::Resolved(evidence)) => {
-                match self.classify_evidence(capability.transaction, evidence) {
-                    EvidenceValidity::Current => {
-                        WorkCompletionPlan::ContinueVerify(evidence.clone())
-                    }
+                match classify_resolution(evidence, true) {
+                    EvidenceValidity::Current => WorkCompletionPlan::ContinueVerify(
+                        ResolvedEvidenceAtCut::new(evidence.clone(), active.dependency_cut),
+                    ),
                     EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
                     EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
                 }
@@ -1129,11 +1292,13 @@ impl Omega {
                 WorkPermit::ResolveThenVerify(verify_capability),
                 WorkStage::Resolve,
                 WorkResult::Resolved(evidence),
-            ) => match self.classify_evidence(capability.transaction, evidence) {
+            ) => match classify_resolution(evidence, true) {
                 EvidenceValidity::Current if verify_capability.permits(evidence.verify_class) => {
                     WorkCompletionPlan::PrivateContinuationRequired
                 }
-                EvidenceValidity::Current => WorkCompletionPlan::ContinueVerify(evidence.clone()),
+                EvidenceValidity::Current => WorkCompletionPlan::ContinueVerify(
+                    ResolvedEvidenceAtCut::new(evidence.clone(), active.dependency_cut),
+                ),
                 EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
                 EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
             },
@@ -1141,7 +1306,7 @@ impl Omega {
                 WorkPermit::VerifyOnly(_) | WorkPermit::ResolveThenVerify(_),
                 WorkStage::Verify(evidence),
                 WorkResult::Verified,
-            ) => match self.classify_evidence(capability.transaction, evidence) {
+            ) => match classify_resolution(evidence, false) {
                 EvidenceValidity::Current => WorkCompletionPlan::Ready(evidence.clone()),
                 EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
                 EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
@@ -1150,15 +1315,74 @@ impl Omega {
                 WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_),
                 WorkStage::Resolve,
                 WorkResult::Missing(missing),
-            ) if self
-                .authority
-                .owners
-                .get(&capability.transaction)
-                .is_some_and(|owner| missing.is_for(&owner.transaction)) =>
-            {
-                self.missing_completion_plan(capability.transaction, missing)
+            ) => {
+                let identity_current = self
+                    .authority
+                    .owners
+                    .get(&capability.transaction)
+                    .is_some_and(|owner| missing.is_for(&owner.transaction));
+                if !identity_current {
+                    WorkCompletionPlan::Invalid
+                } else if evidence_cut_current
+                    && missing
+                        .dependencies(&owner.transaction)
+                        .is_some_and(|dependencies| {
+                            self.authority
+                                .dependency_frontier
+                                .missing_result_is_current(
+                                    &active.dependencies,
+                                    &dependencies,
+                                    &missing.missing_keys(),
+                                    active.dependency_cut,
+                                )
+                        })
+                {
+                    self.missing_completion_plan(capability.transaction, missing)
+                } else {
+                    WorkCompletionPlan::RequeueResolve
+                }
             }
-            (_, _, WorkResult::Rejected) => WorkCompletionPlan::Reject,
+            (_, _, WorkResult::Rejected(SettlementRejection::ResourceBound)) => {
+                WorkCompletionPlan::Reject
+            }
+            (
+                WorkPermit::ResolveOnly | WorkPermit::ResolveThenVerify(_),
+                WorkStage::Resolve,
+                WorkResult::Rejected(SettlementRejection::ChainBound),
+            ) => {
+                if evidence_cut_current {
+                    WorkCompletionPlan::Reject
+                } else {
+                    WorkCompletionPlan::RequeueResolve
+                }
+            }
+            (
+                WorkPermit::VerifyOnly(_) | WorkPermit::ResolveThenVerify(_),
+                WorkStage::Verify(evidence),
+                WorkResult::VerificationRejected,
+            ) => match (capability.payload_policy(), current_policy) {
+                (WorkPayloadPolicy::Remote, WorkPayloadPolicy::Remote)
+                | (WorkPayloadPolicy::Trusted, WorkPayloadPolicy::Trusted) => {
+                    if evidence_cut_current {
+                        WorkCompletionPlan::Reject
+                    } else {
+                        WorkCompletionPlan::RequeueResolve
+                    }
+                }
+                (WorkPayloadPolicy::Remote, WorkPayloadPolicy::Trusted) => {
+                    match classify_resolution(evidence, true) {
+                        EvidenceValidity::Current => {
+                            WorkCompletionPlan::ContinueVerify(evidence.clone())
+                        }
+                        EvidenceValidity::RelevantChange => WorkCompletionPlan::RequeueResolve,
+                        EvidenceValidity::Invalid => WorkCompletionPlan::Invalid,
+                    }
+                }
+                (WorkPayloadPolicy::Trusted, WorkPayloadPolicy::Remote) => {
+                    WorkCompletionPlan::Invalid
+                }
+            },
+            (_, _, WorkResult::Retry) => WorkCompletionPlan::RequeueResolve,
             _ => WorkCompletionPlan::Invalid,
         })
     }
@@ -1169,7 +1393,7 @@ impl Omega {
                 completion.capability,
             ));
         };
-        if !self.capability_is_current(&capability) {
+        if !self.capability_owner_is_current(&capability) {
             let mut next = self.clone();
             next.linear.work.remove(&completion.capability);
             let Some(free) = next.linear.free_compute_permits.checked_add(1) else {
@@ -1234,7 +1458,7 @@ impl Omega {
         result: WorkResult,
         location: CompletionLocation,
     ) -> KernelStep {
-        if !self.capability_is_current(&capability) {
+        if !self.capability_owner_is_current(&capability) {
             let mut next = self.clone();
             if !next.retire_work_capability(capability.id, location) {
                 return counter_exhausted();
@@ -1462,7 +1686,7 @@ impl Omega {
                             && owner.transaction.outputs.contains(cell)
                     })
                 });
-                if missing.headers().is_empty() && every_cell_has_preaccepted_producer {
+                if every_cell_has_preaccepted_producer {
                     WorkCompletionPlan::Wait(missing.clone())
                 } else {
                     WorkCompletionPlan::Reject
@@ -1565,7 +1789,7 @@ impl Omega {
             .filter_map(|transaction| {
                 self.authority.owners.get(transaction).and_then(|owner| {
                     let OwnerLocation::Retained(RetainedOwner {
-                        phase: RetainedPhase::Ready(evidence),
+                        phase: RetainedPhase::Ready(_),
                         ..
                     }) = &owner.location
                     else {
@@ -1573,7 +1797,7 @@ impl Omega {
                     };
                     Some(LogicalEffect::admitted(
                         &owner.transaction,
-                        evidence.proposal_status,
+                        self.proposal_status(&owner.transaction),
                         owner.ingress_peer(),
                     ))
                 })
@@ -1593,6 +1817,14 @@ impl Omega {
             let Some(version) = next.reserve_owner_version() else {
                 return counter_exhausted();
             };
+            let Some(proposal) = next
+                .authority
+                .owners
+                .get(transaction)
+                .map(|owner| next.authority.proposals.status(owner.transaction.proposal))
+            else {
+                return KernelStep::NoAuthorityCommit(KernelDisposition::ReadyCutChanged);
+            };
             let Some(owner) = next.authority.owners.get_mut(transaction) else {
                 return KernelStep::NoAuthorityCommit(KernelDisposition::ReadyCutChanged);
             };
@@ -1610,7 +1842,27 @@ impl Omega {
                 provenance,
                 accepted_at_wall: wall_time,
                 evidence,
+                proposal,
             };
+        }
+        let accepted_outputs = accepted
+            .iter()
+            .filter_map(|id| next.authority.owners.get(id))
+            .flat_map(|owner| owner.transaction.outputs.iter().copied())
+            .filter(|cell| next.accepted_spender(*cell).is_none())
+            .collect::<BTreeSet<_>>();
+        let indexed = next
+            .indexed_dependency_keys()
+            .expect("the accepted batch has canonical dependency slots");
+        if !next.apply_dependency_events(
+            &accepted_outputs,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &indexed,
+            stamp,
+        ) {
+            return counter_exhausted();
         }
         if !next.append_effects(effect_class, stamp, effect_plan) {
             return counter_exhausted();
@@ -1650,7 +1902,8 @@ impl Omega {
         }
         let provenance = source.accepted_provenance();
         let effect_class = source.effect_class();
-        let accepted_status = evidence.proposal_status;
+        let accepted_proposal = self.proposal_status_receipt(&owner.transaction);
+        let accepted_status = accepted_proposal.value();
         let evidence = evidence.clone();
         let evaluation =
             self.evaluate_membership_candidate(&owner.transaction, owner.arrival, &evidence);
@@ -1697,8 +1950,12 @@ impl Omega {
                     provenance,
                     accepted_at_wall: wall_time,
                     evidence,
+                    proposal: accepted_proposal,
                 };
                 if !next.adopt_late_children(transaction, &acceptance.late_children) {
+                    return counter_exhausted();
+                }
+                if !next.apply_membership_dependency_events(transaction, &acceptance, stamp) {
                     return counter_exhausted();
                 }
                 if next
@@ -1717,7 +1974,7 @@ impl Omega {
                 let Some(owner_loss) = &rejection_loss else {
                     return counter_exhausted();
                 };
-                if !next.apply_owner_loss(owner_loss) {
+                if !next.apply_owner_loss(owner_loss, stamp) {
                     return counter_exhausted();
                 }
                 match reason {
@@ -1759,6 +2016,11 @@ impl Omega {
             .collect::<BTreeSet<_>>();
         let replacement_victims = self.accepted_descendant_closure(&direct_conflicts);
         if !direct_conflicts.is_empty() {
+            let ModelReplacementPolicy::Enabled { minimum_rate } =
+                self.authority.replacement_policy
+            else {
+                return MembershipEvaluation::Rejected(MembershipRejection::Policy);
+            };
             let replaced_inputs = direct_conflicts
                 .iter()
                 .filter_map(|conflict| self.authority.owners.get(conflict))
@@ -1780,12 +2042,14 @@ impl Omega {
                     self.authority
                         .owners
                         .get(victim)
-                        .and_then(|owner| total.checked_add(owner.transaction.fee))
+                        .and_then(|owner| total.checked_add(owner.transaction.cost.fee()))
                 })
-                .and_then(|fee| fee.checked_add(candidate.bytes.into()));
+                .and_then(|fee| {
+                    fee.checked_add(minimum_rate.fee(u64::from(candidate.cost.serialized_bytes())))
+                });
             if has_new_unconfirmed_input
                 || depends_on_victim
-                || required_fee.is_none_or(|required| candidate.fee < required)
+                || required_fee.is_none_or(|required| candidate.cost.fee() < required)
             {
                 return MembershipEvaluation::Rejected(MembershipRejection::Policy);
             }
@@ -1827,7 +2091,7 @@ impl Omega {
         let capacity_victims = match self.select_capacity_victims(CapacitySelectionInput {
             candidate,
             arrival: candidate_arrival,
-            status: evidence.proposal_status,
+            status: self.proposal_status_receipt(candidate),
             charge: candidate_charge,
             mandatory: &replacement_victims,
             protected_ancestors: &ancestors,
@@ -1968,6 +2232,39 @@ impl Omega {
         Some(disposition)
     }
 
+    fn apply_membership_dependency_events(
+        &mut self,
+        transaction: TxId,
+        acceptance: &MembershipAcceptance,
+        stamp: ApplyStamp,
+    ) -> bool {
+        let Some(winner) = self.authority.owners.get(&transaction) else {
+            return false;
+        };
+        let available = acceptance
+            .owner_loss
+            .released_cells
+            .iter()
+            .chain(&winner.transaction.outputs)
+            .filter(|cell| {
+                !acceptance.owner_loss.lost_cells.contains(cell)
+                    && self.accepted_spender(**cell).is_none()
+            })
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let Some(indexed) = self.indexed_dependency_keys() else {
+            return false;
+        };
+        self.apply_dependency_events(
+            &available,
+            &BTreeSet::new(),
+            &acceptance.owner_loss.lost_cells,
+            &BTreeSet::new(),
+            &indexed,
+            stamp,
+        )
+    }
+
     fn remove(&mut self, transaction: TxId) -> KernelStep {
         let Some(root_owner) = self.authority.owners.get(&transaction) else {
             return KernelStep::NoAuthorityCommit(KernelDisposition::Removed(Vec::new()));
@@ -2013,7 +2310,7 @@ impl Omega {
         let Some(stamp) = next.reserve_apply() else {
             return counter_exhausted();
         };
-        if !next.apply_owner_loss(&owner_loss) {
+        if !next.apply_owner_loss(&owner_loss, stamp) {
             return counter_exhausted();
         }
         let removed = owner_loss.terminal.iter().copied().collect::<Vec<_>>();
@@ -2085,6 +2382,7 @@ impl Omega {
         let Some(next_chain) = transition.from.advance(transition.to_tip) else {
             return counter_exhausted();
         };
+        let accepted_validity = transition.context.accepted_validity(self.authority.rules);
         let detached_inputs = transition
             .recovered
             .iter()
@@ -2101,12 +2399,16 @@ impl Omega {
                     return None;
                 }
                 owner
-                    .transaction
-                    .inputs
+                    .dependencies()?
                     .iter()
-                    .chain(&owner.transaction.deps)
-                    .find(|cell| transition.conflicting_cells.contains(cell))
-                    .copied()
+                    .find_map(|dependency| match dependency {
+                        ModelDependencyKey::Cell(cell)
+                            if transition.conflicting_cells.contains(&CellId(*cell)) =>
+                        {
+                            Some(CellId(*cell))
+                        }
+                        ModelDependencyKey::Cell(_) | ModelDependencyKey::Header(_) => None,
+                    })
                     .map(|cell| (*id, cell))
             })
             .collect::<BTreeMap<_, _>>();
@@ -2115,7 +2417,7 @@ impl Omega {
             .into_iter()
             .map(|(id, cell)| (id, ChainRemovalCause::Conflict(cell)))
             .collect::<BTreeMap<_, _>>();
-        let recovery_roots = self
+        let mut recovery_roots = self
             .authority
             .owners
             .iter()
@@ -2138,6 +2440,25 @@ impl Omega {
                 (lost_chain_cell || lost_header).then_some(*id)
             })
             .collect::<BTreeSet<_>>();
+        match accepted_validity {
+            ModelAcceptedValidity::Preserved => {}
+            ModelAcceptedValidity::ContextChanged => {
+                recovery_roots.extend(self.authority.owners.iter().filter_map(|(id, owner)| {
+                    let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
+                        return None;
+                    };
+                    evidence
+                        .context_sensitivity(&owner.transaction)
+                        .is_some_and(|sensitivity| sensitivity.requires_reorg_revalidation())
+                        .then_some(*id)
+                }));
+            }
+            ModelAcceptedValidity::RulesChanged => {
+                recovery_roots.extend(self.authority.owners.iter().filter_map(|(id, owner)| {
+                    matches!(owner.location, OwnerLocation::Accepted { .. }).then_some(*id)
+                }));
+            }
+        }
         for id in self.accepted_descendant_closure(&recovery_roots) {
             removal_causes
                 .entry(id)
@@ -2151,13 +2472,22 @@ impl Omega {
                 .filter(|id| self.authority.owners.contains_key(id))
                 .map(|id| (id, ChainRemovalCause::Committed)),
         );
+        let proposal_delta = self
+            .authority
+            .proposals
+            .transition_to(&transition.proposals);
         let mut proposal_demotions = BTreeMap::new();
         let mut proposal_expirations = BTreeSet::new();
-        for (id, owner) in &self.authority.owners {
-            if removal_causes.contains_key(id)
+        for proposal in proposal_delta.changed() {
+            let Some(id) = self.proposal_owner(*proposal) else {
+                continue;
+            };
+            let Some(owner) = self.authority.owners.get(&id) else {
+                return counter_exhausted();
+            };
+            if removal_causes.contains_key(&id)
                 || !matches!(owner.location, OwnerLocation::Retained(_))
-                || transition.proposed.contains(id)
-                || transition.gap.contains(id)
+                || transition.proposals.status(*proposal).is_inside()
             {
                 continue;
             }
@@ -2166,10 +2496,10 @@ impl Omega {
             };
             match base {
                 ProposalBase::Remote(residency) => {
-                    proposal_demotions.insert(*id, residency);
+                    proposal_demotions.insert(id, residency);
                 }
                 ProposalBase::Trusted => {
-                    proposal_expirations.insert(*id);
+                    proposal_expirations.insert(id);
                 }
             }
         }
@@ -2180,6 +2510,19 @@ impl Omega {
                 .map(|id| (id, ChainRemovalCause::ProposalExpired)),
         );
         let removed_set = removal_causes.keys().copied().collect::<BTreeSet<_>>();
+        let removed_dependency_outputs = removal_causes
+            .iter()
+            .filter(|(_, cause)| !matches!(cause, ChainRemovalCause::Committed))
+            .filter_map(|(id, _)| self.authority.owners.get(id))
+            .flat_map(|owner| owner.transaction.outputs.iter().copied())
+            .collect::<BTreeSet<_>>();
+        let event_lost_cells = transition
+            .lost_cells
+            .iter()
+            .chain(&transition.conflicting_cells)
+            .chain(&removed_dependency_outputs)
+            .copied()
+            .collect::<BTreeSet<_>>();
         let preaccepted_requeues = self
             .authority
             .owners
@@ -2191,53 +2534,51 @@ impl Omega {
                 let OwnerLocation::Retained(retained) = &owner.location else {
                     return None;
                 };
-                let lost_cell = owner
-                    .transaction
-                    .inputs
-                    .iter()
-                    .chain(&owner.transaction.deps)
-                    .any(|cell| transition.lost_cells.contains(cell));
-                let lost_header = owner
-                    .transaction
-                    .header_deps
-                    .iter()
-                    .any(|header| transition.lost_headers.contains(header));
-                if !(lost_cell || lost_header) {
+                if matches!(retained.phase, RetainedPhase::Computing(_)) {
+                    return None;
+                }
+                let dependencies = owner.dependencies()?;
+                let lost_dependency = dependencies.iter().any(|dependency| match dependency {
+                    ModelDependencyKey::Cell(cell) => event_lost_cells.contains(&CellId(*cell)),
+                    ModelDependencyKey::Header(header) => {
+                        transition.lost_headers.contains(&HeaderId(*header))
+                    }
+                });
+                if !lost_dependency {
                     return None;
                 }
                 let already_missing = match &retained.phase {
-                    RetainedPhase::Waiting { missing } => {
-                        missing
-                            .cells()
-                            .iter()
-                            .any(|cell| transition.lost_cells.contains(cell))
-                            || missing
-                                .headers()
-                                .iter()
-                                .any(|header| transition.lost_headers.contains(header))
-                    }
+                    RetainedPhase::Waiting { missing } => missing
+                        .cells()
+                        .iter()
+                        .any(|cell| event_lost_cells.contains(cell)),
                     RetainedPhase::Queued(WorkStage::Resolve) => true,
-                    RetainedPhase::Queued(WorkStage::Verify(_))
-                    | RetainedPhase::Computing(_)
-                    | RetainedPhase::Ready(_) => false,
+                    RetainedPhase::Queued(WorkStage::Verify(_)) | RetainedPhase::Ready(_) => false,
+                    RetainedPhase::Computing(_) => unreachable!(
+                        "active compute was excluded before maintenance classification"
+                    ),
                 };
                 (!already_missing).then_some(*id)
             })
             .collect::<Vec<_>>();
 
-        let status_changes = self
-            .authority
-            .owners
+        let status_changes = proposal_delta
+            .changed()
             .iter()
-            .filter_map(|(id, owner)| {
-                if removed_set.contains(id) {
+            .filter_map(|proposal| {
+                let id = self.proposal_owner(*proposal)?;
+                if removed_set.contains(&id) {
                     return None;
                 }
-                let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
+                let owner = self.authority.owners.get(&id)?;
+                let OwnerLocation::Accepted {
+                    proposal: before, ..
+                } = &owner.location
+                else {
                     return None;
                 };
-                let after = chain_status(*id, &transition.proposed, &transition.gap);
-                (evidence.proposal_status != after).then_some((*id, after))
+                let after = transition.proposals.status(*proposal);
+                (*before != after).then_some((id, after))
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -2276,7 +2617,10 @@ impl Omega {
             let Some(owner) = self.authority.owners.get(id) else {
                 continue;
             };
-            effect_plan.push(LogicalEffect::status_changed(&owner.transaction, *status));
+            effect_plan.push(LogicalEffect::status_changed(
+                &owner.transaction,
+                status.value(),
+            ));
         }
         let proposal_dependency = self.refetchable_dependency_plan(&proposal_expirations);
         let Some(parent_requests) = proposal_dependency.parent_request_effects() else {
@@ -2295,6 +2639,7 @@ impl Omega {
             return counter_exhausted();
         };
         next.authority.chain = next_chain;
+        next.authority.rules = transition.context.to_rules;
 
         let committed_outputs = transition
             .committed
@@ -2333,23 +2678,21 @@ impl Omega {
                 retained.source = Source::Remote(*residency);
             }
         }
-
-        // A chain revision invalidates the positive evidence of every current
-        // Computing owner, independent of whether its linear capability is
-        // still executing or has already released its permit into
-        // `finished_work`. Reclassify the semantic owner phase instead of
-        // enumerating capability containers; both capability locations remain
-        // linearly owned but stale and retire exactly once later. Ready and
-        // queued Verify evidence remain resident and are lazily requeued by
-        // their exact consumers; Waiting and queued Resolve owners contain no
-        // positive chain proof.
-        for owner in next.authority.owners.values_mut() {
-            if let OwnerLocation::Retained(retained) = &mut owner.location
-                && matches!(retained.phase, RetainedPhase::Computing(_))
-            {
-                retained.phase = RetainedPhase::Queued(WorkStage::Resolve);
-            }
+        for (id, status) in &status_changes {
+            let Some(owner) = next.authority.owners.get_mut(id) else {
+                return counter_exhausted();
+            };
+            let OwnerLocation::Accepted { proposal, .. } = &mut owner.location else {
+                return counter_exhausted();
+            };
+            *proposal = *status;
         }
+
+        // Active compute is a move-only capability, not a chain projection.
+        // Preserve it across a revision so its exact result validity domain can
+        // be classified once at settlement. Ready and queued Verify evidence
+        // remain resident and are lazily requeued by their exact consumers;
+        // Waiting and queued Resolve owners contain no positive chain proof.
 
         let accepted_changes = next
             .authority
@@ -2367,7 +2710,7 @@ impl Omega {
                         matches!(origin, InputOrigin::Pool(parent) if transition.committed.contains(parent))
                             && committed_outputs.contains(cell)
                     });
-                (origin_changes || status_changes.contains_key(id)).then_some(*id)
+                origin_changes.then_some(*id)
             })
             .collect::<Vec<_>>();
         let current_chain = next.authority.chain;
@@ -2405,9 +2748,6 @@ impl Omega {
             }
             if origin_changed {
                 evidence.context.chain = current_chain;
-            }
-            if let Some(after) = status_changes.get(&id) {
-                evidence.proposal_status = *after;
             }
             owner.version = version;
         }
@@ -2500,9 +2840,7 @@ impl Omega {
             .chain(&detached_inputs)
             .copied()
             .filter(|cell| {
-                !transition.conflicting_cells.contains(cell)
-                    && !transition.lost_cells.contains(cell)
-                    && next.accepted_spender(*cell).is_none()
+                !event_lost_cells.contains(cell) && next.accepted_spender(*cell).is_none()
             })
             .collect::<BTreeSet<_>>();
         let available_headers = transition
@@ -2515,10 +2853,24 @@ impl Omega {
         else {
             return counter_exhausted();
         };
+        let indexed_dependencies = next
+            .indexed_dependency_keys()
+            .expect("the final chain owner cut has canonical dependency slots");
+        if !next.apply_dependency_events(
+            &available,
+            &available_headers,
+            &event_lost_cells,
+            &transition.lost_headers,
+            &indexed_dependencies,
+            stamp,
+        ) {
+            return counter_exhausted();
+        }
         recovered.extend(history_recovery);
         if !next.append_effects(EffectClass::Critical, stamp, effect_plan) {
             return counter_exhausted();
         }
+        next.authority.proposals = transition.proposals;
         removed.sort_unstable();
         removed.dedup();
         recovered.sort_unstable();
@@ -2553,6 +2905,7 @@ impl Omega {
         };
         next.authority.generation = PoolGeneration(generation);
         next.authority.chain = chain;
+        next.authority.proposals = ProposalView::empty();
         next.authority.owners.clear();
         if !next.append_effects(EffectClass::Critical, stamp, vec![effect]) {
             return counter_exhausted();
@@ -2634,7 +2987,7 @@ impl Omega {
             DirectAdmissionEvaluation::ProposalCollision => None,
             DirectAdmissionEvaluation::Membership(evaluation) => self.membership_effects(
                 &capability.transaction,
-                evidence.proposal_status,
+                self.proposal_status(&capability.transaction),
                 evaluation,
             ),
         }) else {
@@ -2692,6 +3045,10 @@ impl Omega {
                 {
                     return KernelStep::NoAuthorityCommit(KernelDisposition::ReadyCutChanged);
                 }
+                let proposal = next
+                    .authority
+                    .proposals
+                    .status(capability.transaction.proposal);
                 next.authority.owners.insert(
                     transaction,
                     Owner {
@@ -2701,11 +3058,18 @@ impl Omega {
                         location: OwnerLocation::Accepted {
                             provenance,
                             accepted_at_wall: wall_time,
-                            evidence,
+                            evidence: ResolvedEvidenceAtCut::new(
+                                evidence,
+                                capability.dependency_cut,
+                            ),
+                            proposal,
                         },
                     },
                 );
                 if !next.adopt_late_children(transaction, &acceptance.late_children) {
+                    return counter_exhausted();
+                }
+                if !next.apply_membership_dependency_events(transaction, &acceptance, stamp) {
                     return counter_exhausted();
                 }
                 if next
@@ -2942,7 +3306,7 @@ impl Omega {
                 transaction
                     .inputs
                     .iter()
-                    .chain(transaction.deps.iter())
+                    .chain(transaction.cell_deps.iter())
                     .copied(),
             ),
         }
@@ -2962,7 +3326,7 @@ impl Omega {
                         .transaction
                         .inputs
                         .iter()
-                        .chain(capability.transaction.deps.iter())
+                        .chain(capability.transaction.cell_deps.iter())
                         .copied(),
                 )
     }
@@ -3078,8 +3442,8 @@ impl Omega {
                 self.authority.owners.get(&transaction).and_then(|owner| {
                     Some(ReadyKey {
                         source_priority: owner.retained_source()?.priority(),
-                        fee: owner.transaction.fee,
-                        serialized_bytes: owner.transaction.bytes,
+                        fee: owner.transaction.cost.fee(),
+                        serialized_bytes: owner.transaction.cost.serialized_bytes(),
                         arrival: owner.arrival,
                         transaction,
                         version: owner.version,
@@ -3142,13 +3506,14 @@ impl Omega {
             .owners
             .iter()
             .filter_map(|(id, owner)| {
+                let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
+                    return None;
+                };
                 (!excluded.contains(id)
-                    && matches!(owner.location, OwnerLocation::Accepted { .. })
-                    && owner
-                        .transaction
-                        .inputs
-                        .iter()
-                        .chain(&owner.transaction.deps)
+                    && evidence
+                        .input_origins
+                        .keys()
+                        .chain(evidence.dep_origins.keys())
                         .any(|cell| candidate.outputs.contains(cell)))
                 .then_some(*id)
             })
@@ -3179,7 +3544,7 @@ impl Omega {
                     .collect::<BTreeSet<_>>();
                 Some((
                     *victim,
-                    MissingDependencies::for_transaction(&owner.transaction, missing)?,
+                    MissingDependencies::from_resolved(&owner.transaction, evidence, missing)?,
                 ))
             })
             .collect()
@@ -3221,13 +3586,17 @@ impl Omega {
                 .collect::<BTreeSet<_>>();
             let (candidate_fee, candidate_bytes, candidate_cycles) =
                 candidate_descendants.iter().try_fold(
-                    (candidate.fee, candidate.bytes, candidate.cycles),
+                    (
+                        candidate.cost.fee(),
+                        candidate.cost.serialized_bytes(),
+                        candidate.cost.cycles(),
+                    ),
                     |(fee, bytes, cycles), id| {
                         let transaction = &self.authority.owners.get(id)?.transaction;
                         Some((
-                            fee.checked_add(transaction.fee)?,
-                            bytes.checked_add(transaction.bytes)?,
-                            cycles.checked_add(transaction.cycles)?,
+                            fee.checked_add(transaction.cost.fee())?,
+                            bytes.checked_add(transaction.cost.serialized_bytes())?,
+                            cycles.checked_add(transaction.cost.cycles())?,
                         ))
                     },
                 )?;
@@ -3292,11 +3661,12 @@ impl Omega {
             let OwnerLocation::Accepted { evidence, .. } = &mut owner.location else {
                 return false;
             };
-            for (cell, origin) in evidence
-                .input_origins
-                .iter_mut()
-                .chain(evidence.dep_origins.iter_mut())
-            {
+            for (cell, origin) in &mut evidence.input_origins {
+                if outputs.contains(cell) {
+                    *origin = InputOrigin::Pool(parent);
+                }
+            }
+            for (cell, origin) in &mut evidence.dep_origins {
                 if outputs.contains(cell) {
                     *origin = InputOrigin::Pool(parent);
                 }
@@ -3366,15 +3736,17 @@ impl Omega {
                 {
                     continue;
                 }
-                if let Some(cause) = owner
-                    .transaction
-                    .inputs
-                    .iter()
-                    .chain(&owner.transaction.deps)
-                    .filter_map(|cell| lost_outputs.get(cell))
-                    .min()
-                    .copied()
-                {
+                if let Some(cause) = owner.dependencies().and_then(|dependencies| {
+                    dependencies
+                        .iter()
+                        .filter_map(|dependency| match dependency {
+                            ModelDependencyKey::Cell(cell) => {
+                                lost_outputs.get(&CellId(*cell)).copied()
+                            }
+                            ModelDependencyKey::Header(_) => None,
+                        })
+                        .min()
+                }) {
                     closure.insert(*id, cause);
                 }
             }
@@ -3412,12 +3784,12 @@ impl Omega {
                         })
                     );
                 if terminal_on_loss
-                    && owner
-                        .transaction
-                        .inputs
-                        .iter()
-                        .chain(&owner.transaction.deps)
-                        .any(|cell| lost_outputs.contains(cell))
+                    && owner.dependencies().is_some_and(|dependencies| {
+                        dependencies.iter().any(|dependency| match dependency {
+                            ModelDependencyKey::Cell(cell) => lost_outputs.contains(&CellId(*cell)),
+                            ModelDependencyKey::Header(_) => false,
+                        })
+                    })
                 {
                     terminal.insert(*id);
                 }
@@ -3427,6 +3799,7 @@ impl Omega {
             }
         }
         let remote_missing = self.remote_dependency_wait_plan(&terminal);
+        let lost_cells = self.outputs_of(&terminal);
         let released_cells = terminal
             .iter()
             .filter_map(|id| self.authority.owners.get(id))
@@ -3446,6 +3819,7 @@ impl Omega {
             terminal,
             remote_missing,
             released_cells,
+            lost_cells,
         }
     }
 
@@ -3471,19 +3845,23 @@ impl Omega {
                         owner.location,
                         OwnerLocation::Retained(RetainedOwner {
                             source: Source::Remote(_),
-                            ..
+                            phase: RetainedPhase::Queued(_)
+                                | RetainedPhase::Waiting { .. }
+                                | RetainedPhase::Ready(_),
                         })
                     )
                 {
                     return None;
                 }
                 let missing = owner
-                    .transaction
-                    .inputs
-                    .iter()
-                    .chain(&owner.transaction.deps)
-                    .filter(|cell| lost_outputs.contains(cell))
-                    .copied()
+                    .dependencies()?
+                    .into_iter()
+                    .filter_map(|dependency| match dependency {
+                        ModelDependencyKey::Cell(cell) if lost_outputs.contains(&CellId(cell)) => {
+                            Some(CellId(cell))
+                        }
+                        ModelDependencyKey::Cell(_) | ModelDependencyKey::Header(_) => None,
+                    })
                     .collect::<BTreeSet<_>>();
                 (!missing.is_empty()).then_some((*id, missing))
             })
@@ -3504,16 +3882,21 @@ impl Omega {
                     return None;
                 };
                 if matches!(retained.source, Source::Remote(_))
-                    || matches!(retained.phase, RetainedPhase::Queued(WorkStage::Resolve))
+                    || matches!(
+                        retained.phase,
+                        RetainedPhase::Queued(WorkStage::Resolve) | RetainedPhase::Computing(_)
+                    )
                 {
                     return None;
                 }
                 owner
-                    .transaction
-                    .inputs
-                    .iter()
-                    .chain(&owner.transaction.deps)
-                    .any(|cell| lost_outputs.contains(cell))
+                    .dependencies()
+                    .is_some_and(|dependencies| {
+                        dependencies.iter().any(|dependency| match dependency {
+                            ModelDependencyKey::Cell(cell) => lost_outputs.contains(&CellId(*cell)),
+                            ModelDependencyKey::Header(_) => false,
+                        })
+                    })
                     .then_some(*id)
             })
             .collect();
@@ -3534,14 +3917,35 @@ impl Omega {
                     })
                 )
             });
-            let version = if computing {
-                let Some(version) = self.reserve_owner_version() else {
-                    return false;
+            if computing {
+                // Dependency events stale the captured cut; they never revoke
+                // the move-only capability. Settlement will requeue from the
+                // same total classifier.
+                continue;
+            }
+            let replacement = self.authority.owners.get(id).and_then(|owner| {
+                let OwnerLocation::Retained(retained) = &owner.location else {
+                    return None;
                 };
-                Some(version)
-            } else {
-                None
-            };
+                match &retained.phase {
+                    RetainedPhase::Queued(WorkStage::Verify(evidence))
+                    | RetainedPhase::Ready(evidence) => MissingDependencies::from_resolved(
+                        &owner.transaction,
+                        evidence,
+                        newly_missing.clone(),
+                    ),
+                    RetainedPhase::Queued(WorkStage::Resolve) => {
+                        MissingDependencies::for_transaction(
+                            &owner.transaction,
+                            newly_missing.clone(),
+                        )
+                    }
+                    RetainedPhase::Waiting { .. } => None,
+                    RetainedPhase::Computing(_) => {
+                        unreachable!("active compute was preserved before missing construction")
+                    }
+                }
+            });
             let Some(owner) = self.authority.owners.get_mut(id) else {
                 return false;
             };
@@ -3562,16 +3966,11 @@ impl Omega {
                 RetainedPhase::Queued(_)
                 | RetainedPhase::Computing(_)
                 | RetainedPhase::Ready(_) => {
-                    let Some(missing) =
-                        MissingDependencies::for_transaction(transaction, newly_missing.clone())
-                    else {
+                    let Some(missing) = replacement else {
                         return false;
                     };
                     retained.phase = RetainedPhase::Waiting { missing };
                 }
-            }
-            if let Some(version) = version {
-                owner.version = version;
             }
         }
         true
@@ -3603,15 +4002,35 @@ impl Omega {
         true
     }
 
-    fn apply_owner_loss(&mut self, owner_loss: &OwnerLossPlan) -> bool {
+    fn apply_owner_loss(&mut self, owner_loss: &OwnerLossPlan, stamp: ApplyStamp) -> bool {
         if !self.apply_remote_dependency_wait(&owner_loss.remote_missing) {
             return false;
         }
         for id in &owner_loss.terminal {
             self.authority.owners.remove(id);
         }
-        self.apply_dependency_availability(&owner_loss.released_cells, &BTreeSet::new())
-            .is_some()
+        let available = owner_loss
+            .released_cells
+            .difference(&owner_loss.lost_cells)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if self
+            .apply_dependency_availability(&available, &BTreeSet::new())
+            .is_none()
+        {
+            return false;
+        }
+        let Some(indexed) = self.indexed_dependency_keys() else {
+            return false;
+        };
+        self.apply_dependency_events(
+            &available,
+            &BTreeSet::new(),
+            &owner_loss.lost_cells,
+            &BTreeSet::new(),
+            &indexed,
+            stamp,
+        )
     }
 
     fn terminalize_owner_loss(
@@ -3621,7 +4040,7 @@ impl Omega {
         owner_loss: &OwnerLossPlan,
         effects: Vec<LogicalEffect>,
     ) -> bool {
-        if !self.apply_owner_loss(owner_loss) {
+        if !self.apply_owner_loss(owner_loss, stamp) {
             return false;
         }
         self.append_effects(effect_class, stamp, effects)
@@ -3649,7 +4068,6 @@ impl Omega {
                 continue;
             };
             missing.retain_unavailable(available_cells);
-            missing.retain_unavailable_headers(available_headers);
             if missing.is_empty() {
                 let OwnerLocation::Retained(retained) = &mut owner.location else {
                     return None;
@@ -3666,7 +4084,6 @@ impl Omega {
                 OwnerLocation::ReplacementHistory { missing } => {
                     let mut remaining = missing.clone();
                     remaining.retain_unavailable(available_cells);
-                    remaining.retain_unavailable_headers(available_headers);
                     (remaining != *missing).then_some((*id, remaining))
                 }
                 OwnerLocation::Retained(_) | OwnerLocation::Accepted { .. } => None,
@@ -3759,7 +4176,7 @@ impl Omega {
         true
     }
 
-    fn capability_is_current(&self, capability: &WorkCapability) -> bool {
+    fn capability_owner_is_current(&self, capability: &WorkCapability) -> bool {
         self.authority
             .owners
             .get(&capability.transaction)
@@ -3768,13 +4185,62 @@ impl Omega {
                     && matches!(
                         &owner.location,
                         OwnerLocation::Retained(RetainedOwner {
-                            phase: RetainedPhase::Computing(permit),
+                            phase: RetainedPhase::Computing(active),
                             ..
-                        }) if *permit == capability.permit() && capability.is_compatible()
+                        }) if active.permit == capability.permit()
+                            && active.dependency_cut == capability.dependency_cut
+                            && capability.is_compatible()
                     )
-                    && capability.chain == self.authority.chain
-                    && capability.rules == self.authority.rules
             })
+    }
+
+    fn capability_evidence_cut_is_current(&self, capability: &WorkCapability) -> bool {
+        self.capability_owner_is_current(capability)
+            && capability.chain == self.authority.chain
+            && capability.rules == self.authority.rules
+            && self
+                .authority
+                .owners
+                .get(&capability.transaction)
+                .and_then(|owner| match &owner.location {
+                    OwnerLocation::Retained(RetainedOwner {
+                        phase: RetainedPhase::Computing(active),
+                        ..
+                    }) => Some(active),
+                    OwnerLocation::Retained(_)
+                    | OwnerLocation::Accepted { .. }
+                    | OwnerLocation::ReplacementHistory { .. } => None,
+                })
+                .is_some_and(|active| {
+                    self.authority
+                        .dependency_frontier
+                        .proof_is_current(&active.dependencies, active.dependency_cut)
+                })
+    }
+
+    fn capability_resolution_is_current(
+        &self,
+        capability: &WorkCapability,
+        evidence: &ResolvedEvidence,
+    ) -> bool {
+        let Some(owner) = self.authority.owners.get(&capability.transaction) else {
+            return false;
+        };
+        let OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Computing(active),
+            ..
+        }) = &owner.location
+        else {
+            return false;
+        };
+        let Some(resolved) = evidence.dependencies(&owner.transaction) else {
+            return false;
+        };
+        self.authority.dependency_frontier.resolution_is_current(
+            &active.dependencies,
+            &resolved,
+            active.dependency_cut,
+        )
     }
 
     fn classify_evidence(
@@ -3782,10 +4248,23 @@ impl Omega {
         transaction: TxId,
         evidence: &ResolvedEvidence,
     ) -> EvidenceValidity {
+        let validity = self.classify_evidence_dependencies(transaction, evidence);
+        if validity == EvidenceValidity::Current && evidence.context.chain != self.authority.chain {
+            EvidenceValidity::RelevantChange
+        } else {
+            validity
+        }
+    }
+
+    fn classify_evidence_dependencies(
+        &self,
+        transaction: TxId,
+        evidence: &ResolvedEvidence,
+    ) -> EvidenceValidity {
         let Some(owner) = self.authority.owners.get(&transaction) else {
             return EvidenceValidity::Invalid;
         };
-        self.classify_transaction_evidence(&owner.transaction, evidence)
+        self.classify_transaction_evidence_dependencies(&owner.transaction, evidence)
     }
 
     fn classify_transaction_evidence(
@@ -3793,11 +4272,21 @@ impl Omega {
         transaction: &Transaction,
         evidence: &ResolvedEvidence,
     ) -> EvidenceValidity {
+        let validity = self.classify_transaction_evidence_dependencies(transaction, evidence);
+        if validity == EvidenceValidity::Current && evidence.context.chain != self.authority.chain {
+            EvidenceValidity::RelevantChange
+        } else {
+            validity
+        }
+    }
+
+    fn classify_transaction_evidence_dependencies(
+        &self,
+        transaction: &Transaction,
+        evidence: &ResolvedEvidence,
+    ) -> EvidenceValidity {
         if !evidence.has_transaction_shape(transaction, self.authority.rules) {
             return EvidenceValidity::Invalid;
-        }
-        if evidence.context.chain != self.authority.chain {
-            return EvidenceValidity::RelevantChange;
         }
         let changed_origin = evidence
             .input_origins
@@ -3965,7 +4454,7 @@ fn canonical_recovery_transactions(
             let parents = transaction
                 .inputs
                 .iter()
-                .chain(transaction.deps.iter())
+                .chain(transaction.cell_deps.iter())
                 .filter_map(|cell| producers.get(cell).copied())
                 .filter(|parent| *parent != transaction.id)
                 .collect::<BTreeSet<_>>();
@@ -3995,20 +4484,6 @@ fn canonical_recovery_transactions(
         ordered.push((transaction, required));
     }
     (ordered, remaining.into_keys().collect())
-}
-
-fn chain_status(
-    transaction: TxId,
-    proposed: &BTreeSet<TxId>,
-    gap: &BTreeSet<TxId>,
-) -> AcceptedStatus {
-    if proposed.contains(&transaction) {
-        AcceptedStatus::Proposed
-    } else if gap.contains(&transaction) {
-        AcceptedStatus::Gap
-    } else {
-        AcceptedStatus::Pending
-    }
 }
 
 fn counter_exhausted() -> KernelStep {

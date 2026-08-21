@@ -5,25 +5,24 @@ pub(crate) mod controller;
 pub(crate) mod dispatch;
 pub(crate) mod message;
 
+pub(crate) use crate::authority::{BoundedTransaction, BoundedTransactionError};
 pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
 pub(crate) use dispatch::process;
 pub(crate) use message::{
-    AsyncRequest, ChainControl, Message, NotifyTxBatch, RemoteTxSubmission, SyncRequest,
-    TestAcceptTxResult,
+    AsyncRequest, BoundedProposalIds, BoundedTransactionHashes, ChainControl, Message,
+    NotifyTxBatch, RemoteTxSubmission, SyncRequest, TestAcceptTxResult,
 };
 pub(crate) use message::{
     BlockTemplateResult, FeeEstimatesResult, FetchTxsWithCyclesResult,
     GetTransactionWithStatusResult, GetTxStatusResult, SubmitTxResult,
 };
 
+use ckb_app_config::TxPoolConfig;
 use ckb_channel::oneshot;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
-use ckb_types::{
-    core::BlockView,
-    packed::{Byte32, ProposalShortId},
-};
+use ckb_types::{core::BlockView, packed::Byte32};
 use std::{
     collections::{HashSet, VecDeque},
     fmt,
@@ -152,28 +151,103 @@ impl<A> Notify<A> {
     }
 }
 
-pub(crate) type ChainReorgArgs = (
-    VecDeque<BlockView>,
-    VecDeque<BlockView>,
-    HashSet<ProposalShortId>,
-    Arc<Snapshot>,
-);
+/// Maximum detailed payload retained by one ordered reorg command.
+///
+/// The configured accepted and pre-pool residency budgets are the complete
+/// transaction population that detailed reconciliation can preserve. A fork
+/// payload larger than their checked sum cannot improve that preservation and
+/// is represented by the constant-size safe generation replacement instead.
+#[derive(Clone, Copy)]
+pub(crate) struct ChainReorgPayloadLimit(usize);
+
+impl ChainReorgPayloadLimit {
+    pub(crate) fn from_config(config: &TxPoolConfig) -> Option<Self> {
+        config
+            .tx_pool_resident_size_budget()
+            .checked_add(config.tx_pipeline_resident_size_budget())
+            .map(Self)
+    }
+}
+
+/// Sealed ordered chain input. Only a payload which refines the configured
+/// count/byte bound may retain detailed fork collections in the capacity-one
+/// lane; every oversize, overflow or normalization-allocation outcome carries
+/// only the exact snapshot needed for a safe empty-generation replacement.
+pub(crate) enum ChainReorgArgs {
+    Detailed {
+        detached_blocks: VecDeque<BlockView>,
+        attached_blocks: VecDeque<BlockView>,
+        snapshot: Arc<Snapshot>,
+    },
+    ReplaceGeneration {
+        snapshot: Arc<Snapshot>,
+    },
+}
+
+impl ChainReorgArgs {
+    pub(crate) fn bounded(
+        detached_blocks: VecDeque<BlockView>,
+        attached_blocks: VecDeque<BlockView>,
+        snapshot: Arc<Snapshot>,
+        limit: ChainReorgPayloadLimit,
+    ) -> Self {
+        let charge = detached_blocks
+            .iter()
+            .chain(attached_blocks.iter())
+            .try_fold(std::mem::size_of::<Arc<Snapshot>>(), |total, block| {
+                total
+                    .checked_add(std::mem::size_of::<BlockView>())?
+                    .checked_add(block.data().total_size())
+            });
+        if charge.is_none_or(|charge| charge > limit.0) {
+            return Self::ReplaceGeneration { snapshot };
+        }
+
+        let mut normalized_detached = VecDeque::new();
+        let mut normalized_attached = VecDeque::new();
+        if normalized_detached
+            .try_reserve_exact(detached_blocks.len())
+            .is_err()
+            || normalized_attached
+                .try_reserve_exact(attached_blocks.len())
+                .is_err()
+        {
+            return Self::ReplaceGeneration { snapshot };
+        }
+        normalized_detached.extend(detached_blocks);
+        normalized_attached.extend(attached_blocks);
+        Self::Detailed {
+            detached_blocks: normalized_detached,
+            attached_blocks: normalized_attached,
+            snapshot,
+        }
+    }
+}
 
 /// Committed verification outcome consumed by sync's known-transaction
 /// projection.
 #[derive(Clone, Debug)]
 pub enum TxVerificationResult {
+    /// Verification completed and the transaction became known to tx-pool.
     Ok {
+        /// Remote peer that originally supplied the transaction, when any.
         original_peer: Option<PeerIndex>,
+        /// Canonical hash of the verified transaction.
         tx_hash: Byte32,
     },
+    /// Verification cannot proceed until the listed parents are available.
     UnknownParents {
+        /// Peer that supplied the transaction with missing parents.
         peer: PeerIndex,
+        /// Canonical hashes of the unavailable parent transactions.
         parents: HashSet<Byte32>,
     },
+    /// Verification rejected the transaction.
     Reject {
+        /// Canonical hash of the rejected transaction.
         tx_hash: Byte32,
     },
+    /// The authority generation changed before a transaction result committed.
     GenerationReset,
 }
 
@@ -185,11 +259,33 @@ impl TxVerificationResultReceiver {
         Self(receiver)
     }
 
+    /// Receives one committed result without waiting.
     pub fn try_recv(&self) -> Option<TxVerificationResult> {
         self.0.try_recv()
     }
 
+    /// Receives at most `limit` committed results without waiting.
+    ///
+    /// Allocation pressure returns the successfully reserved prefix and leaves
+    /// every remaining result in the bounded authority-owned channel.
     pub fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
-        std::iter::from_fn(|| self.try_recv()).take(limit).collect()
+        let mut drained = Vec::new();
+        while drained.len() < limit {
+            // Relay observations are non-authoritative and nonblocking. Reserve
+            // before consuming so allocation pressure returns the exact prefix
+            // and leaves every unobserved result in the bounded channel.
+            if drained.try_reserve(1).is_err() {
+                break;
+            }
+            let Some(result) = self.try_recv() else {
+                break;
+            };
+            drained.push(result);
+        }
+        drained
     }
 }
+
+#[cfg(test)]
+#[path = "service/tests/support.rs"]
+mod test_support;

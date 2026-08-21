@@ -14,9 +14,11 @@ use super::rejection::{
 use super::{
     chain::{
         AcceptedValidityTransition, ChainValidationError, DirectAdmissionWork, FinalAdmissionWork,
+        ProposalTransitionFacts,
     },
     chain_boundary::{
-        ChainBoundaryError, ChainUpdateCommand, ChainUpdateFailure, CommittedChainUpdate,
+        ChainBoundaryError, ChainGenerationReplacement, ChainUpdateCommand, ChainUpdateFailure,
+        CommittedChainUpdate,
     },
     effect::{
         EffectConfigError, EffectLimits, EffectProgressError, EffectPublicationObservation,
@@ -24,7 +26,8 @@ use super::{
     },
     exchange::{AuthorityComputeExecutionPermit, ComputeWorkerGrant, ComputeWorkerSlot},
     ingress::{
-        DirectCommand, DirectTransaction, RetainedAdmissionBatch, RetainedIngressAttempt, direct,
+        DirectCommand, DirectIngressTransaction, DirectTransaction, RetainedAdmissionBatch,
+        RetainedIngressAttempt, direct,
     },
     plan::{
         AuthorityConfigError, AuthorityFault, AuthorityPostCommit, AuthorityWakeTransition,
@@ -38,9 +41,9 @@ use super::{
         TxPoolAuthority,
     },
     query::{
-        AuthorityPoolSummary, AuthorityQueryError, AuthorityQueryScratch,
-        AuthorityTransactionLookup, AuthorityTransactionStatusLookup, CompactBlockReadReceipt,
-        FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
+        AcceptedTransactionsWithCycles, AuthorityPoolSummary, AuthorityQueryError,
+        AuthorityQueryScratch, AuthorityTransactionLookup, AuthorityTransactionStatusLookup,
+        CompactBlockReadReceipt, FeeEstimateReadReceipt, LiveCellReadReceipt, PersistenceReceipt,
     },
     read::{
         RelayParentRebuildCursor, RelayParentRebuildCut, RelayParentRebuildError,
@@ -83,8 +86,8 @@ use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::error;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
+use ckb_types::core::EntryCompleted;
 use ckb_types::core::FeeRate;
-use ckb_types::core::{EntryCompleted, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
 use ckb_util::{RwLock, RwLockReadGuard, RwLockWriteGuard, parking_lot::RwLockUpgradableReadGuard};
 use ckb_verification::cache::ScriptVerificationRules;
@@ -126,6 +129,24 @@ const REMOTE_RESOURCE_NUMERATOR: usize = 7;
 const REMOTE_RESOURCE_DENOMINATOR: usize = 8;
 const PER_PEER_RESOURCE_DIVISOR: usize = 8;
 const HISTORY_RESOURCE_DIVISOR: usize = 16;
+
+/// Derive the only accepted-validity transition from primitive chain facts.
+/// Rules changes dominate a simultaneous detach because every retained script
+/// proof then leaves its validity domain.
+pub(super) fn accepted_validity_transition(
+    old_rules: ScriptVerificationRules,
+    new_rules: ScriptVerificationRules,
+    had_detached_chain: bool,
+) -> AcceptedValidityTransition {
+    if old_rules != new_rules {
+        AcceptedValidityTransition::RulesChanged
+    } else if had_detached_chain {
+        AcceptedValidityTransition::ContextChanged
+    } else {
+        AcceptedValidityTransition::Preserved
+    }
+}
+
 /// One configured pipeline budget is split into retained ownership and
 /// transient compute reservations. The split is a capacity policy, not two
 /// independently consumable budgets: their checked sum remains exactly the
@@ -494,7 +515,11 @@ fn runtime_authority_config_error(error: AuthorityConfigError) -> RuntimeConfigE
 pub(crate) struct AuthorityStore {
     authority: TxPoolAuthority,
     snapshot: Arc<Snapshot>,
-    committed_txs_hash_cache: LruCache<ProposalShortId, Byte32>,
+    /// Rebuildable compact-block projection. Generation replacement checks the
+    /// cache out under the authority guard, clears its potentially large
+    /// contents after the guard opens, and returns the same allocation. A
+    /// temporary `None` is an ordinary cache miss, never policy state.
+    committed_txs_hash_cache: Option<LruCache<ProposalShortId, Byte32>>,
 }
 
 /// The one physical authority lock and its centralized profiling boundary.
@@ -920,10 +945,12 @@ pub(super) enum AuthorityMaintenanceOutcome {
 
 /// Closed progress contract shared by authority-owned background drivers.
 ///
-/// A driver may retry only after an observed stale cut, allocator recovery or
-/// effect capacity publication. Every other producer outcome is translated at
-/// the authority boundary into a structural fault, so adding a broad
-/// `PlanError` variant cannot silently create a retry loop in a worker.
+/// A driver may retry only after an observed stale cut or effect-capacity
+/// publication. Allocation has no authority-owned monotonic releaser and is
+/// consumed by the allocation-free generation terminal before a worker reports
+/// progress. Every other producer outcome is translated at the authority
+/// boundary into a structural fault, so adding a broad `PlanError` variant
+/// cannot silently create a retry loop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AuthorityDriverError {
     Stale,
@@ -936,13 +963,55 @@ pub(in crate::authority) enum AuthorityDriverError {
 /// Closed result for synchronous administrative commands planned entirely
 /// under the authority write guard. These commands carry no lock-external OCC
 /// evidence, so stale or membership-only planner outcomes are structural;
-/// allocator and effect-capacity pressure remain retryable service outcomes.
+/// allocator pressure is an ordinary returned service outcome, while only
+/// effect-capacity pressure may wait on its named publisher releaser.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityAdministrationError {
     Allocation,
     EffectCapacity,
     LifecycleClosed,
     Fault(AuthorityFault),
+}
+
+/// Closed failure surface of the allocation-free generation replacement.
+///
+/// Allocation is intentionally absent: admitting it here would recreate the
+/// unchanged-cut retry problem that this transition terminates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityGenerationReplacementError {
+    LifecycleClosed,
+    Fault(AuthorityFault),
+}
+
+impl AuthorityGenerationReplacementError {
+    fn from_plan(error: PlanError) -> Self {
+        match error {
+            PlanError::EffectClosed => Self::LifecycleClosed,
+            PlanError::Fault(fault) => Self::Fault(fault),
+            PlanError::Backpressure(Backpressure::Allocation) => {
+                Self::Fault(AuthorityFault::ResourceProjection)
+            }
+            PlanError::Backpressure(Backpressure::EffectCapacity) => {
+                Self::Fault(AuthorityFault::EffectProjection)
+            }
+            PlanError::Backpressure(Backpressure::ProposalCollision) => {
+                Self::Fault(AuthorityFault::IndexProjection)
+            }
+            PlanError::Backpressure(
+                Backpressure::TotalResources
+                | Backpressure::RemoteResources
+                | Backpressure::PeerResources
+                | Backpressure::AcceptedResources,
+            ) => Self::Fault(AuthorityFault::ResourceProjection),
+            PlanError::Backpressure(
+                Backpressure::ComputeResources | Backpressure::GenerationReplacement,
+            ) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::Stale(_) => Self::Fault(AuthorityFault::MembershipProjection),
+        }
+    }
 }
 
 impl AuthorityAdministrationError {
@@ -1055,6 +1124,9 @@ impl AuthorityDriverError {
     /// window, so exact owner/view staleness is an ordinary OCC miss here.
     fn from_ready_recheck(error: FinalAdmissionCaptureError) -> Self {
         match error {
+            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => {
+                Self::Fault(AuthorityFault::SchedulerProjection)
+            }
             FinalAdmissionCaptureError::Plan(error) => Self::from_ready_plan(error),
             FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
                 Self::Stale
@@ -1133,7 +1205,7 @@ pub(in crate::authority) struct AuthorityComputeAftermath {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AuthorityComputeAftermathDisposition {
     Progress,
-    Backoff,
+    ReplaceGeneration,
     Fault(AuthorityFault),
 }
 
@@ -1215,7 +1287,7 @@ impl AuthorityComputeAftermath {
             ) => AuthorityComputeAftermathDisposition::Progress,
             SettlementOrigin::Capture(ResolutionExecutionKind::ResourceUnavailable)
             | SettlementOrigin::Resolution(ResolutionExecutionKind::ResourceUnavailable) => {
-                AuthorityComputeAftermathDisposition::Backoff
+                AuthorityComputeAftermathDisposition::ReplaceGeneration
             }
             SettlementOrigin::Capture(ResolutionExecutionKind::InvalidReceipt(error))
             | SettlementOrigin::Resolution(ResolutionExecutionKind::InvalidReceipt(error)) => {
@@ -1398,7 +1470,7 @@ pub(super) enum AuthorityLocalAdmissionOutcome {
     Accepted(EntryCompleted),
     Duplicate(RawTxHash),
     Rejected(DirectAdmissionRejectionKind),
-    Retry(Arc<TransactionView>),
+    Retry(DirectIngressTransaction),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1657,6 +1729,37 @@ struct PreparedReadyValidationBatch {
     completed_tail: Vec<FinalAdmissionValidation>,
 }
 
+/// Result of comparing one captured Ready batch with the later scheduler cut.
+/// Scratch that lost the comparison remains owned by this value until the
+/// authority read guard has been released.
+#[must_use = "the Ready recheck scratch must retire outside the authority guard"]
+enum ReadyRecheckOutcome {
+    HeadChanged(PreparedReadyValidationBatch),
+    UnchangedPrefix {
+        batch: ReadyValidationBatch,
+        discarded_tail: std::vec::IntoIter<PreparedFinalAdmissionValidation>,
+    },
+}
+
+impl ReadyRecheckOutcome {
+    /// Consume stale scratch only after the store guard has been released.
+    fn finish(self) -> Option<ReadyValidationBatch> {
+        match self {
+            Self::HeadChanged(stale) => {
+                drop(stale);
+                None
+            }
+            Self::UnchangedPrefix {
+                batch,
+                discarded_tail,
+            } => {
+                drop(discarded_tail);
+                Some(batch)
+            }
+        }
+    }
+}
+
 enum ReadyDisposition {
     Candidates(SettlementBatch),
     Head(FinalAdmissionValidationOutcome),
@@ -1758,7 +1861,10 @@ impl AuthorityRuntime {
             if view
                 .entry_by_proposal(&super::state::ProposalId(proposal.clone()))?
                 .is_none()
-                && let Some(hash) = store.committed_txs_hash_cache.peek(proposal)
+                && let Some(hash) = store
+                    .committed_txs_hash_cache
+                    .as_ref()
+                    .and_then(|cache| cache.peek(proposal))
             {
                 committed.push((proposal.clone(), hash.clone()));
             }
@@ -1769,11 +1875,8 @@ impl AuthorityRuntime {
 
     pub(crate) fn accepted_with_cycles(
         &self,
-        mut requested: Vec<ProposalShortId>,
-    ) -> Result<
-        std::collections::HashMap<ProposalShortId, (TransactionView, u64)>,
-        AuthorityQueryError,
-    > {
+        mut requested: Vec<ckb_types::packed::Byte32>,
+    ) -> Result<AcceptedTransactionsWithCycles, AuthorityQueryError> {
         requested.sort_unstable();
         requested.dedup();
         let store = self.store.read();
@@ -1968,32 +2071,71 @@ impl AuthorityRuntime {
         &self,
         new_snapshot: Arc<Snapshot>,
     ) -> Result<(), AuthorityAdministrationError> {
-        let tip_hash = new_snapshot.tip_hash();
-        let fresh_hash_cache = LruCache::new(COMMITTED_HASH_CACHE_SIZE);
+        self.replace_generation(Some(new_snapshot))
+            .map_err(|error| match error {
+                AuthorityGenerationReplacementError::LifecycleClosed => {
+                    AuthorityAdministrationError::LifecycleClosed
+                }
+                AuthorityGenerationReplacementError::Fault(fault) => {
+                    AuthorityAdministrationError::Fault(fault)
+                }
+            })
+    }
+
+    /// Terminate allocation pressure owned by the current authority generation.
+    /// The replacement observes the current paired snapshot under the same
+    /// write cut, so it cannot reinstall an older chain view after a concurrent
+    /// ordered transition.
+    pub(in crate::authority) fn replace_current_generation_after_allocation(
+        &self,
+    ) -> Result<(), AuthorityGenerationReplacementError> {
+        self.replace_generation(None)
+    }
+
+    /// Install an empty generation at either the current snapshot (`None`) or
+    /// one exact ordered-chain snapshot (`Some`). `plan_clear_pool` constructs
+    /// only empty containers and clones the prebuilt GenerationReset batch.
+    fn replace_generation(
+        &self,
+        new_snapshot: Option<Arc<Snapshot>>,
+    ) -> Result<(), AuthorityGenerationReplacementError> {
         let (committed, retired_snapshot, retired_hash_cache) = {
             let mut store = self.store.write();
+            let tip_hash = new_snapshot
+                .as_ref()
+                .map_or_else(|| store.snapshot.tip_hash(), |snapshot| snapshot.tip_hash());
             let committed = store
                 .authority
                 .plan_clear_pool(tip_hash)
-                .map_err(AuthorityAdministrationError::from_plan)?
+                .map_err(AuthorityGenerationReplacementError::from_plan)?
                 .apply();
-            let retired_snapshot = std::mem::replace(&mut store.snapshot, new_snapshot);
-            let retired_hash_cache =
-                std::mem::replace(&mut store.committed_txs_hash_cache, fresh_hash_cache);
+            let retired_snapshot =
+                new_snapshot.map(|snapshot| std::mem::replace(&mut store.snapshot, snapshot));
+            let retired_hash_cache = store.committed_txs_hash_cache.take();
             (committed, retired_snapshot, retired_hash_cache)
         };
         let post_commit = committed.into_post_commit();
         drop(retired_snapshot);
-        drop(retired_hash_cache);
+        self.recycle_committed_hash_cache(retired_hash_cache);
         self.signals.publish_post_commit(post_commit);
         Ok(())
     }
 
+    fn recycle_committed_hash_cache(&self, mut retired: Option<LruCache<ProposalShortId, Byte32>>) {
+        let Some(mut cache) = retired.take() else {
+            return;
+        };
+        cache.clear();
+        let mut store = self.store.write();
+        if store.committed_txs_hash_cache.is_none() {
+            store.committed_txs_hash_cache = Some(cache);
+        }
+    }
+
     /// Commit one ordered chain transition against the exact supplied
-    /// snapshot. The upgradable read excludes intervening writers while the
-    /// semantic disposition and proposal evidence are compiled, without
-    /// adding a gate to ordinary admission. After upgrade, only capacity and
-    /// derived-projection preparation plus total Apply remain.
+    /// snapshot. The bounded proposal delta is derived from immutable paired
+    /// snapshots before the authority guard, then the old snapshot identity is
+    /// rechecked before the read-only owner compiler and atomic Apply.
     #[expect(
         clippy::result_large_err,
         reason = "failure returns the exact sealed chain command for ordered recovery; boxing would allocate on reorg backpressure"
@@ -2002,7 +2144,36 @@ impl AuthorityRuntime {
         &self,
         command: ChainUpdateCommand,
     ) -> Result<CommittedChainUpdate, ChainUpdateFailure> {
+        let old_snapshot = {
+            let store = self.store.read();
+            Arc::clone(&store.snapshot)
+        };
+        let proposal_transition =
+            match ProposalTransitionFacts::between(&old_snapshot, &command.snapshot) {
+                Ok(transition) => transition,
+                Err(super::chain::ChainFactsError::Allocation) => {
+                    return Err(ChainUpdateFailure::new(
+                        ChainBoundaryError::Allocation,
+                        command,
+                    ));
+                }
+                Err(
+                    super::chain::ChainFactsError::DuplicateTransaction
+                    | super::chain::ChainFactsError::DuplicateHeader,
+                ) => {
+                    return Err(ChainUpdateFailure::new(
+                        ChainBoundaryError::InvalidFacts,
+                        command,
+                    ));
+                }
+            };
         let store = self.store.upgradable_read();
+        if !Arc::ptr_eq(&store.snapshot, &old_snapshot) {
+            return Err(ChainUpdateFailure::new(
+                ChainBoundaryError::InvalidSnapshotEvidence,
+                command,
+            ));
+        }
         let Some(next_revision) = store
             .authority
             .chain_revision()
@@ -2021,19 +2192,12 @@ impl AuthorityRuntime {
             ScriptVerificationRules::from_env(store.snapshot.consensus(), &old_environment);
         let new_rules =
             ScriptVerificationRules::from_env(command.snapshot.consensus(), &new_environment);
-        let accepted_validity = if old_rules != new_rules {
-            AcceptedValidityTransition::RulesChanged
-        } else if command.had_detached_chain {
-            AcceptedValidityTransition::ContextChanged
-        } else {
-            AcceptedValidityTransition::Preserved
-        };
+        let accepted_validity =
+            accepted_validity_transition(old_rules, new_rules, command.had_detached_chain);
         let new_view = ChainViewId::new(next_revision, command.snapshot.tip_hash());
-        let facts = command.facts.bind(
-            new_view.clone(),
-            accepted_validity,
-            command.packaging.authority_mode(),
-        );
+        let facts = command
+            .facts
+            .bind(new_view.clone(), accepted_validity, &proposal_transition);
         let mut detached_recoveries = Vec::new();
         if detached_recoveries
             .try_reserve(command.facts.detached.len())
@@ -2052,7 +2216,7 @@ impl AuthorityRuntime {
                     let error = match error {
                         ChainValidationError::Allocation
                         | ChainValidationError::RecoveryAdmission(
-                            super::state::AdmissionValidationError::ResourceAllocation,
+                            super::state::RecoveryAdmissionError::ResourceUnavailable,
                         ) => ChainBoundaryError::Allocation,
                         ChainValidationError::SnapshotMismatch
                         | ChainValidationError::MissingProposalPosition
@@ -2061,8 +2225,7 @@ impl AuthorityRuntime {
                             ChainBoundaryError::InvalidSnapshotEvidence
                         }
                         ChainValidationError::RecoveryAdmission(
-                            super::state::AdmissionValidationError::EmptyTransaction
-                            | super::state::AdmissionValidationError::ResourceArithmetic,
+                            super::state::RecoveryAdmissionError::InvalidTransaction,
                         ) => ChainBoundaryError::InvalidFacts,
                     };
                     return Err(ChainUpdateFailure::new(error, command));
@@ -2119,12 +2282,13 @@ impl AuthorityRuntime {
             candidate_uncles,
             attached_blocks,
             had_detached_chain: _,
-            packaging: _,
             snapshot,
         } = command;
         let retired_snapshot = std::mem::replace(&mut store.snapshot, Arc::clone(&snapshot));
-        for (proposal, hash) in committed_hashes {
-            store.committed_txs_hash_cache.put(proposal, hash);
+        if let Some(cache) = store.committed_txs_hash_cache.as_mut() {
+            for (proposal, hash) in committed_hashes {
+                cache.put(proposal, hash);
+            }
         }
         drop(store);
         let post_commit = committed.into_post_commit();
@@ -2134,6 +2298,23 @@ impl AuthorityRuntime {
             candidate_uncles,
             attached_blocks,
             snapshot,
+        })
+    }
+
+    /// Commit the minimum ordered-chain consequence after detailed
+    /// reconciliation encounters allocation pressure. The empty generation
+    /// and prebuilt reset effect require no fallible scratch.
+    pub(super) fn apply_chain_generation_replacement(
+        &self,
+        replacement: ChainGenerationReplacement,
+    ) -> Result<CommittedChainUpdate, AuthorityGenerationReplacementError> {
+        let snapshot = replacement.into_snapshot();
+        let committed_snapshot = Arc::clone(&snapshot);
+        self.replace_generation(Some(snapshot))?;
+        Ok(CommittedChainUpdate {
+            candidate_uncles: Vec::new(),
+            attached_blocks: std::collections::VecDeque::new(),
+            snapshot: committed_snapshot,
         })
     }
 
@@ -2319,7 +2500,11 @@ impl AuthorityRuntime {
             let store = self.store.read();
             Arc::clone(&store.snapshot)
         };
-        let prepared = DirectAdmissionValidation::prepare(snapshot, work)?;
+        let prepared = DirectAdmissionValidation::prepare(
+            snapshot,
+            work,
+            self.resolution_policy.min_fee_rate,
+        )?;
         let validation = {
             let store = self.store.read();
             prepared.complete(AuthorityStoreCaptureSeal(()), &store.authority)?
@@ -2370,7 +2555,7 @@ impl AuthorityRuntime {
         let (outcome, committed) = match outcome {
             DirectAdmissionValidationOutcome::Reresolve(retry) => {
                 return Ok(AuthorityLocalAdmissionOutcome::Retry(
-                    retry.into_subject().into_transaction(),
+                    DirectIngressTransaction::from_retry(retry.into_transaction()),
                 ));
             }
             DirectAdmissionValidationOutcome::Candidate(receipt) => {
@@ -2540,7 +2725,7 @@ impl AuthorityRuntime {
     /// allocation outside the authority guard.
     pub(super) fn resolve_local_transaction(
         &self,
-        tx: &ckb_types::core::TransactionView,
+        tx: &DirectIngressTransaction,
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
         self.resolve_direct_transaction(tx, DirectCommand::Local, execution)
@@ -2548,7 +2733,7 @@ impl AuthorityRuntime {
 
     pub(super) fn resolve_test_accept_transaction(
         &self,
-        tx: &ckb_types::core::TransactionView,
+        tx: &DirectIngressTransaction,
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
         self.resolve_direct_transaction(tx, DirectCommand::TestAccept, execution)
@@ -2556,7 +2741,7 @@ impl AuthorityRuntime {
 
     fn resolve_direct_transaction(
         &self,
-        tx: &ckb_types::core::TransactionView,
+        tx: &DirectIngressTransaction,
         command: DirectCommand,
         execution: AuthorityComputeExecutionPermit,
     ) -> Result<AuthorityDirectResolutionOutcome, DirectComputationError> {
@@ -2622,10 +2807,11 @@ impl AuthorityRuntime {
                 }
                 DirectResolutionEvaluation::Enrich(probe) => {
                     let prepared = probe.prepare_enrichment()?;
-                    let observation = {
+                    let rechecked = {
                         let store = self.store.read();
-                        prepared.observe(&store.authority)?
+                        prepared.observe(&store.authority)
                     };
+                    let observation = rechecked.finish()?;
                     match observation {
                         DirectResolutionProbeObservation::Retry(retry) => job = retry,
                         DirectResolutionProbeObservation::Rejected(rejection) => {
@@ -3117,13 +3303,16 @@ impl AuthorityRuntime {
         )
         .entered();
         let prepared = work
-            .prepare()
+            .prepare(self.resolution_policy.min_fee_rate)
             .map_err(AuthorityDriverError::from_ready_preparation)?;
-        let batch = {
+        let rechecked = {
             let store = self.store.read();
             store.complete_ready_batch(prepared)
         }
         .map_err(AuthorityDriverError::from_ready_recheck)?;
+        let Some(batch) = rechecked.finish() else {
+            return Err(AuthorityDriverError::Stale);
+        };
 
         let disposition = batch
             .validate()
@@ -3166,9 +3355,13 @@ impl AuthorityRuntime {
 }
 
 impl ReadyWorkBatch {
-    fn prepare(self) -> Result<PreparedReadyValidationBatch, FinalAdmissionCaptureError> {
-        let head = FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), self.head)
-            .map_err(FinalAdmissionCaptureError::Validation)?;
+    fn prepare(
+        self,
+        min_fee_rate: FeeRate,
+    ) -> Result<PreparedReadyValidationBatch, FinalAdmissionCaptureError> {
+        let head =
+            FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), self.head, min_fee_rate)
+                .map_err(FinalAdmissionCaptureError::Validation)?;
         let mut tail = Vec::new();
         tail.try_reserve(self.tail.len())
             .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
@@ -3178,7 +3371,7 @@ impl ReadyWorkBatch {
             .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
         for work in self.tail {
             tail.push(
-                FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), work)
+                FinalAdmissionValidation::prepare(Arc::clone(&self.snapshot), work, min_fee_rate)
                     .map_err(FinalAdmissionCaptureError::Validation)?,
             );
         }
@@ -3296,7 +3489,7 @@ impl AuthorityStore {
         Ok(Self {
             authority,
             snapshot,
-            committed_txs_hash_cache: LruCache::new(COMMITTED_HASH_CACHE_SIZE),
+            committed_txs_hash_cache: Some(LruCache::new(COMMITTED_HASH_CACHE_SIZE)),
         })
     }
 
@@ -3305,7 +3498,11 @@ impl AuthorityStore {
     fn capture_ready_work_batch(
         &self,
     ) -> Result<Option<ReadyWorkBatch>, FinalAdmissionCaptureError> {
-        let mut candidates = self.authority.ready_candidates().into_iter();
+        let mut candidates = self
+            .authority
+            .ready_candidates()
+            .map_err(FinalAdmissionCaptureError::Plan)?
+            .into_iter();
         let Some((head_key, head_expected)) = candidates.next() else {
             return Ok(None);
         };
@@ -3335,30 +3532,49 @@ impl AuthorityStore {
     /// capture stale rather than mixing two store snapshots.
     fn complete_ready_batch(
         &self,
-        mut batch: PreparedReadyValidationBatch,
-    ) -> Result<ReadyValidationBatch, FinalAdmissionCaptureError> {
+        batch: PreparedReadyValidationBatch,
+    ) -> Result<ReadyRecheckOutcome, FinalAdmissionCaptureError> {
+        let prefix_len = self.authority.ready_common_prefix_len(
+            std::iter::once((batch.head.key(), batch.head.expected())).chain(
+                batch
+                    .tail
+                    .iter()
+                    .map(|prepared| (prepared.key(), prepared.expected())),
+            ),
+        );
+        if prefix_len == 0 {
+            return Ok(ReadyRecheckOutcome::HeadChanged(batch));
+        }
+        let PreparedReadyValidationBatch {
+            head,
+            tail,
+            mut completed_tail,
+        } = batch;
         let head_work = self
             .authority
-            .final_admission_work(batch.head.key(), batch.head.expected())
+            .final_admission_work(head.key(), head.expected())
             .map_err(FinalAdmissionCaptureError::Plan)?;
-        let head = batch
-            .head
+        let head = head
             .complete(AuthorityStoreCaptureSeal(()), &self.authority, head_work)
             .map_err(FinalAdmissionCaptureError::Validation)?;
-        for prepared in batch.tail {
+        let mut tail = tail.into_iter();
+        for prepared in tail.by_ref().take(prefix_len.saturating_sub(1)) {
             let work = self
                 .authority
                 .final_admission_work(prepared.key(), prepared.expected())
                 .map_err(FinalAdmissionCaptureError::Plan)?;
-            batch.completed_tail.push(
+            completed_tail.push(
                 prepared
                     .complete(AuthorityStoreCaptureSeal(()), &self.authority, work)
                     .map_err(FinalAdmissionCaptureError::Validation)?,
             );
         }
-        Ok(ReadyValidationBatch {
-            head,
-            tail: batch.completed_tail,
+        Ok(ReadyRecheckOutcome::UnchangedPrefix {
+            batch: ReadyValidationBatch {
+                head,
+                tail: completed_tail,
+            },
+            discarded_tail: tail,
         })
     }
 }

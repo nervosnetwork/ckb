@@ -75,9 +75,9 @@ pub(in crate::authority) use membership::{
     AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
     MembershipProjection,
 };
-use membership::{MembershipRemoval, PreparedMembership, ProjectionDelta};
+use membership::{AcceptedRemovalSet, MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use settlement::{IndependentCandidate, SettlementBatch, SettlementPlan};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
 
@@ -184,13 +184,6 @@ impl TxPoolAuthority {
         DependencyCut(ApplySequence(self.clocks.next_sequence.0.saturating_sub(1)))
     }
 
-    /// Coherent Accepted-membership source cut for owner-free direct work.
-    /// Unlike the dependency frontier, this version also advances when no
-    /// resident consumer has registered the changed outpoint.
-    pub(super) fn accepted_source_cut(&self) -> ApplySequence {
-        self.source_versions.accepted()
-    }
-
     /// Borrow one immutable authority cut for every query projection. The view
     /// exposes neither the primary owner enum nor independently captured
     /// accepted/preaccepted collections.
@@ -209,8 +202,19 @@ impl TxPoolAuthority {
 
     /// Bounded strongest-first Ready identities for the runtime's sealed
     /// validation capture. Raw identities never cross the authority module.
-    pub(in crate::authority) fn ready_candidates(&self) -> Vec<(RawTxHash, EntryVersion)> {
-        self.scheduler.ready()
+    pub(in crate::authority) fn ready_candidates(
+        &self,
+    ) -> Result<Vec<(RawTxHash, EntryVersion)>, PlanError> {
+        self.scheduler.ready().map_err(PlanError::from)
+    }
+
+    /// Compare an earlier Ready cut with the scheduler's current sole order
+    /// authority without materializing another list under the authority guard.
+    pub(in crate::authority) fn ready_common_prefix_len<'a>(
+        &self,
+        captured: impl IntoIterator<Item = (&'a RawTxHash, EntryVersion)>,
+    ) -> usize {
+        self.scheduler.ready_common_prefix_len(captured)
     }
 
     pub(in crate::authority) fn template_source_versions(&self) -> PoolTemplateVersions {
@@ -253,12 +257,13 @@ pub(super) enum StalePlan {
     Phase,
     ChainRevision,
     Dependency,
+    AcceptedObservation,
     Generation,
     SourceVersion,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum AuthorityFault {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityFault {
     CounterExhausted,
     ResourceProjection,
     MembershipProjection,
@@ -292,11 +297,12 @@ pub(super) struct ComputeSettlementFailure {
 
 /// Closed progress contract for returning the sole compute capability.
 ///
-/// Settlement may wait only for the two resources whose unique progress
-/// engines are known: allocator recovery or effect capacity released by the
-/// independent publisher. Every other planning outcome is structural in this
-/// context. Keeping that distinction at the producer prevents a future
-/// `PlanError` variant from silently becoming an unbounded worker retry.
+/// Settlement may wait only for effect capacity released by the independent
+/// publisher. Allocation has no authority-owned progress level and therefore
+/// selects deterministic cancellation followed by the generation terminal.
+/// Every other planning outcome is structural in this context. Keeping that
+/// distinction at the producer prevents a future `PlanError` variant from
+/// silently becoming an unbounded worker retry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ComputeSettlementRecovery {
     Obsolete(StalePlan),
@@ -1027,7 +1033,7 @@ enum MissingResolutionDisposition {
 #[derive(Clone, Copy)]
 enum ProjectedRemovalSet<'set> {
     Replacement(&'set HashSet<RawTxHash>),
-    Administrative(&'set BTreeSet<RawTxHash>),
+    Administrative(&'set AcceptedRemovalSet),
 }
 
 impl ProjectedRemovalSet<'_> {
@@ -2017,7 +2023,7 @@ impl TxPoolAuthority {
     /// or under a non-removed Accepted parent.
     fn collect_released_administrative_inputs(
         &self,
-        removals: &BTreeSet<RawTxHash>,
+        removals: &AcceptedRemovalSet,
     ) -> Result<Vec<DependencyKey>, PlanError> {
         let capacity = removals.iter().try_fold(0usize, |total, hash| {
             let entry = match self.entries.get(hash) {
@@ -2037,7 +2043,7 @@ impl TxPoolAuthority {
         let final_owners = ProjectedFinalOwnerSet {
             removed: ProjectedRemovalSet::Administrative(removals),
         };
-        for hash in removals {
+        for hash in removals.iter() {
             let entry = match self.entries.get(hash) {
                 Some(OwnedTx::Accepted(entry)) => entry,
                 Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
@@ -2429,8 +2435,8 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let publication = self
             .effects
-            .build_publication(policy, vec![effect])
-            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+            .build_single_publication(policy, effect)
+            .map_err(PlanError::from)?;
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_publication(&publication, sequence)?;
@@ -2674,25 +2680,22 @@ impl TxPoolAuthority {
         if reason.is_malformed()
             && let Some(peer) = blame_peer
         {
-            let plan = self.plan_peer_revocation(
-                peer,
-                preaccepted.record.identity.raw.clone(),
-                reason.clone(),
-            )?;
+            let plan =
+                self.plan_peer_revocation(peer, preaccepted.record.identity.raw, reason.clone())?;
             return Ok(PreparedValidationRejection { reason, plan });
         }
         let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         let publication = self
             .effects
-            .build_publication(
+            .build_single_publication(
                 policy,
-                vec![CommittedEffect::Rejected(CommittedRejection::Validation {
+                CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
                     audience,
                     reason: reason.clone(),
-                })],
+                }),
             )
-            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+            .map_err(PlanError::from)?;
         let plan =
             self.plan_preaccepted_terminalization(subject.key(), subject.expected(), &publication)?;
         Ok(PreparedValidationRejection { reason, plan })
@@ -2749,15 +2752,15 @@ impl TxPoolAuthority {
                 let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
                 let publication = self
                     .effects
-                    .build_publication(
+                    .build_single_publication(
                         policy,
-                        vec![CommittedEffect::Rejected(CommittedRejection::Membership {
+                        CommittedEffect::Rejected(CommittedRejection::Membership {
                             tx: Arc::clone(&preaccepted.record.tx),
                             audience: RejectionAudience::from_source(preaccepted.source),
                             reason: reason.clone(),
-                        })],
+                        }),
                     )
-                    .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                    .map_err(PlanError::from)?;
                 let plan = self.plan_preaccepted_terminalization(&key, expected, &publication)?;
                 Ok(CandidateDispositionPlan::Rejected(
                     PreparedCandidateRejection { reason, plan },
@@ -2777,14 +2780,14 @@ impl TxPoolAuthority {
         if matches!(&existing, Some(OwnedTx::Accepted(_))) {
             let publication = self
                 .effects
-                .build_publication(
+                .build_single_publication(
                     EffectPolicy::Trusted,
-                    vec![CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+                    CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
                         tx_hash: key.clone(),
                         requesting_peer: None,
-                    })],
+                    }),
                 )
-                .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                .map_err(PlanError::from)?;
             let clocks = ApplyClockReservation::begin(self.clocks)?;
             let sequence = clocks.sequence();
             let effect = self
@@ -2813,15 +2816,15 @@ impl TxPoolAuthority {
             Err(PlanError::Membership(reason)) => {
                 let publication = self
                     .effects
-                    .build_publication(
+                    .build_single_publication(
                         EffectPolicy::Trusted,
-                        vec![CommittedEffect::Rejected(CommittedRejection::Membership {
+                        CommittedEffect::Rejected(CommittedRejection::Membership {
                             tx: Arc::clone(&accepted.record.tx),
                             audience: RejectionAudience::default(),
                             reason: reason.clone(),
-                        })],
+                        }),
                     )
-                    .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                    .map_err(PlanError::from)?;
                 let effect_clocks = ApplyClockReservation::begin(self.clocks)?;
                 let effect = self
                     .effects
@@ -3013,13 +3016,7 @@ impl TxPoolAuthority {
         &self,
         subject: &super::chain::DirectAdmissionSubject,
     ) -> Result<(), PlanError> {
-        if subject.view() != &self.chain_view {
-            return Err(PlanError::Stale(StalePlan::ChainRevision));
-        }
-        if subject.accepted_source() != self.source_versions.accepted() {
-            return Err(PlanError::Stale(StalePlan::SourceVersion));
-        }
-        Ok(())
+        self.validate_direct_rejection_validity(subject.validity())
     }
 
     pub(super) fn direct_rejection_is_current(
@@ -3035,12 +3032,12 @@ impl TxPoolAuthority {
     ) -> Result<(), PlanError> {
         match validity {
             DirectRejectionValidity::Stable => Ok(()),
-            DirectRejectionValidity::AcceptedCut { view, accepted } => {
+            DirectRejectionValidity::AcceptedReads { view, reads } => {
                 if view != &self.chain_view {
                     return Err(PlanError::Stale(StalePlan::ChainRevision));
                 }
-                if accepted != &self.source_versions.accepted() {
-                    return Err(PlanError::Stale(StalePlan::SourceVersion));
+                if !reads.is_current(self) {
+                    return Err(PlanError::Stale(StalePlan::AcceptedObservation));
                 }
                 Ok(())
             }
@@ -3573,11 +3570,11 @@ impl TxPoolAuthority {
                     Some(release) => {
                         let publication = self
                             .effects
-                            .build_publication(
+                            .build_single_publication(
                                 EffectPolicy::Trusted,
-                                vec![CommittedEffect::RemoteIngressReleased(release)],
+                                CommittedEffect::RemoteIngressReleased(release),
                             )
-                            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+                            .map_err(PlanError::from)?;
                         self.effects.plan_publication(&publication, sequence)?
                     }
                     None => EffectDelta::default(),
@@ -3624,11 +3621,17 @@ impl TxPoolAuthority {
         hashes: OwnerRemovalKeys,
         sequence: ApplySequence,
     ) -> Result<OwnerRemovalBatch, PlanError> {
-        let accepted_removals = hashes
-            .iter()
-            .filter(|hash| matches!(self.entries.get(*hash), Some(OwnedTx::Accepted(_))))
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut accepted_removals = Vec::new();
+        accepted_removals
+            .try_reserve_exact(hashes.len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        accepted_removals.extend(
+            hashes
+                .iter()
+                .filter(|hash| matches!(self.entries.get(*hash), Some(OwnedTx::Accepted(_))))
+                .cloned(),
+        );
+        let accepted_removals = AcceptedRemovalSet::try_from_vec(accepted_removals)?;
         if hashes.iter().any(|hash| !self.entries.contains_key(hash)) {
             return Err(PlanError::Fault(AuthorityFault::IndexProjection));
         }
@@ -3747,7 +3750,14 @@ impl TxPoolAuthority {
         };
         let hashes = match owner {
             OwnedTx::Accepted(_) => self.administrative_descendant_closure(root)?,
-            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => vec![root.clone()],
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {
+                let mut hashes = Vec::new();
+                hashes
+                    .try_reserve_exact(1)
+                    .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+                hashes.push(root.clone());
+                hashes
+            }
         };
         self.plan_administrative_removal(hashes, AdminPlan::LocalRemoval { root: root.clone() })
             .map(Some)
@@ -4422,13 +4432,13 @@ impl TxPoolAuthority {
                                 Arc::clone(missing.parent_transactions()),
                             )
                             .map(|request| {
-                                self.effects.build_publication(
+                                self.effects.build_single_publication(
                                     EffectPolicy::Remote,
-                                    vec![CommittedEffect::ParentTransactionsRequested(request)],
+                                    CommittedEffect::ParentTransactionsRequested(request),
                                 )
                             })
                             .transpose()
-                            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?,
+                            .map_err(PlanError::from)?,
                             PreAcceptedSource::Proposal { .. } | PreAcceptedSource::Recovery(_) => {
                                 None
                             }
@@ -4562,15 +4572,15 @@ impl TxPoolAuthority {
         let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         let publication = self
             .effects
-            .build_publication(
+            .build_single_publication(
                 policy,
-                vec![CommittedEffect::Rejected(CommittedRejection::Validation {
+                CommittedEffect::Rejected(CommittedRejection::Validation {
                     tx: Arc::clone(&preaccepted.record.tx),
                     audience,
                     reason,
-                })],
+                }),
             )
-            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+            .map_err(PlanError::from)?;
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let dependency = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;

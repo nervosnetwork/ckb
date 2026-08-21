@@ -9,9 +9,9 @@ use super::{
     kernel::{Admission, Completion, KernelCommand, KernelDisposition, KernelStep, WorkResult},
     state::{
         CellId, EffectBatchBound, EffectClass, HeaderId, InputOrigin, LogicalEffect,
-        ModelInvariantError, ModelLimits, MonotonicTick, Omega, PeerId, ProposalId, RemoteDeadline,
-        RemoteResidency, ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, ViewId,
-        WitnessId,
+        ModelInvariantError, ModelLimits, ModelTransactionCost, MonotonicTick, Omega, PeerId,
+        ProposalId, RemoteDeadline, RemoteResidency, ResolvedEvidence, RetainedSource, RulesId,
+        Transaction, TxId, ViewId, WitnessId,
     },
 };
 use std::collections::BTreeSet;
@@ -59,12 +59,6 @@ pub(crate) enum EvidenceOriginRole {
     ChainRead,
     PoolInput,
     PoolRead,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ReadyOrderInput {
-    pub(crate) fee: u64,
-    pub(crate) serialized_bytes: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,7 +132,8 @@ pub(crate) fn accepted_role_observation(
         &candidate_transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     if accepted == CellRole::Output {
         match candidate {
             CellRole::Input => {
@@ -278,15 +273,13 @@ pub(crate) fn shared_header_observation(owner_count: usize) -> FrontierObservati
     observe_candidates(transactions)
 }
 
-pub(crate) fn ready_order_observation(items: &[ReadyOrderInput]) -> Vec<usize> {
+pub(crate) fn ready_order_observation(items: &[ModelTransactionCost]) -> Vec<usize> {
     if items.is_empty() || items.len() > REFINEMENT_MAX_READY {
         return Vec::new();
     }
     let mut omega = model(items.len());
     for (index, item) in items.iter().copied().enumerate() {
-        let mut transaction = transaction_for_role(index, CellRole::None, CellId(0));
-        transaction.fee = item.fee;
-        transaction.bytes = item.serialized_bytes;
+        let transaction = transaction_for_role(index, CellRole::None, CellId(0)).with_cost(item);
         make_ready(&mut omega, transaction);
     }
     omega
@@ -325,7 +318,8 @@ pub(crate) fn evidence_origin_observation(origin: EvidenceOriginRole) -> Frontie
     };
     let candidate = transaction_for_role(0, candidate_role, shared);
     let mut evidence =
-        ResolvedEvidence::for_transaction(&candidate, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&candidate, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     if let Some(parent) = pool_parent {
         match candidate_role {
             CellRole::Input => {
@@ -396,13 +390,13 @@ fn transaction_for_role(index: usize, role: CellRole, shared: CellId) -> Transac
         witness: WitnessId(id),
         proposal: ProposalId(id),
         inputs: BTreeSet::new(),
-        deps: BTreeSet::new(),
+        since_inputs: BTreeSet::new(),
+        cell_deps: BTreeSet::new(),
+        dep_groups: BTreeSet::new(),
         header_deps: BTreeSet::<HeaderId>::new(),
         outputs: BTreeSet::new(),
-        bytes: 4,
-        cycles: 0,
-        fee: 1_000_000u64.saturating_sub(u64::from(id) * 10_000),
-        verify_class: super::state::VerifyCycleClass::Small,
+        cost: ModelTransactionCost::new(4, 1_000_000u64.saturating_sub(u64::from(id) * 10_000), 0)
+            .expect("the fixed model cost is representable"),
     };
     match role {
         CellRole::None => {}
@@ -410,7 +404,7 @@ fn transaction_for_role(index: usize, role: CellRole, shared: CellId) -> Transac
             transaction.inputs.insert(shared);
         }
         CellRole::Read => {
-            transaction.deps.insert(shared);
+            transaction.cell_deps.insert(shared);
         }
         CellRole::Output => {
             transaction.outputs.insert(shared);
@@ -436,7 +430,8 @@ fn make_ready(omega: &mut Omega, transaction: Transaction) {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     make_ready_with_evidence(omega, transaction, RetainedSource::Proposal, evidence);
 }
 
@@ -445,7 +440,8 @@ fn make_ready_from_source(omega: &mut Omega, transaction: Transaction, source: R
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     make_ready_with_evidence(omega, transaction, source, evidence);
 }
 

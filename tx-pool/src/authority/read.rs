@@ -272,10 +272,9 @@ impl<'authority> AuthorityReadEntry<'authority> {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
             OwnedTx::PreAccepted(entry) => match &entry.phase {
                 PreAcceptedPhase::Ready(verified) => Some(verified.metrics().cost.cycles),
-                PreAcceptedPhase::Waiting(_) => match entry.source.payload_policy() {
-                    super::state::PayloadPolicy::RemoteDeclaredCycles(cycles) => Some(cycles),
-                    super::state::PayloadPolicy::Trusted => Some(0),
-                },
+                PreAcceptedPhase::Waiting(_) => {
+                    entry.source.payload_policy().declared_cycles().or(Some(0))
+                }
                 PreAcceptedPhase::Queued(_) | PreAcceptedPhase::Computing(_) => None,
             },
             OwnedTx::ReplacementHistory(_) => None,
@@ -582,15 +581,16 @@ impl<'authority> AuthorityReadView<'authority> {
 
     pub(super) fn compact_transactions(
         &self,
-        proposals: &[ProposalId],
+        proposals: &[ckb_types::packed::ProposalShortId],
     ) -> Result<Vec<(ProposalId, Arc<TransactionView>)>, AuthorityReadError> {
         let mut transactions = Vec::new();
         transactions
             .try_reserve(proposals.len())
             .map_err(|_| AuthorityReadError::Allocation)?;
         for proposal in proposals {
-            if let Some(entry) = self.entry_by_proposal(proposal)? {
-                transactions.push((proposal.clone(), Arc::clone(entry.transaction())));
+            let proposal = ProposalId(proposal.clone());
+            if let Some(entry) = self.entry_by_proposal(&proposal)? {
+                transactions.push((proposal, Arc::clone(entry.transaction())));
             }
         }
         Ok(transactions)

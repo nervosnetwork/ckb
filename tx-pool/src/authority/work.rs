@@ -1,9 +1,9 @@
-use super::chain::{CellContentReceipt, TimeContextReceipt};
+use super::chain::{CellContentReceipt, CellLocationReceiptError, TimeContextReceipt};
 use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
 use super::resources::{AcceptedCost, ComputeGrant};
 use super::state::{
     ActiveWork, AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
-    DependencySetError, EntryVersion, InputEvidenceDisposition, InputEvidenceError,
+    DependencySetError, EntryVersion, FootprintError, InputEvidenceDisposition, InputEvidenceError,
     KnownDependencies, MissingDependencies, PayloadPolicy, PreAcceptedEntry, PreAcceptedPhase,
     QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, VerifiedFacts, VerifyCapability,
     VerifyCycleClass, WorkPermit,
@@ -232,7 +232,7 @@ pub(super) struct MissingResolution {
     /// This projection is built outside the authority guard. It deliberately
     /// excludes header dependencies: production resolution rejects an invalid
     /// header directly, while the relayer can only request transactions.
-    parent_transactions: Arc<[RawTxHash]>,
+    parent_transactions: Arc<Vec<RawTxHash>>,
 }
 
 impl MissingResolution {
@@ -244,7 +244,7 @@ impl MissingResolution {
         &self.dependencies
     }
 
-    pub(super) fn parent_transactions(&self) -> &Arc<[RawTxHash]> {
+    pub(super) fn parent_transactions(&self) -> &Arc<Vec<RawTxHash>> {
         &self.parent_transactions
     }
 }
@@ -346,6 +346,15 @@ enum ResolvedPayloadBuild {
     Rejected(CommittedPublicReject),
 }
 
+fn location_receipt_error(error: CellLocationReceiptError) -> ResolutionReceiptError {
+    match error {
+        CellLocationReceiptError::Allocation => ResolutionReceiptError::DependencyAllocation,
+        CellLocationReceiptError::Arithmetic => ResolutionReceiptError::InvalidEvidence(
+            InputEvidenceError::Footprint(FootprintError::Arithmetic),
+        ),
+    }
+}
+
 fn build_resolved_payload(
     token: &LeaseToken,
     tx: &TransactionView,
@@ -410,9 +419,10 @@ fn verified(
     // evidence. A runner cannot accidentally bypass it; Apply later decides
     // whether this sealed peer policy is still current or was superseded by a
     // trusted same-witness promotion.
-    if let PayloadPolicy::RemoteDeclaredCycles(declared) = payload_policy
-        && declared != cycles
+    if let PayloadPolicy::RemoteDeclaredCycles(limit) = payload_policy
+        && limit.declared() != cycles
     {
+        let declared = limit.declared();
         return token.settle(SettlementNext::VerificationRejected {
             rejection: CommittedPublicReject::new(Reject::DeclaredWrongCycles(declared, cycles)),
             resolved,
@@ -476,13 +486,22 @@ impl ResolveWork {
         let next = match build_resolved_payload(&self.token, &self.tx, evidence) {
             Err(error) => return Err(ReceiptFailure::new(self.token, error)),
             Ok(ResolvedPayloadBuild::Ready(payload, verify_class)) => {
-                SettlementNext::QueuedVerify(ResolvedFacts::from_resolution(
+                let resolved = match ResolvedFacts::from_resolution(
                     ResolutionSeal(()),
                     self.token.chain_view().clone(),
                     self.token.dependency_cut,
                     Arc::new(payload),
                     verify_class,
-                ))
+                ) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        return Err(ReceiptFailure::new(
+                            self.token,
+                            location_receipt_error(error),
+                        ));
+                    }
+                };
+                SettlementNext::QueuedVerify(resolved)
             }
             Ok(ResolvedPayloadBuild::ResourceDenied) => {
                 return Ok(budget_denied(self.token));
@@ -561,13 +580,21 @@ impl ContinuousResolveWork {
             }
         };
         let chain_view = self.token.chain_view().clone();
-        let resolved = ResolvedFacts::from_resolution(
+        let resolved = match ResolvedFacts::from_resolution(
             ResolutionSeal(()),
             chain_view,
             self.token.dependency_cut,
             Arc::new(payload),
             verify_class,
-        );
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    location_receipt_error(error),
+                ));
+            }
+        };
         if self.capability.permits(verify_class) {
             Ok(ContinuousResolution::Verify(ContinuousVerifyWork {
                 token: self.token,

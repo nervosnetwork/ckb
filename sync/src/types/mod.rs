@@ -1532,8 +1532,10 @@ impl SyncState {
             match unknown_tx_hashes.entry(tx_hash) {
                 keyed_priority_queue::Entry::Occupied(entry) => {
                     let mut priority = entry.get_priority().clone();
-                    priority.push_peer(peer_index);
-                    entry.set_priority(priority);
+                    if !priority.peers.contains(&peer_index) {
+                        priority.push_peer(peer_index);
+                        entry.set_priority(priority);
+                    }
                 }
                 keyed_priority_queue::Entry::Vacant(entry) => {
                     entry.set_priority(UnknownTxHashPriority {
@@ -1545,16 +1547,10 @@ impl SyncState {
             }
         }
 
-        // Check `unknown_tx_hashes`'s length after inserting the arrival `tx_hashes`
-        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE
-            || unknown_tx_hashes.len()
-                >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER
+        // Enforce the per-peer registration bound independently of the
+        // number of distinct hashes. Repeated announcements of one hash must
+        // neither duplicate the peer nor bypass this bound.
         {
-            warn!(
-                "unknown_tx_hashes is too long, len: {}",
-                unknown_tx_hashes.len()
-            );
-
             let mut peer_unknown_counter = 0;
             for (_hash, priority) in unknown_tx_hashes.iter() {
                 for peer in priority.peers.iter() {
@@ -1566,7 +1562,18 @@ impl SyncState {
             if peer_unknown_counter >= MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER {
                 return StatusCode::TooManyUnknownTransactions.into();
             }
+        }
 
+        // The global bound counts unique hashes after per-peer multiplicity
+        // has been normalized above.
+        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE
+            || unknown_tx_hashes.len()
+                >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER
+        {
+            warn!(
+                "unknown_tx_hashes is too long, len: {}",
+                unknown_tx_hashes.len()
+            );
             return Status::ignored();
         }
 

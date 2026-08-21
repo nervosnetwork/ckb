@@ -9,7 +9,10 @@ use super::{
     evidence_transition::{
         ModelEvidenceFrontier, ModelEvidenceIdentity, ModelEvidenceView, ModelKnownDependencies,
     },
+    state::{SettlementRejection, VerifyCycleClass},
 };
+
+pub(crate) use super::state::SettlementRejection as ModelSettlementRejection;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ModelPayloadPolicy {
@@ -40,6 +43,15 @@ impl ModelPayloadPolicy {
             | (Self::Trusted, Self::RemoteDeclaredCycles(_)) => {
                 ModelPayloadPolicyEvolution::Invalid
             }
+        }
+    }
+
+    pub(crate) const fn verify_cycle_class(self, large_cycle_threshold: u8) -> VerifyCycleClass {
+        match self {
+            Self::RemoteDeclaredCycles(cycles) if cycles > large_cycle_threshold => {
+                VerifyCycleClass::Large
+            }
+            Self::RemoteDeclaredCycles(_) | Self::Trusted => VerifyCycleClass::Small,
         }
     }
 }
@@ -77,18 +89,12 @@ pub(crate) struct ModelMissingSettlement {
     pub(crate) missing: ModelKnownDependencies,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ModelSettlementRejection {
-    ChainBound,
-    ResourceBound,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ModelSettlementNext {
     QueuedVerify(ModelSettlementEvidence),
     Waiting(ModelMissingSettlement),
     Ready(ModelSettlementEvidence),
-    Rejected(ModelSettlementRejection),
+    Rejected(SettlementRejection),
     VerificationRejected(ModelSettlementEvidence),
     Retry,
 }
@@ -195,8 +201,7 @@ impl ModelSettlementCut {
                 }
             }
             ModelSettlementNext::Rejected(rejection) => {
-                if self.chain_state_is_current()
-                    || *rejection == ModelSettlementRejection::ResourceBound
+                if self.chain_state_is_current() || *rejection == SettlementRejection::ResourceBound
                 {
                     ModelSettlementObservation::Rejected
                 } else {

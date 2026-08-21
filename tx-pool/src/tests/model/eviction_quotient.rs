@@ -6,7 +6,12 @@
 //! the CKB weight or integer fee-rate policy must therefore fail refinement
 //! instead of changing both sides through one helper.
 
+use super::{
+    proposal::{ProposalContext, ProposalStatusReceipt},
+    state::{AcceptedStatus, ProposalId},
+};
 use std::cmp::max;
+use std::collections::BTreeSet;
 
 const CKB_BYTES_PER_CYCLE: f64 = 0.000_170_571_4_f64;
 const KILOWEIGHT: u64 = 1_000;
@@ -16,6 +21,26 @@ pub(crate) enum EvictionRefinementStatus {
     Pending,
     Gap,
     Proposed,
+}
+
+/// Model witness that a quotient status is realizable by primitive proposal
+/// history. Production refinement may call this only through its checked
+/// `ProposalContextReceipt` bridge; the default-production history provenance
+/// remains independently enforced.
+pub(crate) fn eviction_status_witness(status: EvictionRefinementStatus) -> ProposalStatusReceipt {
+    let proposal = ProposalId(0);
+    let context = match status {
+        EvictionRefinementStatus::Pending => ProposalContext::empty(),
+        EvictionRefinementStatus::Gap => {
+            ProposalContext::status_witness(BTreeSet::new(), BTreeSet::from([proposal]))
+                .expect("the fixed gap witness is valid")
+        }
+        EvictionRefinementStatus::Proposed => {
+            ProposalContext::status_witness(BTreeSet::from([proposal]), BTreeSet::new())
+                .expect("the fixed proposed witness is valid")
+        }
+    };
+    context.status(proposal)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +62,7 @@ impl EvictionRefinementMetrics {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EvictionRefinementInput {
-    pub(crate) status: EvictionRefinementStatus,
+    pub(crate) status: ProposalStatusReceipt,
     pub(crate) own: EvictionRefinementMetrics,
     pub(crate) descendants: EvictionRefinementMetrics,
     pub(crate) descendants_count: usize,
@@ -54,7 +79,7 @@ pub(crate) struct EvictionRefinementObservation {
     pub(crate) identity: [u8; 32],
 }
 
-fn transaction_weight(metrics: EvictionRefinementMetrics) -> u64 {
+pub(crate) fn transaction_weight(metrics: EvictionRefinementMetrics) -> u64 {
     max(
         metrics.serialized_bytes,
         (metrics.cycles as f64 * CKB_BYTES_PER_CYCLE) as u64,
@@ -74,7 +99,11 @@ pub(crate) fn eviction_observation(
     input: EvictionRefinementInput,
 ) -> EvictionRefinementObservation {
     EvictionRefinementObservation {
-        status: input.status,
+        status: match input.status.value() {
+            AcceptedStatus::Pending => EvictionRefinementStatus::Pending,
+            AcceptedStatus::Gap => EvictionRefinementStatus::Gap,
+            AcceptedStatus::Proposed => EvictionRefinementStatus::Proposed,
+        },
         fee_rate: max(fee_rate(input.own), fee_rate(input.descendants)),
         descendants_count: input.descendants_count,
         arrival: input.arrival,

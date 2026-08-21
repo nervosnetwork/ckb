@@ -27,6 +27,7 @@ mod permit;
 mod progress;
 mod progress_properties;
 mod properties;
+mod proposal;
 mod protocol;
 mod refinement;
 mod resource;
@@ -38,15 +39,19 @@ mod scheduler_transition_properties;
 mod settlement_transition;
 mod settlement_transition_properties;
 mod state;
+mod time_context;
+mod time_context_properties;
 mod topology;
 mod topology_properties;
 mod trace;
+pub(crate) mod two_phase;
 
 pub(crate) use atomic_transition::{
     ClockBranchDecision, ClockCommit, ClockCommitError, ClockDemand, ClockPlan,
     ModelAuthorityClocks,
 };
 
+pub(crate) use boundaries::{ModelMinimumFeeObservation, minimum_fee_observation};
 pub(crate) use boundary_trace::{
     BoundaryCheckpoint, BoundaryControllerState, BoundaryEffectState, BoundaryEnqueueFailure,
     BoundaryKey, BoundaryLifecycleState, BoundaryPeerId, BoundaryRelaySettlement,
@@ -61,30 +66,30 @@ pub(crate) use contract_observation::{
 pub(crate) use dependency_progress::{ModelDependencyCut, ModelDependencyKey};
 pub(crate) use eviction_quotient::{
     EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementObservation,
-    EvictionRefinementStatus, eviction_observation,
+    EvictionRefinementStatus, eviction_observation, eviction_status_witness,
 };
 pub(crate) use evidence_transition::{
-    ModelAdmissionReceipt, ModelCellLocation, ModelDependencyLevel,
-    ModelDirectRejectionObservation, ModelDirectRejectionValidity, ModelEvidenceFrontier,
+    ModelAdmissionReceipt, ModelCellLocation, ModelDependencyLevel, ModelEvidenceFrontier,
     ModelEvidenceIdentity, ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView,
-    ModelFinalAdmissionSubject, ModelKnownDependencies, ModelMissingDisposition, ModelMissingFact,
-    ModelPoolParent, ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner,
-    ModelReadyPayloadRelation, ModelReleasedInputContext, ModelReleasedInputCut,
-    ModelReleasedInputDisposition, ModelSubjectValidation, ModelUnindexedDependencyLevel,
-    missing_resolution_disposition, released_input_disposition, validate_direct_acceptance,
-    validate_direct_rejection, validate_final_acceptance, validate_final_subject,
-    validated_location_transition,
+    ModelFinalAdmissionSubject, ModelKnownDependencies, ModelLocationDependentMetrics,
+    ModelMissingDisposition, ModelMissingFact, ModelPoolParent, ModelPreAcceptedSource,
+    ModelRawTransaction, ModelReadyOwner, ModelReadyPayloadRelation, ModelReleasedInputContext,
+    ModelReleasedInputCut, ModelReleasedInputDisposition, ModelSubjectValidation,
+    ModelUnindexedDependencyLevel, location_refresh_observation, missing_resolution_disposition,
+    released_input_disposition, validate_direct_acceptance, validate_final_acceptance,
+    validate_final_subject, validated_location_transition,
 };
 pub(crate) use progress::{
     AuthorityProgressCut, EffectHead, EffectLogCut, EffectPublicationObservation,
     EffectReceiptSource, EffectUsageCut, ProgressVersion, SchedulerProgressCut, WakeObservation,
 };
+pub(crate) use proposal::ProposalStatusReceipt;
 pub(crate) use refinement::{
     CellRole, EffectPressure, EvidenceOriginRole, FrontierObservation, FrontierTerminal,
-    REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole, accepted_capacity_observation,
-    accepted_role_observation, candidate_graph_observation, candidate_role_observation,
-    evidence_origin_observation, positioned_role_observation, ready_order_observation,
-    shared_header_observation, source_observation, source_pressure_observation, stale_observation,
+    REFINEMENT_MAX_READY, SourceRole, accepted_capacity_observation, accepted_role_observation,
+    candidate_graph_observation, candidate_role_observation, evidence_origin_observation,
+    positioned_role_observation, ready_order_observation, shared_header_observation,
+    source_observation, source_pressure_observation, stale_observation,
 };
 pub(crate) use resource::{
     ContinuousAcceptedResources, ContinuousChargeRecord, ContinuousComputeLimits,
@@ -105,6 +110,13 @@ pub(crate) use settlement_transition::{
     ModelMissingSettlement, ModelPayloadPolicy, ModelPayloadPolicyEvolution, ModelSettlementCut,
     ModelSettlementEvidence, ModelSettlementFault, ModelSettlementNext, ModelSettlementObservation,
     ModelSettlementOrigin, ModelSettlementRejection,
+};
+pub(crate) use state::{
+    AcceptedStatus, ModelFeeRate, ModelTransactionCost, VerifyCycleClass as ModelVerifyCycleClass,
+};
+pub(crate) use time_context::{
+    ModelAcceptedValidity, ModelPoolPhase, ModelProposalTimeRelation, model_accepted_validity,
+    model_phase_owned_environment_observation, model_proposal_time_observation,
 };
 pub(crate) use trace::{
     TraceAcceptedProvenance, TraceAcceptedStatus, TraceAction, TraceCut, TraceDisposition,

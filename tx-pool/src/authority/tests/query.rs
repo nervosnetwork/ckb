@@ -19,7 +19,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{Capacity, FeeRate, TransactionBuilder},
     packed::{Byte32, CellInput, CellOutput, OutPoint},
-    prelude::Pack,
+    prelude::{Entity, Pack},
 };
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
@@ -28,8 +28,12 @@ fn runtime_with(authority: TxPoolAuthority) -> AuthorityRuntime {
 }
 
 fn runtime_with_snapshot(authority: TxPoolAuthority, snapshot: Arc<Snapshot>) -> AuthorityRuntime {
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     runtime.with_authority_for_foundation(|slot| *slot = authority);
     runtime
 }
@@ -266,9 +270,9 @@ async fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
 
     let cycles = runtime
         .accepted_with_cycles(vec![
-            pending_tx.proposal_short_id(),
-            proposed_tx.proposal_short_id(),
-            preaccepted_tx.proposal_short_id(),
+            pending_tx.hash(),
+            proposed_tx.hash(),
+            preaccepted_tx.hash(),
         ])
         .expect("accepted cycles are coherent");
     assert_eq!(cycles.len(), 2);
@@ -281,6 +285,74 @@ async fn uak_owned_pool_queries_share_one_status_and_aggregate_cut() {
         ])
         .expect("fresh proposal filter is coherent");
     assert_eq!(fresh, vec![tx(814).proposal_short_id()]);
+}
+
+#[test]
+fn uak_relay_cycle_query_cannot_alias_a_colliding_proposal_id() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let transaction = TransactionBuilder::default()
+        .version(815u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::from_static(b"raw-owner").pack())
+        .build();
+    accept_remote_transaction(
+        &mut authority,
+        transaction.clone(),
+        815,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let runtime = runtime_with(authority);
+    let raw = transaction.hash();
+    let mut alternate_bytes = raw.as_slice().to_vec();
+    alternate_bytes[31] ^= 1;
+    let alternate = Byte32::from_slice(&alternate_bytes).expect("the alternate hash is fixed-size");
+    assert_eq!(
+        ckb_types::packed::ProposalShortId::from_tx_hash(&raw),
+        ckb_types::packed::ProposalShortId::from_tx_hash(&alternate)
+    );
+
+    assert!(matches!(
+        runtime
+            .transaction_lookup(&alternate)
+            .expect("the colliding raw-hash miss is a coherent query"),
+        AuthorityTransactionLookup::RecentRejectFallback
+    ));
+    let AuthorityTransactionLookup::Live(found) = runtime
+        .transaction_lookup(&raw)
+        .expect("the exact raw owner is a coherent query")
+    else {
+        panic!("the exact raw owner must remain visible");
+    };
+    assert_eq!(found.transaction.hash(), raw);
+
+    assert!(
+        runtime
+            .live_cell_receipt(OutPoint::new(alternate.clone(), 0))
+            .resolve(false)
+            .is_unknown(),
+        "a proposal-index hit cannot fabricate an output for another raw hash"
+    );
+    assert!(
+        runtime
+            .live_cell_receipt(OutPoint::new(raw.clone(), 0))
+            .resolve(false)
+            .is_live(),
+        "the exact raw producer remains visible to the live-cell overlay"
+    );
+
+    assert!(
+        runtime
+            .accepted_with_cycles(vec![alternate])
+            .expect("a full-hash miss is a coherent empty observation")
+            .is_empty()
+    );
+    assert_eq!(
+        runtime
+            .accepted_with_cycles(vec![raw])
+            .expect("the exact raw owner is observable"),
+        vec![(transaction, 0)]
+    );
 }
 
 #[test]

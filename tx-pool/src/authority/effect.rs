@@ -22,7 +22,7 @@ const EFFECT_ENVELOPE_BYTES: usize = 128;
 /// transaction nor its rejection payload.
 const PENDING_REJECT_INDEX_BYTES: usize = 128;
 /// Conservative retained-memory charge for one detached packed hash and its
-/// `Arc<[RawTxHash]>` allocation share. This matches the existing relayer
+/// `Arc<Vec<RawTxHash>>` allocation share. This matches the existing relayer
 /// projection bound without making the authority depend on the service layer.
 const PARENT_TRANSACTION_HASH_BYTES: usize = 64;
 /// Scalar and view residency beyond the packed transaction bytes retained by
@@ -526,7 +526,7 @@ impl CommittedPeerCohortRevocation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ParentTransactionRequest {
     peer: PeerIndex,
-    parents: Arc<[RawTxHash]>,
+    parents: Arc<Vec<RawTxHash>>,
 }
 
 /// Proof-carrying relay cleanup for a transaction that has an actual remote
@@ -566,7 +566,7 @@ impl CommittedRemoteIngressRelease {
 }
 
 impl ParentTransactionRequest {
-    pub(super) fn new(peer: PeerIndex, parents: Arc<[RawTxHash]>) -> Option<Self> {
+    pub(super) fn new(peer: PeerIndex, parents: Arc<Vec<RawTxHash>>) -> Option<Self> {
         if parents.is_empty() {
             None
         } else {
@@ -745,7 +745,7 @@ pub(super) enum EffectBuildError {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct EffectBatch {
-    effects: Box<[CommittedEffect]>,
+    effects: Vec<CommittedEffect>,
     publication_steps: usize,
     charge_bytes: usize,
 }
@@ -781,18 +781,26 @@ impl EffectBatch {
             return Err(EffectBuildError::TooLarge);
         }
         Ok(Arc::new(Self {
-            effects: effects.into_boxed_slice(),
+            // The compiler already reserved this bounded carrier fallibly.
+            // Moving it into the immutable batch avoids a second allocator
+            // operation and keeps the scratch/resident proof on one value.
+            effects,
             publication_steps,
             charge_bytes,
         }))
     }
 
-    fn reset() -> Arc<Self> {
-        Arc::new(Self {
-            effects: Box::new([CommittedEffect::GenerationReset]),
+    fn reset() -> Result<Arc<Self>, EffectConfigError> {
+        let mut effects = Vec::new();
+        effects
+            .try_reserve_exact(1)
+            .map_err(|_| EffectConfigError::Allocation)?;
+        effects.push(CommittedEffect::GenerationReset);
+        Ok(Arc::new(Self {
+            effects,
             publication_steps: EffectEndpoint::COUNT,
             charge_bytes: 0,
-        })
+        }))
     }
 
     pub(super) fn effects(&self) -> &[CommittedEffect] {
@@ -1387,7 +1395,7 @@ impl EffectLog {
             pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
             closed: false,
-            generation_reset_batch: EffectBatch::reset(),
+            generation_reset_batch: EffectBatch::reset()?,
         })
     }
 
@@ -1413,6 +1421,22 @@ impl EffectLog {
         effects: Vec<CommittedEffect>,
     ) -> Result<EffectPublication, EffectBuildError> {
         EffectPublication::new(policy, effects, self.limits)
+    }
+
+    /// Build the common one-effect publication without an infallible
+    /// single-item `Vec` allocation. Shape failures are projection defects;
+    /// allocation remains the ordinary resource outcome owned by `EffectError`.
+    pub(super) fn build_single_publication(
+        &self,
+        policy: EffectPolicy,
+        effect: CommittedEffect,
+    ) -> Result<EffectPublication, EffectError> {
+        let mut effects = Vec::new();
+        effects
+            .try_reserve_exact(1)
+            .map_err(|_| EffectError::Allocation)?;
+        effects.push(effect);
+        EffectPublication::new(policy, effects, self.limits).map_err(|_| EffectError::Projection)
     }
 
     pub(super) fn ordered_publication(

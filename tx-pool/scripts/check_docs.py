@@ -35,6 +35,7 @@ RETIRED_PATHS = (
     "tx-pool/docs/README.md",
     "tx-pool/docs/SECURITY_REGRESSION_LEDGER.md",
     "tx-pool/docs/TOOLS.md",
+    "tx-pool/scripts/check_develop_refinement.py",
     "tx-pool/scripts/generate_mutation_matrix.py",
 )
 RETIRED_DOCUMENT_NAMES = {
@@ -55,6 +56,14 @@ MACHINE_CONTRACTS = (
     "test-layout-manifest.json",
 )
 OPTIMIZATION_GOAL_REFERENCE = "architecture-contract.json#/optimization_goal"
+STATUS_FIELDS = (
+    "state",
+    "completed",
+    "active",
+    "rho_C",
+    "rho_A",
+    "claim",
+)
 
 
 def markdown_files() -> list[Path]:
@@ -68,9 +77,9 @@ def optimization_goal_documents() -> list[Path]:
     )
     documents = sorted({*TX_POOL.glob("*.md"), *DOCS.glob("*.md")})
     documents.extend(path for path in hidden_current_documents if path.exists())
-    root_agents = REPO_ROOT / "AGENTS.md"
-    if root_agents.exists():
-        documents.append(root_agents)
+    tx_pool_agents = TX_POOL / "AGENTS.md"
+    if tx_pool_agents.exists():
+        documents.append(tx_pool_agents)
     return documents
 
 
@@ -80,6 +89,39 @@ def local_target(source: Path, raw_target: str) -> Path | None:
         return None
     path = unquote(target.split("#", 1)[0])
     return (source.parent / path).resolve()
+
+
+def expected_progress_machine_state(contract: dict, manifest: dict) -> dict[str, str]:
+    status = manifest["convergence_status"]
+    construction = status["construction_rank"]
+    acceptance = status["acceptance_rank"]
+    claim = contract["optimality_protocol"]["current_claim"]
+    return {
+        "state": str(status["state"]).capitalize(),
+        "completed": ", ".join(status["completed_phases"]) or "none",
+        "active": str(status["active_phase"] or "none"),
+        "rho_C": str(tuple(len(construction[field]) for field in construction)),
+        "rho_A": (
+            "undefined"
+            if acceptance is None
+            else str(tuple(len(acceptance[field]) for field in acceptance))
+        ),
+        "claim": str(claim),
+    }
+
+
+def progress_machine_state(text: str) -> dict[str, str]:
+    blocks = re.findall(r"```text\n(?P<body>.*?)\n```", text, re.S)
+    if not blocks:
+        return {}
+    state: dict[str, str] = {}
+    for line in blocks[0].splitlines():
+        if "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if key in STATUS_FIELDS:
+            state[key] = value
+    return state
 
 
 def validate() -> list[str]:
@@ -99,6 +141,19 @@ def validate() -> list[str]:
             errors.append(
                 "current release progress does not bind the ignored AGENTS.md digest"
             )
+    try:
+        contract = json.loads((TX_POOL / "architecture-contract.json").read_text())
+        manifest = json.loads((TX_POOL / "security-regression-manifest.json").read_text())
+        progress_text = (TX_POOL / ".release-progress").read_text()
+        expected_state = expected_progress_machine_state(contract, manifest)
+        observed_state = progress_machine_state(progress_text)
+        if observed_state != expected_state:
+            errors.append(
+                "current release progress machine-state projection differs: "
+                f"expected={expected_state}, observed={observed_state}"
+            )
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        errors.append(f"cannot derive current release progress projection: {error}")
     for source in files:
         text = source.read_text()
         for raw_target in MARKDOWN_LINK.findall(text):

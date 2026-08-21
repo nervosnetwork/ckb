@@ -275,14 +275,14 @@ impl AuthorityTaskTopology {
                 }
             }
             Ok(Err(fault)) => {
-                self.abort_all();
+                self.abort_and_join_all().await;
                 AuthorityShutdownReport {
                     status: AuthorityShutdownStatus::PersistenceForbidden(fault),
                     derived_failures: Vec::new(),
                 }
             }
             Err(_) => {
-                self.abort_all();
+                self.abort_and_join_all().await;
                 AuthorityShutdownReport {
                     status: AuthorityShutdownStatus::PersistenceForbidden(
                         AuthorityGenerationFault::ShutdownTimeout,
@@ -296,16 +296,25 @@ impl AuthorityTaskTopology {
     /// End a generation whose exact event already proved safe continuation or
     /// persistence impossible. No repair or replacement authority is created
     /// here; the service generation owns the operational response.
-    pub(in crate::authority) fn invalidate_generation(
+    pub(in crate::authority) async fn invalidate_generation(
         mut self,
         fault: AuthorityGenerationFault,
     ) -> AuthorityShutdownReport {
         self.begin_shutdown();
-        self.abort_all();
+        self.abort_and_join_all().await;
         AuthorityShutdownReport {
             status: AuthorityShutdownStatus::PersistenceForbidden(fault),
             derived_failures: Vec::new(),
         }
+    }
+
+    /// Retire a topology after a service- or ordered-control invalidity whose
+    /// linear proof is owned above this task layer. Persistence is already
+    /// forbidden, but every task handle is still consumed before that outcome
+    /// can escape the generation owner.
+    pub(in crate::authority) async fn retire_invalid_generation(mut self) {
+        self.begin_shutdown();
+        self.abort_and_join_all().await;
     }
 
     async fn shutdown_authority(&mut self) -> Result<(), AuthorityGenerationFault> {
@@ -442,19 +451,35 @@ impl AuthorityTaskTopology {
         Poll::Pending
     }
 
-    fn abort_all(&mut self) {
-        for task in self.workers.drain(..) {
+    fn request_abort_all(&mut self) {
+        for task in &self.workers {
             task.handle.abort();
         }
         if let Some(templates) = self.templates.as_mut() {
             for slot in templates {
-                if let Some(task) = slot.take() {
+                if let Some(task) = slot.as_ref() {
                     task.handle.abort();
                 }
             }
         }
         abort_slot(&mut self.publisher);
         abort_slot(&mut self.verification_cache);
+    }
+
+    async fn abort_and_join_all(&mut self) {
+        self.request_abort_all();
+        while let Some(task) = self.workers.pop() {
+            let _ = task.handle.await;
+        }
+        if let Some(templates) = self.templates.as_mut() {
+            for slot in templates {
+                if let Some(task) = slot.take() {
+                    let _ = task.handle.await;
+                }
+            }
+        }
+        let _ = join_slot(&mut self.publisher).await;
+        let _ = join_slot(&mut self.verification_cache).await;
     }
 }
 
@@ -465,7 +490,7 @@ mod test_support;
 impl Drop for AuthorityTaskTopology {
     fn drop(&mut self) {
         self.begin_shutdown();
-        self.abort_all();
+        self.request_abort_all();
     }
 }
 
@@ -474,8 +499,7 @@ async fn run_verification_cache_updates(
     mut receiver: mpsc::Receiver<VerificationCacheUpdate>,
 ) {
     while let Some(update) = receiver.recv().await {
-        let (key, completed) = update.into_parts();
-        cache.write().await.put(key, completed);
+        cache.write().await.insert(update.into_proof());
     }
 }
 
@@ -630,7 +654,7 @@ fn poll_slot<T>(
 }
 
 fn abort_slot<T>(slot: &mut Option<tokio::task::JoinHandle<T>>) {
-    if let Some(handle) = slot.take() {
+    if let Some(handle) = slot.as_ref() {
         handle.abort();
     }
 }

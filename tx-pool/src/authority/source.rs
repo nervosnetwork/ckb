@@ -14,11 +14,11 @@ use super::state::{
 ///
 /// `proposals` and `transactions` are exact derived selection sources, so a
 /// Gap/Proposed change does not cause unrelated proposal work and a
-/// Pending/Gap change does not cause unrelated transaction work. The general
-/// accepted-content OCC version stays in [`AuthoritySourceVersions`] and does
-/// not widen this consumer receipt. Block-assembler configuration is immutable
-/// after construction; chain-dependent policy is covered by `chain`, so there
-/// is no producerless policy clock.
+/// Pending/Gap change does not cause unrelated transaction work. Direct
+/// validation carries an exact bounded Accepted read receipt instead of a
+/// global content clock. Block-assembler configuration is immutable after
+/// construction; chain-dependent policy is covered by `chain`, so there is no
+/// producerless policy clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct PoolTemplateVersions {
     pub(super) proposals: ApplySequence,
@@ -38,7 +38,6 @@ impl PoolTemplateVersions {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct AuthoritySourceVersions {
-    accepted: ApplySequence,
     relay_parents: ApplySequence,
     template: PoolTemplateVersions,
 }
@@ -46,14 +45,9 @@ pub(super) struct AuthoritySourceVersions {
 impl AuthoritySourceVersions {
     pub(super) const fn initial() -> Self {
         Self {
-            accepted: ApplySequence(0),
             relay_parents: ApplySequence(0),
             template: PoolTemplateVersions::initial(),
         }
-    }
-
-    pub(super) fn accepted(self) -> ApplySequence {
-        self.accepted
     }
 
     /// Exact source for rebuilding the relayer's Remote missing-parent level.
@@ -109,7 +103,6 @@ impl AuthoritySourceVersions {
     pub(super) fn plan_generation_replacement(self, sequence: ApplySequence) -> SourceVersionDelta {
         SourceVersionDelta {
             after: Self {
-                accepted: sequence,
                 relay_parents: sequence,
                 template: PoolTemplateVersions {
                     proposals: sequence,
@@ -129,7 +122,6 @@ impl AuthoritySourceVersions {
                 Self { template, ..self }
             }
             SourceImpact::Accepted => Self {
-                accepted: sequence,
                 relay_parents: self.relay_parents,
                 template: PoolTemplateVersions {
                     proposals: sequence,

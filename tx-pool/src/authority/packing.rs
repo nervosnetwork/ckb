@@ -54,19 +54,21 @@ impl PackedTemplateTransactions {
     /// Convert only the block-bounded selected payloads into the established
     /// assembler DTO. The exact accepted timestamp was captured with the same
     /// authority receipt, so conversion reconstructs no membership graph.
-    pub(super) fn into_tx_entries(self) -> Vec<TxEntry> {
-        self.entries
-            .into_iter()
-            .map(|entry| {
-                TxEntry::new_with_timestamp(
-                    entry.resolved,
-                    entry.metrics.cost.cycles,
-                    entry.metrics.fee,
-                    entry.metrics.cost.serialized_bytes,
-                    entry.accepted_at.0,
-                )
-            })
-            .collect()
+    pub(super) fn into_tx_entries(self) -> Result<Vec<TxEntry>, TemplateReadError> {
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(self.entries.len())
+            .map_err(|_| TemplateReadError::Allocation)?;
+        entries.extend(self.entries.into_iter().map(|entry| {
+            TxEntry::new_with_timestamp(
+                entry.resolved,
+                entry.metrics.cost.cycles,
+                entry.metrics.fee,
+                entry.metrics.cost.serialized_bytes,
+                entry.accepted_at.0,
+            )
+        }));
+        Ok(entries)
     }
 }
 

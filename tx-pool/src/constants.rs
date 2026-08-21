@@ -9,7 +9,6 @@ pub(crate) const MIN_ESTIMATE_TARGET: u64 = 3;
 pub(crate) const MAX_ESTIMATE_TARGET: u64 = 131;
 
 pub(crate) const GAP_PROPOSAL_INDEX: u64 = 0;
-pub(crate) const PROPOSED_PROPOSAL_INDEX: u64 = 1;
 
 pub(crate) const VERIFY_CACHE_CHANNEL_SIZE: usize = 1024;
 /// Maximum number of stable-state effect batches retained while external

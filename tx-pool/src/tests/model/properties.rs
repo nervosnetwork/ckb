@@ -1,11 +1,23 @@
 use super::{
     boundaries::{
-        ActiveVerificationAction, CallbackAccess, CallbackDisposition, CandidateUncle,
-        QueryProjection, QueryStatus, QuerySubject, TemplateDisposition, TemplateLane,
-        TemplateProtocol, VerificationControl, VerificationKey, callback_disposition,
-        filter_uncles_conflicting_with_proposals, persistence_projection, query_projection,
-        query_subject,
+        ActiveVerificationAction, CallbackAccess, CallbackDisposition, CandidateUncleInput,
+        ModelFailureDisposition, ModelFreshCapacityReceipt, ModelFreshDaoReceipt,
+        ModelFreshTimeReceipt, ModelFreshVerificationReceipts, ModelMinimumFeeObservation,
+        ModelOperationalFailure, ModelRecoveryAdmissionFailure, ModelRemoteCycleLimit,
+        ModelRemoteCycleLimitError, ModelRemoteCycleObservation, ModelRemoteIngressRoute,
+        ModelRetainedIngressOutcome, ModelScriptBehavior, ModelScriptExecution,
+        ModelScriptRejection, ModelScriptReuse, ModelServiceFailure, ModelStructuralFault,
+        ModelTxPoolResolutionReceipt, ModelTxPoolVerificationContext, ModelVerificationObservation,
+        ModelVerificationRejection, QueryProjection, QueryStatus, QuerySubject,
+        RelayLookupIdentity, TemplateDisposition, TemplateFailureCut, TemplateFailureProgress,
+        TemplateLane, TemplateProtocol, VerificationControl, VerificationKey,
+        authority_structural_failure, callback_disposition, chain_structural_failure,
+        execute_model_script_vm, minimum_fee_observation, model_tx_pool_verification,
+        persistence_projection, query_projection, query_subject, recovery_admission_disposition,
+        relay_query_owner, remote_cycle_observation, reuse_model_script_proof,
+        service_failure_disposition, template_failure_progress,
     },
+    eviction_quotient::EvictionRefinementMetrics,
     handoff::{
         CapabilityTransport, CapabilityTransportDisposition, EndpointCircuit, EndpointEvent,
         RelayDisposition, RelayHandoff, RelayInvariantError, RelayItem, RelayLimits, RelayLocation,
@@ -20,24 +32,36 @@ use super::{
         FairPermitScheduler, PermitClass, PermitDomain, PermitGrant, PermitReleaseDisposition,
         PermitRequest, PermitRequestDisposition, PermitRequestId,
     },
+    proposal::{ProposalBlock, ProposalContext, ProposalWindow},
     protocol::{
         DerivedComponent, DerivedHealth, KernelAccess, Lifecycle, PayloadCost, PayloadLocation,
         ProtocolLimits, RequestId, RequestKind, ResponseResult, SystemDisposition, SystemEvent,
         SystemInvariantError, SystemState,
     },
     resource::{
-        ComputeAdmission, ComputeGrant, EdgeMetadataBytes, EntryMetadataBytes, PayloadBytes,
-        QueryCostInputs, QueryCostUpperBound, ResolvedResidentBytes, RetainedChargeInputs,
-        ScratchDisposition, TotalRetainedBytes, prepare_bounded_scratch,
+        AllocationObligation, AllocationTerminal, ComputeAdmission, ComputeGrant,
+        EdgeMetadataBytes, EntryMetadataBytes, PayloadBytes, QueryCostInputs, QueryCostUpperBound,
+        ResolvedResidentBytes, RetainedChargeInputs, ScratchDisposition,
+        SharedVariableResidencyCost, SharedVariableResidencyNormalForm, TotalRetainedBytes,
+        prepare_bounded_scratch, terminal_allocation_disposition,
     },
     state::{
         AcceptedStatus, ApplyStamp, CapabilityId, CellId, ChainView, DirectKind, DirectRequestId,
         EffectBatchBound, EffectCapacity, EffectClaimSource, EffectUsage, EntryVersion, HeaderId,
-        LogicalEffect, MembershipRejection, MissingDependencies, ModelInvariantError, ModelLimits,
-        MonotonicTick, Omega, OwnerLocation, PeerId, PoolGeneration, ProposalBase, RemoteDeadline,
-        RemoteResidency, ResolvedEvidence, ResourceVector, RetainedOwner, RetainedPhase,
-        RetainedSource, RulesId, Transaction, TxId, VerifyCapability, VerifyCycleClass, ViewId,
-        WitnessId, WorkKind, WorkPermit, WorkStage,
+        LogicalEffect, MembershipRejection, MissingDependencies, ModelFeeRate, ModelInvariantError,
+        ModelLimits, ModelReplacementPolicy, MonotonicTick, Omega, OwnerLocation, PeerId,
+        PoolGeneration, ProposalBase, ProposalId, RemoteDeadline, RemoteResidency,
+        ResolvedEvidence, ResourceVector, RetainedOwner, RetainedPhase, RetainedSource, RulesId,
+        Transaction, TxId, VerifyCapability, VerifyCycleClass, ViewId, WitnessId, WorkKind,
+        WorkPermit, WorkStage,
+    },
+    two_phase::{
+        CanonicalBlockService, CanonicalServicePremise, ConditionalSelectionInput,
+        CurrentTemplateComposition, DependencyScanInput, ModelTemplatePackingLimits,
+        StableAcceptedCohort, StableAcceptedCohortError, TEMPLATE_DESCENDANT_CACHE_MEMBER_BOUND,
+        TEMPLATE_PACKING_FAILURE_BOUND, TemplatePackingInput, TemplateServicePremise,
+        TemplateServiceSourceCut, TwoPhaseLiveness, complete_dependency_scan_refinement,
+        conditional_template_selection_refinement, template_packing_refinement,
     },
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -64,6 +88,49 @@ fn model_with_accepted_limit(entries: u16, bytes: u32) -> Omega {
         ViewId(1),
         RulesId(1),
     )
+}
+
+fn exact_model_template_premise(
+    authority: &Omega,
+    proposal_limit: usize,
+    transaction_bytes: usize,
+    candidate_uncles: Vec<CandidateUncleInput>,
+) -> TemplateServicePremise {
+    const PROPOSAL_BYTES: usize = 1_024;
+    let accepted_count = authority
+        .authority
+        .owners
+        .values()
+        .filter(|owner| matches!(owner.location, OwnerLocation::Accepted { .. }))
+        .count();
+    let proposal_bytes = proposal_limit
+        .min(accepted_count)
+        .checked_mul(PROPOSAL_BYTES)
+        .expect("the finite model proposal prefix fits usize");
+    let uncle_bytes = candidate_uncles
+        .iter()
+        .try_fold(0usize, |total, uncle| {
+            total.checked_add(uncle.serialized_bytes)
+        })
+        .expect("the finite model uncle prefix fits usize");
+    let max_block_bytes = proposal_bytes
+        .checked_add(uncle_bytes)
+        .expect("the finite model optional content fits usize")
+        .checked_add(transaction_bytes)
+        .expect("the finite model template fits usize");
+    let composition = CurrentTemplateComposition::new(
+        proposal_limit,
+        PROPOSAL_BYTES,
+        candidate_uncles,
+        0,
+        max_block_bytes,
+        u64::MAX,
+    );
+    TemplateServicePremise::compile(
+        TemplateServiceSourceCut::from_accepted_authority(authority, composition)
+            .expect("the accepted model cut projects one exact template source"),
+    )
+    .expect("the exact source cut has positive proposal and commit capacity")
 }
 
 fn remote(transaction: Transaction, peer: u8) -> KernelCommand {
@@ -111,13 +178,21 @@ fn missing(transaction: &Transaction, cells: BTreeSet<CellId>) -> MissingDepende
         .expect("the model fixture names a non-empty transaction dependency subset")
 }
 
-fn missing_headers(transaction: &Transaction, headers: BTreeSet<HeaderId>) -> MissingDependencies {
-    MissingDependencies::for_headers(transaction, headers)
-        .expect("the model fixture names a non-empty header dependency subset")
+fn reconcile_view(from: ChainView, view: ViewId) -> KernelCommand {
+    reconcile_proposals(from, view, BTreeSet::new(), BTreeSet::new())
 }
 
-fn reconcile_view(from: ChainView, view: ViewId) -> KernelCommand {
+fn reconcile_proposals(
+    from: ChainView,
+    view: ViewId,
+    proposed: BTreeSet<ProposalId>,
+    gap: BTreeSet<ProposalId>,
+) -> KernelCommand {
     KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from,
         to_tip: view,
         committed: BTreeSet::new(),
@@ -127,8 +202,9 @@ fn reconcile_view(from: ChainView, view: ViewId) -> KernelCommand {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::status_witness(proposed, gap)
+            .expect("the proposal witness sets are disjoint")
+            .view(),
     })
 }
 
@@ -167,7 +243,8 @@ fn drive_ready_from(omega: &mut Omega, transaction: &Transaction, source: Retain
         transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let resolved = omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
         result: WorkResult::Resolved(evidence),
@@ -219,6 +296,22 @@ fn drive_ready_with_evidence(
 
 fn accept(omega: &mut Omega, transaction: &Transaction, peer: u8, wall_time: u64) {
     drive_ready(omega, transaction, peer);
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::FinalizeNext { wall_time }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::Accepted(_),
+            ..
+        }
+    ));
+}
+
+fn accept_with_evidence(
+    omega: &mut Omega,
+    transaction: &Transaction,
+    evidence: ResolvedEvidence,
+    wall_time: u64,
+) {
+    drive_ready_with_evidence(omega, transaction, RetainedSource::Proposal, evidence);
     assert!(matches!(
         omega.kernel_step(KernelCommand::FinalizeNext { wall_time }),
         KernelStep::AuthorityCommit {
@@ -307,11 +400,14 @@ fn model_cold_retained_lifecycle_exposes_the_exact_sequential_apply_cost() {
         &mut stamps,
         omega.kernel_step(KernelCommand::Complete(Completion {
             capability: resolve,
-            result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                &transaction,
-                omega.authority.chain,
-                omega.authority.rules,
-            )),
+            result: WorkResult::Resolved(
+                ResolvedEvidence::for_transaction(
+                    &transaction,
+                    omega.authority.chain,
+                    omega.authority.rules,
+                )
+                .expect("direct transaction has no dep-group expansion"),
+            ),
         })),
     );
     let verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
@@ -374,7 +470,8 @@ fn model_continuous_resolve_verify_preserves_one_capability_and_exact_apply_cost
         &transaction,
         continuous.authority.chain,
         continuous.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before_continuation = continuous.authority.clone();
     let linear_permits_before_continuation = continuous.linear.free_compute_permits;
     let continued = continuous.kernel_step(KernelCommand::ContinueResolveThenVerify(
@@ -395,14 +492,18 @@ fn model_continuous_resolve_verify_preserves_one_capability_and_exact_apply_cost
         updated.permit(),
         WorkPermit::ResolveThenVerify(VerifyCapability::Any)
     );
-    assert_eq!(updated.stage(), &WorkStage::Verify(evidence));
+    assert!(matches!(
+        updated.stage(),
+        WorkStage::Verify(current)
+            if **current == evidence && current.dependency_cut == capability.dependency_cut
+    ));
     assert_eq!(continuous.linear.work.get(&capability.id), Some(&updated));
     assert_eq!(
         continuous.linear.free_compute_permits,
         linear_permits_before_continuation
     );
     assert_eq!(
-        query_subject(&continuous, transaction.id, AcceptedStatus::Proposed),
+        query_subject(&continuous, transaction.id),
         QuerySubject::PreAcceptedPending,
         "the authority-visible continuous permit stays conservatively Pending"
     );
@@ -496,8 +597,7 @@ fn model_continuous_resolve_verify_preserves_one_capability_and_exact_apply_cost
 
 #[test]
 fn model_continuous_resolve_falls_back_when_worker_cannot_verify_the_resolved_class() {
-    let transaction =
-        Transaction::independent(1, 1, 10, 20).with_verify_class(VerifyCycleClass::Large);
+    let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
     assert!(matches!(
         omega.kernel_step(remote(transaction.clone(), 7)),
@@ -515,7 +615,9 @@ fn model_continuous_resolve_falls_back_when_worker_cannot_verify_the_resolved_cl
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion")
+    .with_verify_class(VerifyCycleClass::Large);
     assert_eq!(evidence.verify_class, VerifyCycleClass::Large);
     assert!(matches!(
         omega.kernel_step(KernelCommand::Complete(Completion {
@@ -532,7 +634,7 @@ fn model_continuous_resolve_falls_back_when_worker_cannot_verify_the_resolved_cl
         OwnerLocation::Retained(RetainedOwner {
             phase: RetainedPhase::Queued(WorkStage::Verify(queued)),
             ..
-        }) if queued == &evidence
+        }) if **queued == evidence
     ));
     assert!(!omega.linear.work.contains_key(&continuous));
     assert_eq!(
@@ -551,7 +653,7 @@ fn model_continuous_resolve_falls_back_when_worker_cannot_verify_the_resolved_cl
         verify.permit(),
         WorkPermit::VerifyOnly(VerifyCapability::Any)
     );
-    assert!(matches!(verify.stage(), WorkStage::Verify(current) if current == &evidence));
+    assert!(matches!(verify.stage(), WorkStage::Verify(current) if **current == evidence));
     assert!(matches!(
         omega.kernel_step(KernelCommand::Complete(Completion {
             capability: verify.id,
@@ -577,7 +679,8 @@ fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mut
         &transaction,
         split.authority.chain,
         split.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         split.kernel_step(KernelCommand::ContinueResolveThenVerify(
             ResolveContinuation {
@@ -589,9 +692,7 @@ fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mut
     );
     assert_eq!(split, split_before);
 
-    let large = transaction
-        .clone()
-        .with_verify_class(VerifyCycleClass::Large);
+    let large = transaction.clone();
     let mut incompatible = model();
     incompatible.kernel_step(remote(large.clone(), 7));
     let incompatible_capability = checked_out(incompatible.kernel_step(
@@ -606,7 +707,9 @@ fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mut
                     &large,
                     incompatible.authority.chain,
                     incompatible.authority.rules,
-                ),
+                )
+                .expect("the direct transaction has no dep-group expansion")
+                .with_verify_class(VerifyCycleClass::Large),
             },
         )),
         KernelStep::NoAuthorityCommit(KernelDisposition::WorkTransitionRejected(
@@ -628,7 +731,8 @@ fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mut
             revision: continuous.authority.chain.revision,
         },
         continuous.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         continuous.kernel_step(KernelCommand::ContinueResolveThenVerify(
             ResolveContinuation {
@@ -645,38 +749,45 @@ fn model_resolve_continuation_rejects_incompatible_or_stale_evidence_without_mut
 }
 
 #[test]
-fn model_stale_completion_retires_only_its_linear_capability() {
+fn model_chain_bound_completion_after_revision_requeues_exact_owner() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
-    omega.kernel_step(remote(transaction, 7));
+    omega.kernel_step(remote(transaction.clone(), 7));
     let capability = checked_out(omega.kernel_step(KernelCommand::Checkout));
     let before_owner = omega.authority.owners.get(&TxId(1)).cloned();
 
     omega.kernel_step(reconcile_view(omega.authority.chain, ViewId(2)));
-    let requeued = omega.authority.owners.get(&TxId(1)).cloned();
-    assert_ne!(before_owner, requeued);
+    let active = omega.authority.owners.get(&TxId(1)).cloned();
+    assert_eq!(before_owner, active);
     assert!(matches!(
-        requeued.map(|owner| owner.location),
+        active.map(|owner| owner.location),
         Some(OwnerLocation::Retained(RetainedOwner {
-            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            phase: RetainedPhase::Computing(active),
             ..
-        }))
+        })) if active.permit == WorkPermit::ResolveOnly
     ));
 
-    let retired = omega.kernel_step(KernelCommand::Complete(Completion {
+    let settled = omega.kernel_step(KernelCommand::Complete(Completion {
         capability,
-        result: WorkResult::Rejected,
+        result: WorkResult::resolve_rejected(),
     }));
     assert_eq!(
-        retired,
-        KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(capability))
+        settled.disposition(),
+        &KernelDisposition::Continued(transaction.id)
     );
-    assert!(omega.authority.owners.contains_key(&TxId(1)));
+    assert!(matches!(
+        omega.authority.owners[&transaction.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert!(!omega.linear.work.contains_key(&capability));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
 #[test]
-fn model_chain_advance_requeues_finished_work_and_retires_it_without_double_release() {
+fn model_chain_advance_preserves_finished_capability_until_settlement_or_cancel() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
     omega.kernel_step(remote(transaction.clone(), 7));
@@ -685,7 +796,8 @@ fn model_chain_advance_requeues_finished_work_and_retires_it_without_double_rele
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega.kernel_step(KernelCommand::FinishExecution(Completion {
             capability,
@@ -704,47 +816,71 @@ fn model_chain_advance_requeues_finished_work_and_retires_it_without_double_rele
     assert!(matches!(
         omega.authority.owners[&transaction.id].location,
         OwnerLocation::Retained(RetainedOwner {
-            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            phase: RetainedPhase::Computing(ref active),
             ..
-        })
+        }) if active.permit == WorkPermit::ResolveOnly
     ));
     assert!(omega.linear.finished_work.contains_key(&capability));
     assert_eq!(omega.check_invariants(), Ok(()));
 
-    for command in [
-        KernelCommand::SettleFinished(capability),
-        KernelCommand::CancelCapability(capability),
-    ] {
-        let mut retired = omega.clone();
-        assert_eq!(
-            retired.kernel_step(command),
-            KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(capability))
-        );
-        assert_eq!(retired.linear.free_compute_permits, released_permits);
-        assert!(retired.linear.work.is_empty());
-        assert!(retired.linear.finished_work.is_empty());
-        assert!(retired.authority.owners.contains_key(&transaction.id));
-        assert_eq!(retired.check_invariants(), Ok(()));
-    }
+    let mut settled = omega.clone();
+    assert_eq!(
+        settled
+            .kernel_step(KernelCommand::SettleFinished(capability))
+            .disposition(),
+        &KernelDisposition::Continued(transaction.id)
+    );
+    assert_eq!(settled.linear.free_compute_permits, released_permits);
+    assert!(settled.linear.work.is_empty());
+    assert!(settled.linear.finished_work.is_empty());
+    assert!(matches!(
+        settled.authority.owners[&transaction.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert_eq!(settled.check_invariants(), Ok(()));
+
+    let mut cancelled = omega;
+    assert_eq!(
+        cancelled
+            .kernel_step(KernelCommand::CancelCapability(capability))
+            .disposition(),
+        &KernelDisposition::Removed(vec![transaction.id])
+    );
+    assert_eq!(cancelled.linear.free_compute_permits, released_permits);
+    assert!(cancelled.linear.work.is_empty());
+    assert!(cancelled.linear.finished_work.is_empty());
+    assert!(!cancelled.authority.owners.contains_key(&transaction.id));
+    assert_eq!(cancelled.check_invariants(), Ok(()));
 }
 
 #[test]
-fn model_chain_revision_prevents_view_hash_aba_from_reviving_old_work() {
+fn model_chain_revision_prevents_view_hash_aba_from_validating_chain_bound_work() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
-    omega.kernel_step(remote(transaction, 7));
+    omega.kernel_step(remote(transaction.clone(), 7));
     let capability = checked_out(omega.kernel_step(KernelCommand::Checkout));
     omega.kernel_step(reconcile_view(omega.authority.chain, ViewId(2)));
     omega.kernel_step(reconcile_view(omega.authority.chain, ViewId(1)));
     assert_eq!(omega.authority.chain.revision.0, 2);
     assert_eq!(
-        omega.kernel_step(KernelCommand::Complete(Completion {
-            capability,
-            result: WorkResult::Rejected,
-        })),
-        KernelStep::NoAuthorityCommit(KernelDisposition::StaleCapabilityRetired(capability))
+        omega
+            .kernel_step(KernelCommand::Complete(Completion {
+                capability,
+                result: WorkResult::resolve_rejected(),
+            }))
+            .disposition(),
+        &KernelDisposition::Continued(transaction.id)
     );
-    assert!(omega.authority.owners.contains_key(&TxId(1)));
+    assert!(matches!(
+        omega.authority.owners[&transaction.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -757,6 +893,10 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
     let original = omega.authority.chain;
 
     let first = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: original,
         to_tip: original.tip,
         committed: BTreeSet::new(),
@@ -766,8 +906,12 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::from([retained.id]),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::new(),
+            BTreeSet::from([retained.proposal]),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
     assert!(matches!(first, KernelStep::AuthorityCommit { .. }));
     assert_eq!(omega.authority.chain.tip, original.tip);
@@ -775,6 +919,10 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
     let after_first = omega.clone();
 
     let stale = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
         from: original,
         to_tip: original.tip,
         committed: BTreeSet::from([retained.id]),
@@ -784,8 +932,12 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::from([CellId(10)]),
         recovered: vec![recovery],
-        proposed: BTreeSet::from([retained.id]),
-        gap: BTreeSet::from([retained.id]),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::from([retained.proposal]),
+            BTreeSet::new(),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
 
     assert_eq!(
@@ -803,11 +955,9 @@ fn model_chain_cut_allows_same_tip_progress_but_rejects_a_stale_receipt() {
     assert!(omega.authority.chain.revision > after_first.authority.chain.revision);
     assert!(matches!(
         omega.authority.owners[&retained.id].location,
-        OwnerLocation::Accepted {
-            ref evidence,
-            ..
-        } if evidence.proposal_status == AcceptedStatus::Pending
+        OwnerLocation::Accepted { .. }
     ));
+    assert_eq!(omega.proposal_status(&retained), AcceptedStatus::Pending);
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -823,7 +973,8 @@ fn model_queued_verify_evidence_is_lazily_requeued_after_a_chain_advance() {
     let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     let old_chain = omega.authority.chain;
     let evidence =
-        ResolvedEvidence::for_transaction(&transaction, old_chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&transaction, old_chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega
             .kernel_step(KernelCommand::Complete(Completion {
@@ -889,10 +1040,11 @@ fn model_header_dependencies_are_chain_only_evidence_and_charged_edges() {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert_eq!(evidence.header_deps, transaction.header_deps);
 
-    let mut different_headers = transaction.clone();
+    let mut different_headers = transaction;
     different_headers.header_deps.insert(HeaderId(3));
     assert!(!evidence.has_transaction_shape(&different_headers, omega.authority.rules));
 }
@@ -910,7 +1062,8 @@ fn model_ready_membership_revalidates_a_chain_to_pool_origin_change() {
         transaction: parent.clone(),
     }));
     let parent_evidence =
-        ResolvedEvidence::for_transaction(&parent, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&parent, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega
             .kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -949,14 +1102,16 @@ fn model_direct_membership_revalidates_a_chain_to_pool_origin_change() {
         transaction: child.clone(),
     }));
     let child_evidence =
-        ResolvedEvidence::for_transaction(&child, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&child, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     let parent_capability = direct_checked_out(omega.kernel_step(KernelCommand::BeginDirect {
         request: DirectRequestId(2),
         kind: DirectKind::Local,
         transaction: parent.clone(),
     }));
     let parent_evidence =
-        ResolvedEvidence::for_transaction(&parent, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&parent, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega
             .kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -1314,6 +1469,28 @@ fn model_shutdown_rejects_early_persistence_and_distinguishes_derived_failure() 
     assert!(shutdown.derived_degraded());
     assert_eq!(
         shutdown.step(ShutdownAction::AuthorityCapabilityLost),
+        ShutdownDisposition::Advanced(ShutdownPhase::Invalidating)
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::ReportPersistenceForbidden),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::Invalidating),
+        "an invalidity decision cannot be returned before abort is requested"
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::RequestAbort),
+        ShutdownDisposition::Advanced(ShutdownPhase::AbortRequested)
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::ReportPersistenceForbidden),
+        ShutdownDisposition::OutOfOrder(ShutdownPhase::AbortRequested),
+        "an abort request is not evidence that its task owners have retired"
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::JoinAbortedTasks),
+        ShutdownDisposition::Advanced(ShutdownPhase::InvalidTasksJoined)
+    );
+    assert_eq!(
+        shutdown.step(ShutdownAction::ReportPersistenceForbidden),
         ShutdownDisposition::PersistenceForbidden
     );
     assert_eq!(
@@ -1346,6 +1523,204 @@ fn model_shutdown_rejects_early_persistence_and_distinguishes_derived_failure() 
         ShutdownDisposition::OutOfOrder(ShutdownPhase::PersistenceFailed),
         "an external write failure is terminal and cannot be relabeled durable"
     );
+}
+
+#[test]
+fn model_completion_ingress_closure_strictly_lowers_the_effect_drain_rank() {
+    use super::protocol::{
+        ModelCoordinatorCompletionReadiness, ModelCoordinatorShutdownObservation,
+        ModelEffectBlockedShutdownCut, completion_ingress_shutdown_step,
+    };
+
+    let disconnected = ModelEffectBlockedShutdownCut::new(
+        ModelCoordinatorCompletionReadiness::DisconnectedReady,
+        2,
+        true,
+    );
+    let (closed, closure) = completion_ingress_shutdown_step(disconnected);
+    assert_eq!(
+        closure,
+        ModelCoordinatorShutdownObservation::CompletionIngressClosed
+    );
+    assert_eq!(
+        closed.completion(),
+        ModelCoordinatorCompletionReadiness::Closed
+    );
+    assert_eq!(closed.effect_waiters(), 2);
+
+    let (first, first_observation) = completion_ingress_shutdown_step(closed);
+    assert_eq!(
+        first_observation,
+        ModelCoordinatorShutdownObservation::EffectWaitersPromoted
+    );
+    assert_eq!(first.effect_waiters(), 1);
+    assert_eq!(
+        first.completion(),
+        ModelCoordinatorCompletionReadiness::Closed
+    );
+
+    let (second, second_observation) =
+        completion_ingress_shutdown_step(first.with_effect_notification());
+    assert_eq!(
+        second_observation,
+        ModelCoordinatorShutdownObservation::EffectWaitersPromoted
+    );
+    assert_eq!(second.effect_waiters(), 0);
+    assert_eq!(
+        second.completion(),
+        ModelCoordinatorCompletionReadiness::Closed
+    );
+
+    let open_pending = ModelEffectBlockedShutdownCut::new(
+        ModelCoordinatorCompletionReadiness::OpenPending,
+        1,
+        false,
+    );
+    assert_eq!(
+        completion_ingress_shutdown_step(open_pending).1,
+        ModelCoordinatorShutdownObservation::Pending
+    );
+}
+
+#[test]
+fn model_generation_task_contract_is_a_total_unique_owner_join_partition() {
+    use super::protocol::{
+        GENERATION_TASK_ROLES, GenerationTaskCriticality, GenerationTaskOwner, GenerationTaskRole,
+        ShutdownPhase, generation_task_contract,
+    };
+    use std::collections::HashSet;
+
+    let roles = GENERATION_TASK_ROLES.into_iter().collect::<HashSet<_>>();
+    assert_eq!(roles.len(), GENERATION_TASK_ROLES.len());
+    for role in GENERATION_TASK_ROLES {
+        let contract = generation_task_contract(role);
+        assert_eq!(contract.role, role);
+        match role {
+            GenerationTaskRole::DispatcherRoot => {
+                assert_eq!(contract.owner, GenerationTaskOwner::ProcessRuntimeGuard);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::LifecycleRoot
+                );
+                assert_eq!(contract.join_cut, None);
+            }
+            GenerationTaskRole::MessageHandler => {
+                assert_eq!(contract.owner, GenerationTaskOwner::DispatcherJoinSet);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::AuthorityCapability
+                );
+                assert_eq!(contract.join_cut, Some(ShutdownPhase::HandlersDrained));
+            }
+            GenerationTaskRole::ChainControl => {
+                assert_eq!(contract.owner, GenerationTaskOwner::AuthorityGeneration);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::AuthorityCapability
+                );
+                assert_eq!(contract.join_cut, Some(ShutdownPhase::ChainControlJoined));
+            }
+            GenerationTaskRole::ComputeCoordinator
+            | GenerationTaskRole::ComputeWorker
+            | GenerationTaskRole::Ready
+            | GenerationTaskRole::Maintenance => {
+                assert_eq!(contract.owner, GenerationTaskOwner::AuthorityTaskTopology);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::AuthorityCapability
+                );
+                assert_eq!(
+                    contract.join_cut,
+                    Some(ShutdownPhase::AuthorityWorkersJoined)
+                );
+            }
+            GenerationTaskRole::EffectPublisher => {
+                assert_eq!(contract.owner, GenerationTaskOwner::AuthorityTaskTopology);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::AuthorityCapability
+                );
+                assert_eq!(contract.join_cut, Some(ShutdownPhase::EffectsDrained));
+            }
+            GenerationTaskRole::VerificationCache | GenerationTaskRole::TemplateLane => {
+                assert_eq!(contract.owner, GenerationTaskOwner::AuthorityTaskTopology);
+                assert_eq!(
+                    contract.criticality,
+                    GenerationTaskCriticality::DerivedProjection
+                );
+                assert_eq!(contract.join_cut, Some(ShutdownPhase::DerivedTasksJoined));
+            }
+        }
+    }
+}
+
+#[test]
+fn model_ordinary_endpoint_failure_cannot_reach_generation_shutdown() {
+    use super::protocol::{
+        GENERATION_TASK_ROLES, GenerationTaskCriticality, GenerationTaskDisposition,
+        GenerationTaskExit, GenerationTaskRole, generation_task_contract,
+        generation_task_disposition,
+    };
+
+    for role in GENERATION_TASK_ROLES {
+        assert_eq!(
+            generation_task_disposition(role, GenerationTaskExit::LifecycleCancellation),
+            GenerationTaskDisposition::Join
+        );
+        assert_eq!(
+            generation_task_disposition(role, GenerationTaskExit::OrdinaryEndpointFailure),
+            GenerationTaskDisposition::Continue,
+            "ordinary endpoint failure escaped {role:?}"
+        );
+        let expected_failure = match generation_task_contract(role).criticality {
+            GenerationTaskCriticality::DerivedProjection => {
+                GenerationTaskDisposition::DerivedDegraded
+            }
+            GenerationTaskCriticality::LifecycleRoot
+            | GenerationTaskCriticality::AuthorityCapability => {
+                GenerationTaskDisposition::PersistenceForbidden
+            }
+        };
+        for exit in [
+            GenerationTaskExit::StructuralFailure,
+            GenerationTaskExit::JoinFailure,
+            GenerationTaskExit::Timeout,
+        ] {
+            assert_eq!(generation_task_disposition(role, exit), expected_failure);
+        }
+    }
+
+    for role in [
+        GenerationTaskRole::DispatcherRoot,
+        GenerationTaskRole::ChainControl,
+        GenerationTaskRole::ComputeCoordinator,
+        GenerationTaskRole::EffectPublisher,
+    ] {
+        assert_eq!(
+            generation_task_disposition(role, GenerationTaskExit::OwnerClosed),
+            GenerationTaskDisposition::RequestShutdown
+        );
+    }
+    for role in [
+        GenerationTaskRole::VerificationCache,
+        GenerationTaskRole::TemplateLane,
+    ] {
+        assert_eq!(
+            generation_task_disposition(role, GenerationTaskExit::OwnerClosed),
+            GenerationTaskDisposition::DerivedDegraded
+        );
+    }
+    for role in [
+        GenerationTaskRole::MessageHandler,
+        GenerationTaskRole::ComputeWorker,
+        GenerationTaskRole::Ready,
+        GenerationTaskRole::Maintenance,
+    ] {
+        assert_eq!(
+            generation_task_disposition(role, GenerationTaskExit::OwnerClosed),
+            GenerationTaskDisposition::Continue
+        );
+    }
 }
 
 #[test]
@@ -1659,7 +2034,7 @@ fn model_trusted_missing_policy_waits_only_for_a_preaccepted_cell_parent() {
         &KernelDisposition::Rejected(child.id)
     );
 
-    omega.kernel_step(remote(parent.clone(), 8));
+    omega.kernel_step(remote(parent, 8));
     omega.kernel_step(retained(child.clone(), RetainedSource::Proposal));
     let pool_missing = checked_out(omega.kernel_step(KernelCommand::Checkout));
     assert_eq!(
@@ -1675,7 +2050,7 @@ fn model_trusted_missing_policy_waits_only_for_a_preaccepted_cell_parent() {
 }
 
 #[test]
-fn model_trusted_missing_header_is_terminal_because_headers_are_chain_only() {
+fn model_trusted_invalid_header_rejection_is_terminal_because_headers_are_chain_only() {
     let mut transaction = Transaction::independent(1, 1, 10, 20);
     transaction.header_deps.insert(HeaderId(1));
     let mut omega = model();
@@ -1686,15 +2061,129 @@ fn model_trusted_missing_header_is_terminal_because_headers_are_chain_only() {
         omega
             .kernel_step(KernelCommand::Complete(Completion {
                 capability: resolve,
-                result: WorkResult::Missing(missing_headers(
-                    &transaction,
-                    BTreeSet::from([HeaderId(1)]),
-                )),
+                result: WorkResult::resolve_rejected(),
             }))
             .disposition(),
         &KernelDisposition::Rejected(transaction.id)
     );
     assert!(!omega.authority.owners.contains_key(&transaction.id));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_dep_group_resolution_is_the_unique_expanded_dependency_projection() {
+    let mut transaction = Transaction::independent(1, 1, 10, 20);
+    transaction.cell_deps.insert(CellId(50));
+    transaction.dep_groups.insert(CellId(50));
+    let group_members = BTreeMap::from([(CellId(50), BTreeSet::from([CellId(10), CellId(11)]))]);
+
+    assert!(
+        ResolvedEvidence::for_transaction(&transaction, ChainView::initial(ViewId(1)), RulesId(1))
+            .is_none(),
+        "a declared dep-group cannot be resolved without its cell-data expansion"
+    );
+    let evidence = ResolvedEvidence::with_dep_group_members(
+        &transaction,
+        ChainView::initial(ViewId(1)),
+        RulesId(1),
+        group_members,
+    )
+    .expect("the exact declared dep-group expansion is admissible");
+    assert_eq!(
+        evidence.conditional_reads(),
+        BTreeSet::from([CellId(11), CellId(50)]),
+        "an input dominates an overlapping dep-group read"
+    );
+    assert_eq!(
+        evidence.dependencies(&transaction),
+        Some(BTreeSet::from([
+            super::dependency_progress::ModelDependencyKey::cell(10),
+            super::dependency_progress::ModelDependencyKey::cell(11),
+            super::dependency_progress::ModelDependencyKey::cell(50),
+        ]))
+    );
+
+    assert!(
+        MissingDependencies::for_transaction(&transaction, BTreeSet::from([CellId(11)])).is_none(),
+        "a late group member is not a raw transaction declaration"
+    );
+    let missing =
+        MissingDependencies::from_resolved(&transaction, &evidence, BTreeSet::from([CellId(11)]))
+            .expect("resolved group membership proves the late missing key");
+    assert_eq!(missing.cells(), &BTreeSet::from([CellId(11)]));
+    assert!(missing.is_for(&transaction));
+
+    let mut ordinary = Transaction::independent(2, 2, 12, 22);
+    ordinary.cell_deps.insert(CellId(50));
+    assert!(
+        ResolvedEvidence::with_dep_group_members(
+            &ordinary,
+            ChainView::initial(ViewId(1)),
+            RulesId(1),
+            BTreeMap::from([(CellId(50), BTreeSet::from([CellId(11)]))]),
+        )
+        .is_none(),
+        "an ordinary code dependency cannot acquire an invented group expansion"
+    );
+}
+
+#[test]
+fn model_dependency_loss_preserves_active_remote_compute_then_requeues_stale_result() {
+    let parent = Transaction::independent(1, 1, 10, 20);
+    let child = Transaction::dependent(2, 2, 20, 30);
+    let mut omega = model();
+    drive_ready(&mut omega, &parent, 7);
+    omega.kernel_step(remote(child.clone(), 8));
+    let capability = match omega.kernel_step(KernelCommand::Checkout) {
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::CheckedOut(capability),
+            ..
+        } => capability,
+        other => panic!("expected the remote child Resolve checkout, got {other:?}"),
+    };
+    let active_version = omega.authority.owners[&child.id].version;
+
+    assert_eq!(
+        omega
+            .kernel_step(KernelCommand::Remove {
+                transaction: parent.id,
+            })
+            .disposition(),
+        &KernelDisposition::Removed(vec![parent.id])
+    );
+    assert!(matches!(
+        &omega.authority.owners[&child.id],
+        super::state::Owner {
+            version,
+            location: OwnerLocation::Retained(RetainedOwner {
+                phase: RetainedPhase::Computing(active),
+                ..
+            }),
+            ..
+        } if *version == active_version
+            && active.permit == WorkPermit::ResolveOnly
+            && active.dependency_cut == capability.dependency_cut
+    ));
+    assert!(omega.linear.work.contains_key(&capability.id));
+
+    assert_eq!(
+        omega
+            .kernel_step(KernelCommand::Complete(Completion {
+                capability: capability.id,
+                result: WorkResult::Missing(missing(&child, BTreeSet::from([CellId(20)]),)),
+            }))
+            .disposition(),
+        &KernelDisposition::Continued(child.id),
+        "the changed dependency cut retires the result before missing policy"
+    );
+    assert!(matches!(
+        omega.authority.owners[&child.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert!(!omega.linear.work.contains_key(&capability.id));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -1710,7 +2199,8 @@ fn model_pool_origin_is_evidence_and_parent_loss_removes_the_accepted_causal_clo
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(&mut omega, &child, RetainedSource::Proposal, evidence);
     assert_eq!(
         omega
@@ -1764,7 +2254,7 @@ fn model_definitive_preaccepted_parent_loss_cannot_strand_a_proposal_child() {
 }
 
 #[test]
-fn model_definitive_worker_failure_terminalizes_the_complete_dependency_closure() {
+fn model_verification_rejection_terminalizes_the_complete_dependency_closure() {
     let parent = Transaction::independent(1, 1, 10, 20);
     let child = Transaction::dependent(2, 2, 20, 30);
     let mut omega = model();
@@ -1776,11 +2266,14 @@ fn model_definitive_worker_failure_terminalizes_the_complete_dependency_closure(
     let parent_resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: parent_resolve,
-        result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-            &parent,
-            omega.authority.chain,
-            omega.authority.rules,
-        )),
+        result: WorkResult::Resolved(
+            ResolvedEvidence::for_transaction(
+                &parent,
+                omega.authority.chain,
+                omega.authority.rules,
+            )
+            .expect("direct transaction has no dep-group expansion"),
+        ),
     }));
     let parent_verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
 
@@ -1792,9 +2285,10 @@ fn model_definitive_worker_failure_terminalizes_the_complete_dependency_closure(
     }));
     let effects_before = omega.authority.effects.len();
 
+    let parent_rejection = omega.linear.work[&parent_verify].stage_rejection_result();
     let rejected = omega.kernel_step(KernelCommand::Complete(Completion {
         capability: parent_verify,
-        result: WorkResult::Rejected,
+        result: parent_rejection,
     }));
     let stamp = match rejected {
         KernelStep::AuthorityCommit {
@@ -1836,7 +2330,8 @@ fn model_definitive_parent_loss_closes_a_trusted_child_queued_for_verify() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
         result: WorkResult::Resolved(evidence),
@@ -1867,7 +2362,8 @@ fn model_definitive_parent_loss_closes_a_trusted_child_computing_verify() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
         result: WorkResult::Resolved(evidence),
@@ -1892,7 +2388,7 @@ fn model_definitive_parent_loss_closes_a_trusted_child_computing_verify() {
 }
 
 #[test]
-fn model_definitive_parent_loss_waits_a_remote_child_and_stales_its_verify_work() {
+fn model_definitive_parent_loss_preserves_remote_verify_until_stale_settlement() {
     let parent = Transaction::independent(1, 1, 10, 20);
     let child = Transaction::dependent(2, 2, 20, 30);
     let mut omega = model();
@@ -1905,7 +2401,8 @@ fn model_definitive_parent_loss_waits_a_remote_child_and_stales_its_verify_work(
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
         result: WorkResult::Resolved(evidence),
@@ -1917,13 +2414,13 @@ fn model_definitive_parent_loss_waits_a_remote_child_and_stales_its_verify_work(
     let removed = omega.kernel_step(KernelCommand::Remove {
         transaction: parent.id,
     });
-    let stamp = match removed {
+    match removed {
         KernelStep::AuthorityCommit {
-            stamp,
             disposition: KernelDisposition::Removed(removed),
-        } if removed == vec![parent.id] => stamp,
-        other => panic!("expected exact remote dependency wait, got {other:?}"),
-    };
+            ..
+        } if removed == vec![parent.id] => {}
+        other => panic!("expected exact parent removal, got {other:?}"),
+    }
     assert_eq!(
         omega
             .authority
@@ -1932,23 +2429,18 @@ fn model_definitive_parent_loss_waits_a_remote_child_and_stales_its_verify_work(
             .skip(effects_before)
             .map(|effect| (effect.stamp, effect.ordinal, effect.logical.clone()))
             .collect::<Vec<_>>(),
-        vec![(
-            stamp,
-            0,
-            LogicalEffect::ParentTransactionsRequested {
-                transaction: child.id,
-                parent_count: 1,
-            },
-        )]
+        Vec::new(),
+        "an active capability owns settlement; the dependency event cannot publish a competing wait"
     );
     let child_owner = &omega.authority.owners[&child.id];
-    assert_ne!(child_owner.version, version_before);
+    assert_eq!(child_owner.version, version_before);
     assert!(matches!(
         &child_owner.location,
         OwnerLocation::Retained(RetainedOwner {
-            phase: RetainedPhase::Waiting { missing },
+            phase: RetainedPhase::Computing(active),
             ..
-        }) if missing.cells() == &BTreeSet::from([CellId(20)])
+        }) if matches!(active.permit, WorkPermit::VerifyOnly(_))
+            && active.dependency_cut == omega.linear.work[&verify].dependency_cut
     ));
     assert_eq!(omega.check_invariants(), Ok(()));
     assert_eq!(
@@ -1958,8 +2450,16 @@ fn model_definitive_parent_loss_waits_a_remote_child_and_stales_its_verify_work(
                 result: WorkResult::Verified,
             }))
             .disposition(),
-        &KernelDisposition::StaleCapabilityRetired(verify)
+        &KernelDisposition::Continued(child.id)
     );
+    assert!(matches!(
+        omega.authority.owners[&child.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert!(!omega.linear.work.contains_key(&verify));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -1968,7 +2468,7 @@ fn model_rbf_apply_terminalizes_trusted_victim_dependents_in_the_same_effect_bat
     let victim = Transaction::independent(1, 1, 10, 20);
     let child = Transaction::dependent(2, 2, 20, 30);
     let mut replacement = Transaction::independent(3, 3, 10, 40);
-    replacement.fee = 30;
+    replacement = replacement.with_fee(30);
     let mut omega = model();
     accept(&mut omega, &victim, 7, 10);
 
@@ -1976,13 +2476,16 @@ fn model_rbf_apply_terminalizes_trusted_victim_dependents_in_the_same_effect_bat
     let child_resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: child_resolve,
-        result: WorkResult::Resolved(ResolvedEvidence::with_pool_input(
-            &child,
-            omega.authority.chain,
-            omega.authority.rules,
-            CellId(20),
-            victim.id,
-        )),
+        result: WorkResult::Resolved(
+            ResolvedEvidence::with_pool_input(
+                &child,
+                omega.authority.chain,
+                omega.authority.rules,
+                CellId(20),
+                victim.id,
+            )
+            .expect("pool input belongs to a direct transaction input"),
+        ),
     }));
     let child_verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
     drive_ready(&mut omega, &replacement, 9);
@@ -2046,11 +2549,10 @@ fn model_rbf_apply_terminalizes_trusted_victim_dependents_in_the_same_effect_bat
 }
 
 #[test]
-fn model_capacity_apply_waits_remote_victim_dependents_and_stales_their_work() {
+fn model_capacity_apply_preserves_remote_compute_until_stale_settlement() {
     let victim = Transaction::independent(1, 1, 10, 20);
     let child = Transaction::dependent(2, 2, 20, 30);
-    let mut candidate = Transaction::independent(3, 3, 11, 40);
-    candidate.fee = 30;
+    let candidate = Transaction::independent(3, 3, 11, 40).with_fee(30);
     let mut omega = model_with_accepted_limit(1, 4);
     accept(&mut omega, &victim, 7, 10);
 
@@ -2058,13 +2560,16 @@ fn model_capacity_apply_waits_remote_victim_dependents_and_stales_their_work() {
     let child_resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: child_resolve,
-        result: WorkResult::Resolved(ResolvedEvidence::with_pool_input(
-            &child,
-            omega.authority.chain,
-            omega.authority.rules,
-            CellId(20),
-            victim.id,
-        )),
+        result: WorkResult::Resolved(
+            ResolvedEvidence::with_pool_input(
+                &child,
+                omega.authority.chain,
+                omega.authority.rules,
+                CellId(20),
+                victim.id,
+            )
+            .expect("pool input belongs to a direct transaction input"),
+        ),
     }));
     let child_verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
     let child_version = omega.authority.owners[&child.id].version;
@@ -2104,24 +2609,17 @@ fn model_capacity_apply_waits_remote_victim_dependents_and_stales_their_work() {
                 LogicalEffect::admitted(&candidate, AcceptedStatus::Pending, Some(PeerId(9))),
             ),
             (stamp, 1, LogicalEffect::capacity_evicted(&victim)),
-            (
-                stamp,
-                2,
-                LogicalEffect::ParentTransactionsRequested {
-                    transaction: child.id,
-                    parent_count: 1,
-                },
-            ),
         ]
     );
     let child_owner = &omega.authority.owners[&child.id];
-    assert_ne!(child_owner.version, child_version);
+    assert_eq!(child_owner.version, child_version);
     assert!(matches!(
         &child_owner.location,
         OwnerLocation::Retained(RetainedOwner {
-            phase: RetainedPhase::Waiting { missing },
+            phase: RetainedPhase::Computing(active),
             ..
-        }) if missing.cells() == &BTreeSet::from([CellId(20)])
+        }) if matches!(active.permit, WorkPermit::VerifyOnly(_))
+            && active.dependency_cut == omega.linear.work[&child_verify].dependency_cut
     ));
     assert_eq!(omega.check_invariants(), Ok(()));
     assert_eq!(
@@ -2131,8 +2629,17 @@ fn model_capacity_apply_waits_remote_victim_dependents_and_stales_their_work() {
                 result: WorkResult::Verified,
             }))
             .disposition(),
-        &KernelDisposition::StaleCapabilityRetired(child_verify)
+        &KernelDisposition::Continued(child.id)
     );
+    assert!(matches!(
+        omega.authority.owners[&child.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+    assert!(!omega.linear.work.contains_key(&child_verify));
+    assert_eq!(omega.check_invariants(), Ok(()));
 }
 
 #[test]
@@ -2145,18 +2652,25 @@ fn model_chain_conflict_closes_a_computing_dependency_tree_in_one_apply() {
     let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
-        result: WorkResult::Resolved(ResolvedEvidence::with_pool_input(
-            &child,
-            omega.authority.chain,
-            omega.authority.rules,
-            CellId(20),
-            parent.id,
-        )),
+        result: WorkResult::Resolved(
+            ResolvedEvidence::with_pool_input(
+                &child,
+                omega.authority.chain,
+                omega.authority.rules,
+                CellId(20),
+                parent.id,
+            )
+            .expect("pool input belongs to a direct transaction input"),
+        ),
     }));
     let verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
     let from = omega.authority.chain;
 
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2166,8 +2680,7 @@ fn model_chain_conflict_closes_a_computing_dependency_tree_in_one_apply() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::from([CellId(10)]),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         reconciled,
@@ -2201,13 +2714,18 @@ fn model_chain_reconciliation_promotes_committed_parent_evidence_without_losing_
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(&mut omega, &child, RetainedSource::Proposal, child_evidence);
     omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 20 });
 
     let child_version_before = omega.authority.owners[&child.id].version;
     let effects_before = omega.authority.effects.len();
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::from([parent.id]),
@@ -2217,8 +2735,12 @@ fn model_chain_reconciliation_promotes_committed_parent_evidence_without_losing_
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::from([child.id]),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::new(),
+            BTreeSet::from([child.proposal]),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
     assert_eq!(
         reconciled.disposition(),
@@ -2234,7 +2756,7 @@ fn model_chain_reconciliation_promotes_committed_parent_evidence_without_losing_
     let OwnerLocation::Accepted { evidence, .. } = &owner.location else {
         panic!("surviving child must remain accepted");
     };
-    assert_eq!(evidence.proposal_status, AcceptedStatus::Gap);
+    assert_eq!(omega.proposal_status(&child), AcceptedStatus::Gap);
     assert_eq!(evidence.context.chain.tip, ViewId(2));
     assert_eq!(
         evidence.input_origins.get(&CellId(20)),
@@ -2268,7 +2790,8 @@ fn model_chain_effect_plan_is_complete_canonical_and_atomic() {
         omega.authority.rules,
         CellId(22),
         accepted_conflict.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut omega,
         &accepted_child,
@@ -2281,6 +2804,10 @@ fn model_chain_effect_plan_is_complete_canonical_and_atomic() {
     let effects_before = omega.authority.effects.len();
 
     let step = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::from([committed.id]),
@@ -2290,8 +2817,7 @@ fn model_chain_effect_plan_is_complete_canonical_and_atomic() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::from([CellId(11), CellId(12)]),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     let KernelStep::AuthorityCommit { stamp, .. } = step else {
         panic!("chain transition must commit its complete effect plan");
@@ -2330,11 +2856,17 @@ fn model_chain_effect_plan_is_complete_canonical_and_atomic() {
 #[test]
 fn model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelated_work() {
     let mut oversized = Transaction::independent(1, 1, 10, 20);
-    oversized.bytes = 100;
+    oversized = oversized
+        .with_payload_bytes(100)
+        .expect("the fixed oversized payload is representable");
     let child = Transaction::dependent(2, 2, 20, 30);
     let unrelated = Transaction::independent(3, 3, 11, 21);
     let mut omega = model();
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2344,8 +2876,7 @@ fn model_chain_recovery_skips_an_excluded_root_and_descendants_but_keeps_unrelat
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: vec![child, unrelated.clone(), oversized],
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert_eq!(
         reconciled.disposition(),
@@ -2366,6 +2897,10 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
     accept(&mut omega, &transaction, 7, 10);
     let effects_before = omega.authority.effects.len();
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2375,8 +2910,12 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::from([transaction.id]),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::new(),
+            BTreeSet::from([transaction.proposal]),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
     assert!(matches!(
         omega
@@ -2384,12 +2923,14 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
             .owners
             .get(&transaction.id)
             .map(|owner| &owner.location),
-        Some(OwnerLocation::Accepted {
-            evidence,
-            ..
-        }) if evidence.proposal_status == AcceptedStatus::Gap
+        Some(OwnerLocation::Accepted { .. })
     ));
+    assert_eq!(omega.proposal_status(&transaction), AcceptedStatus::Gap);
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(3),
         committed: BTreeSet::new(),
@@ -2399,8 +2940,7 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         omega
@@ -2408,11 +2948,9 @@ fn model_gap_is_demoted_to_pending_when_the_new_window_contains_no_proposal() {
             .owners
             .get(&transaction.id)
             .map(|owner| &owner.location),
-        Some(OwnerLocation::Accepted {
-            evidence,
-            ..
-        }) if evidence.proposal_status == AcceptedStatus::Pending
+        Some(OwnerLocation::Accepted { .. })
     ));
+    assert_eq!(omega.proposal_status(&transaction), AcceptedStatus::Pending);
     assert_eq!(
         omega
             .authority
@@ -2491,6 +3029,18 @@ fn model_peer_ban_removes_only_retained_remote_owners_and_releases_refetch() {
 fn model_refetchable_parent_removal_requeues_trusted_waiters_for_every_cause() {
     fn waiting_child(parent: Transaction, child: Transaction, source: RetainedSource) -> Omega {
         let mut omega = model();
+        if source == RetainedSource::Proposal {
+            let proposal_view = reconcile_proposals(
+                omega.authority.chain,
+                omega.authority.chain.tip,
+                BTreeSet::new(),
+                BTreeSet::from([parent.proposal]),
+            );
+            assert!(matches!(
+                omega.kernel_step(proposal_view),
+                KernelStep::AuthorityCommit { .. }
+            ));
+        }
         omega.kernel_step(retained(parent, source));
         omega.kernel_step(retained(
             child.clone(),
@@ -2545,6 +3095,10 @@ fn model_refetchable_parent_removal_requeues_trusted_waiters_for_every_cause() {
     let mut proposal_expired =
         waiting_child(parent.clone(), child.clone(), RetainedSource::Proposal);
     proposal_expired.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: proposal_expired.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2554,8 +3108,7 @@ fn model_refetchable_parent_removal_requeues_trusted_waiters_for_every_cause() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert_requeued(&proposal_expired, parent.id, child.id);
 }
@@ -2620,12 +3173,26 @@ fn model_chain_window_demotes_remote_base_and_expires_trusted_proposal_atomicall
     let promoted = Transaction::independent(1, 1, 10, 20);
     let trusted = Transaction::independent(2, 2, 11, 21);
     let mut omega = model();
+    let proposal_view = reconcile_proposals(
+        omega.authority.chain,
+        omega.authority.chain.tip,
+        BTreeSet::new(),
+        BTreeSet::from([promoted.proposal, trusted.proposal]),
+    );
+    assert!(matches!(
+        omega.kernel_step(proposal_view),
+        KernelStep::AuthorityCommit { .. }
+    ));
     omega.kernel_step(remote_until(promoted.clone(), 7, 10));
     omega.kernel_step(retained(promoted.clone(), RetainedSource::Proposal));
     omega.kernel_step(retained(trusted.clone(), RetainedSource::Proposal));
     let effects_before = omega.authority.effects.len();
 
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2635,8 +3202,7 @@ fn model_chain_window_demotes_remote_base_and_expires_trusted_proposal_atomicall
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         reconciled,
@@ -2730,7 +3296,7 @@ fn model_peer_ban_fence_is_bounded_and_expires_in_the_monotonic_clock_domain() {
 fn model_successful_rbf_moves_the_complete_victim_set_to_history_and_recovers_it() {
     let victim = Transaction::independent(1, 1, 10, 20);
     let mut replacement = Transaction::independent(2, 2, 10, 30);
-    replacement.fee = 30;
+    replacement = replacement.with_fee(30);
     let mut omega = model();
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &replacement, 8);
@@ -2755,10 +3321,7 @@ fn model_successful_rbf_moves_the_complete_victim_set_to_history_and_recovers_it
         Some(OwnerLocation::ReplacementHistory { missing })
             if missing.cells() == &BTreeSet::from([CellId(10)])
     ));
-    assert_eq!(
-        query_subject(&omega, victim.id, AcceptedStatus::Pending),
-        QuerySubject::Hidden
-    );
+    assert_eq!(query_subject(&omega, victim.id), QuerySubject::Hidden);
     assert_eq!(
         omega
             .authority
@@ -2796,7 +3359,7 @@ fn model_successful_rbf_moves_the_complete_victim_set_to_history_and_recovers_it
 fn model_replacement_history_survives_commit_and_recovers_on_detach_availability() {
     let victim = Transaction::independent(1, 1, 10, 20);
     let mut winner = Transaction::independent(2, 2, 10, 30);
-    winner.fee = 30;
+    winner = winner.with_fee(30);
     let mut omega = model();
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &winner, 8);
@@ -2804,6 +3367,10 @@ fn model_replacement_history_survives_commit_and_recovers_on_detach_availability
 
     assert!(matches!(
         omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+            context: super::kernel::ChainContextTransition::from_primitives(
+                super::state::RulesId(1),
+                false,
+            ),
             from: omega.authority.chain,
             to_tip: ViewId(2),
             committed: BTreeSet::from([winner.id]),
@@ -2813,8 +3380,7 @@ fn model_replacement_history_survives_commit_and_recovers_on_detach_availability
             lost_headers: BTreeSet::new(),
             conflicting_cells: BTreeSet::new(),
             recovered: Vec::new(),
-            proposed: BTreeSet::new(),
-            gap: BTreeSet::new(),
+            proposals: super::proposal::ProposalContext::empty().view(),
         })),
         KernelStep::AuthorityCommit {
             disposition: KernelDisposition::ChainReconciled { .. },
@@ -2831,6 +3397,10 @@ fn model_replacement_history_survives_commit_and_recovers_on_detach_availability
     assert_eq!(
         omega
             .kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+                context: super::kernel::ChainContextTransition::from_primitives(
+                    super::state::RulesId(1),
+                    true,
+                ),
                 from: omega.authority.chain,
                 to_tip: ViewId(3),
                 committed: BTreeSet::new(),
@@ -2840,8 +3410,7 @@ fn model_replacement_history_survives_commit_and_recovers_on_detach_availability
                 lost_headers: BTreeSet::new(),
                 conflicting_cells: BTreeSet::new(),
                 recovered: vec![winner.clone()],
-                proposed: BTreeSet::new(),
-                gap: BTreeSet::new(),
+                proposals: super::proposal::ProposalContext::empty().view(),
             }))
             .disposition(),
         &KernelDisposition::ChainReconciled {
@@ -2871,9 +3440,9 @@ fn model_nested_replacement_history_waits_for_every_observed_dependency() {
     victim.inputs.insert(CellId(11));
     let mut first_winner = Transaction::independent(2, 2, 10, 30);
     first_winner.inputs.insert(CellId(11));
-    first_winner.fee = 50;
+    first_winner = first_winner.with_fee(50);
     let mut second_winner = Transaction::independent(3, 3, 11, 40);
-    second_winner.fee = 100;
+    second_winner = second_winner.with_fee(100);
     let mut omega = model();
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &first_winner, 8);
@@ -2926,6 +3495,10 @@ fn model_committed_parent_output_wakes_a_waiting_remote_child() {
     }));
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::from([parent.id]),
@@ -2935,8 +3508,7 @@ fn model_committed_parent_output_wakes_a_waiting_remote_child() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(!omega.authority.owners.contains_key(&parent.id));
     assert!(matches!(
@@ -2965,6 +3537,10 @@ fn model_external_chain_availability_wakes_a_waiting_remote_child() {
     }));
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -2974,8 +3550,7 @@ fn model_external_chain_availability_wakes_a_waiting_remote_child() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         omega
@@ -2992,60 +3567,30 @@ fn model_external_chain_availability_wakes_a_waiting_remote_child() {
 }
 
 #[test]
-fn model_header_availability_wakes_remote_without_requesting_a_parent_transaction() {
+fn model_remote_invalid_header_rejection_is_terminal_without_a_missing_wait_state() {
     let mut transaction = Transaction::independent(1, 1, 10, 20);
     transaction.header_deps.insert(HeaderId(1));
     let mut omega = model();
     omega.kernel_step(remote(transaction.clone(), 7));
     let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
-    let effects_before = omega.authority.effects.len();
     assert_eq!(
         omega
             .kernel_step(KernelCommand::Complete(Completion {
                 capability: resolve,
-                result: WorkResult::Missing(missing_headers(
-                    &transaction,
-                    BTreeSet::from([HeaderId(1)]),
-                )),
+                result: WorkResult::resolve_rejected(),
             }))
             .disposition(),
-        &KernelDisposition::Waiting(transaction.id)
+        &KernelDisposition::Rejected(transaction.id)
     );
-    assert_eq!(omega.authority.effects.len(), effects_before);
-
-    omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
-        from: omega.authority.chain,
-        to_tip: ViewId(2),
-        committed: BTreeSet::new(),
-        available_cells: BTreeSet::new(),
-        available_headers: BTreeSet::from([HeaderId(1)]),
-        lost_cells: BTreeSet::new(),
-        lost_headers: BTreeSet::new(),
-        conflicting_cells: BTreeSet::new(),
-        recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
-    }));
-    assert!(matches!(
-        omega.authority.owners[&transaction.id].location,
-        OwnerLocation::Retained(RetainedOwner {
-            phase: RetainedPhase::Queued(WorkStage::Resolve),
-            ..
-        })
-    ));
+    assert!(!omega.authority.owners.contains_key(&transaction.id));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
 #[test]
-fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_partially() {
+fn model_header_availability_cannot_discharge_a_cell_missing_wait() {
     let mut transaction = Transaction::independent(1, 1, 10, 20);
     transaction.header_deps.insert(HeaderId(1));
-    let missing = MissingDependencies::for_dependencies(
-        &transaction,
-        BTreeSet::from([CellId(10)]),
-        BTreeSet::from([HeaderId(1)]),
-    )
-    .expect("the fixture names exact cell and header dependencies");
+    let missing = missing(&transaction, BTreeSet::from([CellId(10)]));
     let mut omega = model();
     omega.kernel_step(remote(transaction.clone(), 7));
     let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
@@ -3063,6 +3608,10 @@ fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_p
     ));
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -3072,8 +3621,7 @@ fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_p
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         omega.authority.owners[&transaction.id].location,
@@ -3088,6 +3636,10 @@ fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_p
     );
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(3),
         committed: BTreeSet::new(),
@@ -3097,8 +3649,7 @@ fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_p
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         omega.authority.owners[&transaction.id].location,
@@ -3115,6 +3666,142 @@ fn model_mixed_missing_dependencies_publish_only_cell_parent_requests_and_wake_p
 }
 
 #[test]
+fn model_extension_preserves_time_proofs_but_blank_detach_recovers_exact_context_closure() {
+    let stable = Transaction::independent(1, 1, 10, 20);
+    let since = Transaction::independent(2, 2, 11, 21)
+        .with_since(CellId(11))
+        .expect("the since producer is an exact input");
+    let child = Transaction::dependent(3, 3, 21, 31);
+    let cellbase = Transaction::independent(4, 4, 12, 22);
+    let mut omega = model();
+
+    accept(&mut omega, &stable, 7, 10);
+    accept(&mut omega, &since, 8, 11);
+    let child_evidence = ResolvedEvidence::with_pool_input(
+        &child,
+        omega.authority.chain,
+        omega.authority.rules,
+        CellId(21),
+        since.id,
+    )
+    .expect("pool input belongs to a direct transaction input");
+    accept_with_evidence(&mut omega, &child, child_evidence, 12);
+    let cellbase_evidence =
+        ResolvedEvidence::for_transaction(&cellbase, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion")
+            .with_chain_cellbase(CellId(12))
+            .expect("the cellbase marker names one chain-origin input");
+    accept_with_evidence(&mut omega, &cellbase, cellbase_evidence, 13);
+
+    let extension = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(RulesId(1), false),
+        from: omega.authority.chain,
+        to_tip: ViewId(2),
+        committed: BTreeSet::new(),
+        available_cells: BTreeSet::new(),
+        available_headers: BTreeSet::new(),
+        lost_cells: BTreeSet::new(),
+        lost_headers: BTreeSet::new(),
+        conflicting_cells: BTreeSet::new(),
+        recovered: Vec::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
+    }));
+    assert!(matches!(
+        extension.disposition(),
+        KernelDisposition::ChainReconciled {
+            removed,
+            recovered,
+            ..
+        } if removed.is_empty() && recovered.is_empty()
+    ));
+    assert!(
+        [stable.id, since.id, child.id, cellbase.id]
+            .into_iter()
+            .all(|id| {
+                matches!(
+                    omega.authority.owners.get(&id).map(|owner| &owner.location),
+                    Some(OwnerLocation::Accepted { .. })
+                )
+            })
+    );
+
+    let detach = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(RulesId(1), true),
+        from: omega.authority.chain,
+        to_tip: ViewId(3),
+        committed: BTreeSet::new(),
+        available_cells: BTreeSet::new(),
+        available_headers: BTreeSet::new(),
+        lost_cells: BTreeSet::new(),
+        lost_headers: BTreeSet::new(),
+        conflicting_cells: BTreeSet::new(),
+        recovered: Vec::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
+    }));
+    assert!(matches!(
+        detach.disposition(),
+        KernelDisposition::ChainReconciled {
+            removed,
+            recovered,
+            recovery_excluded,
+        } if removed == &vec![since.id, child.id, cellbase.id]
+            && recovered == &vec![since.id, child.id, cellbase.id]
+            && recovery_excluded.is_empty()
+    ));
+    assert!(matches!(
+        omega.authority.owners[&stable.id].location,
+        OwnerLocation::Accepted { .. }
+    ));
+    for id in [since.id, child.id, cellbase.id] {
+        assert!(matches!(
+            omega.authority.owners[&id].location,
+            OwnerLocation::Retained(RetainedOwner {
+                source: super::state::Source::Recovery(_),
+                phase: RetainedPhase::Queued(WorkStage::Resolve),
+            })
+        ));
+    }
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_rules_change_dominates_detach_and_recovers_every_accepted_owner() {
+    let stable = Transaction::independent(1, 1, 10, 20);
+    let contextual = Transaction::independent(2, 2, 11, 21)
+        .with_since(CellId(11))
+        .expect("the since producer is an exact input");
+    let mut omega = model();
+    accept(&mut omega, &stable, 7, 10);
+    accept(&mut omega, &contextual, 8, 11);
+
+    let changed = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(RulesId(2), true),
+        from: omega.authority.chain,
+        to_tip: ViewId(2),
+        committed: BTreeSet::new(),
+        available_cells: BTreeSet::new(),
+        available_headers: BTreeSet::new(),
+        lost_cells: BTreeSet::new(),
+        lost_headers: BTreeSet::new(),
+        conflicting_cells: BTreeSet::new(),
+        recovered: Vec::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
+    }));
+    assert!(matches!(
+        changed.disposition(),
+        KernelDisposition::ChainReconciled {
+            removed,
+            recovered,
+            recovery_excluded,
+        } if removed == &vec![stable.id, contextual.id]
+            && recovered == &vec![stable.id, contextual.id]
+            && recovery_excluded.is_empty()
+    ));
+    assert_eq!(omega.authority.rules, RulesId(2));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
 fn model_detached_header_recovers_accepted_consumer_without_public_rejection() {
     let mut transaction = Transaction::independent(1, 1, 10, 20);
     transaction.header_deps.insert(HeaderId(1));
@@ -3124,6 +3811,10 @@ fn model_detached_header_recovers_accepted_consumer_without_public_rejection() {
     let effects_before = omega.authority.effects.len();
 
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -3133,8 +3824,7 @@ fn model_detached_header_recovers_accepted_consumer_without_public_rejection() {
         lost_headers: BTreeSet::from([HeaderId(1)]),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         reconciled.disposition(),
@@ -3170,11 +3860,16 @@ fn model_detached_chain_cell_recovers_the_complete_accepted_causal_closure() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(&mut omega, &child, RetainedSource::Proposal, child_evidence);
     omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 20 });
 
     let reconciled = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -3184,8 +3879,7 @@ fn model_detached_chain_cell_recovers_the_complete_accepted_causal_closure() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(matches!(
         reconciled.disposition(),
@@ -3211,7 +3905,7 @@ fn model_detached_chain_cell_recovers_the_complete_accepted_causal_closure() {
 #[test]
 fn model_new_chain_loss_requeues_a_waiter_that_had_other_missing_evidence() {
     let mut transaction = Transaction::dependent(1, 1, 10, 20);
-    transaction.deps.insert(CellId(11));
+    transaction.cell_deps.insert(CellId(11));
     transaction.header_deps.insert(HeaderId(1));
     let mut omega = model();
     omega.kernel_step(remote(transaction.clone(), 7));
@@ -3223,6 +3917,10 @@ fn model_new_chain_loss_requeues_a_waiter_that_had_other_missing_evidence() {
     let before = omega.authority.owners[&transaction.id].clone();
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -3232,8 +3930,7 @@ fn model_new_chain_loss_requeues_a_waiter_that_had_other_missing_evidence() {
         lost_headers: BTreeSet::from([HeaderId(1)]),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     let after = &omega.authority.owners[&transaction.id];
     assert!(after.version > before.version);
@@ -3252,13 +3949,17 @@ fn model_new_chain_loss_requeues_a_waiter_that_had_other_missing_evidence() {
 fn model_same_chain_spend_cannot_publish_false_availability_to_history() {
     let victim = Transaction::independent(1, 1, 10, 20);
     let mut winner = Transaction::independent(2, 2, 10, 30);
-    winner.fee = 30;
+    winner = winner.with_fee(30);
     let mut omega = model();
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &winner, 8);
     omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 20 });
 
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -3268,8 +3969,7 @@ fn model_same_chain_spend_cannot_publish_false_availability_to_history() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::from([CellId(10)]),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::empty().view(),
     }));
     assert!(!omega.authority.owners.contains_key(&winner.id));
     assert!(matches!(
@@ -3286,10 +3986,8 @@ fn model_same_chain_spend_cannot_publish_false_availability_to_history() {
 
 #[test]
 fn model_capacity_self_eviction_preserves_existing_membership_and_terminalizes_the_candidate() {
-    let mut incumbent = Transaction::independent(1, 1, 10, 20);
-    incumbent.fee = 100;
-    let mut candidate = Transaction::independent(2, 2, 11, 21);
-    candidate.fee = 1;
+    let incumbent = Transaction::independent(1, 1, 10, 20).with_fee(100);
+    let candidate = Transaction::independent(2, 2, 11, 21).with_fee(1);
     let mut omega = model_with_accepted_limit(1, 4);
     accept(&mut omega, &incumbent, 7, 10);
     drive_ready(&mut omega, &candidate, 8);
@@ -3334,9 +4032,9 @@ fn model_capacity_self_eviction_preserves_existing_membership_and_terminalizes_t
 #[test]
 fn model_membership_rejection_closes_the_candidate_dependency_loss_in_one_apply() {
     let mut incumbent = Transaction::independent(1, 1, 10, 40);
-    incumbent.fee = 100;
+    incumbent = incumbent.with_fee(100);
     let mut parent = Transaction::independent(2, 2, 11, 20);
-    parent.fee = 1;
+    parent = parent.with_fee(1);
     let child = Transaction::dependent(3, 3, 20, 30);
     let mut omega = model_with_accepted_limit(1, 4);
     accept(&mut omega, &incumbent, 7, 10);
@@ -3398,10 +4096,8 @@ fn model_membership_rejection_closes_the_candidate_dependency_loss_in_one_apply(
 #[test]
 fn model_capacity_eviction_recovers_history_blocked_by_the_removed_winner() {
     let victim = Transaction::independent(1, 1, 10, 20);
-    let mut winner = Transaction::independent(2, 2, 10, 30);
-    winner.fee = 30;
-    let mut candidate = Transaction::independent(3, 3, 11, 40);
-    candidate.fee = 100;
+    let winner = Transaction::independent(2, 2, 10, 30).with_fee(30);
+    let candidate = Transaction::independent(3, 3, 11, 40).with_fee(100);
     let mut omega = model_with_accepted_limit(1, 4);
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &winner, 8);
@@ -3442,16 +4138,14 @@ fn model_capacity_eviction_recovers_history_blocked_by_the_removed_winner() {
 
 #[test]
 fn model_capacity_eviction_removes_one_complete_accepted_component() {
-    let mut parent = Transaction::independent(1, 1, 10, 20);
-    parent.fee = 1;
+    let parent = Transaction::independent(1, 1, 10, 20).with_fee(1);
     let mut child = Transaction::dependent(2, 2, 20, 30);
     // The parent package rate is lower than the child's self rate, so the
     // production eviction tuple selects the parent and therefore its complete
     // descendant closure. Equal rates would deliberately select the leaf by
     // the smaller-descendant-count tie-break.
-    child.fee = 100;
-    let mut candidate = Transaction::independent(3, 3, 11, 21);
-    candidate.fee = 100;
+    child = child.with_fee(100);
+    let candidate = Transaction::independent(3, 3, 11, 21).with_fee(100);
     let mut omega = model_with_accepted_limit(2, 8);
     accept(&mut omega, &parent, 7, 10);
     let child_evidence = ResolvedEvidence::with_pool_input(
@@ -3460,7 +4154,8 @@ fn model_capacity_eviction_removes_one_complete_accepted_component() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut omega,
         &child,
@@ -3525,16 +4220,25 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
     // Status is the first production key field: a Pending candidate cannot
     // evict a Proposed member merely by paying a higher fee.
     let mut proposed = Transaction::independent(1, 1, 10, 20);
-    proposed.fee = 1;
+    proposed = proposed.with_fee(1);
     let mut pending = Transaction::independent(2, 2, 11, 21);
-    pending.fee = 1_000;
+    pending = pending.with_fee(1_000);
     let mut status_omega = model_with_accepted_limit(1, 8);
+    assert!(matches!(
+        status_omega.kernel_step(reconcile_proposals(
+            status_omega.authority.chain,
+            ViewId(2),
+            BTreeSet::from([proposed.proposal]),
+            BTreeSet::new(),
+        )),
+        KernelStep::AuthorityCommit { .. }
+    ));
     let proposed_evidence = ResolvedEvidence::for_transaction(
         &proposed,
         status_omega.authority.chain,
         status_omega.authority.rules,
     )
-    .with_proposal_status(AcceptedStatus::Proposed);
+    .expect("direct transaction has no dep-group expansion");
     drive_ready_with_evidence(
         &mut status_omega,
         &proposed,
@@ -3560,9 +4264,9 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
     // CKB weight, not absolute fee, controls the second field. The expensive
     // candidate has a lower integer fee rate once its cycles dominate size.
     let mut resident = Transaction::independent(3, 3, 12, 22);
-    resident.fee = 10;
+    resident = resident.with_fee(10);
     let mut cycle_heavy = Transaction::independent(4, 4, 13, 23).with_cycles(1_000_000);
-    cycle_heavy.fee = 100;
+    cycle_heavy = cycle_heavy.with_fee(100);
     let mut weight_omega = model_with_accepted_limit(1, 8);
     accept(&mut weight_omega, &resident, 9, 20);
     drive_ready(&mut weight_omega, &cycle_heavy, 10);
@@ -3577,11 +4281,11 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
     // Equal-rate roots prefer the smaller descendant closure. Removing the
     // leaf is enough to fit and preserves its still-valid parent.
     let mut parent = Transaction::independent(5, 5, 14, 24);
-    parent.fee = 1;
+    parent = parent.with_fee(1);
     let mut child = Transaction::dependent(6, 6, 24, 25);
-    child.fee = 1;
+    child = child.with_fee(1);
     let mut stronger = Transaction::independent(7, 7, 15, 26);
-    stronger.fee = 100;
+    stronger = stronger.with_fee(100);
     let mut count_omega = model_with_accepted_limit(2, 8);
     accept(&mut count_omega, &parent, 11, 30);
     let child_evidence = ResolvedEvidence::with_pool_input(
@@ -3590,7 +4294,8 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
         count_omega.authority.rules,
         CellId(24),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut count_omega,
         &child,
@@ -3617,11 +4322,11 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
     // Arrival is globally monotonic, so it resolves equal status/rate/count
     // keys before the identity fallback. The earlier resident is weaker.
     let mut earlier = Transaction::independent(8, 8, 16, 27);
-    earlier.fee = 1;
+    earlier = earlier.with_fee(1);
     let mut later = Transaction::independent(9, 9, 17, 28);
-    later.fee = 1;
+    later = later.with_fee(1);
     let mut winner = Transaction::independent(10, 10, 18, 29);
-    winner.fee = 100;
+    winner = winner.with_fee(100);
     let mut arrival_omega = model_with_accepted_limit(2, 8);
     accept(&mut arrival_omega, &earlier, 14, 40);
     accept(&mut arrival_omega, &later, 15, 41);
@@ -3641,12 +4346,9 @@ fn model_capacity_eviction_uses_status_weight_count_and_arrival_in_order() {
 
 #[test]
 fn model_capacity_eviction_never_removes_a_candidate_ancestor() {
-    let mut parent = Transaction::independent(1, 1, 10, 20);
-    parent.fee = 1;
-    let mut unrelated = Transaction::independent(2, 2, 11, 21);
-    unrelated.fee = 100;
-    let mut candidate = Transaction::dependent(3, 3, 20, 30);
-    candidate.fee = 10;
+    let parent = Transaction::independent(1, 1, 10, 20).with_fee(1);
+    let unrelated = Transaction::independent(2, 2, 11, 21).with_fee(100);
+    let candidate = Transaction::dependent(3, 3, 20, 30).with_fee(10);
     let mut omega = model_with_accepted_limit(2, 8);
     accept(&mut omega, &parent, 7, 10);
     accept(&mut omega, &unrelated, 8, 11);
@@ -3656,7 +4358,8 @@ fn model_capacity_eviction_never_removes_a_candidate_ancestor() {
         omega.authority.rules,
         CellId(20),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut omega,
         &candidate,
@@ -3688,12 +4391,14 @@ fn model_capacity_eviction_never_removes_a_candidate_ancestor() {
 #[test]
 fn model_rbf_and_capacity_share_one_apply_without_collapsing_removal_causes() {
     let mut victim = Transaction::independent(1, 1, 10, 20);
-    victim.fee = 1;
+    victim = victim.with_fee(1);
     let mut unrelated = Transaction::independent(2, 2, 11, 21);
-    unrelated.fee = 1;
+    unrelated = unrelated.with_fee(1);
     let mut replacement = Transaction::independent(3, 3, 10, 30);
-    replacement.bytes = 8;
-    replacement.fee = 100;
+    replacement = replacement
+        .with_payload_bytes(8)
+        .expect("the fixed replacement payload is representable")
+        .with_fee(100);
     let mut omega = model_with_accepted_limit(2, 8);
     accept(&mut omega, &victim, 7, 10);
     accept(&mut omega, &unrelated, 8, 11);
@@ -3760,13 +4465,13 @@ fn model_rbf_and_capacity_share_one_apply_without_collapsing_removal_causes() {
 #[test]
 fn model_late_parent_is_coupled_and_rewrites_surviving_child_evidence_atomically() {
     let mut child = Transaction::dependent(2, 2, 20, 30);
-    child.fee = 10;
+    child = child.with_fee(10);
     let mut unrelated = Transaction::independent(3, 3, 11, 21);
-    unrelated.fee = 1;
+    unrelated = unrelated.with_fee(1);
     let mut parent = Transaction::independent(1, 1, 10, 20);
-    parent.fee = 100;
+    parent = parent.with_fee(100);
     let mut other_ready = Transaction::independent(4, 4, 12, 22);
-    other_ready.fee = 50;
+    other_ready = other_ready.with_fee(50);
     let mut omega = model_with_accepted_limit(2, 8);
     accept(&mut omega, &child, 5, 10);
     accept(&mut omega, &unrelated, 6, 11);
@@ -3834,7 +4539,10 @@ fn model_late_parent_is_coupled_and_rewrites_surviving_child_evidence_atomically
 fn model_rbf_fee_floor_and_new_unconfirmed_input_match_policy() {
     let victim = Transaction::independent(1, 1, 10, 20);
     let mut exact_floor = Transaction::independent(2, 2, 10, 30);
-    exact_floor.fee = victim.fee + u64::from(exact_floor.bytes);
+    let minimum_rate = ModelFeeRate::from_u64(1_500);
+    let exact_floor_fee =
+        victim.cost.fee() + minimum_rate.fee(u64::from(exact_floor.cost.serialized_bytes()));
+    exact_floor = exact_floor.with_fee(exact_floor_fee);
     let mut exact = model();
     accept(&mut exact, &victim, 7, 10);
     drive_ready(&mut exact, &exact_floor, 8);
@@ -3850,7 +4558,7 @@ fn model_rbf_fee_floor_and_new_unconfirmed_input_match_policy() {
     let victim = Transaction::independent(4, 4, 10, 20);
     let mut candidate = Transaction::independent(5, 5, 10, 30);
     candidate.inputs.insert(CellId(21));
-    candidate.fee = 100;
+    candidate = candidate.with_fee(100);
     let mut rejected = model();
     accept(&mut rejected, &parent, 7, 10);
     accept(&mut rejected, &victim, 8, 11);
@@ -3860,7 +4568,8 @@ fn model_rbf_fee_floor_and_new_unconfirmed_input_match_policy() {
         rejected.authority.rules,
         CellId(21),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut rejected,
         &candidate,
@@ -3880,6 +4589,89 @@ fn model_rbf_fee_floor_and_new_unconfirmed_input_match_policy() {
 }
 
 #[test]
+fn model_fee_policy_matches_configured_production_arithmetic() {
+    let rate = ModelFeeRate::from_u64(1_500);
+    assert_eq!(rate.as_u64(), 1_500);
+    assert_eq!(rate.fee(999), 1_498);
+    assert_eq!(rate.fee(1_000), 1_500);
+    assert_eq!(ModelFeeRate::from_u64(u64::MAX).fee(2), u64::MAX / 1_000);
+    assert_eq!(
+        minimum_fee_observation(11, 8, rate),
+        ModelMinimumFeeObservation::Rejected {
+            actual: 11,
+            required: 12,
+        }
+    );
+    assert_eq!(
+        minimum_fee_observation(12, 8, rate),
+        ModelMinimumFeeObservation::Accepted {
+            actual: 12,
+            required: 12,
+        }
+    );
+
+    let limits = ModelLimits::small()
+        .validate()
+        .expect("the policy fixture uses valid resource bounds");
+    let mut disabled = Omega::new_with_replacement_policy(
+        limits,
+        ViewId(1),
+        RulesId(1),
+        ModelReplacementPolicy::Disabled,
+    );
+    assert_eq!(disabled.authority.replacement_policy.minimum_rate(), None);
+    let victim = Transaction::independent(31, 31, 40, 41);
+    let replacement = Transaction::independent(32, 32, 40, 42).with_fee(u64::MAX);
+    accept(&mut disabled, &victim, 7, 10);
+    drive_ready(&mut disabled, &replacement, 8);
+    assert_eq!(
+        disabled
+            .kernel_step(KernelCommand::FinalizeNext { wall_time: 20 })
+            .disposition(),
+        &KernelDisposition::MembershipRejected(replacement.id)
+    );
+
+    let configured_limits = ModelLimits::small()
+        .validate()
+        .expect("the configured-rate fixtures use valid resource bounds");
+    let mut low_rate = Omega::new_with_replacement_policy(
+        configured_limits,
+        ViewId(1),
+        RulesId(1),
+        ModelReplacementPolicy::Enabled {
+            minimum_rate: ModelFeeRate::from_u64(1_000),
+        },
+    );
+    let mut high_rate = Omega::new_with_replacement_policy(
+        configured_limits,
+        ViewId(1),
+        RulesId(1),
+        ModelReplacementPolicy::Enabled {
+            minimum_rate: ModelFeeRate::from_u64(1_500),
+        },
+    );
+    let victim = Transaction::independent(41, 41, 50, 51);
+    let candidate = Transaction::independent(42, 42, 50, 52).with_fee(20);
+    for omega in [&mut low_rate, &mut high_rate] {
+        accept(omega, &victim, 7, 10);
+        drive_ready(omega, &candidate, 8);
+    }
+    assert!(matches!(
+        low_rate.kernel_step(KernelCommand::FinalizeNext { wall_time: 20 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::ReplacementAccepted { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        high_rate
+            .kernel_step(KernelCommand::FinalizeNext { wall_time: 20 })
+            .disposition(),
+        &KernelDisposition::MembershipRejected(candidate.id)
+    );
+}
+
+#[test]
 fn model_history_saturation_discards_the_complete_optional_set_without_losing_winner() {
     let mut limits = ModelLimits::small();
     limits.replacement_history = ResourceVector::ZERO;
@@ -3889,7 +4681,7 @@ fn model_history_saturation_discards_the_complete_optional_set_without_losing_wi
     let mut omega = Omega::new(validated, ViewId(1), RulesId(1));
     let victim = Transaction::independent(1, 1, 10, 20);
     let mut replacement = Transaction::independent(2, 2, 10, 30);
-    replacement.fee = 30;
+    replacement = replacement.with_fee(30);
     accept(&mut omega, &victim, 7, 10);
     drive_ready(&mut omega, &replacement, 8);
     assert_eq!(
@@ -4003,7 +4795,8 @@ fn model_local_direct_success_uses_no_retained_owner_before_its_single_final_app
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega
             .kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4042,7 +4835,8 @@ fn model_test_accept_observes_the_same_success_policy_without_authority_mutation
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before = omega.authority.clone();
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4063,7 +4857,8 @@ fn model_test_accept_observes_the_same_success_policy_without_authority_mutation
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert!(matches!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
             capability: local_capability,
@@ -4103,7 +4898,8 @@ fn model_test_accept_and_local_share_the_exact_rbf_rejection_policy() {
         &replacement,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before = omega.authority.clone();
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4127,7 +4923,8 @@ fn model_test_accept_and_local_share_the_exact_rbf_rejection_policy() {
         &replacement,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert!(matches!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
             capability: local_capability,
@@ -4173,7 +4970,8 @@ fn model_test_accept_duplicate_is_read_only_and_local_duplicate_is_acknowledged(
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before = omega.authority.clone();
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4194,7 +4992,8 @@ fn model_test_accept_duplicate_is_read_only_and_local_duplicate_is_acknowledged(
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let owner_before = omega.authority.owners.get(&transaction.id).cloned();
     assert!(matches!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4240,7 +5039,8 @@ fn model_test_accept_and_local_share_bounded_resource_exclusion() {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before = omega.authority.clone();
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4263,7 +5063,8 @@ fn model_test_accept_and_local_share_bounded_resource_exclusion() {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     let authority_before = omega.authority.clone();
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
@@ -4302,7 +5103,8 @@ fn model_direct_positive_dependency_loss_is_a_relevant_change_not_policy_rejecti
             omega.authority.rules,
             CellId(20),
             parent.id,
-        );
+        )
+        .expect("pool input belongs to a direct transaction input");
         omega.kernel_step(KernelCommand::Remove {
             transaction: parent.id,
         });
@@ -4340,6 +5142,35 @@ fn model_ready_capture_commits_the_unchanged_strict_priority_prefix_with_one_sta
             })
             .disposition(),
         &KernelDisposition::Accepted(first.id)
+    );
+    assert_eq!(omega.authority.last_apply.0, before.0 + 1);
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_ready_capture_commits_every_unchanged_owner_before_a_mutated_weaker_tail() {
+    let first = Transaction::independent(1, 1, 10, 20);
+    let second = Transaction::independent(2, 2, 11, 21);
+    let third = Transaction::independent(3, 3, 12, 22);
+    let mut omega = model();
+    drive_ready(&mut omega, &first, 7);
+    drive_ready(&mut omega, &second, 8);
+    drive_ready(&mut omega, &third, 9);
+    let capture = ready_capture(omega.kernel_step(KernelCommand::CaptureReady { limit: 3 }));
+    omega.kernel_step(KernelCommand::Remove {
+        transaction: third.id,
+    });
+    let before = omega.authority.last_apply;
+
+    assert_eq!(
+        omega.kernel_step(KernelCommand::FinalizeCaptured {
+            capture,
+            wall_time: 10,
+        }),
+        KernelStep::AuthorityCommit {
+            stamp: ApplyStamp(before.0 + 1),
+            disposition: KernelDisposition::AcceptedBatch(vec![first.id, second.id]),
+        }
     );
     assert_eq!(omega.authority.last_apply.0, before.0 + 1);
     assert_eq!(omega.check_invariants(), Ok(()));
@@ -4444,7 +5275,7 @@ fn model_multi_owner_apply_uses_one_stamp_distinct_versions_and_canonical_effect
 fn model_ready_capture_never_skips_a_new_stronger_head() {
     let first = Transaction::independent(1, 1, 10, 20);
     let mut stronger = Transaction::independent(2, 2, 11, 21);
-    stronger.fee = 100;
+    stronger = stronger.with_fee(100);
     let mut omega = model();
     drive_ready(&mut omega, &first, 7);
     let capture = ready_capture(omega.kernel_step(KernelCommand::CaptureReady { limit: 1 }));
@@ -4596,7 +5427,8 @@ fn model_proposal_collision_is_bounded_and_never_aliases_full_transaction_identi
         transaction: collision.clone(),
     }));
     let evidence =
-        ResolvedEvidence::for_transaction(&collision, omega.authority.chain, omega.authority.rules);
+        ResolvedEvidence::for_transaction(&collision, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
     assert_eq!(
         omega.kernel_step(KernelCommand::CompleteDirect(DirectCompletion {
             capability: direct,
@@ -4616,6 +5448,10 @@ fn model_proposal_collision_is_bounded_and_never_aliases_full_transaction_identi
     assert_eq!(
         omega
             .kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+                context: super::kernel::ChainContextTransition::from_primitives(
+                    super::state::RulesId(1),
+                    true,
+                ),
                 from: omega.authority.chain,
                 to_tip: ViewId(2),
                 committed: BTreeSet::new(),
@@ -4625,8 +5461,7 @@ fn model_proposal_collision_is_bounded_and_never_aliases_full_transaction_identi
                 lost_headers: BTreeSet::new(),
                 conflicting_cells: BTreeSet::new(),
                 recovered: vec![collision.clone()],
-                proposed: BTreeSet::new(),
-                gap: BTreeSet::new(),
+                proposals: super::proposal::ProposalContext::empty().view(),
             }))
             .disposition(),
         &KernelDisposition::ChainReconciled {
@@ -4637,6 +5472,107 @@ fn model_proposal_collision_is_bounded_and_never_aliases_full_transaction_identi
     );
     assert_eq!(omega.proposal_owner(first.proposal), Some(first.id));
     assert!(!omega.authority.owners.contains_key(&collision.id));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_relay_query_uses_full_raw_identity_not_proposal_projection() {
+    let resident = Transaction::independent(1, 1, 10, 20);
+    let mut colliding_request = Transaction::independent(2, 2, 11, 21);
+    colliding_request.proposal = resident.proposal;
+    let mut omega = model();
+    accept(&mut omega, &resident, 7, 10);
+
+    assert_eq!(
+        relay_query_owner(&omega, &resident, RelayLookupIdentity::FullRaw),
+        Some(resident.id)
+    );
+    assert_eq!(
+        relay_query_owner(&omega, &colliding_request, RelayLookupIdentity::FullRaw),
+        None,
+        "a full-hash miss is not a proposal-index hit"
+    );
+    assert_eq!(
+        relay_query_owner(
+            &omega,
+            &colliding_request,
+            RelayLookupIdentity::ProposalShort,
+        ),
+        Some(resident.id),
+        "the shorter projection constructs the collision counterexample"
+    );
+
+    let child = Transaction::dependent(3, 3, 20, 30);
+    let colliding_parent_evidence = ResolvedEvidence::with_pool_input(
+        &child,
+        omega.authority.chain,
+        omega.authority.rules,
+        CellId(20),
+        colliding_request.id,
+    )
+    .expect("the child input can name the alternate raw producer in the counterexample");
+    assert_eq!(
+        omega
+            .kernel_step(retained(child.clone(), RetainedSource::Proposal))
+            .disposition(),
+        &KernelDisposition::Retained(child.id)
+    );
+    let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
+    assert_eq!(
+        omega
+            .kernel_step(KernelCommand::Complete(Completion {
+                capability: resolve,
+                result: WorkResult::Resolved(colliding_parent_evidence),
+            }))
+            .disposition(),
+        &KernelDisposition::Continued(child.id)
+    );
+    assert!(matches!(
+        omega.authority.owners[&child.id].location,
+        OwnerLocation::Retained(RetainedOwner {
+            phase: RetainedPhase::Queued(WorkStage::Resolve),
+            ..
+        })
+    ));
+
+    let before_miss = omega.clone();
+    assert_eq!(
+        omega.kernel_step(KernelCommand::Remove {
+            transaction: colliding_request.id,
+        }),
+        KernelStep::NoAuthorityCommit(KernelDisposition::Removed(Vec::new()))
+    );
+    assert_eq!(omega, before_miss);
+
+    let mut removal = model();
+    accept(&mut removal, &resident, 7, 10);
+    let exact_parent_evidence = ResolvedEvidence::with_pool_input(
+        &child,
+        removal.authority.chain,
+        removal.authority.rules,
+        CellId(20),
+        resident.id,
+    )
+    .expect("the child input names the exact resident producer");
+    accept_with_evidence(&mut removal, &child, exact_parent_evidence, 20);
+    let before_miss = removal.clone();
+    assert_eq!(
+        removal.kernel_step(KernelCommand::Remove {
+            transaction: colliding_request.id,
+        }),
+        KernelStep::NoAuthorityCommit(KernelDisposition::Removed(Vec::new()))
+    );
+    assert_eq!(removal, before_miss);
+    assert_eq!(
+        removal
+            .kernel_step(KernelCommand::Remove {
+                transaction: resident.id,
+            })
+            .disposition(),
+        &KernelDisposition::Removed(vec![resident.id, child.id])
+    );
+    assert!(removal.authority.owners.is_empty());
+    assert_eq!(removal.check_invariants(), Ok(()));
     assert_eq!(omega.check_invariants(), Ok(()));
 }
 
@@ -4748,8 +5684,9 @@ fn model_effect_payload_bytes_can_saturate_before_record_count() {
     );
     for index in 0..3u16 {
         let byte = u8::try_from(index).expect("three fixtures fit u8");
-        let mut transaction = Transaction::independent(10 + byte, 10 + byte, 30 + byte, 40 + byte);
-        transaction.bytes = 60;
+        let transaction = Transaction::independent(10 + byte, 10 + byte, 30 + byte, 40 + byte)
+            .with_payload_bytes(60)
+            .expect("the finite payload size leaves room for the block offset");
         let capability = direct_checked_out(omega.kernel_step(KernelCommand::BeginDirect {
             request: DirectRequestId(10 + index),
             kind: DirectKind::Local,
@@ -4985,6 +5922,7 @@ fn model_invariant_basis_rejects_removed_resource_version_and_effect_premises() 
         Err(ModelInvariantError::InvalidStoredEvidence)
     );
 
+    let foreign_history = Transaction::independent(6, 6, 15, 25);
     let mut invalid_history = model();
     invalid_history.kernel_step(remote(header_transaction.clone(), 7));
     invalid_history
@@ -4993,7 +5931,7 @@ fn model_invariant_basis_rejects_removed_resource_version_and_effect_premises() 
         .get_mut(&header_transaction.id)
         .expect("the retained header owner exists")
         .location = OwnerLocation::ReplacementHistory {
-        missing: missing_headers(&header_transaction, BTreeSet::from([HeaderId(1)])),
+        missing: missing(&foreign_history, BTreeSet::from([CellId(15)])),
     };
     assert_eq!(
         invalid_history.check_invariants(),
@@ -5010,7 +5948,8 @@ fn model_invariant_basis_rejects_removed_resource_version_and_effect_premises() 
         missing_parent.authority.rules,
         CellId(22),
         parent.id,
-    );
+    )
+    .expect("pool input belongs to a direct transaction input");
     drive_ready_with_evidence(
         &mut missing_parent,
         &child,
@@ -5173,7 +6112,7 @@ fn model_invariant_basis_rejects_removed_resource_version_and_effect_premises() 
     let mut invalid_history = model();
     let victim = Transaction::independent(5, 5, 13, 23);
     let mut replacement = Transaction::independent(6, 6, 13, 33);
-    replacement.fee = 30;
+    replacement = replacement.with_fee(30);
     accept(&mut invalid_history, &victim, 7, 10);
     drive_ready(&mut invalid_history, &replacement, 8);
     invalid_history.kernel_step(KernelCommand::FinalizeNext { wall_time: 20 });
@@ -5601,25 +6540,487 @@ fn model_template_full_preempts_reset_without_serializing_optimistic_lanes() {
 }
 
 #[test]
-fn model_template_filters_candidate_uncles_that_would_censor_current_proposals() {
-    let current = BTreeSet::from([TxId(1)]);
-    let uncles = vec![
-        CandidateUncle {
-            id: 1,
-            proposals: BTreeSet::from([TxId(1)]),
-        },
-        CandidateUncle {
-            id: 2,
-            proposals: BTreeSet::from([TxId(2)]),
-        },
-    ];
+fn model_reorg_template_and_window_service_composition_commutes() {
+    let window = ProposalWindow::new(2, 4).expect("the protocol window is valid");
+    let resident = Transaction::independent(1, 1, 10, 20);
+    let recovered = Transaction::independent(2, 2, 11, 21);
+    let gap_context = ProposalContext::new(
+        10,
+        window,
+        [ProposalBlock::new(
+            10,
+            BTreeSet::new(),
+            BTreeSet::from([resident.proposal]),
+        )],
+    )
+    .expect("the pre-reorg uncle history is canonical");
+    let stable_context =
+        ProposalContext::new(10, window, []).expect("the post-reorg proposal history is canonical");
     assert_eq!(
-        filter_uncles_conflicting_with_proposals(uncles, &current),
-        vec![CandidateUncle {
-            id: 2,
-            proposals: BTreeSet::from([TxId(2)]),
-        }]
+        gap_context.transition_to(&stable_context).changed(),
+        &BTreeSet::from([resident.proposal]),
+        "the primitive-history reorg has one exact sparse status delta"
     );
+
+    let mut omega = model();
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+            context: super::kernel::ChainContextTransition::from_primitives(
+                super::state::RulesId(1),
+                false,
+            ),
+            from: omega.authority.chain,
+            to_tip: ViewId(2),
+            committed: BTreeSet::new(),
+            available_cells: BTreeSet::new(),
+            available_headers: BTreeSet::new(),
+            lost_cells: BTreeSet::new(),
+            lost_headers: BTreeSet::new(),
+            conflicting_cells: BTreeSet::new(),
+            recovered: Vec::new(),
+            proposals: gap_context.view(),
+        })),
+        KernelStep::AuthorityCommit { .. }
+    ));
+    accept(&mut omega, &resident, 7, 10);
+    assert_eq!(
+        query_subject(&omega, resident.id),
+        QuerySubject::Accepted(AcceptedStatus::Gap)
+    );
+
+    let reorg = omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            true,
+        ),
+        from: omega.authority.chain,
+        to_tip: ViewId(3),
+        committed: BTreeSet::new(),
+        available_cells: BTreeSet::new(),
+        available_headers: BTreeSet::new(),
+        lost_cells: BTreeSet::new(),
+        lost_headers: BTreeSet::new(),
+        conflicting_cells: BTreeSet::new(),
+        recovered: vec![recovered.clone()],
+        proposals: stable_context.view(),
+    }));
+    assert!(matches!(
+        reorg.disposition(),
+        KernelDisposition::ChainReconciled {
+            recovered: ids,
+            ..
+        } if ids == &vec![recovered.id]
+    ));
+    assert_eq!(
+        query_subject(&omega, resident.id),
+        QuerySubject::Accepted(AcceptedStatus::Pending),
+        "the same Apply installs the post-reorg view and sparse cache delta"
+    );
+
+    let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
+    let evidence =
+        ResolvedEvidence::for_transaction(&recovered, omega.authority.chain, omega.authority.rules)
+            .expect("direct transaction has no dep-group expansion");
+    assert_eq!(
+        omega
+            .kernel_step(KernelCommand::Complete(Completion {
+                capability: resolve,
+                result: WorkResult::Resolved(evidence),
+            }))
+            .disposition(),
+        &KernelDisposition::Continued(recovered.id)
+    );
+    let verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
+    complete_verify(&mut omega, &recovered, verify);
+    assert!(matches!(
+        omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 11 }),
+        KernelStep::AuthorityCommit {
+            disposition: KernelDisposition::Accepted(id),
+            ..
+        } if id == recovered.id
+    ));
+    assert_eq!(
+        query_subject(&omega, recovered.id),
+        QuerySubject::Accepted(AcceptedStatus::Pending)
+    );
+
+    let cohort = BTreeSet::from([resident.proposal, recovered.proposal]);
+    let candidate_uncles = vec![
+        CandidateUncleInput::new(1, cohort.clone(), 1),
+        CandidateUncleInput::new(2, BTreeSet::from([ProposalId(9)]), 1),
+    ];
+    let premise = exact_model_template_premise(&omega, 2, 16, candidate_uncles);
+    let service_window = stable_context.window();
+    let mut liveness = TwoPhaseLiveness::from_context(stable_context, premise)
+        .expect("the sealed source cut matches the captured proposal context");
+    let proposed = liveness
+        .step(CanonicalBlockService::CurrentOfferWithCompatibleUncles)
+        .expect("the current mandatory offer plus compatible uncles is consensus safe");
+    assert_eq!(proposed.offered_proposals(), &cohort);
+    assert_eq!(proposed.proposals(), &cohort);
+    assert_eq!(
+        proposed.uncle_proposals(),
+        &BTreeSet::from([ProposalId(9)]),
+        "mandatory top-level proposals remove only their conflicting optional uncle"
+    );
+    let serviced = liveness
+        .run_window_serviced(
+            CanonicalServicePremise::for_window(2, service_window)
+                .expect("the external proposal and window service premise is explicit"),
+        )
+        .expect("the post-reorg stable cohort has finite progress");
+    assert!(
+        serviced
+            .iter()
+            .all(|block| block.uncle_proposals().is_empty()),
+        "finite progress depends only on mandatory offers and permits every optional uncle to be omitted"
+    );
+    assert_eq!(liveness.rank(), 0);
+    assert!(cohort.into_iter().all(|id| liveness.is_committed(id)));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_two_phase_liveness_starts_only_from_a_causally_closed_accepted_cut() {
+    let parent = Transaction::independent(1, 1, 10, 20);
+    let child = Transaction::dependent(2, 2, 20, 30);
+    let retained_proposal = Transaction::independent(3, 3, 12, 22);
+    let mut omega = model();
+    accept(&mut omega, &parent, 7, 10);
+    let child_evidence = ResolvedEvidence::with_pool_input(
+        &child,
+        omega.authority.chain,
+        omega.authority.rules,
+        CellId(20),
+        parent.id,
+    )
+    .expect("the child input is produced by the accepted parent");
+    accept_with_evidence(&mut omega, &child, child_evidence, 11);
+    assert_eq!(
+        omega
+            .kernel_step(retained(
+                retained_proposal.clone(),
+                RetainedSource::Proposal,
+            ))
+            .disposition(),
+        &KernelDisposition::Retained(retained_proposal.id)
+    );
+
+    let cohort = StableAcceptedCohort::from_authority(&omega)
+        .expect("the authority invariants seal a complete accepted cohort");
+    assert_eq!(
+        cohort.len(),
+        2,
+        "retained Proposal work is outside the theorem"
+    );
+    let premise = exact_model_template_premise(&omega, 2, 16, Vec::new());
+    let window = ProposalWindow::new(2, 4).expect("the proposal window is valid");
+    let mut liveness = TwoPhaseLiveness::new(window, premise)
+        .expect("the captured Pending source cut matches the initial context");
+    let observations = liveness
+        .run_window_serviced(
+            CanonicalServicePremise::for_window(1, window)
+                .expect("each current offer is realized on the next canonical height"),
+        )
+        .expect("the accepted causal cohort has finite two-phase progress");
+    let mut committed = BTreeSet::<ProposalId>::new();
+    for block in observations {
+        if block.committed().contains(&child.proposal) {
+            assert!(
+                block.committed().contains(&parent.proposal)
+                    || committed.contains(&parent.proposal),
+                "a child commit cannot outrun its accepted causal parent"
+            );
+        }
+        assert!(
+            !block
+                .offered_proposals()
+                .contains(&retained_proposal.proposal)
+        );
+        assert!(
+            !block
+                .offered_commits()
+                .contains(&retained_proposal.proposal)
+        );
+        committed.extend(block.committed().iter().copied());
+    }
+    assert!(liveness.is_committed(parent.proposal));
+    assert!(liveness.is_committed(child.proposal));
+    assert!(!liveness.is_committed(retained_proposal.proposal));
+    assert_eq!(omega.check_invariants(), Ok(()));
+}
+
+#[test]
+fn model_two_phase_offer_uses_accepted_package_order_not_insertion_order() {
+    let earlier_weak = Transaction::independent(1, 1, 10, 20).with_fee(1);
+    let later_strong = Transaction::independent(2, 2, 11, 21).with_fee(100);
+    let mut omega = model();
+    accept(&mut omega, &earlier_weak, 7, 10);
+    accept(&mut omega, &later_strong, 8, 11);
+
+    let premise = exact_model_template_premise(&omega, 1, 16, Vec::new());
+    let mut liveness = TwoPhaseLiveness::new(
+        ProposalWindow::new(2, 4).expect("the proposal window is valid"),
+        premise,
+    )
+    .expect("the captured Pending source cut matches the initial context");
+    let observation = liveness
+        .step(CanonicalBlockService::CurrentOfferWithoutOptionalUncles)
+        .expect("the strongest current offer is safe");
+    assert_eq!(
+        observation.offered_proposals(),
+        &BTreeSet::from([later_strong.proposal]),
+        "production package score dominates insertion order under a bounded prefix"
+    );
+}
+
+#[test]
+fn model_two_phase_liveness_rejects_a_conditional_template_cycle() {
+    let mut left = Transaction::independent(1, 1, 10, 20);
+    left.cell_deps.insert(CellId(11));
+    let mut right = Transaction::independent(2, 2, 11, 21);
+    right.cell_deps.insert(CellId(10));
+    let mut omega = model();
+    accept(&mut omega, &left, 7, 10);
+    accept(&mut omega, &right, 8, 11);
+
+    assert_eq!(omega.check_invariants(), Ok(()));
+    assert_eq!(
+        StableAcceptedCohort::from_authority(&omega),
+        Err(StableAcceptedCohortError::ConditionalTemplateCycle),
+        "the liveness theorem cannot silently ignore production's reader-before-spender cycle"
+    );
+}
+
+#[test]
+fn model_conditional_template_cycle_sheds_the_weakest_and_its_causal_descendants() {
+    let inputs = vec![
+        ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 0),
+        ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 2),
+        ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
+    ];
+    let observation = conditional_template_selection_refinement(&inputs)
+        .expect("the finite conditional cycle has one deterministic production quotient");
+    assert_eq!(observation.ordered, vec![1]);
+    assert_eq!(observation.shed, BTreeSet::from([0, 2]));
+}
+
+#[test]
+fn model_conditional_template_cycle_uses_descendant_aware_eviction_strength() {
+    let inputs = vec![
+        ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([1]), 0, 2),
+        ConditionalSelectionInput::new(BTreeSet::new(), BTreeSet::from([0]), 1, 0),
+        ConditionalSelectionInput::new(BTreeSet::from([0]), BTreeSet::new(), 2, 1),
+    ];
+    let observation = conditional_template_selection_refinement(&inputs)
+        .expect("the package score supplies the cycle compiler's total order");
+    assert_eq!(observation.ordered, vec![0, 2]);
+    assert_eq!(observation.shed, BTreeSet::from([1]));
+}
+
+#[test]
+fn model_conditional_template_cycle_has_a_bounded_dense_fallback() {
+    let len = super::two_phase::CONDITIONAL_CYCLE_ROUND_BOUND + 2;
+    let inputs = (0..len)
+        .map(|index| {
+            ConditionalSelectionInput::new(
+                BTreeSet::new(),
+                (0..len).filter(|other| *other != index).collect(),
+                index,
+                index,
+            )
+        })
+        .collect::<Vec<_>>();
+    let observation = conditional_template_selection_refinement(&inputs)
+        .expect("the dense hostile SCC uses the frozen bounded fallback");
+    assert_eq!(observation.ordered, vec![len - 1]);
+    assert_eq!(observation.shed.len(), len - 1);
+}
+
+fn packing_identity(byte: u8) -> [u8; 32] {
+    [byte; 32]
+}
+
+#[test]
+fn model_template_packing_selects_an_exact_fit_cpfp_package_parent_first() {
+    let inputs = vec![
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1, 10, 10),
+            BTreeSet::new(),
+            true,
+            0,
+            packing_identity(1),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1_000_000_000, 10, 20),
+            BTreeSet::from([0]),
+            true,
+            1,
+            packing_identity(2),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1_000, 10, 30),
+            BTreeSet::new(),
+            true,
+            2,
+            packing_identity(3),
+        ),
+    ];
+    let observation = template_packing_refinement(
+        &inputs,
+        ModelTemplatePackingLimits::new(20, 30),
+        TEMPLATE_PACKING_FAILURE_BOUND,
+    )
+    .expect("the exact parent-child package fits both resource coordinates");
+    assert_eq!(observation.selected, vec![0, 1]);
+}
+
+#[test]
+fn model_template_packing_rescores_all_shared_parent_descendants() {
+    let inputs = vec![
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1, 1, 1),
+            BTreeSet::new(),
+            true,
+            0,
+            packing_identity(1),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1_000_000, 1, 1),
+            BTreeSet::from([0]),
+            true,
+            1,
+            packing_identity(2),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(100_000, 1, 1),
+            BTreeSet::from([0]),
+            true,
+            2,
+            packing_identity(3),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(60_000, 1, 1),
+            BTreeSet::new(),
+            true,
+            3,
+            packing_identity(4),
+        ),
+    ];
+    let observation = template_packing_refinement(
+        &inputs,
+        ModelTemplatePackingLimits::new(u64::MAX, 3),
+        TEMPLATE_PACKING_FAILURE_BOUND,
+    )
+    .expect("selected-parent subtraction changes every descendant package score once");
+    assert_eq!(observation.selected, vec![0, 1, 2]);
+}
+
+#[test]
+fn model_template_packing_failure_bound_is_a_deterministic_underfill() {
+    let inputs = vec![
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1_000_000_000, 1, 1),
+            BTreeSet::new(),
+            true,
+            0,
+            packing_identity(1),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(100_000_000, 1, 2),
+            BTreeSet::new(),
+            true,
+            1,
+            packing_identity(2),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(10_000_000, 1, 2),
+            BTreeSet::new(),
+            true,
+            2,
+            packing_identity(3),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(1, 1, 1),
+            BTreeSet::new(),
+            true,
+            3,
+            packing_identity(4),
+        ),
+    ];
+    let bounded =
+        template_packing_refinement(&inputs, ModelTemplatePackingLimits::new(u64::MAX, 2), 1)
+            .expect("the finite failure rank produces one deterministic prefix");
+    let complete = template_packing_refinement(
+        &inputs,
+        ModelTemplatePackingLimits::new(u64::MAX, 2),
+        TEMPLATE_PACKING_FAILURE_BOUND,
+    )
+    .expect("the production failure rank reaches later fitting work");
+    assert_eq!(bounded.selected, vec![0]);
+    assert_eq!(complete.selected, vec![0, 3]);
+}
+
+#[test]
+fn model_complete_dependency_scan_preserves_causal_and_independent_work() {
+    let inputs = vec![
+        DependencyScanInput::new(BTreeSet::new(), 1),
+        DependencyScanInput::new(BTreeSet::from([0]), 0),
+        DependencyScanInput::new(BTreeSet::new(), 1),
+    ];
+    let observation = complete_dependency_scan_refinement(&inputs, &[0, 1, 2], 2)
+        .expect("the exact captured edge domain bounds the complete scan");
+    assert_eq!(observation.retained, vec![0, 1, 2]);
+    assert_eq!(observation.inspected_dependency_edges, 2);
+}
+
+#[test]
+fn model_complete_dependency_scan_is_order_invariant_for_independent_work() {
+    let inputs = vec![
+        DependencyScanInput::new(BTreeSet::new(), 1),
+        DependencyScanInput::new(BTreeSet::new(), 1),
+    ];
+    let forward = complete_dependency_scan_refinement(&inputs, &[0, 1], 2)
+        .expect("every selected independent edge is inside the captured bound");
+    let reversed = complete_dependency_scan_refinement(&inputs, &[1, 0], 2)
+        .expect("ordering cannot change membership of the complete scan");
+    assert_eq!(forward.retained, vec![0, 1]);
+    assert_eq!(reversed.retained, vec![1, 0]);
+    assert_eq!(forward.inspected_dependency_edges, 2);
+    assert_eq!(reversed.inspected_dependency_edges, 2);
+    assert_eq!(
+        complete_dependency_scan_refinement(&inputs, &[0, 1], 1),
+        Err(super::two_phase::TemplatePackingError::InvalidGraph),
+        "a false captured bound cannot silently truncate semantic work"
+    );
+}
+
+#[test]
+fn model_descendant_cache_bound_changes_only_the_cost_path() {
+    let inputs = vec![
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(10, 1, 1),
+            BTreeSet::new(),
+            true,
+            0,
+            packing_identity(1),
+        ),
+        TemplatePackingInput::new(
+            EvictionRefinementMetrics::new(20, 1, 1),
+            BTreeSet::from([0]),
+            true,
+            1,
+            packing_identity(2),
+        ),
+    ];
+    let observation = template_packing_refinement(
+        &inputs,
+        ModelTemplatePackingLimits::new(u64::MAX, u64::MAX),
+        TEMPLATE_PACKING_FAILURE_BOUND,
+    )
+    .expect("descendant caching is outside the semantic packing observation");
+    assert_eq!(observation.selected, vec![0, 1]);
+    assert!(TEMPLATE_DESCENDANT_CACHE_MEMBER_BOUND > inputs.len());
 }
 
 #[test]
@@ -5649,6 +7050,388 @@ fn model_verification_cache_identity_is_witness_plus_rules_not_raw_identity() {
     let rules_variant = VerificationKey::new(WitnessId(1), RulesId(2));
     assert_ne!(first, witness_variant);
     assert_ne!(first, rules_variant);
+}
+
+fn finite_script_semantics(key: VerificationKey) -> ModelScriptBehavior {
+    if key.witness.0 == 0 {
+        ModelScriptBehavior::invalid()
+    } else {
+        ModelScriptBehavior::valid(
+            u64::from(key.witness.0)
+                .saturating_mul(4)
+                .saturating_add(u64::from(key.rules.0)),
+        )
+    }
+}
+
+fn fresh_verification(
+    time_eligible: bool,
+    capacity_valid: bool,
+    dao_valid: bool,
+) -> ModelFreshVerificationReceipts {
+    ModelFreshVerificationReceipts::new(
+        ModelFreshCapacityReceipt::new(capacity_valid),
+        ModelFreshTimeReceipt::new(time_eligible),
+        ModelFreshDaoReceipt::new(dao_valid),
+    )
+}
+
+#[test]
+fn model_script_proof_requires_vm_success_and_rechecks_the_current_max() {
+    assert_eq!(
+        ModelRemoteCycleLimit::checked(2, 1),
+        Err(ModelRemoteCycleLimitError::ExceedsConsensusMax {
+            declared: 2,
+            consensus_max: 1,
+        })
+    );
+    for (declared, consensus_max) in [(0, 0), (1, 1), (1, u64::MAX), (u64::MAX, u64::MAX)] {
+        let limit = ModelRemoteCycleLimit::checked(declared, consensus_max)
+            .expect("ingress accepts exactly declared <= consensus max");
+        assert_eq!(limit.declared(), declared);
+        assert_eq!(limit.consensus_max(), consensus_max);
+    }
+
+    let invalid = VerificationKey::new(WitnessId(0), RulesId(1));
+    assert_eq!(
+        execute_model_script_vm(invalid, u64::MAX, finite_script_semantics),
+        ModelScriptExecution::Rejected(ModelScriptRejection::InvalidScript)
+    );
+
+    let key = VerificationKey::new(WitnessId(2), RulesId(1));
+    let cycles = 9;
+    assert_eq!(
+        execute_model_script_vm(key, cycles - 1, finite_script_semantics),
+        ModelScriptExecution::Rejected(ModelScriptRejection::ExceededMaximumCycles(cycles - 1))
+    );
+    let ModelScriptExecution::Verified(proof) =
+        execute_model_script_vm(key, cycles, finite_script_semantics)
+    else {
+        panic!("a proof can originate only from successful VM execution")
+    };
+    assert_eq!(proof.key(), key);
+    assert_eq!(proof.cycles(), cycles);
+    let remote_limit = ModelRemoteCycleLimit::checked(cycles, cycles + 1)
+        .expect("the successful VM work is inside the sealed remote envelope");
+    assert!(remote_limit.bounds_vm_work(proof.cycles()));
+    assert_eq!(
+        reuse_model_script_proof(proof, key, cycles - 1),
+        ModelScriptReuse::Rejected(ModelScriptRejection::ExceededMaximumCycles(cycles - 1))
+    );
+    assert_eq!(
+        reuse_model_script_proof(proof, key, cycles),
+        ModelScriptReuse::Verified(proof)
+    );
+}
+
+#[test]
+fn model_remote_cycle_limit_is_sealed_at_every_ingress_route() {
+    for route in [
+        ModelRemoteIngressRoute::NetworkRelay,
+        ModelRemoteIngressRoute::DirectTxPool,
+    ] {
+        assert_eq!(
+            remote_cycle_observation(route, 21, 20),
+            ModelRemoteCycleObservation::Rejected(
+                ModelRemoteCycleLimitError::ExceedsConsensusMax {
+                    declared: 21,
+                    consensus_max: 20,
+                }
+            ),
+            "every route must reject d > M before ownership or VM work"
+        );
+        let ModelRemoteCycleObservation::Sealed(limit) = remote_cycle_observation(route, 9, 20)
+        else {
+            panic!("every route must seal legal d <= M")
+        };
+        let key = VerificationKey::new(WitnessId(2), RulesId(1));
+        let observation = model_tx_pool_verification(
+            key,
+            finite_script_semantics,
+            ModelTxPoolVerificationContext::remote(
+                ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                limit,
+                None,
+            ),
+            fresh_verification(true, true, true),
+        );
+        let ModelVerificationObservation::TxPoolVerified(receipt) = observation else {
+            panic!("a legal exact declaration must reach the shared verification path")
+        };
+        assert_eq!(receipt.cycles(), limit.declared());
+        assert!(limit.bounds_vm_work(receipt.cycles()));
+    }
+}
+
+#[test]
+fn model_script_cache_hot_and_cold_observations_are_equal_for_every_current_limit() {
+    for witness in 0..=3 {
+        for rules in 0..=2 {
+            let key = VerificationKey::new(WitnessId(witness), RulesId(rules));
+            let cached = match execute_model_script_vm(key, u64::MAX, finite_script_semantics) {
+                ModelScriptExecution::Verified(proof) => Some(proof),
+                ModelScriptExecution::Rejected(_) => None,
+            };
+            for current_max in 0..=20 {
+                let remote_limit = ModelRemoteCycleLimit::checked(current_max, 20)
+                    .expect("the finite current-limit domain is inside consensus max");
+                let tx_pool_cold = model_tx_pool_verification(
+                    key,
+                    finite_script_semantics,
+                    ModelTxPoolVerificationContext::trusted(
+                        ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                        current_max,
+                        None,
+                    ),
+                    fresh_verification(true, true, true),
+                );
+                let tx_pool_hot = model_tx_pool_verification(
+                    key,
+                    finite_script_semantics,
+                    ModelTxPoolVerificationContext::trusted(
+                        ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                        current_max,
+                        cached,
+                    ),
+                    fresh_verification(true, true, true),
+                );
+                assert_eq!(
+                    tx_pool_hot, tx_pool_cold,
+                    "tx-pool key={key:?}, current_max={current_max}"
+                );
+
+                let remote_cold = model_tx_pool_verification(
+                    key,
+                    finite_script_semantics,
+                    ModelTxPoolVerificationContext::remote(
+                        ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                        remote_limit,
+                        None,
+                    ),
+                    fresh_verification(true, true, true),
+                );
+                let remote_hot = model_tx_pool_verification(
+                    key,
+                    finite_script_semantics,
+                    ModelTxPoolVerificationContext::remote(
+                        ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                        remote_limit,
+                        cached,
+                    ),
+                    fresh_verification(true, true, true),
+                );
+                assert_eq!(
+                    remote_hot, remote_cold,
+                    "remote key={key:?}, declared={current_max}"
+                );
+                if let ModelVerificationObservation::TxPoolVerified(receipt) = remote_hot {
+                    assert_eq!(receipt.cycles(), remote_limit.declared());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn model_script_cache_key_excludes_max_but_rejects_witness_and_rules_substitution() {
+    let cached_key = VerificationKey::new(WitnessId(2), RulesId(1));
+    let ModelScriptExecution::Verified(proof) =
+        execute_model_script_vm(cached_key, u64::MAX, finite_script_semantics)
+    else {
+        panic!("the cache fixture must originate in a successful VM run")
+    };
+    assert_eq!(proof.key(), cached_key);
+    assert_eq!(
+        reuse_model_script_proof(
+            proof,
+            VerificationKey::new(WitnessId(3), RulesId(1)),
+            u64::MAX,
+        ),
+        ModelScriptReuse::Miss
+    );
+    assert_eq!(
+        reuse_model_script_proof(
+            proof,
+            VerificationKey::new(WitnessId(2), RulesId(2)),
+            u64::MAX,
+        ),
+        ModelScriptReuse::Miss
+    );
+
+    // One proof and key serve every limit. The limit changes only the O(1)
+    // reuse decision; splitting the cache identity by limit is unnecessary.
+    assert_eq!(
+        reuse_model_script_proof(proof, cached_key, proof.cycles() - 1),
+        ModelScriptReuse::Rejected(ModelScriptRejection::ExceededMaximumCycles(
+            proof.cycles() - 1,
+        ))
+    );
+    assert_eq!(
+        reuse_model_script_proof(proof, cached_key, proof.cycles()),
+        ModelScriptReuse::Verified(proof)
+    );
+
+    for requested in [
+        VerificationKey::new(WitnessId(3), RulesId(1)),
+        VerificationKey::new(WitnessId(2), RulesId(2)),
+    ] {
+        assert_eq!(
+            model_tx_pool_verification(
+                requested,
+                finite_script_semantics,
+                ModelTxPoolVerificationContext::trusted(
+                    ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                    20,
+                    Some(proof),
+                ),
+                fresh_verification(true, true, true),
+            ),
+            model_tx_pool_verification(
+                requested,
+                finite_script_semantics,
+                ModelTxPoolVerificationContext::trusted(
+                    ModelTxPoolResolutionReceipt::current(true, 17, 31),
+                    20,
+                    None,
+                ),
+                fresh_verification(true, true, true),
+            ),
+            "a mismatched cache proof must become an ordinary cold execution"
+        );
+    }
+}
+
+#[test]
+fn model_tx_pool_non_script_receipts_and_hot_cold_order_are_exact() {
+    let key = VerificationKey::new(WitnessId(2), RulesId(1));
+    let ModelScriptExecution::Verified(proof) =
+        execute_model_script_vm(key, u64::MAX, finite_script_semantics)
+    else {
+        panic!("the cache fixture must originate in a successful VM run")
+    };
+    let cycles = proof.cycles();
+    let remote_limit = ModelRemoteCycleLimit::checked(cycles + 1, cycles + 1)
+        .expect("the remote exact declaration is inside the consensus bound");
+
+    let tx_pool_cases = [
+        (
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(false, 11, 31),
+                cycles - 1,
+                None,
+            ),
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(false, 11, 31),
+                cycles - 1,
+                Some(proof),
+            ),
+            fresh_verification(false, false, false),
+            ModelVerificationObservation::Rejected(ModelVerificationRejection::Fee),
+        ),
+        (
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                None,
+            ),
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                Some(proof),
+            ),
+            fresh_verification(false, false, false),
+            ModelVerificationObservation::Rejected(ModelVerificationRejection::Time),
+        ),
+        (
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                None,
+            ),
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                Some(proof),
+            ),
+            fresh_verification(true, false, false),
+            ModelVerificationObservation::Rejected(ModelVerificationRejection::Capacity),
+        ),
+        (
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                None,
+            ),
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                cycles - 1,
+                Some(proof),
+            ),
+            fresh_verification(true, true, false),
+            ModelVerificationObservation::Rejected(ModelVerificationRejection::Script(
+                ModelScriptRejection::ExceededMaximumCycles(cycles - 1),
+            )),
+        ),
+        (
+            ModelTxPoolVerificationContext::remote(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                remote_limit,
+                None,
+            ),
+            ModelTxPoolVerificationContext::remote(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                remote_limit,
+                Some(proof),
+            ),
+            fresh_verification(true, true, false),
+            ModelVerificationObservation::Rejected(ModelVerificationRejection::Dao),
+        ),
+        (
+            ModelTxPoolVerificationContext::remote(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                remote_limit,
+                None,
+            ),
+            ModelTxPoolVerificationContext::remote(
+                ModelTxPoolResolutionReceipt::current(true, 11, 31),
+                remote_limit,
+                Some(proof),
+            ),
+            fresh_verification(true, true, true),
+            ModelVerificationObservation::Rejected(
+                ModelVerificationRejection::DeclaredWrongCycles {
+                    declared: cycles + 1,
+                    actual: cycles,
+                },
+            ),
+        ),
+    ];
+    for (cold_context, hot_context, fresh, expected) in tx_pool_cases {
+        let cold = model_tx_pool_verification(key, finite_script_semantics, cold_context, fresh);
+        let hot = model_tx_pool_verification(key, finite_script_semantics, hot_context, fresh);
+        assert_eq!(cold, expected);
+        assert_eq!(hot, expected);
+    }
+
+    for cached in [None, Some(proof)] {
+        let observation = model_tx_pool_verification(
+            key,
+            finite_script_semantics,
+            ModelTxPoolVerificationContext::trusted(
+                ModelTxPoolResolutionReceipt::current(true, 37, 31),
+                cycles,
+                cached,
+            ),
+            fresh_verification(true, true, true),
+        );
+        let ModelVerificationObservation::TxPoolVerified(receipt) = observation else {
+            panic!("the valid tx-pool fixture must verify")
+        };
+        assert_eq!(receipt.script_proof(), proof);
+        assert_eq!(receipt.cycles(), cycles);
+        assert_eq!(receipt.fee(), 37);
+        assert_eq!(receipt.accepted_resident_bytes(), 31);
+    }
 }
 
 #[test]
@@ -5696,6 +7479,172 @@ fn model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry()
         prepare_bounded_scratch(4, 4, true),
         ScratchDisposition::Prepared
     );
+    assert_eq!(
+        terminal_allocation_disposition(AllocationObligation::CallerOwnedRequest),
+        AllocationTerminal::ReleaseCaller
+    );
+    assert_eq!(
+        terminal_allocation_disposition(AllocationObligation::CurrentGeneration),
+        AllocationTerminal::ReplaceCurrentGeneration
+    );
+    assert_eq!(
+        terminal_allocation_disposition(AllocationObligation::CheckedOutCapability),
+        AllocationTerminal::CancelAndReplaceCurrentGeneration
+    );
+    assert_eq!(
+        terminal_allocation_disposition(AllocationObligation::OrderedChainTransition),
+        AllocationTerminal::ReplaceChainGeneration
+    );
+    for terminal in [
+        AllocationTerminal::ReleaseCaller,
+        AllocationTerminal::ReplaceCurrentGeneration,
+        AllocationTerminal::CancelAndReplaceCurrentGeneration,
+        AllocationTerminal::ReplaceChainGeneration,
+    ] {
+        let conservation = terminal.conservation();
+        assert!(
+            conservation.conserves_capabilities(),
+            "{terminal:?} must consume, retain or stale every linear capability exactly once"
+        );
+        assert_eq!(
+            conservation.caller_released(),
+            terminal == AllocationTerminal::ReleaseCaller
+        );
+        assert_eq!(
+            conservation.generation_advanced(),
+            terminal != AllocationTerminal::ReleaseCaller
+        );
+        assert_eq!(
+            conservation.checked_out_work_consumed(),
+            terminal == AllocationTerminal::CancelAndReplaceCurrentGeneration
+        );
+        assert_eq!(
+            conservation.ordered_chain_command_consumed(),
+            terminal == AllocationTerminal::ReplaceChainGeneration
+        );
+        assert_eq!(
+            conservation.ordered_snapshot_installed(),
+            terminal == AllocationTerminal::ReplaceChainGeneration
+        );
+    }
+}
+
+#[test]
+fn model_retained_ingress_outcomes_cannot_construct_integrity_evidence() {
+    for outcome in [
+        ModelRetainedIngressOutcome::Validated,
+        ModelRetainedIngressOutcome::Rejected,
+        ModelRetainedIngressOutcome::ProposalUnavailable,
+    ] {
+        assert_eq!(outcome.service_failure(), None);
+    }
+}
+
+#[test]
+fn model_service_fault_boundary_is_the_total_sealed_failure_relation() {
+    for failure in [
+        ModelOperationalFailure::Cancelled,
+        ModelOperationalFailure::BlockAssemblerDisabled,
+        ModelOperationalFailure::TemplateUnavailable,
+        ModelOperationalFailure::ResourceUnavailable,
+        ModelOperationalFailure::EffectCapacity,
+        ModelOperationalFailure::LifecycleClosed,
+    ] {
+        assert_eq!(
+            service_failure_disposition(ModelServiceFailure::Operational(failure)),
+            ModelFailureDisposition::Ordinary(failure)
+        );
+    }
+
+    for fault in [
+        ModelStructuralFault::InvalidChainEvidence,
+        ModelStructuralFault::CounterExhausted,
+        ModelStructuralFault::EffectLifecycleClosed,
+        ModelStructuralFault::ResourceProjection,
+        ModelStructuralFault::MembershipProjection,
+        ModelStructuralFault::IndexProjection,
+        ModelStructuralFault::SchedulerProjection,
+        ModelStructuralFault::DependencyProjection,
+        ModelStructuralFault::EffectProjection,
+    ] {
+        assert_eq!(
+            service_failure_disposition(chain_structural_failure(fault)),
+            ModelFailureDisposition::Integrity(fault)
+        );
+        assert_eq!(
+            authority_structural_failure(fault).map(service_failure_disposition),
+            match fault {
+                ModelStructuralFault::InvalidChainEvidence
+                | ModelStructuralFault::EffectLifecycleClosed => None,
+                ModelStructuralFault::CounterExhausted
+                | ModelStructuralFault::ResourceProjection
+                | ModelStructuralFault::MembershipProjection
+                | ModelStructuralFault::IndexProjection
+                | ModelStructuralFault::SchedulerProjection
+                | ModelStructuralFault::DependencyProjection
+                | ModelStructuralFault::EffectProjection => {
+                    Some(ModelFailureDisposition::Integrity(fault))
+                }
+            }
+        );
+    }
+
+    assert_eq!(
+        recovery_admission_disposition(ModelRecoveryAdmissionFailure::InvalidTransaction),
+        ModelFailureDisposition::Integrity(ModelStructuralFault::InvalidChainEvidence)
+    );
+    assert_eq!(
+        recovery_admission_disposition(ModelRecoveryAdmissionFailure::ResourceUnavailable),
+        ModelFailureDisposition::Ordinary(ModelOperationalFailure::ResourceUnavailable)
+    );
+}
+
+#[test]
+fn model_shared_reserved_vec_is_the_unique_fallible_variable_residency_normal_form() {
+    let candidates = [
+        SharedVariableResidencyNormalForm::DeepOwnedClone,
+        SharedVariableResidencyNormalForm::ReboxedArcSlice,
+        SharedVariableResidencyNormalForm::SharedReservedVec,
+    ];
+    let feasible = candidates
+        .into_iter()
+        .filter(|candidate| candidate.feasible())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        feasible,
+        [SharedVariableResidencyNormalForm::SharedReservedVec]
+    );
+    assert_eq!(
+        SharedVariableResidencyNormalForm::SharedReservedVec.static_cost(),
+        SharedVariableResidencyCost {
+            variable_allocations: 1,
+            variable_copies: 0,
+            fixed_wrapper_objects: 1,
+        }
+    );
+    assert!(
+        SharedVariableResidencyNormalForm::SharedReservedVec.static_cost()
+            < SharedVariableResidencyNormalForm::ReboxedArcSlice.static_cost()
+    );
+}
+
+#[test]
+fn model_template_failure_retries_iff_the_minimum_source_cut_changed() {
+    for failed in u8::MIN..=u8::MAX {
+        for observed in u8::MIN..=u8::MAX {
+            let failed = TemplateFailureCut(failed);
+            let observed = TemplateFailureCut(observed);
+            let progress = template_failure_progress(failed, observed);
+            assert_eq!(
+                matches!(progress, TemplateFailureProgress::RetryAfterChange(cut) if cut == observed),
+                failed != observed
+            );
+            assert_eq!(
+                matches!(progress, TemplateFailureProgress::Parked(cut) if cut == observed),
+                failed == observed
+            );
+        }
+    }
 }
 
 #[test]
@@ -5740,6 +7689,8 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
     let ordered_queue = u32::try_from(crate::service::CHAIN_CONTROL_CHANNEL_SIZE)
         .expect("production ordered channel fits the model domain");
     let verify_workers = 8u32;
+    let ordinary_payload_bytes_per_request = 1_048_576u64;
+    let ordered_payload_bytes_per_request = 8_388_608u64;
     let ordinary_handlers = verify_workers
         .checked_mul(handler_multiplier)
         .expect("small production-shaped fixture is representable");
@@ -5751,12 +7702,20 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
             ordered_queue,
             trusted_reorg_waiting_senders: 0,
             admitted_admin_waiting_senders: 0,
+            ordinary_payload_bytes_per_request,
+            ordered_payload_bytes_per_request,
         }
         .compile(),
         Some(ServiceIngressResidencyBound {
             ordinary_handlers,
             ordinary_owned_requests: ordinary_queue + ordinary_handlers,
             ordered_owned_requests: ordered_queue + 1,
+            ordinary_payload_bytes: u64::from(ordinary_queue + ordinary_handlers)
+                * ordinary_payload_bytes_per_request,
+            ordered_payload_bytes: u64::from(ordered_queue + 1) * ordered_payload_bytes_per_request,
+            total_payload_bytes: u64::from(ordinary_queue + ordinary_handlers)
+                * ordinary_payload_bytes_per_request
+                + u64::from(ordered_queue + 1) * ordered_payload_bytes_per_request,
         })
     );
     assert_eq!(
@@ -5767,12 +7726,19 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
             ordered_queue: 0,
             trusted_reorg_waiting_senders: 1,
             admitted_admin_waiting_senders: 1,
+            ordinary_payload_bytes_per_request,
+            ordered_payload_bytes_per_request,
         }
         .compile(),
         Some(ServiceIngressResidencyBound {
             ordinary_handlers: handler_multiplier,
             ordinary_owned_requests: handler_multiplier,
             ordered_owned_requests: 3,
+            ordinary_payload_bytes: u64::from(handler_multiplier)
+                * ordinary_payload_bytes_per_request,
+            ordered_payload_bytes: 3 * ordered_payload_bytes_per_request,
+            total_payload_bytes: u64::from(handler_multiplier) * ordinary_payload_bytes_per_request
+                + 3 * ordered_payload_bytes_per_request,
         }),
         "the trusted reorg and unique public admission are the complete waiting term"
     );
@@ -5785,6 +7751,8 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
                 ordered_queue: 0,
                 trusted_reorg_waiting_senders,
                 admitted_admin_waiting_senders,
+                ordinary_payload_bytes_per_request,
+                ordered_payload_bytes_per_request,
             }
             .compile(),
             None,
@@ -5799,6 +7767,8 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
             ordered_queue: u32::MAX,
             trusted_reorg_waiting_senders: 1,
             admitted_admin_waiting_senders: 1,
+            ordinary_payload_bytes_per_request,
+            ordered_payload_bytes_per_request,
         }
         .compile(),
         None,
@@ -5812,9 +7782,47 @@ fn model_service_ingress_residency_bounds_typed_ordered_senders() {
             ordered_queue: 0,
             trusted_reorg_waiting_senders: 0,
             admitted_admin_waiting_senders: 0,
+            ordinary_payload_bytes_per_request,
+            ordered_payload_bytes_per_request,
         }
         .compile(),
         None
+    );
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers: 1,
+            handler_multiplier: 1,
+            ordinary_queue: 0,
+            ordered_queue: 0,
+            trusted_reorg_waiting_senders: 0,
+            admitted_admin_waiting_senders: 0,
+            ordinary_payload_bytes_per_request: u64::MAX,
+            ordered_payload_bytes_per_request: 0,
+        }
+        .compile(),
+        Some(ServiceIngressResidencyBound {
+            ordinary_handlers: 1,
+            ordinary_owned_requests: 1,
+            ordered_owned_requests: 1,
+            ordinary_payload_bytes: u64::MAX,
+            ordered_payload_bytes: 0,
+            total_payload_bytes: u64::MAX,
+        })
+    );
+    assert_eq!(
+        ServiceIngressResidencyInputs {
+            verify_workers: 1,
+            handler_multiplier: 1,
+            ordinary_queue: 1,
+            ordered_queue: 0,
+            trusted_reorg_waiting_senders: 0,
+            admitted_admin_waiting_senders: 0,
+            ordinary_payload_bytes_per_request: u64::MAX,
+            ordered_payload_bytes_per_request: 0,
+        }
+        .compile(),
+        None,
+        "the byte equation is checked independently of the request-count equation"
     );
 }
 
@@ -5888,7 +7896,7 @@ fn model_optional_query_arithmetic_failure_never_invalidates_the_authority_resul
         query_projection(
             QuerySubject::Accepted(AcceptedStatus::Pending),
             u64::MAX,
-            u64::MAX,
+            Some(ModelFeeRate::from_u64(u64::MAX)),
             2,
         ),
         QueryProjection {
@@ -5897,7 +7905,12 @@ fn model_optional_query_arithmetic_failure_never_invalidates_the_authority_resul
         }
     );
     assert_eq!(
-        query_projection(QuerySubject::Accepted(AcceptedStatus::Gap), 1, 2, 3,),
+        query_projection(
+            QuerySubject::Accepted(AcceptedStatus::Gap),
+            1,
+            Some(ModelFeeRate::from_u64(2_000)),
+            3,
+        ),
         QueryProjection {
             status: QueryStatus::Pending,
             minimum_replacement_fee: Some(7),
@@ -5907,7 +7920,7 @@ fn model_optional_query_arithmetic_failure_never_invalidates_the_authority_resul
         query_projection(
             QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Proposed),
             1,
-            2,
+            Some(ModelFeeRate::from_u64(2_000)),
             3,
         ),
         QueryProjection {
@@ -5916,7 +7929,7 @@ fn model_optional_query_arithmetic_failure_never_invalidates_the_authority_resul
         }
     );
     assert_eq!(
-        query_projection(QuerySubject::Hidden, 0, 0, 0).status,
+        query_projection(QuerySubject::Hidden, 0, None, 0).status,
         QueryStatus::Unknown
     );
 }
@@ -5925,50 +7938,54 @@ fn model_optional_query_arithmetic_failure_never_invalidates_the_authority_resul
 fn model_query_projection_collapses_only_the_documented_internal_states() {
     let transaction = Transaction::independent(1, 1, 10, 20);
     let mut omega = model();
-    assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
-        QuerySubject::Hidden
-    );
+    assert_eq!(query_subject(&omega, transaction.id), QuerySubject::Hidden);
 
     omega.kernel_step(remote(transaction.clone(), 7));
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
+        query_subject(&omega, transaction.id),
         QuerySubject::PreAcceptedPending
     );
     let resolve = checked_out(omega.kernel_step(KernelCommand::Checkout));
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
+        query_subject(&omega, transaction.id),
         QuerySubject::PreAcceptedPending
     );
     omega.kernel_step(KernelCommand::Complete(Completion {
         capability: resolve,
-        result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-            &transaction,
-            omega.authority.chain,
-            omega.authority.rules,
-        )),
+        result: WorkResult::Resolved(
+            ResolvedEvidence::for_transaction(
+                &transaction,
+                omega.authority.chain,
+                omega.authority.rules,
+            )
+            .expect("direct transaction has no dep-group expansion"),
+        ),
     }));
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
-        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Proposed)
+        query_subject(&omega, transaction.id),
+        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Pending)
     );
     let verify = checked_out(omega.kernel_step(KernelCommand::Checkout));
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Gap),
-        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Gap)
+        query_subject(&omega, transaction.id),
+        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Pending)
     );
     complete_verify(&mut omega, &transaction, verify);
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
-        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Proposed)
+        query_subject(&omega, transaction.id),
+        QuerySubject::PreAcceptedProposalAware(AcceptedStatus::Pending)
     );
 
     omega.kernel_step(KernelCommand::FinalizeNext { wall_time: 10 });
     assert_eq!(
-        query_subject(&omega, transaction.id, AcceptedStatus::Proposed),
+        query_subject(&omega, transaction.id),
         QuerySubject::Accepted(AcceptedStatus::Pending)
     );
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(2),
         committed: BTreeSet::new(),
@@ -5978,20 +7995,28 @@ fn model_query_projection_collapses_only_the_documented_internal_states() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::new(),
-        gap: BTreeSet::from([transaction.id]),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::new(),
+            BTreeSet::from([transaction.proposal]),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
     assert_eq!(
         query_projection(
-            query_subject(&omega, transaction.id, AcceptedStatus::Pending),
+            query_subject(&omega, transaction.id),
             1,
-            2,
+            Some(ModelFeeRate::from_u64(2_000)),
             3,
         )
         .status,
         QueryStatus::Pending
     );
     omega.kernel_step(KernelCommand::ReconcileChain(ChainTransition {
+        context: super::kernel::ChainContextTransition::from_primitives(
+            super::state::RulesId(1),
+            false,
+        ),
         from: omega.authority.chain,
         to_tip: ViewId(3),
         committed: BTreeSet::new(),
@@ -6001,14 +8026,18 @@ fn model_query_projection_collapses_only_the_documented_internal_states() {
         lost_headers: BTreeSet::new(),
         conflicting_cells: BTreeSet::new(),
         recovered: Vec::new(),
-        proposed: BTreeSet::from([transaction.id]),
-        gap: BTreeSet::new(),
+        proposals: super::proposal::ProposalContext::status_witness(
+            BTreeSet::from([transaction.proposal]),
+            BTreeSet::new(),
+        )
+        .expect("the proposal witness sets are disjoint")
+        .view(),
     }));
     assert_eq!(
         query_projection(
-            query_subject(&omega, transaction.id, AcceptedStatus::Pending),
+            query_subject(&omega, transaction.id),
             1,
-            2,
+            Some(ModelFeeRate::from_u64(2_000)),
             3,
         ),
         QueryProjection {
@@ -6206,6 +8235,10 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
         SystemEvent::Kernel {
             access,
             command: KernelCommand::ReconcileChain(ChainTransition {
+                context: super::kernel::ChainContextTransition::from_primitives(
+                    super::state::RulesId(1),
+                    true,
+                ),
                 from: chain,
                 to_tip: ViewId(2),
                 committed: BTreeSet::new(),
@@ -6215,8 +8248,7 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                 lost_headers: BTreeSet::new(),
                 conflicting_cells: BTreeSet::new(),
                 recovered: vec![Transaction::independent(4, 4, 13, 23)],
-                proposed: BTreeSet::new(),
-                gap: BTreeSet::new(),
+                proposals: super::proposal::ProposalContext::empty().view(),
             }),
         },
         SystemEvent::Kernel {
@@ -6238,14 +8270,14 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                 access,
                 command: KernelCommand::Complete(Completion {
                     capability: capability.id,
-                    result: WorkResult::Rejected,
+                    result: capability.stage_rejection_result(),
                 }),
             });
             events.push(SystemEvent::Kernel {
                 access,
                 command: KernelCommand::FinishExecution(Completion {
                     capability: capability.id,
-                    result: WorkResult::Rejected,
+                    result: capability.stage_rejection_result(),
                 }),
             });
             events.push(SystemEvent::Kernel {
@@ -6264,7 +8296,8 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                                 &owner.transaction,
                                 authority.authority.chain,
                                 authority.authority.rules,
-                            ),
+                            )
+                            .expect("direct transaction has no dep-group expansion"),
                         }),
                     });
                 }
@@ -6273,11 +8306,14 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                     command: KernelCommand::Complete(Completion {
                         capability: capability.id,
                         result: if capability.kind() == super::state::WorkKind::Resolve {
-                            WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                                &owner.transaction,
-                                authority.authority.chain,
-                                authority.authority.rules,
-                            ))
+                            WorkResult::Resolved(
+                                ResolvedEvidence::for_transaction(
+                                    &owner.transaction,
+                                    authority.authority.chain,
+                                    authority.authority.rules,
+                                )
+                                .expect("direct transaction has no dep-group expansion"),
+                            )
                         } else {
                             WorkResult::Verified
                         },
@@ -6301,11 +8337,14 @@ fn model_events(state: &SystemState) -> Vec<SystemEvent> {
                 command: KernelCommand::CompleteDirect(DirectCompletion {
                     capability: capability.id,
                     wall_time: 10,
-                    result: DirectWorkResult::Verified(ResolvedEvidence::for_transaction(
-                        &capability.transaction,
-                        authority.authority.chain,
-                        authority.authority.rules,
-                    )),
+                    result: DirectWorkResult::Verified(
+                        ResolvedEvidence::for_transaction(
+                            &capability.transaction,
+                            authority.authority.chain,
+                            authority.authority.rules,
+                        )
+                        .expect("direct transaction has no dep-group expansion"),
+                    ),
                 }),
             });
         }
@@ -6356,6 +8395,10 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             observed_at: MonotonicTick(1),
         },
         KernelCommand::ReconcileChain(ChainTransition {
+            context: super::kernel::ChainContextTransition::from_primitives(
+                super::state::RulesId(1),
+                true,
+            ),
             from: state.authority.chain,
             to_tip: ViewId(2),
             committed: BTreeSet::from([first.id]),
@@ -6364,9 +8407,8 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             lost_cells: BTreeSet::new(),
             lost_headers: BTreeSet::from([HeaderId(1)]),
             conflicting_cells: BTreeSet::from([CellId(11)]),
-            recovered: vec![first.clone(), second.clone()],
-            proposed: BTreeSet::new(),
-            gap: BTreeSet::new(),
+            recovered: vec![first, second.clone()],
+            proposals: super::proposal::ProposalContext::empty().view(),
         }),
         KernelCommand::ReplaceGeneration { view: ViewId(3) },
         KernelCommand::ExpireAccepted {
@@ -6386,11 +8428,11 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
         }),
         KernelCommand::Complete(Completion {
             capability: CapabilityId(u16::MAX),
-            result: WorkResult::Rejected,
+            result: WorkResult::resolve_rejected(),
         }),
         KernelCommand::FinishExecution(Completion {
             capability: CapabilityId(u16::MAX),
-            result: WorkResult::Rejected,
+            result: WorkResult::resolve_rejected(),
         }),
         KernelCommand::SettleFinished(CapabilityId(u16::MAX)),
         KernelCommand::CancelCapability(CapabilityId(u16::MAX)),
@@ -6416,7 +8458,7 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             }),
             KernelCommand::Complete(Completion {
                 capability: capability.id,
-                result: WorkResult::Rejected,
+                result: WorkResult::resolve_rejected(),
             }),
             KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
@@ -6424,7 +8466,7 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
             }),
             KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
-                result: WorkResult::Rejected,
+                result: WorkResult::resolve_rejected(),
             }),
             KernelCommand::CancelCapability(capability.id),
         ]);
@@ -6439,7 +8481,8 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                             &owner.transaction,
                             state.authority.chain,
                             state.authority.rules,
-                        ),
+                        )
+                        .expect("direct transaction has no dep-group expansion"),
                     },
                 ));
             }
@@ -6447,7 +8490,7 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                 .transaction
                 .inputs
                 .iter()
-                .chain(&owner.transaction.deps)
+                .chain(&owner.transaction.cell_deps)
                 .next()
             {
                 commands.push(KernelCommand::Complete(Completion {
@@ -6458,41 +8501,41 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
                     )),
                 }));
             }
-            if let Some(header) = owner.transaction.header_deps.iter().next() {
-                commands.push(KernelCommand::Complete(Completion {
-                    capability: capability.id,
-                    result: WorkResult::Missing(missing_headers(
-                        &owner.transaction,
-                        BTreeSet::from([*header]),
-                    )),
-                }));
-            }
             commands.push(KernelCommand::Complete(Completion {
                 capability: capability.id,
-                result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                    &owner.transaction,
-                    state.authority.chain,
-                    state.authority.rules,
-                )),
+                result: WorkResult::Resolved(
+                    ResolvedEvidence::for_transaction(
+                        &owner.transaction,
+                        state.authority.chain,
+                        state.authority.rules,
+                    )
+                    .expect("direct transaction has no dep-group expansion"),
+                ),
             }));
             commands.push(KernelCommand::FinishExecution(Completion {
                 capability: capability.id,
-                result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                    &owner.transaction,
-                    state.authority.chain,
-                    state.authority.rules,
-                )),
+                result: WorkResult::Resolved(
+                    ResolvedEvidence::for_transaction(
+                        &owner.transaction,
+                        state.authority.chain,
+                        state.authority.rules,
+                    )
+                    .expect("direct transaction has no dep-group expansion"),
+                ),
             }));
             commands.push(KernelCommand::Complete(Completion {
                 capability: capability.id,
-                result: WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                    &owner.transaction,
-                    ChainView {
-                        tip: ViewId(99),
-                        revision: state.authority.chain.revision,
-                    },
-                    state.authority.rules,
-                )),
+                result: WorkResult::Resolved(
+                    ResolvedEvidence::for_transaction(
+                        &owner.transaction,
+                        ChainView {
+                            tip: ViewId(99),
+                            revision: state.authority.chain.revision,
+                        },
+                        state.authority.rules,
+                    )
+                    .expect("direct transaction has no dep-group expansion"),
+                ),
             }));
         }
     }
@@ -6504,11 +8547,14 @@ fn model_kernel_commands(state: &Omega) -> Vec<KernelCommand> {
         commands.push(KernelCommand::CompleteDirect(DirectCompletion {
             capability: capability.id,
             wall_time: 10,
-            result: DirectWorkResult::Verified(ResolvedEvidence::for_transaction(
-                &capability.transaction,
-                state.authority.chain,
-                state.authority.rules,
-            )),
+            result: DirectWorkResult::Verified(
+                ResolvedEvidence::for_transaction(
+                    &capability.transaction,
+                    state.authority.chain,
+                    state.authority.rules,
+                )
+                .expect("direct transaction has no dep-group expansion"),
+            ),
         }));
         commands.push(KernelCommand::CompleteDirect(DirectCompletion {
             capability: capability.id,

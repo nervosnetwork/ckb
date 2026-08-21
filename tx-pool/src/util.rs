@@ -10,9 +10,14 @@ use ckb_types::core::{
     tx_pool::TRANSACTION_SIZE_LIMIT,
 };
 use ckb_types::prelude::Entity;
+use ckb_types::{
+    bytes::Bytes,
+    packed::{Byte32, OutPoint, ProposalShortId},
+};
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier, TxVerifyEnv, cache::Completed,
+    TimeRelativeTransactionVerifier, TxVerifyEnv,
+    cache::{ScriptVerificationOutcome, ScriptVerificationProof},
 };
 use std::sync::Arc;
 use tokio::{runtime::Handle, sync::watch, task::block_in_place};
@@ -24,12 +29,108 @@ use tokio::{runtime::Handle, sync::watch, task::block_in_place};
 /// entire transaction or block after the authority that paid for the parent
 /// payload has gone away. Persistent indexes must compact packed keys at
 /// their ownership boundary so their resident charge matches what they keep.
-pub(crate) fn compact_packed<T: Entity>(value: &T) -> T {
+/// Closed compile-time set of Molecule entities whose encoded length is
+/// independent of hostile input. Variable-sized entities must use
+/// `try_compact_packed` so allocation remains a typed outcome.
+pub(crate) trait FixedSizePackedEntity: Entity {}
+
+impl FixedSizePackedEntity for Byte32 {}
+impl FixedSizePackedEntity for OutPoint {}
+impl FixedSizePackedEntity for ProposalShortId {}
+
+pub(crate) fn compact_packed<T: FixedSizePackedEntity>(value: &T) -> T {
     // `value` is already a verified `T`, and copying its complete byte slice
     // preserves that representation exactly. Molecule's constructor is named
     // `new_unchecked` because it also accepts arbitrary bytes; this wrapper's
     // typed input makes arbitrary bytes unrepresentable at every call site.
     T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
+}
+
+/// Fallibly copy a packed entity into an allocation containing only that
+/// entity. Use this at hostile collection boundaries where infallible backing
+/// compaction would bypass the subsystem's typed allocation algebra.
+pub(crate) fn try_compact_packed<T: Entity>(
+    value: &T,
+) -> Result<T, std::collections::TryReserveError> {
+    let mut owned = Vec::new();
+    owned.try_reserve_exact(value.as_slice().len())?;
+    owned.extend_from_slice(value.as_slice());
+    Ok(T::new_unchecked(ckb_types::bytes::Bytes::from(owned)))
+}
+
+/// Fallibly detach a byte view from a potentially much larger hostile backing
+/// allocation. The successful allocation is exact; failure creates no
+/// long-lived owner and is handled by the caller's allocation terminal.
+pub(crate) fn try_compact_bytes(value: &Bytes) -> Result<Bytes, std::collections::TryReserveError> {
+    let mut owned = Vec::new();
+    owned.try_reserve_exact(value.len())?;
+    owned.extend_from_slice(value);
+    Ok(Bytes::from(owned))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FixedPackedSequenceError {
+    Arithmetic,
+    Allocation,
+}
+
+/// Copy a finite fixed-size packed sequence into one shared exact backing
+/// buffer. Copying every entity independently would turn one bounded query
+/// into `O(n)` allocator calls; retaining caller entities could keep `n`
+/// unrelated envelopes alive. This is the sole fallible sequence residency
+/// mechanism for both full transaction hashes and proposal IDs.
+fn try_compact_fixed_packed<T: FixedSizePackedEntity + Default>(
+    values: impl ExactSizeIterator<Item = T>,
+) -> Result<Vec<T>, FixedPackedSequenceError> {
+    let count = values.len();
+    let item_bytes = T::default().as_slice().len();
+    let total_bytes = count
+        .checked_mul(item_bytes)
+        .ok_or(FixedPackedSequenceError::Arithmetic)?;
+
+    let mut backing = Vec::new();
+    backing
+        .try_reserve_exact(total_bytes)
+        .map_err(|_| FixedPackedSequenceError::Allocation)?;
+    for value in values {
+        if value.as_slice().len() != item_bytes {
+            return Err(FixedPackedSequenceError::Arithmetic);
+        }
+        backing.extend_from_slice(value.as_slice());
+    }
+    if backing.len() != total_bytes {
+        return Err(FixedPackedSequenceError::Arithmetic);
+    }
+
+    let backing = Bytes::from(backing);
+    let mut compact = Vec::new();
+    compact
+        .try_reserve_exact(count)
+        .map_err(|_| FixedPackedSequenceError::Allocation)?;
+    let mut start = 0usize;
+    for _ in 0..count {
+        let end = start
+            .checked_add(item_bytes)
+            .ok_or(FixedPackedSequenceError::Arithmetic)?;
+        if end > backing.len() {
+            return Err(FixedPackedSequenceError::Arithmetic);
+        }
+        compact.push(T::new_unchecked(backing.slice(start..end)));
+        start = end;
+    }
+    Ok(compact)
+}
+
+pub(crate) fn try_compact_proposal_ids(
+    ids: impl ExactSizeIterator<Item = ProposalShortId>,
+) -> Result<Vec<ProposalShortId>, FixedPackedSequenceError> {
+    try_compact_fixed_packed(ids)
+}
+
+pub(crate) fn try_compact_transaction_hashes(
+    hashes: impl ExactSizeIterator<Item = Byte32>,
+) -> Result<Vec<Byte32>, FixedPackedSequenceError> {
+    try_compact_fixed_packed(hashes)
 }
 
 /// Exact cross-product term for comparing two `u64` fee/weight ratios.
@@ -158,16 +259,14 @@ pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
     tx_env: Arc<TxVerifyEnv>,
-    cache_entry: &Option<Completed>,
+    cache_entry: Option<ScriptVerificationProof>,
     max_tx_verify_cycles: Cycle,
     command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-) -> Result<Completed, Reject> {
+) -> Result<ScriptVerificationOutcome, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
-    if let Some(completed) = cache_entry {
-        revalidate_tx_context(snapshot, rtx, tx_env).map(|_| *completed)
-    } else if let Some(command_rx) = command_rx {
+    if let Some(command_rx) = command_rx {
         // The resumable verifier already executes each VM scheduler in its
         // own Tokio task. Wrapping this parent future in `block_in_place` and
         // synchronously blocking on the same runtime does not offload VM work;
@@ -178,7 +277,7 @@ pub(crate) async fn verify_rtx(
             data_loader,
             Arc::clone(&tx_env),
         )
-        .verify_with_pause(max_tx_verify_cycles, command_rx)
+        .verify_with_pause(max_tx_verify_cycles, cache_entry, command_rx)
         .await
         .and_then(|result| {
             verify_dao_script_size(&snapshot, rtx)?;
@@ -188,7 +287,7 @@ pub(crate) async fn verify_rtx(
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
-                .verify(max_tx_verify_cycles, false)
+                .verify_scripts(max_tx_verify_cycles, cache_entry)
         })
         .and_then(|result| {
             verify_dao_script_size(&snapshot, rtx)?;

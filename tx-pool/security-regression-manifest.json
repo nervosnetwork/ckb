@@ -1,435 +1,147 @@
 {
-  "schema_version": 12,
-  "package": "ckb-tx-pool",
-  "features": ["internal"],
-  "behavior_registry": "tx-pool/review-behaviors.json",
-  "architecture_contract": "tx-pool/architecture-contract.json",
-  "integration_impact": "tx-pool/integration-impact.json",
-  "test_inventory": {"path": "tx-pool/test-inventory.txt"},
-  "mutation_acceptance": {
-    "schema_version": 1,
-    "test_target": "lib",
-    "obligations": [
-      {
-        "id": "V1-MUT-ATOMIC-BATCH-CLOCK",
-        "semantic_binding": "authority_and_atomic_apply",
-        "component_id": "atomic_batch_apply",
-        "owner_ref": {
-          "kind": "topology_target",
-          "component_id": "atomic_batch_apply",
-          "symbol": "ApplyClockReservation"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-ATOMIC-CLOCK-PLAN",
-        "semantic_binding": "authority_and_atomic_apply",
-        "component_id": "atomic_batch_apply",
-        "owner_ref": {
-          "kind": "topology_target",
-          "component_id": "atomic_batch_apply",
-          "symbol": "ClockPlanReservation"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-ATOMIC-CLOCK-BRANCH",
-        "semantic_binding": "authority_and_atomic_apply",
-        "component_id": "atomic_batch_apply",
-        "owner_ref": {
-          "kind": "topology_target",
-          "component_id": "atomic_batch_apply",
-          "symbol": "OwnerClockBranch"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-SETTLEMENT-CLASSIFICATION",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-OWN-001",
-          "symbol": "struct TxPoolAuthority"
-        },
-        "selector": {"kind": "method", "name": "classify_settlement"}
-      },
-      {
-        "id": "V1-MUT-SETTLEMENT-POLICY-EVOLUTION",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-OWN-001",
-          "symbol": "enum PayloadPolicy"
-        },
-        "selector": {"kind": "method", "name": "evolution_to"}
-      },
-      {
-        "id": "V1-MUT-CHECKOUT-ORIGIN",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-OWN-001",
-          "symbol": "enum CheckedOutWork"
-        },
-        "selector": {"kind": "method", "name": "from_owner"}
-      },
-      {
-        "id": "V1-MUT-ATOMIC-TRANSITION-FIELDS",
-        "semantic_binding": "authority_and_atomic_apply",
-        "component_id": "atomic_batch_apply",
-        "owner_ref": {
-          "kind": "topology_target",
-          "component_id": "atomic_batch_apply",
-          "symbol": "TransitionControls"
-        },
-        "selector": {"kind": "struct_fields"}
-      },
-      {
-        "id": "V1-MUT-AUTHORITY-WAKE",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-WORKER-001",
-          "symbol": "struct AuthorityWakeTransition"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-RESOURCE-VECTOR",
-        "semantic_binding": "bounded_hostility_and_resources",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-BUDGET-001",
-          "symbol": "struct ResourceVector"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-RESOURCE-LEDGER",
-        "semantic_binding": "bounded_hostility_and_resources",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-BUDGET-001",
-          "symbol": "struct ResourceLedger"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-ORDERED-RESOURCE-PROJECTION",
-        "semantic_binding": "bounded_hostility_and_resources",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-BUDGET-001",
-          "symbol": "struct OrderedResourceProjection"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-ACTIVE-WORK-AVAILABILITY",
-        "semantic_binding": "bounded_hostility_and_resources",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-BUDGET-001",
-          "symbol": "fn active_work_availability"
-        },
-        "selector": {"kind": "function"}
-      },
-      {
-        "id": "V1-MUT-DEPENDENCY-FRONTIER",
-        "semantic_binding": "chain_and_dependency",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-DEP-001",
-          "symbol": "struct DependencyFrontier"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-DEPENDENCY-MAINTENANCE",
-        "semantic_binding": "chain_and_dependency",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-DEP-001",
-          "symbol": "struct DependencyMaintenanceTicket"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-FAIR-FRONTIER",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-WORKER-001",
-          "symbol": "struct FairFrontier"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-SCHEDULER-WAVE-CURSOR",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-WORKER-001",
-          "symbol": "struct SchedulerWaveCursor"
-        },
-        "selector": {"kind": "all_methods"}
-      },
-      {
-        "id": "V1-MUT-AUTHORITY-PATH-REMAINDER",
-        "semantic_binding": "authority_and_atomic_apply",
-        "component_id": "atomic_batch_apply",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-OWN-001",
-          "symbol": "struct TxPoolAuthority"
-        },
-        "selector": {"kind": "remaining_path"}
-      },
-      {
-        "id": "V1-MUT-RESOURCE-PATH-REMAINDER",
-        "semantic_binding": "bounded_hostility_and_resources",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-BUDGET-001",
-          "symbol": "struct ResourceLedger"
-        },
-        "selector": {"kind": "remaining_path"}
-      },
-      {
-        "id": "V1-MUT-DEPENDENCY-PATH-REMAINDER",
-        "semantic_binding": "chain_and_dependency",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-DEP-001",
-          "symbol": "struct DependencyFrontier"
-        },
-        "selector": {"kind": "remaining_path"}
-      },
-      {
-        "id": "V1-MUT-SCHEDULER-PATH-REMAINDER",
-        "semantic_binding": "compute_and_fair_permits",
-        "component_id": "compute_exchange",
-        "owner_ref": {
-          "kind": "behavior_owner",
-          "behavior_id": "TP-WORKER-001",
-          "symbol": "struct FairFrontier"
-        },
-        "selector": {"kind": "remaining_path"}
-      }
-    ]
-  },
-  "convergence_status": {
-    "schema_version": 2,
-    "optimization_goal_sha256": "37e72f5cafb51e3a8a62664107d15e4aefc8959abe5e8c0911c7ee824f36daf0",
-    "state": "construction",
-    "active_phase": "registered_semantic_root_closure",
-    "completed_phases": [
-      "basis_and_roadmap_normalization",
-      "release_boundary_adjudication",
-      "architecture_optimality_synthesis"
-    ],
-    "acceptance_universe": null,
-    "construction_rank": {
-      "open_release_laws": [
-        "D1-READY-OCC-LIVENESS",
-        "D1-DIRECT-NEGATIVE-OCC",
-        "D1-FAULT-REACHABILITY",
-        "D1-FALLIBLE-SCRATCH",
-        "D1-REQUEST-PAYLOAD-BOUND",
-        "D1-ALLOCATION-LIVENESS",
-        "D1-STOP-REACHABILITY",
-        "D1-TASK-CAPABILITY",
-        "D1-FAULT-INGRESS-EVIDENCE",
-        "D1-HISTORY"
-      ],
-      "open_compatibility_and_landing_decisions": ["landing_topology"],
-      "unclosed_registered_semantic_families": [],
-      "unowned_or_duplicated_production_items": [
-        "generated_source_role_necessity_census"
-      ],
-      "incomplete_refinement_edges": [
-        "conditional_complexity_lower_bound_per_dimension",
-        "witness_complexity_cost_equals_lower_bounds",
-        "production_refinement_and_cost_binding",
-        "independent_negative_certificate_canaries"
-      ]
-    },
-    "release_law_dispositions": {
-      "D1-CLOCK-DOMAIN": {
-        "root_family_id": "CRF-CLOCK-PROGRESS-DOMAIN",
-        "disposition": "proved",
-        "evidence_owner_refs": [
-          "behavior:TP-ADMIN-001",
-          "model:mathematical_model::properties::model_wall_clock_rollback_never_fabricates_expiry_progress",
-          "model:mathematical_model::adversarial_properties::model_hostile_trace_makes_wall_and_monotonic_clock_domains_explicit",
-          "production:check_production_contracts.py::validate_expiry_index_producers"
-        ]
-      },
-      "D1-DEPENDENCY-CLOSURE": {
-        "root_family_id": "CRF-DEPENDENCY-CLOSURE",
-        "disposition": "proved",
-        "evidence_owner_refs": [
-          "behavior:TP-DEP-001",
-          "model:mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply",
-          "model:mathematical_model::evidence_transition_properties::model_dependency_maintenance_action_is_the_total_phase_cut_relation",
-          "production:check_production_contracts.py::validate_dependency_maintenance_producers",
-          "production:check_production_contracts.py::validate_dependency_maintenance_successor"
-        ]
-      }
-    }
-  },
-  "construction_root_families": [
+  "claims": [
     {
-      "id": "CRF-READY-PRIORITY-PROGRESS",
-      "members": ["D1-READY-OCC-LIVENESS"],
-      "root_family_refs": ["F5"],
-      "invariant_refs": ["T5", "T10", "T16"],
-      "law": "a_ready_capture_commits_only_the_longest_unchanged_strict_priority_prefix_or_waits_after_a_changed_head_cut",
-      "falsifier": "continuous_mutation_of_weaker_tail_owners_strands_an_unchanged_strongest_owner_or_spins_the_driver",
-      "closure_phase": "registered_semantic_root_closure"
+      "id": "HARD_FEASIBILITY",
+      "phase": "hard_and_static_proof",
+      "status": "open"
     },
     {
-      "id": "CRF-DIRECT-NEGATIVE-EVIDENCE",
-      "members": ["D1-DIRECT-NEGATIVE-OCC"],
-      "root_family_refs": ["F5", "F8"],
-      "invariant_refs": ["T10", "T11", "T14", "T16"],
-      "law": "direct_negative_evidence_is_bound_to_the_exact_bounded_observation_set_and_commutes_with_unrelated_accepted_changes",
-      "falsifier": "a_stream_of_disjoint_accepted_commits_stales_and_reexecutes_one_unchanged_direct_rejection_forever",
-      "closure_phase": "registered_semantic_root_closure"
+      "id": "STATIC_GLOBAL_BOTTOM",
+      "phase": "hard_and_static_proof",
+      "status": "open"
     },
     {
-      "id": "CRF-TOTAL-FAULT-BOUNDARY",
-      "members": [
-        "D1-FAULT-REACHABILITY",
-        "D1-FAULT-INGRESS-EVIDENCE"
-      ],
-      "root_family_refs": ["F4", "F8"],
-      "invariant_refs": ["T6", "T8", "T11"],
-      "law": "each_operation_has_one_closed_producer_owned_error_algebra_and_only_structural_faults_reach_the_service_fault_boundary",
-      "falsifier": "a_legal_or_hostile_input_reaches_a_broad_structural_adapter_or_an_unsealed_constructor_fabricates_invalid_evidence",
-      "closure_phase": "registered_semantic_root_closure"
+      "id": "MEASURED_STRONGEST",
+      "phase": "measured_performance",
+      "status": "open"
     },
     {
-      "id": "CRF-BOUNDED-RESOURCE-ADMISSION",
-      "members": [
-        "D1-FALLIBLE-SCRATCH",
-        "D1-REQUEST-PAYLOAD-BOUND",
-        "D1-ALLOCATION-LIVENESS"
-      ],
-      "root_family_refs": ["F4"],
-      "invariant_refs": ["T3", "T8", "T10", "T15"],
-      "law": "peer_shaped_resident_and_scratch_work_is_count_and_byte_bounded_fallible_and_never_retried_without_a_changed_level",
-      "falsifier": "legal_payload_or_allocation_pressure_escapes_typed_bounds_retains_unaccounted_bytes_or_retries_forever_on_an_unchanged_cut",
-      "closure_phase": "registered_semantic_root_closure"
+      "id": "SEMANTIC_ZERO_AND_ENGINEERING_MINIMUM",
+      "phase": "complexity_minimum",
+      "status": "open"
     },
     {
-      "id": "CRF-CLOCK-PROGRESS-DOMAIN",
-      "members": ["D1-CLOCK-DOMAIN"],
-      "root_family_refs": ["F4", "F5"],
-      "invariant_refs": ["T8", "T10"],
-      "law": "wall_time_is_an_external_observation_while_internal_progress_uses_a_named_monotonic_level_or_an_explicit_environment_premise",
-      "falsifier": "wall_clock_rollback_invalidates_an_unconditional_expiry_rank_or_changes_deterministic_timestamp_order",
-      "closure_phase": "registered_semantic_root_closure"
-    },
-    {
-      "id": "CRF-TASK-CAPABILITY-LIFECYCLE",
-      "members": ["D1-STOP-REACHABILITY", "D1-TASK-CAPABILITY"],
-      "root_family_refs": ["F1", "F3", "F4"],
-      "invariant_refs": ["T2", "T6", "T7", "T10", "T15"],
-      "law": "every_task_channel_and_shutdown_edge_preserves_unique_capability_ownership_and_has_one_total_join_drain_and_failure_outcome",
-      "falsifier": "channel_closure_cancellation_or_post_apply_delivery_loss_strands_a_capability_or_makes_a_legal_input_stop_the_service",
-      "closure_phase": "registered_semantic_root_closure"
-    },
-    {
-      "id": "CRF-DEPENDENCY-CLOSURE",
-      "members": ["D1-DEPENDENCY-CLOSURE"],
-      "root_family_refs": ["F5"],
-      "invariant_refs": ["T4", "T10", "T16"],
-      "law": "every_owner_death_or_dependency_evidence_change_updates_dependency_truth_in_the_same_authority_apply",
-      "falsifier": "a_producer_removal_or_evidence_loss_bypasses_the_dependency_delta_and_leaves_a_waiter_or_member_on_false_truth",
-      "closure_phase": "registered_semantic_root_closure"
-    },
-    {
-      "id": "CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE",
-      "members": ["D1-HISTORY"],
-      "root_family_refs": ["*"],
-      "invariant_refs": ["*"],
-      "law": "every_retained_historical_rule_has_one_current_semantic_owner_and_every_current_rule_has_business_or_attack_provenance",
-      "falsifier": "the_top_down_or_bottom_up_obligation_difference_contains_an_unmapped_rule_owner_or_evidence_edge",
-      "closure_phase": "registered_semantic_root_closure"
+      "id": "NEW_COLD_JOINED_ACCEPTED_UNIVERSE",
+      "phase": "acceptance_cold_join",
+      "status": "open"
     }
   ],
-  "release_boundary_status": {
-    "schema_version": 2,
-    "legacy_configuration_forward_compatibility": {
-      "state": "proved",
-      "policy_ref": "architecture_contract.release_surface.compatibility_policy",
-      "behavior_refs": ["TP-BUDGET-001", "TP-PERSIST-001"]
+  "kind": "disposable_structural_projection_not_proof",
+  "legacy_routes": [
+    "active_legacy_proof_document:tx-pool/README.md",
+    "active_legacy_proof_document:tx-pool/docs/ARCHITECTURE.md",
+    "active_legacy_proof_document:tx-pool/docs/BENCHMARK.md",
+    "active_legacy_proof_document:tx-pool/docs/PERFORMANCE.md",
+    "active_legacy_proof_document:tx-pool/docs/REVIEW_GUIDE.md",
+    "active_legacy_proof_document:tx-pool/docs/VALIDATION.md",
+    "legacy_artifact:tx-pool/formal/models.json",
+    "legacy_artifact:tx-pool/integration-impact.json",
+    "legacy_artifact:tx-pool/mutation-acceptance-lock.json",
+    "legacy_artifact:tx-pool/mutation-result-lock.json",
+    "legacy_artifact:tx-pool/optimization-evidence/complexity-blueprint.json",
+    "legacy_artifact:tx-pool/optimization-evidence/complexity-certificate.json",
+    "legacy_artifact:tx-pool/optimization-evidence/integration-differential-census.json",
+    "legacy_artifact:tx-pool/optimization-evidence/normal-form-partition.json",
+    "legacy_artifact:tx-pool/optimization-evidence/release-basis.json",
+    "legacy_artifact:tx-pool/optimization-evidence/reviews/method-g2-decision-ledger.md",
+    "legacy_artifact:tx-pool/optimization-evidence/semantic-refinement-census.json",
+    "legacy_artifact:tx-pool/optimization-evidence/workload-environment-matrix.json",
+    "legacy_artifact:tx-pool/review-behaviors.json",
+    "legacy_artifact:tx-pool/scripts/check_ascii.py",
+    "legacy_artifact:tx-pool/scripts/check_docs.py",
+    "legacy_artifact:tx-pool/scripts/check_formal_models.py",
+    "legacy_artifact:tx-pool/scripts/check_model_refinement.py",
+    "legacy_artifact:tx-pool/scripts/check_mutation_adjudication.py",
+    "legacy_artifact:tx-pool/scripts/check_mutation_matrix.py",
+    "legacy_artifact:tx-pool/scripts/check_production_contracts.py",
+    "legacy_artifact:tx-pool/scripts/check_review_guide.py",
+    "legacy_artifact:tx-pool/scripts/check_semantic_refinement_census.py",
+    "legacy_artifact:tx-pool/scripts/check_test_layout.py",
+    "legacy_artifact:tx-pool/scripts/fixtures/model_refinement_canary.rs",
+    "legacy_artifact:tx-pool/scripts/run_acceptance_lane.py",
+    "legacy_artifact:tx-pool/src/tests/model",
+    "legacy_artifact:tx-pool/test-inventory.txt",
+    "legacy_artifact:tx-pool/test-layout-manifest.json"
+  ],
+  "method_identity": {
+    "authority_hashes": {
+      ".github/workflows/ci_tx_pool_review.yaml": "4990318d31850ee1783a2b329309eed090a08f9b8be7d457aaa77eb39254581e",
+      ".github/workflows/ci_unit_tests_ubuntu.yaml": "686a219a7eb1786d1434606f0a7c6d21748c47a36a9bb902b856a6a28bf9f3c5",
+      "AGENTS.md": "cc3f2dbc4dc7c4ffd35b4e5e0fc89bb985f9147d3a8ec84ba0c4b0005c34b299",
+      "tx-pool/.independent-execution-plan": "29811f952ae33ccf4c58dfe2f36830e318f71eb3e1e57adaaceaafd7606f536e",
+      "tx-pool/AGENTS.md": "72e34b19c998896b17a53b145a794132c4e79b2f566d3b2d2183926d89a3ba74",
+      "tx-pool/architecture-contract.json": "303c990c4aa4e422e8a8cdea22b0012db2a8bf2f4aad70334018c33ae9f07a10",
+      "tx-pool/scripts/check_all.py": "877d406839b37eed02a0704ac86dc08c15013a2661f2f79a70c5b76dd8ed15ae",
+      "tx-pool/scripts/check_security_manifest.py": "37ad30ac3be4fcc391e345d20686672eae926bec617be474b512f7dec57fe0d2"
     },
-    "rust_api_compatibility": {
-      "state": "adjudicated",
-      "policy_ref": "architecture_contract.release_surface.rust_api_compatibility",
-      "disposition": "intentional_major",
-      "landing_obligation": "landing_topology"
+    "bundle_sha256": "73e811f62086ee17f70a3478db3cf69863ee9b724321efa75a2133b81bd0144a",
+    "control_sha256": "7a7b9bd8233dfa3ccf6cacd8e7955c92df8166f1370a0d81a8f60e546257f308",
+    "final_goal_sha256": "ec84f12f6cb87aeff4f69384f792d51e54230831e28bf1f8dd24bbf79df48077",
+    "method_id": "txpool-minimal-kernel-v2",
+    "recovery_commit": "bc3a2c65e604212a2493fc0e12db27313179816c",
+    "recovery_tree": "f54256aa52c071ffdaa9dfe1e4af7dc5424de592"
+  },
+  "phase_projection": {
+    "active": "partner_a_method_review",
+    "completed": [
+      "method_same_subject_review"
+    ],
+    "controller_available": false,
+    "entries": [
+      {
+        "id": "method_same_subject_review",
+        "status": "complete"
+      },
+      {
+        "id": "partner_a_method_review",
+        "status": "ready_incomplete"
+      },
+      {
+        "id": "legacy_generation_retirement",
+        "status": "blocked"
+      },
+      {
+        "id": "hard_and_static_proof",
+        "status": "blocked"
+      },
+      {
+        "id": "measured_performance",
+        "status": "blocked"
+      },
+      {
+        "id": "complexity_minimum",
+        "status": "blocked"
+      },
+      {
+        "id": "acceptance_universe_freeze",
+        "status": "blocked"
+      },
+      {
+        "id": "acceptance_cold_join",
+        "status": "blocked"
+      }
+    ],
+    "state": "construction"
+  },
+  "retired_acceptance_universe": "d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f",
+  "reviews": {
+    "internal": {
+      "commit": "c85b9c3eb9ced2919521d8dfc9665b99191f1e9e",
+      "passed": true,
+      "present": true,
+      "tree": "d772076ae7d7f78040a5ce61f9fc4ed6c6cac84b",
+      "valid": true
     },
-    "landing_input_matrix": {
-      "state": "defined",
-      "policy_ref": "architecture_contract.landing_protocol",
-      "selection": "open",
-      "construction_obligation": "landing_topology"
+    "partner_a": {
+      "passed": false,
+      "present": false,
+      "valid": false
     }
   },
-  "release_blockers": [
-    {
-      "id": "REGISTERED-RELEASE-LAW-CLOSURE",
-      "reason": "The ten remaining D1 release laws are mapped exactly once inside the immutable eight-family release basis, but their executable models, production refinements and terminal dispositions remain open until registered semantic root closure",
-      "construction_obligations": [
-        "D1-READY-OCC-LIVENESS",
-        "D1-DIRECT-NEGATIVE-OCC",
-        "D1-FAULT-REACHABILITY",
-        "D1-FALLIBLE-SCRATCH",
-        "D1-REQUEST-PAYLOAD-BOUND",
-        "D1-ALLOCATION-LIVENESS",
-        "D1-STOP-REACHABILITY",
-        "D1-TASK-CAPABILITY",
-        "D1-FAULT-INGRESS-EVIDENCE",
-        "D1-HISTORY"
-      ]
-    },
-    {
-      "id": "GLOBAL-OPTIMALITY-AND-SIMPLIFICATION",
-      "reason": "The singleton X1 theorem has closed X2 without an inadmissible Construction measurement, but X3 complexity lower bounds, production refinement and independent certificate canaries remain uncertified, and the generated source-role/necessity census has not yet established zero unowned or duplicated production policy before final evidence freeze",
-      "construction_obligations": [
-        "conditional_complexity_lower_bound_per_dimension",
-        "witness_complexity_cost_equals_lower_bounds",
-        "production_refinement_and_cost_binding",
-        "independent_negative_certificate_canaries",
-        "generated_source_role_necessity_census"
-      ]
-    },
-    {
-      "id": "DEVELOP-LANDING-REHEARSAL",
-      "reason": "The landing candidate domain, generated downstream universe, feasibility constraints and lexicographic cost objective are defined, but the final X3 tree is not yet available to select and rehearse one topology against current develop; this obligation also owns the intentional-major version relation, migration notes and generated workspace reverse-dependency migration evidence",
-      "construction_obligations": ["landing_topology"]
-    },
-    {
-      "id": "PERFORMANCE-ACCEPTANCE",
-      "reason": "The frozen release binary has not yet confirmed the upstream X2 selection for throughput, tail latency, CPU, RSS/allocation and authority lock wait/hold under the declared matrix; this gate cannot select or repair topology"
-    },
-    {
-      "id": "EVIDENCE-PORTABILITY",
-      "reason": "The canonical tracked validation entry point exists but has not yet been reproduced from a fresh checkout by an independent operator using only generated inputs"
-    }
+  "schema_version": 1,
+  "warnings": [
+    "34 active legacy proof routes remain",
+    "controller absent; machine phases fail closed",
+    "partner_a method review is missing"
   ]
 }

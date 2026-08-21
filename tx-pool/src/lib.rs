@@ -93,6 +93,8 @@ pub use tokio::sync::RwLock as TokioRwLock;
 /// Internal/test injection target retained for block-reconstruction fixtures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlugTarget {
+    /// Inject the transaction into the pending pool.
     Pending,
+    /// Inject the transaction into the proposed pool.
     Proposed,
 }

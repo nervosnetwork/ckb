@@ -48,8 +48,12 @@ fn wait_for_parents(
 
 fn runtime_with(authority: TxPoolAuthority) -> AuthorityRuntime {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     runtime.with_authority_for_foundation(|slot| *slot = authority);
     runtime
 }

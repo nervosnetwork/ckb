@@ -60,6 +60,7 @@ tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+libc.workspace = true
 ckb-hash.workspace = true
 ckb-dao-utils.workspace = true
 ckb-test-chain-utils.workspace = true

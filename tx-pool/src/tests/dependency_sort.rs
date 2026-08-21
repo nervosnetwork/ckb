@@ -38,7 +38,7 @@ fn persistence_fallback_preserves_fifo_for_independent_transactions() {
     let first = build_tx(vec![(&Byte32::new([3; 32]), 0)], 1);
     let second = build_tx(vec![(&Byte32::new([4; 32]), 0)], 1);
     let third = build_tx(vec![(&Byte32::new([5; 32]), 0)], 1);
-    let expected = vec![second.clone(), third.clone(), first.clone()];
+    let expected = vec![second, third, first];
     let mut transactions = expected.clone();
 
     sort_transactions(&mut transactions).expect("independent ordering succeeds");

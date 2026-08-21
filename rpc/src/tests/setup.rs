@@ -125,8 +125,14 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         .expect("Start network service failed")
     };
 
-    pack.take_tx_pool_builder()
-        .start(network_controller.clone());
+    let mut tx_pool_scope = ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network_controller.clone(),
+        pack.take_relay_tx_receiver(),
+    );
+    let relay_results = tx_pool_scope
+        .take_relay_results()
+        .expect("fresh blocking tx-pool scope owns the relay receiver");
 
     let tx_pool = shared.tx_pool_controller();
     while !tx_pool.service_started() {
@@ -147,7 +153,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
         Default::default(),
-        pack.take_relay_tx_receiver(),
+        relay_results,
     ));
 
     let notify_controller =
@@ -217,7 +223,7 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         )
         .enable_net(
             network_controller.clone(),
-            sync_shared,
+            Arc::clone(&sync_shared),
             Arc::new(chain_controller.clone()),
         )
         .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
@@ -242,7 +248,10 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
     let handler = shared_clone.async_handle().clone();
     let rpc_server = RpcServer::new(rpc_config, io_handler, handler);
 
-    let rpc_client = reqwest::blocking::Client::new();
+    let rpc_client = reqwest::blocking::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("build loopback-only RPC test client");
     let rpc_uri = format!(
         "http://{}:{}/",
         rpc_server.http_address.ip(),
@@ -255,6 +264,8 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
 
     let suite = RpcTestSuite {
         chain_controller: chain_controller.clone(),
+        _tx_pool_scope: tx_pool_scope,
+        _sync_shared: sync_shared,
         _chain_scope: chain_scope,
         shared,
         rpc_uri,

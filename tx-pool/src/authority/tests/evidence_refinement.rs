@@ -6,8 +6,9 @@
 //! than by forged fixtures.
 
 use super::foundation::{
-    accept_remote_transaction, apply_plan, direct_verified_facts, limits, owner_version,
-    resolved_payload_with_facts, tx, verify_remote_transaction_with_payload,
+    accept_remote_transaction, accept_remote_transaction_with_payload, apply_plan,
+    direct_verified_facts, limits, owner_version, resolved_payload_with_facts, tx,
+    verify_remote_transaction_with_payload,
 };
 use crate::{
     authority::{
@@ -22,6 +23,7 @@ use crate::{
             test_support::MissingResolutionObservationForFoundation,
         },
         rejection::DirectTransactionRejection,
+        resolver::AcceptedOverlay,
         state::{
             AcceptedStatus, ApplySequence, ChainRevision, ChainViewId, DependencyCut,
             DependencyKey, KnownDependencies, MissingDependencies, PoolGeneration,
@@ -31,12 +33,11 @@ use crate::{
     error::Reject,
     mathematical_model::{
         ModelAdmissionReceipt, ModelDependencyCut, ModelDependencyKey, ModelDependencyLevel,
-        ModelDirectRejectionObservation, ModelDirectRejectionValidity, ModelEvidenceFrontier,
-        ModelEvidenceIdentity, ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView,
-        ModelFinalAdmissionSubject, ModelKnownDependencies, ModelMissingDisposition,
-        ModelMissingFact, ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner,
-        ModelSubjectValidation, ModelUnindexedDependencyLevel, missing_resolution_disposition,
-        validate_direct_acceptance, validate_direct_rejection, validate_final_acceptance,
+        ModelEvidenceFrontier, ModelEvidenceIdentity, ModelEvidenceProof, ModelEvidenceValidation,
+        ModelEvidenceView, ModelFinalAdmissionSubject, ModelKnownDependencies,
+        ModelMissingDisposition, ModelMissingFact, ModelPreAcceptedSource, ModelRawTransaction,
+        ModelReadyOwner, ModelSubjectValidation, ModelUnindexedDependencyLevel,
+        missing_resolution_disposition, validate_direct_acceptance, validate_final_acceptance,
         validate_final_subject,
     },
 };
@@ -116,7 +117,7 @@ fn model_frontier(levels: [AbstractLevel; 2], unindexed: AbstractLevel) -> Model
     let levels = levels.into_iter().enumerate().filter_map(|(index, level)| {
         level.change.map(|change| {
             (
-                ModelDependencyKey(index as u8),
+                model_key(index as u8),
                 ModelDependencyLevel::new(
                     ModelDependencyCut(change),
                     level.loss.map(ModelDependencyCut),
@@ -134,6 +135,14 @@ fn model_frontier(levels: [AbstractLevel; 2], unindexed: AbstractLevel) -> Model
         .expect("the finite model unindexed level is legal"),
     )
     .expect("the finite model evidence keys are unique")
+}
+
+const fn model_key(index: u8) -> ModelDependencyKey {
+    match index {
+        0 => ModelDependencyKey::cell(0),
+        1 => ModelDependencyKey::header(1),
+        _ => panic!("the finite evidence domain has exactly two typed keys"),
+    }
 }
 
 fn production_dependencies(keys: &[DependencyKey; 2], mask: u8) -> KnownDependencies {
@@ -161,7 +170,7 @@ fn production_missing(keys: &[DependencyKey; 2], mask: u8) -> MissingDependencie
 fn model_dependencies(mask: u8) -> ModelKnownDependencies {
     (0..2)
         .filter(|index| mask & (1 << index) != 0)
-        .map(ModelDependencyKey)
+        .map(model_key)
         .collect()
 }
 
@@ -337,7 +346,7 @@ fn abstract_receipt() -> (ModelEvidenceIdentity, ModelAdmissionReceipt) {
             proof: ModelEvidenceProof {
                 view: ModelEvidenceView(0),
                 identity,
-                dependencies: [ModelDependencyKey(0)].into_iter().collect(),
+                dependencies: [ModelDependencyKey::cell(0)].into_iter().collect(),
                 dependency_cut: ModelDependencyCut(0),
             },
         },
@@ -348,7 +357,7 @@ fn scenario_frontier(scenario: EvidenceScenario, owner_free: bool) -> ModelEvide
     let loss = (scenario == EvidenceScenario::DefinitiveLoss).then_some(ModelDependencyCut(1));
     let levels = (!owner_free).then(|| {
         (
-            ModelDependencyKey(0),
+            ModelDependencyKey::cell(0),
             ModelDependencyLevel::new(ModelDependencyCut(1), loss)
                 .expect("the scenario loss shares its change cut"),
         )
@@ -518,7 +527,7 @@ fn uak_final_subject_refines_every_reachable_currentness_outcome() {
                 1
             },
             ready: true,
-            dependencies: [ModelDependencyKey(0)].into_iter().collect(),
+            dependencies: [ModelDependencyKey::cell(0)].into_iter().collect(),
             dependency_cut: ModelDependencyCut(0),
         };
         let owners = if scenario == SubjectScenario::Missing {
@@ -552,33 +561,23 @@ fn uak_final_subject_refines_every_reachable_currentness_outcome() {
     }
 }
 
-fn production_direct_rejection_observation(
-    result: Result<(), PlanError>,
-) -> ModelDirectRejectionObservation {
-    match result {
-        Ok(()) => ModelDirectRejectionObservation::Current,
-        Err(PlanError::Stale(StalePlan::ChainRevision)) => {
-            ModelDirectRejectionObservation::StaleChain
-        }
-        Err(PlanError::Stale(StalePlan::SourceVersion)) => {
-            ModelDirectRejectionObservation::StaleSource
-        }
-        other => panic!("unexpected direct-rejection observation: {other:?}"),
-    }
-}
-
-fn chain_bound_rejection(authority: &TxPoolAuthority, nonce: u64) -> DirectTransactionRejection {
-    DirectTransactionRejection::accepted_cut(
-        Arc::new(tx(nonce)),
+fn chain_bound_rejection(
+    authority: &TxPoolAuthority,
+    transaction: TransactionView,
+) -> DirectTransactionRejection {
+    let reads = AcceptedOverlay::capture_for_foundation(authority, &transaction, 8)
+        .expect("the finite direct read receipt fits its declared edge bound");
+    DirectTransactionRejection::accepted_reads(
+        Arc::new(transaction),
         DirectCommand::TestAccept,
         Reject::Invalidated("foundation chain-bound rejection".to_owned()),
         authority.chain_view().clone(),
-        authority.accepted_source_for_reference(),
+        reads,
     )
 }
 
 #[test]
-fn uak_direct_rejection_refines_the_closed_view_and_source_truth_table() {
+fn uak_direct_rejection_uses_the_exact_bounded_accepted_read_relation() {
     let mut current = TxPoolAuthority::for_foundation(limits());
     let stable = DirectTransactionRejection::stable(
         Arc::new(tx(6_700)),
@@ -586,69 +585,87 @@ fn uak_direct_rejection_refines_the_closed_view_and_source_truth_table() {
         Reject::Invalidated("foundation stable rejection".to_owned()),
     );
     assert_eq!(
-        production_direct_rejection_observation(
-            current.direct_rejection_is_current(stable.validity()),
-        ),
-        validate_direct_rejection(
-            ModelEvidenceView(0),
-            0,
-            ModelDirectRejectionValidity::Stable,
-        )
+        current.direct_rejection_is_current(stable.validity()),
+        Ok(())
     );
 
-    let current_cut = chain_bound_rejection(&current, 6_701);
+    let missing_parent = TransactionBuilder::default()
+        .version(6_701u32)
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let dependent = TransactionBuilder::default()
+        .version(6_702u32)
+        .input(CellInput::new(OutPoint::new(missing_parent.hash(), 0), 0))
+        .build();
+    let current_cut = chain_bound_rejection(&current, dependent.clone());
     assert_eq!(
-        production_direct_rejection_observation(
-            current.direct_rejection_is_current(current_cut.validity()),
-        ),
-        validate_direct_rejection(
-            ModelEvidenceView(0),
-            0,
-            ModelDirectRejectionValidity::AcceptedCut {
-                view: ModelEvidenceView(0),
-                accepted_source: 0,
-            },
-        )
+        current.direct_rejection_is_current(current_cut.validity()),
+        Ok(())
     );
 
-    let stale_view = chain_bound_rejection(&current, 6_702);
+    let stale_view = chain_bound_rejection(&current, dependent.clone());
     current.force_chain_view(ChainViewId::new(ChainRevision(1), Byte32::new([92; 32])));
-    assert_eq!(
-        production_direct_rejection_observation(
-            current.direct_rejection_is_current(stale_view.validity()),
-        ),
-        validate_direct_rejection(
-            ModelEvidenceView(1),
-            0,
-            ModelDirectRejectionValidity::AcceptedCut {
-                view: ModelEvidenceView(0),
-                accepted_source: 0,
-            },
-        )
-    );
+    assert!(matches!(
+        current.direct_rejection_is_current(stale_view.validity()),
+        Err(PlanError::Stale(StalePlan::ChainRevision))
+    ));
 
-    let mut stale_source = TxPoolAuthority::for_foundation(limits());
-    let old_cut = chain_bound_rejection(&stale_source, 6_703);
+    let mut unrelated = TxPoolAuthority::for_foundation(limits());
+    let unrelated_cut = chain_bound_rejection(&unrelated, dependent.clone());
     accept_remote_transaction(
-        &mut stale_source,
-        tx(6_704),
-        6_704,
+        &mut unrelated,
+        tx(6_703),
+        6_703,
         AcceptedStatus::Pending,
         Vec::new(),
     );
     assert_eq!(
-        production_direct_rejection_observation(
-            stale_source.direct_rejection_is_current(old_cut.validity()),
-        ),
-        validate_direct_rejection(
-            ModelEvidenceView(0),
-            1,
-            ModelDirectRejectionValidity::AcceptedCut {
-                view: ModelEvidenceView(0),
-                accepted_source: 0,
-            },
-        )
+        unrelated.direct_rejection_is_current(unrelated_cut.validity()),
+        Ok(())
     );
+
+    let mut relevant = TxPoolAuthority::for_foundation(limits());
+    let relevant_cut = chain_bound_rejection(&relevant, dependent);
+    accept_remote_transaction(
+        &mut relevant,
+        missing_parent,
+        6_704,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    assert!(matches!(
+        relevant.direct_rejection_is_current(relevant_cut.validity()),
+        Err(PlanError::Stale(StalePlan::AcceptedObservation))
+    ));
+
+    let contested_input = OutPoint::new(Byte32::new([93; 32]), 0);
+    let spender_subject = TransactionBuilder::default()
+        .version(6_705u32)
+        .input(CellInput::new(contested_input.clone(), 0))
+        .build();
+    let mut relevant_spender = TxPoolAuthority::for_foundation(limits());
+    let spender_cut = chain_bound_rejection(&relevant_spender, spender_subject);
+    let competitor = TransactionBuilder::default()
+        .version(6_706u32)
+        .input(CellInput::new(contested_input.clone(), 0))
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut relevant_spender,
+        competitor.clone(),
+        6_706,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &competitor,
+            Vec::new(),
+            vec![contested_input],
+            Capacity::shannons(1),
+        ),
+    );
+    assert!(matches!(
+        relevant_spender.direct_rejection_is_current(spender_cut.validity()),
+        Err(PlanError::Stale(StalePlan::AcceptedObservation))
+    ));
 }
 
 fn model_key_for_production(
@@ -657,8 +674,8 @@ fn model_key_for_production(
     header: &Byte32,
 ) -> ModelDependencyKey {
     match key {
-        DependencyKey::Cell(out_point) if out_point == cell => ModelDependencyKey(0),
-        DependencyKey::Header(hash) if hash == header => ModelDependencyKey(1),
+        DependencyKey::Cell(out_point) if out_point == cell => ModelDependencyKey::cell(0),
+        DependencyKey::Header(hash) if hash == header => ModelDependencyKey::header(1),
         other => panic!("unexpected finite missing key: {other:?}"),
     }
 }
@@ -730,21 +747,21 @@ fn uak_missing_dependency_policy_refines_source_and_parent_ownership() {
         (
             vec![DependencyKey::Cell(known_cell)],
             BTreeSet::from([ModelMissingFact::Cell {
-                key: ModelDependencyKey(0),
+                key: ModelDependencyKey::cell(0),
                 parent_is_preaccepted: true,
             }]),
         ),
         (
             vec![DependencyKey::Cell(unknown_cell.clone())],
             BTreeSet::from([ModelMissingFact::Cell {
-                key: ModelDependencyKey(0),
+                key: ModelDependencyKey::cell(0),
                 parent_is_preaccepted: false,
             }]),
         ),
         (
             vec![DependencyKey::Header(header.clone())],
             BTreeSet::from([ModelMissingFact::Header {
-                key: ModelDependencyKey(1),
+                key: ModelDependencyKey::header(1),
             }]),
         ),
         (
@@ -754,11 +771,11 @@ fn uak_missing_dependency_policy_refines_source_and_parent_ownership() {
             ],
             BTreeSet::from([
                 ModelMissingFact::Cell {
-                    key: ModelDependencyKey(0),
+                    key: ModelDependencyKey::cell(0),
                     parent_is_preaccepted: false,
                 },
                 ModelMissingFact::Header {
-                    key: ModelDependencyKey(1),
+                    key: ModelDependencyKey::header(1),
                 },
             ]),
         ),

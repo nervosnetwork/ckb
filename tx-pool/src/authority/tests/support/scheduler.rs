@@ -232,8 +232,8 @@ impl FairFrontier {
         ordered.extend_from_slice(slots);
         ordered.sort_unstable_by_key(|slot| slot.id());
         if ordered
-            .windows(2)
-            .any(|pair| matches!(pair, [left, right] if left.id() == right.id()))
+            .array_windows::<2>()
+            .any(|[left, right]| left.id() == right.id())
         {
             return Err(SchedulerError::Projection);
         }

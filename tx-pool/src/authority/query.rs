@@ -27,6 +27,11 @@ use ckb_types::{
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
+/// Canonical Accepted relay observation returned by one authority read cut.
+/// The transaction carries its own complete raw identity; a proposal short ID
+/// is deliberately absent so a colliding request cannot alias another owner.
+pub(crate) type AcceptedTransactionsWithCycles = Vec<(TransactionView, Cycle)>;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AuthorityQueryError {
     Allocation,
@@ -765,12 +770,7 @@ impl CompactBlockReadReceipt {
         requested: &[ProposalShortId],
         committed: Vec<(ProposalShortId, Byte32)>,
     ) -> Result<Self, AuthorityReadError> {
-        let proposals: Vec<_> = requested
-            .iter()
-            .cloned()
-            .map(super::state::ProposalId)
-            .collect();
-        let captured = view.compact_transactions(&proposals)?;
+        let captured = view.compact_transactions(requested)?;
         let mut transactions = HashMap::new();
         transactions
             .try_reserve(captured.len())
@@ -811,25 +811,21 @@ impl CompactBlockReadReceipt {
 
 pub(super) fn accepted_with_cycles(
     view: &AuthorityReadView<'_>,
-    requested: &[ProposalShortId],
-) -> Result<HashMap<ProposalShortId, (TransactionView, Cycle)>, AuthorityReadError> {
-    let mut result = HashMap::new();
+    requested: &[Byte32],
+) -> Result<AcceptedTransactionsWithCycles, AuthorityReadError> {
+    let mut result = Vec::new();
     result
-        .try_reserve(requested.len())
+        .try_reserve_exact(requested.len())
         .map_err(|_| AuthorityReadError::Allocation)?;
-    for proposal in requested {
-        let Some(entry) = view.entry_by_proposal(&super::state::ProposalId(proposal.clone()))?
-        else {
+    for hash in requested {
+        let Some(entry) = view.entry_by_raw(&RawTxHash(hash.clone())) else {
             continue;
         };
         if !matches!(entry.state(), super::read::AuthorityReadState::Accepted(_)) {
             continue;
         }
         let cycles = entry.cycles().ok_or(AuthorityReadError::Projection)?;
-        result.insert(
-            proposal.clone(),
-            (entry.transaction().as_ref().clone(), cycles),
-        );
+        result.push((entry.transaction().as_ref().clone(), cycles));
     }
     Ok(result)
 }

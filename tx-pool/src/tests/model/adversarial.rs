@@ -13,8 +13,8 @@ use super::{
     state::{
         ApplyStamp, CapabilityId, CellId, ChainView, EvidenceContext, HeaderId, MonotonicTick,
         Omega, OwnerLocation, PeerBanDeadline, PeerId, ProposalId, RemoteDeadline, RemoteResidency,
-        ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, VerifyCapability,
-        VerifyCycleClass, ViewId, WitnessId, WorkKind,
+        ResolvedEvidence, RetainedSource, RulesId, Transaction, TxId, VerifyCapability, ViewId,
+        WitnessId, WorkKind,
     },
 };
 use std::{
@@ -197,7 +197,11 @@ pub(super) fn shortest_premise_counterexample(
             let [reader, spender] = transactions.as_slice() else {
                 return None;
             };
-            let cell = reader.deps.intersection(&spender.inputs).next().copied()?;
+            let cell = reader
+                .cell_deps
+                .intersection(&spender.inputs)
+                .next()
+                .copied()?;
             (
                 2,
                 PremiseViolation::ReadSpend {
@@ -334,7 +338,7 @@ pub(super) fn adversarial_cohort(
                     checked_id(10, offset)?,
                     checked_id(120, offset)?,
                 );
-                reader.deps.insert(CellId(2));
+                reader.cell_deps.insert(CellId(2));
                 transactions.push(reader);
             }
             Ok(transactions)
@@ -342,15 +346,18 @@ pub(super) fn adversarial_cohort(
         AdversarialShape::RbfReplacement => {
             let original = Transaction::independent(1, 1, 10, 20);
             let mut replacement = Transaction::independent(2, 2, 10, 21);
-            replacement.fee = original
-                .fee
-                .checked_add(10)
-                .ok_or(ScenarioError::ArithmeticBound)?;
+            replacement = replacement.with_fee(
+                original
+                    .cost
+                    .fee()
+                    .checked_add(12)
+                    .ok_or(ScenarioError::ArithmeticBound)?,
+            );
             Ok(vec![original, replacement])
         }
         AdversarialShape::ConditionalReadWrite => {
             let mut reader = Transaction::independent(1, 1, 11, 20);
-            reader.deps.insert(CellId(10));
+            reader.cell_deps.insert(CellId(10));
             Ok(vec![reader, Transaction::independent(2, 2, 10, 21)])
         }
         AdversarialShape::ProposalCollision => {
@@ -563,7 +570,7 @@ impl HostileTraceGenerator {
             return Ok((report, Some(Vec::new())));
         }
         let mut frontier = VecDeque::from([(initial.clone(), Vec::new())]);
-        let mut seen = HashSet::from([initial.clone()]);
+        let mut seen = HashSet::from([initial]);
         while let Some((state, trace)) = frontier.pop_front() {
             report.deepest_trace = report.deepest_trace.max(trace.len());
             if trace.len() == self.limits.depth {
@@ -685,19 +692,11 @@ impl HostileTraceGenerator {
                 );
             }
             push_kernel(HostileAction::Checkout, KernelCommand::Checkout);
-            // Any and SmallCycleOnly induce the same transition relation when
-            // every transaction is Small. Enumerate both only when Large work
-            // makes the verifier capability observable, avoiding a duplicate
-            // finite-state branch without weakening capability coverage.
-            let continuous_capabilities: &[_] = if self
-                .transactions
-                .values()
-                .any(|transaction| transaction.verify_class == VerifyCycleClass::Large)
-            {
-                &[VerifyCapability::Any, VerifyCapability::SmallCycleOnly]
-            } else {
-                &[VerifyCapability::Any]
-            };
+            // This hostile-state family constructs only the trusted/small
+            // resolved-evidence quotient. Large-class permit separation is a
+            // distinct exhaustive scheduler family, so enumerating
+            // SmallCycleOnly here would duplicate the same transition graph.
+            let continuous_capabilities = &[VerifyCapability::Any];
             for capability in continuous_capabilities.iter().copied() {
                 push_kernel(
                     HostileAction::CheckoutContinuous(capability),
@@ -720,7 +719,8 @@ impl HostileTraceGenerator {
                                 &owner.transaction,
                                 omega.authority.chain,
                                 omega.authority.rules,
-                            ),
+                            )
+                            .expect("direct transaction has no dep-group expansion"),
                         }),
                     );
                 }
@@ -728,14 +728,14 @@ impl HostileTraceGenerator {
                     HostileAction::CompleteRejected(capability.id),
                     KernelCommand::Complete(Completion {
                         capability: capability.id,
-                        result: WorkResult::Rejected,
+                        result: capability.stage_rejection_result(),
                     }),
                 );
                 push_kernel(
                     HostileAction::FinishRejected(capability.id),
                     KernelCommand::FinishExecution(Completion {
                         capability: capability.id,
-                        result: WorkResult::Rejected,
+                        result: capability.stage_rejection_result(),
                     }),
                 );
                 if let Some(result) = self.current_result(omega, capability.id) {
@@ -799,6 +799,10 @@ impl HostileTraceGenerator {
             push_kernel(
                 HostileAction::AdvanceChain,
                 KernelCommand::ReconcileChain(ChainTransition {
+                    context: super::kernel::ChainContextTransition::from_primitives(
+                        super::state::RulesId(1),
+                        false,
+                    ),
                     from: omega.authority.chain,
                     to_tip: next_tip,
                     committed: BTreeSet::new(),
@@ -808,8 +812,7 @@ impl HostileTraceGenerator {
                     lost_headers: BTreeSet::new(),
                     conflicting_cells: BTreeSet::new(),
                     recovered: Vec::new(),
-                    proposed: BTreeSet::new(),
-                    gap: BTreeSet::new(),
+                    proposals: super::proposal::ProposalContext::empty().view(),
                 }),
             );
             push_kernel(HostileAction::ClaimEffect, KernelCommand::ClaimEffect);
@@ -884,11 +887,14 @@ impl HostileTraceGenerator {
         let capability = state.linear.work.get(&capability)?;
         let owner = state.authority.owners.get(&capability.transaction)?;
         Some(match capability.kind() {
-            WorkKind::Resolve => WorkResult::Resolved(ResolvedEvidence::for_transaction(
-                &owner.transaction,
-                state.authority.chain,
-                state.authority.rules,
-            )),
+            WorkKind::Resolve => WorkResult::Resolved(
+                ResolvedEvidence::for_transaction(
+                    &owner.transaction,
+                    state.authority.chain,
+                    state.authority.rules,
+                )
+                .expect("direct transaction has no dep-group expansion"),
+            ),
             WorkKind::Verify => WorkResult::Verified,
         })
     }
@@ -898,11 +904,11 @@ fn same_raw_transaction(left: &Transaction, right: &Transaction) -> bool {
     left.id == right.id
         && left.proposal == right.proposal
         && left.inputs == right.inputs
-        && left.deps == right.deps
+        && left.cell_deps == right.cell_deps
         && left.header_deps == right.header_deps
         && left.outputs == right.outputs
-        && left.bytes == right.bytes
-        && left.fee == right.fee
+        && left.cost.payload_bytes() == right.cost.payload_bytes()
+        && left.cost.fee() == right.cost.fee()
 }
 
 fn build_width(
@@ -1247,7 +1253,7 @@ pub(super) fn expanded_key_count(transactions: &[Transaction]) -> Option<u32> {
             .inputs
             .len()
             .checked_add(transaction.outputs.len())?
-            .checked_add(transaction.deps.len())?
+            .checked_add(transaction.cell_deps.len())?
             .checked_add(transaction.header_deps.len())?;
         count.checked_add(u32::try_from(keys).ok()?)
     })

@@ -26,9 +26,9 @@ RemoveSeqMember(sequence, member) ==
            THEN sequence[index]
            ELSE sequence[index + 1]]
 
-VARIABLES permitOwners, waitQueue, finishedQueue, phase, effectUsed
+VARIABLES permitOwners, waitQueue, finishedQueue, phase, effectUsed, ingressOpen
 
-vars == <<permitOwners, waitQueue, finishedQueue, phase, effectUsed>>
+vars == <<permitOwners, waitQueue, finishedQueue, phase, effectUsed, ingressOpen>>
 
 Outstanding ==
     {worker \in Workers : phase[worker] \in {"executing", "finished"}}
@@ -39,6 +39,7 @@ Init ==
     /\ finishedQueue = <<>>
     /\ phase = [worker \in Workers |-> "idle"]
     /\ effectUsed = EffectCapacity
+    /\ ingressOpen = TRUE
 
 AcquireWorker(worker) ==
     /\ worker \in Workers
@@ -48,21 +49,21 @@ AcquireWorker(worker) ==
     /\ Len(waitQueue) = 0
     /\ permitOwners' = permitOwners \cup {worker}
     /\ phase' = [phase EXCEPT ![worker] = "executing"]
-    /\ UNCHANGED <<waitQueue, finishedQueue, effectUsed>>
+    /\ UNCHANGED <<waitQueue, finishedQueue, effectUsed, ingressOpen>>
 
 QueueDirect(request) ==
     /\ request \in Directs
     /\ request \notin permitOwners
     /\ request \notin SeqRange(waitQueue)
     /\ waitQueue' = Append(waitQueue, request)
-    /\ UNCHANGED <<permitOwners, finishedQueue, phase, effectUsed>>
+    /\ UNCHANGED <<permitOwners, finishedQueue, phase, effectUsed, ingressOpen>>
 
 GrantHead ==
     /\ Len(waitQueue) > 0
     /\ Cardinality(permitOwners) < PermitCapacity
     /\ permitOwners' = permitOwners \cup {Head(waitQueue)}
     /\ waitQueue' = Tail(waitQueue)
-    /\ UNCHANGED <<finishedQueue, phase, effectUsed>>
+    /\ UNCHANGED <<finishedQueue, phase, effectUsed, ingressOpen>>
 
 FinishWorker(worker) ==
     /\ worker \in Workers
@@ -75,7 +76,7 @@ FinishWorker(worker) ==
                /\ waitQueue' = waitQueue
           ELSE /\ permitOwners' = (permitOwners \ {worker}) \cup {Head(waitQueue)}
                /\ waitQueue' = Tail(waitQueue)
-    /\ UNCHANGED effectUsed
+    /\ UNCHANGED <<effectUsed, ingressOpen>>
 
 ReleaseDirect(request) ==
     /\ request \in Directs
@@ -85,7 +86,7 @@ ReleaseDirect(request) ==
                /\ waitQueue' = waitQueue
           ELSE /\ permitOwners' = (permitOwners \ {request}) \cup {Head(waitQueue)}
                /\ waitQueue' = Tail(waitQueue)
-    /\ UNCHANGED <<finishedQueue, phase, effectUsed>>
+    /\ UNCHANGED <<finishedQueue, phase, effectUsed, ingressOpen>>
 
 \* `finishedQueue` is the finite abstraction of the selected kernel's existing
 \* monotonic capability-id rank. It is not a proposed production queue. An
@@ -105,18 +106,25 @@ SettleFinished(worker) ==
     /\ effectUsed' = IF worker \in EffectfulWorkers
                          THEN effectUsed + 1
                          ELSE effectUsed
-    /\ UNCHANGED <<permitOwners, waitQueue>>
+    /\ UNCHANGED <<permitOwners, waitQueue, ingressOpen>>
 
 DrainEffect ==
     /\ effectUsed > 0
     /\ effectUsed' = effectUsed - 1
-    /\ UNCHANGED <<permitOwners, waitQueue, finishedQueue, phase>>
+    /\ UNCHANGED <<permitOwners, waitQueue, finishedQueue, phase, ingressOpen>>
+
+\* Completion-ingress closure is absorbing and orthogonal. It retires one
+\* receive arm but cannot disable effect drain, settlement or permit progress.
+DisconnectIngress ==
+    /\ ingressOpen
+    /\ ingressOpen' = FALSE
+    /\ UNCHANGED <<permitOwners, waitQueue, finishedQueue, phase, effectUsed>>
 
 ResetWorker(worker) ==
     /\ worker \in Workers
     /\ phase[worker] = "settled"
     /\ phase' = [phase EXCEPT ![worker] = "idle"]
-    /\ UNCHANGED <<permitOwners, waitQueue, finishedQueue, effectUsed>>
+    /\ UNCHANGED <<permitOwners, waitQueue, finishedQueue, effectUsed, ingressOpen>>
 
 Next ==
     \/ \E worker \in Workers : AcquireWorker(worker)
@@ -126,6 +134,7 @@ Next ==
     \/ \E request \in Directs : ReleaseDirect(request)
     \/ \E worker \in Workers : SettleFinished(worker)
     \/ DrainEffect
+    \/ DisconnectIngress
     \/ \E worker \in Workers : ResetWorker(worker)
 
 TypeOK ==
@@ -138,6 +147,7 @@ TypeOK ==
     /\ permitOwners \cap SeqRange(waitQueue) = {}
     /\ phase \in [Workers -> Phases]
     /\ effectUsed \in 0..EffectCapacity
+    /\ ingressOpen \in BOOLEAN
     /\ \A worker \in Workers :
            (phase[worker] = "executing") <=> (worker \in permitOwners)
     /\ \A worker \in Workers :

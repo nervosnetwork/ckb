@@ -34,6 +34,7 @@ EXPECTED_INTERRUPTION_POINTS = {
     "publisher_io_interrupted": "effect_publisher",
     "maintenance_interrupted": "maintenance_worker",
     "generation_shutdown": "topology_owner",
+    "template_notification_interrupted": "template_notification_lane",
 }
 
 
@@ -128,12 +129,56 @@ def validate_registry(
     registry: dict,
     impact: dict | None = None,
     required_invariants: set[str] | None = None,
+    contract: dict | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    if contract is None:
+        contract = load_architecture_contract()
     if required_invariants is None:
-        required_invariants = target_invariant_ids()
-    if registry.get("schema_version") != 6:
-        errors.append("behavior registry schema_version must be 6")
+        required_invariants = target_invariant_ids(contract)
+    if registry.get("schema_version") != 8:
+        errors.append("behavior registry schema_version must be 8")
+
+    quotient = contract.get("optimality_protocol", {}).get("observational_quotient")
+    quotient_axes = quotient.get("axes") if isinstance(quotient, dict) else None
+    if not isinstance(quotient_axes, dict) or not quotient_axes:
+        errors.append("architecture contract must define observational quotient axes")
+        quotient_axes = {}
+    semantic_bindings = contract.get("refinement_inventory", {}).get(
+        "semantic_bindings"
+    )
+    if not isinstance(semantic_bindings, dict):
+        errors.append("architecture contract must define semantic bindings")
+        semantic_bindings = {}
+    semantic_partition = (
+        quotient.get("semantic_partition") if isinstance(quotient, dict) else None
+    )
+    semantic_axis_map = (
+        semantic_partition.get("semantic_axis_to_normal_form_axis")
+        if isinstance(semantic_partition, dict)
+        else None
+    )
+    if not isinstance(semantic_axis_map, dict) or not semantic_axis_map:
+        errors.append("architecture contract must define semantic axis projection")
+        semantic_axis_map = {}
+    known_semantic_axes = set(semantic_axis_map)
+    axis_behaviors: dict[str, set[str]] = {}
+    managed_axes: set[str] = set()
+    for axis, specification in quotient_axes.items():
+        if not isinstance(specification, dict):
+            continue
+        if specification.get("external_evidence") == "managed_integration":
+            managed_axes.add(axis)
+        axis_behaviors[axis] = {
+            behavior_id
+            for binding_id in specification.get("semantic_bindings", [])
+            for behavior_id in (
+                semantic_bindings.get(binding_id, {}).get("behavior_ids", [])
+                if isinstance(semantic_bindings.get(binding_id), dict)
+                else []
+            )
+            if isinstance(behavior_id, str)
+        }
 
     finding_ledger_value = registry.get("finding_ledger")
     finding_ledger = ""
@@ -227,6 +272,7 @@ def validate_registry(
                 errors.append(f"review guide does not exist: {guide}")
 
     behavior_ids: set[str] = set()
+    referenced_semantic_axes: set[str] = set()
     behaviors = registry.get("behaviors")
     if not isinstance(behaviors, list) or not behaviors:
         return errors + ["behavior registry must contain a non-empty behaviors list"]
@@ -241,6 +287,25 @@ def validate_registry(
         if behavior_id in behavior_ids:
             errors.append(f"duplicate behavior ID: {behavior_id}")
         behavior_ids.add(behavior_id)
+        semantic_axis_ids = entry.get("semantic_axis_ids")
+        if (
+            not _nonempty_strings(semantic_axis_ids)
+            or semantic_axis_ids != sorted(semantic_axis_ids)
+            or len(semantic_axis_ids) != len(set(semantic_axis_ids))
+        ):
+            errors.append(f"{behavior_id} has invalid semantic_axis_ids")
+            semantic_axis_ids = []
+        unknown_semantic_axes = set(semantic_axis_ids).difference(
+            known_semantic_axes
+        )
+        if unknown_semantic_axes:
+            errors.append(
+                f"{behavior_id} has unknown semantic axes "
+                f"{sorted(unknown_semantic_axes)}"
+            )
+        referenced_semantic_axes.update(
+            set(semantic_axis_ids).intersection(known_semantic_axes)
+        )
         for field in (
             "title",
             "required_behavior",
@@ -427,6 +492,7 @@ def validate_registry(
     if not isinstance(integration_evidence, list):
         errors.append("behavior registry integration_evidence must be a list")
         integration_evidence = []
+    integrated_axes: set[str] = set()
     for entry in integration_evidence:
         if not isinstance(entry, dict):
             errors.append(f"invalid integration evidence entry: {entry!r}")
@@ -438,6 +504,7 @@ def validate_registry(
         invariants = entry.get("invariants")
         unit_anchors = entry.get("unit_anchors")
         boundary = entry.get("boundary")
+        observation_axes = entry.get("observation_axes")
         if not isinstance(spec_id, str) or not spec_id.strip():
             errors.append(f"integration evidence has no ID: {entry!r}")
         elif spec_id in seen_specs:
@@ -459,6 +526,25 @@ def validate_registry(
                 referenced_behaviors.add(behavior_id)
         if not isinstance(boundary, str) or not boundary.strip():
             errors.append(f"integration evidence {spec_id!r} has no boundary assertion")
+        if not _nonempty_strings(observation_axes):
+            errors.append(f"integration evidence {spec_id!r} has no observation_axes")
+            observation_axes = []
+        elif len(observation_axes) != len(set(observation_axes)):
+            errors.append(f"integration evidence {spec_id!r} repeats observation axes")
+        for axis in observation_axes:
+            if axis not in quotient_axes:
+                errors.append(
+                    f"integration evidence {spec_id!r} uses unknown observation axis "
+                    f"{axis!r}"
+                )
+                continue
+            integrated_axes.add(axis)
+            relevant = axis_behaviors.get(axis, set())
+            if not relevant.intersection(integration_behavior_ids):
+                errors.append(
+                    f"integration evidence {spec_id!r} maps observation axis {axis!r} "
+                    "without a shared semantic behavior"
+                )
         if not _nonempty_strings(unit_anchors):
             errors.append(f"integration evidence {spec_id!r} has no paired unit anchors")
             unit_anchors = []
@@ -524,6 +610,12 @@ def validate_registry(
             f"security integration evidence absent from impact universe: "
             f"{sorted(missing_impact)}"
         )
+    missing_managed_axes = managed_axes.difference(integrated_axes)
+    if missing_managed_axes:
+        errors.append(
+            "managed observation axes without integration evidence: "
+            f"{sorted(missing_managed_axes)}"
+        )
 
     unreferenced = behavior_ids.difference(referenced_behaviors)
     if unreferenced:
@@ -531,6 +623,12 @@ def validate_registry(
     missing_invariants = required_invariants.difference(covered_invariants)
     if missing_invariants:
         errors.append(f"invariants without executable evidence: {sorted(missing_invariants)}")
+    missing_semantic_axes = known_semantic_axes.difference(referenced_semantic_axes)
+    if missing_semantic_axes:
+        errors.append(
+            "semantic axes without behavior grains: "
+            f"{sorted(missing_semantic_axes)}"
+        )
     return errors
 
 
@@ -764,8 +862,8 @@ def render_generated(registry: dict, impact: dict, contract: dict) -> str:
         "",
         "### Behavior index",
         "",
-        "| ID | Implementation owners | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
-        "|---|---|---|---|---|---|---|",
+        "| ID | Semantic axes | Implementation owners | Required behavior | Hostile/failure case | Invariants | Reviewer gate | Performance bound |",
+        "|---|---|---|---|---|---|---|---|",
     ])
     for behavior in registry["behaviors"]:
         behavior_id = behavior["id"]
@@ -794,6 +892,7 @@ def render_generated(registry: dict, impact: dict, contract: dict) -> str:
             + " | ".join(
                 (
                     f"`{behavior_id}` {behavior['title']}",
+                    ", ".join(f"`{axis}`" for axis in behavior["semantic_axis_ids"]),
                     owners,
                     _markdown(behavior["required_behavior"]),
                     _markdown(behavior["hostile_case"]),
@@ -868,7 +967,8 @@ def render_generated(registry: dict, impact: dict, contract: dict) -> str:
                 )
                 lines.append(
                     f"- `{evidence['id']}`: `{evidence['path']}::{evidence['anchor']}` "
-                    f"({invariants}) - {_markdown(evidence['boundary'])} "
+                    f"({invariants}; observations: {', '.join(f'`{axis}`' for axis in evidence['observation_axes'])}) - "
+                    f"{_markdown(evidence['boundary'])} "
                     f"Paired units: {', '.join(f'`{anchor}`' for anchor in evidence['unit_anchors'])}. "
                     f"Command: `{integration_command(registry, [evidence['anchor']])}`"
                 )
@@ -892,7 +992,7 @@ def main() -> int:
     contract = load_architecture_contract()
     impact = load_integration_impact(registry)
     errors = [
-        *validate_registry(registry, impact),
+        *validate_registry(registry, impact, contract=contract),
         *validate_interruption_contract(contract, registry),
     ]
     if errors:

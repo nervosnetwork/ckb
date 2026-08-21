@@ -318,7 +318,9 @@ fn test_candidate_uncles_retain() {
             .next_epoch_ext(&block1_1.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
-        let uncles = candidate_uncles.prepare_and_commit_for_test(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
 
         assert_eq!(uncles[0].hash(), block0_0.hash());
     }
@@ -333,7 +335,9 @@ fn test_candidate_uncles_retain() {
 
     {
         let snapshot = shared.snapshot();
-        let uncles = candidate_uncles.prepare_and_commit_for_test(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
         assert!(uncles.is_empty());
         // block0_0 is now on the main chain: prepare_uncles removes stale
         // entries (on main chain or already embedded as uncle) immediately
@@ -359,7 +363,9 @@ fn test_candidate_uncles_retain() {
             .next_epoch_ext(&block3_0.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
-        let uncles = candidate_uncles.prepare_and_commit_for_test(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
         assert!(uncles.is_empty());
         // Already empty: the stale entry was removed in the previous
         // prepare_uncles call (main-chain detection), not deferred to

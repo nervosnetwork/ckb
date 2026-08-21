@@ -1,6 +1,62 @@
 use super::*;
 
 impl AuthorityBlockAssembler {
+    pub(in crate::authority) async fn drive_replacement_once(
+        &self,
+    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
+        self.attempt_replacement_once()
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    pub(in crate::authority) async fn drive_component_once(
+        &self,
+        component: TemplateComponent,
+    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
+        self.attempt_component_once(component)
+            .await
+            .map_err(|failure| failure.error)
+    }
+
+    async fn replacement_retry_source(&self) -> TemplateRetrySourceCut {
+        let current = self.assembler.current.read().await;
+        let reset = current.reset_epoch;
+        drop(current);
+        TemplateRetrySourceCut {
+            source: TemplateRetrySource::Replacement {
+                source: self.template_source_probe(),
+                reset,
+            },
+        }
+    }
+
+    async fn component_retry_source(&self, component: TemplateComponent) -> TemplateRetrySourceCut {
+        let current = self.assembler.current.read().await;
+        let revision = current.revision;
+        drop(current);
+        let pool_versions = self.runtime.template_source_versions();
+        let pool = TemplatePoolSourceCut::new(pool_versions);
+        let source = match component {
+            TemplateComponent::Proposals => TemplateRetrySource::Proposals {
+                source: pool.proposal_cut(),
+                revision,
+            },
+            TemplateComponent::Transactions => TemplateRetrySource::Transactions {
+                source: pool.transaction_cut(),
+                revision,
+            },
+            TemplateComponent::Uncles => TemplateRetrySource::Uncles {
+                source: TemplateSourceCut::new(
+                    pool_versions,
+                    self.assembler.candidate_uncles.lock().source_receipt(),
+                )
+                .uncle_cut(),
+                revision,
+            },
+        };
+        TemplateRetrySourceCut { source }
+    }
+
     pub(in crate::authority) async fn run_notification_lane_for_foundation(
         self,
         cancel: CancellationToken,
@@ -11,7 +67,14 @@ impl AuthorityBlockAssembler {
     pub(in crate::authority) async fn retry_source_cut_for_foundation(
         &self,
     ) -> TemplateRetrySourceCut {
-        self.retry_source_cut().await
+        self.replacement_retry_source().await
+    }
+
+    pub(in crate::authority) async fn component_retry_source_for_foundation(
+        &self,
+        component: TemplateComponent,
+    ) -> TemplateRetrySourceCut {
+        self.component_retry_source(component).await
     }
 
     pub(in crate::authority) async fn wait_template_source_change_for_foundation(
@@ -19,7 +82,7 @@ impl AuthorityBlockAssembler {
         cancel: &CancellationToken,
         failed: TemplateRetrySourceCut,
     ) -> bool {
-        self.wait_template_source_change(cancel, failed)
+        self.next_template_source_after_failure(cancel, failed)
             .await
             .is_some()
     }

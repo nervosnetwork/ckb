@@ -6,13 +6,36 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ModelDependencyKey(pub(crate) u8);
+/// Role-separated dependency identity shared by the maintenance, evidence and
+/// global-kernel relations.  Cells and headers with the same finite-domain
+/// ordinal are deliberately distinct: production stores them in distinct
+/// `DependencyKey` variants and their legal missing outcomes differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum ModelDependencyKey {
+    Cell(u8),
+    Header(u8),
+}
+
+impl ModelDependencyKey {
+    pub(crate) const fn cell(value: u8) -> Self {
+        Self::Cell(value)
+    }
+
+    pub(crate) const fn header(value: u8) -> Self {
+        Self::Header(value)
+    }
+
+    pub(crate) const fn ordinal(self) -> u8 {
+        match self {
+            Self::Cell(value) | Self::Header(value) => value,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct ModelDependencyOwner(pub(crate) u8);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ModelDependencyCut(pub(crate) u16);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

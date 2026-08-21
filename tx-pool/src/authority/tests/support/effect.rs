@@ -333,7 +333,8 @@ impl EffectLog {
             pending_recent_rejects: HashMap::new(),
             usage: EffectRegionUsage::default(),
             closed: false,
-            generation_reset_batch: EffectBatch::reset(),
+            generation_reset_batch: EffectBatch::reset()
+                .expect("foundation reset effect allocation succeeds"),
         }
     }
 

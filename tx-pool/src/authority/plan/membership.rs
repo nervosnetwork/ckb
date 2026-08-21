@@ -22,7 +22,10 @@ use ckb_types::{
     packed::OutPoint,
     prelude::Unpack,
 };
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
+};
 
 #[derive(Clone, Copy, Debug)]
 enum ReplacementPolicy {
@@ -63,6 +66,41 @@ impl MembershipConfig {
             ReplacementPolicy::Disabled => None,
             ReplacementPolicy::Enabled { minimum_rate } => Some(minimum_rate),
         }
+    }
+}
+
+/// Canonical set of Accepted owners removed by one administrative or chain
+/// transition. The owning vector is sorted and duplicate-free at its sealed
+/// constructor, so every set lookup has the same deterministic semantics and
+/// no caller can accidentally pass traversal order to a binary search.
+pub(super) struct AcceptedRemovalSet {
+    hashes: Vec<RawTxHash>,
+}
+
+impl AcceptedRemovalSet {
+    pub(super) fn try_from_vec(mut hashes: Vec<RawTxHash>) -> Result<Self, super::PlanError> {
+        hashes.sort_unstable();
+        if hashes
+            .array_windows::<2>()
+            .any(|[left, right]| left == right)
+        {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        }
+        Ok(Self { hashes })
+    }
+
+    pub(super) fn contains(&self, hash: &RawTxHash) -> bool {
+        self.hashes.binary_search(hash).is_ok()
+    }
+
+    pub(super) fn iter(&self) -> std::slice::Iter<'_, RawTxHash> {
+        self.hashes.iter()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.hashes.len()
     }
 }
 
@@ -711,9 +749,8 @@ impl TxPoolAuthority {
         if !matches!(self.entries.get(root), Some(OwnedTx::Accepted(_))) {
             return Err(super::PlanError::Stale(super::StalePlan::Phase));
         }
-        let roots = BTreeSet::from([root.clone()]);
         let closure = self.bounded_descendant_postorder(
-            &roots,
+            std::slice::from_ref(root),
             &HashSet::new(),
             self.entries.len(),
             ComponentLimitKind::Mutation,
@@ -835,7 +872,7 @@ impl TxPoolAuthority {
     /// intermediate ancestors.
     pub(super) fn prepare_chain_projection(
         &mut self,
-        removals: &BTreeSet<RawTxHash>,
+        removals: &AcceptedRemovalSet,
         status_changes: &HashMap<RawTxHash, AcceptedEntry>,
     ) -> Result<ProjectionDelta, super::PlanError> {
         if status_changes.keys().any(|hash| removals.contains(hash)) {
@@ -859,7 +896,7 @@ impl TxPoolAuthority {
         let mut relation_capacity = 0usize;
         let mut input_capacity = 0usize;
         let mut dependency_capacity = 0usize;
-        for hash in removals {
+        for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             counts = counts
                 .checked_sub(entry.status())
@@ -936,7 +973,7 @@ impl TxPoolAuthority {
             .try_reserve(aggregate_capacity)
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
 
-        for hash in removals {
+        for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             for input in entry.proof.payload().footprint.inputs() {
                 if self.membership.spender(input) != Some(hash) {
@@ -1080,7 +1117,7 @@ impl TxPoolAuthority {
                     ))?,
             )
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        for hash in removals {
+        for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             let aggregate = self
                 .membership
@@ -1189,7 +1226,7 @@ impl TxPoolAuthority {
     /// aggregates and ordered keys.
     fn prepare_chain_ancestor_delta(
         &self,
-        removals: &BTreeSet<RawTxHash>,
+        removals: &AcceptedRemovalSet,
         removed: &HashSet<RawTxHash>,
     ) -> Result<AncestorDelta, super::PlanError> {
         let mut visited = HashSet::new();
@@ -1250,7 +1287,7 @@ impl TxPoolAuthority {
             .try_reserve(affected.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
 
-        for hash in removals {
+        for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             let aggregate = self
                 .membership
@@ -1672,7 +1709,11 @@ impl TxPoolAuthority {
         row_removals
             .try_reserve(counts.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut ordered_counts = counts.into_iter().collect::<Vec<_>>();
+        let mut ordered_counts = Vec::new();
+        ordered_counts
+            .try_reserve_exact(counts.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        ordered_counts.extend(counts);
         ordered_counts.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         for (dependency, (remove_count, insert_count)) in ordered_counts {
             match self.membership.dependency_readers.get_mut(&dependency) {
@@ -1770,11 +1811,16 @@ impl TxPoolAuthority {
         prepared_children
             .try_reserve(children.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        Ok(vec![PreparedCausalNode {
+        let mut prepared = Vec::new();
+        prepared
+            .try_reserve_exact(1)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        prepared.push(PreparedCausalNode {
             hash: hash.clone(),
             parents: prepared_parents,
             children: prepared_children,
-        }])
+        });
+        Ok(prepared)
     }
 
     fn accepted_entry(&self, hash: &RawTxHash) -> Result<&AcceptedEntry, super::PlanError> {
@@ -1788,14 +1834,15 @@ impl TxPoolAuthority {
 
     fn bounded_descendant_postorder(
         &self,
-        roots: &BTreeSet<RawTxHash>,
+        roots: &[RawTxHash],
         excluded: &HashSet<RawTxHash>,
         remaining_limit: usize,
         limit_kind: ComponentLimitKind,
     ) -> Result<Vec<RawTxHash>, super::PlanError> {
         // Mark on enqueue so a high-fanout DAG cannot allocate an attacker-
         // sized frontier before the component limit is observed. Traversal
-        // order is irrelevant; the leaf BTreeSet below fixes removal order.
+        // order is irrelevant; the fallibly reserved minimum heap below fixes
+        // removal order.
         let mut closure = HashSet::new();
         let mut frontier = VecDeque::new();
         frontier
@@ -1853,7 +1900,10 @@ impl TxPoolAuthority {
         remaining_children
             .try_reserve(closure.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut leaves = BTreeSet::new();
+        let mut leaves = BinaryHeap::new();
+        leaves
+            .try_reserve(closure.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         for hash in &closure {
             let children = self
                 .membership
@@ -1867,14 +1917,14 @@ impl TxPoolAuthority {
                 .count();
             remaining_children.insert(hash.clone(), count);
             if count == 0 {
-                leaves.insert(hash.clone());
+                leaves.push(Reverse(hash.clone()));
             }
         }
         let mut ordered = Vec::new();
         ordered
             .try_reserve(closure.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        while let Some(hash) = leaves.pop_first() {
+        while let Some(Reverse(hash)) = leaves.pop() {
             ordered.push(hash.clone());
             let parents = self
                 .membership
@@ -1895,7 +1945,7 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ))?;
                 if *count == 0 {
-                    leaves.insert(parent.clone());
+                    leaves.push(Reverse(parent.clone()));
                 }
             }
         }

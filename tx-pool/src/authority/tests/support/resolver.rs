@@ -1,19 +1,25 @@
 use super::*;
 
-impl ResolutionJob {
-    pub(in crate::authority) fn retry_for_foundation(self) -> ComputeSettlement {
-        self.retry()
+impl AcceptedOverlay {
+    pub(in crate::authority) fn capture_for_foundation(
+        authority: &TxPoolAuthority,
+        tx: &TransactionView,
+        max_edges: usize,
+    ) -> Result<Self, DirectComputationError> {
+        Self::capture(authority, tx, max_edges).map_err(|kind| match kind {
+            ResolutionExecutionKind::ResourceUnavailable => {
+                DirectComputationError::ResourceUnavailable
+            }
+            ResolutionExecutionKind::StaleView
+            | ResolutionExecutionKind::ComputeBudget
+            | ResolutionExecutionKind::InvalidReceipt(_) => DirectComputationError::InvalidEvidence,
+        })
     }
 }
 
-impl DirectVerifiedCandidate {
-    pub(in crate::authority) fn with_cache_update_for_foundation(
-        mut self,
-        key: TxVerificationCacheKey,
-        completed: Completed,
-    ) -> Self {
-        self.cache_update = Some(VerificationCacheUpdate { key, completed });
-        self
+impl ResolutionJob {
+    pub(in crate::authority) fn retry_for_foundation(self) -> ComputeSettlement {
+        self.retry()
     }
 }
 
@@ -52,12 +58,11 @@ impl DirectResolutionJob {
         if snapshot.tip_hash() != authority.chain_view().tip().0 {
             return Err(DirectComputationError::StaleView);
         }
-        prepared.overlay.populate_initial(authority);
+        prepared.overlay.populate(authority);
         Ok(Self {
             tx: prepared.tx,
             command: prepared.command,
             view: authority.chain_view().clone(),
-            accepted_source: authority.accepted_source_cut(),
             dependency_cut: authority.dependency_observation_cut(),
             snapshot,
             overlay: prepared.overlay,

@@ -3,9 +3,7 @@
 //! Every index transition is compiled from the same owner before/after set.
 //! Callers cannot update proposal and ingress-peer views independently.
 
-use super::state::{
-    AcceptedAtMillis, AcceptedStatus, OwnedTx, ProposalId, RawTxHash, RemoteDeadline,
-};
+use super::state::{AcceptedAtMillis, OwnedTx, ProposalId, RawTxHash, RemoteDeadline};
 use ckb_network::PeerIndex;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -27,34 +25,6 @@ struct DeadlineKey {
 struct AcceptedDeadlineKey {
     accepted_at: AcceptedAtMillis,
     hash: RawTxHash,
-}
-
-/// Proposal ids partitioned by authoritative Accepted status. Chain-window
-/// reconciliation reads only Gap, plus Pending while packaging, rather than
-/// scanning every resident owner on every block.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct AcceptedProposalIndex {
-    pending: BTreeSet<ProposalId>,
-    gap: BTreeSet<ProposalId>,
-    proposed: BTreeSet<ProposalId>,
-}
-
-impl AcceptedProposalIndex {
-    fn for_status(&self, status: AcceptedStatus) -> &BTreeSet<ProposalId> {
-        match status {
-            AcceptedStatus::Pending => &self.pending,
-            AcceptedStatus::Gap => &self.gap,
-            AcceptedStatus::Proposed => &self.proposed,
-        }
-    }
-
-    fn for_status_mut(&mut self, status: AcceptedStatus) -> &mut BTreeSet<ProposalId> {
-        match status {
-            AcceptedStatus::Pending => &mut self.pending,
-            AcceptedStatus::Gap => &mut self.gap,
-            AcceptedStatus::Proposed => &mut self.proposed,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -89,7 +59,6 @@ struct IndexFact {
     context_sensitive_accepted: bool,
     active_deadline: Option<RemoteDeadline>,
     accepted_at: Option<AcceptedAtMillis>,
-    accepted_status: Option<AcceptedStatus>,
 }
 
 impl IndexFact {
@@ -113,17 +82,12 @@ impl IndexFact {
             OwnedTx::Accepted(entry) => Some(entry.accepted_at),
             OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
         };
-        let accepted_status = match owner {
-            OwnedTx::Accepted(entry) => Some(entry.status()),
-            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
-        };
         Ok(Self {
             proposal: owner.record().identity.proposal.clone(),
             preaccepted_peer,
             context_sensitive_accepted,
             active_deadline,
             accepted_at,
-            accepted_status,
         })
     }
 
@@ -162,8 +126,6 @@ pub(super) struct IndexDelta {
     deadline_insertions: Vec<DeadlineKey>,
     accepted_deadline_removals: Vec<AcceptedDeadlineKey>,
     accepted_deadline_insertions: Vec<AcceptedDeadlineKey>,
-    accepted_proposal_removals: Vec<(AcceptedStatus, ProposalId)>,
-    accepted_proposal_insertions: Vec<(AcceptedStatus, ProposalId)>,
 }
 
 #[derive(Debug, Default)]
@@ -173,7 +135,6 @@ pub(super) struct AuthorityIndexes {
     context_sensitive_accepted: HashSet<RawTxHash>,
     deadlines: BTreeSet<DeadlineKey>,
     accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
-    accepted_proposals: AcceptedProposalIndex,
 }
 
 impl AuthorityIndexes {
@@ -204,14 +165,6 @@ impl AuthorityIndexes {
         {
             return Err(IndexError::Projection);
         }
-        if fact.accepted_status.is_some_and(|status| {
-            !self
-                .accepted_proposals
-                .for_status(status)
-                .contains(&fact.proposal)
-        }) {
-            return Err(IndexError::Projection);
-        }
         Ok(())
     }
 
@@ -225,10 +178,6 @@ impl AuthorityIndexes {
 
     pub(super) fn context_sensitive_accepted(&self) -> &HashSet<RawTxHash> {
         &self.context_sensitive_accepted
-    }
-
-    pub(super) fn accepted_proposals(&self, status: AcceptedStatus) -> &BTreeSet<ProposalId> {
-        self.accepted_proposals.for_status(status)
     }
 
     pub(super) fn due_remote(
@@ -461,29 +410,6 @@ impl AuthorityIndexes {
                 delta.accepted_deadline_insertions.push(deadline);
             }
         }
-        let before_accepted_proposal = before.as_ref().and_then(|fact| {
-            fact.accepted_status
-                .map(|status| (status, fact.proposal.clone()))
-        });
-        let after_accepted_proposal = after.as_ref().and_then(|fact| {
-            fact.accepted_status
-                .map(|status| (status, fact.proposal.clone()))
-        });
-        if before_accepted_proposal != after_accepted_proposal {
-            if let Some(subject) = before_accepted_proposal {
-                delta.accepted_proposal_removals.push(subject);
-            }
-            if let Some((status, proposal)) = after_accepted_proposal {
-                if self
-                    .accepted_proposals
-                    .for_status(status)
-                    .contains(&proposal)
-                {
-                    return Err(IndexError::Projection);
-                }
-                delta.accepted_proposal_insertions.push((status, proposal));
-            }
-        }
         Ok(delta)
     }
 
@@ -519,28 +445,33 @@ impl AuthorityIndexes {
             ),
         >,
     ) -> Result<IndexDelta, IndexError> {
-        let changes = changes
-            .into_iter()
-            .map(|(key, before, after)| {
-                Ok(IndexChange {
-                    key: key.clone(),
-                    before: before
-                        .map(|owner| IndexFact::from_owner(key, owner))
-                        .transpose()?,
-                    after: after
-                        .map(|owner| IndexFact::from_owner(key, owner))
-                        .transpose()?,
-                })
-            })
-            .collect::<Result<Vec<_>, IndexError>>()?;
-        let mut changed_keys = HashSet::new();
-        changed_keys
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        for change in &changes {
-            if !changed_keys.insert(change.key.clone()) {
-                return Err(IndexError::Projection);
+        let mut input = changes.into_iter();
+        let mut changes = Vec::new();
+        if let Some(capacity) = input.size_hint().1 {
+            changes
+                .try_reserve_exact(capacity)
+                .map_err(|_| IndexError::Allocation)?;
+        }
+        for (key, before, after) in input.by_ref() {
+            if changes.len() == changes.capacity() {
+                changes.try_reserve(1).map_err(|_| IndexError::Allocation)?;
             }
+            changes.push(IndexChange {
+                key: key.clone(),
+                before: before
+                    .map(|owner| IndexFact::from_owner(key, owner))
+                    .transpose()?,
+                after: after
+                    .map(|owner| IndexFact::from_owner(key, owner))
+                    .transpose()?,
+            });
+        }
+        changes.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+        if changes
+            .array_windows::<2>()
+            .any(|[left, right]| left.key == right.key)
+        {
+            return Err(IndexError::Projection);
         }
 
         let mut proposal_removals = Vec::new();
@@ -553,8 +484,6 @@ impl AuthorityIndexes {
         let mut deadline_insertions = Vec::new();
         let mut accepted_deadline_removals = Vec::new();
         let mut accepted_deadline_insertions = Vec::new();
-        let mut accepted_proposal_removals = Vec::new();
-        let mut accepted_proposal_insertions = Vec::new();
         proposal_removals
             .try_reserve(changes.len())
             .map_err(|_| IndexError::Allocation)?;
@@ -585,13 +514,6 @@ impl AuthorityIndexes {
         accepted_deadline_insertions
             .try_reserve(changes.len())
             .map_err(|_| IndexError::Allocation)?;
-        accepted_proposal_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        accepted_proposal_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-
         for change in &changes {
             if let Some(before) = &change.before {
                 if self.by_proposal.get(&before.proposal) != Some(&change.key) {
@@ -620,14 +542,6 @@ impl AuthorityIndexes {
                     .accepted_deadline_key(&change.key)
                     .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
                 {
-                    return Err(IndexError::Projection);
-                }
-                if before.accepted_status.is_some_and(|status| {
-                    !self
-                        .accepted_proposals
-                        .for_status(status)
-                        .contains(&before.proposal)
-                }) {
                     return Err(IndexError::Projection);
                 }
             } else if self.context_sensitive_accepted.contains(&change.key) {
@@ -704,88 +618,62 @@ impl AuthorityIndexes {
                     accepted_deadline_insertions.push(deadline);
                 }
             }
-            let before_accepted_proposal = change.before.as_ref().and_then(|fact| {
-                fact.accepted_status
-                    .map(|status| (status, fact.proposal.clone()))
-            });
-            let after_accepted_proposal = change.after.as_ref().and_then(|fact| {
-                fact.accepted_status
-                    .map(|status| (status, fact.proposal.clone()))
-            });
-            if before_accepted_proposal != after_accepted_proposal {
-                if let Some(subject) = before_accepted_proposal {
-                    accepted_proposal_removals.push(subject);
-                }
-                if let Some(subject) = after_accepted_proposal {
-                    accepted_proposal_insertions.push(subject);
-                }
-            }
         }
 
-        let removed_deadlines = deadline_removals.iter().collect::<HashSet<_>>();
-        if removed_deadlines.len() != deadline_removals.len()
-            || deadline_insertions.iter().collect::<HashSet<_>>().len() != deadline_insertions.len()
+        deadline_removals.sort_unstable();
+        deadline_insertions.sort_unstable();
+        if deadline_removals
+            .array_windows::<2>()
+            .any(|[left, right]| left == right)
+            || deadline_insertions
+                .array_windows::<2>()
+                .any(|[left, right]| left == right)
             || deadline_insertions.iter().any(|deadline| {
-                self.deadlines.contains(deadline) && !removed_deadlines.contains(deadline)
+                self.deadlines.contains(deadline)
+                    && deadline_removals.binary_search(deadline).is_err()
             })
         {
             return Err(IndexError::Projection);
         }
 
-        let removed_accepted_deadlines = accepted_deadline_removals.iter().collect::<HashSet<_>>();
-        if removed_accepted_deadlines.len() != accepted_deadline_removals.len()
+        accepted_deadline_removals.sort_unstable();
+        accepted_deadline_insertions.sort_unstable();
+        if accepted_deadline_removals
+            .array_windows::<2>()
+            .any(|[left, right]| left == right)
             || accepted_deadline_insertions
-                .iter()
-                .collect::<HashSet<_>>()
-                .len()
-                != accepted_deadline_insertions.len()
+                .array_windows::<2>()
+                .any(|[left, right]| left == right)
             || accepted_deadline_insertions.iter().any(|deadline| {
                 self.accepted_deadlines.contains(deadline)
-                    && !removed_accepted_deadlines.contains(deadline)
+                    && accepted_deadline_removals.binary_search(deadline).is_err()
             })
         {
             return Err(IndexError::Projection);
         }
 
-        let removed_accepted_proposals = accepted_proposal_removals
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>();
-        if removed_accepted_proposals.len() != accepted_proposal_removals.len()
-            || accepted_proposal_insertions
-                .iter()
-                .collect::<HashSet<_>>()
-                .len()
-                != accepted_proposal_insertions.len()
-            || accepted_proposal_insertions
-                .iter()
-                .any(|(status, proposal)| {
-                    self.accepted_proposals
-                        .for_status(*status)
-                        .contains(proposal)
-                        && !removed_accepted_proposals.contains(&(*status, proposal.clone()))
-                })
+        proposal_removals.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        proposal_insertions.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        if proposal_removals
+            .array_windows::<2>()
+            .any(|[left, right]| left.0 == right.0)
         {
             return Err(IndexError::Projection);
         }
-
-        let removed_proposals = proposal_removals.iter().cloned().collect::<HashMap<_, _>>();
-        if removed_proposals.len() != proposal_removals.len() {
-            return Err(IndexError::Projection);
+        if proposal_insertions
+            .array_windows::<2>()
+            .any(|[left, right]| left.0 == right.0)
+        {
+            return Err(IndexError::ProposalCollision);
         }
-        let mut inserted_proposals = HashMap::new();
-        inserted_proposals
-            .try_reserve(proposal_insertions.len())
-            .map_err(|_| IndexError::Allocation)?;
-        for (proposal, key) in &proposal_insertions {
-            if inserted_proposals
-                .insert(proposal.clone(), key.clone())
-                .is_some()
-            {
-                return Err(IndexError::ProposalCollision);
-            }
+        for (proposal, _) in &proposal_insertions {
             if let Some(current) = self.by_proposal.get(proposal)
-                && removed_proposals.get(proposal) != Some(current)
+                && proposal_removals
+                    .binary_search_by(|(removed, _)| removed.cmp(proposal))
+                    .ok()
+                    .and_then(|index| proposal_removals.get(index))
+                    .map(|(_, hash)| hash)
+                    != Some(current)
             {
                 return Err(IndexError::ProposalCollision);
             }
@@ -874,7 +762,11 @@ impl AuthorityIndexes {
         touched_peers.sort_unstable();
         touched_peers.dedup();
 
-        let mut new_peer_rows = new_rows.into_iter().collect::<Vec<_>>();
+        let mut new_peer_rows = Vec::new();
+        new_peer_rows
+            .try_reserve_exact(new_rows.len())
+            .map_err(|_| IndexError::Allocation)?;
+        new_peer_rows.extend(new_rows);
         new_peer_rows.sort_unstable_by_key(|(peer, _)| *peer);
         peer_removals.sort_unstable();
         retained_peer_insertions.sort_unstable();
@@ -891,8 +783,6 @@ impl AuthorityIndexes {
             deadline_insertions,
             accepted_deadline_removals,
             accepted_deadline_insertions,
-            accepted_proposal_removals,
-            accepted_proposal_insertions,
         })
     }
 
@@ -942,16 +832,6 @@ impl AuthorityIndexes {
         }
         for deadline in delta.accepted_deadline_insertions {
             self.accepted_deadlines.insert(deadline);
-        }
-        for (status, proposal) in delta.accepted_proposal_removals {
-            self.accepted_proposals
-                .for_status_mut(status)
-                .remove(&proposal);
-        }
-        for (status, proposal) in delta.accepted_proposal_insertions {
-            self.accepted_proposals
-                .for_status_mut(status)
-                .insert(proposal);
         }
     }
 }

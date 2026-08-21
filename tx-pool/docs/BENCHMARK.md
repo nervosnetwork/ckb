@@ -136,8 +136,8 @@ commit/dirty metadata plus the common harness fingerprint.
 
 ### Cross-version one-shot A/B
 
-Use the one-shot runner when two revisions cannot expose the same Criterion
-harness API, especially for the final UAK-to-develop comparison. The benchmark
+Use the one-shot runner when two frozen current-goal checkpoints cannot expose
+the same Criterion harness API. The benchmark
 fixture and its Cargo bench declaration must be committed in both measurement
 worktrees; `profile_one_shot.rs` must be byte-identical. A compatibility
 feature may adapt only the benchmark's service-construction call to an older
@@ -210,12 +210,30 @@ instead of hiding noise by crossing into a full-pool or timeout regime. Do not
 shrink these counts for a release verdict unless a rejected calibration
 artifact demonstrates a tighter stable window on the target host.
 
-Each successful attempt also records the child process's user/system CPU time,
-average CPU parallelism and voluntary/involuntary context-switch rates from
-`RUSAGE_CHILDREN`; the scenario summary derives paired CPU ratios and medians.
-These are attribution evidence for scheduler interference. They do not relax
-the wall-throughput MAD gate or become an independent acceptance rule without
-a separately reviewed calibration.
+Each successful attempt records two deliberately different CPU observations.
+The one-shot binary samples `RUSAGE_SELF` immediately around target work; this
+target-window value owns `cpu_time_per_transaction` and excludes construction,
+preflight, warm population and teardown. The parent also records the complete
+child process's user/system CPU time, average CPU parallelism and voluntary/
+involuntary context-switch rates from `RUSAGE_CHILDREN`; those whole-process
+values remain scheduler diagnostics and never substitute for target CPU.
+Allocation calls/bytes use a counting global allocator enabled over the same
+target work, while peak RSS remains the conservative whole-process high-water
+mark. The scenario summary derives paired target-CPU ratios and medians. None
+of these observations relaxes the wall-throughput MAD gate.
+
+With `profiling` enabled, the one-shot binary also writes schema-v2 span
+lifetimes for spans that start while target work is active. Every required
+authority read/write wait/hold span must be observed with a positive start
+count and elapsed lifetime; missing/empty coordinates invalidate the attempt.
+This is independent of `profile.py`'s schema-v1 low-overhead start-count
+artifact and does not change that established profiling protocol.
+
+The additional `reorg_in_flight` confirmation registers both Pending and
+Proposed callbacks, deduplicates completion by full transaction hash and
+deliberately keeps the effect callback active while ordered reorg authority is
+invoked. Its record includes the positive callback-overlap count; a scenario
+label without observed overlap is rejected.
 
 Both source roots, and both build target paths when the runner builds both
 sides, must have equal UTF-8 byte length. This bounds path-derived code-layout

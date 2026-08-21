@@ -14,6 +14,7 @@ mod effect;
 mod exchange;
 mod indexes;
 mod ingress;
+pub(crate) use ingress::{BoundedTransaction, BoundedTransactionError};
 #[cfg(any(test, feature = "internal"))]
 mod internal;
 mod packing;

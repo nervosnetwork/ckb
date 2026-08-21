@@ -592,8 +592,8 @@ impl TxPoolAuthority {
         }
         completions.sort_unstable_by_key(ComputeExchangeCompletion::version);
         if completions
-            .windows(2)
-            .any(|pair| matches!(pair, [left, right] if left.version() == right.version()))
+            .array_windows::<2>()
+            .any(|[left, right]| left.version() == right.version())
         {
             return Err(exchange_failure(
                 PlanError::Fault(AuthorityFault::SchedulerProjection),
@@ -615,8 +615,8 @@ impl TxPoolAuthority {
         completion_slots.extend(completions.iter().map(|completion| completion.slot.id()));
         completion_slots.sort_unstable();
         let duplicate_completion = completion_slots
-            .windows(2)
-            .any(|pair| matches!(pair, [left, right] if left == right));
+            .array_windows::<2>()
+            .any(|[left, right]| left == right);
         let mut grant_slots = Vec::new();
         if grant_slots.try_reserve(grants.len()).is_err() {
             return Err(exchange_failure(
@@ -629,8 +629,8 @@ impl TxPoolAuthority {
         grant_slots.extend(grants.iter().map(|grant| grant.slot().id()));
         grant_slots.sort_unstable();
         let duplicate_grant = grant_slots
-            .windows(2)
-            .any(|pair| matches!(pair, [left, right] if left == right));
+            .array_windows::<2>()
+            .any(|[left, right]| left == right);
         if duplicate_completion || duplicate_grant {
             return Err(exchange_failure(
                 PlanError::Fault(AuthorityFault::SchedulerProjection),

@@ -11,28 +11,31 @@ use super::foundation::{
 };
 use crate::{
     authority::{
+        chain::ProposalContextReceipt,
         effect::{CommittedAcceptance, CommittedEffect, EffectPolicy},
         plan::{Backpressure, PlanError, SettlementPlan, TxPoolAuthority},
         resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
         state::{
-            AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, RawTxHash, ResolvedPayload,
-            ValidatedAdmission,
+            AcceptedStatus, CandidateMetrics, ChainRevision, ChainViewId, OwnedTx,
+            PreAcceptedPhase, RawTxHash, ResolvedPayload, ValidatedAdmission,
         },
     },
     constants::MAX_READY_BATCH,
     mathematical_model::{
         CellRole, EffectPressure, EvictionRefinementInput, EvictionRefinementMetrics,
         EvictionRefinementObservation, EvictionRefinementStatus, EvidenceOriginRole,
-        FrontierObservation, FrontierTerminal, REFINEMENT_MAX_READY, ReadyOrderInput, SourceRole,
+        FrontierObservation, FrontierTerminal, ModelFeeRate, ModelMinimumFeeObservation,
+        ModelTransactionCost, ProposalStatusReceipt, REFINEMENT_MAX_READY, SourceRole,
         accepted_capacity_observation, accepted_role_observation, candidate_graph_observation,
-        candidate_role_observation, eviction_observation, evidence_origin_observation,
-        positioned_role_observation, ready_order_observation, shared_header_observation,
-        source_observation, source_pressure_observation, stale_observation,
+        candidate_role_observation, eviction_observation, eviction_status_witness,
+        evidence_origin_observation, minimum_fee_observation, positioned_role_observation,
+        ready_order_observation, shared_header_observation, source_observation,
+        source_pressure_observation, stale_observation,
     },
 };
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, TransactionBuilder, TransactionView},
+    core::{Capacity, FeeRate, TransactionBuilder, TransactionView},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
@@ -47,6 +50,46 @@ const RANKED_FEES: [u64; REFINEMENT_MAX_READY] = [
     1_000_000,
     10_000,
 ];
+
+#[test]
+fn uak_configured_fee_rate_refines_production_arithmetic_pointwise() {
+    let rates = [0, 1, 999, 1_000, 1_500, 2_000, u64::MAX];
+    let weights = [0, 1, 2, 999, 1_000, 1_001, u32::MAX as u64, u64::MAX];
+
+    for rate in rates {
+        let production = FeeRate::from_u64(rate);
+        let model = ModelFeeRate::from_u64(rate);
+        assert_eq!(production.as_u64(), model.as_u64());
+
+        for weight in weights {
+            let production_required = production.fee(weight).as_u64();
+            let model_required = model.fee(weight);
+            assert_eq!(
+                production_required, model_required,
+                "configured fee rate {rate} and weight {weight}"
+            );
+
+            for actual in [
+                production_required.saturating_sub(1),
+                production_required,
+                production_required.saturating_add(1),
+            ] {
+                let expected = if actual < production_required {
+                    ModelMinimumFeeObservation::Rejected {
+                        actual,
+                        required: production_required,
+                    }
+                } else {
+                    ModelMinimumFeeObservation::Accepted {
+                        actual,
+                        required: production_required,
+                    }
+                };
+                assert_eq!(minimum_fee_observation(actual, weight, model), expected);
+            }
+        }
+    }
+}
 
 #[test]
 fn uak_candidate_role_product_refines_the_executable_model_pointwise() {
@@ -192,29 +235,40 @@ fn uak_shared_headers_refine_as_commutative_reads() {
 }
 
 #[test]
-fn uak_ready_economic_order_refines_when_fee_and_rate_disagree() {
+fn uak_ready_cost_quotient_rejects_payload_serialized_alias() {
     let transactions = [
-        ready_order_transaction(0, 2_048),
-        ready_order_transaction(1, 0),
-        ready_order_transaction(2, 512),
+        ready_order_transaction(0, 0),
+        ready_order_transaction(1, 512),
     ];
-    let fees = [3_000, 1_000, 2_000];
-    let inputs = transactions
-        .iter()
-        .zip(fees)
-        .map(|(transaction, fee)| ReadyOrderInput {
-            fee,
-            serialized_bytes: u32::try_from(transaction.data().total_size())
-                .expect("the finite transaction size fits u32"),
-        })
-        .collect::<Vec<_>>();
-    let expected = ready_order_observation(&inputs);
-    assert_ne!(
-        expected,
-        vec![0, 2, 1],
-        "the fixture must make absolute-fee order differ from fee-rate order"
+    let payload_bytes = transactions.each_ref().map(|transaction| {
+        u64::try_from(transaction.data().total_size())
+            .expect("the finite transaction size fits u64")
+    });
+    assert!(payload_bytes[0] < payload_bytes[1]);
+
+    // The mediant between p0/p1 and (p0+4)/(p1+4) is a constructive
+    // counterexample: raw-payload fee rate selects 0, while the protocol's
+    // block-serialized fee rate selects 1.
+    let fees = payload_bytes.map(|bytes| {
+        bytes
+            .checked_mul(2)
+            .and_then(|value| value.checked_add(4))
+            .expect("the finite alias witness fits u64")
+    });
+    assert!(
+        u128::from(fees[0]) * u128::from(payload_bytes[1])
+            > u128::from(fees[1]) * u128::from(payload_bytes[0])
     );
-    assert_eq!(production_ready_order(&transactions, &fees), expected);
+    let serialized_bytes = payload_bytes.map(|bytes| bytes + 4);
+    assert!(
+        u128::from(fees[0]) * u128::from(serialized_bytes[1])
+            < u128::from(fees[1]) * u128::from(serialized_bytes[0])
+    );
+
+    let (production, costs) = production_ready_observation(&transactions, &fees);
+    let expected = ready_order_observation(&costs);
+    assert_eq!(expected, vec![1, 0]);
+    assert_eq!(production, expected);
 }
 
 #[test]
@@ -245,13 +299,13 @@ fn uak_eviction_order_refines_the_exact_ckb_weight_and_tuple() {
                 return None;
             };
             let aggregate = snapshot.descendant_aggregates.get(hash)?;
-            let own = entry.proof.metrics();
+            let own = production_cost_receipt(&entry.record.tx, entry.proof.metrics())?;
             Some(eviction_observation(EvictionRefinementInput {
-                status: refinement_status(entry.status()),
+                status: production_eviction_status_receipt(&entry.proposal),
                 own: EvictionRefinementMetrics::new(
-                    own.fee.as_u64(),
-                    u64::try_from(own.cost.serialized_bytes).ok()?,
-                    own.cost.cycles,
+                    own.fee(),
+                    u64::from(own.serialized_bytes()),
+                    own.cycles(),
                 ),
                 descendants: EvictionRefinementMetrics::new(
                     aggregate.fee.as_u64(),
@@ -599,7 +653,10 @@ fn fill_effect_region(authority: &mut TxPoolAuthority, policy: EffectPolicy, mar
     panic!("finite effect region did not reach its configured bound")
 }
 
-fn production_ready_order(transactions: &[TransactionView], fees: &[u64]) -> Vec<usize> {
+fn production_ready_observation(
+    transactions: &[TransactionView],
+    fees: &[u64],
+) -> (Vec<usize>, Vec<ModelTransactionCost>) {
     let mut authority = TxPoolAuthority::for_foundation(refinement_limits());
     let hashes = transactions
         .iter()
@@ -608,7 +665,24 @@ fn production_ready_order(transactions: &[TransactionView], fees: &[u64]) -> Vec
         .enumerate()
         .map(|(index, (transaction, fee))| verify_proposal(&mut authority, transaction, index, fee))
         .collect::<Vec<_>>();
-    authority
+    let costs = hashes
+        .iter()
+        .map(|hash| {
+            let owner = authority
+                .entries_for_reference()
+                .get(hash)
+                .expect("every finite hash retains one Ready owner");
+            let OwnedTx::PreAccepted(entry) = owner else {
+                panic!("the finite order fixture has not entered Accepted membership");
+            };
+            let PreAcceptedPhase::Ready(verified) = &entry.phase else {
+                panic!("the finite order fixture has sealed verification evidence");
+            };
+            production_cost_receipt(&entry.record.tx, verified.metrics())
+                .expect("the production cost coordinates form the model quotient")
+        })
+        .collect::<Vec<_>>();
+    let order = authority
         .ready_for_reference()
         .into_iter()
         .map(|(hash, _)| {
@@ -617,7 +691,19 @@ fn production_ready_order(transactions: &[TransactionView], fees: &[u64]) -> Vec
                 .position(|candidate| candidate == &hash)
                 .expect("every production Ready owner belongs to the finite fixture")
         })
-        .collect()
+        .collect();
+    (order, costs)
+}
+
+fn production_cost_receipt(
+    transaction: &TransactionView,
+    metrics: &CandidateMetrics,
+) -> Option<ModelTransactionCost> {
+    let payload_bytes = u32::try_from(transaction.data().total_size()).ok()?;
+    let cost = ModelTransactionCost::new(payload_bytes, metrics.fee.as_u64(), metrics.cost.cycles)?;
+    (usize::try_from(cost.serialized_bytes()).ok()? == metrics.cost.serialized_bytes
+        && metrics.cost.serialized_bytes == transaction.data().serialized_size_in_block())
+    .then_some(cost)
 }
 
 fn ready_order_transaction(index: usize, payload_bytes: usize) -> TransactionView {
@@ -800,7 +886,9 @@ fn assert_duplicate_output_premise(roles: &[CellRole]) {
         })
         .collect::<Vec<_>>();
     assert!(
-        outputs.windows(2).all(|pair| pair[0] != pair[1]),
+        outputs
+            .array_windows::<2>()
+            .all(|[left, right]| left != right),
         "distinct raw transaction identities cannot produce one exact outpoint"
     );
 }
@@ -885,6 +973,10 @@ fn refinement_status(status: AcceptedStatus) -> EvictionRefinementStatus {
         AcceptedStatus::Gap => EvictionRefinementStatus::Gap,
         AcceptedStatus::Proposed => EvictionRefinementStatus::Proposed,
     }
+}
+
+fn production_eviction_status_receipt(receipt: &ProposalContextReceipt) -> ProposalStatusReceipt {
+    eviction_status_witness(refinement_status(receipt.status()))
 }
 
 fn refinement_identity(hash: &RawTxHash) -> [u8; 32] {

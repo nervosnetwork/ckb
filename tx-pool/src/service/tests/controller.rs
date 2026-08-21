@@ -2,9 +2,11 @@ use super::*;
 use crate::authority::service::AuthorityVerificationControl;
 use crate::service::{AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission};
 use crate::test_support::genesis_snapshot;
+use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
 use ckb_script::ChunkCommand;
+use ckb_types::{core::BlockBuilder, prelude::Entity};
 use std::{
     collections::{HashSet, VecDeque},
     future::Future,
@@ -33,8 +35,22 @@ fn full_controller() -> TxPoolController {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     }
+}
+
+#[test]
+fn reorg_payload_limit_rejects_unrepresentable_combined_residency() {
+    let config = TxPoolConfig {
+        max_tx_pool_size: usize::MAX,
+        max_tx_pool_resident_size: usize::MAX,
+        max_tx_pipeline_resident_size: 1,
+        ..TxPoolConfig::default()
+    };
+
+    assert!(ChainReorgPayloadLimit::from_config(&config).is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -50,30 +66,118 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     };
     let snapshot = genesis_snapshot();
 
     assert!(!controller.service_started());
-    controller
-        .update_tx_pool_for_reorg(
+    let publisher_controller = controller.clone();
+    let publisher_snapshot = Arc::clone(&snapshot);
+    let publisher = tokio::task::spawn_blocking(move || {
+        publisher_controller.update_tx_pool_for_reorg(
             VecDeque::new(),
             VecDeque::new(),
             HashSet::new(),
-            Arc::clone(&snapshot),
+            publisher_snapshot,
         )
-        .expect("the pre-start bounded channel retains the authoritative delta");
+    });
 
     let delivered = chain_control_receiver
-        .try_recv()
+        .recv()
+        .await
         .expect("readiness cannot suppress an authoritative chain transition");
-    let ChainControl::Reconcile(arguments) = delivered else {
+    let ChainControl::Reconcile(Request {
+        responder,
+        arguments,
+    }) = delivered
+    else {
         panic!("the ordered control must retain the exact chain transition");
     };
-    assert!(arguments.0.is_empty());
-    assert!(arguments.1.is_empty());
-    assert!(arguments.2.is_empty());
-    assert_eq!(arguments.3.tip_hash(), snapshot.tip_hash());
+    let ChainReorgArgs::Detailed {
+        detached_blocks,
+        attached_blocks,
+        snapshot: delivered_snapshot,
+    } = arguments
+    else {
+        panic!("an empty bounded reorg remains a detailed transition")
+    };
+    assert!(detached_blocks.is_empty());
+    assert!(attached_blocks.is_empty());
+    assert_eq!(delivered_snapshot.tip_hash(), snapshot.tip_hash());
+    responder
+        .send(())
+        .expect("the chain publisher owns the exact Apply completion response");
+    publisher
+        .await
+        .expect("the chain publisher task does not panic")
+        .expect("the pre-start transition returns only after Apply completion");
+}
+
+#[test]
+fn candidate_uncle_is_bounded_and_compacted_before_enqueue() {
+    let (sender, mut receiver) = mpsc::channel(1);
+    let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
+    let (_verification_control, verification_command) =
+        AuthorityVerificationControl::channel(ChunkCommand::Resume);
+    let uncle = BlockBuilder::default().build().as_uncle();
+    let retained_bytes = uncle.data().total_size() + uncle.hash().as_slice().len();
+    let controller = TxPoolController {
+        sender,
+        chain_control_sender,
+        verification_command,
+        handle: new_background_runtime(),
+        started: Arc::new(AtomicBool::new(true)),
+        administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: retained_bytes - 1,
+        signal: CancellationToken::new(),
+    };
+
+    let error = controller
+        .notify_new_uncle(uncle.clone())
+        .expect_err("an over-bound candidate cannot enter the ordinary channel");
+    assert!(error.to_string().contains("TooLarge"));
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+    ));
+
+    let controller = TxPoolController {
+        candidate_uncle_payload_limit: retained_bytes,
+        ..controller
+    };
+    controller
+        .notify_new_uncle(uncle.clone())
+        .expect("the exact retained-byte boundary is admitted");
+    let Message::NewUncle(notify) = receiver
+        .try_recv()
+        .expect("the bounded candidate crosses the channel")
+    else {
+        panic!("candidate notification variant changed")
+    };
+    assert_eq!(notify.arguments.into_uncle(), uncle);
+}
+
+#[test]
+fn oversized_reorg_payload_reduces_to_the_exact_snapshot_replacement() {
+    let snapshot = genesis_snapshot();
+    let arguments = ChainReorgArgs::bounded(
+        VecDeque::new(),
+        VecDeque::new(),
+        Arc::clone(&snapshot),
+        ChainReorgPayloadLimit::for_test(0),
+    );
+
+    assert!(!arguments.is_detailed());
+    let ChainReorgArgs::ReplaceGeneration {
+        snapshot: replacement,
+    } = arguments
+    else {
+        panic!("the zero-byte bound admits only a constant-size replacement")
+    };
+    assert!(Arc::ptr_eq(&replacement, &snapshot));
 }
 
 #[test]
@@ -90,6 +194,8 @@ fn closed_reorg_consumer_fails_without_waiting() {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(false)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     };
 
@@ -117,27 +223,42 @@ async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     };
     let snapshot = genesis_snapshot();
 
-    controller
-        .update_tx_pool_for_reorg(
+    let reorg_controller = controller.clone();
+    let reorg_snapshot = Arc::clone(&snapshot);
+    let reorg = tokio::task::spawn_blocking(move || {
+        reorg_controller.update_tx_pool_for_reorg(
             VecDeque::new(),
             VecDeque::new(),
             HashSet::new(),
-            Arc::clone(&snapshot),
+            reorg_snapshot,
         )
-        .expect("the chain transition enters the ordered lane");
+    });
+
+    let Some(ChainControl::Reconcile(Request {
+        responder: reorg_responder,
+        ..
+    })) = chain_control_receiver.recv().await
+    else {
+        panic!("the prior chain transition must be the first ordered command");
+    };
 
     let clear_controller = controller.clone();
     let clear_snapshot = Arc::clone(&snapshot);
     let clear = tokio::task::spawn_blocking(move || clear_controller.clear_pool(clear_snapshot));
 
-    assert!(matches!(
-        chain_control_receiver.recv().await,
-        Some(ChainControl::Reconcile(_))
-    ));
+    reorg_responder
+        .send(())
+        .expect("the ordered driver acknowledges the exact chain Apply");
+    reorg
+        .await
+        .expect("the reorg publisher task does not panic")
+        .expect("the reorg publisher observes Apply completion");
     let Some(ChainControl::ClearPool(command)) = chain_control_receiver.recv().await else {
         panic!("clear_pool must follow the already-enqueued chain transition");
     };
@@ -165,6 +286,8 @@ async fn public_administration_is_linear_across_controller_clones() {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         administration_gate: AdministrationGate::new(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     };
 
@@ -237,6 +360,8 @@ fn closed_administration_lane_releases_the_unique_admission() {
         handle: new_background_runtime(),
         started: Arc::new(AtomicBool::new(true)),
         administration_gate: administration_gate.clone(),
+        chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+        candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     };
 
@@ -288,6 +413,8 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
             handle: new_background_runtime(),
             started: Arc::new(AtomicBool::new(true)),
             administration_gate: AdministrationGate::new(),
+            chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+            candidate_uncle_payload_limit: usize::MAX,
             signal: CancellationToken::new(),
         };
         let transaction = ckb_types::core::TransactionBuilder::default().build();
@@ -301,7 +428,7 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
                 panic!("remote submission message missing");
             };
             let RemoteTxSubmission { transaction, .. } = arguments;
-            assert_eq!(transaction, expected);
+            assert_eq!(transaction.into_transaction().as_ref(), &expected);
             responder.send(()).expect("test receiver remains present");
         });
 
@@ -309,6 +436,49 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
             .submit_remote_tx(transaction, 0, ckb_network::PeerIndex::from(1))
             .await
             .expect("remote submission receives its response");
+        responder.await.expect("responder task does not panic");
+    });
+}
+
+#[test]
+fn remote_submit_transports_an_unchecked_cycle_declaration() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("current-thread runtime builds");
+    runtime.block_on(async {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
+        let (_verification_control, verification_command) =
+            AuthorityVerificationControl::channel(ChunkCommand::Resume);
+        let controller = TxPoolController {
+            sender,
+            chain_control_sender,
+            verification_command,
+            handle: new_background_runtime(),
+            started: Arc::new(AtomicBool::new(true)),
+            administration_gate: AdministrationGate::new(),
+            chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+            candidate_uncle_payload_limit: usize::MAX,
+            signal: CancellationToken::new(),
+        };
+        let transaction = ckb_types::core::TransactionBuilder::default().build();
+        let responder = tokio::spawn(async move {
+            let Some(Message::SubmitRemoteTx(AsyncRequest {
+                responder,
+                arguments,
+            })) = receiver.recv().await
+            else {
+                panic!("remote submission message missing")
+            };
+            assert_eq!(arguments.declared_cycles, u64::MAX);
+            responder.send(()).expect("test receiver remains present");
+        });
+
+        controller
+            .submit_remote_tx(transaction, u64::MAX, ckb_network::PeerIndex::from(2))
+            .await
+            .expect("the current controller transports raw declared cycles");
         responder.await.expect("responder task does not panic");
     });
 }

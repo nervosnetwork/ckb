@@ -1,0 +1,3052 @@
+{
+  "schema_version": 3,
+  "release_basis_sha256": "8bfcf5cd0c98bf65901130a7d17e21eff69cc861c9129fc85fb0f5bfc86f1fbe",
+  "normal_form_evidence_sha256": "b6da65f6a8d12e64eb750494644ab2a19c00fba336f7696cf0e0fa7df9af29bf",
+  "workload_environment_matrix_sha256": "1a34a1cbcf6a2c73b20164898d1fb83175689ac580d79721fd2d16861fc9bd71",
+  "optimization_goal_sha256": "8a198ac994605823e4b5d9f862acd4dd5083988935c46dbd32d8c7ef361da88c",
+  "complexity_measure_sha256": "cb1dc9d9dd03277c888e739d4d06d2b09404ff56697992fd818abe5c17f1d303",
+  "witness": "bounded_semantic_exchange",
+  "generator_source_sha256": {
+    "tx-pool/scripts/check_security_manifest.py": "c5c5e2afcae618ab2289a1c4ab098fb86475ec1f95188b57e2b58816b348c8b3",
+    "tx-pool/scripts/check_semantic_refinement_census.py": "d5d2d4c100392b9babbc19f180d852db1816795809b87180c86cd5bc0adaf472"
+  },
+  "X3_complexity": {
+    "domain": "singleton_X2_blueprint_realizations_under_the_production_observation_mechanism_measure",
+    "X2_cardinality": 1,
+    "coordinates": [
+      {
+        "objective_index": 0,
+        "objective_ref": "optimization_goal.complexity_objective/0",
+        "operator": "distinct_boundary_family_atoms",
+        "vector_components": [
+          "required_boundary_families"
+        ],
+        "blueprint_cost": [
+          27
+        ],
+        "required_atoms": {
+          "required_boundary_families": [
+            "acceptance_publication",
+            "administration",
+            "authority_read",
+            "callback_publication",
+            "chain_control",
+            "derived_accelerator",
+            "integration_test_rpc",
+            "internal_fixture",
+            "lifecycle_protocol",
+            "local_submit",
+            "persistence_protocol",
+            "proposal_ingress",
+            "proposal_remote_origin",
+            "recent_reject_store",
+            "rejection_publication",
+            "relay_and_ban_settlement",
+            "relay_generation_reset",
+            "relay_parent_request",
+            "relay_release",
+            "relay_settlement",
+            "remote_ingress",
+            "remote_payload",
+            "startup_protocol",
+            "template_protocol",
+            "test_accept",
+            "trusted_payload",
+            "verification_control"
+          ],
+          "boundary_observation_count": 151,
+          "family_evidence_sha256": "e72dab0ba79fef2bc8bc493a1515508dcfc7df5d9e05dbc8c231b6ebd49364ef"
+        },
+        "required_atoms_sha256": "5ca8c8b555d12ba989da0f801637dc60f877d86d2c356979725ebc445785cfcb",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [],
+          "lower_bound": [
+            27
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 1,
+        "objective_ref": "optimization_goal.complexity_objective/1",
+        "operator": "semantic_observation_authority_roots",
+        "vector_components": [
+          "production_authorities",
+          "model_authorities"
+        ],
+        "blueprint_cost": [
+          110,
+          132
+        ],
+        "required_atoms": {
+          "production_authorities": [
+            "accepted_context_sensitivity",
+            "accepted_read_receipt",
+            "accepted_validity_transition",
+            "allocation_chain_terminal",
+            "allocation_compute_terminal",
+            "allocation_generation_terminal",
+            "atomic_apply_capability",
+            "atomic_clock_branch_capability",
+            "atomic_clock_commit",
+            "atomic_clock_plan_capability",
+            "atomic_owner_transition",
+            "atomic_retirement_carrier",
+            "atomic_transition_controls",
+            "authority_integrity_fault",
+            "candidate_uncle_residency",
+            "candidate_uncle_scratch",
+            "candidate_validation_outcome",
+            "chain_reconciliation_capability",
+            "chain_validation_outcome",
+            "coherent_public_projection",
+            "coherent_store_cut",
+            "committed_effect_authority",
+            "committed_effect_value",
+            "commutative_membership",
+            "commutative_membership_change",
+            "completion_exchange",
+            "completion_exchange_failure",
+            "compute_capability",
+            "compute_completion",
+            "compute_settlement_outcome",
+            "compute_worker_outcome",
+            "compute_worker_protocol",
+            "contextual_time_receipt",
+            "coupled_membership_plan",
+            "dependency_level_authority",
+            "dependency_maintenance_decision",
+            "dependency_maintenance_successor",
+            "direct_acceptance_evidence",
+            "direct_boundary_outcome",
+            "direct_ingress_handoff",
+            "direct_negative_evidence",
+            "direct_resolution_outcome",
+            "direct_validation_evidence",
+            "effect_claim_view",
+            "effect_delivery_capability",
+            "effect_endpoint_boundary",
+            "effect_settlement_capability",
+            "external_proposal_residency",
+            "external_transaction_batch_residency",
+            "external_transaction_residency",
+            "final_acceptance_evidence",
+            "generation_boundary_event",
+            "generation_invalidity_capability",
+            "generation_lifecycle",
+            "generation_task_event",
+            "generation_task_fault",
+            "identity_index_projection",
+            "kernel_backpressure_outcome",
+            "kernel_plan_outcome",
+            "membership_projection",
+            "membership_validation_outcome",
+            "ordered_chain_handoff",
+            "ordered_chain_preparation",
+            "ordered_chain_residency",
+            "ordered_chain_residency_configuration",
+            "ordinary_boundary_handoff",
+            "peer_ban_fence",
+            "permit_work_exchange",
+            "permit_work_exchange_failure",
+            "persistence_payload",
+            "persistence_projection",
+            "persistence_serialization",
+            "persistence_write_capability",
+            "post_commit_handoff",
+            "projection_source_versions",
+            "proposal_time_phase",
+            "ready_priority_progress",
+            "relay_boundary_configuration",
+            "relay_mailbox_handoff",
+            "relay_query_identity",
+            "resolution_cut_outcome",
+            "resolution_residency_outcome",
+            "resolved_cell_role",
+            "resolved_payload_outcome",
+            "resource_authority",
+            "resource_charge",
+            "resource_configuration",
+            "resource_vector",
+            "retained_ingress_handoff",
+            "retained_ingress_outcome",
+            "retained_resolution_outcome",
+            "runtime_configuration_outcome",
+            "runtime_transition_boundary",
+            "scheduler_authority",
+            "scheduler_owner_ring",
+            "service_integrity_fault",
+            "service_outcome",
+            "shared_variable_residency_normal_form",
+            "stale_plan_outcome",
+            "system_assembly",
+            "system_protocol",
+            "task_lifecycle",
+            "template_chain_read_outcome",
+            "template_chain_read_state",
+            "template_convergence",
+            "template_failure_progress_cut",
+            "template_packing_algorithm",
+            "template_publication_authority",
+            "transaction_authority",
+            "wake_observation_compiler"
+          ],
+          "model_authorities": [
+            "acceptance_evidence_cut",
+            "accepted_context_sensitivity",
+            "accepted_validity_transition",
+            "adversarial_cost_bound",
+            "adversarial_cost_input",
+            "allocation_terminal_conservation",
+            "atomic_clock_branch_decision",
+            "atomic_clock_commit",
+            "atomic_clock_plan",
+            "atomic_owner_transition",
+            "atomic_retirement_carrier",
+            "atomic_transition_controls",
+            "batch_plan_outcome",
+            "boundary_request_protocol",
+            "cache_publication_input",
+            "callback_boundary",
+            "callback_capability",
+            "candidate_apply_cost",
+            "candidate_query_input",
+            "candidate_topology_surface",
+            "candidate_uncle_boundary",
+            "canonical_ordered_batch",
+            "capability_handoff",
+            "chain_apply_completion_observation",
+            "chain_apply_completion_protocol",
+            "chain_apply_completion_topology",
+            "chain_context_transition",
+            "chain_removal_cause",
+            "chain_validation_outcome",
+            "committed_effect_value",
+            "commutative_membership",
+            "complete_candidate_topology",
+            "complete_system_disposition",
+            "complete_system_event",
+            "complete_system_state",
+            "completion_exchange",
+            "completion_exchange_failure",
+            "compute_capability",
+            "compute_completion",
+            "compute_resource_admission",
+            "compute_resource_grant",
+            "contextual_time_point",
+            "contextual_time_requirement",
+            "continuous_charge",
+            "continuous_resource_authority",
+            "continuous_resource_configuration",
+            "continuous_resource_vector",
+            "coordinator_completion_readiness",
+            "coordinator_effect_blocked_shutdown_cut",
+            "coordinator_shutdown_observation",
+            "current_retained_path_cost",
+            "current_retained_path_input",
+            "dependency_level_authority",
+            "dependency_maintenance_decision",
+            "dependency_maintenance_rank",
+            "dependency_maintenance_successor",
+            "direct_compute_capability",
+            "direct_negative_evidence",
+            "effect_claim",
+            "effect_endpoint_boundary",
+            "effect_endpoint_circuit",
+            "effect_publication_observation",
+            "evidence_dependency_frontier",
+            "fair_permit_protocol",
+            "fallible_scratch_outcome",
+            "fee_rate_configuration",
+            "generation_lifecycle",
+            "hostile_work_bound",
+            "independent_wave_input",
+            "ingress_source",
+            "integrity_fault",
+            "kernel_command",
+            "kernel_outcome",
+            "minimum_fee_policy_observation",
+            "ordered_batch_family",
+            "ordered_boundary_input",
+            "owner_lifecycle",
+            "peer_ban_fence",
+            "permit_work_exchange",
+            "permit_work_exchange_failure",
+            "progress_observation_cut",
+            "proposal_history_topology",
+            "proposal_time_phase",
+            "query_boundary",
+            "query_cost_bound",
+            "query_cost_input",
+            "query_scratch_protocol",
+            "query_subject",
+            "ready_priority_progress",
+            "relay_boundary",
+            "relay_query_identity",
+            "released_input_projection",
+            "replacement_history_trigger",
+            "replacement_policy_configuration",
+            "resource_authority",
+            "retained_ingress_outcome",
+            "retained_ingress_surface",
+            "retained_permit_outcome",
+            "retained_permit_protocol",
+            "retained_resource_equation",
+            "scheduler_owner_ring",
+            "scheduler_set_transition",
+            "service_ingress_residency_bound",
+            "service_ingress_residency_input",
+            "service_outcome",
+            "settlement_classification",
+            "shared_variable_residency_normal_form",
+            "shutdown_action",
+            "shutdown_disposition",
+            "shutdown_persistence_protocol",
+            "shutdown_phase",
+            "task_criticality",
+            "task_disposition",
+            "task_exit",
+            "task_lifecycle",
+            "task_owner",
+            "task_role",
+            "template_boundary",
+            "template_chain_read_observation",
+            "template_chain_read_topology",
+            "template_dependency_scan_input",
+            "template_dependency_scan_observation",
+            "template_failure_progress_cut",
+            "template_packing_input",
+            "template_packing_limits",
+            "template_packing_observation",
+            "total_apply",
+            "transaction_authority",
+            "trusted_premise_falsifier",
+            "verification_control_boundary",
+            "verification_identity",
+            "wake_observation"
+          ],
+          "observation_fibers_sha256": "be2bc2bd122df93ec831d25b057f297525430f1f1d4b57716d8677dba5ca11cd"
+        },
+        "required_atoms_sha256": "a9df7d9d4156923483a08735d9c1b232a82b31f5856c60bcf1e0c0268bf854c4",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0
+          ],
+          "lower_bound": [
+            110,
+            132
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 2,
+        "objective_ref": "optimization_goal.complexity_objective/2",
+        "operator": "production_observation_algorithm_incidence",
+        "vector_components": [
+          "production_observation_fibers",
+          "production_algorithm_incidence",
+          "model_algorithm_incidence"
+        ],
+        "blueprint_cost": [
+          39,
+          285,
+          361
+        ],
+        "required_atoms": {
+          "observation_fibers": {
+            "018a12d4d8cf98c382cbb4550c9145213b476baf6d79902f41236cd4517fb63a": {
+              "observation": {
+                "boundary_vector": [
+                  "config_parse",
+                  "persistence_load_and_replay",
+                  "translated_limits",
+                  "upgrade_recovery",
+                  "v2_write"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "configuration_file_persisted_bytes_and_declared_upgrade_direction"
+                },
+                "behavior_id": "TP-BUDGET-001",
+                "semantic_law_sha256": "41fba1182e1e4c7c9356562b21abf4fb5815e7161c1b4b7b1f94613338dfe608"
+              },
+              "behavior_ids": [
+                "TP-BUDGET-001"
+              ],
+              "production_authorities": [
+                "resource_authority",
+                "resource_charge",
+                "resource_configuration",
+                "resource_vector"
+              ],
+              "model_authorities": [
+                "adversarial_cost_bound",
+                "adversarial_cost_input",
+                "candidate_apply_cost",
+                "candidate_topology_surface",
+                "compute_resource_admission",
+                "compute_resource_grant",
+                "continuous_charge",
+                "continuous_resource_authority",
+                "continuous_resource_configuration",
+                "continuous_resource_vector",
+                "current_retained_path_cost",
+                "current_retained_path_input",
+                "hostile_work_bound",
+                "independent_wave_input",
+                "resource_authority",
+                "retained_resource_equation"
+              ]
+            },
+            "1d7cb217cae7143e7c41ec6ee4d0eae070be660e6e910ec061e6e2cde4fe674c": {
+              "observation": {
+                "boundary_vector": [
+                  "RPC_projection",
+                  "committed_owner",
+                  "effect_log",
+                  "endpoint_result",
+                  "relay_lookup"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "post_commit_effect_batch_and_coherent_read_receipt"
+                },
+                "behavior_id": "TP-QUERY-001",
+                "semantic_law_sha256": "6335292baddd8dd70fc2ddbb74238f382e38775f6f51277dcdd0e7cf34365454"
+              },
+              "behavior_ids": [
+                "TP-QUERY-001"
+              ],
+              "production_authorities": [
+                "coherent_public_projection",
+                "persistence_payload",
+                "persistence_projection",
+                "persistence_serialization",
+                "persistence_write_capability"
+              ],
+              "model_authorities": [
+                "candidate_query_input",
+                "query_boundary",
+                "query_cost_bound",
+                "query_cost_input",
+                "query_scratch_protocol",
+                "query_subject"
+              ]
+            },
+            "26c687c955a2d76ff483f323c91d2d6aa6db5ace5189b903bab63835ffbbf89b": {
+              "observation": {
+                "boundary_vector": [
+                  "capability_count",
+                  "effects",
+                  "entry_version",
+                  "owner_location",
+                  "resource_vector"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "unique_A_K_atomic_apply_cut"
+                },
+                "behavior_id": "TP-POOL-001",
+                "semantic_law_sha256": "67f272c4d325064885adeb2b7117a746557ab7d90ac9a00240cb5141e774646f"
+              },
+              "behavior_ids": [
+                "TP-POOL-001"
+              ],
+              "production_authorities": [
+                "commutative_membership",
+                "commutative_membership_change",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "membership_projection",
+                "membership_validation_outcome",
+                "projection_source_versions"
+              ],
+              "model_authorities": [
+                "canonical_ordered_batch",
+                "commutative_membership",
+                "fee_rate_configuration",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration"
+              ]
+            },
+            "271099b3fca09d9ed0d60f9ebffacdddd63b9c328c4c109bc4736653f7783ac0": {
+              "observation": {
+                "boundary_vector": [
+                  "ban_policy",
+                  "resource_release",
+                  "retained_owner_absence",
+                  "rpc_or_relay_reject"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "bounded_transaction_bytes_and_consensus"
+                },
+                "behavior_id": "TP-DEFECT-001",
+                "semantic_law_sha256": "777b22b154e1ead4c5f80fcb5219cc1cbc250ac6bfdcdb9152365044dfd2de2b"
+              },
+              "behavior_ids": [
+                "TP-DEFECT-001"
+              ],
+              "production_authorities": [
+                "allocation_chain_terminal",
+                "allocation_compute_terminal",
+                "allocation_generation_terminal",
+                "authority_integrity_fault",
+                "candidate_uncle_scratch",
+                "chain_validation_outcome",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_invalidity_capability",
+                "generation_lifecycle",
+                "generation_task_event",
+                "generation_task_fault",
+                "kernel_backpressure_outcome",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "resolution_residency_outcome",
+                "runtime_configuration_outcome",
+                "runtime_transition_boundary",
+                "service_integrity_fault",
+                "service_outcome",
+                "shared_variable_residency_normal_form",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "allocation_terminal_conservation",
+                "batch_plan_outcome",
+                "boundary_request_protocol",
+                "chain_validation_outcome",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "fallible_scratch_outcome",
+                "generation_lifecycle",
+                "integrity_fault",
+                "ordered_boundary_input",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "service_outcome",
+                "shared_variable_residency_normal_form",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "trusted_premise_falsifier"
+              ]
+            },
+            "2cb2da5e20c9c8da40bb2a6f4ff6bb2e8569500dbfaa29825bd630a359007931": {
+              "observation": {
+                "boundary_vector": [
+                  "channel_residency",
+                  "fault_class",
+                  "join_result",
+                  "persistence_eligibility",
+                  "task_owner"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "task_endpoint_and_failure_events"
+                },
+                "behavior_id": "TP-DEFECT-001",
+                "semantic_law_sha256": "ebb2bce6c2df274ee154393774345750376d47443c9074b296fdfc933eb71897"
+              },
+              "behavior_ids": [
+                "TP-DEFECT-001"
+              ],
+              "production_authorities": [
+                "allocation_chain_terminal",
+                "allocation_compute_terminal",
+                "allocation_generation_terminal",
+                "authority_integrity_fault",
+                "candidate_uncle_scratch",
+                "chain_validation_outcome",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_invalidity_capability",
+                "generation_lifecycle",
+                "generation_task_event",
+                "generation_task_fault",
+                "kernel_backpressure_outcome",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "resolution_residency_outcome",
+                "runtime_configuration_outcome",
+                "runtime_transition_boundary",
+                "service_integrity_fault",
+                "service_outcome",
+                "shared_variable_residency_normal_form",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "allocation_terminal_conservation",
+                "batch_plan_outcome",
+                "boundary_request_protocol",
+                "chain_validation_outcome",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "fallible_scratch_outcome",
+                "generation_lifecycle",
+                "integrity_fault",
+                "ordered_boundary_input",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "service_outcome",
+                "shared_variable_residency_normal_form",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "trusted_premise_falsifier"
+              ]
+            },
+            "379c680ddecc0e569bc73aeb112fd941b1591ecfac80e7e1ffce1fa128b23a73": {
+              "observation": {
+                "boundary_vector": [
+                  "conflicted_RPC",
+                  "relay_and_callback",
+                  "replacement_history",
+                  "replacement_result",
+                  "victim_membership"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "coherent_membership_conflict_and_fee_cut"
+                },
+                "behavior_id": "TP-EFFECT-001",
+                "semantic_law_sha256": "42aa4e4d635e4e3f4401f94364b2e6a824b5b9f40c9e19cf58eb3568f0e6d4fc"
+              },
+              "behavior_ids": [
+                "TP-EFFECT-001"
+              ],
+              "production_authorities": [
+                "committed_effect_authority",
+                "committed_effect_value",
+                "effect_claim_view",
+                "effect_delivery_capability",
+                "effect_endpoint_boundary",
+                "effect_settlement_capability",
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff"
+              ],
+              "model_authorities": [
+                "callback_boundary",
+                "callback_capability",
+                "committed_effect_value",
+                "effect_claim",
+                "effect_endpoint_boundary",
+                "effect_endpoint_circuit",
+                "effect_publication_observation",
+                "peer_ban_fence",
+                "relay_boundary"
+              ]
+            },
+            "42a44c8acf4d9cc2d4578f346abcec63316ce5b4a1e80fdcfcd5028bc94579ed": {
+              "observation": {
+                "boundary_vector": [
+                  "limits_and_failure",
+                  "proposal_set",
+                  "template_source_receipt",
+                  "transaction_order",
+                  "uncle_set"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "coherent_authority_read_plus_candidate_uncle_source_dynamic_causal_package_packer_exact_dependency_edge_bound_and_bounded_conditional_graph_compiler"
+                },
+                "behavior_id": "TP-DEP-001",
+                "semantic_law_sha256": "acecca14cec116c00b45b376b112382ef6429724ebbcb8fedcf18729236c9bd0"
+              },
+              "behavior_ids": [
+                "TP-DEP-001"
+              ],
+              "production_authorities": [
+                "chain_reconciliation_capability",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation"
+              ],
+              "model_authorities": [
+                "chain_removal_cause",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier"
+              ]
+            },
+            "43cf3ac17bab9cda019bd0f45824e6711505e5cc0b0fbf051fe259f1d21c33a3": {
+              "observation": {
+                "boundary_vector": [
+                  "channel_residency",
+                  "fault_class",
+                  "join_result",
+                  "persistence_eligibility",
+                  "task_owner"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "task_endpoint_and_failure_events"
+                },
+                "behavior_id": "TP-HANDOFF-001",
+                "semantic_law_sha256": "ebb2bce6c2df274ee154393774345750376d47443c9074b296fdfc933eb71897"
+              },
+              "behavior_ids": [
+                "TP-HANDOFF-001"
+              ],
+              "production_authorities": [
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "peer_ban_fence",
+                "relay_boundary",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role"
+              ]
+            },
+            "487184efa19264e312ea8fe3dfa2e1e706766200b18776d94e5e2c249a525d54": {
+              "observation": {
+                "boundary_vector": [
+                  "accepted_validity_transition",
+                  "commit_eligibility",
+                  "maturity_since_result",
+                  "resolve_result",
+                  "script_result"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "snapshot_tip_epoch_median_time_rules_resolved_since_and_cellbase_read_set"
+                },
+                "behavior_id": "TP-REORG-001",
+                "semantic_law_sha256": "8bf4eb803f18f8218817110500ab0f9c06d3cc6be1c48654c5751e1d172aefca"
+              },
+              "behavior_ids": [
+                "TP-REORG-001"
+              ],
+              "production_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_residency",
+                "chain_reconciliation_capability",
+                "contextual_time_receipt",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation",
+                "proposal_time_phase",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "chain_context_transition",
+                "chain_removal_cause",
+                "contextual_time_point",
+                "contextual_time_requirement",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier",
+                "proposal_history_topology",
+                "proposal_time_phase",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "48f8eaa25d087bef923d8acc1b65ad286c982f7d7bf76f519c8e26b2092a9925": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_or_terminal",
+                  "local_rank",
+                  "monotonic_level",
+                  "proposal_phase",
+                  "template_inclusion"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "accepted_authority_cut_package_order_causal_and_conditional_template_graph_exact_composition_capacity_proposal_history_and_typed_external_service"
+                },
+                "behavior_id": "TP-DEP-001",
+                "semantic_law_sha256": "a8a67e6e0396e8de1c180fd9ee7c759631578e3036e6a57867b7f47b5083dd31"
+              },
+              "behavior_ids": [
+                "TP-DEP-001"
+              ],
+              "production_authorities": [
+                "chain_reconciliation_capability",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation"
+              ],
+              "model_authorities": [
+                "chain_removal_cause",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier"
+              ]
+            },
+            "4a1d2ca4295e6ca10c9ef9ce3c21756a9c39a00c49ae297c2223cd6c6c578784": {
+              "observation": {
+                "boundary_vector": [
+                  "admission_or_backpressure",
+                  "eviction_order",
+                  "expiry_result",
+                  "remaining_owners",
+                  "resource_usage"
+                ],
+                "producer": {
+                  "kind": "cost_summary",
+                  "ref": "sealed_payload_graph_effect_and_residency_dimensions"
+                },
+                "behavior_id": "TP-ADMIN-001",
+                "semantic_law_sha256": "0b26eed45ef9096b67ea4ac468bcad81d8c8cf9e8b100b890df539e89b090982"
+              },
+              "behavior_ids": [
+                "TP-ADMIN-001"
+              ],
+              "production_authorities": [
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff"
+              ],
+              "model_authorities": [
+                "peer_ban_fence",
+                "relay_boundary"
+              ]
+            },
+            "4fdafec24e16f26317dbddfd8530b9f869d88d3efc26042c8e7c7c82e97ce49e": {
+              "observation": {
+                "boundary_vector": [
+                  "limits_and_failure",
+                  "proposal_set",
+                  "template_source_receipt",
+                  "transaction_order",
+                  "uncle_set"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "coherent_authority_read_plus_candidate_uncle_source_dynamic_causal_package_packer_exact_dependency_edge_bound_and_bounded_conditional_graph_compiler"
+                },
+                "behavior_id": "TP-TEMPLATE-001",
+                "semantic_law_sha256": "acecca14cec116c00b45b376b112382ef6429724ebbcb8fedcf18729236c9bd0"
+              },
+              "behavior_ids": [
+                "TP-TEMPLATE-001"
+              ],
+              "production_authorities": [
+                "candidate_uncle_residency",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "proposal_history_topology",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "54685ed26b6e5afe4f331d4418058b4a6feb8a26369b1885f5f71412a5b16d76": {
+              "observation": {
+                "boundary_vector": [
+                  "conflicted_RPC",
+                  "relay_and_callback",
+                  "replacement_history",
+                  "replacement_result",
+                  "victim_membership"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "coherent_membership_conflict_and_fee_cut"
+                },
+                "behavior_id": "TP-CACHE-001",
+                "semantic_law_sha256": "42aa4e4d635e4e3f4401f94364b2e6a824b5b9f40c9e19cf58eb3568f0e6d4fc"
+              },
+              "behavior_ids": [
+                "TP-CACHE-001"
+              ],
+              "production_authorities": [
+                "commutative_membership",
+                "commutative_membership_change",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "membership_projection",
+                "membership_validation_outcome",
+                "projection_source_versions"
+              ],
+              "model_authorities": [
+                "canonical_ordered_batch",
+                "commutative_membership",
+                "fee_rate_configuration",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration"
+              ]
+            },
+            "5524db89b1bf46b0ef77b38092914ae52e39538cdd36ca6fb3212dd3166152ea": {
+              "observation": {
+                "boundary_vector": [
+                  "assignment_order",
+                  "parallel_wave_width",
+                  "permit_conservation",
+                  "ready_order",
+                  "shutdown_return"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "runnable_owner_cut_configured_order_and_available_worker_roles"
+                },
+                "behavior_id": "TP-PERF-001",
+                "semantic_law_sha256": "21c2e5f643945d258e943611f337b8ae974ab1d545efbd1b513c4f5c76f3216e"
+              },
+              "behavior_ids": [
+                "TP-PERF-001"
+              ],
+              "production_authorities": [
+                "ready_priority_progress",
+                "resource_authority",
+                "resource_charge",
+                "resource_configuration",
+                "resource_vector"
+              ],
+              "model_authorities": [
+                "adversarial_cost_bound",
+                "adversarial_cost_input",
+                "candidate_apply_cost",
+                "candidate_topology_surface",
+                "compute_resource_admission",
+                "compute_resource_grant",
+                "continuous_charge",
+                "continuous_resource_authority",
+                "continuous_resource_configuration",
+                "continuous_resource_vector",
+                "current_retained_path_cost",
+                "current_retained_path_input",
+                "hostile_work_bound",
+                "independent_wave_input",
+                "ready_priority_progress",
+                "resource_authority",
+                "retained_resource_equation"
+              ]
+            },
+            "5c3c1587e1a84a01bebdd1688c9a0af0705180256de331e1f6b3fc3e37ad0b65": {
+              "observation": {
+                "boundary_vector": [
+                  "admission_result",
+                  "owner_version",
+                  "stale_disposition",
+                  "verification_cache_identity"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "transaction_bytes_plus_snapshot_and_rules"
+                },
+                "behavior_id": "TP-OWN-001",
+                "semantic_law_sha256": "58fd7e428d92c56947bf3ae7488c16e2a551285db8be66c73356e52edf35c855"
+              },
+              "behavior_ids": [
+                "TP-OWN-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "atomic_apply_capability",
+                "atomic_clock_branch_capability",
+                "atomic_clock_commit",
+                "atomic_clock_plan_capability",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "candidate_validation_outcome",
+                "coherent_store_cut",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "final_acceptance_evidence",
+                "kernel_plan_outcome",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "post_commit_handoff",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "stale_plan_outcome",
+                "transaction_authority",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "atomic_clock_branch_decision",
+                "atomic_clock_commit",
+                "atomic_clock_plan",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "cache_publication_input",
+                "capability_handoff",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "ingress_source",
+                "kernel_command",
+                "kernel_outcome",
+                "owner_lifecycle",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "settlement_classification",
+                "total_apply",
+                "transaction_authority",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            },
+            "65dff53765fb9bebfff23462b8ba5a92cccecc4b98c41b508c310e777ced45cd": {
+              "observation": {
+                "boundary_vector": [
+                  "admission_result",
+                  "owner_version",
+                  "stale_disposition",
+                  "verification_cache_identity"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "transaction_bytes_plus_snapshot_and_rules"
+                },
+                "behavior_id": "TP-IDENTITY-001",
+                "semantic_law_sha256": "58fd7e428d92c56947bf3ae7488c16e2a551285db8be66c73356e52edf35c855"
+              },
+              "behavior_ids": [
+                "TP-IDENTITY-001"
+              ],
+              "production_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_read_receipt",
+                "accepted_validity_transition",
+                "candidate_validation_outcome",
+                "contextual_time_receipt",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "final_acceptance_evidence",
+                "proposal_time_phase",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "chain_context_transition",
+                "contextual_time_point",
+                "contextual_time_requirement",
+                "direct_negative_evidence",
+                "ingress_source",
+                "proposal_time_phase",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "verification_control_boundary",
+                "verification_identity"
+              ]
+            },
+            "71b7d7cb1f4e40379aac96ca85b4df803cd0a6db91ee87e40cb20044f0a851d6": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_legality",
+                  "derived_window_position",
+                  "eventual_reproposal_and_commit",
+                  "proposal_RPC_status",
+                  "proposal_selection"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "typed_admission_plus_ordered_main_uncle_proposal_history_candidate_height_closest_farthest"
+                },
+                "behavior_id": "TP-REORG-001",
+                "semantic_law_sha256": "c4c48577c6efee099b6c2ecc8d583ef362882cbc026da71be1d3d85588316df3"
+              },
+              "behavior_ids": [
+                "TP-REORG-001"
+              ],
+              "production_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_residency",
+                "chain_reconciliation_capability",
+                "contextual_time_receipt",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation",
+                "proposal_time_phase",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "chain_context_transition",
+                "chain_removal_cause",
+                "contextual_time_point",
+                "contextual_time_requirement",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier",
+                "proposal_history_topology",
+                "proposal_time_phase",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "853232a46dcd647bbed19d093e2ca730650ffd468c060ca3826aabe19aed0511": {
+              "observation": {
+                "boundary_vector": [
+                  "active_capability",
+                  "ancestor_descendant_counts",
+                  "declared_dependency_identity",
+                  "final_membership",
+                  "missing_or_rejection",
+                  "resolved_dependency_identity",
+                  "settlement_disposition",
+                  "template_order",
+                  "wake_level"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "primitive_transaction_dependency_tags_plus_sealed_resolution_group_expansion_plus_atomic_dependency_events"
+                },
+                "behavior_id": "TP-DEP-001",
+                "semantic_law_sha256": "e4fe2ff965a5e7578f975d3f0146442368646df4abd3b1fcf4f390a23cb85b0b"
+              },
+              "behavior_ids": [
+                "TP-DEP-001"
+              ],
+              "production_authorities": [
+                "chain_reconciliation_capability",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation"
+              ],
+              "model_authorities": [
+                "chain_removal_cause",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier"
+              ]
+            },
+            "8949e66ceaa8f6b9cc3f2494116d3ab15f14b1574bd4516ec35db55dea3b4647": {
+              "observation": {
+                "boundary_vector": [
+                  "RPC_projection",
+                  "committed_owner",
+                  "effect_log",
+                  "endpoint_result",
+                  "relay_lookup"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "post_commit_effect_batch_and_coherent_read_receipt"
+                },
+                "behavior_id": "TP-EFFECT-001",
+                "semantic_law_sha256": "6335292baddd8dd70fc2ddbb74238f382e38775f6f51277dcdd0e7cf34365454"
+              },
+              "behavior_ids": [
+                "TP-EFFECT-001"
+              ],
+              "production_authorities": [
+                "committed_effect_authority",
+                "committed_effect_value",
+                "effect_claim_view",
+                "effect_delivery_capability",
+                "effect_endpoint_boundary",
+                "effect_settlement_capability",
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff"
+              ],
+              "model_authorities": [
+                "callback_boundary",
+                "callback_capability",
+                "committed_effect_value",
+                "effect_claim",
+                "effect_endpoint_boundary",
+                "effect_endpoint_circuit",
+                "effect_publication_observation",
+                "peer_ban_fence",
+                "relay_boundary"
+              ]
+            },
+            "8b70135f195cafbc3b990de1185432566eee70a662daa97dbb373a62caed0368": {
+              "observation": {
+                "boundary_vector": [
+                  "chain_revision",
+                  "committed_and_removed",
+                  "evidence_transition",
+                  "final_commit",
+                  "recovered_order"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "canonical_attached_detached_block_facts_and_exact_snapshot"
+                },
+                "behavior_id": "TP-REORG-001",
+                "semantic_law_sha256": "c9584f97b014a99731886e1462245c9a73b40e4324a65f7197ad0858e0da3d26"
+              },
+              "behavior_ids": [
+                "TP-REORG-001"
+              ],
+              "production_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_residency",
+                "chain_reconciliation_capability",
+                "contextual_time_receipt",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation",
+                "proposal_time_phase",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "chain_context_transition",
+                "chain_removal_cause",
+                "contextual_time_point",
+                "contextual_time_requirement",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier",
+                "proposal_history_topology",
+                "proposal_time_phase",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "9176b7b8bf1030a4761eab4b929b0b57ce34e7ec29cac68031a3634721dac721": {
+              "observation": {
+                "boundary_vector": [
+                  "RPC_return",
+                  "duplicate_or_resolve_error",
+                  "peer_attribution",
+                  "relay_visibility",
+                  "retained_phase"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "request_kind_peer_identity_and_transaction"
+                },
+                "behavior_id": "TP-HANDOFF-001",
+                "semantic_law_sha256": "f0f91469bc9cffa780e79d3e8c6cf8e5adbcb9d627868c7a0c7c2ed1d88cda23"
+              },
+              "behavior_ids": [
+                "TP-HANDOFF-001"
+              ],
+              "production_authorities": [
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "peer_ban_fence",
+                "relay_boundary",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role"
+              ]
+            },
+            "954c9b18000ab429d29633c4ae77363971cc0a9ddcb52ff0f1a850179c5f68c7": {
+              "observation": {
+                "boundary_vector": [
+                  "accepted_validity_transition",
+                  "commit_eligibility",
+                  "maturity_since_result",
+                  "resolve_result",
+                  "script_result"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "snapshot_tip_epoch_median_time_rules_resolved_since_and_cellbase_read_set"
+                },
+                "behavior_id": "TP-IDENTITY-001",
+                "semantic_law_sha256": "8bf4eb803f18f8218817110500ab0f9c06d3cc6be1c48654c5751e1d172aefca"
+              },
+              "behavior_ids": [
+                "TP-IDENTITY-001"
+              ],
+              "production_authorities": [
+                "accepted_context_sensitivity",
+                "accepted_read_receipt",
+                "accepted_validity_transition",
+                "candidate_validation_outcome",
+                "contextual_time_receipt",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "final_acceptance_evidence",
+                "proposal_time_phase",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "accepted_context_sensitivity",
+                "accepted_validity_transition",
+                "chain_context_transition",
+                "contextual_time_point",
+                "contextual_time_requirement",
+                "direct_negative_evidence",
+                "ingress_source",
+                "proposal_time_phase",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "verification_control_boundary",
+                "verification_identity"
+              ]
+            },
+            "a5ffc33e242009c0ef7684af3e66e084e924ed844991a7d17b607ce85435d5a7": {
+              "observation": {
+                "boundary_vector": [
+                  "ban_policy",
+                  "resource_release",
+                  "retained_owner_absence",
+                  "rpc_or_relay_reject"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "bounded_transaction_bytes_and_consensus"
+                },
+                "behavior_id": "TP-BUDGET-001",
+                "semantic_law_sha256": "777b22b154e1ead4c5f80fcb5219cc1cbc250ac6bfdcdb9152365044dfd2de2b"
+              },
+              "behavior_ids": [
+                "TP-BUDGET-001"
+              ],
+              "production_authorities": [
+                "resource_authority",
+                "resource_charge",
+                "resource_configuration",
+                "resource_vector"
+              ],
+              "model_authorities": [
+                "adversarial_cost_bound",
+                "adversarial_cost_input",
+                "candidate_apply_cost",
+                "candidate_topology_surface",
+                "compute_resource_admission",
+                "compute_resource_grant",
+                "continuous_charge",
+                "continuous_resource_authority",
+                "continuous_resource_configuration",
+                "continuous_resource_vector",
+                "current_retained_path_cost",
+                "current_retained_path_input",
+                "hostile_work_bound",
+                "independent_wave_input",
+                "resource_authority",
+                "retained_resource_equation"
+              ]
+            },
+            "a9c6c344a68a68f78d88580f55bccec403a98d3921ef00c3cff3415d96379de0": {
+              "observation": {
+                "boundary_vector": [
+                  "capability_count",
+                  "effects",
+                  "entry_version",
+                  "owner_location",
+                  "resource_vector"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "unique_A_K_atomic_apply_cut"
+                },
+                "behavior_id": "TP-COMMIT-001",
+                "semantic_law_sha256": "67f272c4d325064885adeb2b7117a746557ab7d90ac9a00240cb5141e774646f"
+              },
+              "behavior_ids": [
+                "TP-COMMIT-001"
+              ],
+              "production_authorities": [
+                "atomic_apply_capability",
+                "atomic_clock_branch_capability",
+                "atomic_clock_commit",
+                "atomic_clock_plan_capability",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "coherent_store_cut",
+                "commutative_membership",
+                "commutative_membership_change",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "kernel_plan_outcome",
+                "membership_projection",
+                "membership_validation_outcome",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "post_commit_handoff",
+                "projection_source_versions",
+                "ready_priority_progress",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "stale_plan_outcome",
+                "transaction_authority",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "atomic_clock_branch_decision",
+                "atomic_clock_commit",
+                "atomic_clock_plan",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "cache_publication_input",
+                "canonical_ordered_batch",
+                "capability_handoff",
+                "commutative_membership",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "direct_compute_capability",
+                "fair_permit_protocol",
+                "fee_rate_configuration",
+                "kernel_command",
+                "kernel_outcome",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "owner_lifecycle",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "ready_priority_progress",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "settlement_classification",
+                "total_apply",
+                "transaction_authority",
+                "wake_observation"
+              ]
+            },
+            "b2159038d0d1fd9d6041aaac0ad98bd7d323796f956a4018d22986be8973b736": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_or_terminal",
+                  "local_rank",
+                  "monotonic_level",
+                  "proposal_phase",
+                  "template_inclusion"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "accepted_authority_cut_package_order_causal_and_conditional_template_graph_exact_composition_capacity_proposal_history_and_typed_external_service"
+                },
+                "behavior_id": "TP-WORKER-001",
+                "semantic_law_sha256": "a8a67e6e0396e8de1c180fd9ee7c759631578e3036e6a57867b7f47b5083dd31"
+              },
+              "behavior_ids": [
+                "TP-WORKER-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "candidate_validation_outcome",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "final_acceptance_evidence",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "runtime_transition_boundary",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "boundary_request_protocol",
+                "cache_publication_input",
+                "capability_handoff",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "generation_lifecycle",
+                "ingress_source",
+                "ordered_boundary_input",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_ingress_surface",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "settlement_classification",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            },
+            "baa83e1ded2c6f149a9e76b062f357c7405a713d2ed426a650900f6b9c754ffd": {
+              "observation": {
+                "boundary_vector": [
+                  "RPC_projection",
+                  "committed_owner",
+                  "effect_log",
+                  "endpoint_result",
+                  "relay_lookup"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "post_commit_effect_batch_and_coherent_read_receipt"
+                },
+                "behavior_id": "TP-HANDOFF-001",
+                "semantic_law_sha256": "6335292baddd8dd70fc2ddbb74238f382e38775f6f51277dcdd0e7cf34365454"
+              },
+              "behavior_ids": [
+                "TP-HANDOFF-001"
+              ],
+              "production_authorities": [
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "peer_ban_fence",
+                "relay_boundary_configuration",
+                "relay_mailbox_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "peer_ban_fence",
+                "relay_boundary",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role"
+              ]
+            },
+            "bd3bec1a1187d894371b754a2c90e1b34ebea26567aebb12c3ed4168e551c1a4": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_or_terminal",
+                  "local_rank",
+                  "monotonic_level",
+                  "proposal_phase",
+                  "template_inclusion"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "accepted_authority_cut_package_order_causal_and_conditional_template_graph_exact_composition_capacity_proposal_history_and_typed_external_service"
+                },
+                "behavior_id": "TP-TEMPLATE-001",
+                "semantic_law_sha256": "a8a67e6e0396e8de1c180fd9ee7c759631578e3036e6a57867b7f47b5083dd31"
+              },
+              "behavior_ids": [
+                "TP-TEMPLATE-001"
+              ],
+              "production_authorities": [
+                "candidate_uncle_residency",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "proposal_history_topology",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "cb09f36f8e058fb3808449224add33ac153f861efd0e314121e34f137dcf7cb9": {
+              "observation": {
+                "boundary_vector": [
+                  "config_parse",
+                  "persistence_load_and_replay",
+                  "translated_limits",
+                  "upgrade_recovery",
+                  "v2_write"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "configuration_file_persisted_bytes_and_declared_upgrade_direction"
+                },
+                "behavior_id": "TP-PERSIST-001",
+                "semantic_law_sha256": "41fba1182e1e4c7c9356562b21abf4fb5815e7161c1b4b7b1f94613338dfe608"
+              },
+              "behavior_ids": [
+                "TP-PERSIST-001"
+              ],
+              "production_authorities": [
+                "coherent_public_projection",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "persistence_payload",
+                "persistence_projection",
+                "persistence_serialization",
+                "persistence_write_capability",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "candidate_query_input",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "query_boundary",
+                "query_cost_bound",
+                "query_cost_input",
+                "query_scratch_protocol",
+                "query_subject",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role"
+              ]
+            },
+            "cd57271b0cce13f061b8c63be92f65032fd448e28481eea628ab7f4d91566f32": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_legality",
+                  "derived_window_position",
+                  "eventual_reproposal_and_commit",
+                  "proposal_RPC_status",
+                  "proposal_selection"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "typed_admission_plus_ordered_main_uncle_proposal_history_candidate_height_closest_farthest"
+                },
+                "behavior_id": "TP-TEMPLATE-001",
+                "semantic_law_sha256": "c4c48577c6efee099b6c2ecc8d583ef362882cbc026da71be1d3d85588316df3"
+              },
+              "behavior_ids": [
+                "TP-TEMPLATE-001"
+              ],
+              "production_authorities": [
+                "candidate_uncle_residency",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "runtime_transition_boundary",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "template_chain_read_outcome",
+                "template_chain_read_state",
+                "template_convergence",
+                "template_failure_progress_cut",
+                "template_packing_algorithm",
+                "template_publication_authority"
+              ],
+              "model_authorities": [
+                "boundary_request_protocol",
+                "candidate_uncle_boundary",
+                "chain_apply_completion_observation",
+                "chain_apply_completion_protocol",
+                "chain_apply_completion_topology",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "generation_lifecycle",
+                "ordered_boundary_input",
+                "proposal_history_topology",
+                "retained_ingress_surface",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "template_boundary",
+                "template_chain_read_observation",
+                "template_chain_read_topology",
+                "template_dependency_scan_input",
+                "template_dependency_scan_observation",
+                "template_failure_progress_cut",
+                "template_packing_input",
+                "template_packing_limits",
+                "template_packing_observation"
+              ]
+            },
+            "cf5bd59284b31ffe3938f1df5939942383b0d94343350c082a09dcc1ca5f4ea1": {
+              "observation": {
+                "boundary_vector": [
+                  "conflicted_RPC",
+                  "relay_and_callback",
+                  "replacement_history",
+                  "replacement_result",
+                  "victim_membership"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "coherent_membership_conflict_and_fee_cut"
+                },
+                "behavior_id": "TP-RBF-001",
+                "semantic_law_sha256": "42aa4e4d635e4e3f4401f94364b2e6a824b5b9f40c9e19cf58eb3568f0e6d4fc"
+              },
+              "behavior_ids": [
+                "TP-RBF-001"
+              ],
+              "production_authorities": [
+                "commutative_membership",
+                "commutative_membership_change",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "membership_projection",
+                "membership_validation_outcome",
+                "projection_source_versions"
+              ],
+              "model_authorities": [
+                "canonical_ordered_batch",
+                "commutative_membership",
+                "fee_rate_configuration",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration"
+              ]
+            },
+            "d225ac2ce9e4fed0bffbb4d48045abeea95d8057c0da55f77cef4eefd9068af9": {
+              "observation": {
+                "boundary_vector": [
+                  "commit_legality",
+                  "derived_window_position",
+                  "eventual_reproposal_and_commit",
+                  "proposal_RPC_status",
+                  "proposal_selection"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "typed_admission_plus_ordered_main_uncle_proposal_history_candidate_height_closest_farthest"
+                },
+                "behavior_id": "TP-QUERY-001",
+                "semantic_law_sha256": "c4c48577c6efee099b6c2ecc8d583ef362882cbc026da71be1d3d85588316df3"
+              },
+              "behavior_ids": [
+                "TP-QUERY-001"
+              ],
+              "production_authorities": [
+                "coherent_public_projection",
+                "persistence_payload",
+                "persistence_projection",
+                "persistence_serialization",
+                "persistence_write_capability"
+              ],
+              "model_authorities": [
+                "candidate_query_input",
+                "query_boundary",
+                "query_cost_bound",
+                "query_cost_input",
+                "query_scratch_protocol",
+                "query_subject"
+              ]
+            },
+            "d373b403f8bb6e22d022657126e6616809dae556304d001a6010bfe0d3a2e7f7": {
+              "observation": {
+                "boundary_vector": [
+                  "RPC_return",
+                  "duplicate_or_resolve_error",
+                  "peer_attribution",
+                  "relay_visibility",
+                  "retained_phase"
+                ],
+                "producer": {
+                  "kind": "protocol_primitive",
+                  "ref": "request_kind_peer_identity_and_transaction"
+                },
+                "behavior_id": "TP-OWN-001",
+                "semantic_law_sha256": "f0f91469bc9cffa780e79d3e8c6cf8e5adbcb9d627868c7a0c7c2ed1d88cda23"
+              },
+              "behavior_ids": [
+                "TP-OWN-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "atomic_apply_capability",
+                "atomic_clock_branch_capability",
+                "atomic_clock_commit",
+                "atomic_clock_plan_capability",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "candidate_validation_outcome",
+                "coherent_store_cut",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "final_acceptance_evidence",
+                "kernel_plan_outcome",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "post_commit_handoff",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "stale_plan_outcome",
+                "transaction_authority",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "atomic_clock_branch_decision",
+                "atomic_clock_commit",
+                "atomic_clock_plan",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "cache_publication_input",
+                "capability_handoff",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "ingress_source",
+                "kernel_command",
+                "kernel_outcome",
+                "owner_lifecycle",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "settlement_classification",
+                "total_apply",
+                "transaction_authority",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            },
+            "d8665108fa07a971cfca410ece672f87949ab69ef64ecf68eab0a5a090a0744e": {
+              "observation": {
+                "boundary_vector": [
+                  "admission_or_backpressure",
+                  "eviction_order",
+                  "expiry_result",
+                  "remaining_owners",
+                  "resource_usage"
+                ],
+                "producer": {
+                  "kind": "cost_summary",
+                  "ref": "sealed_payload_graph_effect_and_residency_dimensions"
+                },
+                "behavior_id": "TP-CACHE-001",
+                "semantic_law_sha256": "0b26eed45ef9096b67ea4ac468bcad81d8c8cf9e8b100b890df539e89b090982"
+              },
+              "behavior_ids": [
+                "TP-CACHE-001"
+              ],
+              "production_authorities": [
+                "commutative_membership",
+                "commutative_membership_change",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "membership_projection",
+                "membership_validation_outcome",
+                "projection_source_versions"
+              ],
+              "model_authorities": [
+                "canonical_ordered_batch",
+                "commutative_membership",
+                "fee_rate_configuration",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration"
+              ]
+            },
+            "e1c945d0e5cd9e7b666e4758fb3e4a792e5f8754ec1663add483a57836b91b52": {
+              "observation": {
+                "boundary_vector": [
+                  "assignment_order",
+                  "parallel_wave_width",
+                  "permit_conservation",
+                  "ready_order",
+                  "shutdown_return"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "runnable_owner_cut_configured_order_and_available_worker_roles"
+                },
+                "behavior_id": "TP-WORKER-001",
+                "semantic_law_sha256": "21c2e5f643945d258e943611f337b8ae974ab1d545efbd1b513c4f5c76f3216e"
+              },
+              "behavior_ids": [
+                "TP-WORKER-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "candidate_validation_outcome",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "final_acceptance_evidence",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "runtime_transition_boundary",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "boundary_request_protocol",
+                "cache_publication_input",
+                "capability_handoff",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "generation_lifecycle",
+                "ingress_source",
+                "ordered_boundary_input",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_ingress_surface",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "settlement_classification",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            },
+            "e588cd7ecf85cd105dde76c4f55b8f0b36c03b2c5ac6eb6fa4f97b6851215102": {
+              "observation": {
+                "boundary_vector": [
+                  "capability_count",
+                  "effects",
+                  "entry_version",
+                  "owner_location",
+                  "resource_vector"
+                ],
+                "producer": {
+                  "kind": "authority_state",
+                  "ref": "unique_A_K_atomic_apply_cut"
+                },
+                "behavior_id": "TP-OWN-001",
+                "semantic_law_sha256": "67f272c4d325064885adeb2b7117a746557ab7d90ac9a00240cb5141e774646f"
+              },
+              "behavior_ids": [
+                "TP-OWN-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "atomic_apply_capability",
+                "atomic_clock_branch_capability",
+                "atomic_clock_commit",
+                "atomic_clock_plan_capability",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "candidate_validation_outcome",
+                "coherent_store_cut",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "final_acceptance_evidence",
+                "kernel_plan_outcome",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "post_commit_handoff",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "stale_plan_outcome",
+                "transaction_authority",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "atomic_clock_branch_decision",
+                "atomic_clock_commit",
+                "atomic_clock_plan",
+                "atomic_owner_transition",
+                "atomic_retirement_carrier",
+                "atomic_transition_controls",
+                "cache_publication_input",
+                "capability_handoff",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "ingress_source",
+                "kernel_command",
+                "kernel_outcome",
+                "owner_lifecycle",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "settlement_classification",
+                "total_apply",
+                "transaction_authority",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            },
+            "ed596f6967496754ced0c7de34f90269dc7a9cea01359cd57596516d3c83d2b4": {
+              "observation": {
+                "boundary_vector": [
+                  "active_capability",
+                  "ancestor_descendant_counts",
+                  "declared_dependency_identity",
+                  "final_membership",
+                  "missing_or_rejection",
+                  "resolved_dependency_identity",
+                  "settlement_disposition",
+                  "template_order",
+                  "wake_level"
+                ],
+                "producer": {
+                  "kind": "pure_derivation",
+                  "ref": "primitive_transaction_dependency_tags_plus_sealed_resolution_group_expansion_plus_atomic_dependency_events"
+                },
+                "behavior_id": "TP-POOL-001",
+                "semantic_law_sha256": "e4fe2ff965a5e7578f975d3f0146442368646df4abd3b1fcf4f390a23cb85b0b"
+              },
+              "behavior_ids": [
+                "TP-POOL-001"
+              ],
+              "production_authorities": [
+                "commutative_membership",
+                "commutative_membership_change",
+                "coupled_membership_plan",
+                "identity_index_projection",
+                "membership_projection",
+                "membership_validation_outcome",
+                "projection_source_versions"
+              ],
+              "model_authorities": [
+                "canonical_ordered_batch",
+                "commutative_membership",
+                "fee_rate_configuration",
+                "minimum_fee_policy_observation",
+                "ordered_batch_family",
+                "released_input_projection",
+                "replacement_history_trigger",
+                "replacement_policy_configuration"
+              ]
+            },
+            "f070839071e3aecea64ce0277b27aa8811bc743ee86860beb95d465b0985e25d": {
+              "observation": {
+                "boundary_vector": [
+                  "admission_or_backpressure",
+                  "eviction_order",
+                  "expiry_result",
+                  "remaining_owners",
+                  "resource_usage"
+                ],
+                "producer": {
+                  "kind": "cost_summary",
+                  "ref": "sealed_payload_graph_effect_and_residency_dimensions"
+                },
+                "behavior_id": "TP-BUDGET-001",
+                "semantic_law_sha256": "0b26eed45ef9096b67ea4ac468bcad81d8c8cf9e8b100b890df539e89b090982"
+              },
+              "behavior_ids": [
+                "TP-BUDGET-001"
+              ],
+              "production_authorities": [
+                "resource_authority",
+                "resource_charge",
+                "resource_configuration",
+                "resource_vector"
+              ],
+              "model_authorities": [
+                "adversarial_cost_bound",
+                "adversarial_cost_input",
+                "candidate_apply_cost",
+                "candidate_topology_surface",
+                "compute_resource_admission",
+                "compute_resource_grant",
+                "continuous_charge",
+                "continuous_resource_authority",
+                "continuous_resource_configuration",
+                "continuous_resource_vector",
+                "current_retained_path_cost",
+                "current_retained_path_input",
+                "hostile_work_bound",
+                "independent_wave_input",
+                "resource_authority",
+                "retained_resource_equation"
+              ]
+            },
+            "f4f18743a4a2a32ce0589c13650ab33e734734660a421451cfc76c2d37db107b": {
+              "observation": {
+                "boundary_vector": [
+                  "chain_revision",
+                  "committed_and_removed",
+                  "evidence_transition",
+                  "final_commit",
+                  "recovered_order"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "canonical_attached_detached_block_facts_and_exact_snapshot"
+                },
+                "behavior_id": "TP-DEP-001",
+                "semantic_law_sha256": "c9584f97b014a99731886e1462245c9a73b40e4324a65f7197ad0858e0da3d26"
+              },
+              "behavior_ids": [
+                "TP-DEP-001"
+              ],
+              "production_authorities": [
+                "chain_reconciliation_capability",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_successor",
+                "ordered_chain_handoff",
+                "ordered_chain_preparation"
+              ],
+              "model_authorities": [
+                "chain_removal_cause",
+                "dependency_level_authority",
+                "dependency_maintenance_decision",
+                "dependency_maintenance_rank",
+                "dependency_maintenance_successor",
+                "evidence_dependency_frontier"
+              ]
+            },
+            "ff1860924fed7ac1573ba6ad525739ee533c0a0a251a0be8ec5a99cc03acca98": {
+              "observation": {
+                "boundary_vector": [
+                  "channel_residency",
+                  "fault_class",
+                  "join_result",
+                  "persistence_eligibility",
+                  "task_owner"
+                ],
+                "producer": {
+                  "kind": "typed_environment",
+                  "ref": "task_endpoint_and_failure_events"
+                },
+                "behavior_id": "TP-WORKER-001",
+                "semantic_law_sha256": "ebb2bce6c2df274ee154393774345750376d47443c9074b296fdfc933eb71897"
+              },
+              "behavior_ids": [
+                "TP-WORKER-001"
+              ],
+              "production_authorities": [
+                "accepted_read_receipt",
+                "candidate_validation_outcome",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "compute_settlement_outcome",
+                "compute_worker_outcome",
+                "compute_worker_protocol",
+                "direct_acceptance_evidence",
+                "direct_boundary_outcome",
+                "direct_ingress_handoff",
+                "direct_negative_evidence",
+                "direct_resolution_outcome",
+                "direct_validation_evidence",
+                "external_proposal_residency",
+                "external_transaction_batch_residency",
+                "external_transaction_residency",
+                "final_acceptance_evidence",
+                "generation_boundary_event",
+                "generation_lifecycle",
+                "generation_task_event",
+                "ordered_chain_residency",
+                "ordered_chain_residency_configuration",
+                "ordinary_boundary_handoff",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "resolution_cut_outcome",
+                "resolved_cell_role",
+                "resolved_payload_outcome",
+                "retained_ingress_handoff",
+                "retained_ingress_outcome",
+                "retained_resolution_outcome",
+                "runtime_transition_boundary",
+                "scheduler_authority",
+                "scheduler_owner_ring",
+                "system_assembly",
+                "system_protocol",
+                "task_lifecycle",
+                "wake_observation_compiler"
+              ],
+              "model_authorities": [
+                "acceptance_evidence_cut",
+                "boundary_request_protocol",
+                "cache_publication_input",
+                "capability_handoff",
+                "complete_candidate_topology",
+                "complete_system_disposition",
+                "complete_system_event",
+                "complete_system_state",
+                "completion_exchange",
+                "completion_exchange_failure",
+                "compute_capability",
+                "compute_completion",
+                "coordinator_completion_readiness",
+                "coordinator_effect_blocked_shutdown_cut",
+                "coordinator_shutdown_observation",
+                "direct_compute_capability",
+                "direct_negative_evidence",
+                "fair_permit_protocol",
+                "generation_lifecycle",
+                "ingress_source",
+                "ordered_boundary_input",
+                "permit_work_exchange",
+                "permit_work_exchange_failure",
+                "progress_observation_cut",
+                "ready_priority_progress",
+                "relay_query_identity",
+                "retained_ingress_outcome",
+                "retained_ingress_surface",
+                "retained_permit_outcome",
+                "retained_permit_protocol",
+                "scheduler_owner_ring",
+                "scheduler_set_transition",
+                "service_ingress_residency_bound",
+                "service_ingress_residency_input",
+                "settlement_classification",
+                "shutdown_action",
+                "shutdown_disposition",
+                "shutdown_persistence_protocol",
+                "shutdown_phase",
+                "task_criticality",
+                "task_disposition",
+                "task_exit",
+                "task_lifecycle",
+                "task_owner",
+                "task_role",
+                "verification_control_boundary",
+                "verification_identity",
+                "wake_observation"
+              ]
+            }
+          },
+          "observation_fibers_sha256": "be2bc2bd122df93ec831d25b057f297525430f1f1d4b57716d8677dba5ca11cd"
+        },
+        "required_atoms_sha256": "8dc34cea6450ead10a604204e392aebd91d431c630aee03a36be3f5235e6d156",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0,
+            1
+          ],
+          "lower_bound": [
+            39,
+            285,
+            361
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 3,
+        "objective_ref": "optimization_goal.complexity_objective/3",
+        "operator": "canonical_release_policy_authority",
+        "vector_components": [
+          "release_state_policy_authorities"
+        ],
+        "blueprint_cost": [
+          1
+        ],
+        "required_atoms": {
+          "required_policy_authorities": [
+            "canonical_release_state_policy_owner"
+          ],
+          "discovery_rule": "check_scripts_with_manifest_identity_and_ast_write_sink_capability"
+        },
+        "required_atoms_sha256": "81572ae26e2fe30e23379a7615dde08985da41e10730582d044fb4bb17ef9343",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0,
+            1,
+            2
+          ],
+          "lower_bound": [
+            1
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 4,
+        "objective_ref": "optimization_goal.complexity_objective/4",
+        "operator": "model_observation_roots_without_production_termini",
+        "vector_components": [
+          "unterminated_model_observation_roots"
+        ],
+        "blueprint_cost": [
+          0
+        ],
+        "required_atoms": {
+          "unterminated_model_observation_roots": [],
+          "mechanism_completeness_boundary_sha256": "2cd7de1f5da9cbaccc110ca9b76d116dea96872e041f41cd7fc1e8444f98e113",
+          "mechanism_completeness_derivation_sha256": "ccc793b44a7d93c13738c7fea520ece729e1e303650ac57268192da6a15cb846"
+        },
+        "required_atoms_sha256": "1abd256db0cc761a7653fac357402b7d4da769feaafe5806472ede89aa5d5cce",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "lower_bound": [
+            0
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 5,
+        "objective_ref": "optimization_goal.complexity_objective/5",
+        "operator": "required_compile_role_authorities",
+        "vector_components": [
+          "default_production_compile_roles",
+          "nondefault_model_test_compile_roles"
+        ],
+        "blueprint_cost": [
+          1,
+          3
+        ],
+        "required_atoms": {
+          "default_production": [
+            "default_production"
+          ],
+          "model_and_test": [
+            "internal_feature_only",
+            "test_model_only",
+            "test_support_only"
+          ]
+        },
+        "required_atoms_sha256": "82a66070a3b877f278f30482d31e8c1007442c1765620a7e719a1a3128c87e6b",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "lower_bound": [
+            1,
+            3
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      },
+      {
+        "objective_index": 6,
+        "objective_ref": "optimization_goal.complexity_objective/6",
+        "operator": "zero_manual_evidence_plus_one_rationale_authority",
+        "vector_components": [
+          "manual_observed_evidence_authorities",
+          "rationale_authorities"
+        ],
+        "blueprint_cost": [
+          0,
+          1
+        ],
+        "required_atoms": {
+          "manual_observed_evidence_authorities": [],
+          "rationale_authorities": [
+            "tx-pool/docs/ARCHITECTURE.md"
+          ],
+          "rationale_sha256": "03f0072739e9e977d2ce6ccbb574c19290896f4f0f6783f12ef719a754e4b40c"
+        },
+        "required_atoms_sha256": "f50ef33a109c6260c46132eddc161c79075d06ad8eab22bde976cf55419f25ca",
+        "conditional_lower_bound": {
+          "prior_objective_indices_fixed": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "lower_bound": [
+            0,
+            1
+          ],
+          "injection": "every_X2_realization_owns_each_required_blueprint_atom_at_least_once",
+          "witness_relation": "the_selected_blueprint_owns_each_atom_exactly_once",
+          "deletion_counterexample": "a_smaller_vector_omits_a_distinguishing_observation_component_composition_or_compile_role"
+        }
+      }
+    ],
+    "absolute_kappa": {
+      "public_api_surface": [
+        27
+      ],
+      "active_semantic_authorities": [
+        110,
+        132
+      ],
+      "independent_algorithms_per_production_observation": [
+        39,
+        285,
+        361
+      ],
+      "policy_authoritative_release_checkers": [
+        1
+      ],
+      "model_roots_without_production_termini": [
+        0
+      ],
+      "source_role_authorities": [
+        1,
+        3
+      ],
+      "manual_evidence_and_documentation_authorities": [
+        0,
+        1
+      ]
+    },
+    "conditional_lower_bounds": {
+      "public_api_surface": [
+        27
+      ],
+      "active_semantic_authorities": [
+        110,
+        132
+      ],
+      "independent_algorithms_per_production_observation": [
+        39,
+        285,
+        361
+      ],
+      "policy_authoritative_release_checkers": [
+        1
+      ],
+      "model_roots_without_production_termini": [
+        0
+      ],
+      "source_role_authorities": [
+        1,
+        3
+      ],
+      "manual_evidence_and_documentation_authorities": [
+        0,
+        1
+      ]
+    },
+    "witness_blueprint_cost": {
+      "public_api_surface": [
+        27
+      ],
+      "active_semantic_authorities": [
+        110,
+        132
+      ],
+      "independent_algorithms_per_production_observation": [
+        39,
+        285,
+        361
+      ],
+      "policy_authoritative_release_checkers": [
+        1
+      ],
+      "model_roots_without_production_termini": [
+        0
+      ],
+      "source_role_authorities": [
+        1,
+        3
+      ],
+      "manual_evidence_and_documentation_authorities": [
+        0,
+        1
+      ]
+    },
+    "X3_cardinality": 1
+  },
+  "negative_canaries": [
+    "objective_dimension_omission",
+    "smaller_than_required_atom_cardinality",
+    "semantic_authority_omission",
+    "observation_mechanism_duplication",
+    "observation_owner_rename_cost_invariance",
+    "observation_split_merge_cost_invariance",
+    "distinct_observation_identity_non_aliasing",
+    "unregistered_connector_function",
+    "unreferenced_compile_role_source",
+    "semantic_behavior_projection_mismatch",
+    "release_policy_authority_duplication",
+    "unrelated_release_writer_name",
+    "parameterized_release_writer",
+    "reflective_release_writer",
+    "selected_witness_substitution",
+    "manual_evidence_authority_insertion",
+    "release_basis_substitution"
+  ],
+  "evidence_sha256": "d758a8218e1b310275ec84dd93a65da3c53242bd1e68a43c6a9828053e656e80"
+}

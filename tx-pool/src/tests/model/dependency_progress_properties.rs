@@ -13,13 +13,13 @@ fn owners(values: &[u8]) -> BTreeSet<ModelDependencyOwner> {
 fn edges(values: &[(u8, &[u8])]) -> ModelDependencyEdges {
     values
         .iter()
-        .map(|(key, values)| (ModelDependencyKey(*key), owners(values)))
+        .map(|(key, values)| (ModelDependencyKey::cell(*key), owners(values)))
         .collect()
 }
 
 #[test]
 fn model_dependency_maintenance_consumes_one_finite_obligation_per_apply() {
-    let key = ModelDependencyKey(1);
+    let key = ModelDependencyKey::cell(1);
     let consumers = edges(&[(1, &[1, 2, 3])]);
     let waiters = edges(&[(1, &[1, 3])]);
     for scope in [
@@ -68,7 +68,7 @@ fn model_dependency_rank_is_the_exact_static_edge_drain_bound() {
     let waiters = edges(&[(1, &[1, 3]), (2, &[4])]);
     let dirty = BTreeMap::from([
         (
-            ModelDependencyKey(1),
+            ModelDependencyKey::cell(1),
             ModelDirtyDependencyEpoch::new(
                 ModelDependencyCut(3),
                 ModelDirtyScope::ExistingWaiters,
@@ -81,7 +81,7 @@ fn model_dependency_rank_is_the_exact_static_edge_drain_bound() {
             .expect("the pending epoch is newer"),
         ),
         (
-            ModelDependencyKey(2),
+            ModelDependencyKey::cell(2),
             ModelDirtyDependencyEpoch::new(
                 ModelDependencyCut(4),
                 ModelDirtyScope::AllConsumers,
@@ -109,7 +109,7 @@ fn model_dependency_rank_is_the_exact_static_edge_drain_bound() {
 
 #[test]
 fn model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch() {
-    let key = ModelDependencyKey(1);
+    let key = ModelDependencyKey::cell(1);
     let dirty = BTreeMap::from([(
         key,
         ModelDirtyDependencyEpoch::new(
@@ -154,7 +154,7 @@ fn model_dependency_rank_bounds_requeue_pruning_under_a_stable_epoch() {
 
 #[test]
 fn model_dependency_completion_cannot_claim_owner_progress() {
-    let key = ModelDependencyKey(1);
+    let key = ModelDependencyKey::cell(1);
     let state = DependencyMaintenanceState::new(
         edges(&[(1, &[1])]),
         ModelDependencyEdges::new(),
@@ -184,7 +184,7 @@ fn model_dependency_cursor_gives_key_fairness_without_a_second_queue() {
         .into_iter()
         .map(|key| {
             (
-                ModelDependencyKey(key),
+                ModelDependencyKey::cell(key),
                 ModelDirtyDependencyEpoch::new(
                     ModelDependencyCut(1),
                     ModelDirtyScope::AllConsumers,
@@ -208,16 +208,16 @@ fn model_dependency_cursor_gives_key_fairness_without_a_second_queue() {
             DependencyMaintenanceStep::Advance { key, .. }
             | DependencyMaintenanceStep::Complete { key } => key,
         };
-        selected.push(key.0);
+        selected.push(key.ordinal());
         state = transition.after;
     }
     assert_eq!(selected, vec![1, 2, 3, 1, 2, 3]);
-    assert_eq!(state.dirty_cursor(), Some(ModelDependencyKey(3)));
+    assert_eq!(state.dirty_cursor(), Some(ModelDependencyKey::cell(3)));
 }
 
 #[test]
 fn model_dependency_event_only_supersedes_with_a_newer_cut() {
-    let key = ModelDependencyKey(1);
+    let key = ModelDependencyKey::cell(1);
     let mut state = DependencyMaintenanceState::new(
         edges(&[(1, &[1, 2])]),
         edges(&[(1, &[1])]),
@@ -267,7 +267,7 @@ fn model_dependency_event_without_an_affected_edge_creates_no_drain_work() {
     assert_eq!(
         state
             .publish_event(
-                ModelDependencyKey(1),
+                ModelDependencyKey::cell(1),
                 ModelDependencyCut(1),
                 ModelDirtyScope::ExistingWaiters,
             )

@@ -29,20 +29,18 @@ fixed-binary matrix remains an Acceptance obligation after complete
 correctness.
 
 The current architecture has passed the scoped finite normal-form `X0/X1/X2`
-synthesis, but registered semantic root closure, production refinement,
-constructive simplification and later fixed-binary Acceptance remain open. New
-timing experiments are inadmissible while `X1` is a singleton and correctness
-construction is active; benchmark results cannot reveal that a required
-semantic mechanism is absent. Historical profiles below explain why mechanisms
-were considered or rejected, but they are not a release verdict for the final
-source. The pre-performance checkpoint `4135df3c7` passed 415/415
-internal-feature tx-pool tests and the complete 150/150 managed integration
-universe. Any later semantic change reopens its affected correctness gates
-before performance evidence can be accepted.
+synthesis, registered semantic-root closure, production refinement and
+constructive simplification. Construction timing is therefore closed; the
+remaining fixed-binary matrix is an Acceptance confirmation after the complete
+correctness lane. Benchmark results cannot repair a missing semantic mechanism.
+Historical profiles below explain why mechanisms were considered or rejected,
+but they are not a release verdict for the final source. Any later semantic
+change reopens its affected Construction and correctness gates before
+performance evidence can be accepted.
 
 ## 1. Performance contract
 
-The objective is not merely parity with `develop`. The design should exploit
+The objective is not parity with an external branch. The design should exploit
 CKB's cell model so independent transactions validate concurrently, while
 coupled dependencies, RBF and chain transitions pay only their necessary
 atomicity cost.
@@ -456,7 +454,7 @@ attempts expose multi-minute host scheduling regimes, including one baseline
 window at 3.23 average CPU parallelism immediately followed by a candidate
 window at 3.76. Removing the outlier, increasing aggregation, weakening the
 gate or repeating until a pass would bias the verdict. P10 therefore remains
-open for a controlled-host run of this exact protocol before final/develop is
+open for a controlled-host run of this exact protocol before current-branch X3 is
 measured. This is an evidence-environment blocker, not a demonstrated product
 regression or improvement.
 
@@ -507,6 +505,16 @@ formatting, file locking or I/O. Counts are schedule-dependent control-flow
 observations, not timing. Raw artifacts may remain external, but the manifest
 records their path, size and SHA-256 and the committed analyzer must reproduce
 the summary.
+
+Fixed-binary Acceptance uses a separate one-shot harness contract: target CPU
+comes from `RUSAGE_SELF` immediately around target work, allocation calls and
+bytes come from a target-window counting allocator, and schema-v2 span rows
+carry both starts and lifetimes for spans begun in that window. The outer
+runner's `RUSAGE_CHILDREN` record is whole-process diagnostic data only. The
+required reorg-interference shape additionally records a positive callback-
+overlap count while ordered reorg authority executes. These stronger
+Acceptance observations do not reinterpret or replace the schema-v1
+`profile.py` artifact described above.
 
 The UAK owns these low-cardinality profiling coordinates:
 
@@ -582,12 +590,9 @@ CPU count, harness or environment identity.
 
 The final comparisons are:
 
-1. final UAK versus `develop`, establishing necessity did not cause an
-   unexplained regression and identifying any workload where the architecture
-   now exceeds it;
-2. final UAK versus the frozen pre-performance UAK checkpoint, attributing the
+1. final UAK versus the frozen pre-performance UAK checkpoint, attributing the
    retained optimization value;
-3. absolute operation counts and profiles for adversarial shapes that a common
+2. absolute operation counts and profiles for adversarial shapes that a common
    throughput ratio cannot expose.
 
 Quick mode is diagnostic and uses its documented 2% threshold/noise limits.

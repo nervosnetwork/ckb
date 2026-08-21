@@ -9,16 +9,17 @@
 
 use super::{
     chain::{
-        CellLocationReceipt, DirectAdmissionWork, TimeContextReceipt, VerificationContextReceipt,
+        CellLocationReceipt, CellLocationReceiptError, DirectAdmissionWork, TimeContextReceipt,
+        VerificationContextReceipt,
     },
     ingress::{DirectCommand, DirectTransaction},
     plan::TxPoolAuthority,
     rejection::{DirectTransactionRejection, duplicate_inputs_reject},
     resources::AcceptedCost,
     state::{
-        ApplySequence, AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut,
-        DependencyKey, InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy,
-        RawTxHash, ResolvedPayload, VerifyCycleClass,
+        AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
+        EntryVersion, InputEvidenceDisposition, InputEvidenceError, OwnedTx, PayloadPolicy,
+        RawTxHash, ResolvedPayload,
     },
     validation::{proposal_status, verification_environment},
     work::{
@@ -47,7 +48,7 @@ use ckb_types::{
     prelude::{Entity, Unpack},
 };
 use ckb_verification::cache::{
-    Completed, ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey,
+    ScriptVerificationProof, ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -55,10 +56,10 @@ use std::{
 };
 use tokio::sync::watch;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum CellRole {
     Input,
-    Dependency,
+    ProducerOnly,
 }
 
 /// Proof that a direct resolved payload passed the same tx-pool resolver,
@@ -83,7 +84,7 @@ pub(super) enum DirectComputationError {
     InvalidEvidence,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct CellQuery {
     out_point: OutPoint,
     producer: RawTxHash,
@@ -100,11 +101,28 @@ impl CellQuery {
     }
 }
 
-#[derive(Debug)]
-struct AcceptedOverlay {
-    producers: HashMap<RawTxHash, Arc<TransactionView>>,
-    spent_inputs: HashSet<OutPoint>,
-    initial_queries: Vec<CellQuery>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcceptedOwnerObservation {
+    key: RawTxHash,
+    version: EntryVersion,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AcceptedProducerObservation {
+    owner: AcceptedOwnerObservation,
+    tx: Arc<TransactionView>,
+}
+
+/// Exact transaction-bounded Accepted read receipt used by owner-free work.
+///
+/// Absence is represented by a query with no matching producer/spender row;
+/// presence retains the exact owner incarnation. The maps are populated only
+/// after all query-bounded capacity is reserved outside the authority guard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct AcceptedOverlay {
+    producers: HashMap<RawTxHash, AcceptedProducerObservation>,
+    spent_inputs: HashMap<OutPoint, AcceptedOwnerObservation>,
+    queries: HashSet<CellQuery>,
 }
 
 impl AcceptedOverlay {
@@ -121,8 +139,8 @@ impl AcceptedOverlay {
 
         let mut overlay = Self {
             producers: HashMap::new(),
-            spent_inputs: HashSet::new(),
-            initial_queries: Vec::new(),
+            spent_inputs: HashMap::new(),
+            queries: HashSet::new(),
         };
         overlay
             .producers
@@ -133,28 +151,67 @@ impl AcceptedOverlay {
             .try_reserve(tx.inputs().len())
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
         overlay
-            .initial_queries
+            .queries
             .try_reserve(direct_edges)
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        overlay.initial_queries.extend(
+        overlay.queries.extend(
             tx.input_pts_iter()
                 .map(|out_point| CellQuery::new(out_point, CellRole::Input)),
         );
-        overlay.initial_queries.extend(
+        overlay.queries.extend(
             tx.cell_deps_iter()
-                .map(|cell_dep| CellQuery::new(cell_dep.out_point(), CellRole::Dependency)),
+                .map(|cell_dep| CellQuery::new(cell_dep.out_point(), CellRole::ProducerOnly)),
         );
 
         Ok(overlay)
     }
 
-    fn populate_initial(&mut self, authority: &TxPoolAuthority) {
+    pub(super) fn prepare_resolved(
+        payload: &ResolvedPayload,
+    ) -> Result<Self, CellLocationReceiptError> {
+        let resolved = payload.resolved_transaction();
+        let total_cells = resolved
+            .resolved_inputs
+            .len()
+            .checked_add(resolved.resolved_cell_deps.len())
+            .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
+            .ok_or(CellLocationReceiptError::Arithmetic)?;
+        let mut overlay = Self {
+            producers: HashMap::new(),
+            spent_inputs: HashMap::new(),
+            queries: HashSet::new(),
+        };
+        overlay
+            .producers
+            .try_reserve(total_cells)
+            .map_err(|_| CellLocationReceiptError::Allocation)?;
+        overlay
+            .queries
+            .try_reserve(total_cells)
+            .map_err(|_| CellLocationReceiptError::Allocation)?;
+        overlay.queries.extend(
+            resolved
+                .resolved_inputs
+                .iter()
+                .map(|cell| CellQuery::new(cell.out_point.clone(), CellRole::ProducerOnly)),
+        );
+        overlay.queries.extend(
+            resolved
+                .resolved_cell_deps
+                .iter()
+                .chain(&resolved.resolved_dep_groups)
+                .map(|cell| CellQuery::new(cell.out_point.clone(), CellRole::ProducerOnly)),
+        );
+        Ok(overlay)
+    }
+
+    pub(super) fn populate(&mut self, authority: &TxPoolAuthority) {
         let Self {
             producers,
             spent_inputs,
-            initial_queries,
+            queries,
         } = self;
-        for query in initial_queries.iter() {
+        for query in queries.iter() {
             Self::capture_cell(producers, spent_inputs, authority, query);
         }
     }
@@ -165,7 +222,7 @@ impl AcceptedOverlay {
         max_edges: usize,
     ) -> Result<Self, ResolutionExecutionKind> {
         let mut overlay = Self::prepare(tx, max_edges)?;
-        overlay.populate_initial(authority);
+        overlay.populate(authority);
         Ok(overlay)
     }
 
@@ -176,29 +233,130 @@ impl AcceptedOverlay {
         self.spent_inputs
             .try_reserve(missing_count)
             .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        self.queries
+            .try_reserve(missing_count)
+            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
         Ok(())
     }
 
-    /// Observe only the transaction-bounded Accepted cut. Capacity was
-    /// reserved before the authority guard was acquired, so this read cannot
-    /// allocate while it blocks an authoritative writer.
+    /// Retained work already owns dependency invalidation. Its enrichment can
+    /// extend the bounded overlay in place after capacity is reserved.
     fn observe_enrichment(&mut self, authority: &TxPoolAuthority, missing: &[CellQuery]) -> bool {
         let before_producers = self.producers.len();
         let before_spends = self.spent_inputs.len();
         for cell in missing {
+            self.queries.insert(cell.clone());
             Self::capture_cell(&mut self.producers, &mut self.spent_inputs, authority, cell);
         }
         self.producers.len() != before_producers || self.spent_inputs.len() != before_spends
     }
 
+    fn prepare_refresh(
+        &self,
+        missing: &[CellQuery],
+        max_edges: usize,
+    ) -> Result<Self, ResolutionExecutionKind> {
+        let upper = self
+            .queries
+            .len()
+            .checked_add(missing.len())
+            .ok_or(ResolutionExecutionKind::ResourceUnavailable)?;
+        let mut refreshed = Self {
+            producers: HashMap::new(),
+            spent_inputs: HashMap::new(),
+            queries: HashSet::new(),
+        };
+        refreshed
+            .queries
+            .try_reserve(upper)
+            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        refreshed.queries.extend(self.queries.iter().cloned());
+        refreshed.queries.extend(missing.iter().cloned());
+        if refreshed.queries.len() > max_edges {
+            return Err(ResolutionExecutionKind::ComputeBudget);
+        }
+        refreshed
+            .producers
+            .try_reserve(refreshed.queries.len())
+            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        let input_count = refreshed
+            .queries
+            .iter()
+            .filter(|query| query.role == CellRole::Input)
+            .count();
+        refreshed
+            .spent_inputs
+            .try_reserve(input_count)
+            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        Ok(refreshed)
+    }
+
+    pub(super) fn is_current(&self, authority: &TxPoolAuthority) -> bool {
+        self.queries.iter().all(|query| {
+            self.producer_version(query) == Self::current_producer_version(authority, query)
+                && (query.role != CellRole::Input
+                    || self.spent_inputs.get(&query.out_point)
+                        == Self::current_spender(authority, &query.out_point).as_ref())
+        })
+    }
+
+    fn same_observations(&self, other: &Self) -> bool {
+        other.queries.iter().all(|query| {
+            self.producer_version(query) == other.producer_version(query)
+                && (query.role != CellRole::Input
+                    || self.spent_inputs.get(&query.out_point)
+                        == other.spent_inputs.get(&query.out_point))
+        })
+    }
+
+    fn producer_version(&self, query: &CellQuery) -> Option<EntryVersion> {
+        let producer = self.producers.get(&query.producer)?;
+        let index: u32 = query.out_point.index().unpack();
+        let index = usize::try_from(index).ok()?;
+        (index < producer.tx.outputs().len()).then_some(producer.owner.version)
+    }
+
+    fn current_producer_version(
+        authority: &TxPoolAuthority,
+        query: &CellQuery,
+    ) -> Option<EntryVersion> {
+        let Some(OwnedTx::Accepted(entry)) = authority.entry(&query.producer) else {
+            return None;
+        };
+        let index: u32 = query.out_point.index().unpack();
+        let index = usize::try_from(index).ok()?;
+        (index < entry.record.tx.outputs().len()).then_some(entry.record.version)
+    }
+
+    fn current_spender(
+        authority: &TxPoolAuthority,
+        out_point: &OutPoint,
+    ) -> Option<AcceptedOwnerObservation> {
+        let key = authority.accepted_spender(out_point)?.clone();
+        let Some(OwnedTx::Accepted(entry)) = authority.entry(&key) else {
+            return None;
+        };
+        Some(AcceptedOwnerObservation {
+            key,
+            version: entry.record.version,
+        })
+    }
+
+    pub(super) fn is_accepted_output(&self, out_point: &OutPoint) -> bool {
+        let query = CellQuery::new(out_point.clone(), CellRole::ProducerOnly);
+        self.producer_version(&query).is_some()
+    }
+
     fn capture_cell(
-        producers: &mut HashMap<RawTxHash, Arc<TransactionView>>,
-        spent_inputs: &mut HashSet<OutPoint>,
+        producers: &mut HashMap<RawTxHash, AcceptedProducerObservation>,
+        spent_inputs: &mut HashMap<OutPoint, AcceptedOwnerObservation>,
         authority: &TxPoolAuthority,
         query: &CellQuery,
     ) {
-        if query.role == CellRole::Input && authority.accepted_spender(&query.out_point).is_some() {
-            spent_inputs.insert(query.out_point.clone());
+        if query.role == CellRole::Input
+            && let Some(spender) = Self::current_spender(authority, &query.out_point)
+        {
+            spent_inputs.insert(query.out_point.clone(), spender);
         }
         if producers.contains_key(&query.producer) {
             return;
@@ -211,12 +369,21 @@ impl AcceptedOverlay {
             return;
         };
         if index < entry.record.tx.outputs().len() {
-            producers.insert(query.producer.clone(), Arc::clone(&entry.record.tx));
+            producers.insert(
+                query.producer.clone(),
+                AcceptedProducerObservation {
+                    owner: AcceptedOwnerObservation {
+                        key: query.producer.clone(),
+                        version: entry.record.version,
+                    },
+                    tx: Arc::clone(&entry.record.tx),
+                },
+            );
         }
     }
 
     fn is_spent(&self, out_point: &OutPoint) -> bool {
-        self.spent_inputs.contains(out_point)
+        self.spent_inputs.contains_key(out_point)
     }
 }
 
@@ -231,14 +398,14 @@ impl CellProvider for SparsePoolCellProvider<'_> {
             return CellStatus::Dead;
         }
         let hash = RawTxHash(out_point.tx_hash());
-        let Some(tx) = self.overlay.producers.get(&hash) else {
+        let Some(producer) = self.overlay.producers.get(&hash) else {
             return CellStatus::Unknown;
         };
         let index: u32 = out_point.index().unpack();
         let Some(index) = usize::try_from(index).ok() else {
             return CellStatus::Unknown;
         };
-        let Some((output, data)) = tx.output_with_data(index) else {
+        let Some((output, data)) = producer.tx.output_with_data(index) else {
             return CellStatus::Unknown;
         };
         CellStatus::live_cell(
@@ -366,7 +533,6 @@ pub(super) struct DirectResolutionJob {
     tx: Arc<TransactionView>,
     command: DirectCommand,
     view: ChainViewId,
-    accepted_source: ApplySequence,
     dependency_cut: DependencyCut,
     snapshot: Arc<Snapshot>,
     overlay: AcceptedOverlay,
@@ -407,10 +573,32 @@ pub(super) struct DirectResolutionProbe {
 }
 
 #[derive(Debug)]
+#[must_use = "prepared direct observation must be completed against one authority cut"]
+pub(super) struct PreparedDirectResolutionProbe {
+    job: DirectResolutionJob,
+    first_missing: OutPoint,
+    refreshed: AcceptedOverlay,
+}
+
+#[derive(Debug)]
+enum DirectResolutionProbeCut {
+    Retry(DirectResolutionJob),
+    Reject(DirectResolutionJob, OutPoint),
+    Stale(DirectResolutionJob, AcceptedOverlay),
+}
+
+#[derive(Debug)]
+#[must_use = "discarded read receipts must retire outside the authority guard"]
+pub(super) struct DirectResolutionProbeRecheck {
+    cut: DirectResolutionProbeCut,
+    discarded: Option<AcceptedOverlay>,
+}
+
+#[derive(Debug)]
 struct DirectResolvedCandidate {
     tx: Arc<TransactionView>,
     command: DirectCommand,
-    accepted_source: ApplySequence,
+    accepted_reads: AcceptedOverlay,
     dependency_cut: DependencyCut,
     snapshot: Arc<Snapshot>,
     payload: Arc<ResolvedPayload>,
@@ -553,6 +741,11 @@ struct ResolvedComputation {
     resident_bytes: usize,
 }
 
+enum FinishResolutionError {
+    Rejected(Reject),
+    ResourceUnavailable,
+}
+
 impl ResolutionJob {
     pub(super) fn retry(self) -> ComputeSettlement {
         self.work.retry()
@@ -653,18 +846,20 @@ impl ResolutionJob {
             min_fee_rate,
         ) {
             Ok(resolved) => resolved,
-            Err(reject) => {
+            Err(FinishResolutionError::Rejected(reject)) => {
                 return Ok(ResolutionEvaluation::Settle(self.work.rejected(reject)));
             }
-        };
-        let verify_class = match self.work.payload_policy() {
-            PayloadPolicy::RemoteDeclaredCycles(cycles) if cycles > large_cycle_threshold => {
-                VerifyCycleClass::Large
-            }
-            PayloadPolicy::RemoteDeclaredCycles(_) | PayloadPolicy::Trusted => {
-                VerifyCycleClass::Small
+            Err(FinishResolutionError::ResourceUnavailable) => {
+                return Err(ResolutionExecutionFailure {
+                    kind: ResolutionExecutionKind::ResourceUnavailable,
+                    settlement: self.work.retry(),
+                });
             }
         };
+        let verify_class = self
+            .work
+            .payload_policy()
+            .verify_cycle_class(large_cycle_threshold);
         self.work.resolved(
             ResolutionEvidence::from_resolution(
                 ResolutionEvidenceSeal(()),
@@ -800,9 +995,11 @@ fn finish_resolution(
     resolved: ResolvedTransaction,
     tx_size: usize,
     min_fee_rate: FeeRate,
-) -> Result<ResolvedComputation, Reject> {
-    let transaction = super::residency::compact_after_resolution(Arc::new(resolved));
-    let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)?;
+) -> Result<ResolvedComputation, FinishResolutionError> {
+    let transaction = super::residency::compact_after_resolution(resolved)
+        .map_err(|_| FinishResolutionError::ResourceUnavailable)?;
+    let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)
+        .map_err(FinishResolutionError::Rejected)?;
     let resident_bytes = resolved_transaction_charge_bytes(tx_size, &transaction);
     Ok(ResolvedComputation {
         transaction,
@@ -889,7 +1086,7 @@ fn collect_missing_against_cut(
             return Err(MissingScanError::ComputeBudget);
         }
         let CellStatus::Live(cell) = direct else {
-            collect_cell_status(direct, out_point, CellRole::Dependency, &mut missing)?;
+            collect_cell_status(direct, out_point, CellRole::ProducerOnly, &mut missing)?;
             continue;
         };
         if !eager_load {
@@ -921,7 +1118,7 @@ fn collect_missing_against_cut(
             collect_cell_status(
                 dependency_provider.cell(&member, false),
                 member,
-                CellRole::Dependency,
+                CellRole::ProducerOnly,
                 &mut missing,
             )?;
         }
@@ -999,7 +1196,10 @@ impl DirectResolutionJob {
             min_fee_rate,
         ) {
             Ok(resolved) => resolved,
-            Err(reject) => return Ok(self.rejected(reject)),
+            Err(FinishResolutionError::Rejected(reject)) => return Ok(self.rejected(reject)),
+            Err(FinishResolutionError::ResourceUnavailable) => {
+                return Err(DirectComputationError::ResourceUnavailable);
+            }
         };
         if resolved.resident_bytes > self.max_resident_bytes {
             return Ok(self.resource_rejected());
@@ -1027,7 +1227,12 @@ impl DirectResolutionJob {
                 }
             },
         };
-        let location = CellLocationReceipt::from_resolution(self.view, &payload);
+        let location = CellLocationReceipt::from_resolution(self.view, &payload).map_err(
+            |error| match error {
+                CellLocationReceiptError::Allocation => DirectComputationError::ResourceUnavailable,
+                CellLocationReceiptError::Arithmetic => DirectComputationError::InvalidEvidence,
+            },
+        )?;
         let status = proposal_status(&self.snapshot, &self.tx.proposal_short_id());
         let environment = Arc::new(verification_environment(status, &self.snapshot));
         let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
@@ -1038,7 +1243,7 @@ impl DirectResolutionJob {
                 candidate: DirectResolvedCandidate {
                     tx: self.tx,
                     command: self.command,
-                    accepted_source: self.accepted_source,
+                    accepted_reads: self.overlay,
                     dependency_cut: self.dependency_cut,
                     snapshot: self.snapshot,
                     payload,
@@ -1075,13 +1280,17 @@ impl DirectResolutionJob {
     }
 
     fn rejected(self, reason: Reject) -> DirectResolutionEvaluation {
-        DirectResolutionEvaluation::Rejected(DirectTransactionRejection::accepted_cut(
+        DirectResolutionEvaluation::Rejected(self.into_rejection(reason))
+    }
+
+    fn into_rejection(self, reason: Reject) -> DirectTransactionRejection {
+        DirectTransactionRejection::accepted_reads(
             self.tx,
             self.command,
             reason,
             self.view,
-            self.accepted_source,
-        ))
+            self.overlay,
+        )
     }
 
     fn resource_rejected(self) -> DirectResolutionEvaluation {
@@ -1109,12 +1318,11 @@ impl PreparedDirectResolutionJob {
         snapshot: Arc<Snapshot>,
         authority: &TxPoolAuthority,
     ) -> DirectResolutionJob {
-        self.overlay.populate_initial(authority);
+        self.overlay.populate(authority);
         DirectResolutionJob {
             tx: self.tx,
             command: self.command,
             view: authority.chain_view().clone(),
-            accepted_source: authority.accepted_source_cut(),
             dependency_cut: authority.dependency_observation_cut(),
             snapshot,
             overlay: self.overlay,
@@ -1132,41 +1340,78 @@ pub(super) enum DirectResolutionProbeObservation {
 }
 
 impl DirectResolutionProbe {
-    pub(super) fn prepare_enrichment(mut self) -> Result<Self, DirectComputationError> {
-        self.job
-            .overlay
-            .reserve_enrichment(self.missing.len())
-            .map_err(|_| DirectComputationError::ResourceUnavailable)?;
-        Ok(self)
-    }
-
-    pub(super) fn observe(
-        mut self,
-        authority: &TxPoolAuthority,
-    ) -> Result<DirectResolutionProbeObservation, DirectComputationError> {
-        if authority.chain_view() != &self.job.view {
-            return Err(DirectComputationError::StaleView);
-        }
-        if self
+    pub(super) fn prepare_enrichment(
+        self,
+    ) -> Result<PreparedDirectResolutionProbe, DirectComputationError> {
+        let first_missing = self
+            .missing
+            .first()
+            .map(|query| query.out_point.clone())
+            .ok_or(DirectComputationError::InvalidEvidence)?;
+        let refreshed = self
             .job
             .overlay
-            .observe_enrichment(authority, &self.missing)
-        {
-            self.job.dependency_cut = authority.dependency_observation_cut();
-            return Ok(DirectResolutionProbeObservation::Retry(self.job));
+            .prepare_refresh(&self.missing, self.job.max_edges)
+            .map_err(|kind| match kind {
+                ResolutionExecutionKind::ResourceUnavailable => {
+                    DirectComputationError::ResourceUnavailable
+                }
+                ResolutionExecutionKind::StaleView
+                | ResolutionExecutionKind::ComputeBudget
+                | ResolutionExecutionKind::InvalidReceipt(_) => {
+                    DirectComputationError::InvalidEvidence
+                }
+            })?;
+        Ok(PreparedDirectResolutionProbe {
+            job: self.job,
+            first_missing,
+            refreshed,
+        })
+    }
+}
+
+impl PreparedDirectResolutionProbe {
+    pub(super) fn observe(mut self, authority: &TxPoolAuthority) -> DirectResolutionProbeRecheck {
+        if authority.chain_view() != &self.job.view {
+            return DirectResolutionProbeRecheck {
+                cut: DirectResolutionProbeCut::Stale(self.job, self.refreshed),
+                discarded: None,
+            };
         }
-        let Some(first) = self.missing.first() else {
-            return Err(DirectComputationError::InvalidEvidence);
+        self.refreshed.populate(authority);
+        let changed = !self.job.overlay.same_observations(&self.refreshed);
+        let discarded = std::mem::replace(&mut self.job.overlay, self.refreshed);
+        let cut = if changed {
+            self.job.dependency_cut = authority.dependency_observation_cut();
+            DirectResolutionProbeCut::Retry(self.job)
+        } else {
+            DirectResolutionProbeCut::Reject(self.job, self.first_missing)
         };
-        Ok(DirectResolutionProbeObservation::Rejected(
-            DirectTransactionRejection::accepted_cut(
-                self.job.tx,
-                self.job.command,
-                Reject::Resolve(OutPointError::Unknown(first.out_point.clone())),
-                self.job.view,
-                self.job.accepted_source,
-            ),
-        ))
+        DirectResolutionProbeRecheck {
+            cut,
+            discarded: Some(discarded),
+        }
+    }
+}
+
+impl DirectResolutionProbeRecheck {
+    pub(super) fn finish(self) -> Result<DirectResolutionProbeObservation, DirectComputationError> {
+        let Self { cut, discarded } = self;
+        drop(discarded);
+        match cut {
+            DirectResolutionProbeCut::Retry(job) => {
+                Ok(DirectResolutionProbeObservation::Retry(job))
+            }
+            DirectResolutionProbeCut::Reject(job, first_missing) => {
+                Ok(DirectResolutionProbeObservation::Rejected(
+                    job.into_rejection(Reject::Resolve(OutPointError::Unknown(first_missing))),
+                ))
+            }
+            DirectResolutionProbeCut::Stale(job, refreshed) => {
+                drop((job, refreshed));
+                Err(DirectComputationError::StaleView)
+            }
+        }
     }
 }
 
@@ -1207,12 +1452,27 @@ impl ResolutionProbe {
         reason = "settlement failure returns the exact unboxed compute capability; boxing would allocate on missing-dependency paths"
     )]
     pub(super) fn settle_missing(self) -> Result<ComputeSettlement, ResolutionExecutionFailure> {
-        let keys = self
-            .missing
-            .into_iter()
-            .map(|cell| DependencyKey::Cell(compact_packed(&cell.out_point)))
-            .collect();
-        self.job.work.missing(keys)
+        let Self { job, missing } = self;
+        let mut keys = Vec::new();
+        if keys.try_reserve_exact(missing.len()).is_err() {
+            return Err(ResolutionExecutionFailure {
+                kind: ResolutionExecutionKind::ResourceUnavailable,
+                settlement: job.work.retry(),
+            });
+        }
+        for cell in missing {
+            let out_point = match crate::util::try_compact_packed(&cell.out_point) {
+                Ok(out_point) => out_point,
+                Err(_) => {
+                    return Err(ResolutionExecutionFailure {
+                        kind: ResolutionExecutionKind::ResourceUnavailable,
+                        settlement: job.work.retry(),
+                    });
+                }
+            };
+            keys.push(DependencyKey::Cell(out_point));
+        }
+        job.work.missing(keys)
     }
 }
 
@@ -1278,7 +1538,7 @@ pub(crate) struct TxPoolVerificationRequest {
 #[must_use = "cache-bound verification still owns the checked-out capability"]
 pub(in crate::authority) struct CacheBoundTxPoolVerification {
     request: TxPoolVerificationRequest,
-    cache_entry: Option<Completed>,
+    cache_entry: Option<ScriptVerificationProof>,
 }
 
 /// Owner-free direct verification paired with its exact cache lookup. This is
@@ -1288,18 +1548,17 @@ pub(in crate::authority) struct CacheBoundTxPoolVerification {
 #[must_use = "cache-bound direct verification must execute or be discarded"]
 pub(crate) struct CacheBoundDirectVerification {
     request: DirectVerificationRequest,
-    cache_entry: Option<Completed>,
+    cache_entry: Option<ScriptVerificationProof>,
 }
 
 #[derive(Debug)]
 pub(crate) struct VerificationCacheUpdate {
-    pub(crate) key: TxVerificationCacheKey,
-    pub(crate) completed: Completed,
+    proof: ScriptVerificationProof,
 }
 
 impl VerificationCacheUpdate {
-    pub(crate) fn into_parts(self) -> (TxVerificationCacheKey, Completed) {
-        (self.key, self.completed)
+    pub(crate) fn into_proof(self) -> ScriptVerificationProof {
+        self.proof
     }
 }
 
@@ -1349,7 +1608,7 @@ impl VerificationJob {
         let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
         let cache_key = TxVerificationCacheKey::from_transaction(self.transaction(), rules);
         let max_cycles = match self.payload_policy() {
-            PayloadPolicy::RemoteDeclaredCycles(cycles) => cycles,
+            PayloadPolicy::RemoteDeclaredCycles(limit) => limit.declared(),
             PayloadPolicy::Trusted => self.snapshot.consensus().max_block_cycles(),
         };
         TxPoolVerificationRequest {
@@ -1373,7 +1632,7 @@ impl TxPoolVerificationRequest {
         self,
         cache: &TxVerificationCache,
     ) -> CacheBoundTxPoolVerification {
-        let cache_entry = cache.peek(&self.cache_key).copied();
+        let cache_entry = cache.lookup(&self.cache_key);
         CacheBoundTxPoolVerification {
             request: self,
             cache_entry,
@@ -1412,13 +1671,13 @@ impl CacheBoundTxPoolVerification {
             snapshot,
             resolved,
             environment,
-            &cache_entry,
+            cache_entry,
             max_cycles,
             command_rx,
         )
         .await;
-        let completed = match verified {
-            Ok(completed) => completed,
+        let outcome = match verified {
+            Ok(outcome) => outcome,
             Err(reject) => {
                 return VerificationExecution {
                     settlement: work.rejected(reject),
@@ -1427,19 +1686,18 @@ impl CacheBoundTxPoolVerification {
             }
         };
         let policy_accepts_cycles = match policy {
-            PayloadPolicy::RemoteDeclaredCycles(declared) => declared == completed.cycles,
+            PayloadPolicy::RemoteDeclaredCycles(limit) => limit.declared() == outcome.cycles(),
             PayloadPolicy::Trusted => true,
         };
         let settlement = work.verified_with_time_context(
-            completed.cycles,
+            outcome.cycles(),
             super::chain::TimeContextReceipt::from_validation(cache_key.script_rules()),
             started_at,
         );
-        let cache_update =
-            (cache_entry.is_none() && policy_accepts_cycles).then_some(VerificationCacheUpdate {
-                key: cache_key,
-                completed,
-            });
+        let cache_update = policy_accepts_cycles
+            .then(|| outcome.executed_proof())
+            .flatten()
+            .map(|proof| VerificationCacheUpdate { proof });
         VerificationExecution {
             settlement,
             cache_update,
@@ -1451,7 +1709,7 @@ impl DirectVerificationRequest {
     /// Bind owner-free direct validation to the exact tx-pool cache key sealed
     /// during snapshot capture. The result is copied out before any await.
     pub(crate) fn bind_cache(self, cache: &TxVerificationCache) -> CacheBoundDirectVerification {
-        let cache_entry = cache.peek(&self.cache_key).copied();
+        let cache_entry = cache.lookup(&self.cache_key);
         CacheBoundDirectVerification {
             request: self,
             cache_entry,
@@ -1481,31 +1739,31 @@ impl CacheBoundDirectVerification {
         let DirectResolvedCandidate {
             tx,
             command,
-            accepted_source,
+            accepted_reads,
             dependency_cut,
             snapshot,
             payload,
             location,
         } = candidate;
-        let completed = match verify_rtx(
+        let outcome = match verify_rtx(
             snapshot,
             Arc::clone(payload.resolved_transaction()),
             environment,
-            &cache_entry,
+            cache_entry,
             max_cycles,
             command_rx,
         )
         .await
         {
-            Ok(completed) => completed,
+            Ok(outcome) => outcome,
             Err(reason) => {
                 return Ok(DirectVerificationOutcome::Rejected(
-                    DirectTransactionRejection::accepted_cut(
+                    DirectTransactionRejection::accepted_reads(
                         tx,
                         command,
                         reason,
                         location.into_view(),
-                        accepted_source,
+                        accepted_reads,
                     ),
                 ));
             }
@@ -1520,7 +1778,7 @@ impl CacheBoundDirectVerification {
             ResolvedPayload::compact_after_direct_verification(payload, DirectVerificationSeal(()));
         let metrics = CandidateMetrics {
             fee,
-            cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, completed.cycles),
+            cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, outcome.cycles()),
         };
         let verified = super::state::VerifiedFacts::from_direct_verification(
             DirectVerificationSeal(()),
@@ -1529,13 +1787,12 @@ impl CacheBoundDirectVerification {
             context,
             metrics,
         );
+        drop(accepted_reads);
         let work = DirectAdmissionWork::new(tx, verified)
             .map_err(|_| DirectComputationError::InvalidEvidence)?;
-        let cache_hit = cache_entry.is_some();
-        let cache_update = (!cache_hit).then_some(VerificationCacheUpdate {
-            key: cache_key,
-            completed,
-        });
+        let cache_update = outcome
+            .executed_proof()
+            .map(|proof| VerificationCacheUpdate { proof });
         Ok(DirectVerificationOutcome::Candidate(
             DirectVerifiedCandidate {
                 command,

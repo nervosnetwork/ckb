@@ -1,9 +1,10 @@
 use super::super::contextual_block_verifier::{EpochVerifier, TwoPhaseCommitVerifier};
 use crate::contextual_block_verifier::{RewardVerifier, VerifyContext};
 use ckb_chain::ChainServiceScope;
-use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
 use ckb_error::assert_error_eq;
 use ckb_shared::{Shared, SharedBuilder};
+use ckb_store::data_loader_wrapper::AsDataLoader;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_test_chain_utils::always_success_cell;
 use ckb_types::{
@@ -21,8 +22,8 @@ use ckb_types::{
     utilities::DIFF_TWO,
 };
 use ckb_verification::{
-    CellbaseError, CommitError, EpochError, TxVerifyEnv,
-    cache::{Completed, ScriptVerificationRules, TxVerificationCacheKey},
+    CellbaseError, CommitError, ContextualTransactionVerifier, EpochError, TxVerifyEnv,
+    cache::{ScriptVerificationRules, TxVerificationCacheKey},
 };
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -133,7 +134,9 @@ fn create_cellbase(number: BlockNumber) -> TransactionView {
         .build()
 }
 
-fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
+fn setup_env_with_proposal_window(
+    proposal_window: Option<ProposalWindow>,
+) -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let tx = TransactionBuilder::default()
@@ -153,9 +156,11 @@ fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
         .build();
     let tx_hash = tx.data().calc_tx_hash();
     let genesis_block = BlockBuilder::default().transaction(tx).build();
-    let consensus = ConsensusBuilder::default()
-        .genesis_block(genesis_block)
-        .build();
+    let mut consensus = ConsensusBuilder::default().genesis_block(genesis_block);
+    if let Some(proposal_window) = proposal_window {
+        consensus = consensus.tx_proposal_window(proposal_window);
+    }
+    let consensus = consensus.build();
     let (chain, shared) = start_chain(Some(consensus));
     (
         chain,
@@ -164,6 +169,10 @@ fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
         always_success_script.clone(),
         OutPoint::new(tx_hash, 0),
     )
+}
+
+fn setup_env() -> (ChainServiceScope, Shared, Byte32, Script, OutPoint) {
+    setup_env_with_proposal_window(None)
 }
 
 #[test]
@@ -191,7 +200,7 @@ fn disabled_script_verification_does_not_publish_cache_proof() {
     let cache = shared.txs_verify_cache();
     let cached = shared.async_handle().block_on(async move {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        cache.read().await.peek(&key).copied()
+        cache.read().await.lookup(&key)
     });
     assert!(
         cached.is_none(),
@@ -213,18 +222,43 @@ fn contextual_verification_does_not_reuse_cache_across_script_rules() {
         shared.consensus(),
         &TxVerifyEnv::new_commit(&block.header()),
     );
-    let stale_rules = match current_rules {
-        ScriptVerificationRules::V0 => ScriptVerificationRules::V1,
-        ScriptVerificationRules::V1 | ScriptVerificationRules::V2 => ScriptVerificationRules::V0,
-    };
-    let poisoned = Completed {
-        cycles: shared.consensus().max_block_cycles() + 1,
-        fee: Capacity::zero(),
-    };
-    let stale_key = TxVerificationCacheKey::from_transaction(&tx, stale_rules);
+    let stale_consensus = Arc::new(
+        ConsensusBuilder::new(
+            shared.consensus().genesis_block().clone(),
+            shared.consensus().genesis_epoch_ext().clone(),
+        )
+        .hardfork_switch(ckb_types::core::hardfork::HardForks::new_dev())
+        .build(),
+    );
+    let stale_env = Arc::new(TxVerifyEnv::new_commit(&block.header()));
+    let stale_rules = ScriptVerificationRules::from_env(&stale_consensus, &stale_env);
+    assert_ne!(stale_rules, current_rules);
+    let mut seen_inputs = std::collections::HashSet::new();
+    let snapshot = shared.cloned_snapshot();
+    let resolved = Arc::new(
+        ckb_types::core::cell::resolve_transaction(
+            tx,
+            &mut seen_inputs,
+            snapshot.as_ref(),
+            snapshot.as_ref(),
+        )
+        .expect("the cache fixture resolves against genesis"),
+    );
+    let stale_outcome = ContextualTransactionVerifier::new(
+        resolved,
+        stale_consensus,
+        Arc::new(shared.store().clone()).as_data_loader(),
+        stale_env,
+    )
+    .verify_scripts(shared.consensus().max_block_cycles(), None)
+    .expect("stale-rule proof must originate in a real VM success");
+    let stale_proof = stale_outcome
+        .executed_proof()
+        .expect("a cache miss produces publishable proof");
+    assert_eq!(stale_proof.key().script_rules(), stale_rules);
     let cache = shared.txs_verify_cache();
     shared.async_handle().block_on(async {
-        cache.write().await.put(stale_key, poisoned);
+        cache.write().await.insert(stale_proof);
     });
 
     chain
@@ -294,8 +328,7 @@ fn test_epoch_difficulty() {
     );
 }
 
-#[test]
-fn test_proposal() {
+fn assert_two_phase_window(propose_in_uncle: bool) {
     let (chain, shared, mut prev_tx_hash, always_success_script, always_success_out_point) =
         setup_env();
     let chain_controller = chain.chain_controller();
@@ -318,13 +351,18 @@ fn test_proposal() {
         .get_block_header(&shared.store().get_block_hash(0).unwrap())
         .unwrap();
 
-    //proposal in block(1)
+    // Propose in block 1 through exactly one of the two consensus routes.
     let proposed = 1;
     let proposal_ids: Vec<_> = txs20
         .iter()
         .map(|tx| tx.data().proposal_short_id())
         .collect();
-    let block = gen_block(&parent, vec![], proposal_ids, vec![]);
+    let block = if propose_in_uncle {
+        let uncle = gen_block(&parent, vec![], proposal_ids, vec![]);
+        gen_block(&parent, vec![], vec![], vec![uncle.as_uncle()])
+    } else {
+        gen_block(&parent, vec![], proposal_ids, vec![])
+    };
     chain_controller
         .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
         .unwrap();
@@ -332,7 +370,7 @@ fn test_proposal() {
 
     let context = dummy_context(&shared);
 
-    //commit in proposal gap is invalid
+    // Every candidate before the closest distance is in Gap and invalid.
     for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         assert_error_eq!(
@@ -342,7 +380,6 @@ fn test_proposal() {
             CommitError::Invalid,
         );
 
-        //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
@@ -350,13 +387,12 @@ fn test_proposal() {
         parent = new_block.header().to_owned();
     }
 
-    //commit in proposal window
-    for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
+    // The complete inclusive commit window is legal, including farthest.
+    for _ in proposal_window.closest()..=proposal_window.farthest() {
         let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
         let verifier = TwoPhaseCommitVerifier::new(&context, &block);
         assert!(verifier.verify().is_ok());
 
-        //test chain forward
         let new_block = gen_block(&parent, vec![], vec![], vec![]);
         chain_controller
             .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
@@ -364,81 +400,267 @@ fn test_proposal() {
         parent = new_block.header().to_owned();
     }
 
-    //proposal expired
+    // The first candidate past farthest is Outside and invalid.
     let block = gen_block(&parent, txs20, vec![], vec![]);
-    let verifier = TwoPhaseCommitVerifier::new(&context, &block);
-    assert!(verifier.verify().is_ok());
+    assert_error_eq!(
+        TwoPhaseCommitVerifier::new(&context, &block)
+            .verify()
+            .unwrap_err(),
+        CommitError::Invalid,
+    );
+}
+
+#[test]
+fn test_proposal() {
+    assert_two_phase_window(false);
 }
 
 #[test]
 fn test_uncle_proposal() {
-    let (chain, shared, mut prev_tx_hash, always_success_script, always_success_out_point) =
-        setup_env();
-    let chain_controller = chain.chain_controller();
+    assert_two_phase_window(true);
+}
 
-    let mut txs20 = Vec::new();
-    for _ in 0..20 {
-        let tx = create_transaction(
-            &prev_tx_hash,
-            &always_success_script,
-            &always_success_out_point,
+#[test]
+fn two_phase_commit_verifier_and_live_proposal_view_agree_pointwise() {
+    let windows = [
+        ProposalWindow(2, 10),
+        ProposalWindow(1, 10),
+        ProposalWindow(3, 10),
+        ProposalWindow(1, 1),
+        ProposalWindow(3, 3),
+        ProposalWindow(2, 2),
+    ];
+
+    for proposal_window in windows {
+        for propose_in_uncle in [false, true] {
+            let (chain, shared, parent_tx, always_success_script, always_success_out_point) =
+                setup_env_with_proposal_window(Some(proposal_window));
+            let proposed = create_transaction(
+                &parent_tx,
+                &always_success_script,
+                &always_success_out_point,
+            );
+            let extra = create_transaction(
+                &proposed.data().calc_tx_hash(),
+                &always_success_script,
+                &always_success_out_point,
+            );
+            let proposed_id = proposed.proposal_short_id();
+            let extra_id = extra.proposal_short_id();
+            let controller = chain.chain_controller();
+            let mut parent = shared.consensus().genesis_block().header();
+
+            let proposal_block = if propose_in_uncle {
+                let uncle = gen_block(&parent, vec![], vec![proposed_id.clone()], vec![]);
+                gen_block(&parent, vec![], vec![], vec![uncle.as_uncle()])
+            } else {
+                gen_block(&parent, vec![], vec![proposed_id.clone()], vec![])
+            };
+            controller
+                .blocking_process_block_with_switch(
+                    Arc::new(proposal_block.clone()),
+                    Switch::DISABLE_ALL,
+                )
+                .expect("the proposal block installs");
+            parent = proposal_block.header();
+
+            for tip in 1..=proposal_window.farthest() + 1 {
+                let snapshot = shared.snapshot();
+                let view = snapshot.proposals();
+                let proposed_visible = view.contains_proposed(&proposed_id);
+                let extra_visible = view.contains_proposed(&extra_id);
+                let context = dummy_context(&shared);
+                let proposed_block = gen_block(&parent, vec![proposed.clone()], vec![], vec![]);
+                let extra_block = gen_block(&parent, vec![extra.clone()], vec![], vec![]);
+                let combined_block = gen_block(
+                    &parent,
+                    vec![proposed.clone(), extra.clone()],
+                    vec![],
+                    vec![],
+                );
+
+                assert_eq!(
+                    TwoPhaseCommitVerifier::new(&context, &proposed_block)
+                        .verify()
+                        .is_ok(),
+                    proposed_visible,
+                    "singleton proposed id disagrees with the live view: window=({},{}) tip={tip} uncle={propose_in_uncle}",
+                    proposal_window.closest(),
+                    proposal_window.farthest(),
+                );
+                assert_eq!(
+                    TwoPhaseCommitVerifier::new(&context, &extra_block)
+                        .verify()
+                        .is_ok(),
+                    extra_visible,
+                    "singleton extra id disagrees with the live view: window=({},{}) tip={tip} uncle={propose_in_uncle}",
+                    proposal_window.closest(),
+                    proposal_window.farthest(),
+                );
+                assert_eq!(
+                    TwoPhaseCommitVerifier::new(&context, &combined_block)
+                        .verify()
+                        .is_ok(),
+                    proposed_visible && extra_visible,
+                    "the verifier must reject a set containing any id outside the live view: window=({},{}) tip={tip} uncle={propose_in_uncle}",
+                    proposal_window.closest(),
+                    proposal_window.farthest(),
+                );
+                assert!(
+                    !extra_visible,
+                    "the never-proposed control id must remain outside the live view"
+                );
+
+                if tip <= proposal_window.farthest() {
+                    let next = gen_block(&parent, vec![], vec![], vec![]);
+                    controller
+                        .blocking_process_block_with_switch(
+                            Arc::new(next.clone()),
+                            Switch::DISABLE_ALL,
+                        )
+                        .expect("the canonical empty successor installs");
+                    parent = next.header();
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn two_phase_commit_verifier_and_live_proposal_view_agree_after_reorg() {
+    let proposal_window = ProposalWindow(2, 4);
+    let (chain, shared, parent_tx, always_success_script, always_success_out_point) =
+        setup_env_with_proposal_window(Some(proposal_window));
+    let old = create_transaction(
+        &parent_tx,
+        &always_success_script,
+        &always_success_out_point,
+    );
+    let new = create_transaction(
+        &old.data().calc_tx_hash(),
+        &always_success_script,
+        &always_success_out_point,
+    );
+    let old_id = old.proposal_short_id();
+    let new_id = new.proposal_short_id();
+    let controller = chain.chain_controller();
+    let genesis = shared.consensus().genesis_block().header();
+
+    let old_proposal = gen_block(&genesis, vec![], vec![old_id.clone()], vec![]);
+    controller
+        .blocking_process_block_with_switch(Arc::new(old_proposal.clone()), Switch::DISABLE_ALL)
+        .expect("the old proposal branch installs");
+    let old_tip = gen_block(&old_proposal.header(), vec![], vec![], vec![]);
+    controller
+        .blocking_process_block_with_switch(Arc::new(old_tip.clone()), Switch::DISABLE_ALL)
+        .expect("the old branch tip installs");
+
+    {
+        let snapshot = shared.snapshot();
+        assert!(snapshot.proposals().contains_proposed(&old_id));
+        assert!(!snapshot.proposals().contains_proposed(&new_id));
+        let context = dummy_context(&shared);
+        assert!(
+            TwoPhaseCommitVerifier::new(
+                &context,
+                &gen_block(&old_tip.header(), vec![old.clone()], vec![], vec![]),
+            )
+            .verify()
+            .is_ok()
         );
-        txs20.push(tx.clone());
-        prev_tx_hash = tx.data().calc_tx_hash();
+        assert_error_eq!(
+            TwoPhaseCommitVerifier::new(
+                &context,
+                &gen_block(&old_tip.header(), vec![new.clone()], vec![], vec![]),
+            )
+            .verify()
+            .expect_err("the other branch proposal is not current evidence"),
+            CommitError::Invalid,
+        );
     }
 
-    let proposal_window = shared.consensus().tx_proposal_window();
+    let new_proposal = gen_block(&genesis, vec![], vec![new_id.clone()], vec![]);
+    controller
+        .blocking_process_block_with_switch(Arc::new(new_proposal.clone()), Switch::DISABLE_ALL)
+        .expect("the competing proposal block is retained");
+    let new_second = gen_block(&new_proposal.header(), vec![], vec![], vec![]);
+    controller
+        .blocking_process_block_with_switch(Arc::new(new_second.clone()), Switch::DISABLE_ALL)
+        .expect("the competing branch reaches the old height");
+    let new_tip = gen_block(&new_second.header(), vec![], vec![], vec![]);
+    controller
+        .blocking_process_block_with_switch(Arc::new(new_tip.clone()), Switch::DISABLE_ALL)
+        .expect("the longer competing branch becomes canonical");
 
-    let mut parent = shared
-        .store()
-        .get_block_header(&shared.store().get_block_hash(0).unwrap())
-        .unwrap();
-
-    //proposal in block(1)
-    let proposed = 1;
-    let proposal_ids: Vec<_> = txs20
-        .iter()
-        .map(|tx| tx.data().proposal_short_id())
-        .collect();
-    let uncle = gen_block(&parent, vec![], proposal_ids, vec![]);
-    let block = gen_block(&parent, vec![], vec![], vec![uncle.as_uncle()]);
-    chain_controller
-        .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
-        .unwrap();
-    parent = block.header();
-
+    let snapshot = shared.snapshot();
+    assert_eq!(snapshot.tip_header().hash(), new_tip.hash());
+    assert!(!snapshot.proposals().contains_proposed(&old_id));
+    assert!(snapshot.proposals().contains_proposed(&new_id));
     let context = dummy_context(&shared);
+    assert_error_eq!(
+        TwoPhaseCommitVerifier::new(
+            &context,
+            &gen_block(&new_tip.header(), vec![old], vec![], vec![]),
+        )
+        .verify()
+        .expect_err("detached proposal evidence cannot authorize a commit"),
+        CommitError::Invalid,
+    );
+    assert!(
+        TwoPhaseCommitVerifier::new(
+            &context,
+            &gen_block(&new_tip.header(), vec![new], vec![], vec![]),
+        )
+        .verify()
+        .is_ok()
+    );
+}
 
-    //commit in proposal gap is invalid
-    for _ in (proposed + 1)..(proposed + proposal_window.closest()) {
-        let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = TwoPhaseCommitVerifier::new(&context, &block);
-        assert_error_eq!(verifier.verify().unwrap_err(), CommitError::Invalid);
-
-        //test chain forward
-        let new_block = gen_block(&parent, vec![], vec![], vec![]);
-        chain_controller
-            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
-            .unwrap();
-        parent = new_block.header().to_owned();
+#[test]
+fn two_phase_commit_verifier_does_not_read_genesis_proposals() {
+    let (always_success_cell, always_success_cell_data, always_success_script) =
+        always_success_cell();
+    let genesis_tx = TransactionBuilder::default()
+        .witness(always_success_script.clone().into_witness())
+        .input(CellInput::new(OutPoint::null(), 0))
+        .output(always_success_cell.clone())
+        .output_data(always_success_cell_data.to_owned())
+        .build();
+    let candidate = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(genesis_tx.hash(), 0), 0))
+        .build();
+    let genesis = BlockBuilder::default()
+        .transaction(genesis_tx)
+        .proposal(candidate.proposal_short_id())
+        .build();
+    let consensus = ConsensusBuilder::default()
+        .genesis_block(genesis)
+        .tx_proposal_window(ckb_chain_spec::consensus::ProposalWindow(2, 4))
+        .build();
+    let (chain, shared) = start_chain(Some(consensus));
+    let controller = chain.chain_controller();
+    let mut parent = shared.consensus().genesis_block().header();
+    for _ in 1..=2 {
+        let block = gen_block(&parent, vec![], vec![], vec![]);
+        controller
+            .blocking_process_block_with_switch(Arc::new(block.clone()), Switch::DISABLE_ALL)
+            .expect("the empty canonical prefix installs");
+        parent = block.header();
     }
 
-    //commit in proposal window
-    for _ in 0..(proposal_window.farthest() - proposal_window.closest()) {
-        let block = gen_block(&parent, txs20.clone(), vec![], vec![]);
-        let verifier = TwoPhaseCommitVerifier::new(&context, &block);
-        assert!(verifier.verify().is_ok());
+    assert!(
+        !shared
+            .snapshot()
+            .proposals()
+            .contains_proposed(&candidate.proposal_short_id()),
+        "the live proposal view must exclude genesis-only proposal evidence"
+    );
 
-        //test chain forward
-        let new_block = gen_block(&parent, vec![], vec![], vec![]);
-        chain_controller
-            .blocking_process_block_with_switch(Arc::new(new_block.clone()), Switch::DISABLE_ALL)
-            .unwrap();
-        parent = new_block.header().to_owned();
-    }
-
-    //proposal expired
-    let block = gen_block(&parent, txs20, vec![], vec![]);
-    let verifier = TwoPhaseCommitVerifier::new(&context, &block);
-    assert!(verifier.verify().is_ok());
+    let block = gen_block(&parent, vec![candidate], vec![], vec![]);
+    assert_error_eq!(
+        TwoPhaseCommitVerifier::new(&dummy_context(&shared), &block)
+            .verify()
+            .expect_err("a genesis-only proposal is not commit evidence"),
+        CommitError::Invalid,
+    );
 }

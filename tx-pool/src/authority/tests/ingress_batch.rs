@@ -1,7 +1,7 @@
 use super::super::{
     effect::EffectLimits,
     ingress::{
-        RetainedAdmissionBatch, RetainedIngressAttempt, RetainedIngressError, proposal,
+        BoundedTransaction, RetainedAdmissionBatch, RetainedIngressAttempt, proposal,
         test_support::remote_at_for_foundation,
     },
     plan::{
@@ -40,16 +40,9 @@ fn proposal_batch(
     let mut attempts = transactions
         .into_iter()
         .map(|transaction| {
+            let transaction = BoundedTransaction::try_new(transaction)
+                .expect("proposal fixture transaction is bounded");
             proposal(transaction, &consensus)
-                .map(RetainedIngressAttempt::Validated)
-                .unwrap_or_else(|error| match error {
-                    RetainedIngressError::Rejected(rejection) => {
-                        RetainedIngressAttempt::Rejected(rejection)
-                    }
-                    RetainedIngressError::Admission(error) => {
-                        panic!("fixture admission failed unexpectedly: {error:?}")
-                    }
-                })
         })
         .collect::<VecDeque<_>>();
     let head = attempts
@@ -68,14 +61,7 @@ fn remote_batch(
         .map(|transaction| {
             remote_at_for_foundation(transaction, 0, peer, 100, &consensus)
                 .map(RetainedIngressAttempt::Validated)
-                .unwrap_or_else(|error| match error {
-                    RetainedIngressError::Rejected(rejection) => {
-                        RetainedIngressAttempt::Rejected(rejection)
-                    }
-                    RetainedIngressError::Admission(error) => {
-                        panic!("fixture admission failed unexpectedly: {error:?}")
-                    }
-                })
+                .unwrap_or_else(|attempt| attempt)
         })
         .collect::<VecDeque<_>>();
     let head = attempts

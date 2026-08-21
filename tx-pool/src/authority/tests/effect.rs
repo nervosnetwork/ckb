@@ -182,8 +182,12 @@ fn publication_receipt(authority: &mut TxPoolAuthority) -> EffectReceipt {
 #[tokio::test]
 async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     let transaction = Arc::new(tx(698));
     let hash = transaction.hash();
 
@@ -561,10 +565,11 @@ fn uak_production_effect_sizing_constructively_covers_non_rebuildable_shapes() {
             <= limits.max_batch_bytes_for_foundation(EffectPolicy::Remote)
     );
 
-    let parents: Arc<[RawTxHash]> = (0..parent_count)
-        .map(|index| RawTxHash(Byte32::new([(index % 251) as u8; 32])))
-        .collect::<Vec<_>>()
-        .into();
+    let parents = Arc::new(
+        (0..parent_count)
+            .map(|index| RawTxHash(Byte32::new([(index % 251) as u8; 32])))
+            .collect::<Vec<_>>(),
+    );
     let request = CommittedEffect::ParentTransactionsRequested(
         ParentTransactionRequest::new(PeerIndex::from(1), parents)
             .expect("the maximal parent request is non-empty"),

@@ -13,6 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 from check_production_contracts import mask_rust_non_code
@@ -22,9 +23,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = REPO_ROOT / "tx-pool" / "architecture-contract.json"
 REGISTRY = REPO_ROOT / "tx-pool" / "review-behaviors.json"
 INVENTORY = REPO_ROOT / "tx-pool" / "test-inventory.txt"
+MANIFEST = REPO_ROOT / "tx-pool" / "security-regression-manifest.json"
 UNIT_START = '  "unit_evidence": ['
 UNIT_END = '\n  ],\n  "workspace_evidence":'
 DERIVED_FIELD_NAMES = {"candidate", "candidate_count", "count", "sha256"}
+MUTANT_OUTCOME_SUMMARIES = {
+    "CaughtMutant",
+    "MissedMutant",
+    "Timeout",
+    "Unviable",
+}
 CANDIDATE_LOCATION = re.compile(
     r"^(?P<file>.+\.rs):(?P<line>[1-9][0-9]*):(?P<column>[1-9][0-9]*):\s"
 )
@@ -54,6 +62,17 @@ def load_json(path: Path, label: str) -> dict:
     return value
 
 
+def canonical_digest(value: object) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def repo_path(value: object, label: str) -> Path:
     if not isinstance(value, str) or not value:
         fail(f"{label} must be a repository-relative path")
@@ -63,6 +82,446 @@ def repo_path(value: object, label: str) -> Path:
     except ValueError as error:
         fail(f"{label} escapes the repository: {value}")
     return path
+
+
+def convergence_state(manifest: dict) -> str:
+    status = manifest.get("convergence_status")
+    state = status.get("state") if isinstance(status, dict) else None
+    if state not in {"construction", "acceptance", "accepted"}:
+        fail(f"security manifest has an invalid convergence state: {state!r}")
+    return state
+
+
+def mutation_evidence_required(manifest: dict) -> bool:
+    """Require current mutation evidence only after its independent lane closes."""
+
+    status = manifest.get("convergence_status")
+    state = status.get("state") if isinstance(status, dict) else None
+    completed = status.get("completed_phases") if isinstance(status, dict) else None
+    if state not in {"construction", "acceptance", "accepted"}:
+        fail(f"security manifest has an invalid convergence state: {state!r}")
+    if not isinstance(completed, list) or not all(
+        isinstance(phase, str) for phase in completed
+    ):
+        fail("security manifest has an invalid completed phase projection")
+    return state == "accepted" or "complete_mutation" in completed
+
+
+def input_record_path(value: object, label: str) -> tuple[Path, str]:
+    if not isinstance(value, dict) or set(value) != {"path", "sha256"}:
+        fail(f"{label} must be one exact path/SHA-256 record")
+    expected = value.get("sha256")
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        fail(f"{label} has an invalid SHA-256")
+    return repo_path(value.get("path"), label), expected
+
+
+def mutation_manifest_projection(manifest: dict) -> dict:
+    """Return only manifest coordinates consumed by mutation selection."""
+
+    return {
+        "package": manifest.get("package"),
+        "features": manifest.get("features"),
+        "architecture_contract": manifest.get("architecture_contract"),
+        "behavior_registry": manifest.get("behavior_registry"),
+        "test_inventory": manifest.get("test_inventory"),
+        "mutation_acceptance": manifest.get("mutation_acceptance"),
+    }
+
+
+def mutation_input_differences(
+    candidate_lock: dict, manifest: dict | None = None
+) -> list[str]:
+    """Return the exact lock-input coordinates that differ from this checkout."""
+
+    inputs = candidate_lock.get("inputs")
+    schema_version = candidate_lock.get("schema_version")
+    current_required = {
+        "tools",
+        "manifest_projection_sha256",
+        "architecture_contract",
+        "behavior_registry",
+        "test_inventory",
+        "production_sources",
+    }
+    historical_required = {
+        *current_required.difference({"manifest_projection_sha256"}),
+        "manifest",
+        "production_source_revision",
+    }
+    if schema_version not in {3, 4}:
+        fail("mutation candidate lock has an unsupported schema")
+    required = historical_required if schema_version == 3 else current_required
+    if not isinstance(inputs, dict) or set(inputs) != required:
+        fail("mutation candidate lock has an invalid input vector")
+
+    records: list[tuple[str, object]] = []
+    if schema_version == 3:
+        records.append(("manifest", inputs["manifest"]))
+    for key in ("architecture_contract", "behavior_registry", "test_inventory"):
+        records.append((key, inputs[key]))
+    for key in ("tools", "production_sources"):
+        values = inputs.get(key)
+        if not isinstance(values, list) or not values:
+            fail(f"mutation candidate lock {key} input vector must be nonempty")
+        records.extend((f"{key}[{index}]", value) for index, value in enumerate(values))
+
+    differences: list[str] = []
+    if schema_version == 4:
+        if manifest is None:
+            manifest = load_json(MANIFEST, "security regression manifest")
+        expected_projection = canonical_digest(mutation_manifest_projection(manifest))
+        if inputs.get("manifest_projection_sha256") != expected_projection:
+            differences.append("manifest_projection_sha256:value")
+    seen_paths: set[Path] = set()
+    for label, record in records:
+        path, expected = input_record_path(record, f"mutation input {label}")
+        if path in seen_paths:
+            fail(f"mutation candidate lock repeats input path {path.relative_to(REPO_ROOT)}")
+        seen_paths.add(path)
+        try:
+            observed = file_digest(path)
+        except OSError:
+            differences.append(f"{label}:missing")
+            continue
+        if observed != expected:
+            differences.append(f"{label}:sha256")
+
+    if schema_version == 3:
+        source_paths = [
+            repo_path(record["path"], "mutation production source")
+            .relative_to(REPO_ROOT)
+            .as_posix()
+            for record in inputs["production_sources"]
+        ]
+        expected_revision = inputs.get("production_source_revision")
+        if not isinstance(expected_revision, str) or re.fullmatch(
+            r"[0-9a-f]{40}", expected_revision
+        ) is None:
+            fail("mutation candidate lock has an invalid production source revision")
+        completed = subprocess.run(
+            ["git", "log", "-1", "--format=%H", "--", *source_paths],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        observed_revision = completed.stdout.strip()
+        if completed.returncode != 0 or re.fullmatch(
+            r"[0-9a-f]{40}", observed_revision
+        ) is None:
+            differences.append("production_source_revision:unavailable")
+        elif observed_revision != expected_revision:
+            differences.append("production_source_revision:value")
+
+    return sorted(differences)
+
+
+def classify_mutation_evidence(
+    state: str, differences: list[str], *, require_current: bool | None = None
+) -> str:
+    """Apply the evidence-DAG invalidation law without consuming stale rows."""
+
+    if state not in {"construction", "acceptance", "accepted"}:
+        fail(f"invalid convergence state for mutation evidence: {state!r}")
+    if not differences:
+        return "current"
+    if require_current is None:
+        require_current = state in {"acceptance", "accepted"}
+    if not require_current:
+        return "historical_non_release"
+    fail(
+        f"{state} requires mutation evidence bound to the current input vector; "
+        f"historical coordinates={differences}"
+    )
+
+
+def require_head_tracked_identity(path: Path, label: str) -> str:
+    """Require a historical artifact to remain exactly recoverable from HEAD."""
+
+    relative = path.resolve().relative_to(REPO_ROOT).as_posix()
+    committed = subprocess.run(
+        ["git", "rev-parse", f"HEAD:{relative}"],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    observed = subprocess.run(
+        ["git", "hash-object", relative],
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    committed_blob = committed.stdout.strip()
+    observed_blob = observed.stdout.strip()
+    if (
+        committed.returncode != 0
+        or observed.returncode != 0
+        or re.fullmatch(r"[0-9a-f]{40}", committed_blob) is None
+        or observed_blob != committed_blob
+    ):
+        fail(f"historical {label} must remain byte-identical to its recoverable HEAD blob")
+    return committed_blob
+
+
+def run_mutation_evidence_state_canaries() -> None:
+    if classify_mutation_evidence("construction", ["test_inventory:sha256"]) != (
+        "historical_non_release"
+    ):
+        fail("stale Construction mutation evidence was not typed as historical")
+    if classify_mutation_evidence("construction", []) != "current":
+        fail("current Construction mutation evidence was not typed as current")
+    if classify_mutation_evidence(
+        "acceptance", ["production_sources[0]:sha256"], require_current=False
+    ) != "historical_non_release":
+        fail("pending Acceptance mutation evidence was not typed as historical")
+    for state in ("acceptance", "accepted"):
+        try:
+            classify_mutation_evidence(state, ["production_sources[0]:sha256"])
+        except SystemExit as error:
+            if "requires mutation evidence bound to the current input vector" not in str(error):
+                raise
+        else:
+            fail(f"{state} admitted historical mutation evidence")
+
+
+def validate_historical_mutation_pair(
+    candidate_path: Path,
+    result_path: Path,
+    candidate_lock: dict,
+    result_lock: dict,
+    declared_proof_ids: set[str],
+) -> tuple[int, int]:
+    """Validate a frozen historical pair without resolving it against current code."""
+
+    require_head_tracked_identity(candidate_path, "mutation candidate lock")
+    require_head_tracked_identity(result_path, "mutation result lock")
+
+    candidate_fields = {
+        "candidate_universe",
+        "cargo_mutants_version",
+        "evidence_sets",
+        "execution",
+        "generator",
+        "inputs",
+        "rows",
+        "schema_version",
+        "test_universe",
+    }
+    if set(candidate_lock) != candidate_fields or candidate_lock.get("schema_version") != 3:
+        fail("historical mutation candidate lock has an invalid schema")
+    if candidate_lock.get("generator") != "tx-pool/scripts/check_mutation_matrix.py":
+        fail("historical mutation candidate lock has an unknown generator")
+    version = candidate_lock.get("cargo_mutants_version")
+    if not isinstance(version, str) or re.fullmatch(
+        r"cargo-mutants [0-9]+\.[0-9]+\.[0-9]+", version
+    ) is None:
+        fail("historical mutation candidate lock has an invalid tool version")
+
+    rows = candidate_lock.get("rows")
+    row_fields = {
+        "candidate",
+        "file",
+        "function",
+        "genre",
+        "replacement",
+        "obligation_id",
+    }
+    if not isinstance(rows, list) or not rows:
+        fail("historical mutation candidate lock has no rows")
+    names: list[str] = []
+    source_paths: set[str] = set()
+    obligation_ids: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != row_fields:
+            fail(f"historical mutation candidate row has invalid fields: {row!r}")
+        if not all(isinstance(row.get(field), str) for field in row_fields) or not all(
+            row[field]
+            for field in row_fields.difference({"replacement"})
+        ):
+            fail(f"historical mutation candidate row has invalid values: {row!r}")
+        location = CANDIDATE_LOCATION.match(row["candidate"])
+        if location is None or location.group("file") != row["file"]:
+            fail(f"historical mutation candidate has an incoherent location: {row!r}")
+        names.append(row["candidate"])
+        source_paths.add(row["file"])
+        obligation_ids.add(row["obligation_id"])
+    if names != sorted(set(names)):
+        fail("historical mutation candidate rows are not sorted and unique")
+
+    universe = candidate_lock.get("candidate_universe")
+    if universe != {
+        "count": len(rows),
+        "excluded_count": 0,
+        "sha256": canonical_digest(rows),
+    }:
+        fail("historical mutation candidate-universe projection is inconsistent")
+    execution = candidate_lock.get("execution")
+    if not isinstance(execution, dict) or set(execution) != {
+        "candidate_count",
+        "candidate_sha256",
+        "config_sha256",
+        "command_template",
+        "command_sha256",
+    }:
+        fail("historical mutation execution projection has an invalid shape")
+    if (
+        execution.get("candidate_count") != len(rows)
+        or execution.get("candidate_sha256") != canonical_digest(rows)
+        or not isinstance(execution.get("command_template"), list)
+        or execution.get("command_sha256")
+        != canonical_digest(execution.get("command_template"))
+        or re.fullmatch(r"[0-9a-f]{64}", str(execution.get("config_sha256"))) is None
+    ):
+        fail("historical mutation execution projection is inconsistent")
+
+    evidence_sets = candidate_lock.get("evidence_sets")
+    if not isinstance(evidence_sets, dict) or set(evidence_sets) != obligation_ids:
+        fail("historical mutation evidence-set partition differs from candidate owners")
+    production_inputs = candidate_lock["inputs"].get("production_sources")
+    if not isinstance(production_inputs, list):
+        fail("historical mutation production input vector is invalid")
+    input_paths = {
+        record.get("path") for record in production_inputs if isinstance(record, dict)
+    }
+    if input_paths != source_paths:
+        fail("historical mutation candidate sources differ from the input vector")
+    test_universe = candidate_lock.get("test_universe")
+    if not isinstance(test_universe, dict) or set(test_universe) != {
+        "id",
+        "package",
+        "features",
+        "target",
+        "count",
+        "sha256",
+        "nextest_argv",
+    }:
+        fail("historical mutation test universe has an invalid shape")
+    if (
+        not isinstance(test_universe.get("count"), int)
+        or test_universe["count"] <= 0
+        or re.fullmatch(r"[0-9a-f]{64}", str(test_universe.get("sha256"))) is None
+    ):
+        fail("historical mutation test universe has invalid identity fields")
+
+    result_fields = {
+        "accepted",
+        "candidate_count",
+        "counts",
+        "disposition_counts",
+        "execution_count",
+        "mutation_lock",
+        "outcome_inputs",
+        "replayed_count",
+        "rows",
+        "schema_version",
+    }
+    if set(result_lock) != result_fields or result_lock.get("schema_version") != 3:
+        fail("historical mutation result lock has an invalid schema")
+    binding = result_lock.get("mutation_lock")
+    expected_binding = {
+        "path": candidate_path.relative_to(REPO_ROOT).as_posix(),
+        "sha256": file_digest(candidate_path),
+    }
+    if binding != expected_binding:
+        fail("historical mutation result is not bound to the preserved candidate lock")
+
+    results = result_lock.get("rows")
+    if not isinstance(results, list):
+        fail("historical mutation result lock has no row list")
+    observed_names: list[str] = []
+    outcome_counts: dict[str, int] = {}
+    disposition_counts: dict[str, int] = {}
+    for row in results:
+        if not isinstance(row, dict) or set(row) != {
+            "candidate",
+            "summary",
+            "disposition",
+        }:
+            fail(f"historical mutation result row has invalid fields: {row!r}")
+        name = row.get("candidate")
+        summary = row.get("summary")
+        disposition = row.get("disposition")
+        if not isinstance(name, str) or summary not in MUTANT_OUTCOME_SUMMARIES:
+            fail(f"historical mutation result row has invalid identity: {row!r}")
+        expected_kinds = {
+            "CaughtMutant": {"caught"},
+            "Unviable": {"compile_unviable"},
+            "MissedMutant": {"equivalent", "unaccepted"},
+            "Timeout": {"unaccepted"},
+        }[summary]
+        kind = disposition.get("kind") if isinstance(disposition, dict) else None
+        if kind not in expected_kinds:
+            fail(f"historical mutation result has an invalid disposition: {row!r}")
+        if kind == "equivalent":
+            if set(disposition) != {"kind", "proof_id"} or disposition.get(
+                "proof_id"
+            ) not in declared_proof_ids:
+                fail(f"historical mutation equivalence has no declared proof owner: {row!r}")
+        elif set(disposition) != {"kind"}:
+            fail(f"historical mutation disposition has extra fields: {row!r}")
+        observed_names.append(name)
+        outcome_counts[summary] = outcome_counts.get(summary, 0) + 1
+        disposition_counts[kind] = disposition_counts.get(kind, 0) + 1
+    if observed_names != names:
+        fail("historical mutation result does not close the sorted candidate universe")
+    if result_lock.get("candidate_count") != len(names):
+        fail("historical mutation result candidate count is inconsistent")
+    if result_lock.get("counts") != dict(sorted(outcome_counts.items())):
+        fail("historical mutation outcome counts are inconsistent")
+    if result_lock.get("disposition_counts") != dict(sorted(disposition_counts.items())):
+        fail("historical mutation disposition counts are inconsistent")
+    accepted = "unaccepted" not in disposition_counts
+    if result_lock.get("accepted") is not accepted:
+        fail("historical mutation accepted flag is inconsistent")
+
+    outcome_inputs = result_lock.get("outcome_inputs")
+    input_fields = {
+        "sha256",
+        "cargo_mutants_version",
+        "start_time",
+        "end_time",
+        "candidate_count",
+    }
+    if not isinstance(outcome_inputs, list) or not outcome_inputs:
+        fail("historical mutation result has no raw-outcome partition")
+    execution_count = 0
+    hashes: set[str] = set()
+    for record in outcome_inputs:
+        if not isinstance(record, dict) or set(record) != input_fields:
+            fail(f"historical mutation outcome input has invalid fields: {record!r}")
+        count = record.get("candidate_count")
+        digest = record.get("sha256")
+        if not isinstance(count, int) or count <= 0:
+            fail(f"historical mutation outcome input has an invalid count: {record!r}")
+        if (
+            not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or digest in hashes
+        ):
+            fail(f"historical mutation outcome input has an invalid digest: {record!r}")
+        if record.get("cargo_mutants_version") != version.removeprefix(
+            "cargo-mutants "
+        ):
+            fail(f"historical mutation outcome input has a different tool: {record!r}")
+        if not isinstance(record.get("start_time"), str) or not isinstance(
+            record.get("end_time"), str
+        ):
+            fail(f"historical mutation outcome input has invalid timestamps: {record!r}")
+        hashes.add(digest)
+        execution_count += count
+    if (
+        result_lock.get("execution_count") != execution_count
+        or result_lock.get("replayed_count") != execution_count - len(names)
+        or execution_count < len(names)
+    ):
+        fail("historical mutation outcome partition is inconsistent")
+    return len(rows), len(results)
 
 
 def unit_tests() -> set[str]:
@@ -203,11 +662,11 @@ def equivalence_proof_index(
     contract: dict,
     registry: dict,
     tests: set[str],
-    candidate_rows: list[dict],
+    candidate_rows: list[dict] | None,
     *,
     source_overrides: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Resolve exact current candidates to architecture-owned equivalence proofs."""
+    """Validate proof contracts and, when current rows exist, resolve them exactly."""
 
     equivalence = contract.get("mutation_equivalence")
     if not isinstance(equivalence, dict) or equivalence.get("schema_version") != 2:
@@ -317,6 +776,14 @@ def equivalence_proof_index(
             replacement = compile_patterns(
                 [selector.get("replacement_pattern")], f"{label}.replacement_pattern"
             )[0]
+            source_site = selector.get("source_site_pattern")
+            source_pattern = (
+                compile_source_site_pattern(source_site, f"{label}.source_site_pattern")
+                if source_site is not None
+                else None
+            )
+            if candidate_rows is None:
+                continue
             matches = [
                 row
                 for row in candidate_rows
@@ -326,14 +793,12 @@ def equivalence_proof_index(
                 and function.fullmatch(str(row.get("function", "")))
                 and replacement.fullmatch(str(row.get("replacement", "")))
             ]
-            source_site = selector.get("source_site_pattern")
-            if source_site is not None:
+            if source_pattern is not None:
                 if not matches:
                     fail(
                         f"mutation equivalence selector {label} must match exactly one current "
                         "candidate, found 0"
                     )
-                pattern = compile_source_site_pattern(source_site, f"{label}.source_site_pattern")
                 files = {row.get("file") for row in matches if isinstance(row.get("file"), str)}
                 if len(files) != 1:
                     fail(
@@ -346,7 +811,7 @@ def equivalence_proof_index(
                 )
                 if first_file != file:
                     fail(f"mutation equivalence selector {label} resolved an incoherent source")
-                source_matches = list(pattern.finditer(mask_rust_non_code(source)))
+                source_matches = list(source_pattern.finditer(mask_rust_non_code(source)))
                 if len(source_matches) != 1:
                     fail(
                         f"mutation equivalence selector {label} must match exactly one "
@@ -437,6 +902,14 @@ def run_equivalence_canaries() -> None:
         row["candidate"]: "V1-EQ-CANARY"
     }:
         fail("mutation equivalence positive canary did not resolve one proof")
+    if equivalence_proof_index(
+        contract,
+        registry,
+        {"canary::proof"},
+        None,
+        source_overrides=source_overrides,
+    ):
+        fail("historical mutation proof validation consumed a candidate coordinate")
     try:
         equivalence_proof_index(
             contract,
@@ -689,7 +1162,12 @@ def synchronize_generated_evidence(registry: dict, generated: dict[str, dict]) -
     return prefix + UNIT_START + "\n" + "\n".join(kept) + UNIT_END + suffix
 
 
-def assign_mutation_rows(contract: dict, families: list[dict]) -> tuple[dict[str, int], str]:
+def assign_mutation_rows(
+    contract: dict,
+    families: list[dict],
+    *,
+    require_current_selector_scope: bool,
+) -> tuple[dict[str, int], str]:
     adjudication = contract["mutation_adjudication"]
     candidate_path = repo_path(adjudication.get("candidate_lock"), "mutation candidate lock")
     result_path = repo_path(adjudication.get("result_lock"), "mutation result lock")
@@ -719,21 +1197,22 @@ def assign_mutation_rows(contract: dict, families: list[dict]) -> tuple[dict[str
 
     counts = {family["id"]: 0 for family in families}
     digest_rows: list[str] = []
-    for family in families:
-        for index, selector in enumerate(family["mutation_selectors"]):
-            scope_hits = [
-                candidate
-                for candidate in candidates
-                if candidate.get("obligation_id") == selector["obligation_id"]
-                and re.fullmatch(
-                    selector["function_pattern"], candidate.get("function", "")
-                )
-            ]
-            if not scope_hits:
-                fail(
-                    f"mutation family selector matches zero current candidates: "
-                    f"{family['id']}[{index}]"
-                )
+    if require_current_selector_scope:
+        for family in families:
+            for index, selector in enumerate(family["mutation_selectors"]):
+                scope_hits = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.get("obligation_id") == selector["obligation_id"]
+                    and re.fullmatch(
+                        selector["function_pattern"], candidate.get("function", "")
+                    )
+                ]
+                if not scope_hits:
+                    fail(
+                        f"mutation family selector matches zero current candidate-lock rows: "
+                        f"{family['id']}[{index}]"
+                    )
     for row in rows:
         matches: list[str] = []
         for family in families:
@@ -757,8 +1236,10 @@ def assign_mutation_rows(contract: dict, families: list[dict]) -> tuple[dict[str
 def main() -> int:
     args = parse_args()
     run_equivalence_canaries()
+    run_mutation_evidence_state_canaries()
     contract = load_json(CONTRACT, "architecture contract")
     registry = load_json(REGISTRY, "review behavior registry")
+    manifest = load_json(MANIFEST, "security regression manifest")
     tests = unit_tests()
 
     if args.write_evidence:
@@ -791,21 +1272,55 @@ def main() -> int:
 
     families, _generated = family_inputs(contract, registry, tests)
     adjudication = contract["mutation_adjudication"]
-    candidate_lock = load_json(
-        repo_path(adjudication.get("candidate_lock"), "mutation candidate lock"),
-        "mutation candidate lock",
+    candidate_path = repo_path(
+        adjudication.get("candidate_lock"), "mutation candidate lock"
     )
+    result_path = repo_path(adjudication.get("result_lock"), "mutation result lock")
+    candidate_lock = load_json(candidate_path, "mutation candidate lock")
     candidate_rows = candidate_lock.get("rows")
     if not isinstance(candidate_rows, list):
         fail("mutation candidate lock has no row list")
-    equivalence = equivalence_proof_index(contract, registry, tests, candidate_rows)
-    counts, digest = assign_mutation_rows(contract, families)
+    differences = mutation_input_differences(candidate_lock, manifest)
+    evidence_state = classify_mutation_evidence(
+        convergence_state(manifest),
+        differences,
+        require_current=mutation_evidence_required(manifest),
+    )
+    equivalence = equivalence_proof_index(
+        contract,
+        registry,
+        tests,
+        candidate_rows if evidence_state == "current" else None,
+    )
+    declared_proof_ids = {
+        proof["id"] for proof in contract["mutation_equivalence"]["proofs"]
+    }
+    if evidence_state == "historical_non_release":
+        result_lock = load_json(result_path, "mutation result lock")
+        validate_historical_mutation_pair(
+            candidate_path,
+            result_path,
+            candidate_lock,
+            result_lock,
+            declared_proof_ids,
+        )
+    counts, digest = assign_mutation_rows(
+        contract,
+        families,
+        require_current_selector_scope=evidence_state == "current",
+    )
     evidence_count = len(set().union(*(family["_evidence_tests"] for family in families)))
     summary = ", ".join(f"{family['id']}={counts[family['id']]}" for family in families)
+    proof_summary = (
+        f"resolved_equivalence_proofs={len(set(equivalence.values()))}"
+        if evidence_state == "current"
+        else f"declared_equivalence_proofs={len(declared_proof_ids)}, "
+        f"current_candidate_resolution=deferred, differing_inputs={len(differences)}"
+    )
     print(
         "validated mutation root adjudication: "
-        f"families={len(families)}, evidence_tests={evidence_count}, "
-        f"equivalence_proofs={len(set(equivalence.values()))}, "
+        f"evidence_state={evidence_state}, families={len(families)}, "
+        f"evidence_tests={evidence_count}, {proof_summary}, "
         f"coverage_sha256={digest}; {summary}"
     )
     return 0

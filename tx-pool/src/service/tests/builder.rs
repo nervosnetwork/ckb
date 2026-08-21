@@ -1,5 +1,5 @@
 use super::*;
-use crate::service::{AsyncRequest, NotifyTxBatch};
+use crate::service::{AsyncRequest, BoundedTransaction, NotifyTxBatch};
 use ckb_network::PeerIndex;
 use ckb_types::{
     bytes::Bytes,
@@ -20,7 +20,12 @@ fn remote_message(
     let (responder, response) = tokio::sync::oneshot::channel();
     (
         Message::SubmitRemoteTx(AsyncRequest::call(
-            RemoteTxSubmission::new(transaction, 0, peer),
+            RemoteTxSubmission::new(
+                BoundedTransaction::try_new(transaction)
+                    .expect("the remote fixture transaction is bounded"),
+                0,
+                peer,
+            ),
             responder,
         )),
         response,
@@ -66,9 +71,9 @@ fn retained_ingress_batch_groups_only_the_same_remote_peer() {
 
 #[test]
 fn retained_ingress_batch_keeps_a_nonfitting_proposal_message_whole() {
-    let first = transaction(700_000);
-    let second = transaction(200_000);
-    let third = transaction(200_000);
+    let first = transaction(500_000);
+    let second = transaction(300_000);
+    let third = transaction(300_000);
     let initial = Message::NotifyTxs(Notify::new(
         NotifyTxBatch::try_new(vec![first]).expect("initial proposal carrier is bounded"),
     ));

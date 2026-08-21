@@ -438,18 +438,12 @@ impl AuthoritySnapshot {
 
         let own_template = self.source_versions.template();
         let other_template = other.source_versions.template();
-        let source_versions_equivalent = self.source_versions.accepted()
+        let source_versions_equivalent = self.source_versions.relay_parents()
             == compact(
-                other.source_versions.accepted(),
+                other.source_versions.relay_parents(),
                 batch_sequence,
                 canonical_next_sequence,
             )
-            && self.source_versions.relay_parents()
-                == compact(
-                    other.source_versions.relay_parents(),
-                    batch_sequence,
-                    canonical_next_sequence,
-                )
             && own_template.proposals
                 == compact(
                     other_template.proposals,
@@ -725,6 +719,19 @@ impl TxPoolAuthority {
         authority
     }
 
+    pub(in crate::authority) fn with_max_ancestors_for_foundation(
+        limits: ResourceLimits,
+        max_ancestors: usize,
+    ) -> Self {
+        let mut authority = Self::for_foundation(limits);
+        authority.membership_config = MembershipConfig::from_runtime(
+            max_ancestors,
+            crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+            None,
+        );
+        authority
+    }
+
     pub(in crate::authority) fn for_foundation(limits: ResourceLimits) -> Self {
         Self::assemble(
             limits,
@@ -850,7 +857,7 @@ impl TxPoolAuthority {
                 )
             }
             ReleasedInputContextForFoundation::Administrative => {
-                let removed = removed.iter().cloned().collect::<BTreeSet<_>>();
+                let removed = AcceptedRemovalSet::try_from_vec(removed.to_vec())?;
                 self.released_input_survives_final_owner_set(
                     entry,
                     input,
@@ -883,6 +890,7 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn ready_for_reference(&self) -> Vec<(RawTxHash, EntryVersion)> {
         self.ready_candidates()
+            .expect("foundation Ready scratch is available")
     }
 
     pub(in crate::authority) fn preaccepted_for_peer_for_reference(
@@ -902,10 +910,6 @@ impl TxPoolAuthority {
         peer: ckb_network::PeerIndex,
     ) -> bool {
         self.peer_bans.contains_at(peer, Instant::now())
-    }
-
-    pub(in crate::authority) fn accepted_source_for_reference(&self) -> ApplySequence {
-        self.source_versions.accepted()
     }
 
     pub(in crate::authority) fn template_source_versions_for_reference(
@@ -1254,7 +1258,7 @@ impl TxPoolAuthority {
         let (version, clocks) = clocks.replacement()?;
         let mut after = before.clone();
         after.record.version = version;
-        after.proposal = super::super::chain::ProposalContextReceipt::from_validation(status);
+        after.proposal = super::super::chain::ProposalContextReceipt::from_internal_status(status);
         let projection = self.prepare_status_change(key, before, &after)?;
         let after = OwnedTx::Accepted(after);
         let mut resource_changes = Vec::new();

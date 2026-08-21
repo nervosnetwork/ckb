@@ -1,289 +1,668 @@
-# Tx-Pool Global Optimization Roadmap
+# Tx-pool minimal-kernel execution plan
 
-Status: fixed roadmap; current projection is `.release-progress`
-Historical checkpoint: `75ef1668b415`
-Remote policy: no push is authorized
+Status: `Construction`. This method is a draft until it is frozen, attacked in
+an independent materialization, and reviewed on one exact subject. No product
+optimality or Acceptance claim is currently proved.
 
-This file owns the remaining phase order and closure conditions. It is not a
-second architecture, evidence registry or status ledger. Product semantics are
-owned by `docs/ARCHITECTURE.md` and the machine registries; current rank,
-blockers and next action are owned only by `.release-progress` and
-`security-regression-manifest.json`.
+## 1. Immutable goal and exact scope
 
-## 1. Canonical final goal
+The only immutable goal is:
 
-The sole machine authority for the final target is
-[`architecture-contract.json#/optimization_goal`](architecture-contract.json#/optimization_goal).
-For the complete fixed release basis `B`, admissible normal forms `N_B`,
-feasibility predicate `H = hard_constraints and concurrency_law and
-coupling_law`, and ordered costs from that object:
+> 从 CKB 原始协议与交易依赖/冲突语义出发，在一致性、安全、兼容与资源有界为硬约束下，求出可证明全局静态最优、实测性能最强且实现/证明复杂度最小的 tx-pool 架构；独立工作最大并行，耦合事实只在唯一权威的最小原子切口排序。
 
-```text
-X0 = {x in N_B | H(x)}
-X1 = argmin_lex J_static(x)       over X0
-X2 = argmin_noise_gated J_perf(x) over X1 on the declared matrix
-X3 = argmin_lex J_complexity(x)   over X2
-```
+The comparison base is permanently fixed by:
 
-`X3` is the required production witness. Independent validation and computation
-must be maximally parallel without weakening an earlier coordinate. Dependency,
-conflict, replacement, ownership, budget and committed-effect facts may be
-ordered only at the unique authority's minimum atomic commit cut.
+- recovery ref
+  `refs/codex/checkpoints/txpool-proof-kernel-reset-recovery-20260814`;
+- commit `bc3a2c65e604212a2493fc0e12db27313179816c`;
+- tree `f54256aa52c071ffdaa9dfe1e4af7dc5424de592`.
 
-The hard boundary includes CKB protocol and external observational equivalence,
-consensus integrity and determinism, one authority with exact capability and
-resource conservation, total hostile/legal outcomes without service fail-stop,
-bounded adversarial work, legacy-configuration forward compatibility and
-post-commit effects that cannot veto Apply. Node binary/database downgrade and
-reverse persistence migration are deliberately unsupported.
-
-The current witness is `bounded_semantic_exchange`; the current optimality claim
-is `unproved`. Wording, green tests, local benchmarks or absence of a known
-counterexample cannot upgrade that claim.
-
-## 2. Authority and recovery order
-
-At startup, device recovery or context compaction, read in this order:
-
-1. exact Git branch, HEAD and worktree;
-2. root `AGENTS.md` for stable engineering method;
-3. `architecture-contract.json`, `docs/ARCHITECTURE.md` and machine registries
-   for product truth;
-4. this roadmap for fixed phase order;
-5. `.release-progress` and `security-regression-manifest.json` for current state;
-6. only then, content-addressed historical evidence when a current obligation
-   names it.
-
-The pre-normalization state is losslessly recoverable from commit
-`75ef1668b415`:
-
-| Artifact | Git blob | SHA-256 of checkpoint content |
-|---|---|---|
-| `.independent-execution-plan` | `11a452642985c317bf2b5fde5067b7100cf2a1c9` | `35d5027a3f041e2f8448f12c020a5f417bb8715e5e62c28c5868bb4058b9ea92` |
-| `.release-progress` | `90a61b8d17577c862c61f8226035aab79a40b43d` | `c7d8bd92e69a8fa37b90173242765a39cac9ca2b85165211630b4856bc0abf48` |
-
-Those blobs preserve every prior section, run identifier, mutation artifact,
-finding and rationale. They are historical evidence only. A directive, phase
-number, next action or completion claim recovered from them has no current
-authority unless the machine DAG and current status name it.
-
-## 3. Complete-basis and convergence mathematics
+The recovered production implementation, positive cases, negative cases and
+engineering artifacts remain available. Its executable Rust model, censuses,
+registries, certificates and old Acceptance universe are historical evidence,
+not current authorities. Live `develop`, Tor, BlockExt, unrelated branch work,
+merge/rebase/PR and release publication are outside this project.
 
 Let:
 
-```text
-S_top = obligations derived from CKB protocol, dependency/conflict semantics,
-        hostile inputs, external observations and the final goal
-S_bottom = obligations generated from production/API/config/task/lock/effect
-           surfaces, develop compatibility and historical legal counterexamples
-M = obligations with exactly one machine owner and one disposition
+- `A_H` be every architecture in the declared CKB/compatibility/operational
+  scope that satisfies the hard constraints `H`;
+- `S(a)` be the representation-independent static surplus of architecture
+  `a`;
+- `C_W` be the finite set of actual static-bottom binaries admitted to one
+  frozen workload/environment universe `W`;
+- `P_W(a)` be their paired measured distributions;
+- `K_sem(a,p)` and `K_eng(a,p)` be semantic and engineering complexity for an
+  implementation/proof pair.
 
-complete(B) iff (S_top - M = empty) and (S_bottom - M = empty)
+The completion claim is exactly:
+
+```text
+Goal(a*, p*) :=
+  a* in A_H
+  and (for every a in A_H, S_floor <= S(a))
+  and S(a*) = S_floor
+  and SearchClosed_W(C_W)
+  and a* is simultaneously practically non-inferior to every b in C_W
+  and K_sem(a*, p*) = empty
+  and K_eng(a*, p*) is the common componentwise minimum over every
+      hard-feasible, static-bottom implementation in the strongest
+      performance-equivalence class
+  and one new cold-joined Accepted universe replays all primary evidence.
 ```
 
-Closed-world agreement inside `M` is insufficient. Both differences are
-generated independently and must be empty before Construction can close.
-Every prose `OPEN`, `SUPPORTED`, release blocker or legal counterexample must
-map to exactly one construction-rank item or an exact content-addressed terminal
-disposition.
+All orders are componentwise. There are no weights, scores or lexicographic
+escapes. A real trade-off in any objective leaves the single-winner claim open.
+“Global” quantifies over the open architecture domain for the static theorem;
+“measured” quantifies only over actual frozen binaries. Semantic complexity has
+a universal zero-surplus floor. Engineering source size and runtime are
+encoding/toolchain observations and are minimized over the actual equivalent
+winner set; the project does not pretend to solve shortest-program
+uncomputability.
 
-The machine-owned state is:
+## 2. Authority, trust and method selection
+
+Facts flow in one direction:
 
 ```text
-State = Construction(B, C) | Acceptance(U, Q) | Accepted(U)
+implemented consensus + declared compatibility + production source
+  -> sealed production events and observations
+  -> Q_H, C, I/D, mu and rho
+  -> universal static lower bounds + production attainment
+  -> fixed-binary measurements + two-layer complexity minimum
+  -> controller replay + independent cold join
+```
 
-rho_C = (
-  open_release_laws,
-  open_compatibility_and_landing_decisions,
-  unclosed_registered_semantic_families,
-  unowned_or_duplicated_production_items,
-  incomplete_refinement_edges
+An executable model, checker, registry, receipt or certificate cannot redefine
+an upstream fact. Implemented consensus is factual authority; RFC prose is
+explanatory. Production types and `validate -> plan -> apply -> effects` carry
+local safety. A mathematical relation is admitted only for a cross-operation
+claim that production types cannot express directly.
+
+The trusted base is named, never hidden: the frozen implemented-consensus
+snapshot; identified Rust/compiler/FFI assumptions for production safety; the
+exact proof kernel/solver versions for checked theorems; hardware/OS/process
+survival for a run; and reviewer/local-writer honesty at their stated boundary.
+Process OOM, memory corruption and universally exactly-once external I/O are
+not silently proved. Every proof lists which of these assumptions it consumes.
+
+The method adopts only the applicable parts of these primary sources:
+
+- official Codex `AGENTS.md` root-to-leaf scope and closer-file precedence:
+  <https://learn.chatgpt.com/docs/agent-configuration/agents-md>;
+- CKB consensus protocol context (with code remaining authoritative):
+  <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md>;
+- Herlihy/Wing history-level linearizability and locality:
+  <https://www.cs.cmu.edu/~wing/publications/HerlihyWing90.pdf>;
+- state-dependent interface commutativity from the Scalable Commutativity
+  Rule: <https://people.csail.mit.edu/nickolai/papers/clements-sc.pdf>;
+- Lipton reduction as a mover/atomic-region construction heuristic:
+  <https://doi.org/10.1145/361227.361234>;
+- FoundationDB production-code deterministic simulation:
+  <https://www.foundationdb.org/files/fdb-paper.pdf>;
+- AWS use of TLA+ at design/concurrency boundaries:
+  <https://cdn.amazon.science/67/f9/92733d574c11ba1a11bd08bfb8ae/how-amazon-web-services-uses-formal-methods.pdf>;
+- seL4's explicit refinement and trusted-boundary discipline:
+  <https://sel4.org/Research/pdfs/sel4-formal-verification-os-kernel.pdf>.
+- IronFleet's combination of refinement and code-level proof, including its
+  explicit warning that verification-friendly new code is materially easier
+  than proving an existing implementation:
+  <https://www.microsoft.com/en-us/research/wp-content/uploads/2015/10/ironfleet.pdf>;
+- Verus's all-executions Rust verification goal and explicit supported-subset
+  boundary: <https://verus-lang.github.io/verus/guide/overview.html>;
+- Kani's proof-harness bounded model checking and stated concurrency/tool
+  limitations: <https://model-checking.github.io/kani/>.
+
+Lipton reduction, trace theory and transaction chopping do not themselves
+prove CKB observational equivalence. A finite transaction catalogue cannot
+close the open architecture domain. The rejected generation demonstrates why
+an executable mirror plus census/checker stack is also inadmissible. Pure tests
+and benchmarks remain insufficient for a global lower-bound theorem. A full
+theorem-prover reimplementation is not admitted without a later claim-specific
+marginal-information proof.
+
+## 3. Minimal mathematical kernel
+
+The kernel contains four relations and one production bridge. It is
+mathematics, not a second tx-pool implementation.
+
+### 3.1 Hard observational quotient `Q_H`
+
+Let `Sigma_H` be legal finite histories under implemented CKB consensus,
+declared compatibility and hard resource bounds. Let `eta_ext` be only sealed
+exogenous events keyed by public operation/service identity: time, allocation
+result, cancellation, service result and external invocation/failure schedule.
+An implementation's threads, locks, queues and internal scheduler choices are
+never coordinates of `eta_ext`; they are architecture structure or measured
+cost. Let `Obs_H(h, c, eta_ext)` contain exactly:
+
+- consensus/protocol disposition;
+- declared public and RPC fields, including accepted timestamps;
+- configured bounded admission/backpressure/resource disposition;
+- committed externally relevant effect intent and order;
+- terminal ownership and lifecycle behavior.
+
+Define continuation equivalence and its quotient:
+
+```text
+h ~=H h'  iff  for every legal continuation c and the same sealed eta_ext,
+                 Obs_H(h, c, eta_ext) = Obs_H(h', c, eta_ext)
+Q_H := Sigma_H / ~=H
+```
+
+Internal stamps, cache identities, diagnostics and metrics are retained only
+when a legal continuation distinguishes them; otherwise they are
+alpha-renamable. Timing/cost measurements are not correctness observations,
+but a public timestamp remains a compatibility observation and is sealed as
+the operation's environment input.
+
+The symbolic basis for `Q_H` is a thin factorization over real production
+facts: chain/proposal evidence, full transaction identity and resolved
+dependency/conflict footprint, typed ownership/validation evidence, membership
+relations, bounded resources/capabilities, and committed effect/lifecycle
+state. It must prove both directions:
+
+1. sufficiency: equal basis facts imply equal observations for all legal
+   continuations;
+2. necessity: every retained fact category has a distinguishing continuation.
+
+No executable `Q_H` transition engine is allowed. Tests compare real
+production histories, or production directly with an independent consensus
+oracle.
+
+Production resolution seals one immutable footprint:
+
+```text
+Phi(t) = (raw_id, witness_or_rules_id, proposal_id,
+          unique_inputs, created_outputs,
+          expanded_direct_and_dep_group_cell_dependencies,
+          header_dependencies, checked_resource_vector)
+```
+
+Write role dominates a same-transaction read role. Duplicate inputs reject.
+The production resolver owns dep-group expansion and the bounds; no proof code
+may reconstruct them. Proposal eligibility is compared from the real
+`ProposalView` to `TwoPhaseCommitVerifier`, including inclusive windows,
+main/uncle proposals, short-ID behavior, genesis exclusion and branch
+replacement on reorg.
+
+### 3.2 Typed events, conservation `C` and minimal support
+
+Every external operation refines to existing typed production stages:
+
+```text
+capture -> validate/compute -> Plan -> authoritative commit-or-veto -> effects
+```
+
+An event records its operation identity, stage, sealed environment input,
+semantic read/write support, response and committed effect intent. Read/write
+sets discovered from source are probes, not semantic authority.
+
+For every legal transition:
+
+```text
+owner + checked_out_capability + terminal = exactly_one
+resource_after = resource_before (+) admitted (-) released
+index_and_policy_fact_after agrees with the unique owner fact
+effect_log_after = effect_log_before ++ committed_effect_intent
+```
+
+These are typed checked partial operations. Rejected, stale, cancelled,
+backpressured and dropped plans preserve the pre-state except for their named
+terminal observation. External I/O follows authority release and cannot veto a
+commit.
+
+`support_H(q,e)` is the set of semantic facts whose removal or substitution
+changes `e` under a distinguishing continuation, closed under `C`. That closure
+is the lower bound for the event's authoritative commit/veto cut. Current lock
+contents do not define the support.
+
+### 3.3 State-dependent independence `I` and required order `D`
+
+For events `e` and `f` enabled at quotient state `q`, compare adjacent swaps
+under the same sealed environment schedule:
+
+```text
+e I_q f  iff  both orders are legal,
+               their completed per-operation responses are equal,
+               their final histories are ~=H,
+               committed effect observations are equal,
+               C has the same result,
+               and neither observes the other's in-flight state
+
+D_q(e,f) iff not (e I_q f)
+```
+
+The required partial order is the transitive closure of completed-before-
+invoked real time, causal data dependence and `D`. An implementation may not
+add a tx-pool-controlled order path between incomparable events. OS scheduling,
+allocator/platform interference and unavoidable hardware serialization are
+measured costs, not semantic permission to add an architecture edge.
+
+Each mutable semantic fact has exactly one logical authority. Physical
+partitioning is allowed and required when it removes order between commuting
+facts. Each nonempty semantic mutation has one abstract authoritative
+commit/veto point over exactly its `C`-closed support; this does not require one
+source instruction or one global lock. Independent prefixes and suffixes remain
+unordered even when final capacity or conflict decisions couple.
+
+### 3.4 Progress `mu` and production bridge `rho`
+
+Every finite service obligation `z` has a well-founded rank `mu_z` and an exact
+environment premise `E_z`. An enabled service step terminalizes `z` or strictly
+decreases the rank. If `E_z` is false, production names the missing monotonic
+releaser; polling an unchanged cut is not progress.
+
+`rho` maps coherent production histories to legal `Q_H` histories while
+preserving responses, `C`, the required partial order and terminal behavior.
+Its positive proof is an induction over a closed set of real production event
+schemas, with exhaustive compiler-bound witness extraction from private
+production types. The extractor may expose existing facts; it may not compute
+a second result. Each induction case names its exact source theorem and trust
+assumption. An unproved semantic case keeps `rho` and the global claim open.
+
+Properties, differential traces, fuzzing and bounded Kani harnesses are
+falsifiers, never a universal `rho` proof. The representation theorem and
+algebraic lower bounds require a machine-checkable proof object in a small
+independent proof kernel. Verus, Aeneas/Lean or another engine is admitted only
+after a disposable production-slice pilot demonstrates support for the exact
+Rust constructs, source-exact binding, smaller trusted/proof burden than a
+manual proof, and no executable tx-pool copy. Failure retires the pilot; it does
+not license a parallel implementation. TLA+ is restricted to actual concurrent
+service state machines whose safety/progress cannot be discharged more cheaply
+(currently permit/effect and proposal service). It may not restate membership,
+RBF, packing, resolution or accounting.
+
+## 4. Global static optimum
+
+Before defining coordinates, prove a representation theorem rather than
+declaring an axis inventory complete. An architecture is observed as its set of
+legal typed-event histories plus authority/order/work/lifecycle annotations,
+not as a source-file layout. Every `a in A_H` must normalize through `rho` to:
+
+```text
+N_H(a) = (fixed hard behavior;
+          Own, Ord, Cut, Commit, Work, Life)
+```
+
+`Own` assigns each mutable semantic fact to logical authority; `Ord` is the
+tx-pool-introduced event order; `Cut` is authoritative read/write support;
+`Commit` is commit/veto staging; `Work` is required information acquisition and
+materialization; `Life` is externally consumed lock/queue/channel/task/cache/
+projection/failure lifetime. The proof has three independent obligations:
+
+1. normalization preserves every `Q_H`, `C`, progress and external-lifecycle
+   observation;
+2. after hard behavior, measured cost and encoding complexity are factored out,
+   every static architecture distinction changes at least one of these six
+   components;
+3. the derivation quantifies over the interface/event grammar, not current
+   source names, candidate rows or an enumerated axis list.
+
+A valid hard-feasible architecture distinction outside `N_H` falsifies the
+representation theorem and blocks optimality. Only after that theorem is
+machine checked is the static surplus defined:
+
+```text
+S(a) = (
+  extra logical authorities or policy decisions per semantic fact,
+  tx-pool order edges outside closure(real_time union causality union D),
+  facts/work in a commit-or-veto cut outside C-closure(support_H),
+  duplicate authoritative commit/veto stages for one semantic mutation,
+  duplicate passes/materializations or critical-section population work above
+    the structural information lower bound,
+  lock/queue/channel/task/cache/projection/failure roles without a required
+    external lifecycle or noncommuting-fact consumer
 )
-
-rho_A = (unclassified_current_obligations,
-         stale_evidence_edges,
-         failing_required_gates)
 ```
 
-Each coordinate contains named items, not only a count. An ordinary phase step
-must remove or replace an item while strictly decreasing the appropriate
-lexicographic rank. New legal semantics, production changes or model/release-law
-test changes return to Construction. Evidence-only changes invalidate only the
-changed evidence node and its transitive successors.
+`S_floor` is zero surplus: one logical owner where a mutable fact exists, the
+required partial order, one abstract commit/veto point, the minimal support
+closure, asymptotically bounded one-pass information work, and only externally
+consumed lifecycles. Exact constants, cache behavior, bytes and wall time belong
+to performance or `K_eng`; hard absolute ceilings remain in `H`.
 
-The optimality-certificate requirements are the refinement-rank items
-themselves. A requirement disappears only when
-`optimality_protocol.construction_evidence` binds it to a tracked artifact and
-SHA-256; the architecture and simplification phase partitions are mechanically
-checked. Thus candidate exploration cannot claim progress by changing prose.
+The theorem requires both independently falsifiable halves:
 
-Termination is conditional on a fixed complete basis and eventually stable
-construction inputs. New external facts may reopen Construction; this is not
-hidden nontermination.
+1. lower bound: every attempted point below a floor merges distinguishable
+   `Q_H` histories, violates `C`, real time, finite service or an external
+   lifecycle, or omits required input information;
+2. attainment: one concrete production architecture satisfies every floor
+   simultaneously for all legal histories and declared bounds.
 
-The anti-snowball measure is the exact
-`optimization_goal.complexity_objective`. A mechanism may remain only with one
-semantic owner, deletion counterexample and bounded cost. After each slice,
-generate source roles and remove duplicate policy, obsolete paths and proof
-machinery that no longer owns a distinct falsifier. Cleanup occurs before the
-final evidence universe freezes.
+Exchange lemmas guide construction: move pure work outside cuts; split
+commuting fact ownership; reserve shared bounded resources with linear
+capabilities; commit only the minimum noncommuting closure; publish derived
+views/effects after commit; replace polling with levels/ranks. Exchanges do not
+replace lower bounds or attainment.
 
-## 4. Preserved release-law candidates
+The current production tree is only a candidate. Its independent Ready batch
+is a retained positive asset and proves amortized set-transition behavior. The
+single physical `AuthorityStore` write guard remains a concrete attainment
+attack: first exhibit a legal event-level commuting Apply pair by production
+swap traces, then determine whether batching, partitioned Apply or reservation
+is the least architecture that removes any observed extra order. No source
+shape is pre-certified.
 
-The following findings were previously visible as `OPEN` or `SUPPORTED` but
-were omitted from the first convergence basis. They now remain explicit until
-machine adjudication maps each to a registered semantic family or a proved
-terminal disposition. The cluster is a hypothesis, not a preselected patch.
+## 5. Production binding and cheapest falsifiers
 
-| ID | Candidate violated law / root cluster |
-|---|---|
-| `D1-READY-OCC-LIVENESS` | strict-priority Ready prefix, stale-tail progress and cooperative yield |
-| `D1-DIRECT-NEGATIVE-OCC` | exact bounded negative evidence and unrelated-commit commutativity |
-| `D1-FAULT-REACHABILITY` | producer-owned total errors and legal-input fault reachability |
-| `D1-FALLIBLE-SCRATCH` | fallible bounded attacker-sized or guard-held scratch |
-| `D1-REQUEST-PAYLOAD-BOUND` | end-to-end count/byte/caller ownership bounds at public ingress |
-| `D1-CLOCK-DOMAIN` | wall-clock observation versus monotonic progress premises |
-| `D1-ALLOCATION-LIVENESS` | no unchanged-cut allocator retry without a named releaser |
-| `D1-STOP-REACHABILITY` | task endpoint, cancellation, join and capability-return totality |
-| `D1-TASK-CAPABILITY` | generated task/channel/capability ownership refinement |
-| `D1-DEPENDENCY-CLOSURE` | every owner death/evidence loss updates dependency truth in the same Apply |
-| `D1-FAULT-INGRESS-EVIDENCE` | sealed validated-admission construction and exact ordinary failures |
-| `D1-HISTORY` | bidirectional ownership of every retained historical rule and T14-T16 evidence |
+Use one proposition-specific authority:
 
-Adjudication order is root-causal: reproduce or prove unconstructible; trace all
-producers, consumers, transitions, resource effects and observations; search
-the complete same-class surface; cluster by violated law; change the model and
-fixed plan before production. Flags, retries, timers, repair scans, local
-allowlists and one-mutant fixtures are forbidden substitutes.
+- proposal/commit consensus: production `TwoPhaseCommitVerifier` differential;
+- identity, illegal states and local safety: Rust types plus focused production
+  properties;
+- dependency/conflict/RBF: sealed `ExpandedFootprint`, authoritative membership
+  indexes and real hostile traces;
+- conservation/bounds: checked resource/effect algebra and production
+  transition properties;
+- independence: adjacent-swap histories plus lock/critical-section probes;
+- linearizability: bounded hostile concurrent histories against `Obs_H`;
+- progress/shutdown: production cancellation/join tests and only the two small
+  admitted TLA state machines;
+- reorg/fault schedules: content-addressed deterministic seeds against
+  production code;
+- performance: profiles/counters and paired fixed-binary experiments.
 
-## 5. Fixed phase DAG
+Before every expensive operation, preflight the exact subject, tool/command,
+discovered universe, isolation/resources, expected discriminator, abort rule
+and output. Preflight can abort or replan; it never proves the claim.
 
-The following IDs and dependencies are machine-owned by
-`architecture-contract.json#convergence_protocol.phase_dag`. Rows describe the
-complete plan, not only the current tail.
+Every review has both views:
 
-| Phase | Requires | Required output / closure condition |
-|---|---|---|
-| `basis_and_roadmap_normalization` | none | Both basis differences empty; every historical open item mapped once; one compact roadmap and one status projection; canonical goal referenced by every current document. |
-| `release_boundary_adjudication` | normalization | Total public Rust API decision independent of optional delta tools; configuration, persistence and downgrade decisions; finite landing candidate, downstream-universe, feasibility and cost inputs. Legacy configuration remains accepted; unsupported downgrade is explicit. |
-| `architecture_optimality_synthesis` | release boundary | Covered normal forms and feasibility partition (`X0`); conditional static lower bounds (`X1`); upstream controlled matrix selection among static ties, or the singleton theorem `|X1| = 1 => X2 = X1` with no Construction record; frozen topology and falsifiers. |
-| `registered_semantic_root_closure` | optimality synthesis | Every registered root family and paused R5 refinement implemented from the frozen model; no unmapped legal counterexample or obsolete producer remains. |
-| `constructive_simplification` | root closure | Generated source-role/necessity census; `X3` complexity lower bounds; duplicate/unowned mechanism deletion; production refinement and complete scoped optimization certificate. |
-| `landing_rehearsal` | release boundary + simplification | Lexicographically selected incremental/curated/one-shot landing topology rehearsed against current `develop` and the generated downstream universe. |
-| `evidence_universe_freeze` | landing rehearsal | One hash binds source, features, config/migration surfaces, tests, tools, optimization certificate, workload matrix and landing target/rehearsal. Construction rank is zero. |
-| `complete_mutation` | universe freeze | Every discovered candidate is caught, compile-unviable, proved equivalent/unconstructible or a release blocker; no timeout/unstarted ambiguity. |
-| `deterministic_smoke` | universe freeze | Fixed binary and fixtures pass deterministic process/lifecycle smoke including shutdown, reorg and interruption cuts. May run in parallel with mutation. |
-| `complete_correctness` | mutation + smoke | Static/model/TLC, complete affected Nextest and generated managed integration universe, hostile/fault and complexity gates pass on the same universe. |
-| `empirical_performance_acceptance` | complete correctness | Frozen release binary confirms the already selected `X2` result under recorded noise gates; it cannot repair or select topology. |
-| `portability_and_final_review` | performance acceptance | Cold-checkout reproduction, evidence portability, whole-system completion audit and explicit final residual-risk decision. |
+1. local magnification of an end-to-end producer -> authority -> consumer ->
+   observation/failure/resource slice;
+2. global propagation across all producers, consumers, observations,
+   same-class surfaces and lifecycle paths.
 
-The edge from architecture synthesis to semantic root closure is a declared
-coupling edge, not blanket conservatism: the currently open settlement,
-resource and scheduler families occupy lifecycle, resource, progress and
-coupling axes still present in the candidate quotient. Model analysis may feed
-the synthesis, but production closure cannot claim independence unless a
-generated owner/candidate-path intersection is empty; no current family meets
-that premise.
+A finding is a discriminator, not a patch specification. During a bounded
+review window, collect facts, inferences and counterexamples without patching.
+Then name the violated kernel/hard/performance/complexity law, find the shared
+root, compare root designs, synthesize once, and rerun this immutable goal from
+a higher level before authorizing one owned atomic slice.
 
-### 5.1 Upstream performance and final confirmation
+Current dirty-worktree diagnostics retained as non-frozen inputs are:
 
-Performance has two non-interchangeable roles:
+- `ckb-proposal-table`: 6/6 focused package tests passed;
+- `ckb-verification-contextual`: 6/6 proposal/uncle/reorg/genesis tests passed;
+- `ckb-tx-pool --features internal`: 13/13 selected real authority footprint,
+  resource, independence, RBF, dependency-reader and effect tests passed.
 
-1. During `architecture_optimality_synthesis`, static operation/lock/allocation/
-   wake bounds eliminate dominated candidates and controlled construction
-   measurements select `X2` only among `X1` ties.
-2. During `empirical_performance_acceptance`, hash-recorded release binaries
-   confirm the frozen selection after complete correctness.
+They preserve production evidence but do not satisfy a frozen phase.
 
-Moving architecture selection to the second role is a phase-order violation.
-Using the first role to accept release correctness is an evidence violation.
-The matrix therefore defines distinct typed records: Construction records are
-admitted only for multiple `X1` minimizers and cannot prove release acceptance;
-Acceptance records bind the frozen universe and release binary and cannot
-select or repair topology. Deterministic scenarios bind parameters and runner
-source; generated/randomized inputs additionally bind fixture/generator hash
-and seed.
+## 6. Measured strongest
 
-If the executable static frontier proves `|X1| = 1`, then for every empirical
-objective `J_e`, `argmin J_e over X1 = X1`. The Construction measurement
-universe is therefore empty by admission, `X2 = X1`, and fabricating a timing
-comparison is a phase violation. This algebra does not discharge the later
-fixed-binary Acceptance matrix.
+Only built candidates that already satisfy `H` and `S_floor` enter `C_W`.
+Profile the frozen production binary first. Each experiment predeclares the
+causal seam, changed metric, protected metrics, binaries, workload, environment,
+fixture/seed, practical non-inferiority margins, power, sample count and noise
+rule.
 
-### 5.2 Optimality certificate boundary
+For every candidate/opponent/workload/metric cell, use paired randomized
+balanced A/B-B/A blocks and simultaneous confidence intervals under one frozen
+family-wise error budget. Pilot data estimates variance only and cannot
+adjudicate. Absence of significance is not evidence; favorable reruns, post-hoc
+margins, outlier deletion and mismatched/noisy binaries are invalid.
 
-The final scoped claim requires all of:
+The strongest performance class contains candidates simultaneously practically
+non-inferior to every valid member of `C_W`. A significant cross-metric or
+cross-scenario trade-off keeps the single-winner claim open. Search closure is
+finite and explicit: every built static-bottom candidate is compared; every
+dominant profile cost center has a feasible causal experiment or a hard/static
+blocker; two independent searches on the same profile identity and Partner A
+add no executable seam. This never narrows the open static domain or claims to
+measure unbuilt future programs.
 
-- content-addressed release basis and generated candidate partition;
-- coverage of all admissible normal forms modulo external observation;
-- feasibility proof per partition and conditional static lower bounds;
-- witness static cost equal to those bounds;
-- declared workload/environment matrix and noise-gated empirical frontier;
-- conditional complexity lower bounds and witness equality;
-- production refinement plus static/empirical/complexity cost binding; and
-- independent negative canaries for omitted constraints, objective reorder,
-  downstream selection and an uncertified optimum.
+## 7. Minimum complexity and anti-snowball control
 
-Without every item, `current_claim` remains `unproved`.
-An uncertified result is a release blocker. There is no implicit `best known`
-degradation path; changing that disposition requires an explicit user goal
-change and a new release-law basis.
+`K_sem` is a set, with universal bottom `empty`:
 
-## 6. Phase execution rule
+```text
+duplicate semantic authority or production algorithm
+trusted business/acceptance decision in a checker or controller
+proof relation without a Q_H/C/I/mu/rho or hard-claim terminus
+active role without one unique consumer and exit condition
+manual symbol/test/axis/authority/algorithm completeness mapping
+```
 
-For every phase:
+`K_eng` is a mechanically observed vector with fixed inclusion rules:
 
-1. Read the current rank items and their unique blocker owners.
-2. Regenerate the top-down and bottom-up obligation differences.
-3. Reproduce and trace all related candidates before selecting one root.
-4. Update the executable model, candidate comparison and fixed plan delta.
-5. Implement the smallest root correction in reviewable semantic slices.
-6. Run static, model, focused and complete affected evidence proportional to
-   risk; record exact universe and artifacts.
-7. Generate source/authority/task/effect/compatibility and evidence ownership
-   checks; remove the invalid state and obsolete route.
-8. Emit the actual new rank and prove it strictly decreased, or record the new
-   legal counterexample that justifiably reopens the basis.
-9. Re-derive the canonical goal, stable `AGENTS.md` method and entire remaining
-   DAG, then apply the whole-system checkpoint: authority count, transition
-   totality, conservation, fault/wait/publication graphs, compatibility,
-   concurrency, cost, risk transfer and snowball complexity.
-10. Freeze a recoverable local checkpoint and continue to the next ready phase.
+```text
+(production LOC/AST/control-flow and dependencies,
+ production-test LOC/AST/control-flow,
+ separate model/formal LOC/state space,
+ proof/control source LOC/AST/control-flow,
+ normative document and retained artifact bytes,
+ focused feedback/build time,
+ cold replay time and peak resources)
+```
 
-No phase may disappear, reorder or close from prose. A new semantic case,
-authority, failure domain, compatibility decision or concurrency topology first
-changes the model and machine plan. Additive oracle strength is evidence-only
-only when it changes no product or release law.
+It is componentwise, role-scoped and toolchain-bound; generated dependencies
+and comments are reported separately. Renaming or merging a role earns no
+credit. Minimum requires one common bottom over the performance-equivalent
+winner set plus single and interacting deletion/replacement/refactoring attacks.
+Local irredundancy alone is insufficient.
 
-## 7. Anti-recurrence canaries
+Prevent snowballing at admission time. Before adding state, a relation, model,
+checker branch, registry, queue, task, document authority, tool or control step,
+record one small admission card:
 
-| Prior failure class | Mechanical rejection condition |
-|---|---|
-| Closed-world review missed requirements | Either independently generated basis difference is nonempty. |
-| Prose finding vanished from TODOs | Any open prose ID has zero or multiple construction-rank/blocker owners. |
-| Diagnostic tool became policy authority | A Rust API delta tool result substitutes for the total compatibility decision or landing evidence. |
-| Performance appeared only downstream | Architecture-selection phase is not upstream of semantic closure and evidence freeze. |
-| Construction timing became release evidence | A Construction record is referenced by Acceptance or lacks the X1 candidate partition; an Acceptance record lacks the frozen universe/release binary or selects topology. |
-| Schedule pressure weakened the final goal | The release gate admits an uncertified or implicit `best known` disposition without an explicit user goal change. |
-| Apparent independence removed a real DAG edge | A phase/family is parallelized while its generated owner/candidate-path intersection is nonempty. |
-| Symbolic convergence hid no progress | Current status omits named rank values or a step fails to decrease rank. |
-| Mutation kept extending the release | A nonterminal candidate, timeout or new semantic family survives universe freeze. |
-| Cleanup invalidated final evidence | Constructive simplification is ordered after mutation/correctness. |
-| Tests changed release semantics silently | A model/release-law test change is classified evidence-only. |
-| Plan history resurrected stale work | More than one current roadmap/status owner or a historical directive issues work. |
-| Complexity accumulated as insurance | A state/lock/task/queue/proof mechanism lacks a unique fact and deletion counterexample. |
-| Local success became a global claim | Objective order, coverage, lower bound, witness or negative certificate is absent. |
-| Ignored method drifted across devices | Current checkpoint omits the verified SHA-256 of root `AGENTS.md`. |
+```text
+unique claim; cheapest current falsifier; new discriminator;
+production/external terminus; trusted assumptions; owner;
+mechanical binding; K_sem/K_eng delta; expiry/exit; deletion falsifier
+```
 
-## 8. Completion condition
+Reject the addition unless it adds independent information and keeps
+`K_sem = empty`. Record any necessary `K_eng` increase immediately; it keeps
+the minimum claim open until offset or independently proved to be at its floor.
+Proof/control replacements retire the predecessor route in the same slice.
 
-The program is complete only in machine state `Accepted` with zero named rank,
-zero release blockers and one hash-bound universe; all DAG phases complete; the
-scoped `X3` certificate valid; legacy configurations and every declared upgrade/
-recovery route verified; unsupported downgrade explicit; fixed-binary empirical
-confirmation passed; cold evidence reproduced; no duplicate authority,
-unbounded hostile work, legal-input fail-stop, stale proof edge, obsolete path
-or unexplained snowball mechanism remains.
+Disposable product experiments are isolated, non-authoritative,
+content-addressed, size/time bounded and expire. Losing variants and exclusive
+artifacts retire before another coupled root starts. Independent read-only or
+disjoint work may proceed in parallel; one coupled root, one authority file and
+one Cargo artifact graph have one in-flight writer/compiler. Join only at the
+minimum decision cut.
 
-The exact current state and next action are intentionally absent here; read
-`.release-progress`.
+Retiring the rejected proof generation is one bounded migration: remove its
+compile route, exclusive code, CI/checker/document references and live
+projections together. The recovery ref preserves every historical asset;
+production cases are ported to direct production/oracle properties before an
+exclusive model route is removed. A disposable deletion plan is derived once
+from the frozen recovery generation's compile/control/document reachability,
+audited against reverse consumers, and expires with the atomic slice. Dormant
+exclusive model/checker/census/certificate files may live in the recovery ref,
+not in the candidate working tree; they still count in `K_eng` until removed.
+This bounded migration inventory is not a semantic completeness registry.
+
+## 8. Method freeze, self-review and Partner A
+
+The active method authority is the plan, minimal immutable machine contract,
+structural projector/entrypoint, applicable root and tx-pool `AGENTS.md`, and CI
+sites that invoke the entrypoint. The plan is the only semantic method
+authority. The contract contains only identities and declarations consumed by
+the projector; it contains no duplicated method prose, current phase or claim
+status. State/status are derived from primary evidence. Reviews and generated
+projections are not method authority.
+
+Checkout HEAD/tree and dirty-state observations are diagnostics printed on
+request. They are excluded from the deterministic method bundle and stored
+projections, because including the hash of a commit in a file inside that
+commit creates a circular, non-portable subject. A review independently binds
+its frozen commit/tree to every method-authority byte.
+
+Before Partner A:
+
+1. make the plan, contract and projector mutually consistent;
+2. derive exact authority hashes and freeze one commit/tree;
+3. materialize that subject independently and read-only;
+4. run structural negative canaries, the production protocol probes, local +
+   global self-review, and a historical method-dominance comparison;
+5. collect all findings, synthesize once and repeat until a fresh same-subject
+   pass finds no executable discriminator;
+6. retain an explicit list of every still-open product claim.
+
+Historical dominance is componentwise over goal fidelity, external fact
+anchoring, independent falsifiability, mechanical binding, trusted semantic
+control code, active proof burden, feedback cost and cold-replay cost. It is a
+method-readiness claim only.
+
+Then create one new Partner A generation on that exact subject. It writes
+`WAITING` before `START`, audits a real independent read-only materialization,
+records local magnification and global propagation, strongest attempted
+counterexamples and facts/inferences separately, writes report plus hash, and
+writes `DONE` last. Its attestation proves only that the process was reported.
+The main task independently reproduces every actionable discriminator, then
+collects all Partner findings before one synthesis/meta-review. Any method
+authority change invalidates both reviews.
+
+## 9. Finite control plane
+
+The following is the sole phase definition. The contract stores immutable
+claim definitions; manifest/progress derive current state/status and remain
+disposable projections.
+
+<!-- txpool-plan-control-v5:start -->
+```json
+{
+  "schema_version": 5,
+  "method_id": "txpool-minimal-kernel-v2",
+  "states": ["construction", "acceptance", "accepted"],
+  "state_entry": {
+    "acceptance": "acceptance_universe_freeze",
+    "accepted": "acceptance_cold_join"
+  },
+  "review_rule": "review artifacts are process attestations only; local_magnification and global_propagation are both required",
+  "machine_rule": "machine claims require controller-launched replay of primary evidence; generic receipts and hashes never prove semantics",
+  "controller": {
+    "path": "tx-pool/scripts/run_txpool_acceptance.py",
+    "required_from": "hard_and_static_proof",
+    "missing_or_nonzero": "phase_incomplete_fail_closed",
+    "change_rule": "creation_or_change_refreezes_method_authority_and_invalidates_prior_method_reviews"
+  },
+  "legacy_retirement": {
+    "forbidden_paths": [
+      "tx-pool/src/tests/model",
+      "tx-pool/scripts/fixtures/model_refinement_canary.rs",
+      "tx-pool/scripts/check_ascii.py",
+      "tx-pool/scripts/check_develop_refinement.py",
+      "tx-pool/scripts/check_docs.py",
+      "tx-pool/scripts/check_formal_models.py",
+      "tx-pool/scripts/check_model_refinement.py",
+      "tx-pool/scripts/check_mutation_adjudication.py",
+      "tx-pool/scripts/check_mutation_matrix.py",
+      "tx-pool/scripts/check_production_contracts.py",
+      "tx-pool/scripts/check_review_guide.py",
+      "tx-pool/scripts/check_semantic_refinement_census.py",
+      "tx-pool/scripts/check_test_layout.py",
+      "tx-pool/scripts/run_acceptance_lane.py",
+      "tx-pool/formal/models.json",
+      "tx-pool/integration-impact.json",
+      "tx-pool/mutation-acceptance-lock.json",
+      "tx-pool/mutation-result-lock.json",
+      "tx-pool/optimization-evidence/complexity-blueprint.json",
+      "tx-pool/optimization-evidence/complexity-certificate.json",
+      "tx-pool/optimization-evidence/integration-differential-census.json",
+      "tx-pool/optimization-evidence/normal-form-partition.json",
+      "tx-pool/optimization-evidence/release-basis.json",
+      "tx-pool/optimization-evidence/semantic-refinement-census.json",
+      "tx-pool/optimization-evidence/workload-environment-matrix.json",
+      "tx-pool/optimization-evidence/reviews/method-g2-decision-ledger.md",
+      "tx-pool/review-behaviors.json",
+      "tx-pool/test-inventory.txt",
+      "tx-pool/test-layout-manifest.json"
+    ],
+    "documentation_pattern": "\\bX[0-3]\\b|mathematical_model::|complexity-certificate\\.json|semantic-refinement-census\\.json",
+    "exit": "all_positive_negative_cases_needed_by_current_claims_are_bound_to_production_or_external_oracles_then_the_paths_and_references_are_absent_from_the_candidate_tree"
+  },
+  "phases": [
+    {
+      "id": "method_same_subject_review",
+      "requires": [],
+      "gate": "internal_process_attestation_v1",
+      "evidence": "tx-pool/optimization-evidence/reviews/method-self-review-v2.json"
+    },
+    {
+      "id": "partner_a_method_review",
+      "requires": ["method_same_subject_review"],
+      "gate": "partner_process_attestation_v1",
+      "evidence": "tx-pool/optimization-evidence/reviews/partner-a-minimal-kernel-v2.json"
+    },
+    {
+      "id": "legacy_generation_retirement",
+      "requires": ["partner_a_method_review"],
+      "gate": "atomic_recovery_delta_has_zero_live_or_dormant_exclusive_legacy_artifacts",
+      "evidence": "derived"
+    },
+    {
+      "id": "hard_and_static_proof",
+      "requires": ["legacy_generation_retirement"],
+      "gate": "controller_replayed_primary_evidence",
+      "evidence": "tx-pool/optimization-evidence/proof/hard-static.json"
+    },
+    {
+      "id": "measured_performance",
+      "requires": ["hard_and_static_proof"],
+      "gate": "controller_replayed_fixed_binary_evidence",
+      "evidence": "tx-pool/optimization-evidence/performance/dominance.json"
+    },
+    {
+      "id": "complexity_minimum",
+      "requires": ["measured_performance"],
+      "gate": "controller_replayed_complexity_evidence",
+      "evidence": "tx-pool/optimization-evidence/proof/complexity-minimum.json"
+    },
+    {
+      "id": "acceptance_universe_freeze",
+      "requires": ["complexity_minimum"],
+      "gate": "controller_frozen_universe",
+      "evidence": "tx-pool/optimization-evidence/acceptance/universe.json"
+    },
+    {
+      "id": "acceptance_cold_join",
+      "requires": ["acceptance_universe_freeze"],
+      "gate": "controller_joined_independent_cold_replay",
+      "evidence": "tx-pool/optimization-evidence/acceptance/joined-result.json"
+    }
+  ],
+  "same_subject_groups": [
+    ["method_same_subject_review", "partner_a_method_review"],
+    ["acceptance_universe_freeze", "acceptance_cold_join"]
+  ],
+  "claim_rule": "hard_static_performance_complexity_and_Accepted become proved only after acceptance_cold_join; prior artifacts remain bound evidence"
+}
+```
+<!-- txpool-plan-control-v5:end -->
+
+The structural projector may discover files, parse this DAG, verify exact
+identities/hashes, reject retired routes and validate typed review shape. It
+contains no CKB policy, model census, candidate catalogue, semantic mapping or
+Acceptance decision. A local writer is inside the trusted change boundary;
+cryptographic hashes prevent accidental/stale/torn substitution, not a
+malicious author from changing evidence and validator together.
+
+The final controller is intentionally absent during method Construction. It is
+implemented only when primary phase commands exist; its creation changes method
+authority and therefore requires a new same-subject review before any machine
+phase. Until then all machine phases fail closed.
+
+## 10. Exact next work and stop rules
+
+Immediate order:
+
+1. finish this one synthesis in the machine contract and structural projector;
+2. regenerate only disposable manifest/progress projections;
+3. run structural canaries and self-review on the unfrozen draft;
+4. freeze one method subject, independently materialize it, rerun self-review
+   and historical dominance on that same subject;
+5. create the new Partner A WAITING/START/DONE generation;
+6. after Partner synthesis, execute the already frozen atomic legacy
+   keep/port/retire boundary without changing method authority;
+7. prove hard/static obligations, then performance, then complexity, then one
+   new cold Acceptance universe.
+
+Method review stops only after one fresh internal pass and Partner A pass on the
+same method subject add no executable discriminator. Product work stops only at
+the new `Accepted(Goal(a*,p*))`. A green projector, review receipt, old
+certificate, filtered test, skipped command or unfrozen diagnostic cannot end
+the goal.

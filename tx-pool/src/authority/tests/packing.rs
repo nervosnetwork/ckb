@@ -16,6 +16,136 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
+use std::collections::{BTreeSet, HashMap};
+
+fn model_packing_matches_production(
+    receipt: &super::super::template::TemplateSelectionReceipt,
+    serialized_bytes: usize,
+    cycles: u64,
+    max_consecutive_failures: usize,
+    production_hashes: &[RawTxHash],
+) -> bool {
+    use crate::mathematical_model::{
+        EvictionRefinementMetrics,
+        two_phase::{
+            ModelTemplatePackingLimits, TemplatePackingInput, template_packing_refinement,
+        },
+    };
+
+    let by_hash = receipt
+        .candidates()
+        .iter()
+        .enumerate()
+        .map(|(index, candidate)| (candidate.hash().clone(), index))
+        .collect::<HashMap<_, _>>();
+    let inputs = receipt
+        .candidates()
+        .iter()
+        .map(|candidate| {
+            let metrics = candidate.metrics();
+            let parents = candidate
+                .parents()
+                .iter()
+                .map(|parent| {
+                    by_hash
+                        .get(parent)
+                        .copied()
+                        .expect("the production receipt closes every causal parent")
+                })
+                .collect::<BTreeSet<_>>();
+            let mut identity = [0; 32];
+            identity.copy_from_slice(candidate.hash().0.as_slice());
+            TemplatePackingInput::new(
+                EvictionRefinementMetrics::new(
+                    metrics.fee.as_u64(),
+                    u64::try_from(metrics.cost.serialized_bytes)
+                        .expect("the production serialized size fits the model coordinate"),
+                    metrics.cost.cycles,
+                ),
+                parents,
+                candidate.status() == AcceptedStatus::Proposed,
+                candidate.order().arrival().0,
+                identity,
+            )
+        })
+        .collect::<Vec<_>>();
+    let model_hashes = template_packing_refinement(
+        &inputs,
+        ModelTemplatePackingLimits::new(
+            u64::try_from(serialized_bytes).expect("the template limit fits the model coordinate"),
+            cycles,
+        ),
+        max_consecutive_failures,
+    )
+    .expect("the immutable production receipt has one finite model packing observation")
+    .selected
+    .into_iter()
+    .map(|index| receipt.candidates()[index].hash().clone())
+    .collect::<Vec<_>>();
+    model_hashes.as_slice() == production_hashes
+}
+
+fn packed_hashes(packed: &super::super::packing::PackedTemplateTransactions) -> Vec<RawTxHash> {
+    packed.entries().iter().map(|entry| entry.hash()).collect()
+}
+
+fn assert_model_rejects_every_distinct_reordering(
+    receipt: &super::super::template::TemplateSelectionReceipt,
+    serialized_bytes: usize,
+    cycles: u64,
+    max_consecutive_failures: usize,
+    production_hashes: &[RawTxHash],
+) {
+    fn visit(
+        receipt: &super::super::template::TemplateSelectionReceipt,
+        serialized_bytes: usize,
+        cycles: u64,
+        max_consecutive_failures: usize,
+        production_hashes: &[RawTxHash],
+        permutation: &mut [RawTxHash],
+        index: usize,
+    ) {
+        if index == permutation.len() {
+            if permutation != production_hashes {
+                assert!(
+                    !model_packing_matches_production(
+                        receipt,
+                        serialized_bytes,
+                        cycles,
+                        max_consecutive_failures,
+                        permutation,
+                    ),
+                    "the model predicate must reject every distinct reordering of the production observation"
+                );
+            }
+            return;
+        }
+        for swap_index in index..permutation.len() {
+            permutation.swap(index, swap_index);
+            visit(
+                receipt,
+                serialized_bytes,
+                cycles,
+                max_consecutive_failures,
+                production_hashes,
+                permutation,
+                index + 1,
+            );
+            permutation.swap(index, swap_index);
+        }
+    }
+
+    let mut permutation = production_hashes.to_vec();
+    visit(
+        receipt,
+        serialized_bytes,
+        cycles,
+        max_consecutive_failures,
+        production_hashes,
+        &mut permutation,
+        0,
+    );
+}
 
 fn output_transaction(version: u32) -> TransactionView {
     TransactionBuilder::default()
@@ -111,6 +241,7 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
         20,
     );
     let rival_tx = TransactionBuilder::default().version(2_003u32).build();
+    let rival_bytes = rival_tx.data().serialized_size_in_block();
     let rival = accept(
         &mut authority,
         rival_tx,
@@ -129,16 +260,10 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
     let exact = receipt
         .pack_transactions(TemplatePackingLimits::new(package_bytes, 30))
         .expect("the exact parent-child package fits");
+    let exact_hashes = packed_hashes(&exact);
+    assert_eq!(exact_hashes, vec![parent.clone(), child.clone()]);
     assert_eq!(exact.serialized_bytes(), package_bytes);
     assert_eq!(exact.cycles(), 30);
-    assert_eq!(
-        exact
-            .entries()
-            .iter()
-            .map(|entry| entry.hash())
-            .collect::<Vec<_>>(),
-        vec![parent.clone(), child.clone()]
-    );
     assert_eq!(exact.entries()[0].accepted_at().0, 0);
     assert_eq!(exact.entries()[1].metrics().cost.cycles, 20);
     assert_eq!(
@@ -147,25 +272,89 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
     );
     assert_eq!(exact.entries()[1].resolved().transaction.hash(), child.0);
     assert!(!exact.entries().iter().any(|entry| entry.hash() == rival));
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            package_bytes,
+            30,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &exact_hashes,
+        ),
+        "the production packer must refine the independent package model"
+    );
+    assert_model_rejects_every_distinct_reordering(
+        &receipt,
+        package_bytes,
+        30,
+        crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+        &exact_hashes,
+    );
 
+    let one_byte_limit = package_bytes - 1;
     let one_byte_short = receipt
-        .pack_transactions(TemplatePackingLimits::new(package_bytes - 1, u64::MAX))
+        .pack_transactions(TemplatePackingLimits::new(one_byte_limit, u64::MAX))
         .expect("a one-byte-short limit is an ordinary packing result");
+    let one_byte_hashes = packed_hashes(&one_byte_short);
+    assert_eq!(
+        one_byte_hashes,
+        vec![rival.clone(), parent.clone()],
+        "one byte below the CPFP package must retain the independently fitting rival and parent"
+    );
+    assert_eq!(
+        one_byte_short.serialized_bytes(),
+        rival_bytes + parent_tx.data().serialized_size_in_block()
+    );
+    assert_eq!(one_byte_short.cycles(), 40);
+    assert!(one_byte_short.serialized_bytes() <= one_byte_limit);
     assert!(
         !one_byte_short
             .entries()
             .iter()
             .any(|entry| entry.hash() == child)
     );
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            one_byte_limit,
+            u64::MAX,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &one_byte_hashes,
+        ),
+        "the model must match the independently fixed one-byte-short production result"
+    );
 
     let one_cycle_short = receipt
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 29))
         .expect("a one-cycle-short limit is an ordinary packing result");
+    let one_cycle_hashes = packed_hashes(&one_cycle_short);
+    assert_eq!(one_cycle_hashes, vec![parent.clone()]);
+    assert_eq!(
+        one_cycle_short.serialized_bytes(),
+        parent_tx.data().serialized_size_in_block()
+    );
+    assert_eq!(one_cycle_short.cycles(), 10);
+    assert!(one_cycle_short.cycles() <= 29);
     assert!(
         !one_cycle_short
             .entries()
             .iter()
             .any(|entry| entry.hash() == child)
+    );
+    assert!(
+        !one_cycle_short
+            .entries()
+            .iter()
+            .any(|entry| entry.hash() == rival)
+    );
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            usize::MAX,
+            29,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &one_cycle_hashes,
+        ),
+        "the model must match the independently fixed one-cycle-short production result"
     );
 }
 
@@ -233,13 +422,26 @@ fn uak_template_packer_rescores_descendants_after_shared_parent_selection() {
     let packed = receipt
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 3))
         .expect("dynamic CPFP scoring remains coherent");
-    let hashes = packed
-        .entries()
-        .iter()
-        .map(|entry| entry.hash())
-        .collect::<Vec<_>>();
+    let hashes = packed_hashes(&packed);
     assert_eq!(hashes, vec![parent, strongest, rescored]);
     assert!(!hashes.contains(&rival));
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            usize::MAX,
+            3,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &hashes,
+        ),
+        "the model must match the independently fixed rescore result"
+    );
+    assert_model_rejects_every_distinct_reordering(
+        &receipt,
+        usize::MAX,
+        3,
+        crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+        &hashes,
+    );
 }
 
 #[test]
@@ -270,16 +472,21 @@ fn uak_template_packer_aggregates_multi_parent_descendant_adjustments() {
         .build();
     let child = accept(&mut authority, child_tx, 16, AcceptedStatus::Proposed, 1, 1);
 
-    let packed = selection(&authority)
+    let receipt = selection(&authority);
+    let packed = receipt
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 3))
         .expect("both selected-parent deltas are aggregated exactly once");
-    assert_eq!(
-        packed
-            .entries()
-            .iter()
-            .map(|entry| entry.hash())
-            .collect::<Vec<_>>(),
-        vec![first_parent, second_parent, child]
+    let hashes = packed_hashes(&packed);
+    assert_eq!(hashes, vec![first_parent, second_parent, child]);
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            usize::MAX,
+            3,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &hashes,
+        ),
+        "the model must match the independently fixed multi-parent result"
     );
 }
 
@@ -317,25 +524,27 @@ fn uak_template_packer_bounds_non_fitting_work_without_changing_the_policy() {
     let bounded = receipt
         .pack_transactions_for_foundation(TemplatePackingLimits::new(usize::MAX, 2), 1)
         .expect("the failure bound is a deterministic early stop");
-    assert_eq!(
-        bounded
-            .entries()
-            .iter()
-            .map(|entry| entry.hash())
-            .collect::<Vec<_>>(),
-        vec![first.clone()]
+    let bounded_hashes = packed_hashes(&bounded);
+    assert_eq!(bounded_hashes, vec![first.clone()]);
+    assert!(
+        model_packing_matches_production(&receipt, usize::MAX, 2, 1, &bounded_hashes),
+        "the model must match the independently fixed bounded-failure result"
     );
 
     let complete = receipt
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 2))
         .expect("the production bound reaches the later fitting candidate");
-    assert_eq!(
-        complete
-            .entries()
-            .iter()
-            .map(|entry| entry.hash())
-            .collect::<Vec<_>>(),
-        vec![first, small]
+    let complete_hashes = packed_hashes(&complete);
+    assert_eq!(complete_hashes, vec![first, small]);
+    assert!(
+        model_packing_matches_production(
+            &receipt,
+            usize::MAX,
+            2,
+            crate::mathematical_model::two_phase::TEMPLATE_PACKING_FAILURE_BOUND,
+            &complete_hashes,
+        ),
+        "the model must match the independently fixed production-bound result"
     );
 }
 

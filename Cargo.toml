@@ -252,6 +252,7 @@ include_dir = "0.7"
 includedir = "0.6.0"
 includedir_codegen = "0.6.0"
 indicatif = { version = "0.18", features = ["rayon"] }
+imbl = "=7.0.1"
 ipnetwork = "0.20"
 is-terminal = "0.4.7"
 is_sorted = "0.1.1"

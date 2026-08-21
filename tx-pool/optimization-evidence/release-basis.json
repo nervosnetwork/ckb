@@ -1,33 +1,38 @@
 {
-  "basis_sha256": "ce858991458ec37250b7af47a1509715d8bd1c41ae59d9fbd541fbf3a4a64daf",
-  "feasibility_sources": [
-    "construction_root_families",
-    "landing_protocol",
-    "optimization_goal",
-    "proof_policy",
-    "release_surface",
-    "residual_risks",
-    "root_families",
-    "target_invariants"
-  ],
+  "schema_version": 1,
   "release_law_sources": [
     "construction_root_families",
-    "landing_protocol",
+    "historical_convergence",
     "optimization_goal",
+    "refactor_admissibility",
+    "refactor_semantic_basis",
     "release_surface",
     "residual_risks",
     "root_families",
     "target_invariants"
   ],
-  "schema_version": 1,
+  "feasibility_sources": [
+    "construction_root_families",
+    "optimization_goal",
+    "proof_policy",
+    "refactor_admissibility",
+    "refactor_semantic_basis",
+    "release_surface",
+    "residual_risks",
+    "root_families",
+    "target_invariants"
+  ],
   "source_sha256": {
-    "construction_root_families": "c5caca5d600449dc46bbb804759fd4638fa087f31c496b13fc4869df8658f630",
-    "landing_protocol": "49202360c1c2b205083f27314949529bf12e0d21170226c607bc502da128227a",
-    "optimization_goal": "37e72f5cafb51e3a8a62664107d15e4aefc8959abe5e8c0911c7ee824f36daf0",
-    "proof_policy": "03c0707c0ab9a5752fa99b52b132b921c4524a122aef63a46b9799bb3826f7cf",
-    "release_surface": "fbbf47e09958642807c1bb710d697fbfe96e7c8127570c71d800f6fce2742c03",
-    "residual_risks": "0a74c3174c2aa17b33591ae4a8fd84619ff6c2873f24fb777630ff5f23b0b93f",
+    "construction_root_families": "25270a92877aa9b0e2ba3bfdce4b7e61925a2dd467f8c7bb21dc5fa09fd4c1a1",
+    "historical_convergence": "3e92cfa5cf4a6e1fe7534d9beabed8118f46b3874662c39d1a05674822d59b69",
+    "optimization_goal": "8a198ac994605823e4b5d9f862acd4dd5083988935c46dbd32d8c7ef361da88c",
+    "proof_policy": "6b6c8f1385d47f4c23910d66ab6fefd90d4d3f7f318e33cbde4114186aeff402",
+    "refactor_admissibility": "1c49382df887e13382ca819145491c5d7b995d4d80f6969b2debd021cfe3633c",
+    "refactor_semantic_basis": "9f946f58e49797597b51a95a2f3b19a4c4b13dbaeb942372a7b661c1051629ab",
+    "release_surface": "751012786d75ad37c670d0bc7463e86176ca2f660f6dbd2968dd1cab5e22fd55",
+    "residual_risks": "872327e41961782c537963057a073de85dd18df77a1f5576f42bf81845a7290b",
     "root_families": "c7f4b3deedc62da6ad52ad4e1075c6864fde7cc6e81b05fdd441bab9094d7f00",
     "target_invariants": "8aa7f48f49f8417ecdf3180935ccf70341aca34572dce2820f93e8437c2a605b"
-  }
+  },
+  "basis_sha256": "8bfcf5cd0c98bf65901130a7d17e21eff69cc861c9129fc85fb0f5bfc86f1fbe"
 }

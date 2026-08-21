@@ -33,6 +33,55 @@ fn stop_tx_pool(relayer: &crate::relayer::Relayer) {
 }
 
 #[test]
+fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
+    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let transaction = new_transaction(&relayer, 700, &always_success_out_point);
+    let hash = transaction.hash();
+    let source_peer = PeerIndex::from(6usize);
+    let state = relayer.shared.state();
+    state.add_ask_for_txs(source_peer, vec![hash.clone()]);
+    assert_eq!(
+        state.pop_ask_for_txs().get(&source_peer),
+        Some(&vec![hash.clone()])
+    );
+
+    let declared_cycles = relayer
+        .shared
+        .consensus()
+        .max_block_cycles()
+        .checked_add(1)
+        .expect("the consensus maximum leaves one hostile declaration");
+    let relay_transaction = packed::RelayTransaction::new_builder()
+        .cycles(declared_cycles)
+        .transaction(transaction.data())
+        .build();
+    let content = packed::RelayTransactions::new_builder()
+        .transactions(
+            packed::RelayTransactionVec::new_builder()
+                .set(vec![relay_transaction])
+                .build(),
+        )
+        .build();
+    let context = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let context_handle = Arc::clone(&context);
+    let protocol_context: Arc<dyn CKBProtocolContext + Sync> = context_handle;
+    TransactionsProcess::new(content.as_reader(), &relayer, protocol_context, source_peer)
+        .execute();
+
+    assert_eq!(
+        context.banned_peer_reasons(),
+        vec![(
+            source_peer,
+            String::from("relay declared cycles greater than max_block_cycles"),
+        )]
+    );
+    assert!(
+        !state.already_known_tx(&hash),
+        "the precheck returns before the relay publishes a known mark or tx-pool handoff"
+    );
+}
+
+#[test]
 fn remote_closed_controller_releases_known_projection() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 701, &always_success_out_point);
@@ -84,12 +133,34 @@ fn remote_closed_controller_releases_known_projection() {
         "a failed Remote handoff releases its exact known-filter mark"
     );
     let announcement = packed::RelayTransactionHashes::new_builder()
-        .tx_hashes(vec![hash.clone()])
+        .tx_hashes(vec![hash])
         .build();
     let _ = TransactionHashesProcess::new(announcement.as_reader(), &relayer, replacement_peer)
         .execute();
     assert!(
         state.pop_ask_for_txs().contains_key(&replacement_peer),
         "another peer can reannounce a transaction whose handoff failed"
+    );
+}
+
+#[test]
+fn duplicate_unknown_hash_from_one_peer_has_one_request_source() {
+    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let hash = new_transaction(&relayer, 702, &always_success_out_point).hash();
+    let peer = PeerIndex::from(9usize);
+    let state = relayer.shared.state();
+
+    state.add_ask_for_txs(peer, vec![hash.clone(), hash]);
+    let mut priority = state
+        .unknown_tx_hashes()
+        .peek()
+        .map(|(_, priority)| priority.clone())
+        .expect("one unique hash remains queued");
+
+    assert_eq!(priority.next_request_peer(), Some(peer));
+    assert_eq!(
+        priority.next_request_peer(),
+        None,
+        "one peer cannot amplify one unknown hash into repeated request slots"
     );
 }

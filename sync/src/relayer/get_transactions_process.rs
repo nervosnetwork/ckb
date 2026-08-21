@@ -53,7 +53,7 @@ impl<'a> GetTransactionsProcess<'a> {
 
             let tx_hashes_set: HashSet<_> = tx_hashes
                 .iter()
-                .map(|tx_hash| packed::ProposalShortId::from_tx_hash(&tx_hash.to_entity()))
+                .map(|tx_hash| tx_hash.to_entity())
                 .collect();
 
             if message_len != tx_hashes_set.len() {
@@ -74,7 +74,7 @@ impl<'a> GetTransactionsProcess<'a> {
             fetch_txs_with_cycles
                 .unwrap()
                 .into_iter()
-                .map(|(_, (tx, cycles))| {
+                .map(|(tx, cycles)| {
                     packed::RelayTransaction::new_builder()
                         .cycles(cycles)
                         .transaction(tx.data())

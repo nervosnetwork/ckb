@@ -44,10 +44,7 @@ jobs:
           restore-keys: |
             ci-${{ runner.os }}-cargo-
       - name: Validate tx-pool security evidence
-        run: |
-          python3 tx-pool/scripts/check_review_guide.py
-          python3 tx-pool/scripts/check_test_layout.py
-          python3 tx-pool/scripts/check_security_manifest.py
+        run: python3 tx-pool/scripts/check_all.py --light
       - name: Run unit tests
         run: make test
         shell: bash

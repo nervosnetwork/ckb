@@ -13,7 +13,35 @@ pub(crate) struct CanaryBoundary {
     pub(crate) event: CanaryEvent,
 }
 
+pub(crate) struct CanaryFreeFunctionPayload;
+
+pub(crate) struct CanaryEvidencePayload;
+
+pub(crate) struct CanaryUnregisteredEvidencePayload;
+
 pub(crate) struct CanaryUnconstructedCapability;
+
+pub enum CanaryExternalEvent {
+    External,
+}
+
+pub(crate) fn canary_behavior_entry() -> CanaryBoundary {
+    CanaryBoundary::new(CanaryEvent::unit(), [])
+}
+
+fn canary_root_payload() -> CanaryFreeFunctionPayload {
+    CanaryFreeFunctionPayload
+}
+
+#[test]
+fn canary_registered_evidence() {
+    let _payload = CanaryEvidencePayload;
+}
+
+#[test]
+fn canary_unregistered_evidence() {
+    let _payload = CanaryUnregisteredEvidencePayload;
+}
 
 impl CanaryBoundary {
     pub(crate) fn new(
@@ -45,7 +73,10 @@ impl CanaryEvent {
             | Self::Struct {
                 payload: CanaryPayload(value),
             } => value,
-            Self::Unit => 0,
+            Self::Unit => {
+                let _payload = canary_root_payload();
+                0
+            }
         }
     }
 }

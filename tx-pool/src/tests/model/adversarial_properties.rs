@@ -60,7 +60,8 @@ fn make_ready(omega: &mut Omega, transaction: Transaction) {
         &transaction,
         omega.authority.chain,
         omega.authority.rules,
-    );
+    )
+    .expect("direct transaction has no dep-group expansion");
     assert!(matches!(
         omega.kernel_step(KernelCommand::Complete(Completion {
             capability: resolve,
@@ -197,6 +198,10 @@ fn model_rbf_is_coupled_to_the_accepted_victim_and_never_uses_the_independent_la
     let [original, replacement] = transactions.as_slice() else {
         panic!("the replacement shape must contain exactly two members");
     };
+    // The independent fee-policy boundary test proves that the default 1_500
+    // shannons/kW rate charges 12 shannons for this 8-byte candidate.
+    assert_eq!(original.cost.fee(), 10);
+    assert_eq!(replacement.cost.fee(), 22);
     let mut omega = model();
     accept(&mut omega, original.clone());
     make_ready(&mut omega, replacement.clone());
@@ -291,7 +296,8 @@ fn model_completion_plan_is_equal_for_every_bounded_worker_permutation() {
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion");
         assert!(matches!(
             omega.kernel_step(KernelCommand::Complete(Completion {
                 capability: resolve,

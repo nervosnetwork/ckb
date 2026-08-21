@@ -1,12 +1,16 @@
 use super::{
     dependency::{seed_runtime_dependency_maintenance, seed_runtime_dependency_waiter},
-    foundation::{accepted_parent_child_at, admit_remote_until, genesis_snapshot, runtime_config},
+    foundation::{
+        accepted_parent_child_at, admit_remote_until, genesis_snapshot, runtime_config, tx,
+        verify_remote_transaction,
+    },
 };
 use crate::authority::{
     runtime::AuthorityRuntime,
     state::{AcceptedAtMillis, OwnedTx, PreAcceptedPhase, QueuedWork},
     worker::test_support::AuthorityTestWorkerOwner,
 };
+use crate::constants::MAX_READY_BATCH;
 use ckb_async_runtime::Handle;
 use std::sync::{
     Arc,
@@ -121,6 +125,72 @@ async fn uak_idle_maintenance_driver_waits_instead_of_spinning() {
         .shutdown()
         .await
         .expect("the observed maintenance worker generation closes cleanly");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn uak_ready_driver_yields_after_one_bounded_progress_attempt() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let keys = runtime.with_authority_for_foundation(|authority| {
+        (0..MAX_READY_BATCH + 2)
+            .map(|index| {
+                verify_remote_transaction(
+                    authority,
+                    tx(20_000 + u64::try_from(index).expect("the fixture index fits")),
+                    800 + index,
+                    Vec::new(),
+                )
+            })
+            .collect::<Vec<_>>()
+    });
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let workers = AuthorityTestWorkerOwner::spawn_observed_ready(
+        runtime.clone(),
+        &handle,
+        Arc::clone(&attempts),
+    )
+    .expect("the test owns the observed Ready worker");
+    let cancel = workers.cancellation_for_foundation();
+    let observed = Arc::clone(&attempts);
+    tokio::time::timeout(Duration::from_secs(2), async move {
+        while observed.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        cancel.cancel();
+    })
+    .await
+    .expect("cancellation runs at the first cooperative Ready handoff");
+
+    workers
+        .shutdown()
+        .await
+        .expect("the Ready worker observes cancellation and joins");
+    assert_eq!(
+        attempts.load(Ordering::Relaxed),
+        1,
+        "one bounded Apply must yield before another Ready observation"
+    );
+    let remaining = runtime.with_authority_for_foundation(|authority| {
+        keys.iter()
+            .filter(|key| {
+                matches!(
+                    authority.entry(key),
+                    Some(OwnedTx::PreAccepted(entry))
+                        if matches!(entry.phase, PreAcceptedPhase::Ready(_))
+                )
+            })
+            .count()
+    });
+    assert_eq!(
+        remaining, 2,
+        "one Ready Apply is bounded by MAX_READY_BATCH"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

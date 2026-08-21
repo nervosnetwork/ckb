@@ -1,6 +1,6 @@
 use super::eviction_quotient::{
     EvictionRefinementInput, EvictionRefinementMetrics, EvictionRefinementStatus,
-    eviction_observation,
+    eviction_observation, eviction_status_witness,
 };
 
 fn input(
@@ -14,7 +14,7 @@ fn input(
     let mut hash = [0; 32];
     hash[31] = identity;
     EvictionRefinementInput {
-        status,
+        status: eviction_status_witness(status),
         own,
         descendants,
         descendants_count,

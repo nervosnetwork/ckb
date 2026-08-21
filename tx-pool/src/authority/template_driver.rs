@@ -9,18 +9,19 @@
 use super::{
     packing::TemplatePackingLimits,
     runtime::AuthorityRuntime,
-    source::PoolTemplateVersions,
+    state::ApplySequence,
     template::{
-        AuthorityTemplateInput, FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild,
-        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePoolSourceCut,
-        TemplatePublication, TemplateReadError, TemplateSourceCut,
+        AuthorityTemplateInput, FullTemplateBuild, PartialTemplateBuild, ProposalSourceCut,
+        ResetTemplateBuild, TemplateChainReadState, TemplateComponent, TemplateConvergence,
+        TemplateConvergenceError, TemplatePoolSourceCut, TemplatePublication, TemplateReadError,
+        TemplateSourceCut, TransactionSourceCut, UncleSourceCut,
     },
 };
 use crate::{
     block_assembler::{
-        BlockAssembler, BlockTemplateBuilder, CandidateUncleMutationError, CandidateUnclePrune,
-        CandidateUncleSourceReceipt, CurrentTemplate, ResetEpoch, TemplateContentUpdate,
-        TemplateRevision, TemplateSize,
+        BlockAssembler, BlockTemplateBuilder, BoundedCandidateUncle, CandidateUncleMutationError,
+        CandidateUnclePrune, CurrentTemplate, ResetEpoch, TemplateContentUpdate, TemplateRevision,
+        TemplateSize,
     },
     error::BlockAssemblerError,
 };
@@ -31,16 +32,20 @@ use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::core::{EpochExt, UncleBlockView};
+use ckb_types::core::EpochExt;
 use ckb_util::Mutex;
-use std::{cmp, pin::Pin, sync::Arc, time::Duration};
+use std::{cmp, sync::Arc, time::Duration};
 use tokio::sync::Notify;
-
-const TEMPLATE_ALLOCATION_RETRY: Duration = Duration::from_millis(1);
 
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityTemplateDriverFault {
-    Read(TemplateReadError),
+    Read(
+        #[expect(
+            dead_code,
+            reason = "the exact read failure is retained for the derived-task diagnostic and source-cut terminal classification"
+        )]
+        TemplateReadError,
+    ),
     Convergence(TemplateConvergenceError),
     Block(
         #[expect(
@@ -49,7 +54,19 @@ pub(in crate::authority) enum AuthorityTemplateDriverFault {
         )]
         AnyError,
     ),
-    Candidate(CandidateUncleMutationError),
+    Candidate(
+        #[expect(
+            dead_code,
+            reason = "the exact bounded candidate failure is retained for derived-task diagnostics"
+        )]
+        CandidateUncleMutationError,
+    ),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityTemplateReadFailure {
+    Cancelled,
+    Unavailable,
 }
 
 impl From<TemplateReadError> for AuthorityTemplateDriverFault {
@@ -90,20 +107,54 @@ pub(in crate::authority) enum AuthorityTemplateStep {
     Stale,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TemplateRetryWake {
-    Cancelled,
-    Retry,
-}
-
-/// Monotonic inputs that can make a failed template build worth repeating.
-/// Notify remains a lossy hint; equality of this cut is the no-progress fact.
+/// The minimum monotonic input cut that can change one failed build's result.
+/// Component variants deliberately exclude unrelated selection sources; the
+/// shared output revision remains relevant because it changes the component's
+/// publication base and shared optional-content budget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TemplateRetrySourceCut {
-    pool: PoolTemplateVersions,
-    uncles: CandidateUncleSourceReceipt,
-    revision: TemplateRevision,
-    reset: ResetEpoch,
+    source: TemplateRetrySource,
+}
+
+impl TemplateRetrySourceCut {
+    fn replacement_chain_source(self) -> Option<ApplySequence> {
+        match self.source {
+            TemplateRetrySource::Replacement { source, .. } => Some(source.chain_source()),
+            TemplateRetrySource::Proposals { .. }
+            | TemplateRetrySource::Transactions { .. }
+            | TemplateRetrySource::Uncles { .. } => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TemplateRetrySource {
+    Replacement {
+        source: TemplateSourceCut,
+        reset: ResetEpoch,
+    },
+    Proposals {
+        source: ProposalSourceCut,
+        revision: TemplateRevision,
+    },
+    Transactions {
+        source: TransactionSourceCut,
+        revision: TemplateRevision,
+    },
+    Uncles {
+        source: UncleSourceCut,
+        revision: TemplateRevision,
+    },
+}
+
+struct TemplateAttempt {
+    source: TemplateRetrySourceCut,
+    current: Arc<CurrentTemplate>,
+}
+
+struct FailedTemplateAttempt {
+    source: TemplateRetrySourceCut,
+    error: AuthorityTemplateDriverFault,
 }
 
 pub(in crate::authority) struct AuthorityTemplateDriverHandles {
@@ -172,7 +223,7 @@ impl AuthorityBlockAssembler {
         drop(current);
         let epoch = next_epoch(input.snapshot())?;
         let (_, _, uncle_source) = assembler
-            .prepare_uncles(input.snapshot(), &epoch)
+            .prepare_uncles(input.snapshot(), &epoch)?
             .into_parts();
         let convergence = TemplateConvergence::new(input.source_cut(uncle_source), reset_epoch);
         Ok(Self {
@@ -190,17 +241,55 @@ impl AuthorityBlockAssembler {
     /// handle to production callers.
     pub(in crate::authority) fn receive_candidate_uncle(
         &self,
-        uncle: UncleBlockView,
+        uncle: BoundedCandidateUncle,
     ) -> Result<bool, AuthorityTemplateDriverFault> {
-        let inserted = self.assembler.candidate_uncles.lock().try_insert(uncle)?;
+        let inserted = self
+            .assembler
+            .candidate_uncles
+            .lock()
+            .try_insert_bounded(uncle)?;
         if inserted {
             self.wake.notify_waiters();
         }
         Ok(inserted)
     }
 
-    pub(in crate::authority) async fn current_template(&self) -> ckb_jsonrpc_types::BlockTemplate {
-        self.assembler.get_current().await
+    pub(in crate::authority) async fn current_template(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<ckb_jsonrpc_types::BlockTemplate, AuthorityTemplateReadFailure> {
+        loop {
+            if cancel.is_cancelled() {
+                return Err(AuthorityTemplateReadFailure::Cancelled);
+            }
+            let authority_signal = self.runtime.template_signal();
+            let authority_notified = authority_signal.notified();
+            let local_notified = self.wake.notified();
+            tokio::pin!(authority_notified);
+            tokio::pin!(local_notified);
+            let _ = authority_notified.as_mut().enable();
+            let _ = local_notified.as_mut().enable();
+
+            let required = self.runtime.template_chain_source();
+            let current = self.assembler.current.read().await;
+            let state = self.convergence.lock().chain_read_state(required);
+            match state {
+                TemplateChainReadState::Published => {
+                    return Ok((&current.template).into());
+                }
+                TemplateChainReadState::Failed => {
+                    return Err(AuthorityTemplateReadFailure::Unavailable);
+                }
+                TemplateChainReadState::Pending => {}
+            }
+            drop(current);
+
+            tokio::select! {
+                _ = cancel.cancelled() => return Err(AuthorityTemplateReadFailure::Cancelled),
+                _ = authority_notified.as_mut() => {}
+                _ = local_notified.as_mut() => {}
+            }
+        }
     }
 
     pub(in crate::authority) fn spawn_drivers(
@@ -320,7 +409,6 @@ impl AuthorityBlockAssembler {
         self,
         cancel: CancellationToken,
     ) -> Result<(), AuthorityTemplateDriverFault> {
-        let mut failed_source = None;
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -332,9 +420,8 @@ impl AuthorityBlockAssembler {
             tokio::pin!(local_notified);
             let _ = authority_notified.as_mut().enable();
             let _ = local_notified.as_mut().enable();
-            match self.drive_replacement_once().await {
+            match self.attempt_replacement_once().await {
                 Ok(AuthorityTemplateStep::Idle) => {
-                    failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
                         _ = authority_notified.as_mut() => {},
@@ -342,39 +429,26 @@ impl AuthorityBlockAssembler {
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
-                    failed_source = None;
                     tokio::task::yield_now().await;
                 }
-                Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
-                    failed_source = None;
-                    if wait_template_retry(
-                        &cancel,
-                        authority_notified.as_mut(),
-                        local_notified.as_mut(),
-                    )
-                    .await
-                        == TemplateRetryWake::Cancelled
-                    {
-                        return Ok(());
+                Err(FailedTemplateAttempt { source, error }) => {
+                    if let Some(chain_source) = source.replacement_chain_source() {
+                        self.convergence
+                            .lock()
+                            .record_replacement_failure(chain_source);
+                        self.wake.notify_waiters();
                     }
-                }
-                Err(error) => {
                     error!(
                         "tx-pool template replacement lane retained the last valid projection after a rebuildable failure: {error:?}"
                     );
-                    let observed = self.retry_source_cut().await;
-                    if failed_source != Some(observed) {
-                        // The failed attempt may have raced a source advance.
-                        // Retry that newly observed cut once before sleeping;
-                        // this keeps source capture off the successful hot path.
-                        failed_source = Some(observed);
-                        tokio::task::yield_now().await;
-                        continue;
+                    if self
+                        .next_template_source_after_failure(&cancel, source)
+                        .await
+                        .is_none()
+                    {
+                        return Ok(());
                     }
-                    match self.wait_template_source_change(&cancel, observed).await {
-                        Some(next) => failed_source = Some(next),
-                        None => return Ok(()),
-                    }
+                    tokio::task::yield_now().await;
                 }
             }
         }
@@ -385,7 +459,6 @@ impl AuthorityBlockAssembler {
         component: TemplateComponent,
         cancel: CancellationToken,
     ) -> Result<(), AuthorityTemplateDriverFault> {
-        let mut failed_source = None;
         loop {
             if cancel.is_cancelled() {
                 return Ok(());
@@ -397,9 +470,8 @@ impl AuthorityBlockAssembler {
             tokio::pin!(local_notified);
             let _ = authority_notified.as_mut().enable();
             let _ = local_notified.as_mut().enable();
-            match self.drive_component_once(component).await {
+            match self.attempt_component_once(component).await {
                 Ok(AuthorityTemplateStep::Idle) => {
-                    failed_source = None;
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
                         _ = authority_notified.as_mut() => {},
@@ -407,49 +479,42 @@ impl AuthorityBlockAssembler {
                     }
                 }
                 Ok(AuthorityTemplateStep::Published | AuthorityTemplateStep::Stale) => {
-                    failed_source = None;
                     tokio::task::yield_now().await;
                 }
-                Err(AuthorityTemplateDriverFault::Read(TemplateReadError::Allocation)) => {
-                    failed_source = None;
-                    if wait_template_retry(
-                        &cancel,
-                        authority_notified.as_mut(),
-                        local_notified.as_mut(),
-                    )
-                    .await
-                        == TemplateRetryWake::Cancelled
-                    {
-                        return Ok(());
-                    }
-                }
-                Err(error) => {
+                Err(FailedTemplateAttempt { source, error }) => {
                     error!(
                         "tx-pool template {component:?} lane retained the last valid projection after a rebuildable failure: {error:?}"
                     );
-                    let observed = self.retry_source_cut().await;
-                    if failed_source != Some(observed) {
-                        failed_source = Some(observed);
-                        tokio::task::yield_now().await;
-                        continue;
+                    if self
+                        .next_template_source_after_failure(&cancel, source)
+                        .await
+                        .is_none()
+                    {
+                        return Ok(());
                     }
-                    match self.wait_template_source_change(&cancel, observed).await {
-                        Some(next) => failed_source = Some(next),
-                        None => return Ok(()),
-                    }
+                    tokio::task::yield_now().await;
                 }
             }
         }
     }
 
-    pub(in crate::authority) async fn drive_replacement_once(
+    async fn attempt_replacement_once(
         &self,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        if !self.replacement_needs_capture().await {
+    ) -> Result<AuthorityTemplateStep, FailedTemplateAttempt> {
+        let Some(attempt) = self.replacement_attempt().await else {
             return Ok(AuthorityTemplateStep::Idle);
-        }
+        };
+        let source = attempt.source;
+        self.drive_replacement_attempt(attempt.current)
+            .await
+            .map_err(|error| FailedTemplateAttempt { source, error })
+    }
+
+    async fn drive_replacement_attempt(
+        &self,
+        current: Arc<CurrentTemplate>,
+    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
         let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
         if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
             let Some(prepared) = self.prepare_reset(input, current.reset_epoch)? else {
                 return Ok(AuthorityTemplateStep::Stale);
@@ -462,15 +527,25 @@ impl AuthorityBlockAssembler {
         self.publish_full(prepared).await
     }
 
-    pub(in crate::authority) async fn drive_component_once(
+    async fn attempt_component_once(
         &self,
         component: TemplateComponent,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        if !self.component_needs_capture(component) {
+    ) -> Result<AuthorityTemplateStep, FailedTemplateAttempt> {
+        let Some(attempt) = self.component_attempt(component).await else {
             return Ok(AuthorityTemplateStep::Idle);
-        }
+        };
+        let source = attempt.source;
+        self.drive_component_attempt(component, attempt.current)
+            .await
+            .map_err(|error| FailedTemplateAttempt { source, error })
+    }
+
+    async fn drive_component_attempt(
+        &self,
+        component: TemplateComponent,
+        current: Arc<CurrentTemplate>,
+    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
         let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
         if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
             return Ok(AuthorityTemplateStep::Idle);
         }
@@ -485,32 +560,62 @@ impl AuthorityBlockAssembler {
         self.publish_partial(prepared).await
     }
 
-    /// Read only monotonic source levels before capturing the accepted
-    /// population. Pool and candidate-uncle versions keep their independent
-    /// owners; the convergence projection joins the mixed cut conservatively.
-    async fn replacement_needs_capture(&self) -> bool {
-        let published_reset = self.assembler.current.read().await.reset_epoch;
+    /// Fuse the O(1) convergence gate, publication base and failure cut. The
+    /// previous design re-read all three sources before every build solely to
+    /// prepare for the exceptional failure path.
+    async fn replacement_attempt(&self) -> Option<TemplateAttempt> {
+        let current = self.assembler.current.read().await.clone();
         let sources = self.template_source_probe();
+        let source = TemplateRetrySourceCut {
+            source: TemplateRetrySource::Replacement {
+                source: sources,
+                reset: current.reset_epoch,
+            },
+        };
         self.convergence
             .lock()
-            .replacement_needs_capture(sources, published_reset)
+            .replacement_needs_capture(sources, current.reset_epoch)
+            .then_some(TemplateAttempt { source, current })
     }
 
-    fn component_needs_capture(&self, component: TemplateComponent) -> bool {
-        match component {
-            TemplateComponent::Proposals => {
-                let pool = TemplatePoolSourceCut::new(self.runtime.template_source_versions());
-                self.convergence.lock().proposals_need_capture(pool)
-            }
-            TemplateComponent::Transactions => {
-                let pool = TemplatePoolSourceCut::new(self.runtime.template_source_versions());
-                self.convergence.lock().transactions_need_capture(pool)
-            }
+    async fn component_attempt(&self, component: TemplateComponent) -> Option<TemplateAttempt> {
+        let current = self.assembler.current.read().await.clone();
+        let pool_versions = self.runtime.template_source_versions();
+        let pool = TemplatePoolSourceCut::new(pool_versions);
+        let revision = current.revision;
+        let (source, needed) = match component {
+            TemplateComponent::Proposals => (
+                TemplateRetrySource::Proposals {
+                    source: pool.proposal_cut(),
+                    revision,
+                },
+                self.convergence.lock().proposals_need_capture(pool),
+            ),
+            TemplateComponent::Transactions => (
+                TemplateRetrySource::Transactions {
+                    source: pool.transaction_cut(),
+                    revision,
+                },
+                self.convergence.lock().transactions_need_capture(pool),
+            ),
             TemplateComponent::Uncles => {
-                let sources = self.template_source_probe();
-                self.convergence.lock().uncles_need_capture(sources)
+                let sources = TemplateSourceCut::new(
+                    pool_versions,
+                    self.assembler.candidate_uncles.lock().source_receipt(),
+                );
+                (
+                    TemplateRetrySource::Uncles {
+                        source: sources.uncle_cut(),
+                        revision,
+                    },
+                    self.convergence.lock().uncles_need_capture(sources),
+                )
             }
-        }
+        };
+        needed.then_some(TemplateAttempt {
+            source: TemplateRetrySourceCut { source },
+            current,
+        })
     }
 
     fn template_source_probe(&self) -> TemplateSourceCut {
@@ -519,24 +624,61 @@ impl AuthorityBlockAssembler {
         TemplateSourceCut::new(pool, uncles)
     }
 
-    async fn retry_source_cut(&self) -> TemplateRetrySourceCut {
+    async fn observed_retry_source(
+        &self,
+        failed: TemplateRetrySourceCut,
+    ) -> TemplateRetrySourceCut {
         let current = self.assembler.current.read().await;
         let revision = current.revision;
         let reset = current.reset_epoch;
         drop(current);
-        let pool = self.runtime.template_source_versions();
-        let uncles = self.assembler.candidate_uncles.lock().source_receipt();
-        TemplateRetrySourceCut {
-            pool,
-            uncles,
-            revision,
-            reset,
-        }
+        let pool_versions = self.runtime.template_source_versions();
+        let pool = TemplatePoolSourceCut::new(pool_versions);
+        let source = match failed.source {
+            TemplateRetrySource::Replacement { .. } => TemplateRetrySource::Replacement {
+                source: TemplateSourceCut::new(
+                    pool_versions,
+                    self.assembler.candidate_uncles.lock().source_receipt(),
+                ),
+                reset,
+            },
+            TemplateRetrySource::Proposals { .. } => TemplateRetrySource::Proposals {
+                source: pool.proposal_cut(),
+                revision,
+            },
+            TemplateRetrySource::Transactions { .. } => TemplateRetrySource::Transactions {
+                source: pool.transaction_cut(),
+                revision,
+            },
+            TemplateRetrySource::Uncles { .. } => TemplateRetrySource::Uncles {
+                source: TemplateSourceCut::new(
+                    pool_versions,
+                    self.assembler.candidate_uncles.lock().source_receipt(),
+                )
+                .uncle_cut(),
+                revision,
+            },
+        };
+        TemplateRetrySourceCut { source }
     }
 
-    /// Subscribe before the source read and discard unrelated wake hints.
-    /// Monotonic component versions make a mixed cut conservative: it can
-    /// cause one extra retry, but cannot hide a real source advance.
+    /// A failed build may be repeated only for a strictly newer minimum source
+    /// cut. The cut is captured by the same gate/base reads the attempt already
+    /// needs, so the exceptional liveness proof adds no successful-path read.
+    async fn next_template_source_after_failure(
+        &self,
+        cancel: &CancellationToken,
+        attempted: TemplateRetrySourceCut,
+    ) -> Option<TemplateRetrySourceCut> {
+        let observed = self.observed_retry_source(attempted).await;
+        if observed != attempted {
+            return Some(observed);
+        }
+        self.wait_template_source_change(cancel, observed).await
+    }
+
+    /// Subscribe before reading the same component-specific source projection
+    /// and discard unrelated wake hints.
     async fn wait_template_source_change(
         &self,
         cancel: &CancellationToken,
@@ -553,7 +695,7 @@ impl AuthorityBlockAssembler {
             tokio::pin!(local_notified);
             let _ = authority_notified.as_mut().enable();
             let _ = local_notified.as_mut().enable();
-            let current = self.retry_source_cut().await;
+            let current = self.observed_retry_source(failed).await;
             if current != failed {
                 return Some(current);
             }
@@ -573,7 +715,7 @@ impl AuthorityBlockAssembler {
         let epoch = next_epoch(input.snapshot())?;
         let (prepared_uncles, prune, uncle_source) = self
             .assembler
-            .prepare_uncles(input.snapshot(), &epoch)
+            .prepare_uncles(input.snapshot(), &epoch)?
             .into_parts();
         let sources = input.source_cut(uncle_source);
         let Some(build) = self.convergence.lock().begin_pending_full(sources) else {
@@ -613,7 +755,7 @@ impl AuthorityBlockAssembler {
                 tx_bytes,
                 consensus.max_block_cycles(),
             ))?;
-        let txs = packed.into_tx_entries();
+        let txs = packed.into_tx_entries()?;
         let (dao, checked_txs, _failed) = BlockAssembler::calc_dao(
             input.snapshot(),
             &epoch,
@@ -660,7 +802,7 @@ impl AuthorityBlockAssembler {
         let epoch = next_epoch(input.snapshot())?;
         let (uncles, prune, uncle_source) = self
             .assembler
-            .prepare_uncles(input.snapshot(), &epoch)
+            .prepare_uncles(input.snapshot(), &epoch)?
             .into_parts();
         let sources = input.source_cut(uncle_source);
         let Some(build) = self
@@ -768,7 +910,7 @@ impl AuthorityBlockAssembler {
                 tx_bytes,
                 consensus.max_block_cycles(),
             ))?;
-        let txs = packed.into_tx_entries();
+        let txs = packed.into_tx_entries()?;
         let epoch = next_epoch(input.snapshot())?;
         let (dao, checked_txs, _failed) = BlockAssembler::calc_dao(
             input.snapshot(),
@@ -813,7 +955,7 @@ impl AuthorityBlockAssembler {
         let epoch = next_epoch(input.snapshot())?;
         let (uncles, prune, uncle_source) = self
             .assembler
-            .prepare_uncles(input.snapshot(), &epoch)
+            .prepare_uncles(input.snapshot(), &epoch)?
             .into_parts();
         let sources = input.source_cut(uncle_source);
         let Some(build) = self
@@ -982,19 +1124,6 @@ impl AuthorityBlockAssembler {
         self.wake.notify_waiters();
         self.replacement_notification.notify_one();
         Ok(AuthorityTemplateStep::Published)
-    }
-}
-
-async fn wait_template_retry(
-    cancel: &CancellationToken,
-    mut authority_notified: Pin<&mut tokio::sync::futures::Notified<'_>>,
-    mut local_notified: Pin<&mut tokio::sync::futures::Notified<'_>>,
-) -> TemplateRetryWake {
-    tokio::select! {
-        _ = cancel.cancelled() => TemplateRetryWake::Cancelled,
-        _ = authority_notified.as_mut() => TemplateRetryWake::Retry,
-        _ = local_notified.as_mut() => TemplateRetryWake::Retry,
-        _ = tokio::time::sleep(TEMPLATE_ALLOCATION_RETRY) => TemplateRetryWake::Retry,
     }
 }
 

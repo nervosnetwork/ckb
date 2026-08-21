@@ -3,22 +3,26 @@ use super::{
     AuthorityComputeOutcome, AuthorityDirectAdmissionError, AuthorityDirectRejectionExecution,
     AuthorityDirectResolutionOutcome, AuthorityDriverError, AuthorityReadyOutcome,
     AuthorityRuntime, AuthorityRuntimeConfig, FinalAdmissionCaptureError, PREACCEPTED_ENTRY_BYTES,
-    PlanError, ReadyValidationError, RuntimeConfigError, SettlementOrigin,
-    runtime_authority_config_error, runtime_resource_config_error,
+    PlanError, ReadyDisposition, ReadyValidationError, RuntimeConfigError, SettlementOrigin,
+    accepted_validity_transition, runtime_authority_config_error, runtime_resource_config_error,
     test_support::{AuthorityComputeError, AuthorityComputeSettlement, FoundationCheckoutError},
 };
+use crate::authority::chain::AcceptedValidityTransition;
 use crate::authority::effect::{
     CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
     EffectConfigError, EffectLimits, EffectPolicy, RejectionAudience,
 };
+use crate::authority::ingress::BoundedTransaction;
 use crate::authority::plan::{AuthorityConfigError, AuthorityFault, Backpressure, StalePlan};
 use crate::authority::resources::ResourceConfigError;
 use crate::authority::state::{
-    ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RemoteResidencyLease,
-    ValidatedAdmission, VerifyCapability, WorkPermit, test_support::RejectionKind,
+    ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
+    RemoteResidencyLease, ValidatedAdmission, VerifyCapability, WorkPermit,
+    test_support::RejectionKind,
 };
 use crate::authority::validation::FinalAdmissionValidationError;
 use crate::authority::worker::test_support::AuthorityTestWorkerOwner;
+use crate::mathematical_model::{ModelAcceptedValidity, model_accepted_validity};
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -32,6 +36,7 @@ use ckb_types::{
     core::{FeeRate, TransactionBuilder},
     prelude::Unpack,
 };
+use ckb_verification::cache::ScriptVerificationRules;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::sync::{RwLock as TokioRwLock, mpsc};
@@ -71,8 +76,43 @@ fn genesis_snapshot() -> Arc<Snapshot> {
 
 fn runtime() -> AuthorityRuntime {
     let snapshot = genesis_snapshot();
-    AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production authority runtime fixture is valid")
+    AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production authority runtime fixture is valid")
+}
+
+#[test]
+fn runtime_accepted_validity_refines_the_model_priority_function() {
+    let rules = [
+        ScriptVerificationRules::V0,
+        ScriptVerificationRules::V1,
+        ScriptVerificationRules::V2,
+    ];
+    for old_rules in rules {
+        for new_rules in rules {
+            for had_detached_chain in [false, true] {
+                let production =
+                    accepted_validity_transition(old_rules, new_rules, had_detached_chain);
+                let model = model_accepted_validity(old_rules != new_rules, had_detached_chain);
+                assert!(matches!(
+                    (production, model),
+                    (
+                        AcceptedValidityTransition::Preserved,
+                        ModelAcceptedValidity::Preserved
+                    ) | (
+                        AcceptedValidityTransition::ContextChanged,
+                        ModelAcceptedValidity::ContextChanged
+                    ) | (
+                        AcceptedValidityTransition::RulesChanged,
+                        ModelAcceptedValidity::RulesChanged
+                    )
+                ));
+            }
+        }
+    }
 }
 
 fn runtime_with_effect_limits(
@@ -176,6 +216,34 @@ fn completion(outcome: AuthorityComputeOutcome) -> AuthorityComputeCompletion {
     completion
 }
 
+async fn advance_admission_to_ready(
+    runtime: &AuthorityRuntime,
+    admission: ValidatedAdmission,
+) -> RawTxHash {
+    let key = admission.identity.raw.clone();
+    runtime.admit(admission).expect("admission commits");
+    let job = continued(
+        runtime
+            .try_checkout_for_foundation(WorkPermit::ResolveThenVerify(VerifyCapability::Any))
+            .expect("checkout remains healthy"),
+    )
+    .expect("resolve work is ready");
+    let AuthorityComputeOutcome::Verification(request) = runtime.execute_compute(job) else {
+        panic!("the empty-script fixture fits continuous verification")
+    };
+    let cache = ckb_verification::cache::init_cache();
+    let completed = runtime
+        .execute_verification(request.bind_cache(&cache), None)
+        .await;
+    let verification = continued(runtime.settle_completion(completed));
+    assert!(verification.into_parts().1.is_some());
+    key
+}
+
+async fn advance_remote_to_ready(runtime: &AuthorityRuntime, nonce: u32, peer: usize) -> RawTxHash {
+    advance_admission_to_ready(runtime, admission(nonce, peer)).await
+}
+
 #[test]
 fn runtime_checkout_observes_preexisting_level_without_a_wake_hint() {
     let runtime = runtime();
@@ -226,7 +294,7 @@ fn runtime_stale_plan_disposition_depends_on_the_producer_boundary() {
         AuthorityDriverError::from_ready_recheck(FinalAdmissionCaptureError::Plan(
             PlanError::Stale(StalePlan::Version),
         )),
-        AuthorityDriverError::Stale
+        AuthorityDriverError::Fault(AuthorityFault::SchedulerProjection)
     ));
     assert!(matches!(
         AuthorityDriverError::from_ready_validation(ReadyValidationError::Candidate(
@@ -410,6 +478,106 @@ async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_ready_recheck_keeps_the_unchanged_head_when_a_weaker_tail_disappears() {
+    let runtime = runtime();
+    let head = advance_remote_to_ready(&runtime, 915, 105).await;
+    let tail = advance_remote_to_ready(&runtime, 916, 106).await;
+    let work = {
+        let store = runtime.store.read();
+        assert_eq!(
+            store
+                .authority
+                .ready_candidates()
+                .expect("the scheduler projection is valid")
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect::<Vec<_>>(),
+            vec![head.clone(), tail]
+        );
+        store
+            .capture_ready_work_batch()
+            .expect("the first Ready cut is valid")
+            .expect("the Ready cut is non-empty")
+    };
+    let prepared = work
+        .prepare(FeeRate::zero())
+        .expect("Ready scratch allocation succeeds");
+
+    {
+        let mut store = runtime.store.write();
+        drop(
+            store
+                .authority
+                .plan_peer_revocation_for_foundation(PeerIndex::from(106))
+                .expect("the weaker peer cohort can retire")
+                .apply(),
+        );
+    }
+
+    let rechecked = {
+        let store = runtime.store.read();
+        store.complete_ready_batch(prepared)
+    }
+    .expect("a changed weaker tail cannot stale the unchanged strongest prefix");
+    let rechecked = rechecked
+        .finish()
+        .expect("the unchanged strongest prefix remains executable");
+    assert_eq!(rechecked.tail.len(), 0);
+    let ReadyDisposition::Candidates(batch) = rechecked
+        .validate()
+        .expect("the unchanged strongest candidate remains valid")
+    else {
+        panic!("the unchanged strongest candidate remains the Ready disposition")
+    };
+    assert_eq!(batch.len(), 1);
+    assert!(runtime.store.read().authority.entry(&head).is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_ready_recheck_never_skips_a_new_stronger_head() {
+    let runtime = runtime();
+    let weaker = advance_remote_to_ready(&runtime, 917, 107).await;
+    let work = {
+        let store = runtime.store.read();
+        store
+            .capture_ready_work_batch()
+            .expect("the first Ready cut is valid")
+            .expect("the Ready cut is non-empty")
+    };
+    let prepared = work
+        .prepare(FeeRate::zero())
+        .expect("Ready scratch allocation succeeds");
+
+    let stronger_admission =
+        ValidatedAdmission::proposal(TransactionBuilder::default().version(918u32).build())
+            .expect("the trusted stronger fixture has valid ingress evidence");
+    let stronger = advance_admission_to_ready(&runtime, stronger_admission).await;
+    {
+        let store = runtime.store.read();
+        assert_eq!(
+            store
+                .authority
+                .ready_candidates()
+                .expect("the scheduler projection is valid")
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect::<Vec<_>>(),
+            vec![stronger, weaker]
+        );
+    }
+
+    let rechecked = {
+        let store = runtime.store.read();
+        store.complete_ready_batch(prepared)
+    }
+    .expect("a changed head is an ordinary Ready cut outcome");
+    assert!(
+        rechecked.finish().is_none(),
+        "the earlier weaker cut cannot pass a new stronger head"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work() {
     let runtime = runtime();
     runtime
@@ -434,8 +602,11 @@ async fn runtime_shared_compute_gate_bounds_mixed_retained_and_direct_work() {
         .try_compute_execution_for_foundation()
         .expect("direct work shares the same partition");
     let direct_tx = TransactionBuilder::default().version(1u32).build();
+    let direct_input = BoundedTransaction::try_new(direct_tx)
+        .expect("direct fixture transaction is bounded")
+        .into_direct();
     let AuthorityDirectResolutionOutcome::Rejected(direct) = runtime
-        .resolve_test_accept_transaction(&direct_tx, direct_execution)
+        .resolve_test_accept_transaction(&direct_input, direct_execution)
         .expect("the direct fixture reaches a stable typed rejection")
     else {
         panic!("the non-zero version fixture must reject before verification")
@@ -561,7 +732,7 @@ async fn runtime_sealed_worker_set_honors_pause_and_closes_the_owner_lifecycle()
         .build()
         .witness_hash()
         .unpack();
-    assert_eq!(update.key.witness_hash(), &expected_witness);
+    assert_eq!(update.into_proof().key().witness_hash(), &expected_witness);
 
     workers
         .shutdown()

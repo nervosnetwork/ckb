@@ -1,8 +1,9 @@
 use super::super::{
     effect::CommittedEffect,
     ingress::{
-        DirectCommand, RemoteIngressPressure, RetainedIngressBackpressure,
-        RetainedIngressBoundaryError, RetainedIngressError, direct, proposal,
+        BoundedTransaction, DirectCommand, DirectIngressTransaction, RemoteIngressPressure,
+        RetainedIngressAttempt, RetainedIngressBackpressure, RetainedIngressBoundaryError, direct,
+        proposal,
         test_support::{IngressRejectionCommit, RetainedIngressCommit, remote_at_for_foundation},
     },
     plan::{
@@ -10,10 +11,7 @@ use super::super::{
         test_support::RetainedAdmissionDisposition,
     },
     runtime::AuthorityRuntime,
-    state::{
-        AdmissionValidationError, PayloadPolicy, PoolGeneration, PreAcceptedSource, ProposalBase,
-        RemoteDeadline, ValidatedAdmission,
-    },
+    state::{PoolGeneration, PreAcceptedSource, ProposalBase, RemoteDeadline, ValidatedAdmission},
 };
 use super::foundation::{
     accept_remote_transaction_with_payload, genesis_snapshot, limits, resolved_payload_with_facts,
@@ -39,6 +37,14 @@ fn ingress_tx(marker: u8) -> TransactionView {
         .output(CellOutput::default())
         .output_data(Bytes::new().pack())
         .build()
+}
+
+fn bounded(transaction: TransactionView) -> BoundedTransaction {
+    BoundedTransaction::try_new(transaction).expect("ingress fixture transaction is bounded")
+}
+
+fn direct_input(transaction: TransactionView) -> DirectIngressTransaction {
+    bounded(transaction).into_direct()
 }
 
 #[test]
@@ -68,15 +74,35 @@ fn uak_remote_ingress_derives_source_and_historical_residency() {
         )
     );
     assert_eq!(
-        remote.payload_policy,
-        PayloadPolicy::RemoteDeclaredCycles(declared_cycles)
+        remote.payload_policy.declared_cycles(),
+        Some(declared_cycles)
     );
+}
+
+#[test]
+fn uak_remote_ingress_rejects_a_declaration_above_consensus_max_before_ownership() {
+    let consensus = ConsensusBuilder::default().build();
+    let declared_cycles = consensus
+        .max_block_cycles()
+        .checked_add(1)
+        .expect("the default consensus maximum leaves one hostile declaration");
+    let attempt = remote_at_for_foundation(
+        ingress_tx(8),
+        declared_cycles,
+        PeerIndex::from(18),
+        901,
+        &consensus,
+    )
+    .expect_err("d > M must terminate at ingress without constructing an owner");
+    assert!(declared_cycles > consensus.max_block_cycles());
+    assert!(attempt.is_malformed_remote());
 }
 
 #[test]
 fn uak_proposal_ingress_is_trusted_without_a_synthetic_context_token() {
     let consensus = ConsensusBuilder::default().build();
-    let admission = proposal(ingress_tx(2), &consensus)
+    let admission = proposal(bounded(ingress_tx(2)), &consensus)
+        .into_validated_for_foundation()
         .expect("foundation transaction passes non-contextual validation");
 
     let admission = admission.admission_for_foundation();
@@ -100,7 +126,7 @@ fn uak_retained_ingress_rejects_malformed_transactions_before_retention() {
         .expect_err("a loose cellbase transaction is malformed");
     assert!(matches!(
         error,
-        RetainedIngressError::Rejected(ref rejected)
+        RetainedIngressAttempt::Rejected(ref rejected)
             if rejected.reason_for_foundation().is_malformed()
     ));
 }
@@ -110,6 +136,7 @@ fn uak_direct_ingress_seals_non_contextual_validation_without_retention() {
     let consensus = ConsensusBuilder::default().build();
     let transaction = ingress_tx(9);
     let expected = transaction.witness_hash();
+    let transaction = direct_input(transaction);
     let validated = direct(&transaction, &consensus, DirectCommand::TestAccept)
         .expect("a valid direct transaction acquires the computation capability");
     let (validated, command) = validated.into_parts();
@@ -119,12 +146,14 @@ fn uak_direct_ingress_seals_non_contextual_validation_without_retention() {
     let cellbase = TransactionBuilder::default()
         .input(CellInput::new_cellbase_input(0))
         .build();
+    let cellbase_witness_hash = cellbase.witness_hash();
+    let cellbase = direct_input(cellbase);
     let rejection = direct(&cellbase, &consensus, DirectCommand::Local)
         .expect_err("a malformed direct transaction cannot enter resolution");
     assert_eq!(rejection.command(), DirectCommand::Local);
     assert_eq!(
         rejection.transaction().witness_hash(),
-        cellbase.witness_hash()
+        cellbase_witness_hash
     );
     assert!(rejection.reason().is_malformed());
 }
@@ -137,7 +166,7 @@ fn uak_malformed_remote_precheck_commits_the_peer_fence_with_its_rejection() {
         .input(CellInput::new_cellbase_input(0))
         .build();
     let expected_hash = super::super::state::RawTxHash(cellbase.hash());
-    let RetainedIngressError::Rejected(rejection) =
+    let RetainedIngressAttempt::Rejected(rejection) =
         remote_at_for_foundation(cellbase, 0, peer, 0, &consensus)
             .expect_err("a loose cellbase transaction is malformed")
     else {
@@ -168,7 +197,7 @@ fn uak_nonmalformed_remote_precheck_rejects_without_banning_the_peer() {
     let peer = PeerIndex::from(25);
     let wrong_version = ingress_tx(6).as_advanced_builder().version(1u32).build();
     let expected_hash = super::super::state::RawTxHash(wrong_version.hash());
-    let RetainedIngressError::Rejected(rejection) =
+    let RetainedIngressAttempt::Rejected(rejection) =
         remote_at_for_foundation(wrong_version, 0, peer, 0, &consensus)
             .expect_err("the consensus transaction version is rejected")
     else {
@@ -374,7 +403,9 @@ fn uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact() {
 fn uak_repeated_proposal_ingress_is_a_mutation_free_observation() {
     let consensus = ConsensusBuilder::default().build();
     let transaction = ingress_tx(5);
-    let first = proposal(transaction.clone(), &consensus).expect("first Proposal ingress is valid");
+    let first = proposal(bounded(transaction.clone()), &consensus)
+        .into_validated_for_foundation()
+        .expect("first Proposal ingress is valid");
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let RetainedAdmissionDisposition::Retained(first) = authority
         .plan_retained_admission(first)
@@ -385,7 +416,9 @@ fn uak_repeated_proposal_ingress_is_a_mutation_free_observation() {
     drop(first.apply());
     let before = authority.normalized_snapshot();
 
-    let repeated = proposal(transaction, &consensus).expect("repeated Proposal ingress is valid");
+    let repeated = proposal(bounded(transaction), &consensus)
+        .into_validated_for_foundation()
+        .expect("repeated Proposal ingress is valid");
     assert!(matches!(
         authority
             .plan_retained_admission(repeated)
@@ -398,8 +431,12 @@ fn uak_repeated_proposal_ingress_is_a_mutation_free_observation() {
 #[test]
 fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("production authority runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("production authority runtime fixture is valid");
     let transaction = ingress_tx(7);
     assert_eq!(
         runtime
@@ -409,7 +446,7 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
     );
     assert_eq!(
         runtime
-            .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(27),)
+            .submit_remote_ingress(transaction, 0, PeerIndex::from(27),)
             .expect("duplicate Remote ingress commits its release"),
         RetainedIngressCommit::RemoteReleased
     );
@@ -442,8 +479,12 @@ fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
 #[test]
 fn uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("production authority runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("production authority runtime fixture is valid");
     let raw = ingress_tx(9);
     let recovery = raw
         .as_advanced_builder()
@@ -473,8 +514,12 @@ fn uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome() {
 #[test]
 fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("production authority runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("production authority runtime fixture is valid");
     let transaction = ingress_tx(10);
     let expected_hash = super::super::state::RawTxHash(transaction.hash());
     let peer = PeerIndex::from(30);
@@ -513,18 +558,6 @@ fn uak_remote_no_owner_pressure_commits_the_exact_filter_release_effect() {
 
 #[test]
 fn uak_retained_ingress_boundary_keeps_legal_pressure_out_of_fail_stop() {
-    assert_eq!(
-        RetainedIngressBoundaryError::from_admission_for_foundation(
-            AdmissionValidationError::ResourceAllocation,
-        ),
-        RetainedIngressBoundaryError::ResourceUnavailable
-    );
-    assert_eq!(
-        RetainedIngressBoundaryError::from_admission_for_foundation(
-            AdmissionValidationError::ResourceArithmetic,
-        ),
-        RetainedIngressBoundaryError::InvalidEvidence
-    );
     assert_eq!(
         RetainedIngressBoundaryError::from_plan(PlanError::Backpressure(
             Backpressure::PeerResources,

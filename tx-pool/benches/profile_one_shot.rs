@@ -1,3 +1,5 @@
+//! One-shot, fixed-workload tx-pool profiling harness.
+
 use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::{Handle, new_global_runtime};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
@@ -5,6 +7,7 @@ use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
+use ckb_proposal_table::ProposalView;
 use ckb_snapshot::Snapshot;
 use ckb_store::attach_block_cell;
 use ckb_system_scripts::BUNDLED_CELL;
@@ -24,10 +27,13 @@ use ckb_types::{
 };
 use ckb_verification::cache::init_cache;
 use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    collections::{HashSet, VecDeque},
     error::Error,
+    mem::MaybeUninit,
     sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -42,16 +48,414 @@ const SECP_PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396
 const SECP_ISSUE_CAPACITY: u64 = 10_000_000 * 100_000_000;
 const SECP_FEE: u64 = 1_000 * 100_000_000;
 
+struct CountingAllocator;
+
+#[global_allocator]
+static ALLOCATOR: CountingAllocator = CountingAllocator;
+static ALLOCATION_WINDOW_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
+static ALLOCATION_BYTES: AtomicU64 = AtomicU64::new(0);
+
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Relaxed) {
+            ALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
+            ALLOCATION_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+        }
+        // SAFETY: this allocator delegates every operation to the system allocator.
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        // SAFETY: `pointer` and `layout` are forwarded unchanged to their owner.
+        unsafe { System.dealloc(pointer, layout) }
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Relaxed) {
+            ALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
+            ALLOCATION_BYTES.fetch_add(size as u64, Ordering::Relaxed);
+        }
+        // SAFETY: the complete reallocation request is delegated unchanged.
+        unsafe { System.realloc(pointer, layout, size) }
+    }
+}
+
+fn begin_allocation_window() {
+    ALLOCATION_CALLS.store(0, Ordering::Relaxed);
+    ALLOCATION_BYTES.store(0, Ordering::Relaxed);
+    ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::Release);
+}
+
+fn end_allocation_window() -> (u64, u64) {
+    ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::Release);
+    (
+        ALLOCATION_CALLS.load(Ordering::Relaxed),
+        ALLOCATION_BYTES.load(Ordering::Relaxed),
+    )
+}
+
+#[cfg(unix)]
+fn process_cpu_nanos() -> Result<u64, Box<dyn Error>> {
+    let mut usage = MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: `getrusage` initializes the complete `rusage` value on success.
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: the successful call above initialized `usage`.
+    let usage = unsafe { usage.assume_init() };
+    let timeval_nanos = |value: libc::timeval| -> Result<u64, Box<dyn Error>> {
+        let seconds = u64::try_from(value.tv_sec)?;
+        let micros = u64::try_from(value.tv_usec)?;
+        if micros >= 1_000_000 {
+            return Err(std::io::Error::other("getrusage returned invalid microseconds").into());
+        }
+        Ok(seconds
+            .checked_mul(1_000_000_000)
+            .and_then(|nanos| nanos.checked_add(micros * 1_000))
+            .ok_or_else(|| std::io::Error::other("process CPU time overflow"))?)
+    };
+    Ok(timeval_nanos(usage.ru_utime)?
+        .checked_add(timeval_nanos(usage.ru_stime)?)
+        .ok_or_else(|| std::io::Error::other("process CPU time overflow"))?)
+}
+
+#[cfg(not(unix))]
+fn process_cpu_nanos() -> Result<u64, Box<dyn Error>> {
+    Err(std::io::Error::other("target-window process CPU measurement requires Unix").into())
+}
+
+#[cfg(feature = "profiling")]
+const PROFILE_SPAN_NAMES: [&str; 12] = [
+    "tx_pool.authority.read_hold",
+    "tx_pool.authority.read_wait",
+    "tx_pool.authority.upgradable_read_hold",
+    "tx_pool.authority.upgradable_read_wait",
+    "tx_pool.authority.upgrade_wait",
+    "tx_pool.authority.write_hold",
+    "tx_pool.authority.write_wait",
+    "tx_pool.effects.publish",
+    "tx_pool.stage.ready_attempt",
+    "tx_pool.stage.ready_work",
+    "tx_pool.stage.resolve",
+    "tx_pool.stage.verify",
+];
+
+#[cfg(feature = "profiling")]
+struct ProfileSpanCounters {
+    active: AtomicBool,
+    in_flight: AtomicUsize,
+    counts: [AtomicU64; PROFILE_SPAN_NAMES.len()],
+    elapsed_nanos: [AtomicU64; PROFILE_SPAN_NAMES.len()],
+    unknown: AtomicU64,
+}
+
+#[cfg(feature = "profiling")]
+impl ProfileSpanCounters {
+    fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            in_flight: AtomicUsize::new(0),
+            counts: std::array::from_fn(|_| AtomicU64::new(0)),
+            elapsed_nanos: std::array::from_fn(|_| AtomicU64::new(0)),
+            unknown: AtomicU64::new(0),
+        }
+    }
+
+    fn begin(&self) -> Result<(), String> {
+        if self.active.load(Ordering::Acquire) {
+            return Err("profile span counter window is already active".to_owned());
+        }
+        if self.in_flight.load(Ordering::Acquire) != 0 {
+            return Err("profile span counter retained an in-flight span".to_owned());
+        }
+        for count in &self.counts {
+            count.store(0, Ordering::Relaxed);
+        }
+        for elapsed in &self.elapsed_nanos {
+            elapsed.store(0, Ordering::Relaxed);
+        }
+        self.unknown.store(0, Ordering::Relaxed);
+        if self.active.swap(true, Ordering::AcqRel) {
+            return Err("profile span counter activation raced".to_owned());
+        }
+        Ok(())
+    }
+
+    fn start_span(&self, name: &str) -> Option<usize> {
+        if !self.active.load(Ordering::Acquire) {
+            return None;
+        }
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
+        if !self.active.load(Ordering::Acquire) {
+            self.in_flight.fetch_sub(1, Ordering::Release);
+            return None;
+        }
+        let index = PROFILE_SPAN_NAMES
+            .iter()
+            .position(|candidate| *candidate == name);
+        match index {
+            Some(index) => {
+                self.counts[index].fetch_add(1, Ordering::Relaxed);
+                Some(index)
+            }
+            None => {
+                self.unknown.fetch_add(1, Ordering::Relaxed);
+                self.in_flight.fetch_sub(1, Ordering::Release);
+                None
+            }
+        }
+    }
+
+    fn finish_span(&self, index: usize, elapsed_nanos: u64) {
+        self.elapsed_nanos[index].fetch_add(elapsed_nanos, Ordering::Relaxed);
+        self.in_flight.fetch_sub(1, Ordering::Release);
+    }
+
+    fn finish(
+        &self,
+    ) -> Result<
+        (
+            [u64; PROFILE_SPAN_NAMES.len()],
+            [u64; PROFILE_SPAN_NAMES.len()],
+        ),
+        String,
+    > {
+        if !self.active.swap(false, Ordering::AcqRel) {
+            return Err("profile span counter window is not active".to_owned());
+        }
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while self.in_flight.load(Ordering::Acquire) != 0 {
+            if Instant::now() >= deadline {
+                return Err("profile span lifetime did not quiesce".to_owned());
+            }
+            std::thread::yield_now();
+        }
+        let unknown = self.unknown.load(Ordering::Relaxed);
+        if unknown != 0 {
+            return Err(format!(
+                "profile subscriber observed {unknown} unregistered target spans"
+            ));
+        }
+        Ok((
+            std::array::from_fn(|index| self.counts[index].load(Ordering::Relaxed)),
+            std::array::from_fn(|index| self.elapsed_nanos[index].load(Ordering::Relaxed)),
+        ))
+    }
+}
+
+#[cfg(feature = "profiling")]
+struct ProfileSpanLayer {
+    counters: Arc<ProfileSpanCounters>,
+}
+
+#[cfg(feature = "profiling")]
+#[derive(Clone, Copy)]
+struct ProfileSpanTiming {
+    index: usize,
+    started: Instant,
+}
+
+#[cfg(feature = "profiling")]
+impl<S> tracing_subscriber::Layer<S> for ProfileSpanLayer
+where
+    S: tracing::Subscriber,
+    S: for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    fn on_new_span(
+        &self,
+        attributes: &tracing::span::Attributes<'_>,
+        id: &tracing::span::Id,
+        context: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        if let Some(index) = self.counters.start_span(attributes.metadata().name()) {
+            if let Some(span) = context.span(id) {
+                span.extensions_mut().insert(ProfileSpanTiming {
+                    index,
+                    started: Instant::now(),
+                });
+            } else {
+                self.counters.finish_span(index, 0);
+            }
+        }
+    }
+
+    fn on_close(&self, id: tracing::span::Id, context: tracing_subscriber::layer::Context<'_, S>) {
+        if let Some(span) = context.span(&id)
+            && let Some(timing) = span.extensions_mut().remove::<ProfileSpanTiming>()
+        {
+            self.counters.finish_span(
+                timing.index,
+                timing
+                    .started
+                    .elapsed()
+                    .as_nanos()
+                    .min(u128::from(u64::MAX)) as u64,
+            );
+        }
+    }
+}
+
+#[cfg(feature = "profiling")]
+struct ProfileSpanRecorder {
+    output: std::fs::File,
+    counters: Arc<ProfileSpanCounters>,
+}
+
+#[cfg(feature = "profiling")]
+impl ProfileSpanRecorder {
+    fn begin(&self) -> Result<(), String> {
+        self.counters.begin()
+    }
+
+    fn finish(&mut self, window: &serde_json::Value) -> Result<(), String> {
+        use std::io::Write;
+
+        let (counts, elapsed_nanos) = self.counters.finish()?;
+        let spans = PROFILE_SPAN_NAMES
+            .iter()
+            .zip(counts)
+            .zip(elapsed_nanos)
+            .map(|((name, start_count), elapsed_nanos)| {
+                serde_json::json!({
+                    "name": name,
+                    "start_count": start_count,
+                    "elapsed_nanos": elapsed_nanos,
+                })
+            })
+            .collect::<Vec<_>>();
+        let record = serde_json::json!({
+            "schema_version": 2,
+            "measurement": "span_lifetimes_started_during_target_work",
+            "window": window,
+            "spans": spans,
+        });
+        serde_json::to_writer(&mut self.output, &record)
+            .map_err(|error| format!("cannot encode profile span counters: {error}"))?;
+        self.output
+            .write_all(b"\n")
+            .and_then(|()| self.output.flush())
+            .map_err(|error| format!("cannot write profile span counters: {error}"))
+    }
+}
+
+#[cfg(feature = "profiling")]
+fn init_profile_span_recorder() -> Result<Option<ProfileSpanRecorder>, String> {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::filter::FilterFn;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let path = match std::env::var("TX_POOL_PROFILE_TRACE_PATH") {
+        Ok(path) => path,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err("TX_POOL_PROFILE_TRACE_PATH is not valid Unicode".to_owned());
+        }
+    };
+    let output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| format!("cannot create profile span counters {path}: {error}"))?;
+    let counters = Arc::new(ProfileSpanCounters::new());
+    let filter = FilterFn::new(|metadata| metadata.target() == "ckb_tx_pool_profile");
+    let layer = ProfileSpanLayer {
+        counters: Arc::clone(&counters),
+    }
+    .with_filter(filter);
+    tracing_subscriber::registry()
+        .with(layer)
+        .try_init()
+        .map_err(|error| format!("cannot install profile span subscriber: {error}"))?;
+    Ok(Some(ProfileSpanRecorder { output, counters }))
+}
+
 #[derive(Default)]
 struct Completion {
     accepted: AtomicUsize,
     changed: Notify,
+    callbacks_in_flight: AtomicUsize,
+    seen: Mutex<HashSet<ckb_types::packed::Byte32>>,
+    target_started: Mutex<Option<Instant>>,
+    target_latencies_ns: Mutex<Vec<u64>>,
 }
 
 impl Completion {
-    fn record(&self) {
+    fn begin_callback(&self) {
+        self.callbacks_in_flight.fetch_add(1, Ordering::AcqRel);
+        self.changed.notify_one();
+    }
+
+    fn finish_callback(&self, hash: ckb_types::packed::Byte32) {
+        self.record(hash);
+        self.callbacks_in_flight.fetch_sub(1, Ordering::Release);
+        self.changed.notify_one();
+    }
+
+    fn record(&self, hash: ckb_types::packed::Byte32) {
+        if !self
+            .seen
+            .lock()
+            .expect("completion set poisoned")
+            .insert(hash)
+        {
+            return;
+        }
+        if let Some(started) = *self.target_started.lock().expect("latency clock poisoned") {
+            self.target_latencies_ns
+                .lock()
+                .expect("latency samples poisoned")
+                .push(started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64);
+        }
         self.accepted.fetch_add(1, Ordering::Release);
         self.changed.notify_one();
+    }
+
+    fn begin_target(&self, started: Instant) {
+        self.target_latencies_ns
+            .lock()
+            .expect("latency samples poisoned")
+            .clear();
+        *self.target_started.lock().expect("latency clock poisoned") = Some(started);
+    }
+
+    async fn wait_for_callback_in_flight(&self) -> Result<usize, Box<dyn Error>> {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let count = self.callbacks_in_flight.load(Ordering::Acquire);
+                if count != 0 {
+                    break count;
+                }
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .map_err(|_| std::io::Error::other("target callback did not overlap reorg"))
+        .map_err(Into::into)
+    }
+
+    fn end_target(&self, expected: usize) -> Result<u64, Box<dyn Error>> {
+        *self.target_started.lock().expect("latency clock poisoned") = None;
+        let mut samples = self
+            .target_latencies_ns
+            .lock()
+            .expect("latency samples poisoned")
+            .clone();
+        if samples.len() != expected {
+            return Err(std::io::Error::other(format!(
+                "target latency sample count differs: observed={}, expected={expected}",
+                samples.len()
+            ))
+            .into());
+        }
+        samples.sort_unstable();
+        let index = samples
+            .len()
+            .saturating_mul(99)
+            .div_ceil(100)
+            .saturating_sub(1);
+        Ok(samples[index])
     }
 
     async fn wait_for(&self, target: usize) -> Result<(), Box<dyn Error>> {
@@ -179,6 +583,21 @@ fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>
         consensus,
     ));
     (store, snapshot)
+}
+
+fn snapshot_with_proposed(
+    base: &Snapshot,
+    store: &MockStore,
+    proposals: impl IntoIterator<Item = ckb_types::packed::ProposalShortId>,
+) -> Arc<Snapshot> {
+    Arc::new(Snapshot::new(
+        base.tip_header().clone(),
+        base.total_difficulty().clone(),
+        base.epoch_ext().clone(),
+        store.store().get_snapshot(),
+        ProposalView::new(HashSet::new(), proposals),
+        base.cloned_consensus(),
+    ))
 }
 
 fn start_network(
@@ -366,7 +785,11 @@ fn build_workload(
     scenario: &str,
     transaction_count: usize,
 ) -> Result<(Consensus, Vec<TransactionView>), Box<dyn Error>> {
-    if let Some(depth) = scenario.strip_prefix("dependent_forest_") {
+    if let Some(depth_spec) = scenario.strip_prefix("dependent_forest_") {
+        let (depth, reverse) = match depth_spec.strip_suffix("_reverse") {
+            Some(depth) => (depth, true),
+            None => (depth_spec, false),
+        };
         let depth: usize = depth.parse()?;
         if depth == 0 {
             return Err(std::io::Error::other("dependency depth must be non-zero").into());
@@ -386,6 +809,9 @@ fn build_workload(
                 input = OutPoint::new(transaction.hash(), 0);
                 transactions.push(transaction);
             }
+        }
+        if reverse {
+            transactions.reverse();
         }
         return Ok((consensus, transactions));
     }
@@ -572,8 +998,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .strip_prefix("always_success_callback_")
         .and_then(|value| value.strip_suffix("us"))
         .map(str::parse::<u64>)
-        .transpose()?;
-    let workload_scenario = if callback_delay_us.is_some() {
+        .transpose()?
+        .or_else(|| (scenario == "reorg_in_flight").then_some(500));
+    let reorg_in_flight = scenario == "reorg_in_flight";
+    let workload_scenario = if callback_delay_us.is_some() || reorg_in_flight {
         "always_success"
     } else {
         scenario.as_str()
@@ -586,7 +1014,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (handle, _handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
     let (consensus, transactions) = build_workload(workload_scenario, target_count + warm_count)?;
     let consensus = Arc::new(consensus);
-    let (_store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
+    let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
     let (_network_directory, network) = start_network(&consensus, &handle)?;
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
     let (mut builder, controller, _relay_guard) = {
@@ -616,17 +1044,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         (builder, controller, relay_receiver)
     };
     let completion = Arc::new(Completion::default());
-    let callback_completion = Arc::clone(&completion);
-    builder.register_pending(Box::new(move |_| {
+    let pending_completion = Arc::clone(&completion);
+    builder.register_pending(Box::new(move |entry| {
+        pending_completion.begin_callback();
         if let Some(delay) = callback_delay_us {
             std::thread::sleep(Duration::from_micros(delay));
         }
-        callback_completion.record();
+        pending_completion.finish_callback(entry.transaction().hash());
+    }));
+    let proposed_completion = Arc::clone(&completion);
+    builder.register_proposed(Box::new(move |entry| {
+        proposed_completion.begin_callback();
+        if let Some(delay) = callback_delay_us {
+            std::thread::sleep(Duration::from_micros(delay));
+        }
+        proposed_completion.finish_callback(entry.transaction().hash());
     }));
     builder.start(network);
     controller
         .get_tx_pool_info()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
+
+    #[cfg(feature = "profiling")]
+    let mut span_recorder = init_profile_span_recorder().map_err(std::io::Error::other)?;
 
     let sample_cycles = |transaction: &TransactionView| {
         controller
@@ -657,8 +1097,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let dependency_depth = workload_scenario
         .strip_prefix("dependent_forest_")
+        .filter(|depth| !depth.ends_with("_reverse"))
         .map(str::parse::<usize>)
         .transpose()?;
+    let reorg_snapshot = reorg_in_flight.then(|| {
+        snapshot_with_proposed(
+            &snapshot,
+            &store,
+            target.iter().map(TransactionView::proposal_short_id),
+        )
+    });
     if let Some(depth) = dependency_depth {
         runtime.block_on(submit_dependency_forest(
             &controller,
@@ -681,7 +1129,43 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let profile_started_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let started = Instant::now();
-    if let Some(depth) = dependency_depth {
+    completion.begin_target(started);
+    begin_allocation_window();
+    let target_cpu_started = process_cpu_nanos()?;
+    #[cfg(feature = "profiling")]
+    if let Some(recorder) = span_recorder.as_ref() {
+        recorder.begin().map_err(std::io::Error::other)?;
+    }
+    let (reorg_latency_ns, reorg_overlap_callbacks) = if reorg_in_flight {
+        let reorg_snapshot = reorg_snapshot
+            .ok_or_else(|| std::io::Error::other("reorg scenario has no proposed snapshot"))?;
+        runtime.block_on(async {
+            let submission = submit_batch(
+                &controller,
+                &completion,
+                Arc::clone(&target),
+                Arc::clone(&target_cycles),
+                peers,
+                warm_count + target_count,
+            );
+            let reorg = async {
+                let overlap = completion.wait_for_callback_in_flight().await?;
+                let started = Instant::now();
+                controller
+                    .update_tx_pool_for_reorg(
+                        VecDeque::new(),
+                        VecDeque::new(),
+                        HashSet::new(),
+                        reorg_snapshot,
+                    )
+                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+                Ok::<(u128, usize), Box<dyn Error>>((started.elapsed().as_nanos(), overlap))
+            };
+            let (submission_result, reorg_result) = tokio::join!(submission, reorg);
+            submission_result?;
+            reorg_result
+        })?
+    } else if let Some(depth) = dependency_depth {
         runtime.block_on(submit_dependency_forest(
             &controller,
             &completion,
@@ -691,21 +1175,64 @@ fn main() -> Result<(), Box<dyn Error>> {
             peers,
             warm_count,
         ))?;
+        (0, 0)
     } else {
         runtime.block_on(submit_batch(
             &controller,
             &completion,
-            target,
-            target_cycles,
+            Arc::clone(&target),
+            Arc::clone(&target_cycles),
             peers,
             warm_count + target_count,
         ))?;
-    }
+        (0, 0)
+    };
     let elapsed = started.elapsed();
+    let target_cpu_ns = process_cpu_nanos()?
+        .checked_sub(target_cpu_started)
+        .ok_or_else(|| std::io::Error::other("target-window process CPU clock moved backwards"))?;
+    let (allocation_calls, allocated_bytes) = end_allocation_window();
+    let p99_latency_ns = completion.end_target(target_count)?;
     let profile_ended_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    #[cfg(feature = "profiling")]
+    if let Some(recorder) = span_recorder.as_mut() {
+        let window = serde_json::json!({
+            "schema_version": 1,
+            "scenario": scenario,
+            "start_unix_nanos": profile_started_unix_ns,
+            "end_unix_nanos": profile_ended_unix_ns,
+            "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
+        });
+        recorder.finish(&window).map_err(std::io::Error::other)?;
+    }
+    let reorg_latency_ns = if reorg_in_flight {
+        reorg_latency_ns
+    } else {
+        let reorg_started = Instant::now();
+        controller
+            .update_tx_pool_for_reorg(
+                VecDeque::new(),
+                VecDeque::new(),
+                HashSet::new(),
+                Arc::clone(&snapshot),
+            )
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        reorg_started.elapsed().as_nanos()
+    };
+    let shutdown_started = Instant::now();
+    controller.stop();
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while controller.service_started() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+    })?;
+    let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     let throughput = target_count as f64 / elapsed.as_secs_f64();
     println!(
-        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={}",
+        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
         elapsed.as_nanos(),
         completion.accepted.load(Ordering::Acquire)
     );

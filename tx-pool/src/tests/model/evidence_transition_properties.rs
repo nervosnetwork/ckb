@@ -4,23 +4,23 @@ use super::{
         ModelAcceptedPoolOutput, ModelAdmissionReceipt, ModelCellLocation, ModelDependencyLevel,
         ModelDependencyMaintenanceAction, ModelDependencyMaintenanceError,
         ModelDependencyMaintenanceLocation, ModelDependencyMaintenanceOwner,
-        ModelDependencyMaintenanceScope, ModelDependencyMaintenanceTicket,
-        ModelDirectRejectionObservation, ModelDirectRejectionValidity, ModelEvidenceFrontier,
+        ModelDependencyMaintenanceScope, ModelDependencyMaintenanceTicket, ModelEvidenceFrontier,
         ModelEvidenceIdentity, ModelEvidenceProof, ModelEvidenceValidation, ModelEvidenceView,
-        ModelFinalAdmissionSubject, ModelKnownDependencies, ModelMissingDisposition,
-        ModelMissingFact, ModelPoolParent, ModelPreAcceptedMaintenancePhase,
-        ModelPreAcceptedSource, ModelRawTransaction, ModelReadyOwner, ModelReadyPayloadRelation,
-        ModelReleasedInputContext, ModelReleasedInputCut, ModelReleasedInputDisposition,
-        ModelReplacementReference, ModelSubjectValidation, ModelUnindexedDependencyLevel,
-        dependency_maintenance_action, missing_resolution_disposition, released_input_disposition,
-        replacement_history_trigger, validate_direct_acceptance, validate_direct_rejection,
-        validate_final_acceptance, validate_final_subject, validated_location_transition,
+        ModelFinalAdmissionSubject, ModelKnownDependencies, ModelLocationDependentMetrics,
+        ModelMissingDisposition, ModelMissingFact, ModelPoolParent,
+        ModelPreAcceptedMaintenancePhase, ModelPreAcceptedSource, ModelRawTransaction,
+        ModelReadyOwner, ModelReadyPayloadRelation, ModelReleasedInputContext,
+        ModelReleasedInputCut, ModelReleasedInputDisposition, ModelReplacementReference,
+        ModelSubjectValidation, ModelUnindexedDependencyLevel, dependency_maintenance_action,
+        location_refresh_observation, missing_resolution_disposition, released_input_disposition,
+        replacement_history_trigger, validate_direct_acceptance, validate_final_acceptance,
+        validate_final_subject, validated_location_transition,
     },
 };
 use std::collections::{BTreeMap, BTreeSet};
 
 fn key(value: u8) -> ModelDependencyKey {
-    ModelDependencyKey(value)
+    ModelDependencyKey::cell(value)
 }
 
 fn dependencies(values: &[u8]) -> ModelKnownDependencies {
@@ -44,7 +44,7 @@ fn frontier(
     ModelEvidenceFrontier::new(
         levels
             .iter()
-            .map(|(key, level)| (ModelDependencyKey(*key), *level)),
+            .map(|(key, level)| (ModelDependencyKey::cell(*key), *level)),
         unindexed,
     )
     .expect("the dependency level keys are unique")
@@ -384,7 +384,7 @@ fn model_acceptance_receipt_requires_chain_key_identity_proof_view_and_dependenc
 }
 
 #[test]
-fn model_final_subject_and_direct_rejection_have_closed_currentness_outcomes() {
+fn model_final_subject_has_closed_currentness_outcomes() {
     let current = frontier(&[(1, level(1, None))], unindexed(Some(1), None));
     let owner = ModelReadyOwner {
         version: 4,
@@ -426,32 +426,6 @@ fn model_final_subject_and_direct_rejection_have_closed_currentness_outcomes() {
         validate_final_subject(ModelEvidenceView(1), &not_ready, &current, subject),
         ModelSubjectValidation::StalePhase
     );
-
-    assert_eq!(
-        validate_direct_rejection(
-            ModelEvidenceView(1),
-            7,
-            ModelDirectRejectionValidity::Stable,
-        ),
-        ModelDirectRejectionObservation::Current
-    );
-    for (view, source, expected) in [
-        (1, 7, ModelDirectRejectionObservation::Current),
-        (2, 7, ModelDirectRejectionObservation::StaleChain),
-        (1, 8, ModelDirectRejectionObservation::StaleSource),
-    ] {
-        assert_eq!(
-            validate_direct_rejection(
-                ModelEvidenceView(1),
-                7,
-                ModelDirectRejectionValidity::AcceptedCut {
-                    view: ModelEvidenceView(view),
-                    accepted_source: source,
-                },
-            ),
-            expected
-        );
-    }
 }
 
 #[test]
@@ -635,4 +609,43 @@ fn model_final_location_refresh_updates_payload_and_context_atomically() {
             );
         }
     }
+}
+
+#[test]
+fn model_location_refresh_atomically_reseals_all_location_dependent_metrics() {
+    let previous = ModelLocationDependentMetrics {
+        fee: 17,
+        accepted_resident_bytes: 131,
+    };
+    let recomputed = ModelLocationDependentMetrics {
+        fee: 19,
+        accepted_resident_bytes: 99,
+    };
+    let observation = location_refresh_observation(
+        ModelCellLocation::Chain(1),
+        ModelCellLocation::Pool,
+        previous,
+        recomputed,
+        recomputed,
+    );
+    assert_eq!(
+        observation.transition.relation,
+        ModelReadyPayloadRelation::LocationRefreshed
+    );
+    assert_eq!(observation.previous_metrics, previous);
+    assert_eq!(observation.committed_metrics, recomputed);
+    assert_eq!(observation.recomputed_metrics, recomputed);
+    assert!(observation.is_atomically_resealed());
+    assert_ne!(
+        observation.previous_metrics, observation.committed_metrics,
+        "the fixture must distinguish the old and refreshed producer cuts"
+    );
+    let stale = location_refresh_observation(
+        ModelCellLocation::Chain(1),
+        ModelCellLocation::Pool,
+        previous,
+        previous,
+        recomputed,
+    );
+    assert!(!stale.is_atomically_resealed());
 }

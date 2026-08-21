@@ -61,9 +61,7 @@ fn uak_remote_expiry_removes_exactly_the_effect_bounded_due_prefix() {
         .expect("the selected prefix publishes one exact effect batch");
     assert_eq!(
         receipt.effects(),
-        &[CommittedEffect::RemoteExpired {
-            tx_hash: first.clone(),
-        }]
+        &[CommittedEffect::RemoteExpired { tx_hash: first }]
     );
     assert!(authority.primary_projection_consistent());
 }

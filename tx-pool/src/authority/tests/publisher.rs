@@ -315,7 +315,7 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     let revocation = CommittedPeerCohortRevocation::malformed_for_foundation(
         peer,
         RawTxHash(candidate.hash()),
-        culprit_reason.clone(),
+        culprit_reason,
     )
     .expect("malformed evidence constructs peer-ban detail");
     let cleanup = compile_committed_effect(CommittedEffect::PeerCohortRevoked(revocation));
@@ -363,7 +363,7 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
     let second_parent = RawTxHash(Byte32::new([2; 32]));
     let request = ParentTransactionRequest::new(
         peer,
-        Arc::from([first_parent.clone(), second_parent.clone()]),
+        Arc::new(vec![first_parent.clone(), second_parent.clone()]),
     )
     .expect("a non-empty parent request is valid");
     let parents = compile_committed_effect(CommittedEffect::ParentTransactionsRequested(request));
@@ -376,10 +376,7 @@ fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() 
             parents,
         } => {
             assert_eq!(actual_peer, peer);
-            assert_eq!(
-                parents,
-                HashSet::from([first_parent.0.clone(), second_parent.0.clone()])
-            );
+            assert_eq!(parents, HashSet::from([first_parent.0, second_parent.0]));
         }
         other => panic!("unexpected missing-parent result: {other:?}"),
     }
@@ -491,8 +488,12 @@ fn uak_relay_disconnect_opens_a_stable_external_circuit() {
 #[tokio::test]
 async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     runtime
         .queue_effect_for_foundation(
             EffectPolicy::Remote,
@@ -520,8 +521,12 @@ async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head()
 #[test]
 fn uak_effect_publisher_claim_is_move_only_and_exclusive() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     let first = runtime
         .claim_effect_publisher()
         .expect("the first publisher owns the sole claim");
@@ -533,8 +538,12 @@ fn uak_effect_publisher_claim_is_move_only_and_exclusive() {
 #[tokio::test]
 async fn uak_cancelled_publisher_settles_its_tentative_cursor_to_the_fifo_head() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     let victim = entry(4_300);
     let expected = victim.tx.hash();
     runtime
@@ -631,8 +640,12 @@ async fn uak_cancelled_publisher_settles_its_tentative_cursor_to_the_fifo_head()
 #[tokio::test]
 async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     let first = RawTxHash(Byte32::new([10; 32]));
     let second = RawTxHash(Byte32::new([11; 32]));
     runtime
@@ -709,8 +722,12 @@ async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
 #[tokio::test]
 async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor() {
     let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&runtime_config(), snapshot.consensus(), snapshot.clone())
-        .expect("the production runtime fixture is valid");
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
     let victim = entry(4_303);
     let expected_hash = victim.tx.hash();
     runtime

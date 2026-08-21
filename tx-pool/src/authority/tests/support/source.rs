@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::authority) fn replacement_changes_accepted_source_for_foundation(
+pub(in crate::authority) fn replacement_changes_both_template_sources_for_foundation(
     before: &OwnedTx,
     after: &OwnedTx,
 ) -> bool {

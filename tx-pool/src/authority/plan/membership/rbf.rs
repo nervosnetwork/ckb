@@ -4,24 +4,29 @@ use crate::authority::{
     state::{AcceptedEntry, OwnedTx, RawTxHash},
 };
 use ckb_types::core::Capacity;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 pub(super) fn replacement_removals(
     authority: &TxPoolAuthority,
     candidate: &AcceptedEntry,
 ) -> Result<Vec<RawTxHash>, PlanError> {
     let footprint = &candidate.proof.payload().footprint;
-    let mut direct = BTreeSet::new();
+    let mut direct = Vec::new();
+    direct
+        .try_reserve_exact(footprint.inputs().len())
+        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
     let mut first_conflict = None;
     for input in footprint.inputs() {
         if let Some(spender) = authority.membership.spender(input) {
-            direct.insert(spender.clone());
+            direct.push(spender.clone());
             first_conflict.get_or_insert_with(|| input.clone());
         }
     }
     if direct.is_empty() {
         return Ok(Vec::new());
     }
+    direct.sort_unstable();
+    direct.dedup();
 
     let minimum_rate = match authority.membership_config.replacement {
         ReplacementPolicy::Disabled => {
@@ -53,7 +58,7 @@ pub(super) fn replacement_removals(
 fn validate_no_new_unconfirmed_inputs(
     authority: &TxPoolAuthority,
     candidate: &AcceptedEntry,
-    direct: &BTreeSet<RawTxHash>,
+    direct: &[RawTxHash],
 ) -> Result<(), PlanError> {
     let mut replaced_inputs = HashSet::new();
     let input_capacity = direct.iter().try_fold(0usize, |total, hash| {
@@ -88,7 +93,7 @@ fn validate_no_new_unconfirmed_inputs(
 fn validate_descendant_overlap(
     authority: &TxPoolAuthority,
     candidate: &AcceptedEntry,
-    direct: &BTreeSet<RawTxHash>,
+    direct: &[RawTxHash],
     removal_set: &HashSet<RawTxHash>,
 ) -> Result<(), PlanError> {
     let mut descendants = HashSet::new();
@@ -98,7 +103,7 @@ fn validate_descendant_overlap(
     descendants.extend(
         removal_set
             .iter()
-            .filter(|hash| !direct.contains(*hash))
+            .filter(|hash| direct.binary_search(hash).is_err())
             .cloned(),
     );
     for input in candidate.proof.payload().footprint.inputs() {

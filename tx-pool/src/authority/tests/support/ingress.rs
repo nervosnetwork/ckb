@@ -1,5 +1,11 @@
 use super::*;
 
+impl RemoteCycleLimit {
+    pub(in crate::authority) const fn for_foundation(declared: Cycle) -> Self {
+        Self(declared)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum RetainedIngressCommit {
     Retained,
@@ -25,14 +31,17 @@ impl RetainedIngress {
     }
 }
 
-impl RetainedIngressBoundaryError {
-    pub(in crate::authority) fn from_admission_for_foundation(
-        error: AdmissionValidationError,
-    ) -> Self {
-        match error {
-            AdmissionValidationError::ResourceAllocation => Self::ResourceUnavailable,
-            AdmissionValidationError::EmptyTransaction
-            | AdmissionValidationError::ResourceArithmetic => Self::InvalidEvidence,
+impl RetainedIngressAttempt {
+    #[expect(
+        clippy::result_large_err,
+        reason = "the test projection preserves the exact production attempt without a fixture-only boxed representation"
+    )]
+    pub(in crate::authority) fn into_validated_for_foundation(
+        self,
+    ) -> Result<RetainedIngress, Self> {
+        match self {
+            Self::Validated(ingress) => Ok(ingress),
+            other => Err(other),
         }
     }
 }
@@ -43,12 +52,18 @@ impl RetainedIngressRejection {
     }
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "the test boundary preserves the exact production attempt without a fixture-only boxed representation"
+)]
 pub(in crate::authority) fn remote_at_for_foundation(
     tx: TransactionView,
     declared_cycles: Cycle,
     peer: PeerIndex,
     admitted_at_secs: u64,
     consensus: &Consensus,
-) -> Result<RetainedIngress, RetainedIngressError> {
+) -> Result<RetainedIngress, RetainedIngressAttempt> {
+    let tx = BoundedTransaction::try_new(tx).expect("foundation transaction is bounded");
     remote_at(tx, declared_cycles, peer, admitted_at_secs, consensus)
+        .into_validated_for_foundation()
 }

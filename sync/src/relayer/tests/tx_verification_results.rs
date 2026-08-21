@@ -22,7 +22,8 @@ fn committed_tx_result_is_consumed_without_relay_peers() {
     assert!(accepted.is_ok());
 
     let mock = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
-    let nc: Arc<dyn ckb_network::CKBProtocolContext + Sync> = mock.clone();
+    let mock_handle = Arc::clone(&mock);
+    let nc: Arc<dyn ckb_network::CKBProtocolContext + Sync> = mock_handle;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

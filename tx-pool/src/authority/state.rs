@@ -1,6 +1,6 @@
 use super::chain::{
-    AcceptedProof, CellContentReceipt, CellLocationReceipt, ProposalContextReceipt, ScriptReceipt,
-    TimeContextReceipt, VerificationContextReceipt,
+    AcceptedProof, CellContentReceipt, CellLocationReceipt, CellLocationReceiptError,
+    ProposalContextReceipt, ScriptReceipt, TimeContextReceipt, VerificationContextReceipt,
 };
 use super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeGrant, ReplacementHistoryCharge,
@@ -149,7 +149,7 @@ pub(super) struct RecoveryLease {
 /// the current owner instead of consulting mutable source state mid-verify.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PayloadPolicy {
-    RemoteDeclaredCycles(ckb_types::core::Cycle),
+    RemoteDeclaredCycles(super::ingress::RemoteCycleLimit),
     Trusted,
 }
 
@@ -167,7 +167,7 @@ impl PayloadPolicy {
     pub(super) const fn evolution_to(self, current: Self) -> PayloadPolicyEvolution {
         match (self, current) {
             (Self::RemoteDeclaredCycles(active), Self::RemoteDeclaredCycles(current))
-                if active == current =>
+                if active.declared() == current.declared() =>
             {
                 PayloadPolicyEvolution::Unchanged
             }
@@ -177,6 +177,28 @@ impl PayloadPolicy {
             }
             (Self::RemoteDeclaredCycles(_), Self::RemoteDeclaredCycles(_))
             | (Self::Trusted, Self::RemoteDeclaredCycles(_)) => PayloadPolicyEvolution::Invalid,
+        }
+    }
+
+    /// Exact resolution-time verifier lane. Trusted work never inherits a
+    /// peer-declared cost, while Remote work enters the large lane iff its
+    /// declaration is strictly above the configured small-worker threshold.
+    pub(super) const fn verify_cycle_class(
+        self,
+        large_cycle_threshold: ckb_types::core::Cycle,
+    ) -> VerifyCycleClass {
+        match self {
+            Self::RemoteDeclaredCycles(limit) if limit.declared() > large_cycle_threshold => {
+                VerifyCycleClass::Large
+            }
+            Self::RemoteDeclaredCycles(_) | Self::Trusted => VerifyCycleClass::Small,
+        }
+    }
+
+    pub(super) const fn declared_cycles(self) -> Option<ckb_types::core::Cycle> {
+        match self {
+            Self::RemoteDeclaredCycles(limit) => Some(limit.declared()),
+            Self::Trusted => None,
         }
     }
 }
@@ -190,11 +212,11 @@ pub(super) struct RemoteBase {
 impl RemoteBase {
     pub(super) const fn ingress(
         residency: RemoteResidencyLease,
-        declared_cycles: ckb_types::core::Cycle,
+        declared_limit: super::ingress::RemoteCycleLimit,
     ) -> Self {
         Self {
             residency,
-            payload_policy: PayloadPolicy::RemoteDeclaredCycles(declared_cycles),
+            payload_policy: PayloadPolicy::RemoteDeclaredCycles(declared_limit),
         }
     }
 
@@ -341,7 +363,7 @@ impl DependencyKey {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct KnownDependencies(Arc<[DependencyKey]>);
+pub(super) struct KnownDependencies(Arc<Vec<DependencyKey>>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DependencySetError {
@@ -358,7 +380,7 @@ impl KnownDependencies {
         if keys.len() > max {
             return Err(DependencySetError::TooMany);
         }
-        Ok(Self(keys.into()))
+        Ok(Self(Arc::new(keys)))
     }
 
     fn canonicalize_nonempty(
@@ -390,6 +412,24 @@ impl KnownDependencies {
         );
         keys.extend(tx.header_deps().into_iter().map(DependencyKey::Header));
         Self::canonicalize(keys, capacity)
+    }
+
+    fn from_bounded_transaction(
+        tx: &TransactionView,
+        encoded_edges: usize,
+    ) -> Result<Self, std::collections::TryReserveError> {
+        let mut keys = Vec::new();
+        keys.try_reserve_exact(encoded_edges)?;
+        keys.extend(tx.input_pts_iter().map(DependencyKey::Cell));
+        keys.extend(
+            tx.cell_deps()
+                .into_iter()
+                .map(|dependency| DependencyKey::Cell(dependency.out_point())),
+        );
+        keys.extend(tx.header_deps().into_iter().map(DependencyKey::Header));
+        keys.sort_unstable();
+        keys.dedup();
+        Ok(Self(Arc::new(keys)))
     }
 
     pub(super) fn from_footprint(
@@ -435,7 +475,7 @@ impl KnownDependencies {
     }
 
     pub(super) fn keys(&self) -> &[DependencyKey] {
-        self.0.as_ref()
+        self.0.as_slice()
     }
 
     pub(super) fn len(&self) -> usize {
@@ -466,14 +506,14 @@ impl MissingDependencies {
         self.0.len()
     }
 
-    pub(super) fn parent_transactions(&self) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+    pub(super) fn parent_transactions(&self) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
         parent_transactions(&self.0)
     }
 }
 
 fn parent_transactions(
     dependencies: &KnownDependencies,
-) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
     let mut parents = Vec::new();
     parents
         .try_reserve(dependencies.len())
@@ -487,10 +527,10 @@ fn parent_transactions(
             parents.push(parent);
         }
     }
-    Ok(parents.into())
+    Ok(Arc::new(parents))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct ExpandedFootprint {
     inputs: Vec<OutPoint>,
     dependencies: Vec<OutPoint>,
@@ -502,6 +542,7 @@ pub(super) struct ExpandedFootprint {
 pub(super) enum FootprintError {
     DuplicateInput,
     TooManyEdges,
+    Allocation,
     Arithmetic,
 }
 
@@ -511,7 +552,11 @@ impl ExpandedFootprint {
         mut expanded_dependencies: Vec<OutPoint>,
         max_edges: usize,
     ) -> Result<Self, FootprintError> {
-        let mut inputs = tx.input_pts_iter().collect::<Vec<_>>();
+        let mut inputs = Vec::new();
+        inputs
+            .try_reserve_exact(tx.inputs().len())
+            .map_err(|_| FootprintError::Allocation)?;
+        inputs.extend(tx.input_pts_iter());
         let input_count = inputs.len();
         inputs.sort_unstable();
         inputs.dedup();
@@ -519,6 +564,9 @@ impl ExpandedFootprint {
             return Err(FootprintError::DuplicateInput);
         }
 
+        expanded_dependencies
+            .try_reserve(tx.cell_deps().len())
+            .map_err(|_| FootprintError::Allocation)?;
         expanded_dependencies.extend(
             tx.cell_deps()
                 .into_iter()
@@ -527,7 +575,12 @@ impl ExpandedFootprint {
         expanded_dependencies.sort_unstable();
         expanded_dependencies.dedup();
         expanded_dependencies.retain(|dependency| inputs.binary_search(dependency).is_err());
-        let mut header_dependencies = tx.header_deps().into_iter().collect::<Vec<_>>();
+        let headers = tx.header_deps();
+        let mut header_dependencies = Vec::new();
+        header_dependencies
+            .try_reserve_exact(headers.len())
+            .map_err(|_| FootprintError::Allocation)?;
+        header_dependencies.extend(headers);
         header_dependencies.sort_unstable();
         header_dependencies.dedup();
         let edge_count = inputs
@@ -578,7 +631,7 @@ pub(super) struct ResolvedPayload {
     /// metadata with a different transaction.
     resolved: Arc<ResolvedTransaction>,
     identity: TxIdentity,
-    pub(super) footprint: ExpandedFootprint,
+    pub(super) footprint: Arc<ExpandedFootprint>,
     dependencies: KnownDependencies,
     fee: Capacity,
     serialized_bytes: usize,
@@ -615,7 +668,8 @@ impl InputEvidenceError {
             | Self::DependencySet(DependencySetError::TooMany) => {
                 InputEvidenceDisposition::ResourceDenied
             }
-            Self::DependencySet(DependencySetError::Allocation) => {
+            Self::Footprint(FootprintError::Allocation)
+            | Self::DependencySet(DependencySetError::Allocation) => {
                 InputEvidenceDisposition::ResourceUnavailable
             }
             Self::Footprint(FootprintError::Arithmetic)
@@ -685,8 +739,10 @@ impl ResolvedPayload {
             .try_reserve(dependency_capacity)
             .map_err(|_| InputEvidenceError::DependencySet(DependencySetError::Allocation))?;
         expanded_dependencies.extend(resolved.related_dep_out_points().cloned());
-        let footprint = ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
-            .map_err(InputEvidenceError::Footprint)?;
+        let footprint = Arc::new(
+            ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
+                .map_err(InputEvidenceError::Footprint)?,
+        );
         let dependencies = KnownDependencies::from_footprint(&footprint, max_edges)
             .map_err(InputEvidenceError::DependencySet)?;
         let payload_bytes = tx.data().total_size();
@@ -720,6 +776,10 @@ impl ResolvedPayload {
 
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         &self.dependencies
+    }
+
+    pub(super) fn footprint(&self) -> &Arc<ExpandedFootprint> {
+        &self.footprint
     }
 
     pub(super) fn fee(&self) -> Capacity {
@@ -759,7 +819,13 @@ impl ResolvedPayload {
     fn compact_verified(payload: Arc<Self>) -> (Arc<Self>, usize) {
         let mut payload = match Arc::try_unwrap(payload) {
             Ok(payload) => payload,
-            Err(shared) => (*shared).clone(),
+            Err(shared) => {
+                let accepted_resident_bytes = accepted_transaction_charge_bytes(
+                    shared.serialized_bytes,
+                    shared.resolved_transaction(),
+                );
+                return (shared, accepted_resident_bytes);
+            }
         };
         payload.resolved = super::residency::compact_after_verification(payload.resolved);
         payload.resolved_resident_bytes = resolved_transaction_charge_bytes(
@@ -781,15 +847,18 @@ impl ResolvedPayload {
         &self,
         _seal: super::validation::LocationRefreshSeal,
         resolved: Arc<ResolvedTransaction>,
+        fee: Capacity,
     ) -> Self {
+        let resolved_resident_bytes =
+            resolved_transaction_charge_bytes(self.serialized_bytes, &resolved);
         Self {
             resolved,
             identity: self.identity.clone(),
-            footprint: self.footprint.clone(),
+            footprint: Arc::clone(&self.footprint),
             dependencies: self.dependencies.clone(),
-            fee: self.fee,
+            fee,
             serialized_bytes: self.serialized_bytes,
-            resolved_resident_bytes: self.resolved_resident_bytes,
+            resolved_resident_bytes,
         }
     }
 }
@@ -820,14 +889,14 @@ impl ResolvedFacts {
         dependency_cut: DependencyCut,
         payload: Arc<ResolvedPayload>,
         verify_class: VerifyCycleClass,
-    ) -> Self {
-        let location = CellLocationReceipt::from_resolution(chain_view, &payload);
-        Self {
+    ) -> Result<Self, CellLocationReceiptError> {
+        let location = CellLocationReceipt::from_resolution(chain_view, &payload)?;
+        Ok(Self {
             dependency_cut,
             content: CellContentReceipt::from_resolution(payload),
             location,
             verify_class,
-        }
+        })
     }
 
     pub(super) fn chain_view(&self) -> &ChainViewId {
@@ -999,9 +1068,21 @@ impl VerifiedFacts {
         if !self.script.is_reusable_under(context.rules()) {
             return None;
         }
+        let metrics = CandidateMetrics {
+            fee: payload.fee(),
+            cost: AcceptedCost::new(
+                payload.serialized_bytes(),
+                accepted_transaction_charge_bytes(
+                    payload.serialized_bytes(),
+                    payload.resolved_transaction(),
+                ),
+                self.metrics.cost.cycles,
+            ),
+        };
         Some(Self {
             content: CellContentReceipt::from_resolution(payload),
             context,
+            metrics,
             ..self
         })
     }
@@ -1094,7 +1175,7 @@ impl ObservedDependencies {
         &self.retained
     }
 
-    pub(super) fn parent_transactions(&self) -> Result<Arc<[RawTxHash]>, DependencySetError> {
+    pub(super) fn parent_transactions(&self) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
         parent_transactions(&self.observed)
     }
 }
@@ -1280,11 +1361,8 @@ impl ReplacementHistoryEntry {
         {
             return Err(ReplacementHistoryError::InvalidRecoveryTrigger);
         }
-        let observed = ObservedDependencies::from_missing(
-            &recovery_triggers,
-            dependencies.clone(),
-            dependency_cut,
-        );
+        let observed =
+            ObservedDependencies::from_missing(&recovery_triggers, dependencies, dependency_cut);
         let mut record = accepted.record.clone();
         record.version = version;
         record.arrival = arrival;
@@ -1399,64 +1477,72 @@ pub(super) struct ValidatedAdmission {
     pub(super) encoded_edges: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum AdmissionValidationError {
-    EmptyTransaction,
-    ResourceArithmetic,
-    ResourceAllocation,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RecoveryAdmissionError {
+    InvalidTransaction,
+    ResourceUnavailable,
+}
+
+#[derive(Debug)]
+pub(super) struct RetainedAdmissionAllocation {
+    transaction: Arc<TransactionView>,
+}
+
+impl RetainedAdmissionAllocation {
+    pub(super) fn into_transaction(self) -> Arc<TransactionView> {
+        self.transaction
+    }
 }
 
 impl ValidatedAdmission {
     pub(super) fn recovery(
         tx: TransactionView,
         generation: PoolGeneration,
-    ) -> Result<Self, AdmissionValidationError> {
+    ) -> Result<Self, RecoveryAdmissionError> {
+        let tx = super::ingress::BoundedTransaction::try_new(tx).map_err(|error| match error {
+            super::ingress::BoundedTransactionError::Allocation => {
+                RecoveryAdmissionError::ResourceUnavailable
+            }
+            super::ingress::BoundedTransactionError::TooLarge { .. } => {
+                RecoveryAdmissionError::InvalidTransaction
+            }
+        })?;
         Self::new(
             tx,
             PreAcceptedSource::Recovery(RecoveryLease { generation }),
         )
+        .map_err(|_| RecoveryAdmissionError::ResourceUnavailable)
     }
 
     pub(super) fn from_retained_ingress(
         _seal: super::ingress::RetainedIngressSeal,
-        tx: TransactionView,
+        tx: super::ingress::BoundedTransaction,
         source: PreAcceptedSource,
-    ) -> Result<Self, AdmissionValidationError> {
+    ) -> Result<Self, RetainedAdmissionAllocation> {
         Self::new(tx, source)
     }
 
     fn new(
-        tx: TransactionView,
+        tx: super::ingress::BoundedTransaction,
         source: PreAcceptedSource,
-    ) -> Result<Self, AdmissionValidationError> {
-        let bytes = tx.data().total_size();
-        if bytes == 0 {
-            return Err(AdmissionValidationError::EmptyTransaction);
-        }
-        let raw_edges = tx
-            .inputs()
-            .len()
-            .checked_add(tx.cell_deps().len())
-            .and_then(|count| count.checked_add(tx.header_deps().len()))
-            .ok_or(AdmissionValidationError::ResourceArithmetic)?;
-        let dependencies =
-            KnownDependencies::from_transaction(&tx).map_err(|error| match error {
-                DependencySetError::Arithmetic => AdmissionValidationError::ResourceArithmetic,
-                DependencySetError::Allocation => AdmissionValidationError::ResourceAllocation,
-                DependencySetError::Empty | DependencySetError::TooMany => {
-                    AdmissionValidationError::ResourceArithmetic
-                }
-            })?;
+    ) -> Result<Self, RetainedAdmissionAllocation> {
+        let (tx, payload_bytes, encoded_edges) = tx.into_admission_parts();
+        let dependencies = match KnownDependencies::from_bounded_transaction(&tx, encoded_edges) {
+            Ok(dependencies) => dependencies,
+            Err(_) => {
+                return Err(RetainedAdmissionAllocation { transaction: tx });
+            }
+        };
         // The reverse projection is a canonical set, but ingress accounting
         // deliberately charges every encoded edge. Duplicate declarations do
         // not buy an attacker extra pre-pool residency for free.
         Ok(Self {
             identity: TxIdentity::from_transaction(&tx),
-            tx: Arc::new(tx),
+            tx,
             source,
             dependencies,
-            payload_bytes: bytes,
-            encoded_edges: raw_edges,
+            payload_bytes,
+            encoded_edges,
         })
     }
 }

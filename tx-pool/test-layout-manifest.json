@@ -32,6 +32,12 @@
       "symbols": ["DependencyLossWork", "DependencyLossKeys::work"],
       "kind": "zero-production-cost bounded dependency-loss operation counter",
       "behavior_ids": ["TP-DEP-001", "TP-PERF-001"]
+    },
+    {
+      "file": "tx-pool/src/authority/template.rs",
+      "symbols": ["TemplateCandidate::dependency_edge_count", "TemplateCandidate::eviction_order"],
+      "kind": "zero-production-cost immutable template source-cut refinement observation",
+      "behavior_ids": ["TP-TEMPLATE-001"]
     }
   ]
 }

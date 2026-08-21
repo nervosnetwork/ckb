@@ -113,6 +113,35 @@ impl AuthorityTestWorkerOwner {
         })
     }
 
+    pub(in crate::authority) fn spawn_observed_ready(
+        runtime: AuthorityRuntime,
+        handle: &Handle,
+        attempts: Arc<AtomicUsize>,
+    ) -> Result<Self, AuthorityWorkerSpawnError> {
+        let mut tasks = Vec::new();
+        tasks
+            .try_reserve(1)
+            .map_err(|_| AuthorityWorkerSpawnError::Allocation)?;
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.child_token();
+        let task = AuthorityWorkerTask {
+            role: AuthorityWorkerRole::Ready,
+            handle: handle.spawn(async move {
+                run_ready_driver_for_foundation(runtime, task_cancel, attempts).await
+            }),
+        };
+        tasks.push(task);
+        Ok(Self {
+            command: None,
+            cancel,
+            tasks,
+        })
+    }
+
+    pub(in crate::authority) fn cancellation_for_foundation(&self) -> CancellationToken {
+        self.cancel.clone()
+    }
+
     pub(in crate::authority) fn send(
         &self,
         command: ChunkCommand,
@@ -201,6 +230,17 @@ pub(in crate::authority) async fn run_maintenance_driver_for_foundation(
 ) -> Result<(), AuthorityWorkerFault> {
     run_maintenance_driver_loop(runtime, cancel, move || {
         rounds.fetch_add(1, AtomicOrdering::Relaxed);
+    })
+    .await
+}
+
+pub(in crate::authority) async fn run_ready_driver_for_foundation(
+    runtime: AuthorityRuntime,
+    cancel: CancellationToken,
+    attempts: Arc<AtomicUsize>,
+) -> Result<(), AuthorityWorkerFault> {
+    run_ready_driver_loop(runtime, cancel, move || {
+        attempts.fetch_add(1, AtomicOrdering::Relaxed);
     })
     .await
 }

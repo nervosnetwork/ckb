@@ -17,7 +17,9 @@ use crate::util::block_offload;
 pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
 pub use candidate_uncles::CandidateUncles;
 use candidate_uncles::PreparedUncles;
-pub(crate) use candidate_uncles::{CandidateUncleMutationError, CandidateUnclePrune};
+pub(crate) use candidate_uncles::{
+    BoundedCandidateUncle, CandidateUncleMutationError, CandidateUnclePrune,
+};
 use cell_liveness::CellLivenessMemo;
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_error::{AnyError, InternalErrorKind};
@@ -80,10 +82,6 @@ pub struct BlockAssembler {
     /// cross `.await`.
     pub(crate) cell_liveness_memo: Arc<StdMutex<CellLivenessMemo>>,
     pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
-    /// Bounded process owner for configured template-notification scripts.
-    /// Each configured command has at most one live child; timeout drops and
-    /// kills that child before its slot can be reused.
-    script_notifier: Arc<notify::NotifyScriptRunner>,
     /// Test-only observation point for the external miner-notification
     /// boundary. Production builds pay no field or atomic-operation cost.
     #[cfg(test)]
@@ -117,8 +115,6 @@ impl BlockAssembler {
             vec![],
             &cell_liveness_memo,
         )?;
-        let script_notifier = Arc::new(notify::NotifyScriptRunner::new(&config.notify_scripts));
-
         Ok(Self {
             config: Arc::new(config),
             work_id: Arc::new(work_id),
@@ -129,7 +125,6 @@ impl BlockAssembler {
                 Client::builder(hyper_util::rt::TokioExecutor::new())
                     .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
             ),
-            script_notifier,
             #[cfg(test)]
             notify_count: Arc::new(AtomicU64::new(0)),
         })
@@ -395,10 +390,11 @@ impl BlockAssembler {
         &self,
         snapshot: &Snapshot,
         current_epoch: &EpochExt,
-    ) -> PreparedUncles {
-        // Chain lookups run on a detached bounded copy. A stale optimistic
-        // build therefore cannot mutate the live candidate cache.
-        let candidates = self.candidate_uncles.lock().clone();
+    ) -> Result<PreparedUncles, CandidateUncleMutationError> {
+        // Capture only the bounded candidate values and exact source receipt
+        // while holding the cache lock. Chain lookups and selection then run
+        // on the detached snapshot without retaining mutation authority.
+        let candidates = self.candidate_uncles.lock().try_snapshot()?;
         candidates.prepare_uncles(snapshot, current_epoch)
     }
 

@@ -1,11 +1,10 @@
-use super::super::residency::compact_after_resolution;
+use super::super::residency::{compact_after_resolution, compact_after_verification};
 use ckb_types::{
     bytes::Bytes,
     core::{TransactionBuilder, cell::CellMeta, cell::ResolvedTransaction},
     packed::CellOutput,
     prelude::{Entity, Pack},
 };
-use std::sync::Arc;
 
 fn slice_is_within(inner: &[u8], outer: &[u8]) -> bool {
     let inner_start = inner.as_ptr() as usize;
@@ -43,14 +42,14 @@ fn resolved_authority_residency_detaches_cell_views_and_data_slices() {
         mem_cell_data: Some(shared_data),
         ..Default::default()
     };
-    let resolved = Arc::new(ResolvedTransaction {
+    let resolved = ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
         resolved_cell_deps: Vec::new(),
         resolved_inputs: vec![input],
         resolved_dep_groups: Vec::new(),
-    });
+    };
 
-    let compact = compact_after_resolution(resolved);
+    let compact = compact_after_resolution(resolved).expect("resident views can be detached");
     let compact_input = &compact.resolved_inputs[0];
     assert!(!slice_is_within(
         compact_input.cell_output.as_slice(),
@@ -61,4 +60,33 @@ fn resolved_authority_residency_detaches_cell_views_and_data_slices() {
         &data_backing
     ));
     assert_eq!(compact_input.mem_cell_data.as_deref(), Some(&[0x7b; 8][..]));
+}
+
+#[test]
+fn shared_verified_residency_is_preserved_without_variable_clone() {
+    let dependency_data = Bytes::from(vec![0x3c; 16 * 1024]);
+    let dependency = CellMeta {
+        cell_output: CellOutput::default(),
+        mem_cell_data: Some(dependency_data.clone()),
+        data_bytes: dependency_data.len() as u64,
+        ..Default::default()
+    };
+    let resolved = std::sync::Arc::new(ResolvedTransaction {
+        transaction: TransactionBuilder::default().build(),
+        resolved_cell_deps: vec![dependency],
+        resolved_inputs: Vec::new(),
+        resolved_dep_groups: Vec::new(),
+    });
+    let shared = std::sync::Arc::clone(&resolved);
+
+    let retained = compact_after_verification(resolved);
+
+    assert!(std::sync::Arc::ptr_eq(&retained, &shared));
+    assert_eq!(
+        retained.resolved_cell_deps[0]
+            .mem_cell_data
+            .as_ref()
+            .map(Bytes::len),
+        Some(dependency_data.len())
+    );
 }

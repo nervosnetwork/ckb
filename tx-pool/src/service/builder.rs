@@ -15,9 +15,9 @@ use crate::{
     },
     network::{TxPoolNetwork, TxPoolNetworkHandle},
     service::{
-        AdministrationGate, CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, DEFAULT_CHANNEL_SIZE,
-        Message, Notify, RemoteTxSubmission, Request, TxPoolController,
-        TxVerificationResultReceiver, process,
+        AdministrationGate, BoundedTransaction, CHAIN_CONTROL_CHANNEL_SIZE, ChainControl,
+        ChainReorgPayloadLimit, DEFAULT_CHANNEL_SIZE, Message, Notify, RemoteTxSubmission, Request,
+        TxPoolController, TxVerificationResultReceiver, process,
     },
 };
 use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
@@ -28,6 +28,7 @@ use ckb_logger::{error, info, warn};
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
+use ckb_types::{packed::Byte32, prelude::Entity};
 use ckb_verification::cache::TxVerificationCache;
 use std::{
     sync::{
@@ -58,12 +59,12 @@ const RETAINED_INGRESS_BYTES: usize = ckb_constant::sync::MAX_RELAY_TXS_BYTES_PE
 pub(super) enum RetainedIngressBatch {
     Remote {
         peer: ckb_network::PeerIndex,
-        submissions: Vec<(ckb_types::core::TransactionView, ckb_types::core::Cycle)>,
+        submissions: Vec<(BoundedTransaction, ckb_types::core::Cycle)>,
         responders: Vec<tokio::sync::oneshot::Sender<()>>,
         bytes: usize,
     },
     Proposal {
-        transactions: Vec<ckb_types::core::TransactionView>,
+        transactions: Vec<BoundedTransaction>,
         bytes: usize,
     },
 }
@@ -77,7 +78,7 @@ impl RetainedIngressBatch {
     fn try_new(message: Message) -> Result<Self, Message> {
         match message {
             Message::SubmitRemoteTx(request) => {
-                let tx_bytes = request.arguments.transaction.data().total_size();
+                let tx_bytes = request.arguments.transaction.payload_bytes();
                 if tx_bytes > RETAINED_INGRESS_BYTES {
                     return Err(Message::SubmitRemoteTx(request));
                 }
@@ -144,7 +145,7 @@ impl RetainedIngressBatch {
             ) if request.arguments.peer == *peer
                 && submissions.len() < RETAINED_INGRESS_APPLY_ITEMS =>
             {
-                let tx_bytes = request.arguments.transaction.data().total_size();
+                let tx_bytes = request.arguments.transaction.payload_bytes();
                 let Some(next_bytes) = bytes.checked_add(tx_bytes) else {
                     return RetainedIngressAppend::Lookahead(Message::SubmitRemoteTx(request));
                 };
@@ -285,6 +286,27 @@ impl TxPoolServiceBuilder {
             AuthorityVerificationControl::channel(ChunkCommand::Resume);
         let started = Arc::new(AtomicBool::new(false));
         let administration_gate = AdministrationGate::new();
+        let candidate_uncle_payload_limit = usize::try_from(snapshot.consensus().max_block_bytes())
+            .map_err(|_| {
+                OtherError::new(
+                    "consensus maximum block bytes do not fit the host index width".to_owned(),
+                )
+            })?
+            // The protocol bound covers serialized uncle bytes. The residency
+            // carrier additionally retains its fixed cached hash.
+            .checked_add(Byte32::default().as_slice().len())
+            .ok_or_else(|| {
+                OtherError::new(
+                    "candidate-uncle residency bound does not fit the host index width".to_owned(),
+                )
+            })?;
+        let chain_reorg_payload_limit = ChainReorgPayloadLimit::from_config(&tx_pool_config)
+            .ok_or_else(|| {
+                OtherError::new(
+                    "combined tx-pool reorg residency bound does not fit the host index width"
+                        .to_owned(),
+                )
+            })?;
         let controller = TxPoolController {
             sender,
             chain_control_sender,
@@ -292,6 +314,8 @@ impl TxPoolServiceBuilder {
             verification_command,
             started: Arc::clone(&started),
             administration_gate,
+            chain_reorg_payload_limit,
+            candidate_uncle_payload_limit,
             signal: signal_receiver.clone(),
         };
 
@@ -328,18 +352,22 @@ impl TxPoolServiceBuilder {
         ))
     }
 
+    /// Registers the callback invoked for committed pending transactions.
     pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
     }
 
+    /// Registers the callback invoked for committed proposed transactions.
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
     }
 
+    /// Registers the callback invoked for committed transaction rejections.
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.callbacks.register_reject(callback);
     }
 
+    /// Returns the configured recent-rejection index, when enabled.
     pub fn recent_reject(&self) -> Option<Arc<RecentReject>> {
         self.recent_reject.clone()
     }
@@ -372,8 +400,8 @@ impl TxPoolServiceBuilder {
         drop(self.start_inner(network));
     }
 
-    /// Test/benchmark variant that exposes the generation owner.
-    #[cfg(any(test, feature = "internal"))]
+    /// Internal test/benchmark variant that exposes the generation owner.
+    #[cfg(feature = "internal")]
     pub(crate) fn start_with_handle<N: TxPoolNetwork>(
         self,
         network: N,
@@ -475,7 +503,7 @@ impl TxPoolServiceBuilder {
             }
             Ok(_) => {}
             Err(AuthorityPersistenceError::Replay(error)) => {
-                log_replay_error(&AuthorityPersistenceError::Replay(error));
+                error!("failed to replay tx-pool persistence: {error:?}");
                 if let Err(fault) = AuthorityService::settle_operation_error(error) {
                     generation.invalidate(fault);
                 }

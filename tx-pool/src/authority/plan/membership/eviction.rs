@@ -47,7 +47,12 @@ pub(super) fn complete_removals(
         .max_component
         .checked_sub(removed.len())
         .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-    let descendant_roots = candidate_children.iter().cloned().collect::<BTreeSet<_>>();
+    let mut descendant_roots = Vec::new();
+    descendant_roots
+        .try_reserve_exact(candidate_children.len())
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    descendant_roots.extend(candidate_children.iter().cloned());
+    descendant_roots.sort_unstable();
     let candidate_descendants = if descendant_roots.is_empty() {
         Vec::new()
     } else {
@@ -153,9 +158,8 @@ pub(super) fn complete_removals(
                 fee_rate: candidate_fee_rate,
             }));
         }
-        let roots = BTreeSet::from([next.hash]);
         let closure = authority.bounded_descendant_postorder(
-            &roots,
+            std::slice::from_ref(&next.hash),
             &removed,
             authority.membership_config.max_component,
             ComponentLimitKind::Mutation,

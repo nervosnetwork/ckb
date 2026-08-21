@@ -349,6 +349,222 @@ pub(super) enum OrderedBoundaryTopology {
     TypedReorgAndBoundedAdmin,
 }
 
+/// Observable completion cut of one committed chain-tip publication.
+///
+/// Syntax does not matter here: an inline call, oneshot, join or another
+/// mechanism belongs to the same representative iff returning to the chain
+/// publisher implies that the unique authority has applied that exact view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ChainCompletionTopology {
+    ApplyAcknowledged,
+    EnqueueOnly,
+}
+
+/// Observable freshness protocol of a block-template read after a chain-tip
+/// publisher returns.  The selected representative requires the proposal,
+/// transaction and uncle components to cover one coherent chain source, waits
+/// only on the existing monotonic replacement level and turns a same-source
+/// rebuild failure into a typed terminal outcome.  A scalar source gate is a
+/// distinct counterexample: reset or one partial component can carry the new
+/// source while the other published components still describe another cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum TemplateChainReadTopology {
+    SourceGatedTerminal,
+    SourceScalarGatedTerminal,
+    UngatedLastPublished,
+    SourceGatedUnboundedWait,
+    TimerOrPollingFreshness,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ChainCompletionStep {
+    AwaitingApply,
+    ReturnedBeforeApply,
+    AppliedAndReturned,
+    AppliedAfterReturn,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TemplateChainReadStep {
+    Current(u16),
+    Pending(u16),
+    Unavailable(u16),
+    Stale {
+        required: u16,
+        returned: u16,
+    },
+    Incoherent {
+        required: u16,
+        proposals: Option<u16>,
+        transactions: Option<u16>,
+        uncles: Option<u16>,
+    },
+    RetryWithoutChange(u16),
+}
+
+/// Finite counterexample model for the chain-publish/template-read cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ChainCompletionProtocol {
+    pub(super) chain_view: u16,
+    pub(super) authority_view: u16,
+    template_components: [Option<u16>; 3],
+    last_template_view: u16,
+    pending: Option<u16>,
+    publisher_returned: bool,
+    failed_template_view: Option<u16>,
+}
+
+impl ChainCompletionProtocol {
+    pub(super) const fn new(view: u16) -> Self {
+        Self {
+            chain_view: view,
+            authority_view: view,
+            template_components: [Some(view); 3],
+            last_template_view: view,
+            pending: None,
+            publisher_returned: false,
+            failed_template_view: None,
+        }
+    }
+
+    pub(super) fn install(
+        &mut self,
+        next: u16,
+        topology: ChainCompletionTopology,
+    ) -> Option<ChainCompletionStep> {
+        if self.pending.is_some() || next <= self.chain_view {
+            return None;
+        }
+        self.chain_view = next;
+        self.pending = Some(next);
+        self.publisher_returned = matches!(topology, ChainCompletionTopology::EnqueueOnly);
+        Some(if self.publisher_returned {
+            ChainCompletionStep::ReturnedBeforeApply
+        } else {
+            ChainCompletionStep::AwaitingApply
+        })
+    }
+
+    pub(super) fn apply(
+        &mut self,
+        topology: ChainCompletionTopology,
+    ) -> Option<ChainCompletionStep> {
+        self.authority_view = self.pending.take()?;
+        if matches!(topology, ChainCompletionTopology::ApplyAcknowledged) {
+            self.publisher_returned = true;
+            Some(ChainCompletionStep::AppliedAndReturned)
+        } else {
+            Some(ChainCompletionStep::AppliedAfterReturn)
+        }
+    }
+
+    pub(super) fn publish_template(&mut self) {
+        self.template_components = [Some(self.authority_view); 3];
+        self.last_template_view = self.authority_view;
+        self.failed_template_view = None;
+    }
+
+    pub(super) fn publish_template_reset(&mut self) {
+        self.template_components = [None; 3];
+        self.last_template_view = self.authority_view;
+        self.failed_template_view = None;
+    }
+
+    pub(super) fn publish_template_proposals(&mut self) {
+        self.template_components = [Some(self.authority_view), None, None];
+        self.last_template_view = self.authority_view;
+    }
+
+    pub(super) fn publish_template_uncles(&mut self) {
+        self.template_components[0] = Some(self.authority_view);
+        self.template_components[1] = None;
+        self.template_components[2] = Some(self.authority_view);
+        self.last_template_view = self.authority_view;
+    }
+
+    pub(super) fn publish_template_transactions(&mut self) {
+        self.template_components[1] = Some(self.authority_view);
+        self.last_template_view = self.authority_view;
+    }
+
+    pub(super) fn fail_template(&mut self) {
+        self.failed_template_view = Some(self.authority_view);
+    }
+
+    fn coherent_template_view(self) -> Option<u16> {
+        let [Some(proposals), Some(transactions), Some(uncles)] = self.template_components else {
+            return None;
+        };
+        (proposals == transactions && transactions == uncles).then_some(proposals)
+    }
+
+    fn scalar_template_observation(self) -> TemplateChainReadStep {
+        if self.coherent_template_view() == Some(self.chain_view) {
+            TemplateChainReadStep::Current(self.chain_view)
+        } else {
+            TemplateChainReadStep::Incoherent {
+                required: self.chain_view,
+                proposals: self.template_components[0],
+                transactions: self.template_components[1],
+                uncles: self.template_components[2],
+            }
+        }
+    }
+
+    pub(super) fn template_read_after_return(
+        self,
+        topology: TemplateChainReadTopology,
+    ) -> Option<TemplateChainReadStep> {
+        if !self.publisher_returned {
+            return None;
+        }
+        Some(match topology {
+            TemplateChainReadTopology::SourceGatedTerminal => {
+                if self.coherent_template_view() == Some(self.chain_view) {
+                    TemplateChainReadStep::Current(self.chain_view)
+                } else if self.failed_template_view == Some(self.chain_view) {
+                    TemplateChainReadStep::Unavailable(self.chain_view)
+                } else {
+                    TemplateChainReadStep::Pending(self.chain_view)
+                }
+            }
+            TemplateChainReadTopology::SourceScalarGatedTerminal => {
+                if self.last_template_view == self.chain_view {
+                    self.scalar_template_observation()
+                } else if self.failed_template_view == Some(self.chain_view) {
+                    TemplateChainReadStep::Unavailable(self.chain_view)
+                } else {
+                    TemplateChainReadStep::Pending(self.chain_view)
+                }
+            }
+            TemplateChainReadTopology::UngatedLastPublished => {
+                if self.last_template_view == self.chain_view {
+                    self.scalar_template_observation()
+                } else {
+                    TemplateChainReadStep::Stale {
+                        required: self.chain_view,
+                        returned: self.last_template_view,
+                    }
+                }
+            }
+            TemplateChainReadTopology::SourceGatedUnboundedWait => {
+                if self.coherent_template_view() == Some(self.chain_view) {
+                    TemplateChainReadStep::Current(self.chain_view)
+                } else {
+                    TemplateChainReadStep::Pending(self.chain_view)
+                }
+            }
+            TemplateChainReadTopology::TimerOrPollingFreshness => {
+                if self.coherent_template_view() == Some(self.chain_view) {
+                    TemplateChainReadStep::Current(self.chain_view)
+                } else {
+                    TemplateChainReadStep::RetryWithoutChange(self.chain_view)
+                }
+            }
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ProducerResidencyBound {
     UnboundedByProtocol,
@@ -399,6 +615,8 @@ pub(super) struct CompleteTopology {
     pub(super) query: QueryTopology,
     pub(super) cache: CachePublicationTopology,
     pub(super) ordered: OrderedBoundaryTopology,
+    pub(super) chain_completion: ChainCompletionTopology,
+    pub(super) template_chain_read: TemplateChainReadTopology,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -410,6 +628,11 @@ pub(super) enum CompleteTopologyGap {
     DuplicateResidentQueryProjection,
     CacheUpdateWithoutReleaser,
     UnboundedOrderedProducerResidency,
+    ChainReturnBeforeAuthorityApply,
+    IncoherentChainTemplateRead,
+    StaleChainTemplateRead,
+    UntotalChainTemplateRead,
+    TimerOrPollingTemplateFreshness,
 }
 
 impl CompleteTopology {
@@ -449,6 +672,24 @@ impl CompleteTopology {
         ) {
             gaps.push(CompleteTopologyGap::UnboundedOrderedProducerResidency);
         }
+        if matches!(self.chain_completion, ChainCompletionTopology::EnqueueOnly) {
+            gaps.push(CompleteTopologyGap::ChainReturnBeforeAuthorityApply);
+        }
+        match self.template_chain_read {
+            TemplateChainReadTopology::SourceGatedTerminal => {}
+            TemplateChainReadTopology::SourceScalarGatedTerminal => {
+                gaps.push(CompleteTopologyGap::IncoherentChainTemplateRead);
+            }
+            TemplateChainReadTopology::UngatedLastPublished => {
+                gaps.push(CompleteTopologyGap::StaleChainTemplateRead);
+            }
+            TemplateChainReadTopology::SourceGatedUnboundedWait => {
+                gaps.push(CompleteTopologyGap::UntotalChainTemplateRead);
+            }
+            TemplateChainReadTopology::TimerOrPollingFreshness => {
+                gaps.push(CompleteTopologyGap::TimerOrPollingTemplateFreshness);
+            }
+        }
         gaps.sort_unstable();
         gaps.dedup();
         Some(gaps)
@@ -482,6 +723,37 @@ pub(super) enum CouplingNormalForm {
     TimerOrApproximateBatch,
 }
 
+/// Consensus proposal eligibility and the tx-pool's proposal projection have
+/// different trust roles.  The verifier must derive `committed subseteq
+/// proposed` from primitive branch history; the tx-pool may keep only a
+/// bounded, rebuildable view of the same history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum ProposalHistoryNormalForm {
+    /// Keep exact band reference counts in a structurally shared index with a
+    /// deterministic worst-case bound.  A successor creates an authenticated
+    /// sparse receipt and an O(1) snapshot clone; a non-successor rebuilds from
+    /// primitive history. Consensus verification remains an independent
+    /// branch-history fold.
+    BoundedPersistentSparseExactViewIndependentVerifier,
+    /// The same sparse transition shape backed only by an expected/probabilistic
+    /// collision bound. Peer-chosen proposal ids make this inadmissible under
+    /// the deterministic hostile-work constraint even if its mean is faster.
+    ExpectedBoundPersistentSparseExactViewIndependentVerifier,
+    /// Advance exact reference counts but clone or re-materialize the complete
+    /// proposal index for the next immutable snapshot. This is semantically
+    /// exact, but its successor work remains population-linear rather than
+    /// primitive-delta-linear.
+    MaterializedIncrementalExactViewIndependentVerifier,
+    /// Recompute both exact proposal bands from the bounded history window on
+    /// every tip while retaining the independent consensus fold.
+    RecomputedExactViewIndependentVerifier,
+    /// Let consensus verification consume a mutable tx-pool/chain projection.
+    SharedMutableVerifierView,
+    /// Retain only a scalar/current status and thereby alias at least two of
+    /// Gap, Proposed and Outside across a legal continuation.
+    ScalarOrCurrentHistory,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ProgressNormalForm {
     SameApplyDerivedFiniteRank,
@@ -496,6 +768,25 @@ pub(super) enum ResourceNormalForm {
     PartitionedBoundedCharged,
     FragmentedOrUncharged,
     InfallibleOrUnbounded,
+}
+
+/// Terminal topology after a fallible construction has acquired an
+/// authority-owned obligation. Caller-owned and derived requests already
+/// return an ordinary unavailable outcome; this axis distinguishes the
+/// architectures that can close retained work without inventing allocator
+/// progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum AllocationNormalForm {
+    /// Replace the rebuildable soft-state generation in one allocation-free
+    /// Apply. This is the minimum allocator-independent terminal cut.
+    AllocationFreeGenerationTerminal,
+    /// Retire only the invariant-closed implicated scope through an extra
+    /// fixed-capacity carrier or resident component owner.
+    BoundedScopedRecovery,
+    /// Preserve the same obligation and try again without a changed source.
+    UnchangedCutRetry,
+    /// Lose a linear capability or stop the authority/service generation.
+    FailStopOrCapabilityLeak,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -516,7 +807,7 @@ pub(super) enum TaskNormalForm {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum CompatibilityNormalForm {
-    ForwardLegacyMajorGeneratedLanding,
+    ForwardLegacyIntentionalMajor,
     ForwardLegacyMajorWithNonAuthoritativeFacade,
     DropsSupportedLegacy,
     ReverseMigrationOrAuthorityFacade,
@@ -527,8 +818,12 @@ pub(super) struct GlobalNormalForm {
     pub(super) authority: AuthorityNormalForm,
     pub(super) lifecycle: LifecycleNormalForm,
     pub(super) coupling: CouplingNormalForm,
+    pub(super) chain_completion: ChainCompletionTopology,
+    pub(super) proposal_history: ProposalHistoryNormalForm,
+    pub(super) template_chain_read: TemplateChainReadTopology,
     pub(super) progress: ProgressNormalForm,
     pub(super) resources: ResourceNormalForm,
+    pub(super) allocation: AllocationNormalForm,
     pub(super) projections: ProjectionNormalForm,
     pub(super) tasks: TaskNormalForm,
     pub(super) compatibility: CompatibilityNormalForm,
@@ -546,12 +841,20 @@ pub(super) enum GlobalFeasibilityGap {
     NonUniqueAuthority,
     UnnecessaryIndependentSerialization,
     NonMinimumCouplingCut,
+    ChainReturnBeforeAuthorityApply,
+    ConsensusUsesMutableProposalProjection,
+    IncompleteProposalHistory,
+    IncoherentChainTemplateRead,
+    StaleChainTemplateRead,
+    UntotalChainTemplateRead,
+    TimerOrPollingTemplateFreshness,
     InexactCapabilityOrEvidence,
     ApproximateOrTimedBatch,
     DuplicateDependencyPolicy,
     UnchangedCutRetry,
     ResourceConservationViolation,
     HostileResourceUnbounded,
+    AllocationFailStopOrCapabilityLeak,
     ExternalEffectVetoOrGuardIo,
     DuplicateProjectionPolicy,
     UntotalTaskOrRepairTopology,
@@ -562,14 +865,23 @@ impl GlobalFeasibilityGap {
     pub(super) const fn law(self) -> FeasibilityLaw {
         match self {
             Self::UnnecessaryIndependentSerialization => FeasibilityLaw::ConcurrencyLaw,
-            Self::NonMinimumCouplingCut => FeasibilityLaw::CouplingLaw,
+            Self::NonMinimumCouplingCut | Self::ChainReturnBeforeAuthorityApply => {
+                FeasibilityLaw::CouplingLaw
+            }
             Self::NonUniqueAuthority
+            | Self::ConsensusUsesMutableProposalProjection
+            | Self::IncompleteProposalHistory
+            | Self::IncoherentChainTemplateRead
+            | Self::StaleChainTemplateRead
+            | Self::UntotalChainTemplateRead
+            | Self::TimerOrPollingTemplateFreshness
             | Self::InexactCapabilityOrEvidence
             | Self::ApproximateOrTimedBatch
             | Self::DuplicateDependencyPolicy
             | Self::UnchangedCutRetry
             | Self::ResourceConservationViolation
             | Self::HostileResourceUnbounded
+            | Self::AllocationFailStopOrCapabilityLeak
             | Self::ExternalEffectVetoOrGuardIo
             | Self::DuplicateProjectionPolicy
             | Self::UntotalTaskOrRepairTopology
@@ -616,6 +928,38 @@ impl GlobalNormalForm {
                 gaps.push(Gap::ApproximateOrTimedBatch);
             }
         }
+        if matches!(self.chain_completion, ChainCompletionTopology::EnqueueOnly) {
+            gaps.push(Gap::ChainReturnBeforeAuthorityApply);
+        }
+        match self.proposal_history {
+            ProposalHistoryNormalForm::BoundedPersistentSparseExactViewIndependentVerifier
+            | ProposalHistoryNormalForm::MaterializedIncrementalExactViewIndependentVerifier
+            | ProposalHistoryNormalForm::RecomputedExactViewIndependentVerifier => {}
+            ProposalHistoryNormalForm::ExpectedBoundPersistentSparseExactViewIndependentVerifier => {
+                gaps.push(Gap::HostileResourceUnbounded);
+            }
+            ProposalHistoryNormalForm::SharedMutableVerifierView => {
+                gaps.push(Gap::ConsensusUsesMutableProposalProjection);
+            }
+            ProposalHistoryNormalForm::ScalarOrCurrentHistory => {
+                gaps.push(Gap::IncompleteProposalHistory);
+            }
+        }
+        match self.template_chain_read {
+            TemplateChainReadTopology::SourceGatedTerminal => {}
+            TemplateChainReadTopology::SourceScalarGatedTerminal => {
+                gaps.push(Gap::IncoherentChainTemplateRead);
+            }
+            TemplateChainReadTopology::UngatedLastPublished => {
+                gaps.push(Gap::StaleChainTemplateRead);
+            }
+            TemplateChainReadTopology::SourceGatedUnboundedWait => {
+                gaps.push(Gap::UntotalChainTemplateRead);
+            }
+            TemplateChainReadTopology::TimerOrPollingFreshness => {
+                gaps.push(Gap::TimerOrPollingTemplateFreshness);
+            }
+        }
         match self.progress {
             ProgressNormalForm::SameApplyDerivedFiniteRank
             | ProgressNormalForm::SameApplyWithResidentDerivedDag => {}
@@ -632,6 +976,14 @@ impl GlobalNormalForm {
             }
             ResourceNormalForm::InfallibleOrUnbounded => {
                 gaps.push(Gap::HostileResourceUnbounded);
+            }
+        }
+        match self.allocation {
+            AllocationNormalForm::AllocationFreeGenerationTerminal
+            | AllocationNormalForm::BoundedScopedRecovery => {}
+            AllocationNormalForm::UnchangedCutRetry => gaps.push(Gap::UnchangedCutRetry),
+            AllocationNormalForm::FailStopOrCapabilityLeak => {
+                gaps.push(Gap::AllocationFailStopOrCapabilityLeak);
             }
         }
         match self.projections {
@@ -705,6 +1057,40 @@ impl GlobalNormalForm {
             cost[4] += 1;
             cost[6] += 1;
         }
+        if matches!(self.allocation, AllocationNormalForm::BoundedScopedRecovery) {
+            // The cheapest credible scoped terminal uses the release-law
+            // component bound as an inline/fixed-capacity retirement carrier.
+            // It needs no second authority or cut, but must enumerate the
+            // invariant-closed component under the guard and retain bounded
+            // transient owner storage. A resident component index/recovery
+            // lease is not cheaper on either coordinate.
+            cost[3] += 1;
+            cost[4] += 1;
+        }
+        match self.proposal_history {
+            ProposalHistoryNormalForm::BoundedPersistentSparseExactViewIndependentVerifier => {
+                // Exact persistent counts and an authenticated transition
+                // receipt make both snapshot cloning and successor maintenance
+                // independent of unchanged proposal population. The bounded
+                // rebuildable projection is the release-law floor and adds no
+                // authority, task, lock, failure domain or serial cut.
+            }
+            ProposalHistoryNormalForm::MaterializedIncrementalExactViewIndependentVerifier => {
+                // The counts avoid re-folding history, but copying the complete
+                // immutable view still incurs avoidable population-linear
+                // allocation and work on every ordinary successor/refresh.
+                cost[4] += 1;
+            }
+            ProposalHistoryNormalForm::RecomputedExactViewIndependentVerifier => {
+                // Re-reading the unchanged interior and materializing the next
+                // view are both avoidable beyond the primitive boundary delta.
+                cost[3] += 1;
+                cost[4] += 1;
+            }
+            ProposalHistoryNormalForm::ExpectedBoundPersistentSparseExactViewIndependentVerifier
+            | ProposalHistoryNormalForm::SharedMutableVerifierView
+            | ProposalHistoryNormalForm::ScalarOrCurrentHistory => {}
+        }
         if matches!(
             self.compatibility,
             CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade
@@ -714,39 +1100,116 @@ impl GlobalNormalForm {
         cost
     }
 
-    const fn is_selected_core(self) -> bool {
-        matches!(self.authority, AuthorityNormalForm::UniqueMinimumApply)
-            && matches!(self.lifecycle, LifecycleNormalForm::SealedLinearExact)
-            && matches!(
-                self.coupling,
-                CouplingNormalForm::ExactCanonicalAvailableCut
-            )
-            && matches!(
-                self.progress,
-                ProgressNormalForm::SameApplyDerivedFiniteRank
-            )
-            && matches!(self.resources, ResourceNormalForm::UnifiedBoundedFallible)
-            && matches!(
-                self.projections,
-                ProjectionNormalForm::PostCommitDerivedPrepared
-            )
-            && matches!(self.tasks, TaskNormalForm::BoundedOwnedMinimalLanes)
-    }
-
-    pub(super) const fn is_selected_witness(self) -> bool {
-        self.is_selected_core()
-            && matches!(
-                self.compatibility,
-                CompatibilityNormalForm::ForwardLegacyMajorGeneratedLanding
-            )
+    /// Stable semantic signature in the declared normal-form axis order.  The
+    /// optimizer computes the minimum signature; no branch asks whether a
+    /// candidate has the selected topology's name.
+    pub(super) const fn signature(self) -> [&'static str; 12] {
+        [
+            match self.authority {
+                AuthorityNormalForm::UniqueMinimumApply => "unique_minimum_apply",
+                AuthorityNormalForm::UniqueOversizedApply => "unique_oversized_apply",
+                AuthorityNormalForm::SplitLifecycleAuthorities => "split_lifecycle_authorities",
+                AuthorityNormalForm::UniversalActor => "universal_actor",
+            },
+            match self.lifecycle {
+                LifecycleNormalForm::SealedLinearExact => "sealed_linear_exact",
+                LifecycleNormalForm::SealedLinearWithRollback => "sealed_linear_with_rollback",
+                LifecycleNormalForm::CopiedOrInferredEvidence => "copied_or_inferred_evidence",
+            },
+            match self.coupling {
+                CouplingNormalForm::ExactCanonicalAvailableCut => "exact_canonical_available_cut",
+                CouplingNormalForm::PerOwnerIndependentCuts => "per_owner_independent_cuts",
+                CouplingNormalForm::TimerOrApproximateBatch => "timer_or_approximate_batch",
+            },
+            match self.chain_completion {
+                ChainCompletionTopology::ApplyAcknowledged => "apply_acknowledged",
+                ChainCompletionTopology::EnqueueOnly => "enqueue_only",
+            },
+            match self.proposal_history {
+                ProposalHistoryNormalForm::BoundedPersistentSparseExactViewIndependentVerifier => {
+                    "bounded_persistent_sparse_exact_view_independent_verifier"
+                }
+                ProposalHistoryNormalForm::ExpectedBoundPersistentSparseExactViewIndependentVerifier => {
+                    "expected_bound_persistent_sparse_exact_view_independent_verifier"
+                }
+                ProposalHistoryNormalForm::MaterializedIncrementalExactViewIndependentVerifier => {
+                    "materialized_incremental_exact_view_independent_verifier"
+                }
+                ProposalHistoryNormalForm::RecomputedExactViewIndependentVerifier => {
+                    "recomputed_exact_view_independent_verifier"
+                }
+                ProposalHistoryNormalForm::SharedMutableVerifierView => {
+                    "shared_mutable_verifier_view"
+                }
+                ProposalHistoryNormalForm::ScalarOrCurrentHistory => "scalar_or_current_history",
+            },
+            match self.template_chain_read {
+                TemplateChainReadTopology::SourceGatedTerminal => "source_gated_terminal",
+                TemplateChainReadTopology::SourceScalarGatedTerminal => {
+                    "source_scalar_gated_terminal"
+                }
+                TemplateChainReadTopology::UngatedLastPublished => "ungated_last_published",
+                TemplateChainReadTopology::SourceGatedUnboundedWait => {
+                    "source_gated_unbounded_wait"
+                }
+                TemplateChainReadTopology::TimerOrPollingFreshness => "timer_or_polling_freshness",
+            },
+            match self.progress {
+                ProgressNormalForm::SameApplyDerivedFiniteRank => "same_apply_derived_finite_rank",
+                ProgressNormalForm::SameApplyWithResidentDerivedDag => {
+                    "same_apply_with_resident_derived_dag"
+                }
+                ProgressNormalForm::ResidentDecisionAuthority => "resident_decision_authority",
+                ProgressNormalForm::PollingOrUnchangedRetry => "polling_or_unchanged_retry",
+            },
+            match self.resources {
+                ResourceNormalForm::UnifiedBoundedFallible => "unified_bounded_fallible",
+                ResourceNormalForm::PartitionedBoundedCharged => "partitioned_bounded_charged",
+                ResourceNormalForm::FragmentedOrUncharged => "fragmented_or_uncharged",
+                ResourceNormalForm::InfallibleOrUnbounded => "infallible_or_unbounded",
+            },
+            match self.allocation {
+                AllocationNormalForm::AllocationFreeGenerationTerminal => {
+                    "allocation_free_generation_terminal"
+                }
+                AllocationNormalForm::BoundedScopedRecovery => "bounded_scoped_recovery",
+                AllocationNormalForm::UnchangedCutRetry => "unchanged_cut_retry",
+                AllocationNormalForm::FailStopOrCapabilityLeak => "fail_stop_or_capability_leak",
+            },
+            match self.projections {
+                ProjectionNormalForm::PostCommitDerivedPrepared => "post_commit_derived_prepared",
+                ProjectionNormalForm::PostCommitWithResidentDerivedProjection => {
+                    "post_commit_with_resident_derived_projection"
+                }
+                ProjectionNormalForm::ExternalVetoOrGuardIo => "external_veto_or_guard_io",
+                ProjectionNormalForm::ResidentPolicyProjection => "resident_policy_projection",
+            },
+            match self.tasks {
+                TaskNormalForm::BoundedOwnedMinimalLanes => "bounded_owned_minimal_lanes",
+                TaskNormalForm::BoundedOwnedExtraActor => "bounded_owned_extra_actor",
+                TaskNormalForm::UniversalSerializedLoop => "universal_serialized_loop",
+                TaskNormalForm::DetachedOrRepairTopology => "detached_or_repair_topology",
+            },
+            match self.compatibility {
+                CompatibilityNormalForm::ForwardLegacyIntentionalMajor => {
+                    "forward_legacy_intentional_major"
+                }
+                CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade => {
+                    "forward_legacy_major_with_non_authoritative_facade"
+                }
+                CompatibilityNormalForm::DropsSupportedLegacy => "drops_supported_legacy",
+                CompatibilityNormalForm::ReverseMigrationOrAuthorityFacade => {
+                    "reverse_migration_or_authority_facade"
+                }
+            },
+        ]
     }
 
     pub(super) const fn is_non_authoritative_facade_variant(self) -> bool {
-        self.is_selected_core()
-            && matches!(
-                self.compatibility,
-                CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade
-            )
+        matches!(
+            self.compatibility,
+            CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade
+        )
     }
 }
 
@@ -766,6 +1229,25 @@ const COUPLINGS: [CouplingNormalForm; 3] = [
     CouplingNormalForm::PerOwnerIndependentCuts,
     CouplingNormalForm::TimerOrApproximateBatch,
 ];
+const CHAIN_COMPLETIONS: [ChainCompletionTopology; 2] = [
+    ChainCompletionTopology::ApplyAcknowledged,
+    ChainCompletionTopology::EnqueueOnly,
+];
+const PROPOSAL_HISTORIES: [ProposalHistoryNormalForm; 6] = [
+    ProposalHistoryNormalForm::BoundedPersistentSparseExactViewIndependentVerifier,
+    ProposalHistoryNormalForm::ExpectedBoundPersistentSparseExactViewIndependentVerifier,
+    ProposalHistoryNormalForm::MaterializedIncrementalExactViewIndependentVerifier,
+    ProposalHistoryNormalForm::RecomputedExactViewIndependentVerifier,
+    ProposalHistoryNormalForm::SharedMutableVerifierView,
+    ProposalHistoryNormalForm::ScalarOrCurrentHistory,
+];
+const TEMPLATE_CHAIN_READS: [TemplateChainReadTopology; 5] = [
+    TemplateChainReadTopology::SourceGatedTerminal,
+    TemplateChainReadTopology::SourceScalarGatedTerminal,
+    TemplateChainReadTopology::UngatedLastPublished,
+    TemplateChainReadTopology::SourceGatedUnboundedWait,
+    TemplateChainReadTopology::TimerOrPollingFreshness,
+];
 const PROGRESS_FORMS: [ProgressNormalForm; 4] = [
     ProgressNormalForm::SameApplyDerivedFiniteRank,
     ProgressNormalForm::SameApplyWithResidentDerivedDag,
@@ -777,6 +1259,12 @@ const RESOURCES: [ResourceNormalForm; 4] = [
     ResourceNormalForm::PartitionedBoundedCharged,
     ResourceNormalForm::FragmentedOrUncharged,
     ResourceNormalForm::InfallibleOrUnbounded,
+];
+const ALLOCATIONS: [AllocationNormalForm; 4] = [
+    AllocationNormalForm::AllocationFreeGenerationTerminal,
+    AllocationNormalForm::BoundedScopedRecovery,
+    AllocationNormalForm::UnchangedCutRetry,
+    AllocationNormalForm::FailStopOrCapabilityLeak,
 ];
 const PROJECTIONS: [ProjectionNormalForm; 4] = [
     ProjectionNormalForm::PostCommitDerivedPrepared,
@@ -791,24 +1279,95 @@ const TASKS: [TaskNormalForm; 4] = [
     TaskNormalForm::DetachedOrRepairTopology,
 ];
 const COMPATIBILITIES: [CompatibilityNormalForm; 4] = [
-    CompatibilityNormalForm::ForwardLegacyMajorGeneratedLanding,
+    CompatibilityNormalForm::ForwardLegacyIntentionalMajor,
     CompatibilityNormalForm::ForwardLegacyMajorWithNonAuthoritativeFacade,
     CompatibilityNormalForm::DropsSupportedLegacy,
     CompatibilityNormalForm::ReverseMigrationOrAuthorityFacade,
 ];
 
+const AUTHORITY_VARIANT_NAMES: [&str; 4] = [
+    "unique_minimum_apply",
+    "unique_oversized_apply",
+    "split_lifecycle_authorities",
+    "universal_actor",
+];
+const LIFECYCLE_VARIANT_NAMES: [&str; 3] = [
+    "sealed_linear_exact",
+    "sealed_linear_with_rollback",
+    "copied_or_inferred_evidence",
+];
+const COUPLING_VARIANT_NAMES: [&str; 3] = [
+    "exact_canonical_available_cut",
+    "per_owner_independent_cuts",
+    "timer_or_approximate_batch",
+];
+const CHAIN_COMPLETION_VARIANT_NAMES: [&str; 2] = ["apply_acknowledged", "enqueue_only"];
+const PROPOSAL_HISTORY_VARIANT_NAMES: [&str; 6] = [
+    "bounded_persistent_sparse_exact_view_independent_verifier",
+    "expected_bound_persistent_sparse_exact_view_independent_verifier",
+    "materialized_incremental_exact_view_independent_verifier",
+    "recomputed_exact_view_independent_verifier",
+    "shared_mutable_verifier_view",
+    "scalar_or_current_history",
+];
+const TEMPLATE_CHAIN_READ_VARIANT_NAMES: [&str; 5] = [
+    "source_gated_terminal",
+    "source_scalar_gated_terminal",
+    "ungated_last_published",
+    "source_gated_unbounded_wait",
+    "timer_or_polling_freshness",
+];
+const PROGRESS_VARIANT_NAMES: [&str; 4] = [
+    "same_apply_derived_finite_rank",
+    "same_apply_with_resident_derived_dag",
+    "resident_decision_authority",
+    "polling_or_unchanged_retry",
+];
+const RESOURCE_VARIANT_NAMES: [&str; 4] = [
+    "unified_bounded_fallible",
+    "partitioned_bounded_charged",
+    "fragmented_or_uncharged",
+    "infallible_or_unbounded",
+];
+const ALLOCATION_VARIANT_NAMES: [&str; 4] = [
+    "allocation_free_generation_terminal",
+    "bounded_scoped_recovery",
+    "unchanged_cut_retry",
+    "fail_stop_or_capability_leak",
+];
+const PROJECTION_VARIANT_NAMES: [&str; 4] = [
+    "post_commit_derived_prepared",
+    "post_commit_with_resident_derived_projection",
+    "external_veto_or_guard_io",
+    "resident_policy_projection",
+];
+const TASK_VARIANT_NAMES: [&str; 4] = [
+    "bounded_owned_minimal_lanes",
+    "bounded_owned_extra_actor",
+    "universal_serialized_loop",
+    "detached_or_repair_topology",
+];
+const COMPATIBILITY_VARIANT_NAMES: [&str; 4] = [
+    "forward_legacy_intentional_major",
+    "forward_legacy_major_with_non_authoritative_facade",
+    "drops_supported_legacy",
+    "reverse_migration_or_authority_facade",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct GlobalOptimalitySummary {
-    pub(super) axis_cardinalities: [usize; 8],
+    pub(super) axis_cardinalities: [usize; 12],
+    pub(super) axis_variants: [&'static [&'static str]; 12],
     pub(super) total_normal_forms: usize,
     pub(super) feasible_normal_forms: usize,
     pub(super) rejected_normal_forms: usize,
     pub(super) rejected_by_law: [usize; 3],
     pub(super) minimum_static_extra_cost: [u32; 7],
     pub(super) static_minimizers: usize,
-    pub(super) selected_static_minimizers: usize,
+    pub(super) minimum_static_signature: [&'static str; 12],
     pub(super) minimum_facade_static_extra_cost: [u32; 7],
     pub(super) minimum_partitioned_resource_static_extra_cost: [u32; 7],
+    pub(super) minimum_scoped_allocation_static_extra_cost: [u32; 7],
 }
 
 pub(super) fn global_optimality_summary() -> GlobalOptimalitySummary {
@@ -817,11 +1376,29 @@ pub(super) fn global_optimality_summary() -> GlobalOptimalitySummary {
             AUTHORITIES.len(),
             LIFECYCLES.len(),
             COUPLINGS.len(),
+            CHAIN_COMPLETIONS.len(),
+            PROPOSAL_HISTORIES.len(),
+            TEMPLATE_CHAIN_READS.len(),
             PROGRESS_FORMS.len(),
             RESOURCES.len(),
+            ALLOCATIONS.len(),
             PROJECTIONS.len(),
             TASKS.len(),
             COMPATIBILITIES.len(),
+        ],
+        axis_variants: [
+            &AUTHORITY_VARIANT_NAMES,
+            &LIFECYCLE_VARIANT_NAMES,
+            &COUPLING_VARIANT_NAMES,
+            &CHAIN_COMPLETION_VARIANT_NAMES,
+            &PROPOSAL_HISTORY_VARIANT_NAMES,
+            &TEMPLATE_CHAIN_READ_VARIANT_NAMES,
+            &PROGRESS_VARIANT_NAMES,
+            &RESOURCE_VARIANT_NAMES,
+            &ALLOCATION_VARIANT_NAMES,
+            &PROJECTION_VARIANT_NAMES,
+            &TASK_VARIANT_NAMES,
+            &COMPATIBILITY_VARIANT_NAMES,
         ],
         total_normal_forms: 0,
         feasible_normal_forms: 0,
@@ -829,9 +1406,10 @@ pub(super) fn global_optimality_summary() -> GlobalOptimalitySummary {
         rejected_by_law: [0; 3],
         minimum_static_extra_cost: [u32::MAX; 7],
         static_minimizers: 0,
-        selected_static_minimizers: 0,
+        minimum_static_signature: [""; 12],
         minimum_facade_static_extra_cost: [u32::MAX; 7],
         minimum_partitioned_resource_static_extra_cost: [u32::MAX; 7],
+        minimum_scoped_allocation_static_extra_cost: [u32::MAX; 7],
     };
     visit_global_normal_forms(|normal_form| {
         summary.total_normal_forms += 1;
@@ -851,14 +1429,20 @@ pub(super) fn global_optimality_summary() -> GlobalOptimalitySummary {
                     .minimum_partitioned_resource_static_extra_cost
                     .min(cost);
             }
+            if matches!(
+                normal_form.allocation,
+                AllocationNormalForm::BoundedScopedRecovery
+            ) {
+                summary.minimum_scoped_allocation_static_extra_cost = summary
+                    .minimum_scoped_allocation_static_extra_cost
+                    .min(cost);
+            }
             if cost < summary.minimum_static_extra_cost {
                 summary.minimum_static_extra_cost = cost;
                 summary.static_minimizers = 1;
-                summary.selected_static_minimizers = usize::from(normal_form.is_selected_witness());
+                summary.minimum_static_signature = normal_form.signature();
             } else if cost == summary.minimum_static_extra_cost {
                 summary.static_minimizers += 1;
-                summary.selected_static_minimizers +=
-                    usize::from(normal_form.is_selected_witness());
             }
             return;
         }
@@ -879,21 +1463,33 @@ pub(super) fn visit_global_normal_forms(mut visit: impl FnMut(GlobalNormalForm))
     for authority in AUTHORITIES {
         for lifecycle in LIFECYCLES {
             for coupling in COUPLINGS {
-                for progress in PROGRESS_FORMS {
-                    for resources in RESOURCES {
-                        for projections in PROJECTIONS {
-                            for tasks in TASKS {
-                                for compatibility in COMPATIBILITIES {
-                                    visit(GlobalNormalForm {
-                                        authority,
-                                        lifecycle,
-                                        coupling,
-                                        progress,
-                                        resources,
-                                        projections,
-                                        tasks,
-                                        compatibility,
-                                    });
+                for chain_completion in CHAIN_COMPLETIONS {
+                    for proposal_history in PROPOSAL_HISTORIES {
+                        for template_chain_read in TEMPLATE_CHAIN_READS {
+                            for progress in PROGRESS_FORMS {
+                                for resources in RESOURCES {
+                                    for allocation in ALLOCATIONS {
+                                        for projections in PROJECTIONS {
+                                            for tasks in TASKS {
+                                                for compatibility in COMPATIBILITIES {
+                                                    visit(GlobalNormalForm {
+                                                        authority,
+                                                        lifecycle,
+                                                        coupling,
+                                                        chain_completion,
+                                                        proposal_history,
+                                                        template_chain_read,
+                                                        progress,
+                                                        resources,
+                                                        allocation,
+                                                        projections,
+                                                        tasks,
+                                                        compatibility,
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -727,17 +727,24 @@ impl DependencyFrontier {
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
         vacancy: VacancyPolicy,
     ) -> Result<DependencyBatchDelta, DependencyError> {
-        let changes = changes
-            .into_iter()
-            .map(|(before, after)| {
-                Ok((
-                    before.map(DependencySlot::from_owner).transpose()?,
-                    after.map(DependencySlot::from_owner).transpose()?,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut removed_hashes = BTreeSet::new();
-        let mut added_hashes = BTreeSet::new();
+        let mut input = changes.into_iter();
+        let mut changes = Vec::new();
+        if let Some(capacity) = input.size_hint().1 {
+            changes
+                .try_reserve_exact(capacity)
+                .map_err(|_| DependencyError::Allocation)?;
+        }
+        for (before, after) in input.by_ref() {
+            if changes.len() == changes.capacity() {
+                changes
+                    .try_reserve(1)
+                    .map_err(|_| DependencyError::Allocation)?;
+            }
+            changes.push((
+                before.map(DependencySlot::from_owner).transpose()?,
+                after.map(DependencySlot::from_owner).transpose()?,
+            ));
+        }
         let mut removed = Vec::new();
         let mut added = Vec::new();
         removed
@@ -748,17 +755,25 @@ impl DependencyFrontier {
             .map_err(|_| DependencyError::Allocation)?;
         for (before, after) in changes {
             if let Some(before) = before {
-                if !removed_hashes.insert(before.hash.clone()) || !self.contains(&before) {
+                if !self.contains(&before) {
                     return Err(DependencyError::Projection);
                 }
                 removed.push(before);
             }
             if let Some(after) = after {
-                if !added_hashes.insert(after.hash.clone()) {
-                    return Err(DependencyError::Projection);
-                }
                 added.push(after);
             }
+        }
+        removed.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+        added.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
+        if removed
+            .array_windows::<2>()
+            .any(|[left, right]| left.hash == right.hash)
+            || added
+                .array_windows::<2>()
+                .any(|[left, right]| left.hash == right.hash)
+        {
+            return Err(DependencyError::Projection);
         }
         // This compiler accepts only replacements/removals of primary owners.
         // Requiring every added identity to have an exact `before` proof makes
@@ -767,7 +782,11 @@ impl DependencyFrontier {
         // admission/chain-generation API must carry its own typed vacancy proof.
         match vacancy {
             VacancyPolicy::ExistingOwnersOnly => {
-                if !added_hashes.is_subset(&removed_hashes) {
+                if added.iter().any(|slot| {
+                    removed
+                        .binary_search_by(|removed| removed.hash.cmp(&slot.hash))
+                        .is_err()
+                }) {
                     return Err(DependencyError::Projection);
                 }
             }

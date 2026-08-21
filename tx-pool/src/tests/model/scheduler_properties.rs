@@ -55,9 +55,9 @@ fn admit(omega: &mut Omega, admission: Admission) {
     ));
 }
 
-fn queue_verify_wave(omega: &mut Omega, admissions: Vec<Admission>) {
+fn queue_verify_wave(omega: &mut Omega, admissions: Vec<(Admission, VerifyCycleClass)>) {
     let mut resolving = Vec::with_capacity(admissions.len());
-    for admission in admissions {
+    for (admission, verify_class) in admissions {
         let transaction = admission.transaction.clone();
         admit(omega, admission);
         let capability = match omega.kernel_step(KernelCommand::Checkout) {
@@ -68,14 +68,16 @@ fn queue_verify_wave(omega: &mut Omega, admissions: Vec<Admission>) {
             other => panic!("expected exact resolve checkout, got {other:?}"),
         };
         assert_eq!(capability.transaction, transaction.id);
-        resolving.push((transaction, capability));
+        resolving.push((transaction, capability, verify_class));
     }
-    for (transaction, capability) in resolving {
+    for (transaction, capability, verify_class) in resolving {
         let evidence = ResolvedEvidence::for_transaction(
             &transaction,
             omega.authority.chain,
             omega.authority.rules,
-        );
+        )
+        .expect("direct transaction has no dep-group expansion")
+        .with_verify_class(verify_class);
         assert!(matches!(
             omega.kernel_step(KernelCommand::Complete(Completion {
                 capability: capability.id,
@@ -208,10 +210,13 @@ fn model_scheduler_wave_binds_canonical_worker_roles_to_distinct_fair_owners() {
 fn model_scheduler_wave_preserves_verify_capability_and_configured_order() {
     let mut omega = model(2);
     let small = Transaction::independent(1, 1, 10, 20);
-    let large = Transaction::independent(2, 2, 11, 21).with_verify_class(VerifyCycleClass::Large);
+    let large = Transaction::independent(2, 2, 11, 21);
     queue_verify_wave(
         &mut omega,
-        vec![remote(small.clone(), 1), remote(large.clone(), 2)],
+        vec![
+            (remote(small.clone(), 1), VerifyCycleClass::Small),
+            (remote(large.clone(), 2), VerifyCycleClass::Large),
+        ],
     );
 
     let mut permits =
@@ -266,13 +271,14 @@ fn model_scheduler_wave_preserves_verify_capability_and_configured_order() {
     }
 
     let mut same_owner = model(2);
-    let mut earlier = Transaction::independent(3, 3, 12, 22);
-    earlier.fee = 10;
-    let mut later = Transaction::independent(4, 4, 13, 23);
-    later.fee = 100;
+    let earlier = Transaction::independent(3, 3, 12, 22).with_fee(10);
+    let later = Transaction::independent(4, 4, 13, 23).with_fee(100);
     queue_verify_wave(
         &mut same_owner,
-        vec![remote(earlier.clone(), 1), remote(later.clone(), 1)],
+        vec![
+            (remote(earlier.clone(), 1), VerifyCycleClass::Small),
+            (remote(later.clone(), 1), VerifyCycleClass::Small),
+        ],
     );
     let selected = |order| {
         let mut permits = FairPermitScheduler::new(PermitDomain(order), 1, 1)
@@ -303,9 +309,8 @@ fn model_scheduler_small_capability_excludes_large_checkout_equivalence_premise(
         for class in [VerifyCycleClass::Small, VerifyCycleClass::Large] {
             transaction_id += 1;
             let mut omega = model(1);
-            let transaction =
-                Transaction::independent(transaction_id, 1, 10, 20).with_verify_class(class);
-            queue_verify_wave(&mut omega, vec![remote(transaction.clone(), 1)]);
+            let transaction = Transaction::independent(transaction_id, 1, 10, 20);
+            queue_verify_wave(&mut omega, vec![(remote(transaction.clone(), 1), class)]);
 
             let mut permits = FairPermitScheduler::new(PermitDomain(1), 1, 1)
                 .expect("one retained permit is valid");
@@ -317,7 +322,7 @@ fn model_scheduler_small_capability_excludes_large_checkout_equivalence_premise(
                 )],
             );
             let wave = SchedulerQuotient::default().plan_wave(&omega, grants);
-            let (cursor, assigned, idle) = wave.into_parts();
+            let (_, assigned, idle) = wave.into_parts();
             assert_eq!(
                 assigned.len(),
                 usize::from(capability.permits(class)),
@@ -342,7 +347,6 @@ fn model_scheduler_small_capability_excludes_large_checkout_equivalence_premise(
                     PermitReleaseDisposition::Released { next: None, .. }
                 ));
             }
-            drop(cursor);
         }
     }
 }

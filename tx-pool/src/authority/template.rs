@@ -10,8 +10,8 @@ use super::{
     plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection},
     source::PoolTemplateVersions,
     state::{
-        AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, ChainViewId, OwnedTx,
-        ProposalId, RawTxHash,
+        AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, ChainViewId,
+        ExpandedFootprint, OwnedTx, ProposalId, RawTxHash,
     },
 };
 use crate::block_assembler::{CandidateUncleSourceReceipt, ResetEpoch, TemplateRevision};
@@ -25,12 +25,6 @@ use std::{
     collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
-
-/// Maximum expanded dependency occurrences inspected while imposing the
-/// tx-pool-only reader-before-spender order on one proposed selection. The
-/// accepted authority already charges these occurrences as resident edges;
-/// this second bound limits transient template CPU and memory.
-const SELECTED_DEP_ORDERING_BUDGET: usize = 200_000;
 
 /// Exact SCC shedding removes one weakest feedback vertex from every cyclic
 /// component per round. Dense hostile components eventually retain only their
@@ -55,6 +49,7 @@ pub(super) struct TemplateCandidate {
     metrics: CandidateMetrics,
     ancestors: AncestorAggregate,
     resolved: Arc<ResolvedTransaction>,
+    footprint: Arc<ExpandedFootprint>,
     parents: Vec<RawTxHash>,
     order: AcceptedOrderKey,
     eviction: EvictionOrderKey,
@@ -85,12 +80,22 @@ impl TemplateCandidate {
         &self.resolved
     }
 
+    #[cfg(test)]
+    pub(super) fn dependency_edge_count(&self) -> usize {
+        self.footprint.dependencies().len()
+    }
+
     pub(super) fn parents(&self) -> &[RawTxHash] {
         &self.parents
     }
 
     pub(super) fn order(&self) -> &AcceptedOrderKey {
         &self.order
+    }
+
+    #[cfg(test)]
+    pub(super) fn eviction_order(&self) -> &EvictionOrderKey {
+        &self.eviction
     }
 }
 
@@ -103,6 +108,7 @@ struct CapturedAccepted {
     metrics: CandidateMetrics,
     ancestors: AncestorAggregate,
     resolved: Arc<ResolvedTransaction>,
+    footprint: Arc<ExpandedFootprint>,
     parents: Vec<RawTxHash>,
     order: AcceptedOrderKey,
     eviction: EvictionOrderKey,
@@ -113,12 +119,14 @@ pub(super) struct AuthorityTemplateReadReceipt {
     chain_view: ChainViewId,
     sources: PoolTemplateVersions,
     captured: Vec<CapturedAccepted>,
+    dependency_edge_bound: usize,
 }
 
 #[derive(Debug)]
 pub(super) struct TemplateSelectionReceipt {
     sources: PoolTemplateVersions,
     candidates: Vec<TemplateCandidate>,
+    dependency_edge_bound: usize,
 }
 
 /// One immutable tx-pool template input whose payloads, source versions and
@@ -180,6 +188,7 @@ impl AuthorityTemplateReadReceipt {
         captured
             .try_reserve(accepted_count)
             .map_err(|_| TemplateReadError::Allocation)?;
+        let mut dependency_edge_bound = 0usize;
         for order in membership.accepted_order().rev() {
             let hash = order.hash();
             let Some(OwnedTx::Accepted(entry)) = entries.get(hash) else {
@@ -199,6 +208,9 @@ impl AuthorityTemplateReadReceipt {
             let eviction = membership
                 .eviction_order_for(hash, entry)
                 .ok_or(TemplateReadError::Projection)?;
+            dependency_edge_bound = dependency_edge_bound
+                .checked_add(entry.proof.payload().footprint().dependencies().len())
+                .ok_or(TemplateReadError::Arithmetic)?;
             let mut parents = Vec::new();
             parents
                 .try_reserve(parent_set.len())
@@ -212,6 +224,7 @@ impl AuthorityTemplateReadReceipt {
                 metrics: entry.proof.metrics().clone(),
                 ancestors,
                 resolved: Arc::clone(entry.proof.payload().resolved_transaction()),
+                footprint: Arc::clone(entry.proof.payload().footprint()),
                 parents,
                 order: order.clone(),
                 eviction,
@@ -225,6 +238,7 @@ impl AuthorityTemplateReadReceipt {
             chain_view,
             sources,
             captured,
+            dependency_edge_bound,
         })
     }
 
@@ -253,6 +267,7 @@ impl AuthorityTemplateReadReceipt {
                 metrics: entry.metrics,
                 ancestors: entry.ancestors,
                 resolved: entry.resolved,
+                footprint: entry.footprint,
                 parents: entry.parents,
                 order: entry.order,
                 eviction: entry.eviction,
@@ -261,6 +276,7 @@ impl AuthorityTemplateReadReceipt {
         Ok(TemplateSelectionReceipt {
             sources: self.sources,
             candidates,
+            dependency_edge_bound: self.dependency_edge_bound,
         })
     }
 }
@@ -372,16 +388,14 @@ impl TemplateSelectionReceipt {
         selected: Vec<usize>,
         by_hash: &HashMap<RawTxHash, usize>,
     ) -> Result<Vec<usize>, TemplateReadError> {
-        self.order_conditionally_safe(selected, by_hash, SELECTED_DEP_ORDERING_BUDGET)
+        self.order_conditionally_safe(selected, by_hash)
     }
 
     fn order_conditionally_safe(
         &self,
         selected: Vec<usize>,
         by_hash: &HashMap<RawTxHash, usize>,
-        dependency_budget: usize,
     ) -> Result<Vec<usize>, TemplateReadError> {
-        let selected = self.retain_with_dependency_budget(selected, by_hash, dependency_budget)?;
         if selected.len() < 2 {
             return Ok(selected);
         }
@@ -405,7 +419,7 @@ impl TemplateSelectionReceipt {
 
         let mut cycle_round = 0usize;
         loop {
-            let graph = self.conditional_graph(&active, by_hash, dependency_budget)?;
+            let graph = self.conditional_graph(&active, by_hash)?;
             let ordered = topological_active_order(&active, &rank, &graph.children)?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
                 return Ok(ordered);
@@ -454,66 +468,10 @@ impl TemplateSelectionReceipt {
         }
     }
 
-    fn retain_with_dependency_budget(
-        &self,
-        selected: Vec<usize>,
-        by_hash: &HashMap<RawTxHash, usize>,
-        dependency_budget: usize,
-    ) -> Result<Vec<usize>, TemplateReadError> {
-        let mut remaining = dependency_budget;
-        let mut dropped = HashSet::new();
-        dropped
-            .try_reserve(selected.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
-        let mut retained = Vec::new();
-        retained
-            .try_reserve(selected.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
-        for index in selected {
-            let candidate = self
-                .candidates
-                .get(index)
-                .ok_or(TemplateReadError::Projection)?;
-            let causal_parent_dropped = candidate.parents.iter().any(|parent| {
-                by_hash
-                    .get(parent)
-                    .is_some_and(|parent_index| dropped.contains(parent_index))
-            });
-            if causal_parent_dropped {
-                dropped.insert(index);
-                continue;
-            }
-            if remaining == 0 {
-                if candidate.resolved.related_dep_out_points().next().is_some() {
-                    dropped.insert(index);
-                } else {
-                    retained.push(index);
-                }
-                continue;
-            }
-            let inspected = candidate
-                .resolved
-                .related_dep_out_points()
-                .take(remaining.saturating_add(1))
-                .count();
-            if inspected > remaining {
-                remaining = 0;
-                dropped.insert(index);
-            } else {
-                remaining = remaining
-                    .checked_sub(inspected)
-                    .ok_or(TemplateReadError::Projection)?;
-                retained.push(index);
-            }
-        }
-        Ok(retained)
-    }
-
     fn conditional_graph(
         &self,
         active: &[bool],
         by_hash: &HashMap<RawTxHash, usize>,
-        dependency_budget: usize,
     ) -> Result<SelectedGraph, TemplateReadError> {
         if active.len() != self.candidates.len() {
             return Err(TemplateReadError::Projection);
@@ -533,7 +491,7 @@ impl TemplateSelectionReceipt {
                 .checked_add(candidate.resolved.transaction.inputs().len())
                 .ok_or(TemplateReadError::Arithmetic)?;
             dependency_count = dependency_count
-                .checked_add(candidate.resolved.related_dep_out_points().count())
+                .checked_add(candidate.footprint.dependencies().len())
                 .ok_or(TemplateReadError::Arithmetic)?;
             for parent in &candidate.parents {
                 let parent = *by_hash.get(parent).ok_or(TemplateReadError::Projection)?;
@@ -545,7 +503,7 @@ impl TemplateSelectionReceipt {
                 }
             }
         }
-        if dependency_count > dependency_budget {
+        if dependency_count > self.dependency_edge_bound {
             return Err(TemplateReadError::Projection);
         }
         let edge_capacity = causal_edges
@@ -584,7 +542,7 @@ impl TemplateSelectionReceipt {
             {
                 continue;
             }
-            for dependency in candidate.resolved.related_dep_out_points() {
+            for dependency in candidate.footprint.dependencies() {
                 if let Some(spender) = spenders.get(dependency).copied()
                     && spender != reader
                 {
@@ -1049,7 +1007,7 @@ impl TemplateSourceCut {
         }
     }
 
-    fn chain_source(self) -> ApplySequence {
+    pub(super) fn chain_source(self) -> ApplySequence {
         self.pool.0.chain
     }
 
@@ -1074,14 +1032,14 @@ impl TemplatePoolSourceCut {
         })
     }
 
-    fn proposal_cut(self) -> ProposalSourceCut {
+    pub(super) fn proposal_cut(self) -> ProposalSourceCut {
         ProposalSourceCut {
             selection: self.0.proposals,
             chain: self.0.chain,
         }
     }
 
-    fn transaction_cut(self) -> TransactionSourceCut {
+    pub(super) fn transaction_cut(self) -> TransactionSourceCut {
         TransactionSourceCut {
             selection: self.0.transactions,
             chain: self.0.chain,
@@ -1090,19 +1048,19 @@ impl TemplatePoolSourceCut {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ProposalSourceCut {
+pub(super) struct ProposalSourceCut {
     selection: ApplySequence,
     chain: ApplySequence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct TransactionSourceCut {
+pub(super) struct TransactionSourceCut {
     selection: ApplySequence,
     chain: ApplySequence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct UncleSourceCut {
+pub(super) struct UncleSourceCut {
     candidates: CandidateUncleSourceReceipt,
     chain: ApplySequence,
     proposals: ApplySequence,
@@ -1118,15 +1076,15 @@ impl UncleSourceCut {
 }
 
 impl TemplateSourceCut {
-    fn proposal_cut(self) -> ProposalSourceCut {
+    pub(super) fn proposal_cut(self) -> ProposalSourceCut {
         self.pool.proposal_cut()
     }
 
-    fn transaction_cut(self) -> TransactionSourceCut {
+    pub(super) fn transaction_cut(self) -> TransactionSourceCut {
         self.pool.transaction_cut()
     }
 
-    fn uncle_cut(self) -> UncleSourceCut {
+    pub(super) fn uncle_cut(self) -> UncleSourceCut {
         UncleSourceCut {
             candidates: self.uncles,
             chain: self.pool.0.chain,
@@ -1153,20 +1111,95 @@ pub(super) enum TemplateConvergenceError {
     ResetEpochExhausted,
 }
 
+/// Total miner-facing observation of the chain component of the rebuildable
+/// template projection.  `Pending` has the replacement lane as its named
+/// releaser; `Failed` is the terminal ordinary outcome for the exact unchanged
+/// source cut.  None of these states owns chain or transaction policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TemplateChainReadState {
+    Published,
+    Pending,
+    Failed,
+}
+
+/// A published component can be chain-safe without having captured an exact
+/// pool/candidate source.  The initial base template is the only such state:
+/// it is a valid underfilled template for one chain cut, while every component
+/// lane must still observe its exact source before declaring convergence.
+///
+/// Keeping this distinction in the component receipt avoids both false exact
+/// coverage and a duplicate scalar read-readiness authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PublishedComponentCoverage<C> {
+    ChainOnly(ApplySequence),
+    Exact(C),
+}
+
+impl<C: Copy + PartialEq> PublishedComponentCoverage<C> {
+    fn is_exact(self, source: C) -> bool {
+        self == Self::Exact(source)
+    }
+}
+
+impl PublishedComponentCoverage<ProposalSourceCut> {
+    fn chain_source(self) -> ApplySequence {
+        match self {
+            Self::ChainOnly(chain) => chain,
+            Self::Exact(source) => source.chain,
+        }
+    }
+}
+
+impl PublishedComponentCoverage<TransactionSourceCut> {
+    fn chain_source(self) -> ApplySequence {
+        match self {
+            Self::ChainOnly(chain) => chain,
+            Self::Exact(source) => source.chain,
+        }
+    }
+}
+
+impl PublishedComponentCoverage<UncleSourceCut> {
+    fn chain_source(self) -> ApplySequence {
+        match self {
+            Self::ChainOnly(chain) => chain,
+            Self::Exact(source) => source.chain,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct TemplateCoverage {
-    proposals: Option<ProposalSourceCut>,
-    transactions: Option<TransactionSourceCut>,
-    uncles: Option<UncleSourceCut>,
+    proposals: Option<PublishedComponentCoverage<ProposalSourceCut>>,
+    transactions: Option<PublishedComponentCoverage<TransactionSourceCut>>,
+    uncles: Option<PublishedComponentCoverage<UncleSourceCut>>,
 }
 
 impl TemplateCoverage {
     fn full(sources: TemplateSourceCut) -> Self {
         Self {
-            proposals: Some(sources.proposal_cut()),
-            transactions: Some(sources.transaction_cut()),
-            uncles: Some(sources.uncle_cut()),
+            proposals: Some(PublishedComponentCoverage::Exact(sources.proposal_cut())),
+            transactions: Some(PublishedComponentCoverage::Exact(sources.transaction_cut())),
+            uncles: Some(PublishedComponentCoverage::Exact(sources.uncle_cut())),
         }
+    }
+
+    fn initial_base(chain: ApplySequence) -> Self {
+        Self {
+            proposals: Some(PublishedComponentCoverage::ChainOnly(chain)),
+            transactions: Some(PublishedComponentCoverage::ChainOnly(chain)),
+            uncles: Some(PublishedComponentCoverage::ChainOnly(chain)),
+        }
+    }
+
+    /// The miner-facing template is chain-current only when every independently
+    /// published component was constructed from the same chain cut. A reset or
+    /// one partial publication therefore cannot stand in for the vector.
+    fn coherent_chain_source(&self) -> Option<ApplySequence> {
+        let proposals = self.proposals?.chain_source();
+        let transactions = self.transactions?.chain_source();
+        let uncles = self.uncles?.chain_source();
+        (proposals == transactions && transactions == uncles).then_some(proposals)
     }
 }
 
@@ -1238,16 +1271,45 @@ pub(super) struct TemplateConvergence {
     desired_reset: ResetEpoch,
     desired_reset_chain: ApplySequence,
     full_required: Option<TemplateSourceCut>,
+    failed_replacement_chain: Option<ApplySequence>,
 }
 
 impl TemplateConvergence {
     pub(super) fn new(initial: TemplateSourceCut, reset_epoch: ResetEpoch) -> Self {
         Self {
             desired: initial,
-            covered: TemplateCoverage::default(),
+            // BlockAssembler::new publishes a chain-safe base template, but it
+            // has not captured any exact pool/candidate component source.
+            covered: TemplateCoverage::initial_base(initial.chain_source()),
             desired_reset: reset_epoch,
             desired_reset_chain: initial.chain_source(),
             full_required: Some(initial),
+            failed_replacement_chain: None,
+        }
+    }
+
+    pub(super) fn chain_read_state(&self, required: ApplySequence) -> TemplateChainReadState {
+        if self.covered.coherent_chain_source() == Some(required) {
+            TemplateChainReadState::Published
+        } else if self.failed_replacement_chain == Some(required) {
+            TemplateChainReadState::Failed
+        } else {
+            TemplateChainReadState::Pending
+        }
+    }
+
+    pub(super) fn record_replacement_failure(&mut self, failed: ApplySequence) {
+        self.failed_replacement_chain = Some(failed);
+    }
+
+    /// A successful replacement step retires an older terminal attempt but
+    /// does not declare read readiness; only coherent component coverage does.
+    fn record_replacement_progress(&mut self, published: ApplySequence) {
+        if self
+            .failed_replacement_chain
+            .is_some_and(|failed| failed <= published)
+        {
+            self.failed_replacement_chain = None;
         }
     }
 
@@ -1324,11 +1386,13 @@ impl TemplateConvergence {
         base_revision: TemplateRevision,
     ) -> Option<PartialTemplateBuild> {
         self.observe_pool_sources(sources);
-        (self.covered.proposals != Some(self.desired.proposal_cut())).then(|| {
-            PartialTemplateBuild {
-                expected_revision: base_revision,
-                coverage: PartialTemplateCoverage::Proposals(sources.proposal_cut()),
-            }
+        (!self
+            .covered
+            .proposals
+            .is_some_and(|covered| covered.is_exact(self.desired.proposal_cut())))
+        .then(|| PartialTemplateBuild {
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Proposals(sources.proposal_cut()),
         })
     }
 
@@ -1338,11 +1402,13 @@ impl TemplateConvergence {
         base_revision: TemplateRevision,
     ) -> Option<PartialTemplateBuild> {
         self.observe_pool_sources(sources);
-        (self.covered.transactions != Some(self.desired.transaction_cut())).then(|| {
-            PartialTemplateBuild {
-                expected_revision: base_revision,
-                coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
-            }
+        (!self
+            .covered
+            .transactions
+            .is_some_and(|covered| covered.is_exact(self.desired.transaction_cut())))
+        .then(|| PartialTemplateBuild {
+            expected_revision: base_revision,
+            coverage: PartialTemplateCoverage::Transactions(sources.transaction_cut()),
         })
     }
 
@@ -1352,7 +1418,11 @@ impl TemplateConvergence {
         base_revision: TemplateRevision,
     ) -> Option<PartialTemplateBuild> {
         self.observe_sources(sources);
-        (self.covered.uncles != Some(self.desired.uncle_cut())).then(|| PartialTemplateBuild {
+        (!self
+            .covered
+            .uncles
+            .is_some_and(|covered| covered.is_exact(self.desired.uncle_cut())))
+        .then(|| PartialTemplateBuild {
             expected_revision: base_revision,
             coverage: PartialTemplateCoverage::Uncles(sources.uncle_cut()),
         })
@@ -1420,6 +1490,7 @@ impl TemplateConvergence {
         {
             return Ok(TemplatePublication::Stale);
         }
+        let progress_chain = build.expected_reset_chain;
         self.covered = build.coverage;
         if self
             .full_required
@@ -1427,6 +1498,7 @@ impl TemplateConvergence {
         {
             self.full_required = None;
         }
+        self.record_replacement_progress(progress_chain);
         Ok(TemplatePublication::Published)
     }
 
@@ -1440,17 +1512,18 @@ impl TemplateConvergence {
         }
         match build.coverage {
             PartialTemplateCoverage::Proposals(coverage) => {
-                self.covered.proposals = Some(coverage);
+                self.covered.proposals = Some(PublishedComponentCoverage::Exact(coverage));
                 self.covered.transactions = None;
                 self.covered.uncles = None;
             }
             PartialTemplateCoverage::Transactions(coverage) => {
-                self.covered.transactions = Some(coverage)
+                self.covered.transactions = Some(PublishedComponentCoverage::Exact(coverage))
             }
             PartialTemplateCoverage::Uncles(coverage) => {
-                self.covered.proposals = Some(coverage.proposal_cut());
+                self.covered.proposals =
+                    Some(PublishedComponentCoverage::Exact(coverage.proposal_cut()));
                 self.covered.transactions = None;
-                self.covered.uncles = Some(coverage);
+                self.covered.uncles = Some(PublishedComponentCoverage::Exact(coverage));
             }
         }
         Ok(TemplatePublication::Published)
@@ -1467,20 +1540,27 @@ impl TemplateConvergence {
         {
             return Ok(TemplatePublication::Stale);
         }
+        let progress_chain = build.chain_source;
         self.covered = TemplateCoverage::default();
         self.require_full();
+        self.record_replacement_progress(progress_chain);
         Ok(TemplatePublication::Published)
     }
 
     pub(super) fn is_pending(&self, component: TemplateComponent) -> bool {
         match component {
-            TemplateComponent::Proposals => {
-                self.covered.proposals != Some(self.desired.proposal_cut())
-            }
-            TemplateComponent::Transactions => {
-                self.covered.transactions != Some(self.desired.transaction_cut())
-            }
-            TemplateComponent::Uncles => self.covered.uncles != Some(self.desired.uncle_cut()),
+            TemplateComponent::Proposals => !self
+                .covered
+                .proposals
+                .is_some_and(|covered| covered.is_exact(self.desired.proposal_cut())),
+            TemplateComponent::Transactions => !self
+                .covered
+                .transactions
+                .is_some_and(|covered| covered.is_exact(self.desired.transaction_cut())),
+            TemplateComponent::Uncles => !self
+                .covered
+                .uncles
+                .is_some_and(|covered| covered.is_exact(self.desired.uncle_cut())),
         }
     }
 }

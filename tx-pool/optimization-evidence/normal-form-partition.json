@@ -1,16 +1,16 @@
 {
-  "schema_version": 1,
-  "release_basis_sha256": "ce858991458ec37250b7af47a1509715d8bd1c41ae59d9fbd541fbf3a4a64daf",
-  "optimization_goal_sha256": "37e72f5cafb51e3a8a62664107d15e4aefc8959abe5e8c0911c7ee824f36daf0",
+  "schema_version": 3,
+  "release_basis_sha256": "8bfcf5cd0c98bf65901130a7d17e21eff69cc861c9129fc85fb0f5bfc86f1fbe",
+  "optimization_goal_sha256": "8a198ac994605823e4b5d9f862acd4dd5083988935c46dbd32d8c7ef361da88c",
   "static_lower_bound_rule_sha256": "c3d1587fd70fe1ba57a00fbad27c116fc81e6bb6fb582f3b85ae730c76a97065",
-  "basis_atom_count": 127,
+  "basis_atom_count": 132,
   "basis_axis_coverage": {
     "authority_and_atomic_commit": [
       "optimization_goal.hard_constraints.single_transaction_authority_and_linear_capability_resource_conservation",
       "optimization_goal.static_objective.authority_and_atomic_commit_domain_count",
       "optimization_goal.static_objective.authority_guard_operation_and_hold_bounds",
       "optimization_goal.empirical_objective.authority_lock_wait_and_hold",
-      "optimization_goal.complexity_objective.default_production_semantic_mechanisms",
+      "optimization_goal.complexity_objective.active_semantic_authorities",
       "proof_policy.conservation",
       "proof_policy.system_transition",
       "root_families.F2",
@@ -19,26 +19,41 @@
       "target_invariants.T6"
     ],
     "lifecycle_capability_and_evidence": [
-      "optimization_goal.complexity_objective.checker_and_proof_mechanisms",
+      "optimization_goal.complexity_objective.independent_algorithms_per_production_observation",
       "optimization_goal.complexity_objective.manual_evidence_and_documentation_authorities",
-      "optimization_goal.complexity_objective.test_and_model_semantic_mechanisms",
-      "optimization_goal.complexity_objective.test_and_model_source_roles",
+      "optimization_goal.complexity_objective.model_roots_without_production_termini",
+      "optimization_goal.complexity_objective.source_role_authorities",
+      "optimization_goal.complexity_objective.policy_authoritative_release_checkers",
       "proof_policy.model_review",
       "proof_policy.primary_evidence",
       "proof_policy.prose_role",
+      "refactor_admissibility.baseline_role",
+      "refactor_admissibility.candidate_role",
+      "refactor_admissibility.defect_rule",
+      "refactor_admissibility.derived_semantics",
+      "refactor_admissibility.disposition_codomain",
+      "refactor_admissibility.disposition_domain",
+      "refactor_admissibility.invalidation_rule",
+      "refactor_admissibility.normative_authority_order",
+      "refactor_admissibility.oracle_independence",
+      "refactor_admissibility.refinement_relation",
+      "refactor_admissibility.schema_version",
+      "refactor_admissibility.underdetermined_rule",
       "root_families.F1",
       "root_families.F8",
       "target_invariants.T2",
-      "target_invariants.T9",
       "target_invariants.T11",
       "construction_root_families.CRF-DIRECT-NEGATIVE-EVIDENCE",
       "construction_root_families.CRF-HISTORICAL-BIDIRECTIONAL-COVERAGE",
       "construction_root_members.D1-DIRECT-NEGATIVE-OCC",
-      "construction_root_members.D1-HISTORY"
+      "construction_root_members.D1-HISTORY",
+      "historical_convergence.law",
+      "refactor_admissibility.lifecycle_observation_relation",
+      "refactor_admissibility.contextual_verification_relation",
+      "refactor_admissibility.model_base_roles"
     ],
     "commutativity_coupling_and_batching": [
       "optimization_goal.concurrency_law",
-      "optimization_goal.coupling_law",
       "optimization_goal.hard_constraints.consensus_data_integrity_and_determinism",
       "optimization_goal.static_objective.independent_parallelism_loss",
       "optimization_goal.static_objective.worst_case_serial_authority_cuts",
@@ -50,8 +65,25 @@
       "target_invariants.T15",
       "target_invariants.T16"
     ],
+    "chain_publication_apply_completion_observation": [
+      "optimization_goal.coupling_law",
+      "target_invariants.T9"
+    ],
+    "proposal_history_and_two_phase_commit": [
+      "construction_root_families.CRF-PROPOSAL-COMMIT-LIVENESS",
+      "construction_root_members.D1-ELIGIBLE-COMMIT-LIVENESS",
+      "refactor_admissibility.two_phase_service_relation"
+    ],
+    "template_chain_source_read_totality": [
+      "root_families.F7",
+      "target_invariants.T13",
+      "construction_root_members.D1-CHAIN-TEMPLATE-VISIBILITY",
+      "residual_risks.R5"
+    ],
     "dependency_scheduler_and_progress": [
       "proof_policy.progress",
+      "refactor_admissibility.dependency_evidence_relation",
+      "refactor_admissibility.liveness_rule",
       "root_families.F5",
       "target_invariants.T4",
       "target_invariants.T5",
@@ -66,36 +98,35 @@
     "resources_and_adversarial_bounds": [
       "optimization_goal.hard_constraints.bounded_peer_controlled_time_memory_edges_fanout_depth_retry_and_work",
       "optimization_goal.static_objective.adversarial_time_memory_allocation_and_wake_bounds",
-      "optimization_goal.static_objective.residual_security_and_operational_risk_transfer",
       "optimization_goal.empirical_objective.peak_rss_and_allocation_rate",
       "root_families.F4",
       "target_invariants.T3",
       "target_invariants.T8",
       "construction_root_families.CRF-BOUNDED-RESOURCE-ADMISSION",
-      "construction_root_members.D1-ALLOCATION-LIVENESS",
       "construction_root_members.D1-FALLIBLE-SCRATCH",
       "construction_root_members.D1-REQUEST-PAYLOAD-BOUND",
-      "residual_risks.R4",
       "residual_risks.R6",
-      "residual_risks.R8"
+      "residual_risks.R8",
+      "refactor_admissibility.cost_observation_relation"
+    ],
+    "allocation_terminal_scope_and_progress": [
+      "optimization_goal.static_objective.residual_security_and_operational_risk_transfer",
+      "construction_root_members.D1-ALLOCATION-LIVENESS",
+      "residual_risks.R4"
     ],
     "effects_queries_and_derived_projections": [
       "optimization_goal.hard_constraints.external_effects_cannot_retroactively_veto_commit",
       "root_families.F3",
-      "root_families.F7",
       "target_invariants.T7",
       "target_invariants.T12",
-      "target_invariants.T13",
       "release_surface.anchors.rpc_conflicted_semantics",
       "release_surface.anchors.rpc_inflight_pending_semantics",
-      "residual_risks.R2",
-      "residual_risks.R5"
+      "residual_risks.R2"
     ],
     "tasks_locks_queues_channels_and_failure_domains": [
       "optimization_goal.hard_constraints.total_legal_and_hostile_input_outcomes_without_service_fail_stop",
       "optimization_goal.static_objective.tasks_locks_queues_channels_resident_state_and_failure_domains",
       "optimization_goal.empirical_objective.shutdown_and_reorg_interference_latency",
-      "optimization_goal.complexity_objective.default_production_source_roles",
       "construction_root_families.CRF-TASK-CAPABILITY-LIFECYCLE",
       "construction_root_families.CRF-TOTAL-FAULT-BOUNDARY",
       "construction_root_members.D1-FAULT-INGRESS-EVIDENCE",
@@ -103,7 +134,7 @@
       "construction_root_members.D1-STOP-REACHABILITY",
       "construction_root_members.D1-TASK-CAPABILITY"
     ],
-    "compatibility_migration_and_landing": [
+    "compatibility_migration_and_operations": [
       "optimization_goal.scope",
       "optimization_goal.claim_boundary",
       "optimization_goal.hard_constraints.ckb_protocol_and_external_observational_equivalence",
@@ -123,50 +154,269 @@
       "release_surface.compatibility_policy.reverse_persistence_migration",
       "release_surface.rust_api_compatibility.decision_function",
       "release_surface.rust_api_compatibility.facade_constraint",
-      "release_surface.rust_api_compatibility.version_transition",
-      "release_surface.rust_api_compatibility.landing_evidence_requirements.candidate_major_version_relation",
-      "release_surface.rust_api_compatibility.landing_evidence_requirements.generated_workspace_reverse_dependency_build_and_tests",
-      "release_surface.rust_api_compatibility.landing_evidence_requirements.rehearsal_against_current_official_develop",
-      "release_surface.rust_api_compatibility.landing_evidence_requirements.release_migration_notes",
-      "landing_protocol.downstream_universe.generators.managed_integration_impact",
-      "landing_protocol.downstream_universe.generators.merge_conflict_surface",
-      "landing_protocol.downstream_universe.generators.release_surface_consumers",
-      "landing_protocol.downstream_universe.generators.workspace_reverse_dependencies",
-      "landing_protocol.feasibility_constraints.all_release_surface_version_migration_and_recovery_requirements_hold",
-      "landing_protocol.feasibility_constraints.generated_downstream_universe_builds_and_tests",
-      "landing_protocol.feasibility_constraints.local_rehearsal_is_recoverable_and_grants_no_push_merge_or_release_authority",
-      "landing_protocol.feasibility_constraints.reconciles_the_same_frozen_X3_witness_and_final_tree",
-      "landing_protocol.feasibility_constraints.zero_unresolved_semantic_conflicts",
-      "landing_protocol.cost_objective.canonical_candidate_order_index",
-      "landing_protocol.cost_objective.conflict_resolution_operation_count",
-      "landing_protocol.cost_objective.downstream_build_and_test_repetition_count",
-      "landing_protocol.cost_objective.history_rewrite_operation_count",
-      "landing_protocol.cost_objective.maximum_unvalidated_semantic_delta",
-      "landing_protocol.cost_objective.migration_and_recovery_cut_count",
-      "landing_protocol.cost_objective.residual_semantic_conflict_and_migration_risk",
-      "landing_protocol.cost_objective.review_dependency_edge_count",
+      "release_surface.rust_api_compatibility.publication_boundary",
+      "release_surface.rust_api_compatibility.compatibility_evidence_requirements.no_authority_restoring_facade",
+      "release_surface.rust_api_compatibility.compatibility_evidence_requirements.generated_workspace_reverse_dependency_build_and_tests",
+      "release_surface.rust_api_compatibility.compatibility_evidence_requirements.release_migration_notes",
       "residual_risks.R3",
       "residual_risks.R7"
     ]
+  },
+  "semantic_relation_partition": {
+    "semantic_census_evidence_sha256": "e8cc5c80f306f5a0abc3966da803c80da9b41262397c7d8c4705c8e6908854dc",
+    "semantic_axis_to_normal_form_axis": {
+      "SA-IDENTITY-EVIDENCE": "lifecycle_capability_and_evidence",
+      "SA-NONCONTEXTUAL-VALIDITY": "allocation_terminal_scope_and_progress",
+      "SA-CONTEXTUAL-ELIGIBILITY": "chain_publication_apply_completion_observation",
+      "SA-INGRESS-SOURCE-DUPLICATE": "lifecycle_capability_and_evidence",
+      "SA-OWNER-CAPABILITY-ATOMICITY": "authority_and_atomic_commit",
+      "SA-DEPENDENCY-CONDITIONAL-GRAPH": "dependency_scheduler_and_progress",
+      "SA-CONFLICT-RBF-HISTORY": "commutativity_coupling_and_batching",
+      "SA-RESOURCE-ADMISSION-EVICTION-EXPIRY": "resources_and_adversarial_bounds",
+      "SA-SCHEDULING-COMPUTE-CONCURRENCY": "commutativity_coupling_and_batching",
+      "SA-PROPOSAL-WINDOW-TWO-STEP": "proposal_history_and_two_phase_commit",
+      "SA-CHAIN-REORG-RECOVERY": "chain_publication_apply_completion_observation",
+      "SA-TEMPLATE-SELECTION-UNCLES": "template_chain_source_read_totality",
+      "SA-EFFECTS-QUERY-RELAY": "effects_queries_and_derived_projections",
+      "SA-CONFIG-PERSISTENCE-API-OPERATIONS": "compatibility_migration_and_operations",
+      "SA-TASK-FAULT-SHUTDOWN": "tasks_locks_queues_channels_and_failure_domains",
+      "SA-LIVENESS-FAIRNESS-PROGRESS": "dependency_scheduler_and_progress"
+    },
+    "semantic_grain_to_normal_form_axis": {
+      "SA-CHAIN-REORG-RECOVERY::TP-DEP-001": "chain_publication_apply_completion_observation",
+      "SA-CHAIN-REORG-RECOVERY::TP-REORG-001": "chain_publication_apply_completion_observation",
+      "SA-CONFIG-PERSISTENCE-API-OPERATIONS::TP-BUDGET-001": "compatibility_migration_and_operations",
+      "SA-CONFIG-PERSISTENCE-API-OPERATIONS::TP-PERSIST-001": "compatibility_migration_and_operations",
+      "SA-CONFLICT-RBF-HISTORY::TP-CACHE-001": "commutativity_coupling_and_batching",
+      "SA-CONFLICT-RBF-HISTORY::TP-EFFECT-001": "commutativity_coupling_and_batching",
+      "SA-CONFLICT-RBF-HISTORY::TP-RBF-001": "commutativity_coupling_and_batching",
+      "SA-CONTEXTUAL-ELIGIBILITY::TP-IDENTITY-001": "chain_publication_apply_completion_observation",
+      "SA-CONTEXTUAL-ELIGIBILITY::TP-REORG-001": "chain_publication_apply_completion_observation",
+      "SA-DEPENDENCY-CONDITIONAL-GRAPH::TP-DEP-001": "dependency_scheduler_and_progress",
+      "SA-DEPENDENCY-CONDITIONAL-GRAPH::TP-POOL-001": "dependency_scheduler_and_progress",
+      "SA-EFFECTS-QUERY-RELAY::TP-EFFECT-001": "effects_queries_and_derived_projections",
+      "SA-EFFECTS-QUERY-RELAY::TP-HANDOFF-001": "effects_queries_and_derived_projections",
+      "SA-EFFECTS-QUERY-RELAY::TP-QUERY-001": "effects_queries_and_derived_projections",
+      "SA-IDENTITY-EVIDENCE::TP-IDENTITY-001": "lifecycle_capability_and_evidence",
+      "SA-IDENTITY-EVIDENCE::TP-OWN-001": "lifecycle_capability_and_evidence",
+      "SA-INGRESS-SOURCE-DUPLICATE::TP-HANDOFF-001": "lifecycle_capability_and_evidence",
+      "SA-INGRESS-SOURCE-DUPLICATE::TP-OWN-001": "lifecycle_capability_and_evidence",
+      "SA-LIVENESS-FAIRNESS-PROGRESS::TP-DEP-001": "dependency_scheduler_and_progress",
+      "SA-LIVENESS-FAIRNESS-PROGRESS::TP-TEMPLATE-001": "dependency_scheduler_and_progress",
+      "SA-LIVENESS-FAIRNESS-PROGRESS::TP-WORKER-001": "dependency_scheduler_and_progress",
+      "SA-NONCONTEXTUAL-VALIDITY::TP-BUDGET-001": "allocation_terminal_scope_and_progress",
+      "SA-NONCONTEXTUAL-VALIDITY::TP-DEFECT-001": "allocation_terminal_scope_and_progress",
+      "SA-OWNER-CAPABILITY-ATOMICITY::TP-COMMIT-001": "authority_and_atomic_commit",
+      "SA-OWNER-CAPABILITY-ATOMICITY::TP-OWN-001": "authority_and_atomic_commit",
+      "SA-OWNER-CAPABILITY-ATOMICITY::TP-POOL-001": "authority_and_atomic_commit",
+      "SA-PROPOSAL-WINDOW-TWO-STEP::TP-QUERY-001": "proposal_history_and_two_phase_commit",
+      "SA-PROPOSAL-WINDOW-TWO-STEP::TP-REORG-001": "proposal_history_and_two_phase_commit",
+      "SA-PROPOSAL-WINDOW-TWO-STEP::TP-TEMPLATE-001": "proposal_history_and_two_phase_commit",
+      "SA-RESOURCE-ADMISSION-EVICTION-EXPIRY::TP-ADMIN-001": "resources_and_adversarial_bounds",
+      "SA-RESOURCE-ADMISSION-EVICTION-EXPIRY::TP-BUDGET-001": "resources_and_adversarial_bounds",
+      "SA-RESOURCE-ADMISSION-EVICTION-EXPIRY::TP-CACHE-001": "resources_and_adversarial_bounds",
+      "SA-SCHEDULING-COMPUTE-CONCURRENCY::TP-PERF-001": "commutativity_coupling_and_batching",
+      "SA-SCHEDULING-COMPUTE-CONCURRENCY::TP-WORKER-001": "commutativity_coupling_and_batching",
+      "SA-TASK-FAULT-SHUTDOWN::TP-DEFECT-001": "tasks_locks_queues_channels_and_failure_domains",
+      "SA-TASK-FAULT-SHUTDOWN::TP-HANDOFF-001": "tasks_locks_queues_channels_and_failure_domains",
+      "SA-TASK-FAULT-SHUTDOWN::TP-WORKER-001": "tasks_locks_queues_channels_and_failure_domains",
+      "SA-TEMPLATE-SELECTION-UNCLES::TP-DEP-001": "template_chain_source_read_totality",
+      "SA-TEMPLATE-SELECTION-UNCLES::TP-TEMPLATE-001": "template_chain_source_read_totality"
+    },
+    "dynamic_composition_to_normal_form_axes": {
+      "DR-PROPOSAL-REORG-TEMPLATE-SERVICE": [
+        "chain_publication_apply_completion_observation",
+        "dependency_scheduler_and_progress",
+        "proposal_history_and_two_phase_commit",
+        "resources_and_adversarial_bounds",
+        "template_chain_source_read_totality"
+      ],
+      "DR-DEPENDENCY-RESOLUTION-SETTLEMENT": [
+        "authority_and_atomic_commit",
+        "chain_publication_apply_completion_observation",
+        "commutativity_coupling_and_batching",
+        "dependency_scheduler_and_progress",
+        "lifecycle_capability_and_evidence",
+        "resources_and_adversarial_bounds"
+      ],
+      "DR-COST-RECEIPT-OBSERVATION": [
+        "chain_publication_apply_completion_observation",
+        "commutativity_coupling_and_batching",
+        "lifecycle_capability_and_evidence",
+        "resources_and_adversarial_bounds"
+      ],
+      "DR-AUTHORITY-LIFECYCLE-OBSERVATION": [
+        "allocation_terminal_scope_and_progress",
+        "authority_and_atomic_commit",
+        "chain_publication_apply_completion_observation",
+        "commutativity_coupling_and_batching",
+        "compatibility_migration_and_operations",
+        "dependency_scheduler_and_progress",
+        "effects_queries_and_derived_projections",
+        "lifecycle_capability_and_evidence",
+        "resources_and_adversarial_bounds",
+        "tasks_locks_queues_channels_and_failure_domains"
+      ]
+    },
+    "producer_closed": true
+  },
+  "observational_quotient": {
+    "sha256": "5ef3b61e1a2f4a8ece4c0356e285c266a4dc1106c86093ee0a9a6f0b93b3917b",
+    "equivalence": "alpha_s_equals_alpha_t_implies_equal_boundary_observation_and_objective_class_for_every_legal_continuation",
+    "cost_observation_refs": [
+      "optimization_goal.static_objective",
+      "optimization_goal.empirical_objective",
+      "optimization_goal.complexity_objective"
+    ],
+    "axis_falsifier_tests": {
+      "authority_and_atomic_commit": [
+        "mathematical_model::properties::model_multi_owner_apply_uses_one_stamp_distinct_versions_and_canonical_effect_order"
+      ],
+      "lifecycle_capability_and_evidence": [
+        "mathematical_model::properties::model_sequential_lifecycle_preserves_owner_charge_capability_and_effect_laws"
+      ],
+      "commutativity_coupling_and_batching": [
+        "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission"
+      ],
+      "chain_publication_apply_completion_observation": [
+        "mathematical_model::topology_properties::model_chain_publish_return_requires_the_exact_authority_apply_before_template_read"
+      ],
+      "proposal_history_and_two_phase_commit": [
+        "mathematical_model::two_phase::tests::model_window_serviced_two_phase_machine_is_safe_and_finitely_ranked_exhaustively",
+        "mathematical_model::properties::model_reorg_template_and_window_service_composition_commutes",
+        "mathematical_model::topology_properties::model_proposal_history_keeps_consensus_independent_and_selects_delta_work",
+        "mathematical_model::proposal::tests::model_persistent_count_projection_refines_every_small_successor_history",
+        "mathematical_model::proposal::tests::model_production_sparse_successor_matches_full_rebuild_exhaustively",
+        "mathematical_model::proposal::tests::model_sparse_receipt_requires_exact_predecessor_and_reorg_falls_back",
+        "mathematical_model::proposal::tests::model_projection_identity_has_no_counter_exhaustion_state",
+        "mathematical_model::proposal::tests::model_successor_rejects_rewritten_retained_history_and_stale_counts",
+        "mathematical_model::proposal::tests::model_operator_verification_bypass_is_typed_and_does_not_fabricate_consensus_proof"
+      ],
+      "template_chain_source_read_totality": [
+        "authority::tests::template::uak_template_chain_read_requires_one_coherent_component_cut",
+        "mathematical_model::topology_properties::model_chain_publish_return_requires_the_exact_authority_apply_before_template_read"
+      ],
+      "dependency_scheduler_and_progress": [
+        "mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply",
+        "mathematical_model::properties::model_ready_capture_commits_every_unchanged_owner_before_a_mutated_weaker_tail"
+      ],
+      "resources_and_adversarial_bounds": [
+        "mathematical_model::adversarial_properties::model_quantitative_equation_rejects_every_configured_bound_overrun",
+        "mathematical_model::resource_transition_properties::model_resource_configuration_rejects_each_independent_invalid_premise"
+      ],
+      "allocation_terminal_scope_and_progress": [
+        "mathematical_model::properties::model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry"
+      ],
+      "effects_queries_and_derived_projections": [
+        "mathematical_model::progress_properties::model_effect_publication_observation_is_one_total_three_way_cut",
+        "mathematical_model::properties::model_query_projection_collapses_only_the_documented_internal_states"
+      ],
+      "tasks_locks_queues_channels_and_failure_domains": [
+        "mathematical_model::properties::model_generation_task_contract_is_a_total_unique_owner_join_partition",
+        "mathematical_model::properties::model_completion_ingress_closure_strictly_lowers_the_effect_drain_rank"
+      ],
+      "compatibility_migration_and_operations": [
+        "persisted::tests::persistence_loader_accepts_legacy_v1_vector",
+        "legacy::tx_pool::tests::legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity"
+      ]
+    }
   },
   "axis_cardinalities": {
     "authority_and_atomic_commit": 4,
     "lifecycle_capability_and_evidence": 3,
     "commutativity_coupling_and_batching": 3,
+    "chain_publication_apply_completion_observation": 2,
+    "proposal_history_and_two_phase_commit": 6,
+    "template_chain_source_read_totality": 5,
     "dependency_scheduler_and_progress": 4,
     "resources_and_adversarial_bounds": 4,
+    "allocation_terminal_scope_and_progress": 4,
     "effects_queries_and_derived_projections": 4,
     "tasks_locks_queues_channels_and_failure_domains": 4,
-    "compatibility_migration_and_landing": 4
+    "compatibility_migration_and_operations": 4
+  },
+  "axis_variants": {
+    "authority_and_atomic_commit": [
+      "unique_minimum_apply",
+      "unique_oversized_apply",
+      "split_lifecycle_authorities",
+      "universal_actor"
+    ],
+    "lifecycle_capability_and_evidence": [
+      "sealed_linear_exact",
+      "sealed_linear_with_rollback",
+      "copied_or_inferred_evidence"
+    ],
+    "commutativity_coupling_and_batching": [
+      "exact_canonical_available_cut",
+      "per_owner_independent_cuts",
+      "timer_or_approximate_batch"
+    ],
+    "chain_publication_apply_completion_observation": [
+      "apply_acknowledged",
+      "enqueue_only"
+    ],
+    "proposal_history_and_two_phase_commit": [
+      "bounded_persistent_sparse_exact_view_independent_verifier",
+      "expected_bound_persistent_sparse_exact_view_independent_verifier",
+      "materialized_incremental_exact_view_independent_verifier",
+      "recomputed_exact_view_independent_verifier",
+      "shared_mutable_verifier_view",
+      "scalar_or_current_history"
+    ],
+    "template_chain_source_read_totality": [
+      "source_gated_terminal",
+      "source_scalar_gated_terminal",
+      "ungated_last_published",
+      "source_gated_unbounded_wait",
+      "timer_or_polling_freshness"
+    ],
+    "dependency_scheduler_and_progress": [
+      "same_apply_derived_finite_rank",
+      "same_apply_with_resident_derived_dag",
+      "resident_decision_authority",
+      "polling_or_unchanged_retry"
+    ],
+    "resources_and_adversarial_bounds": [
+      "unified_bounded_fallible",
+      "partitioned_bounded_charged",
+      "fragmented_or_uncharged",
+      "infallible_or_unbounded"
+    ],
+    "allocation_terminal_scope_and_progress": [
+      "allocation_free_generation_terminal",
+      "bounded_scoped_recovery",
+      "unchanged_cut_retry",
+      "fail_stop_or_capability_leak"
+    ],
+    "effects_queries_and_derived_projections": [
+      "post_commit_derived_prepared",
+      "post_commit_with_resident_derived_projection",
+      "external_veto_or_guard_io",
+      "resident_policy_projection"
+    ],
+    "tasks_locks_queues_channels_and_failure_domains": [
+      "bounded_owned_minimal_lanes",
+      "bounded_owned_extra_actor",
+      "universal_serialized_loop",
+      "detached_or_repair_topology"
+    ],
+    "compatibility_migration_and_operations": [
+      "forward_legacy_intentional_major",
+      "forward_legacy_major_with_non_authoritative_facade",
+      "drops_supported_legacy",
+      "reverse_migration_or_authority_facade"
+    ]
   },
   "candidate_partition": {
-    "normal_forms": 36864,
-    "X0_feasible": 64,
-    "rejected": 36800,
+    "symbolic_totality": "the_executable_total_feasibility_function_is_evaluated_on_every_tuple_of_the_exact_Cartesian_variant_product",
+    "normal_forms": 8847360,
+    "X0_feasible": 384,
+    "rejected": 8846976,
     "rejected_by_feasibility_law": {
-      "hard_constraints": 36288,
-      "concurrency_law": 23040,
-      "coupling_law": 9216
+      "hard_constraints": 8840448,
+      "concurrency_law": 5529600,
+      "coupling_law": 5529600
     }
   },
   "X1_static_frontier": {
@@ -198,7 +448,20 @@
       "tasks_locks_queues_channels_resident_state_and_failure_domains": 0
     },
     "minimizers": 1,
-    "selected_witness_minimizers": 1,
+    "minimum_signature": [
+      "unique_minimum_apply",
+      "sealed_linear_exact",
+      "exact_canonical_available_cut",
+      "apply_acknowledged",
+      "bounded_persistent_sparse_exact_view_independent_verifier",
+      "source_gated_terminal",
+      "same_apply_derived_finite_rank",
+      "unified_bounded_fallible",
+      "allocation_free_generation_terminal",
+      "post_commit_derived_prepared",
+      "bounded_owned_minimal_lanes",
+      "forward_legacy_intentional_major"
+    ],
     "minimum_non_authoritative_facade_extra_cost": [
       1,
       0,
@@ -217,6 +480,15 @@
       0,
       1
     ],
+    "minimum_scoped_allocation_extra_cost": [
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0
+    ],
     "witness": "bounded_semantic_exchange"
   },
   "X2_empirical_frontier": {
@@ -224,20 +496,49 @@
     "X1_cardinality": 1,
     "construction_measurement_universe": [],
     "construction_measurement_records": [],
-    "declared_matrix_sha256": "0cd21992ba066d5fd77eba0fb91652f0465ecf0a1277e92b564f22c0837934ce",
+    "declared_matrix_sha256": "1a34a1cbcf6a2c73b20164898d1fb83175689ac580d79721fd2d16861fc9bd71",
     "measurement_record_protocol_sha256": "975e93a9364bc4699d7043f1aeec8f90dc040fac4db4315d7f3848c5ec3bbb20",
     "X2_cardinality": 1,
     "witness": "bounded_semantic_exchange",
     "acceptance_obligation": "fixed_release_binary_confirmation_remains_required"
   },
   "model_source_sha256": {
-    "tx-pool/src/tests/model/topology.rs": "e5f96bdb8caef09943c96f4a075981bf2ed17d565c7c6f200416cac254607d6c",
-    "tx-pool/src/tests/model/topology_properties.rs": "5805d2c484701b7f8553370e04d689ff50d7ba7347c3cbb42ab8f89b7377d60e"
+    "tx-pool/src/tests/model/topology.rs": "8d3dcca8118344c8d3744b61575d8b4a41d5e6b2525734f79e1bb936958081f5",
+    "tx-pool/src/tests/model/topology_properties.rs": "16f41c342d94f69b6b1d0d28fc0df5a70d6b42ef573f33357a63cc119aa3fa7c"
+  },
+  "generator_source_sha256": {
+    "tx-pool/scripts/check_security_manifest.py": "c5c5e2afcae618ab2289a1c4ab098fb86475ec1f95188b57e2b58816b348c8b3",
+    "tx-pool/scripts/check_semantic_refinement_census.py": "d5d2d4c100392b9babbc19f180d852db1816795809b87180c86cd5bc0adaf472"
   },
   "proof_tests": [
-    "mathematical_model::topology_properties::model_global_normal_form_partition_is_finite_unique_and_total",
-    "mathematical_model::topology_properties::model_global_static_objective_has_one_zero_extra_cost_witness",
-    "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions"
+    "mathematical_model::topology_properties::model_declared_semantic_signature_partition_is_finite_unique_and_total",
+    "mathematical_model::topology_properties::model_static_frontier_is_derived_without_a_selected_witness_predicate",
+    "mathematical_model::topology_properties::model_proposal_history_keeps_consensus_independent_and_selects_delta_work",
+    "mathematical_model::topology_properties::model_complete_topology_selection_rejects_partial_fixes_without_stitching_exceptions",
+    "mathematical_model::properties::model_multi_owner_apply_uses_one_stamp_distinct_versions_and_canonical_effect_order",
+    "mathematical_model::properties::model_sequential_lifecycle_preserves_owner_charge_capability_and_effect_laws",
+    "mathematical_model::composition_properties::model_ordered_ingress_batch_is_one_apply_and_matches_canonical_submission",
+    "mathematical_model::topology_properties::model_chain_publish_return_requires_the_exact_authority_apply_before_template_read",
+    "mathematical_model::two_phase::tests::model_window_serviced_two_phase_machine_is_safe_and_finitely_ranked_exhaustively",
+    "mathematical_model::properties::model_reorg_template_and_window_service_composition_commutes",
+    "mathematical_model::proposal::tests::model_persistent_count_projection_refines_every_small_successor_history",
+    "mathematical_model::proposal::tests::model_production_sparse_successor_matches_full_rebuild_exhaustively",
+    "mathematical_model::proposal::tests::model_sparse_receipt_requires_exact_predecessor_and_reorg_falls_back",
+    "mathematical_model::proposal::tests::model_projection_identity_has_no_counter_exhaustion_state",
+    "mathematical_model::proposal::tests::model_successor_rejects_rewritten_retained_history_and_stale_counts",
+    "mathematical_model::proposal::tests::model_operator_verification_bypass_is_typed_and_does_not_fabricate_consensus_proof",
+    "authority::tests::template::uak_template_chain_read_requires_one_coherent_component_cut",
+    "mathematical_model::dependency_progress_properties::model_dependency_maintenance_consumes_one_finite_obligation_per_apply",
+    "mathematical_model::properties::model_ready_capture_commits_every_unchanged_owner_before_a_mutated_weaker_tail",
+    "mathematical_model::adversarial_properties::model_quantitative_equation_rejects_every_configured_bound_overrun",
+    "mathematical_model::resource_transition_properties::model_resource_configuration_rejects_each_independent_invalid_premise",
+    "mathematical_model::properties::model_allocation_pressure_is_an_ordinary_terminal_outcome_not_a_timer_retry",
+    "mathematical_model::progress_properties::model_effect_publication_observation_is_one_total_three_way_cut",
+    "mathematical_model::properties::model_query_projection_collapses_only_the_documented_internal_states",
+    "mathematical_model::properties::model_generation_task_contract_is_a_total_unique_owner_join_partition",
+    "mathematical_model::properties::model_completion_ingress_closure_strictly_lowers_the_effect_drain_rank",
+    "persisted::tests::persistence_loader_accepts_legacy_v1_vector",
+    "legacy::tx_pool::tests::legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity"
   ],
-  "evidence_sha256": "372f8714a2058c8958a80614dc37b15618e07d4dbaa928efadd6e526cd2bdda2"
+  "evidence_sha256": "b6da65f6a8d12e64eb750494644ab2a19c00fba336f7696cf0e0fa7df9af29bf"
 }
