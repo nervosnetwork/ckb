@@ -31,22 +31,22 @@
     "independent_batch_misrepresented_as_independent_Apply_concurrency"
   ],
   "subject": {
-    "commit": "c85b9c3eb9ced2919521d8dfc9665b99191f1e9e",
-    "tree": "d772076ae7d7f78040a5ce61f9fc4ed6c6cac84b",
-    "bundle_sha256": "73e811f62086ee17f70a3478db3cf69863ee9b724321efa75a2133b81bd0144a",
+    "commit": "16d011d229fbffa91de254854b7d1a64989d24b7",
+    "tree": "608b8522488af04ed7d74f4c574561f034974c57",
+    "bundle_sha256": "f296b8f255f80a4c24065fea5dee913e9c6fb1588dc662b3db3b5b1b25f8d346",
     "authority_hashes": {
       ".github/workflows/ci_tx_pool_review.yaml": "4990318d31850ee1783a2b329309eed090a08f9b8be7d457aaa77eb39254581e",
       ".github/workflows/ci_unit_tests_ubuntu.yaml": "686a219a7eb1786d1434606f0a7c6d21748c47a36a9bb902b856a6a28bf9f3c5",
       "AGENTS.md": "cc3f2dbc4dc7c4ffd35b4e5e0fc89bb985f9147d3a8ec84ba0c4b0005c34b299",
       "tx-pool/.independent-execution-plan": "29811f952ae33ccf4c58dfe2f36830e318f71eb3e1e57adaaceaafd7606f536e",
       "tx-pool/AGENTS.md": "72e34b19c998896b17a53b145a794132c4e79b2f566d3b2d2183926d89a3ba74",
-      "tx-pool/architecture-contract.json": "303c990c4aa4e422e8a8cdea22b0012db2a8bf2f4aad70334018c33ae9f07a10",
+      "tx-pool/architecture-contract.json": "def54f37973b7f5c3baed830700270b26cebb9058dd148b04c45bade719f34f7",
       "tx-pool/scripts/check_all.py": "877d406839b37eed02a0704ac86dc08c15013a2661f2f79a70c5b76dd8ed15ae",
-      "tx-pool/scripts/check_security_manifest.py": "37ad30ac3be4fcc391e345d20686672eae926bec617be474b512f7dec57fe0d2"
+      "tx-pool/scripts/check_security_manifest.py": "351ab93a5e85afd5ef881ac9db13220406bc2ff9737d9e838df0107bf8e299bb"
     }
   },
   "report": {
-    "path": "/private/tmp/txpool-minimal-kernel-v2-self-review-c85b9c3e.md",
-    "sha256": "2891ab6ad6fa286ccdf7c4f2e7ff4f83b2e2d24c2ebea25b410eca9e93f30fd5"
+    "path": "tx-pool/optimization-evidence/reviews/method-self-review-v2-report.md",
+    "sha256": "ea79f7c5bce19d90e6c70f533230f5ac3da4b4c23d191313e3f324da0365d51b"
   }
 }

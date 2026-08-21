@@ -2,7 +2,7 @@
 
 Generated mechanically; disposable and not proof.
 
-- method/bundle: `txpool-minimal-kernel-v2` / `73e811f62086ee17f70a3478db3cf69863ee9b724321efa75a2133b81bd0144a`
+- method/bundle: `txpool-minimal-kernel-v2` / `f296b8f255f80a4c24065fea5dee913e9c6fb1588dc662b3db3b5b1b25f8d346`
 - recovery: `bc3a2c65e604212a2493fc0e12db27313179816c` / `f54256aa52c071ffdaa9dfe1e4af7dc5424de592`
 - state/completed/active: `construction` / `method_same_subject_review` / `partner_a_method_review`
 - Acceptance: not established; controller absent; machine phases fail closed

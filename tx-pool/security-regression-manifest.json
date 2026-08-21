@@ -70,11 +70,11 @@
       "AGENTS.md": "cc3f2dbc4dc7c4ffd35b4e5e0fc89bb985f9147d3a8ec84ba0c4b0005c34b299",
       "tx-pool/.independent-execution-plan": "29811f952ae33ccf4c58dfe2f36830e318f71eb3e1e57adaaceaafd7606f536e",
       "tx-pool/AGENTS.md": "72e34b19c998896b17a53b145a794132c4e79b2f566d3b2d2183926d89a3ba74",
-      "tx-pool/architecture-contract.json": "303c990c4aa4e422e8a8cdea22b0012db2a8bf2f4aad70334018c33ae9f07a10",
+      "tx-pool/architecture-contract.json": "def54f37973b7f5c3baed830700270b26cebb9058dd148b04c45bade719f34f7",
       "tx-pool/scripts/check_all.py": "877d406839b37eed02a0704ac86dc08c15013a2661f2f79a70c5b76dd8ed15ae",
-      "tx-pool/scripts/check_security_manifest.py": "37ad30ac3be4fcc391e345d20686672eae926bec617be474b512f7dec57fe0d2"
+      "tx-pool/scripts/check_security_manifest.py": "351ab93a5e85afd5ef881ac9db13220406bc2ff9737d9e838df0107bf8e299bb"
     },
-    "bundle_sha256": "73e811f62086ee17f70a3478db3cf69863ee9b724321efa75a2133b81bd0144a",
+    "bundle_sha256": "f296b8f255f80a4c24065fea5dee913e9c6fb1588dc662b3db3b5b1b25f8d346",
     "control_sha256": "7a7b9bd8233dfa3ccf6cacd8e7955c92df8166f1370a0d81a8f60e546257f308",
     "final_goal_sha256": "ec84f12f6cb87aeff4f69384f792d51e54230831e28bf1f8dd24bbf79df48077",
     "method_id": "txpool-minimal-kernel-v2",
@@ -126,10 +126,10 @@
   "retired_acceptance_universe": "d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f",
   "reviews": {
     "internal": {
-      "commit": "c85b9c3eb9ced2919521d8dfc9665b99191f1e9e",
+      "commit": "16d011d229fbffa91de254854b7d1a64989d24b7",
       "passed": true,
       "present": true,
-      "tree": "d772076ae7d7f78040a5ce61f9fc4ed6c6cac84b",
+      "tree": "608b8522488af04ed7d74f4c574561f034974c57",
       "valid": true
     },
     "partner_a": {
