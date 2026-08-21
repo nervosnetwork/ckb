@@ -71,16 +71,7 @@
       "role": "asset_archive_and_counterexample_not_current_proof_authority"
     },
     "retired_acceptance_universe": "d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f",
-    "neutral_reports": [
-      {
-        "path": "/private/tmp/txpool-x3-proof-burden-retirement-audit-56de.md",
-        "sha256": "43fb8dc497d0ca4c440b6e5fbdee43cf3c551db7f7d1f22e5295ba2c4ab57800"
-      },
-      {
-        "path": "/private/tmp/txpool-acceptance-control-plane-attack-56de7ef5.md",
-        "sha256": "8bae396de1c0328b9aa65392218d59aa46e0d7ec85ac6f077d96a9e4710694ac"
-      }
-    ],
+    "neutral_reports": [],
     "old_model_or_certificate_can_be_new_authority": false
   },
   "safety_guards": {

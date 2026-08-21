@@ -31,12 +31,7 @@ RECOVERY = {
     "tree": "f54256aa52c071ffdaa9dfe1e4af7dc5424de592",
 }
 OLD_U = "d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f"
-REPORTS = {
-    "/private/tmp/txpool-x3-proof-burden-retirement-audit-56de.md":
-        "43fb8dc497d0ca4c440b6e5fbdee43cf3c551db7f7d1f22e5295ba2c4ab57800",
-    "/private/tmp/txpool-acceptance-control-plane-attack-56de7ef5.md":
-        "8bae396de1c0328b9aa65392218d59aa46e0d7ec85ac6f077d96a9e4710694ac",
-}
+REPORTS = {}
 PHASES = [
     "method_same_subject_review", "partner_a_method_review", "legacy_generation_retirement",
     "hard_and_static_proof", "measured_performance", "complexity_minimum",
