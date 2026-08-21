@@ -648,6 +648,14 @@ impl PreparedApply<'_> {
         self.delta.apply_carrier()
     }
 
+    pub(in crate::authority) fn apply_origin_for_claim(&self) -> AuthorityApplyOrigin {
+        self.origin
+    }
+
+    pub(in crate::authority) fn primary_support_for_claim(&self) -> AuthorityPrimarySupport {
+        self.delta.primary_support()
+    }
+
     /// Inspect the already-sealed independent Apply order without retaining a
     /// second production receipt after the transition commits.
     pub(in crate::authority) fn independent_order_for_foundation(&self) -> Option<Vec<RawTxHash>> {
@@ -1234,6 +1242,7 @@ impl TxPoolAuthority {
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
+            origin: AuthorityApplyOrigin::FixtureMembership,
         })
     }
 
@@ -1300,6 +1309,7 @@ impl TxPoolAuthority {
                 clocks: clocks.finish(),
                 async_process_start: None,
             }),
+            origin: AuthorityApplyOrigin::FixtureMembership,
         })
     }
 
@@ -1359,7 +1369,11 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_publication(publication, sequence)?;
-        Ok(self.prepared_effect_only(effect, clocks))
+        Ok(self.prepared_effect_only(
+            effect,
+            clocks,
+            AuthorityApplyOrigin::FixtureEffectPublication,
+        ))
     }
 
     pub(in crate::authority) fn plan_generation_reset_for_foundation(
@@ -1368,7 +1382,11 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
-        Ok(self.prepared_effect_only(effect, clocks))
+        Ok(self.prepared_effect_only(
+            effect,
+            clocks,
+            AuthorityApplyOrigin::FixtureGenerationResetEffect,
+        ))
     }
 
     pub(in crate::authority) fn plan_peer_revocation_for_foundation(
@@ -1467,6 +1485,7 @@ impl TxPoolAuthority {
                 control,
                 clocks: clocks.finish(),
             }),
+            origin: AuthorityApplyOrigin::FixtureDependency,
         }))
     }
 
@@ -1489,6 +1508,7 @@ impl TxPoolAuthority {
                 control,
                 clocks: clocks.finish(),
             }),
+            origin: AuthorityApplyOrigin::FixtureDependency,
         }))
     }
 
@@ -1778,6 +1798,7 @@ impl TxPoolAuthority {
                 effect: EffectDelta::default(),
                 clocks: clocks.finish(),
             }),
+            origin: AuthorityApplyOrigin::FixtureEntry,
         };
         Ok(PreparedCheckout { plan, work })
     }

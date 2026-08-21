@@ -3,10 +3,11 @@ use super::super::effect::{
     CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
 };
 use super::super::plan::{
-    AcceptedOrderKey, AncestorAggregate, AuthorityApplyCarrier, AuthorityFault, Backpressure,
-    CandidateDispositionPlan, CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery,
-    DescendantAggregate, DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError,
-    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
+    AcceptedOrderKey, AncestorAggregate, AuthorityApplyCarrier, AuthorityApplyOrigin,
+    AuthorityFault, AuthorityPrimarySupport, Backpressure, CandidateDispositionPlan,
+    CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
+    DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
+    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
     test_support::{
         CandidateBatchError, CommittedCheckout, ComponentLimitKind, MembershipSnapshot,
         StatusCounts,
@@ -1472,6 +1473,16 @@ fn uak_disjoint_local_accepted_removals_commute_without_effect_observations() {
             plan.apply_carrier_for_claim(),
             AuthorityApplyCarrier::Administrative,
             "the public local-removal root is compiler-bound to the production administrative Apply carrier"
+        );
+        assert_eq!(
+            plan.apply_origin_for_claim(),
+            AuthorityApplyOrigin::LocalRemoval,
+            "the real Plan constructor must retain the public local-removal source"
+        );
+        assert_eq!(
+            plan.primary_support_for_claim(),
+            AuthorityPrimarySupport::Owners(vec![hash.clone()]),
+            "the local-removal Plan must expose the real administrative closure owner support"
         );
         let committed = plan.apply();
         assert_eq!(committed.retired_len(), 1);

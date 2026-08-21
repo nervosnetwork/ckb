@@ -1205,6 +1205,8 @@ impl TxPoolAuthority {
                 retired,
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::ChainTransition,
         })
     }
 
@@ -1411,6 +1413,8 @@ impl TxPoolAuthority {
                 effect,
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::ChainGenerationReplacement,
         })
     }
 }

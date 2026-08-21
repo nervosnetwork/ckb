@@ -930,6 +930,18 @@ enum AdminPlan {
     },
 }
 
+#[cfg(any(test, feature = "internal"))]
+impl AdminPlan {
+    const fn apply_origin(&self) -> AuthorityApplyOrigin {
+        match self {
+            Self::PeerRevocation { .. } => AuthorityApplyOrigin::PeerRevocation,
+            Self::RemoteExpiry { .. } => AuthorityApplyOrigin::RemoteExpiry,
+            Self::LocalRemoval { .. } => AuthorityApplyOrigin::LocalRemoval,
+            Self::AcceptedExpiry { .. } => AuthorityApplyOrigin::AcceptedExpiry,
+        }
+    }
+}
+
 enum AdminControl {
     PeerRevocation { marker: PeerBanDelta },
     None,
@@ -1048,6 +1060,119 @@ pub(in crate::authority) enum AuthorityApplyCarrier {
     Chain,
 }
 
+/// Production event source attached to every test/internal `PreparedApply`.
+///
+/// Unlike a route inventory, this witness is a required field at the real
+/// Plan constructor. Internal compilation therefore rejects a new Apply
+/// producer which omits its source declaration, and every executed internal
+/// Apply checks that declaration against the real carrier. The value is
+/// absent from default production builds and owns no policy or transition
+/// result.
+#[cfg(any(test, feature = "internal"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityApplyOrigin {
+    RetainedAdmissionOwner,
+    ProposalPromotionOwner,
+    ReplacementHistoryPromotionOwner,
+    FinalReresolutionOwner,
+    PreacceptedTerminalizationOwner,
+    ComputeSettlementOwner,
+    ComputeRejectionOwner,
+    ComputeCancellationOwner,
+    DependencyMaintenanceOwner,
+    FinalCandidateMembership,
+    DirectAdmissionMembership,
+    InternalPlugMembership,
+    IndependentSettlement,
+    RetainedIngressBatch,
+    ComputeExchange,
+    ComputeExchangePeerRevocation,
+    RetainedIngressEffect,
+    SingleEffectPublication,
+    DirectDuplicateEffect,
+    DirectMembershipRejectionEffect,
+    EffectSettlement,
+    EffectClose,
+    #[cfg(test)]
+    FixtureEffectPublication,
+    #[cfg(test)]
+    FixtureGenerationResetEffect,
+    ClearPipeline,
+    ClearPool,
+    LocalRemoval,
+    AcceptedExpiry,
+    RemoteExpiry,
+    PeerRevocation,
+    DependencyAdvance,
+    ChainTransition,
+    ChainGenerationReplacement,
+    #[cfg(test)]
+    FixtureEntry,
+    #[cfg(test)]
+    FixtureMembership,
+    #[cfg(test)]
+    FixtureDependency,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityPrimarySupport {
+    NoPrimaryOwner,
+    Owners(Vec<RawTxHash>),
+    GenerationAndOwners(Vec<RawTxHash>),
+    WholeGeneration,
+    ChainCutOwners(Vec<RawTxHash>),
+}
+
+#[cfg(any(test, feature = "internal"))]
+impl AuthorityApplyOrigin {
+    pub(in crate::authority) const fn carrier(self) -> AuthorityApplyCarrier {
+        match self {
+            Self::RetainedAdmissionOwner
+            | Self::ProposalPromotionOwner
+            | Self::ReplacementHistoryPromotionOwner
+            | Self::FinalReresolutionOwner
+            | Self::PreacceptedTerminalizationOwner
+            | Self::ComputeSettlementOwner
+            | Self::ComputeRejectionOwner
+            | Self::ComputeCancellationOwner
+            | Self::DependencyMaintenanceOwner => AuthorityApplyCarrier::Entry,
+            #[cfg(test)]
+            Self::FixtureEntry => AuthorityApplyCarrier::Entry,
+            Self::FinalCandidateMembership
+            | Self::DirectAdmissionMembership
+            | Self::InternalPlugMembership => AuthorityApplyCarrier::Membership,
+            #[cfg(test)]
+            Self::FixtureMembership => AuthorityApplyCarrier::Membership,
+            Self::IndependentSettlement => AuthorityApplyCarrier::Independent,
+            Self::RetainedIngressBatch => AuthorityApplyCarrier::RetainedIngress,
+            Self::ComputeExchange => AuthorityApplyCarrier::ComputeExchange,
+            Self::SingleEffectPublication
+            | Self::RetainedIngressEffect
+            | Self::DirectDuplicateEffect
+            | Self::DirectMembershipRejectionEffect
+            | Self::EffectSettlement
+            | Self::EffectClose => AuthorityApplyCarrier::Effect,
+            #[cfg(test)]
+            Self::FixtureEffectPublication | Self::FixtureGenerationResetEffect => {
+                AuthorityApplyCarrier::Effect
+            }
+            Self::ClearPipeline => AuthorityApplyCarrier::ClearPipeline,
+            Self::ClearPool => AuthorityApplyCarrier::ClearPool,
+            Self::ComputeExchangePeerRevocation
+            | Self::LocalRemoval
+            | Self::AcceptedExpiry
+            | Self::RemoteExpiry
+            | Self::PeerRevocation => AuthorityApplyCarrier::Administrative,
+            Self::DependencyAdvance => AuthorityApplyCarrier::Dependency,
+            #[cfg(test)]
+            Self::FixtureDependency => AuthorityApplyCarrier::Dependency,
+            Self::ChainTransition => AuthorityApplyCarrier::Chain,
+            Self::ChainGenerationReplacement => AuthorityApplyCarrier::ClearPool,
+        }
+    }
+}
+
 #[cfg(any(test, feature = "internal"))]
 impl AuthorityDelta {
     pub(in crate::authority) const fn apply_carrier(&self) -> AuthorityApplyCarrier {
@@ -1063,6 +1188,50 @@ impl AuthorityDelta {
             Self::ClearPool(_) => AuthorityApplyCarrier::ClearPool,
             Self::Admin(_) => AuthorityApplyCarrier::Administrative,
             Self::Chain(_) => AuthorityApplyCarrier::Chain,
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn primary_support(&self) -> AuthorityPrimarySupport {
+        fn owners(mut keys: Vec<RawTxHash>) -> AuthorityPrimarySupport {
+            keys.sort_unstable();
+            AuthorityPrimarySupport::Owners(keys)
+        }
+
+        match self {
+            Self::Entry(delta) => owners(vec![delta.key.clone()]),
+            Self::ComputeExchange(delta) => owners(delta.primary_keys_for_claim()),
+            Self::RetainedIngress(delta) => owners(delta.primary_keys_for_claim()),
+            Self::Membership(delta) => {
+                let mut keys = Vec::with_capacity(delta.removals.len().saturating_add(1));
+                keys.push(delta.changed_key.clone());
+                keys.extend(delta.removals.iter().map(|removal| removal.hash.clone()));
+                owners(keys)
+            }
+            Self::Independent(delta) => owners(
+                delta
+                    .updates
+                    .iter()
+                    .map(|update| update.key.clone())
+                    .collect(),
+            ),
+            Self::Dependency(_) | Self::Effect(_) => AuthorityPrimarySupport::NoPrimaryOwner,
+            Self::ClearPipeline(delta) => {
+                let mut keys = delta.removal.hashes.clone();
+                keys.sort_unstable();
+                AuthorityPrimarySupport::GenerationAndOwners(keys)
+            }
+            Self::ClearPool(_) => AuthorityPrimarySupport::WholeGeneration,
+            Self::Admin(delta) => owners(delta.removal.hashes.clone()),
+            Self::Chain(delta) => {
+                let mut keys: Vec<_> = delta
+                    .updates
+                    .iter()
+                    .map(|update| update.key.clone())
+                    .collect();
+                keys.sort_unstable();
+                AuthorityPrimarySupport::ChainCutOwners(keys)
+            }
         }
     }
 }
@@ -1159,6 +1328,8 @@ impl From<PlanError> for PrepareSettlementError {
 pub(super) struct PreparedApply<'authority> {
     authority: &'authority mut TxPoolAuthority,
     delta: AuthorityDelta,
+    #[cfg(any(test, feature = "internal"))]
+    origin: AuthorityApplyOrigin,
 }
 
 #[must_use = "candidate disposition must be applied exactly once"]
@@ -1280,8 +1451,17 @@ impl PreparedCandidateRejection<'_> {
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
         #[cfg(any(test, feature = "internal"))]
-        let _ = self.delta.apply_carrier();
-        let Self { authority, delta } = self;
+        assert_eq!(
+            self.origin.carrier(),
+            self.delta.apply_carrier(),
+            "the production Plan source must agree with its real Apply carrier"
+        );
+        let Self {
+            authority,
+            delta,
+            #[cfg(any(test, feature = "internal"))]
+                origin: _,
+        } = self;
         let before = authority.wake_projection();
         let retirement = match delta {
             AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, delta),
@@ -2466,10 +2646,14 @@ impl TxPoolAuthority {
             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
             charge,
         });
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Insert { key, after },
             clocks.finish(),
             sequence,
+            TransitionControls::none(),
+            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::RetainedAdmissionOwner,
         )
     }
 
@@ -2485,7 +2669,12 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_publication(&publication, sequence)?;
-        Ok(self.prepared_effect_only(effect, clocks))
+        Ok(self.prepared_effect_only(
+            effect,
+            clocks,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::SingleEffectPublication,
+        ))
     }
 
     fn plan_existing_admission(
@@ -2593,7 +2782,7 @@ impl TxPoolAuthority {
         } else {
             EntryReplacementRetirement::OutsideGuard
         };
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Replace {
                 key,
                 before: existing,
@@ -2602,6 +2791,10 @@ impl TxPoolAuthority {
             },
             clocks.finish(),
             sequence,
+            TransitionControls::none(),
+            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::ProposalPromotionOwner,
         )
     }
 
@@ -2655,7 +2848,7 @@ impl TxPoolAuthority {
                 charge: admission_charge,
             }
         };
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Replace {
                 key,
                 before: existing,
@@ -2664,6 +2857,10 @@ impl TxPoolAuthority {
             },
             clocks.finish(),
             sequence,
+            TransitionControls::none(),
+            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::ReplacementHistoryPromotionOwner,
         )
     }
 
@@ -2759,7 +2956,7 @@ impl TxPoolAuthority {
         requeued.record.version = version;
         requeued.phase = PreAcceptedPhase::Queued(QueuedWork::Resolve);
         requeued.charge = preaccepted.original_charge();
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Replace {
                 key: subject.key().clone(),
                 before: OwnedTx::PreAccepted(preaccepted),
@@ -2768,6 +2965,10 @@ impl TxPoolAuthority {
             },
             clocks.finish(),
             sequence,
+            TransitionControls::none(),
+            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::FinalReresolutionOwner,
         )
     }
 
@@ -2785,6 +2986,8 @@ impl TxPoolAuthority {
             Ok(delta) => Ok(CandidateDispositionPlan::Accepted(PreparedApply {
                 authority: self,
                 delta: AuthorityDelta::Membership(delta),
+                #[cfg(any(test, feature = "internal"))]
+                origin: AuthorityApplyOrigin::FinalCandidateMembership,
             })),
             Err(PlanError::Membership(reason)) => {
                 let existing = self
@@ -2839,7 +3042,12 @@ impl TxPoolAuthority {
                 .effects
                 .plan_publication(&publication, sequence)
                 .map_err(PlanError::from)?;
-            let plan = self.prepared_effect_only(effect, clocks);
+            let plan = self.prepared_effect_only(
+                effect,
+                clocks,
+                #[cfg(any(test, feature = "internal"))]
+                AuthorityApplyOrigin::DirectDuplicateEffect,
+            );
             return Ok(DirectAdmissionDisposition::Duplicate(
                 PreparedDirectDuplicate { key, plan },
             ));
@@ -2875,7 +3083,12 @@ impl TxPoolAuthority {
                     .effects
                     .plan_publication(&publication, effect_clocks.sequence())
                     .map_err(PlanError::from)?;
-                let plan = self.prepared_effect_only(effect, effect_clocks);
+                let plan = self.prepared_effect_only(
+                    effect,
+                    effect_clocks,
+                    #[cfg(any(test, feature = "internal"))]
+                    AuthorityApplyOrigin::DirectMembershipRejectionEffect,
+                );
                 return Ok(DirectAdmissionDisposition::Rejected(
                     PreparedDirectRejection { reason, plan },
                 ));
@@ -2900,6 +3113,8 @@ impl TxPoolAuthority {
         Ok(DirectAdmissionDisposition::Accepted(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::DirectAdmissionMembership,
         }))
     }
 
@@ -2939,6 +3154,7 @@ impl TxPoolAuthority {
         Ok(InternalPlugDisposition::Insert(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Membership(delta),
+            origin: AuthorityApplyOrigin::InternalPlugMembership,
         }))
     }
 
@@ -3398,6 +3614,8 @@ impl TxPoolAuthority {
             sequence,
             TransitionControls::dependency_and_effect(dependency_control, effect),
             None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::PreacceptedTerminalizationOwner,
         )
     }
 
@@ -3435,6 +3653,8 @@ impl TxPoolAuthority {
                 effect,
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::ClearPipeline,
         })
     }
 
@@ -3462,6 +3682,8 @@ impl TxPoolAuthority {
                 effect,
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::ClearPool,
         })
     }
 
@@ -3470,10 +3692,14 @@ impl TxPoolAuthority {
         hashes: Vec<RawTxHash>,
         plan: AdminPlan,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        #[cfg(any(test, feature = "internal"))]
+        let origin = plan.apply_origin();
         let delta = self.compile_administrative_removal(hashes, plan)?;
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Admin(delta),
+            #[cfg(any(test, feature = "internal"))]
+            origin,
         })
     }
 
@@ -3757,6 +3983,8 @@ impl TxPoolAuthority {
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Admin(delta),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::PeerRevocation,
         })
     }
 
@@ -3908,7 +4136,13 @@ impl TxPoolAuthority {
             }
         };
         Ok(EffectSettlementCommit::Applied(
-            self.prepared_effect_only(effect, clocks).apply(),
+            self.prepared_effect_only(
+                effect,
+                clocks,
+                #[cfg(any(test, feature = "internal"))]
+                AuthorityApplyOrigin::EffectSettlement,
+            )
+            .apply(),
         ))
     }
 
@@ -3921,7 +4155,12 @@ impl TxPoolAuthority {
         })?;
         let clocks = ApplyClockReservation::begin(self.clocks)
             .map_err(|_| EffectCloseError::CounterExhausted)?;
-        Ok(self.prepared_effect_only(effect, clocks))
+        Ok(self.prepared_effect_only(
+            effect,
+            clocks,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::EffectClose,
+        ))
     }
 
     pub(super) fn effects_closed_and_drained(&self) -> bool {
@@ -3936,6 +4175,7 @@ impl TxPoolAuthority {
         &mut self,
         effect: EffectDelta,
         clocks: ApplyClockReservation,
+        #[cfg(any(test, feature = "internal"))] origin: AuthorityApplyOrigin,
     ) -> PreparedApply<'_> {
         PreparedApply {
             authority: self,
@@ -3943,6 +4183,8 @@ impl TxPoolAuthority {
                 effect,
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin,
         }
     }
 
@@ -3969,6 +4211,8 @@ impl TxPoolAuthority {
                         control,
                         clocks: clocks.finish(),
                     }),
+                    #[cfg(any(test, feature = "internal"))]
+                    origin: AuthorityApplyOrigin::DependencyAdvance,
                 }));
             }
             DependencyMaintenanceAction::Requeue => {}
@@ -3996,7 +4240,7 @@ impl TxPoolAuthority {
                 return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
             }
         };
-        self.prepare_entry_delta_with_dependency(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Replace {
                 key: hash,
                 before: existing,
@@ -4005,7 +4249,10 @@ impl TxPoolAuthority {
             },
             clocks.finish(),
             sequence,
-            control,
+            TransitionControls::dependency(control),
+            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::DependencyMaintenanceOwner,
         )
         .map(Some)
     }
@@ -4184,6 +4431,8 @@ impl TxPoolAuthority {
                 effect: EffectDelta::default(),
                 clocks: clocks.finish(),
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin: AuthorityApplyOrigin::ComputeCancellationOwner,
         }
         .apply())
     }
@@ -4587,6 +4836,8 @@ impl TxPoolAuthority {
             sequence,
             TransitionControls::effect(effect),
             Some(resource),
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::ComputeSettlementOwner,
         )
         .map_err(PrepareSettlementError::from)
     }
@@ -4640,37 +4891,8 @@ impl TxPoolAuthority {
             sequence,
             TransitionControls::dependency_and_effect(dependency, effect),
             None,
-        )
-    }
-
-    fn prepare_entry_delta(
-        &mut self,
-        transition: EntryTransition,
-        clocks: AuthorityClocks,
-        sequence: ApplySequence,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.prepare_entry_delta_with_controls(
-            transition,
-            clocks,
-            sequence,
-            TransitionControls::none(),
-            None,
-        )
-    }
-
-    fn prepare_entry_delta_with_dependency(
-        &mut self,
-        transition: EntryTransition,
-        clocks: AuthorityClocks,
-        sequence: ApplySequence,
-        dependency_control: DependencyControlDelta,
-    ) -> Result<PreparedApply<'_>, PlanError> {
-        self.prepare_entry_delta_with_controls(
-            transition,
-            clocks,
-            sequence,
-            TransitionControls::dependency(dependency_control),
-            None,
+            #[cfg(any(test, feature = "internal"))]
+            AuthorityApplyOrigin::ComputeRejectionOwner,
         )
     }
 
@@ -4681,6 +4903,7 @@ impl TxPoolAuthority {
         sequence: ApplySequence,
         controls: TransitionControls,
         explicit_resources: Option<ResourcePlan>,
+        #[cfg(any(test, feature = "internal"))] origin: AuthorityApplyOrigin,
     ) -> Result<PreparedApply<'_>, PlanError> {
         self.effects.ensure_open()?;
         let TransitionControls {
@@ -4750,6 +4973,8 @@ impl TxPoolAuthority {
                 effect,
                 clocks,
             }),
+            #[cfg(any(test, feature = "internal"))]
+            origin,
         })
     }
 }

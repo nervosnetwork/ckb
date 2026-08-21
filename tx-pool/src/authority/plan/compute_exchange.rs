@@ -255,6 +255,16 @@ pub(super) struct ComputeExchangeDelta {
     retired: Vec<OwnedTx>,
 }
 
+#[cfg(test)]
+impl ComputeExchangeDelta {
+    pub(super) fn primary_keys_for_claim(&self) -> Vec<RawTxHash> {
+        self.updates
+            .iter()
+            .map(|update| update.key.clone())
+            .collect()
+    }
+}
+
 pub(super) fn apply_compute_exchange(
     authority: &mut TxPoolAuthority,
     delta: ComputeExchangeDelta,
@@ -812,6 +822,9 @@ impl TxPoolAuthority {
                                 plan: Some(PreparedApply {
                                     authority: self,
                                     delta: AuthorityDelta::Admin(delta),
+                                    #[cfg(any(test, feature = "internal"))]
+                                    origin:
+                                        super::AuthorityApplyOrigin::ComputeExchangePeerRevocation,
                                 }),
                                 classified,
                                 exclusive_settled: Some(ComputeExchangeSettled { slot, aftermath }),
@@ -1185,6 +1198,8 @@ impl TxPoolAuthority {
                     clocks: clocks.finish(),
                     retired,
                 }),
+                #[cfg(any(test, feature = "internal"))]
+                origin: super::AuthorityApplyOrigin::ComputeExchange,
             }),
             jobs,
         ))
