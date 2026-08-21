@@ -1443,6 +1443,62 @@ fn uak_local_accepted_removal_is_one_total_descendant_transition() {
 }
 
 #[test]
+fn uak_disjoint_local_accepted_removals_commute_without_effect_observations() {
+    fn fixture() -> (TxPoolAuthority, RawTxHash, RawTxHash) {
+        let mut authority = TxPoolAuthority::for_foundation(limits());
+        let left = accept_remote_transaction(
+            &mut authority,
+            tx(1_724),
+            1_724,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+        let right = accept_remote_transaction(
+            &mut authority,
+            tx(1_725),
+            1_725,
+            AcceptedStatus::Pending,
+            Vec::new(),
+        );
+        (authority, left, right)
+    }
+
+    fn remove(authority: &mut TxPoolAuthority, hash: &RawTxHash) {
+        let committed = authority
+            .plan_local_removal(hash)
+            .expect("a disjoint accepted owner has one total removal plan")
+            .expect("the accepted owner is present")
+            .apply();
+        assert_eq!(committed.retired_len(), 1);
+        assert!(
+            authority
+                .effect_publication_receipt_for_foundation()
+                .is_none(),
+            "trusted local removal has no externally committed effect observation"
+        );
+    }
+
+    let (mut left_then_right, left, right) = fixture();
+    remove(&mut left_then_right, &left);
+    remove(&mut left_then_right, &right);
+
+    let (mut right_then_left, same_left, same_right) = fixture();
+    assert_eq!((&same_left, &same_right), (&left, &right));
+    remove(&mut right_then_left, &same_right);
+    remove(&mut right_then_left, &same_left);
+
+    assert_eq!(
+        left_then_right.normalized_snapshot(),
+        right_then_left.normalized_snapshot(),
+        "adjacent disjoint removals have the same complete authority observation in either order"
+    );
+    assert!(left_then_right.primary_projection_consistent());
+    assert!(right_then_left.primary_projection_consistent());
+    assert_resource_reference(&left_then_right);
+    assert_resource_reference(&right_then_left);
+}
+
+#[test]
 fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 1_725, 725);
