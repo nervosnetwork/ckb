@@ -6721,6 +6721,18 @@ fn uak_resource_planner_binds_expected_charge_to_primary_owner() {
 }
 
 #[test]
+fn uak_owner_resource_plan_must_match_the_committed_owner_transition() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote(&mut authority, 628, 76);
+
+    assert!(
+        authority.entry(&hash).is_some(),
+        "the primary owner insertion must commit"
+    );
+    assert_resource_reference(&authority);
+}
+
+#[test]
 fn uak_compute_release_requires_the_exact_non_compute_charge() {
     let peer = PeerIndex::from(127);
     let retained = ResourceVector::new(1, 128, 2, 0);
