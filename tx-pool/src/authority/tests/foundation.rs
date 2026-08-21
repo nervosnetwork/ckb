@@ -1,6 +1,7 @@
 use super::super::chain::{AcceptedProof, ProposalContextReceipt};
 use super::super::effect::{
-    CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
+    CommittedAcceptance, CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds,
+    EffectCapacity, EffectLimits, EffectPolicy, RejectionAudience,
 };
 use super::super::plan::{
     AcceptedOrderKey, AncestorAggregate, AuthorityFault, Backpressure, CandidateDispositionPlan,
@@ -1504,16 +1505,34 @@ fn uak_disjoint_local_accepted_removals_commute_without_effect_observations() {
 }
 
 #[test]
-fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
-    fn fixture() -> (TxPoolAuthority, RawTxHash) {
-        let mut authority = TxPoolAuthority::for_foundation(limits());
-        let hash = admit_remote_until(&mut authority, 1_728, 728, 10);
-        (authority, hash)
+fn qhc_admin_owner_keys_alone_do_not_determine_legal_continuations() {
+    fn fixture() -> (TxPoolAuthority, RawTxHash, RawTxHash) {
+        let effect_bytes = 64 * 1024;
+        let effect_limits = EffectLimits::partitioned(
+            EffectCapacity::new(1, effect_bytes),
+            EffectCapacity::new(1, effect_bytes),
+            EffectCapacity::new(1, effect_bytes),
+            EffectBatchBounds::new(
+                EffectBatchBound::new(1, effect_bytes),
+                EffectBatchBound::new(1, effect_bytes),
+                EffectBatchBound::new(1, effect_bytes),
+            ),
+        )
+        .expect("one batch in each effect region is a valid bounded configuration");
+        let mut authority =
+            TxPoolAuthority::for_foundation_with_effect_limits(limits(), effect_limits)
+                .expect("the bounded authority fixture is valid");
+        let first = admit_remote_until(&mut authority, 1_728, 728, 10);
+        let second = admit_remote_until(&mut authority, 1_729, 729, 20);
+        (authority, first, second)
     }
 
-    let (mut local, local_hash) = fixture();
-    let (mut expired, expired_hash) = fixture();
-    assert_eq!(expired_hash, local_hash);
+    let (mut local, local_hash, local_continuation_hash) = fixture();
+    let (mut expired, expired_hash, expired_continuation_hash) = fixture();
+    assert_eq!(
+        (&expired_hash, &expired_continuation_hash),
+        (&local_hash, &local_continuation_hash)
+    );
     assert_eq!(
         local.normalized_snapshot(),
         expired.normalized_snapshot(),
@@ -1529,9 +1548,6 @@ fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
         .expect("the real administrative delta carries its owner keys");
     let local_committed = local_plan.apply();
     assert_eq!(local_committed.retired_len(), 1);
-    let local_effect = local
-        .effect_publication_receipt_for_foundation()
-        .expect("explicit removal releases the remote ingress projection");
 
     let expiry_plan = expired
         .plan_remote_expiry(
@@ -1545,32 +1561,52 @@ fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
         .expect("the real administrative delta carries its owner keys");
     let expiry_committed = expiry_plan.apply();
     assert_eq!(expiry_committed.retired_len(), 1);
-    let expiry_effect = expired
-        .effect_publication_receipt_for_foundation()
-        .expect("lease expiry publishes its terminal observation");
 
     assert_eq!(
         local_keys, expiry_keys,
         "both production deltas have the same exact owner-key support"
     );
-    assert!(matches!(
-        local_effect.effects(),
-        [CommittedEffect::RemoteIngressReleased(release)]
-            if release.tx_hash() == &local_hash
-    ));
+    let local_usage = local.operational_metrics().effects;
+    let expiry_usage = expired.operational_metrics().effects;
     assert_eq!(
-        expiry_effect.effects(),
-        &[CommittedEffect::RemoteExpired {
-            tx_hash: expired_hash,
-        }]
+        (local_usage.remote_batches, local_usage.ordinary_batches),
+        (0, 1),
+        "explicit removal consumes trusted effect capacity"
     );
-    assert_ne!(
-        local.normalized_snapshot(),
+    assert_eq!(
+        (expiry_usage.remote_batches, expiry_usage.ordinary_batches),
+        (1, 1),
+        "remote expiry consumes both its attacker-bounded subregion and cumulative ordinary capacity"
+    );
+
+    let local_continuation = local
+        .plan_remote_expiry(
+            RemoteDeadline(20),
+            NonZeroUsize::new(1).expect("the continuation limit is non-zero"),
+        )
+        .expect("the same expiry continuation has remote capacity after local removal")
+        .expect("the second owner is due");
+    assert_eq!(local_continuation.apply().retired_len(), 1);
+    let expired_before_continuation = expired.normalized_snapshot();
+    assert_eq!(
+        expired
+            .plan_remote_expiry(
+                RemoteDeadline(20),
+                NonZeroUsize::new(1).expect("the continuation limit is non-zero"),
+            )
+            .err(),
+        Some(PlanError::Backpressure(Backpressure::EffectCapacity)),
+        "the same continuation observes the occupied remote effect region"
+    );
+    assert_eq!(
         expired.normalized_snapshot(),
-        "equal owner keys cannot collapse distinct committed effect observations"
+        expired_before_continuation,
+        "backpressure preserves the complete pre-continuation authority cut"
     );
     assert!(local.entry(&local_hash).is_none());
     assert!(expired.entry(&local_hash).is_none());
+    assert!(local.entry(&local_continuation_hash).is_none());
+    assert!(expired.entry(&expired_continuation_hash).is_some());
     assert_resource_reference(&local);
     assert_resource_reference(&expired);
     assert!(local.primary_projection_consistent());
