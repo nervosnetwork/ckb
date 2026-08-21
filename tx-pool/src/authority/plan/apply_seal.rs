@@ -11,10 +11,9 @@ use std::ops::Deref;
 pub(in crate::authority) struct AuthorityState {
     pub(super) generation: PoolGeneration,
     pub(super) chain_view: ChainViewId,
-    pub(super) entries: HashMap<RawTxHash, OwnedTx>,
+    owner_resources: OwnerResourceAuthority,
     pub(super) indexes: AuthorityIndexes,
     pub(super) source_versions: AuthoritySourceVersions,
-    pub(super) resources: ResourceLedger,
     pub(super) membership: MembershipProjection,
     pub(super) scheduler: FairFrontier,
     pub(super) dependencies: DependencyFrontier,
@@ -22,6 +21,23 @@ pub(in crate::authority) struct AuthorityState {
     pub(super) peer_bans: PeerBanRegistry,
     pub(super) membership_config: MembershipConfig,
     pub(super) clocks: AuthorityClocks,
+}
+
+/// One physical owner for primary transactions and their bounded resource
+/// projection.  Parent planners receive only this type's immutable `Deref`;
+/// mutation remains private to this sealing module and requires `ApplyToken`.
+#[derive(Debug)]
+pub(in crate::authority) struct OwnerResourceAuthority {
+    pub(super) entries: HashMap<RawTxHash, OwnedTx>,
+    pub(super) resources: ResourceLedger,
+}
+
+impl Deref for AuthorityState {
+    type Target = OwnerResourceAuthority;
+
+    fn deref(&self) -> &Self::Target {
+        &self.owner_resources
+    }
 }
 
 /// Read-mostly planning facade for one authoritative tx-pool generation.
@@ -53,12 +69,67 @@ impl Deref for TxPoolAuthority {
 /// Capability whose constructor is private to this sealing module.
 pub(super) struct ApplyToken(());
 
+#[derive(Clone, Copy)]
+pub(super) enum PreviousOwnerDisposition {
+    Retire,
+    Drop,
+}
+
+pub(super) struct OwnerResourceUpdate {
+    key: RawTxHash,
+    after: Option<OwnedTx>,
+    previous: PreviousOwnerDisposition,
+}
+
+impl OwnerResourceUpdate {
+    pub(super) fn new(
+        key: RawTxHash,
+        after: Option<OwnedTx>,
+        previous: PreviousOwnerDisposition,
+    ) -> Self {
+        Self {
+            key,
+            after,
+            previous,
+        }
+    }
+}
+
+enum PreparedResourceApply {
+    Single(ResourcePlan),
+    Batch(ResourceBatchPlan),
+}
+
+pub(super) struct PreparedOwnerResourceDelta<I> {
+    updates: I,
+    resources: PreparedResourceApply,
+}
+
+impl<I> PreparedOwnerResourceDelta<I> {
+    pub(super) fn batch(updates: I, resources: ResourceBatchPlan) -> Self {
+        Self {
+            updates,
+            resources: PreparedResourceApply::Batch(resources),
+        }
+    }
+}
+
+impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
+    pub(super) fn single(update: OwnerResourceUpdate, resources: ResourcePlan) -> Self {
+        Self {
+            updates: std::iter::once(update),
+            resources: PreparedResourceApply::Single(resources),
+        }
+    }
+}
+
 /// Physical-allocation capability for resource planning.
 ///
 /// This deliberately does not implement `DerefMut`: callers can compile
 /// resource deltas, but cannot replace or otherwise mutate the authoritative
 /// ledger directly.
 pub(in crate::authority) struct ResourcePlanner<'state> {
+    entries: &'state HashMap<RawTxHash, OwnedTx>,
     ledger: &'state mut ResourceLedger,
 }
 
@@ -69,14 +140,19 @@ impl ResourcePlanner<'_> {
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
     ) -> Result<ResourcePlan, ResourceError> {
-        self.ledger.plan_replace(key, expected, after)
+        let entries = self.entries;
+        self.ledger.plan_replace(expected, after, || {
+            entries.get(&key).map(OwnedTx::charge_record)
+        })
     }
 
     pub(in crate::authority) fn plan_batch(
         &mut self,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
     ) -> Result<ResourceBatchPlan, ResourceError> {
-        self.ledger.plan_batch(changes)
+        let entries = self.entries;
+        self.ledger
+            .plan_batch(changes, |key| entries.get(key).map(OwnedTx::charge_record))
     }
 
     pub(in crate::authority) fn plan_compute_release(
@@ -85,7 +161,10 @@ impl ResourcePlanner<'_> {
         expected: ChargeRecord,
         after: ChargeRecord,
     ) -> Result<ResourcePlan, ComputeReleaseError> {
-        self.ledger.plan_compute_release(key, expected, after)
+        let entries = self.entries;
+        self.ledger.plan_compute_release(expected, after, || {
+            entries.get(&key).map(OwnedTx::charge_record)
+        })
     }
 }
 
@@ -194,10 +273,12 @@ impl TxPoolAuthority {
             state: AuthorityState {
                 generation: PoolGeneration(0),
                 chain_view,
-                entries: HashMap::new(),
+                owner_resources: OwnerResourceAuthority {
+                    entries: HashMap::new(),
+                    resources: ResourceLedger::new(limits),
+                },
                 indexes: AuthorityIndexes::default(),
                 source_versions: AuthoritySourceVersions::initial(),
-                resources: ResourceLedger::new(limits),
                 membership: MembershipProjection::default(),
                 scheduler: FairFrontier::new(verify_order),
                 dependencies: DependencyFrontier::default(),
@@ -228,6 +309,46 @@ impl TxPoolAuthority {
         &mut self.state
     }
 
+    pub(super) fn commit_owner_resources<I>(
+        &mut self,
+        token: &ApplyToken,
+        delta: PreparedOwnerResourceDelta<I>,
+        retired: &mut Vec<OwnedTx>,
+    ) where
+        I: IntoIterator<Item = OwnerResourceUpdate>,
+    {
+        let owner_resources = &mut self.state.owner_resources;
+        for update in delta.updates {
+            let previous = match update.after {
+                Some(after) => owner_resources.entries.insert(update.key, after),
+                None => owner_resources.entries.remove(&update.key),
+            };
+            match (update.previous, previous) {
+                (PreviousOwnerDisposition::Retire, Some(owner)) => retired.push(owner),
+                (PreviousOwnerDisposition::Retire, None) => {}
+                (PreviousOwnerDisposition::Drop, previous) => drop(previous),
+            }
+        }
+        match delta.resources {
+            PreparedResourceApply::Single(plan) => owner_resources.resources.apply(plan),
+            PreparedResourceApply::Batch(plan) => owner_resources.resources.apply_batch(plan),
+        }
+        let _ = token;
+    }
+
+    pub(super) fn replace_owner_resources(
+        &mut self,
+        token: &ApplyToken,
+        entries: HashMap<RawTxHash, OwnedTx>,
+        resources: ResourceLedger,
+    ) -> (HashMap<RawTxHash, OwnedTx>, ResourceLedger) {
+        let owner_resources = &mut self.state.owner_resources;
+        let previous_entries = std::mem::replace(&mut owner_resources.entries, entries);
+        let previous_resources = std::mem::replace(&mut owner_resources.resources, resources);
+        let _ = token;
+        (previous_entries, previous_resources)
+    }
+
     pub(super) fn reserve_primary_owner_insertions(
         &mut self,
         additional: usize,
@@ -236,6 +357,7 @@ impl TxPoolAuthority {
             return Ok(());
         }
         self.state
+            .owner_resources
             .entries
             .try_reserve(additional)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))
@@ -243,7 +365,8 @@ impl TxPoolAuthority {
 
     pub(super) fn resources_for_plan(&mut self) -> ResourcePlanner<'_> {
         ResourcePlanner {
-            ledger: &mut self.state.resources,
+            entries: &self.state.owner_resources.entries,
+            ledger: &mut self.state.owner_resources.resources,
         }
     }
 
@@ -318,7 +441,7 @@ impl TxPoolAuthority {
         AuthoritySourceVersions,
     ) {
         (
-            &self.state.entries,
+            &self.state.owner_resources.entries,
             IndexPlanner {
                 indexes: &mut self.state.indexes,
             },
@@ -330,7 +453,7 @@ impl TxPoolAuthority {
         &mut self,
     ) -> (&HashMap<RawTxHash, OwnedTx>, IndexPlanner<'_>) {
         (
-            &self.state.entries,
+            &self.state.owner_resources.entries,
             IndexPlanner {
                 indexes: &mut self.state.indexes,
             },
@@ -348,9 +471,10 @@ impl TxPoolAuthority {
         IndexPlanner<'_>,
     ) {
         (
-            &self.state.entries,
+            &self.state.owner_resources.entries,
             ResourcePlanner {
-                ledger: &mut self.state.resources,
+                entries: &self.state.owner_resources.entries,
+                ledger: &mut self.state.owner_resources.resources,
             },
             &self.state.scheduler,
             &self.state.dependencies,
@@ -363,9 +487,9 @@ impl TxPoolAuthority {
 
     fn into_fresh_generation(self) -> FreshGeneration {
         FreshGeneration {
-            entries: self.state.entries,
+            entries: self.state.owner_resources.entries,
             indexes: self.state.indexes,
-            resources: self.state.resources,
+            resources: self.state.owner_resources.resources,
             membership: self.state.membership,
             scheduler: self.state.scheduler,
             dependencies: self.state.dependencies,
@@ -375,7 +499,8 @@ impl TxPoolAuthority {
     #[cfg(test)]
     pub(in crate::authority) fn resources_for_test_plan(&mut self) -> ResourcePlanner<'_> {
         ResourcePlanner {
-            ledger: &mut self.state.resources,
+            entries: &self.state.owner_resources.entries,
+            ledger: &mut self.state.owner_resources.resources,
         }
     }
 

@@ -813,7 +813,7 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn charged_count(&self) -> usize {
-        self.resources.charge_count()
+        self.entries.len()
     }
 
     pub(in crate::authority) fn resources(&self) -> &ResourceLedger {
@@ -1012,11 +1012,9 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn primary_projection_consistent(&self) -> bool {
-        self.entries.len() == self.resources.charge_count()
-            && self.entries.iter().all(|(hash, owner)| {
-                self.resources.charge(hash) == Some(owner.charge_record())
-                    && &owner.record().identity.raw == hash
-            })
+        self.entries
+            .iter()
+            .all(|(hash, owner)| &owner.record().identity.raw == hash)
             && self.indexes.semantically_matches(&self.entries)
             && self.resources.semantically_matches(&self.entries)
             && self.scheduler.semantically_matches(&self.entries)

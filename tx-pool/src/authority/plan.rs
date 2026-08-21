@@ -82,8 +82,10 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
 
-use apply_seal::ApplyToken;
 pub(in crate::authority) use apply_seal::TxPoolAuthority;
+use apply_seal::{
+    ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta, PreviousOwnerDisposition,
+};
 
 impl TxPoolAuthority {
     pub(super) fn entry(&self, hash: &RawTxHash) -> Option<&OwnedTx> {
@@ -1241,25 +1243,19 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         delta: EntryDelta,
     ) -> ApplyRetirement {
-        let authority = authority.write(token);
-        let previous = match delta.after {
-            Some(entry) => authority.entries.insert(delta.key.clone(), entry),
-            None => authority.entries.remove(&delta.key),
+        let (mut retired, previous) = match delta.retirement {
+            EntryRetirement::Outside(retired) => (retired, PreviousOwnerDisposition::Retire),
+            EntryRetirement::InlineDrop => (Vec::new(), PreviousOwnerDisposition::Drop),
         };
+        let update = OwnerResourceUpdate::new(delta.key, delta.after, previous);
+        authority.commit_owner_resources(
+            token,
+            PreparedOwnerResourceDelta::single(update, delta.resource),
+            &mut retired,
+        );
+        let authority = authority.write(token);
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
-        let retired = match (delta.retirement, previous) {
-            (EntryRetirement::Outside(mut retired), Some(owner)) => {
-                retired.push(owner);
-                retired
-            }
-            (EntryRetirement::Outside(retired), None) => retired,
-            (EntryRetirement::InlineDrop, previous) => {
-                drop(previous);
-                Vec::new()
-            }
-        };
-        authority.resources.apply(delta.resource);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
@@ -1278,40 +1274,30 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         mut delta: MembershipDelta,
     ) -> ApplyRetirement {
-        let authority = authority.write(token);
-        let mut retirement = delta.retirement;
-        for removal in &mut delta.removals {
-            let previous = match removal.take_after() {
-                Some(after) => authority.entries.insert(removal.hash.clone(), after),
-                None => authority.entries.remove(&removal.hash),
-            };
-            if let Some(owner) = previous {
-                match &mut retirement {
-                    MembershipRetirement::Inline(retired)
-                    | MembershipRetirement::Outside(retired) => retired.push(owner),
-                }
-            }
-        }
-        let previous = authority
-            .entries
-            .insert(delta.changed_key, delta.changed_after);
-        let retired = match (retirement, previous) {
-            (MembershipRetirement::Inline(retired), previous) => {
-                drop(previous);
-                retired
-            }
-            (MembershipRetirement::Outside(mut retired), Some(owner)) => {
-                // The carrier was reserved while planning; Apply performs no
-                // allocation and the last payload reference dies only after
-                // the authority guard is released.
-                retired.push(owner);
-                retired
-            }
-            (MembershipRetirement::Outside(retired), None) => retired,
+        let (mut retired, changed_previous) = match delta.retirement {
+            MembershipRetirement::Inline(retired) => (retired, PreviousOwnerDisposition::Drop),
+            MembershipRetirement::Outside(retired) => (retired, PreviousOwnerDisposition::Retire),
         };
+        let removal_updates = delta.removals.iter_mut().map(|removal| {
+            OwnerResourceUpdate::new(
+                removal.hash.clone(),
+                removal.take_after(),
+                PreviousOwnerDisposition::Retire,
+            )
+        });
+        let changed = std::iter::once(OwnerResourceUpdate::new(
+            delta.changed_key,
+            Some(delta.changed_after),
+            changed_previous,
+        ));
+        authority.commit_owner_resources(
+            token,
+            PreparedOwnerResourceDelta::batch(removal_updates.chain(changed), delta.resource),
+            &mut retired,
+        );
+        let authority = authority.write(token);
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
-        authority.resources.apply_batch(delta.resource);
         authority.membership.apply(delta.projection);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
@@ -1334,15 +1320,22 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         delta: IndependentDelta,
     ) -> ApplyRetirement {
+        let updates = delta.updates.into_iter().map(|update| {
+            OwnerResourceUpdate::new(
+                update.key,
+                Some(update.after),
+                PreviousOwnerDisposition::Drop,
+            )
+        });
+        let mut retired = Vec::new();
+        authority.commit_owner_resources(
+            token,
+            PreparedOwnerResourceDelta::batch(updates, delta.resource),
+            &mut retired,
+        );
         let authority = authority.write(token);
-        for update in delta.updates {
-            // Independent acceptance also replaces a pre-accepted shell whose
-            // immutable transaction and resolved facts are shared by `after`.
-            drop(authority.entries.insert(update.key, update.after));
-        }
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
-        authority.resources.apply_batch(delta.resource);
         authority.membership.apply(delta.projection);
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
@@ -1400,7 +1393,6 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         delta: ClearPoolDelta,
     ) -> ApplyRetirement {
-        let authority = authority.write(token);
         let FreshGeneration {
             entries,
             indexes,
@@ -1409,10 +1401,13 @@ impl PreparedApply<'_> {
             scheduler,
             dependencies,
         } = delta.fresh;
+        let (previous_entries, previous_resources) =
+            authority.replace_owner_resources(token, entries, resources);
+        let authority = authority.write(token);
         let retired_generation = RetiredGeneration {
-            entries: std::mem::replace(&mut authority.entries, entries),
+            entries: previous_entries,
             _indexes: std::mem::replace(&mut authority.indexes, indexes),
-            _resources: std::mem::replace(&mut authority.resources, resources),
+            _resources: previous_resources,
             _membership: std::mem::replace(&mut authority.membership, membership),
             _scheduler: std::mem::replace(&mut authority.scheduler, scheduler),
             _dependencies: std::mem::replace(&mut authority.dependencies, dependencies),
@@ -1477,19 +1472,29 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         removal: OwnerRemovalBatch,
     ) -> Vec<OwnedTx> {
+        let OwnerRemovalBatch {
+            hashes,
+            owners,
+            resources,
+            membership,
+            scheduler,
+            dependency,
+            mut retired,
+        } = removal;
+        let updates = hashes
+            .into_iter()
+            .map(|hash| OwnerResourceUpdate::new(hash, None, PreviousOwnerDisposition::Retire));
+        authority.commit_owner_resources(
+            token,
+            PreparedOwnerResourceDelta::batch(updates, resources),
+            &mut retired,
+        );
         let authority = authority.write(token);
-        let mut retired = removal.retired;
-        for hash in &removal.hashes {
-            if let Some(owner) = authority.entries.remove(hash) {
-                retired.push(owner);
-            }
-        }
-        authority.indexes.apply(removal.owners.indexes);
-        authority.source_versions.apply(removal.owners.sources);
-        authority.resources.apply_batch(removal.resources);
-        authority.membership.apply(removal.membership);
-        authority.scheduler.apply_batch(removal.scheduler);
-        authority.dependencies.apply_batch(removal.dependency);
+        authority.indexes.apply(owners.indexes);
+        authority.source_versions.apply(owners.sources);
+        authority.membership.apply(membership);
+        authority.scheduler.apply_batch(scheduler);
+        authority.dependencies.apply_batch(dependency);
         retired
     }
 
@@ -1498,20 +1503,18 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         delta: ChainDelta,
     ) -> ApplyRetirement {
-        let authority = authority.write(token);
         let mut retired = delta.retired;
-        for update in delta.updates {
-            let previous = match update.after {
-                Some(after) => authority.entries.insert(update.key, after),
-                None => authority.entries.remove(&update.key),
-            };
-            if let Some(previous) = previous {
-                retired.push(previous);
-            }
-        }
+        let updates = delta.updates.into_iter().map(|update| {
+            OwnerResourceUpdate::new(update.key, update.after, PreviousOwnerDisposition::Retire)
+        });
+        authority.commit_owner_resources(
+            token,
+            PreparedOwnerResourceDelta::batch(updates, delta.resources),
+            &mut retired,
+        );
+        let authority = authority.write(token);
         authority.indexes.apply(delta.owners.indexes);
         authority.source_versions.apply(delta.owners.sources);
-        authority.resources.apply_batch(delta.resources);
         authority.membership.apply(delta.membership);
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);

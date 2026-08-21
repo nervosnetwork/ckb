@@ -363,10 +363,6 @@ impl ContinuousResourceLedger {
         Ok(ledger)
     }
 
-    pub(crate) fn charges(&self) -> &std::collections::BTreeMap<u8, ContinuousChargeRecord> {
-        &self.charges
-    }
-
     pub(crate) fn usage(&self) -> Result<ContinuousResourceUsage, ContinuousChargeError> {
         let mut usage = ContinuousResourceUsage::default();
         for charge in self.charges.values().copied() {

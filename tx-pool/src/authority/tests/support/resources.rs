@@ -3,7 +3,6 @@ use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct ResourceSnapshot {
-    pub(in crate::authority) charges: HashMap<RawTxHash, ChargeRecord>,
     pub(in crate::authority) preaccepted: ResourceVector,
     pub(in crate::authority) remote: ResourceVector,
     pub(in crate::authority) peers: HashMap<PeerIndex, ResourceVector>,
@@ -113,7 +112,6 @@ impl ResourceLimits {
 impl ResourceLedger {
     pub(in crate::authority) fn snapshot(&self) -> ResourceSnapshot {
         ResourceSnapshot {
-            charges: self.charges.clone(),
             preaccepted: self.preaccepted,
             remote: self.remote,
             peers: self.peers.clone(),
@@ -122,27 +120,19 @@ impl ResourceLedger {
         }
     }
 
-    pub(in crate::authority) fn charge_count(&self) -> usize {
-        self.charges.len()
-    }
-
     pub(in crate::authority) fn semantically_matches(
         &self,
         entries: &HashMap<RawTxHash, OwnedTx>,
     ) -> bool {
         let mut expected = ResourceSnapshot {
-            charges: HashMap::new(),
             preaccepted: ResourceVector::default(),
             remote: ResourceVector::default(),
             peers: HashMap::new(),
             replacement_history: ResourceVector::default(),
             accepted: AcceptedResources::default(),
         };
-        for (hash, owner) in entries {
+        for owner in entries.values() {
             let charge = owner.charge_record();
-            if expected.charges.insert(hash.clone(), charge).is_some() {
-                return false;
-            }
             match (owner, charge) {
                 (
                     OwnedTx::PreAccepted(entry),

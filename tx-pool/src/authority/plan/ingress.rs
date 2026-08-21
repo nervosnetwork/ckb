@@ -1,4 +1,6 @@
-use super::apply_seal::ApplyToken;
+use super::apply_seal::{
+    ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta, PreviousOwnerDisposition,
+};
 use super::{
     AuthorityDelta, AuthorityFault, ClockPlanReservation, DerivedOwnerDelta, PlanError,
     PreparedApply, TxPoolAuthority,
@@ -43,19 +45,22 @@ pub(super) fn apply_retained_ingress(
     token: &ApplyToken,
     delta: RetainedIngressDelta,
 ) -> super::ApplyRetirement {
-    let authority = authority.write(token);
     let mut retired = delta.retired;
-    for update in delta.updates {
-        if let Some(previous) = authority.entries.insert(update.key, update.after) {
-            // Capacity was reserved by Plan for every changed existing owner.
-            // Destruction therefore occurs only after the authority guard is
-            // open, independent of payload-sharing details.
-            retired.push(previous);
-        }
-    }
+    let updates = delta.updates.into_iter().map(|update| {
+        OwnerResourceUpdate::new(
+            update.key,
+            Some(update.after),
+            PreviousOwnerDisposition::Retire,
+        )
+    });
+    authority.commit_owner_resources(
+        token,
+        PreparedOwnerResourceDelta::batch(updates, delta.resources),
+        &mut retired,
+    );
+    let authority = authority.write(token);
     authority.indexes.apply(delta.owners.indexes);
     authority.source_versions.apply(delta.owners.sources);
-    authority.resources.apply_batch(delta.resources);
     authority.scheduler.apply_batch(delta.scheduler);
     authority.dependencies.apply_batch(delta.dependency);
     let retired_effect = authority.effects.apply(delta.effect);

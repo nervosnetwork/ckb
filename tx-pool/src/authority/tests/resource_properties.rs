@@ -1,9 +1,10 @@
 //! Exhaustive finite refinement of the continuous resource algebra.
 //!
-//! The production side uses the real sparse ledger, sealed charge variants and
-//! Plan/Apply transition. The reference side independently recomputes usage
-//! from the final charge set. Only normalized stable observations cross the
-//! boundary; no production aggregate is copied into the oracle.
+//! The production side uses the real aggregate ledger, sealed charge variants
+//! and Plan/Apply transition. The owner projection supplies the current
+//! per-key charge exactly as production does. The reference side independently
+//! recomputes usage from the final charge set; no production aggregate is
+//! copied into the oracle.
 
 use super::claim_relations::{
     ClaimComputeGrant, ContinuousAcceptedResources, ContinuousChargeRecord,
@@ -20,7 +21,7 @@ use crate::authority::{
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConfigurationObservation {
@@ -94,28 +95,6 @@ fn production_charge(charge: ContinuousChargeRecord) -> ChargeRecord {
         }
         ContinuousChargeRecord::Accepted(resources) => {
             ChargeRecord::Accepted(production_accepted(resources))
-        }
-    }
-}
-
-fn refinement_charge(charge: ChargeRecord) -> ContinuousChargeRecord {
-    match charge {
-        ChargeRecord::PreAccepted {
-            resources,
-            residency_peer,
-            compute_peer,
-        } => ContinuousChargeRecord::PreAccepted {
-            resources: refinement_vector(resources),
-            residency_peer: residency_peer
-                .map(|peer| u8::try_from(peer.value()).expect("the finite residency peer fits u8")),
-            compute_peer: compute_peer
-                .map(|peer| u8::try_from(peer.value()).expect("the finite compute peer fits u8")),
-        },
-        ChargeRecord::ReplacementHistory(resources) => {
-            ContinuousChargeRecord::ReplacementHistory(refinement_vector(resources))
-        }
-        ChargeRecord::Accepted(resources) => {
-            ContinuousChargeRecord::Accepted(refinement_accepted(resources))
         }
     }
 }
@@ -320,29 +299,22 @@ fn production_ledger(
         .iter()
         .map(|(key, charge)| (production_key(*key), None, Some(production_charge(*charge))))
         .collect();
-    let plan = ledger.plan_batch(changes)?;
+    let plan = ledger.plan_batch(changes, |_| None)?;
     ledger.apply_batch(plan);
     Ok(ledger)
 }
 
-fn production_usage(
-    ledger: &ResourceLedger,
-    keys: impl IntoIterator<Item = u8>,
-) -> (
-    BTreeMap<u8, ContinuousChargeRecord>,
-    ContinuousResourceUsage,
-) {
+fn production_owner_projection(
+    charges: &BTreeMap<u8, ContinuousChargeRecord>,
+) -> HashMap<RawTxHash, ChargeRecord> {
+    charges
+        .iter()
+        .map(|(key, charge)| (production_key(*key), production_charge(*charge)))
+        .collect()
+}
+
+fn production_usage(ledger: &ResourceLedger) -> ContinuousResourceUsage {
     let snapshot = ledger.snapshot();
-    let charges = keys
-        .into_iter()
-        .filter_map(|key| {
-            snapshot
-                .charges
-                .get(&production_key(key))
-                .copied()
-                .map(|charge| (key, refinement_charge(charge)))
-        })
-        .collect();
     let per_peer = snapshot
         .peers
         .into_iter()
@@ -353,25 +325,17 @@ fn production_usage(
             )
         })
         .collect();
-    (
-        charges,
-        ContinuousResourceUsage {
-            preaccepted: refinement_vector(snapshot.preaccepted),
-            remote: refinement_vector(snapshot.remote),
-            per_peer,
-            replacement_history: refinement_vector(snapshot.replacement_history),
-            accepted: refinement_accepted(snapshot.accepted),
-        },
-    )
+    ContinuousResourceUsage {
+        preaccepted: refinement_vector(snapshot.preaccepted),
+        remote: refinement_vector(snapshot.remote),
+        per_peer,
+        replacement_history: refinement_vector(snapshot.replacement_history),
+        accepted: refinement_accepted(snapshot.accepted),
+    }
 }
 
-fn assert_ledger_matches_claim(
-    production: &ResourceLedger,
-    claim: &ContinuousResourceLedger,
-    keys: impl IntoIterator<Item = u8>,
-) {
-    let (charges, usage) = production_usage(production, keys);
-    assert_eq!(&charges, claim.charges());
+fn assert_ledger_matches_claim(production: &ResourceLedger, claim: &ContinuousResourceLedger) {
+    let usage = production_usage(production);
     assert_eq!(
         usage,
         claim.usage().expect("a planned claim ledger is valid")
@@ -729,6 +693,7 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                         let expected = claim.plan_changes(&changes);
                         let mut actual = production_ledger(limits, &initial_map)
                             .expect("the initial production ledger was already validated");
+                        let current = production_owner_projection(&initial_map);
                         let before = actual.snapshot();
                         let plan = actual.plan_batch(
                             changes
@@ -741,12 +706,13 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                                     )
                                 })
                                 .collect(),
+                            |key| current.get(key).copied(),
                         );
                         assert_eq!(plan.is_ok(), expected.is_ok());
                         match (plan, expected) {
                             (Ok(plan), Ok(expected)) => {
                                 actual.apply_batch(plan);
-                                assert_ledger_matches_claim(&actual, &expected, [0, 1]);
+                                assert_ledger_matches_claim(&actual, &expected);
 
                                 let mut reversed = production_ledger(limits, &initial_map)
                                     .expect("the reverse fixture starts valid");
@@ -763,6 +729,7 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                                                 )
                                             })
                                             .collect(),
+                                        |key| current.get(key).copied(),
                                     )
                                     .expect("the same set transition is order independent");
                                 reversed.apply_batch(reverse_plan);
@@ -795,15 +762,15 @@ fn uak_compute_release_refines_exact_reservation_and_peer_attribution_exhaustive
                 .expect("the release fixture starts from a valid charge");
             let before = actual.snapshot();
             let plan = actual.plan_compute_release(
-                production_key(0),
                 production_charge(*expected),
                 production_charge(*after),
+                || Some(production_charge(*expected)),
             );
             assert_eq!(plan.is_ok(), expected_result.is_ok());
             match (plan, expected_result) {
                 (Ok(plan), Ok(expected_result)) => {
                     actual.apply(plan);
-                    assert_ledger_matches_claim(&actual, &expected_result, [0]);
+                    assert_ledger_matches_claim(&actual, &expected_result);
                 }
                 (Err(_), Err(_)) => assert_eq!(actual.snapshot(), before),
                 _ => unreachable!("success parity was checked above"),

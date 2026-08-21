@@ -626,7 +626,6 @@ pub(super) enum ActiveWorkAvailability {
 
 #[derive(Debug)]
 pub(super) struct ResourceLedger {
-    charges: HashMap<RawTxHash, ChargeRecord>,
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peers: HashMap<PeerIndex, ResourceVector>,
@@ -636,8 +635,6 @@ pub(super) struct ResourceLedger {
 }
 
 pub(super) struct ResourcePlan {
-    key: RawTxHash,
-    after: Option<ChargeRecord>,
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peer_updates: [Option<(PeerIndex, ResourceVector)>; 2],
@@ -646,12 +643,108 @@ pub(super) struct ResourcePlan {
 }
 
 pub(super) struct ResourceBatchPlan {
-    changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peer_updates: HashMap<PeerIndex, ResourceVector>,
     replacement_history: ResourceVector,
     accepted: AcceptedResources,
+}
+
+#[derive(Clone, Copy)]
+struct ChargeProjection {
+    preaccepted: Option<ResourceVector>,
+    peer: Option<(PeerIndex, ResourceVector)>,
+    replacement_history: Option<ResourceVector>,
+    accepted: Option<AcceptedResources>,
+}
+
+impl ChargeProjection {
+    fn from_validated(charge: Option<ChargeRecord>) -> Result<Self, ResourceError> {
+        Ok(Self {
+            preaccepted: charge.and_then(ChargeRecord::preaccepted),
+            peer: charge
+                .map(ChargeRecord::peer_preaccepted)
+                .transpose()?
+                .flatten(),
+            replacement_history: charge.and_then(ChargeRecord::replacement_history),
+            accepted: charge.and_then(ChargeRecord::accepted),
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ResourceTotals {
+    preaccepted: ResourceVector,
+    remote: ResourceVector,
+    replacement_history: ResourceVector,
+}
+
+impl ResourceTotals {
+    fn checked_remove(mut self, charge: ChargeProjection) -> Result<Self, ResourceError> {
+        if let Some(resources) = charge.preaccepted {
+            self.preaccepted = self
+                .preaccepted
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some((_, resources)) = charge.peer {
+            self.remote = self
+                .remote
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = charge.replacement_history {
+            self.replacement_history = self
+                .replacement_history
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        Ok(self)
+    }
+
+    fn checked_add(mut self, charge: ChargeProjection) -> Result<Self, ResourceError> {
+        if let Some(resources) = charge.preaccepted {
+            self.preaccepted = self
+                .preaccepted
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some((_, resources)) = charge.peer {
+            self.remote = self
+                .remote
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = charge.replacement_history {
+            self.replacement_history = self
+                .replacement_history
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        Ok(self)
+    }
+}
+
+fn checked_remove_accepted(
+    current: AcceptedResources,
+    removed: Option<AcceptedResources>,
+) -> Result<AcceptedResources, ResourceError> {
+    removed.map_or(Ok(current), |resources| {
+        current
+            .checked_sub(resources)
+            .ok_or(ResourceError::Arithmetic)
+    })
+}
+
+fn checked_add_accepted(
+    current: AcceptedResources,
+    added: Option<AcceptedResources>,
+) -> Result<AcceptedResources, ResourceError> {
+    added.map_or(Ok(current), |resources| {
+        current
+            .checked_add(resources)
+            .ok_or(ResourceError::Arithmetic)
+    })
 }
 
 /// Stack-owned aggregate projection for a canonical ordered batch.
@@ -660,7 +753,7 @@ pub(super) struct ResourceBatchPlan {
 /// charge is removed before any new charge is installed. Retained ingress has
 /// a stronger rule because each item must observe the resource result of every
 /// earlier item in controller order. This projection evaluates that ordered
-/// fold without cloning the charge map or mutating the authoritative ledger;
+/// fold without cloning the owner map or mutating the authoritative ledger;
 /// the final base-to-final changes are still compiled by [`ResourceLedger::plan_batch`].
 pub(super) struct OrderedResourceProjection {
     preaccepted: ResourceVector,
@@ -674,7 +767,6 @@ pub(super) struct OrderedResourceProjection {
 impl ResourceLedger {
     pub(super) fn new(limits: ResourceLimits) -> Self {
         Self {
-            charges: HashMap::new(),
             preaccepted: ResourceVector::default(),
             remote: ResourceVector::default(),
             peers: HashMap::new(),
@@ -682,10 +774,6 @@ impl ResourceLedger {
             accepted: AcceptedResources::default(),
             limits,
         }
-    }
-
-    pub(super) fn charge(&self, key: &RawTxHash) -> Option<ChargeRecord> {
-        self.charges.get(key).copied()
     }
 
     pub(super) fn preaccepted(&self) -> ResourceVector {
@@ -827,63 +915,34 @@ impl ResourceLedger {
         }
     }
 
-    pub(super) fn plan_replace(
+    pub(super) fn plan_replace<F>(
         &mut self,
-        key: RawTxHash,
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
-    ) -> Result<ResourcePlan, ResourceError> {
+        current_charge: F,
+    ) -> Result<ResourcePlan, ResourceError>
+    where
+        F: FnOnce() -> Option<ChargeRecord>,
+    {
         expected.map(ChargeRecord::validate).transpose()?;
         after.map(ChargeRecord::validate).transpose()?;
-        if self.charge(&key) != expected {
+        if current_charge() != expected {
             return Err(ResourceError::ExistingChargeMismatch);
         }
 
-        let old_preaccepted = expected.and_then(ChargeRecord::preaccepted);
-        let new_preaccepted = after.and_then(ChargeRecord::preaccepted);
-        let old_replacement_history = expected.and_then(ChargeRecord::replacement_history);
-        let new_replacement_history = after.and_then(ChargeRecord::replacement_history);
-        let old_peer_charge = expected
-            .map(ChargeRecord::peer_preaccepted)
-            .transpose()?
-            .flatten();
-        let new_peer_charge = after
-            .map(ChargeRecord::peer_preaccepted)
-            .transpose()?
-            .flatten();
-        let mut preaccepted = self.preaccepted;
-        let mut remote = self.remote;
-        let mut replacement_history = self.replacement_history;
-        if let Some(resources) = old_preaccepted {
-            preaccepted = preaccepted
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
+        let old_charge = ChargeProjection::from_validated(expected)?;
+        let new_charge = ChargeProjection::from_validated(after)?;
+        let ResourceTotals {
+            preaccepted,
+            remote,
+            replacement_history,
+        } = ResourceTotals {
+            preaccepted: self.preaccepted,
+            remote: self.remote,
+            replacement_history: self.replacement_history,
         }
-        if let Some((_, resources)) = old_peer_charge {
-            remote = remote
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = old_replacement_history {
-            replacement_history = replacement_history
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = new_preaccepted {
-            preaccepted = preaccepted
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some((_, resources)) = new_peer_charge {
-            remote = remote
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = new_replacement_history {
-            replacement_history = replacement_history
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
+        .checked_remove(old_charge)?
+        .checked_add(new_charge)?;
         if !preaccepted.fits(self.limits.preaccepted) {
             return Err(ResourceError::PreAcceptedLimit);
         }
@@ -894,6 +953,8 @@ impl ResourceLedger {
             return Err(ResourceError::ReplacementHistoryLimit);
         }
 
+        let old_peer_charge = old_charge.peer;
+        let new_peer_charge = new_charge.peer;
         let old_peer = old_peer_charge.map(|(peer, _)| peer);
         let new_peer = new_peer_charge.map(|(peer, _)| peer);
         let project_peer = |peer: PeerIndex| {
@@ -927,28 +988,14 @@ impl ResourceLedger {
             .map(|peer| project_peer(peer).map(|usage| (peer, usage)))
             .transpose()?;
 
-        let old_accepted = expected.and_then(ChargeRecord::accepted);
-        let new_accepted = after.and_then(ChargeRecord::accepted);
-        let mut accepted = self.accepted;
-        if let Some(resources) = old_accepted {
-            accepted = accepted
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = new_accepted {
-            accepted = accepted
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
+        let accepted = checked_add_accepted(
+            checked_remove_accepted(self.accepted, old_charge.accepted)?,
+            new_charge.accepted,
+        )?;
         if !accepted.fits(self.limits.accepted) {
             return Err(ResourceError::AcceptedLimit);
         }
 
-        if expected.is_none() && after.is_some() {
-            self.charges
-                .try_reserve(1)
-                .map_err(|_| ResourceError::Allocation)?;
-        }
         if new_peer.is_some_and(|peer| !self.peers.contains_key(&peer)) {
             self.peers
                 .try_reserve(1)
@@ -956,8 +1003,6 @@ impl ResourceLedger {
         }
 
         Ok(ResourcePlan {
-            key,
-            after,
             preaccepted,
             remote,
             peer_updates: [old_update, new_update],
@@ -971,19 +1016,22 @@ impl ResourceLedger {
     /// Cancellation is the emergency discharge path for the sole compute
     /// capability. It may only remove resource usage from an existing charge
     /// and therefore performs no reservation or insertion.
-    pub(super) fn plan_compute_release(
+    pub(super) fn plan_compute_release<F>(
         &self,
-        key: RawTxHash,
         expected: ChargeRecord,
         after: ChargeRecord,
-    ) -> Result<ResourcePlan, ComputeReleaseError> {
+        current_charge: F,
+    ) -> Result<ResourcePlan, ComputeReleaseError>
+    where
+        F: FnOnce() -> Option<ChargeRecord>,
+    {
         expected
             .validate()
             .map_err(|_| ComputeReleaseError::Projection)?;
         after
             .validate()
             .map_err(|_| ComputeReleaseError::Projection)?;
-        if self.charge(&key) != Some(expected) {
+        if current_charge() != Some(expected) {
             return Err(ComputeReleaseError::Projection);
         }
         let (
@@ -1048,8 +1096,6 @@ impl ResourceLedger {
         }
 
         Ok(ResourcePlan {
-            key,
-            after: Some(after),
             preaccepted,
             remote,
             peer_updates: [peer_update, None],
@@ -1058,10 +1104,14 @@ impl ResourceLedger {
         })
     }
 
-    pub(super) fn plan_batch(
+    pub(super) fn plan_batch<F>(
         &mut self,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
-    ) -> Result<ResourceBatchPlan, ResourceError> {
+        mut current_charge: F,
+    ) -> Result<ResourceBatchPlan, ResourceError>
+    where
+        F: FnMut(&RawTxHash) -> Option<ChargeRecord>,
+    {
         let mut keys = HashSet::new();
         keys.try_reserve(changes.len())
             .map_err(|_| ResourceError::Allocation)?;
@@ -1073,11 +1123,12 @@ impl ResourceLedger {
         peer_updates
             .try_reserve(peer_capacity)
             .map_err(|_| ResourceError::Allocation)?;
-        let mut preaccepted = self.preaccepted;
-        let mut remote = self.remote;
-        let mut replacement_history = self.replacement_history;
+        let mut totals = ResourceTotals {
+            preaccepted: self.preaccepted,
+            remote: self.remote,
+            replacement_history: self.replacement_history,
+        };
         let mut accepted = self.accepted;
-        let mut new_charge_count = 0usize;
 
         for (key, expected, after) in &changes {
             expected.map(ChargeRecord::validate).transpose()?;
@@ -1085,13 +1136,8 @@ impl ResourceLedger {
             if !keys.insert(key.clone()) {
                 return Err(ResourceError::DuplicateChange);
             }
-            if self.charge(key) != *expected {
+            if current_charge(key) != *expected {
                 return Err(ResourceError::ExistingChargeMismatch);
-            }
-            if expected.is_none() && after.is_some() {
-                new_charge_count = new_charge_count
-                    .checked_add(1)
-                    .ok_or(ResourceError::Arithmetic)?;
             }
         }
 
@@ -1100,70 +1146,32 @@ impl ResourceLedger {
         // cannot overflow only because its freeing member appeared later in
         // the input vector.
         for (_, expected, _) in &changes {
-            if let Some(resources) = expected.and_then(ChargeRecord::preaccepted) {
-                preaccepted = preaccepted
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some((peer, resources)) = expected
-                .map(ChargeRecord::peer_preaccepted)
-                .transpose()?
-                .flatten()
-            {
-                remote = remote
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
+            let charge = ChargeProjection::from_validated(*expected)?;
+            totals = totals.checked_remove(charge)?;
+            if let Some((peer, resources)) = charge.peer {
                 let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
                 *usage = usage
                     .checked_sub(resources)
                     .ok_or(ResourceError::Arithmetic)?;
             }
-            if let Some(resources) = expected.and_then(ChargeRecord::replacement_history) {
-                replacement_history = replacement_history
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = expected.and_then(ChargeRecord::accepted) {
-                accepted = accepted
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
+            accepted = checked_remove_accepted(accepted, charge.accepted)?;
         }
         for (_, _, after) in &changes {
-            if let Some(resources) = after.and_then(ChargeRecord::preaccepted) {
-                preaccepted = preaccepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some((peer, resources)) = after
-                .map(ChargeRecord::peer_preaccepted)
-                .transpose()?
-                .flatten()
-            {
-                remote = remote
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
+            let charge = ChargeProjection::from_validated(*after)?;
+            totals = totals.checked_add(charge)?;
+            if let Some((peer, resources)) = charge.peer {
                 let usage = peer_updates.entry(peer).or_insert_with(|| self.peer(peer));
                 *usage = usage
                     .checked_add(resources)
                     .ok_or(ResourceError::Arithmetic)?;
             }
-            if let Some(resources) = after.and_then(ChargeRecord::replacement_history) {
-                replacement_history = replacement_history
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = after.and_then(ChargeRecord::accepted) {
-                accepted = accepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
+            accepted = checked_add_accepted(accepted, charge.accepted)?;
         }
 
-        if !preaccepted.fits(self.limits.preaccepted) {
+        if !totals.preaccepted.fits(self.limits.preaccepted) {
             return Err(ResourceError::PreAcceptedLimit);
         }
-        if !remote.fits(self.limits.remote) {
+        if !totals.remote.fits(self.limits.remote) {
             return Err(ResourceError::RemoteLimit);
         }
         if let Some(peer) = peer_updates
@@ -1173,16 +1181,16 @@ impl ResourceLedger {
         {
             return Err(ResourceError::PeerLimit(peer));
         }
-        if !replacement_history.fits(self.limits.replacement_history) {
+        if !totals
+            .replacement_history
+            .fits(self.limits.replacement_history)
+        {
             return Err(ResourceError::ReplacementHistoryLimit);
         }
         if !accepted.fits(self.limits.accepted) {
             return Err(ResourceError::AcceptedLimit);
         }
 
-        self.charges
-            .try_reserve(new_charge_count)
-            .map_err(|_| ResourceError::Allocation)?;
         let new_peer_count = peer_updates
             .keys()
             .filter(|peer| !self.peers.contains_key(peer))
@@ -1191,24 +1199,15 @@ impl ResourceLedger {
             .try_reserve(new_peer_count)
             .map_err(|_| ResourceError::Allocation)?;
         Ok(ResourceBatchPlan {
-            changes,
-            preaccepted,
-            remote,
+            preaccepted: totals.preaccepted,
+            remote: totals.remote,
             peer_updates,
-            replacement_history,
+            replacement_history: totals.replacement_history,
             accepted,
         })
     }
 
     pub(super) fn apply(&mut self, plan: ResourcePlan) {
-        match plan.after {
-            Some(charge) => {
-                self.charges.insert(plan.key, charge);
-            }
-            None => {
-                self.charges.remove(&plan.key);
-            }
-        }
         self.preaccepted = plan.preaccepted;
         self.remote = plan.remote;
         self.replacement_history = plan.replacement_history;
@@ -1223,16 +1222,6 @@ impl ResourceLedger {
     }
 
     pub(super) fn apply_batch(&mut self, plan: ResourceBatchPlan) {
-        for (key, _, after) in plan.changes {
-            match after {
-                Some(charge) => {
-                    self.charges.insert(key, charge);
-                }
-                None => {
-                    self.charges.remove(&key);
-                }
-            }
-        }
         self.preaccepted = plan.preaccepted;
         self.remote = plan.remote;
         self.replacement_history = plan.replacement_history;
@@ -1308,55 +1297,21 @@ impl OrderedResourceProjection {
         expected.map(ChargeRecord::validate).transpose()?;
         after.map(ChargeRecord::validate).transpose()?;
 
-        let old_preaccepted = expected.and_then(ChargeRecord::preaccepted);
-        let new_preaccepted = after.and_then(ChargeRecord::preaccepted);
-        let old_history = expected.and_then(ChargeRecord::replacement_history);
-        let new_history = after.and_then(ChargeRecord::replacement_history);
-        let old_accepted = expected.and_then(ChargeRecord::accepted);
-        let new_accepted = after.and_then(ChargeRecord::accepted);
-        let old_peer = expected
-            .map(ChargeRecord::peer_preaccepted)
-            .transpose()?
-            .flatten();
-        let new_peer = after
-            .map(ChargeRecord::peer_preaccepted)
-            .transpose()?
-            .flatten();
-
-        let mut preaccepted = self.preaccepted;
-        let mut remote = self.remote;
-        let mut replacement_history = self.replacement_history;
-        let mut accepted = self.accepted;
-        if let Some(resources) = old_preaccepted {
-            preaccepted = preaccepted
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
+        let old_charge = ChargeProjection::from_validated(expected)?;
+        let new_charge = ChargeProjection::from_validated(after)?;
+        let totals = ResourceTotals {
+            preaccepted: self.preaccepted,
+            remote: self.remote,
+            replacement_history: self.replacement_history,
         }
-        if let Some(resources) = new_preaccepted {
-            preaccepted = preaccepted
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = old_history {
-            replacement_history = replacement_history
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = new_history {
-            replacement_history = replacement_history
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = old_accepted {
-            accepted = accepted
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-        if let Some(resources) = new_accepted {
-            accepted = accepted
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
+        .checked_remove(old_charge)?
+        .checked_add(new_charge)?;
+        let accepted = checked_add_accepted(
+            checked_remove_accepted(self.accepted, old_charge.accepted)?,
+            new_charge.accepted,
+        )?;
+        let old_peer = old_charge.peer;
+        let new_peer = new_charge.peer;
 
         let current_peer = |peer: PeerIndex| {
             self.peers
@@ -1372,11 +1327,6 @@ impl OrderedResourceProjection {
                     .ok_or(ResourceError::Arithmetic)
             })
             .transpose()?;
-        if let Some((_, resources)) = old_peer {
-            remote = remote
-                .checked_sub(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
         let new_peer_after = new_peer
             .map(|(peer, resources)| {
                 let usage = old_peer_after
@@ -1388,16 +1338,10 @@ impl OrderedResourceProjection {
                     .ok_or(ResourceError::Arithmetic)
             })
             .transpose()?;
-        if let Some((_, resources)) = new_peer {
-            remote = remote
-                .checked_add(resources)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-
-        if !preaccepted.fits(self.limits.preaccepted) {
+        if !totals.preaccepted.fits(self.limits.preaccepted) {
             return Err(ResourceError::PreAcceptedLimit);
         }
-        if !remote.fits(self.limits.remote) {
+        if !totals.remote.fits(self.limits.remote) {
             return Err(ResourceError::RemoteLimit);
         }
         if let Some(peer) = old_peer_after
@@ -1408,16 +1352,19 @@ impl OrderedResourceProjection {
         {
             return Err(ResourceError::PeerLimit(peer));
         }
-        if !replacement_history.fits(self.limits.replacement_history) {
+        if !totals
+            .replacement_history
+            .fits(self.limits.replacement_history)
+        {
             return Err(ResourceError::ReplacementHistoryLimit);
         }
         if !accepted.fits(self.limits.accepted) {
             return Err(ResourceError::AcceptedLimit);
         }
 
-        self.preaccepted = preaccepted;
-        self.remote = remote;
-        self.replacement_history = replacement_history;
+        self.preaccepted = totals.preaccepted;
+        self.remote = totals.remote;
+        self.replacement_history = totals.replacement_history;
         self.accepted = accepted;
         if let Some((peer, usage)) = old_peer_after {
             self.peers.insert(peer, usage);
