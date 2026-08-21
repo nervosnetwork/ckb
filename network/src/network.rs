@@ -21,7 +21,9 @@ use crate::services::{
     dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
     protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
+use crate::{
+    Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl, multiaddr_to_ip_socketaddr,
+};
 use ckb_app_config::{NetworkConfig, SupportProtocol, default_support_all_protocols};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
@@ -104,7 +106,7 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
+            .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
                 Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
                 _ => {
                     match extract_peer_id(&addr) {
@@ -167,7 +169,7 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
+            .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
                 Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
                 _ => {
                     if extract_peer_id(&addr).is_none() {
@@ -1140,30 +1142,35 @@ impl NetworkService {
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
         if config.outbound_peer_service_enabled() {
-            // Spawn one outbound peer service per distinct transport type we are
-            // able to dial. The `transport_type` argument is always included (it
-            // is the caller's "primary" transport, defaulting to TCP), and any
-            // additional transports configured through `listen_addresses` (e.g.
-            // QUIC) are added so that outbound dialing is not limited to a single
-            // transport.
+            // Transports this node is able to dial, primary transport first.
+            // The `transport_type` argument is the caller's "primary" transport
+            // (defaulting to TCP). Any additional transports configured through
+            // `listen_addresses` (e.g. WS) are appended, and QUIC is always
+            // dialable: `quic_config` is set unconditionally and tentacle
+            // creates a one-shot client endpoint per dial, so no QUIC listen
+            // address is required for outbound QUIC connections.
             let mut transport_types: Vec<TransportType> = vec![transport_type];
             #[cfg(not(target_family = "wasm"))]
-            for addr in &config.listen_addresses {
-                let ty = find_type(addr);
-                if !transport_types.contains(&ty) {
-                    transport_types.push(ty);
+            {
+                for addr in &config.listen_addresses {
+                    let ty = find_type(addr);
+                    if !transport_types.contains(&ty) {
+                        transport_types.push(ty);
+                    }
+                }
+                if !transport_types.contains(&TransportType::QuicV1) {
+                    transport_types.push(TransportType::QuicV1);
                 }
             }
 
-            for ty in transport_types {
-                let outbound_peer_service = OutboundPeerService::new(
-                    Arc::clone(&network_state),
-                    p2p_service.control().to_owned().into(),
-                    Duration::from_secs(config.connect_outbound_interval_secs),
-                    ty,
-                );
-                bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
-            }
+            // A single service shares the dial budget across all transports.
+            let outbound_peer_service = OutboundPeerService::new(
+                Arc::clone(&network_state),
+                p2p_service.control().to_owned().into(),
+                Duration::from_secs(config.connect_outbound_interval_secs),
+                transport_types,
+            );
+            bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
 
         #[cfg(feature = "with_dns_seeding")]
@@ -1480,7 +1487,7 @@ impl NetworkController {
     fn disconnect_peers_in_ip_range(&self, address: IpNetwork, reason: &str) {
         self.network_state.with_peer_registry(|reg| {
             reg.peers().iter().for_each(|(peer_index, peer)| {
-                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr)
+                if let Some(addr) = multiaddr_to_ip_socketaddr(&peer.connected_addr)
                     && address.contains(addr.ip())
                 {
                     let _ = disconnect_with_message(

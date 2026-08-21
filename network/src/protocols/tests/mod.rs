@@ -407,6 +407,36 @@ fn test_quic_connect_behavior() {
     );
 }
 
+#[cfg(not(target_family = "wasm"))]
+#[test]
+fn test_quic_outbound_without_quic_listen() {
+    // A node that only listens on TCP must still be able to dial QUIC peers:
+    // tentacle creates a one-shot QUIC client endpoint per dial, so only
+    // `quic_config` (which production `NetworkService::start` always sets) is
+    // required, not a QUIC listen address.
+    let node1 = net_service_start_with_listen(
+        "/test/1".to_string(),
+        true,
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+        "/ip4/127.0.0.1/tcp/0".parse().unwrap(),
+        true,
+    );
+    let node2 = net_service_start_quic(
+        "/test/1".to_string(),
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+
+    node1.dial(
+        &node2,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+
+    wait_connect_state(&node1, 1);
+    wait_connect_state(&node2, 1);
+}
+
 #[test]
 fn test_identify_behavior() {
     let node1 = net_service_start(

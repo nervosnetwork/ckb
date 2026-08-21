@@ -1,9 +1,9 @@
 //! Ban list
+use crate::multiaddr_to_ip_socketaddr;
 use crate::peer_store::Multiaddr;
 use crate::peer_store::types::{BannedAddr, ip_to_network};
 use ckb_systemtime::unix_time_as_millis;
 use ipnetwork::IpNetwork;
-use p2p::utils::multiaddr_to_socketaddr;
 use std::collections::HashMap;
 use std::net::IpAddr;
 
@@ -66,7 +66,7 @@ impl BanList {
 
     /// Whether the address is banned
     pub fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
-        multiaddr_to_socketaddr(addr)
+        multiaddr_to_ip_socketaddr(addr)
             .map(|socket_addr| self.is_ip_banned(&socket_addr.ip()))
             .unwrap_or_default()
     }

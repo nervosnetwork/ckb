@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::multiaddr_to_ip_socketaddr;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::{Duration, Instant};
 use p2p::{
@@ -11,7 +12,7 @@ use p2p::{
     multiaddr::{Multiaddr, Protocol},
     service::TargetProtocol,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr, multiaddr_to_udp_socketaddr},
+    utils::{extract_peer_id, is_reachable},
 };
 
 mod protocol;
@@ -30,9 +31,7 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
-    if let Some(socket_addr) =
-        multiaddr_to_socketaddr(addr).or_else(|| multiaddr_to_udp_socketaddr(addr))
-    {
+    if let Some(socket_addr) = multiaddr_to_ip_socketaddr(addr) {
         !global_ip_only || is_reachable(socket_addr.ip())
     } else {
         addr.iter()
@@ -223,7 +222,9 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .local_listen_addrs()
                 .iter()
                 .filter(|addr| {
-                    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+                    // Covers both TCP-based and UDP-based (QUIC) transports, so
+                    // that QUIC listen addresses are announced to peers too.
+                    if let Some(socket_addr) = multiaddr_to_ip_socketaddr(addr) {
                         !self.global_ip_only || is_reachable(socket_addr.ip())
                     } else {
                         // allow /onion3 address
