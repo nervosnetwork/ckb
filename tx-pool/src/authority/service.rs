@@ -1908,6 +1908,8 @@ async fn run_ordered_chain_control_driver(
         let Some(command) = command else {
             return Ok(());
         };
+        #[cfg(any(test, feature = "internal"))]
+        let _ = command.external_operation_class();
         match command {
             ChainControl::Reconcile(Request {
                 responder,

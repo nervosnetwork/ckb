@@ -3,10 +3,10 @@ use super::super::effect::{
     CommittedAcceptance, CommittedEffect, CommittedRejection, EffectPolicy, RejectionAudience,
 };
 use super::super::plan::{
-    AcceptedOrderKey, AncestorAggregate, AuthorityFault, Backpressure, CandidateDispositionPlan,
-    CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
-    DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
-    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
+    AcceptedOrderKey, AncestorAggregate, AuthorityApplyCarrier, AuthorityFault, Backpressure,
+    CandidateDispositionPlan, CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery,
+    DescendantAggregate, DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError,
+    PreparedApply, RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
     test_support::{
         CandidateBatchError, CommittedCheckout, ComponentLimitKind, MembershipSnapshot,
         StatusCounts,
@@ -1464,11 +1464,16 @@ fn uak_disjoint_local_accepted_removals_commute_without_effect_observations() {
     }
 
     fn remove(authority: &mut TxPoolAuthority, hash: &RawTxHash) {
-        let committed = authority
+        let plan = authority
             .plan_local_removal(hash)
             .expect("a disjoint accepted owner has one total removal plan")
-            .expect("the accepted owner is present")
-            .apply();
+            .expect("the accepted owner is present");
+        assert_eq!(
+            plan.apply_carrier_for_claim(),
+            AuthorityApplyCarrier::Administrative,
+            "the public local-removal root is compiler-bound to the production administrative Apply carrier"
+        );
+        let committed = plan.apply();
         assert_eq!(committed.retired_len(), 1);
         assert!(
             authority

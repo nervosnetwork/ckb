@@ -642,6 +642,12 @@ impl RetiredGeneration {
 }
 
 impl PreparedApply<'_> {
+    /// Expose only the production delta discriminant for claim-specific
+    /// bridge tests.  The witness cannot plan, apply or recompute a result.
+    pub(in crate::authority) fn apply_carrier_for_claim(&self) -> AuthorityApplyCarrier {
+        self.delta.apply_carrier()
+    }
+
     /// Inspect the already-sealed independent Apply order without retaining a
     /// second production receipt after the transition commits.
     pub(in crate::authority) fn independent_order_for_foundation(&self) -> Option<Vec<RawTxHash>> {

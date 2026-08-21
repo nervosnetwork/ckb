@@ -1024,6 +1024,49 @@ enum AuthorityDelta {
     Chain(ChainDelta),
 }
 
+/// Compiler-bound outer carrier for one authoritative Apply.
+///
+/// This is a proof witness over the real production delta enum, not a second
+/// transition engine.  It deliberately says nothing about `Q_H`, semantic
+/// support or architecture completeness; those remain separate `rho` and
+/// representation obligations.  Adding a production `AuthorityDelta` variant
+/// must extend this exhaustive match before the internal proof universe can
+/// compile again.
+#[cfg(any(test, feature = "internal"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum AuthorityApplyCarrier {
+    Entry,
+    ComputeExchange,
+    RetainedIngress,
+    Membership,
+    Independent,
+    Dependency,
+    Effect,
+    ClearPipeline,
+    ClearPool,
+    Administrative,
+    Chain,
+}
+
+#[cfg(any(test, feature = "internal"))]
+impl AuthorityDelta {
+    pub(in crate::authority) const fn apply_carrier(&self) -> AuthorityApplyCarrier {
+        match self {
+            Self::Entry(_) => AuthorityApplyCarrier::Entry,
+            Self::ComputeExchange(_) => AuthorityApplyCarrier::ComputeExchange,
+            Self::RetainedIngress(_) => AuthorityApplyCarrier::RetainedIngress,
+            Self::Membership(_) => AuthorityApplyCarrier::Membership,
+            Self::Independent(_) => AuthorityApplyCarrier::Independent,
+            Self::Dependency(_) => AuthorityApplyCarrier::Dependency,
+            Self::Effect(_) => AuthorityApplyCarrier::Effect,
+            Self::ClearPipeline(_) => AuthorityApplyCarrier::ClearPipeline,
+            Self::ClearPool(_) => AuthorityApplyCarrier::ClearPool,
+            Self::Admin(_) => AuthorityApplyCarrier::Administrative,
+            Self::Chain(_) => AuthorityApplyCarrier::Chain,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MissingResolutionDisposition {
     Wait,
@@ -1236,6 +1279,8 @@ impl PreparedCandidateRejection<'_> {
 
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
+        #[cfg(any(test, feature = "internal"))]
+        let _ = self.delta.apply_carrier();
         let Self { authority, delta } = self;
         let before = authority.wake_projection();
         let retirement = match delta {

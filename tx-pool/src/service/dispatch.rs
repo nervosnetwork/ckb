@@ -32,6 +32,8 @@ pub(crate) async fn process(
     service: AuthorityService,
     message: Message,
 ) -> Result<(), AuthorityGenerationInvalidity> {
+    #[cfg(any(test, feature = "internal"))]
+    let _ = message.external_operation_class();
     match message {
         Message::GetTxPoolInfo(request) => {
             let Request { responder, .. } = request;
