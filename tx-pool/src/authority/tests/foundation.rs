@@ -1512,6 +1512,14 @@ fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
     }
 
     let (mut local, local_hash) = fixture();
+    let (mut expired, expired_hash) = fixture();
+    assert_eq!(expired_hash, local_hash);
+    assert_eq!(
+        local.normalized_snapshot(),
+        expired.normalized_snapshot(),
+        "both histories start from the same complete production authority observation"
+    );
+
     let local_plan = local
         .plan_local_removal(&local_hash)
         .expect("the explicit removal plans")
@@ -1525,8 +1533,6 @@ fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
         .effect_publication_receipt_for_foundation()
         .expect("explicit removal releases the remote ingress projection");
 
-    let (mut expired, expired_hash) = fixture();
-    assert_eq!(expired_hash, local_hash);
     let expiry_plan = expired
         .plan_remote_expiry(
             RemoteDeadline(10),
