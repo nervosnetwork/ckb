@@ -1,9 +1,6 @@
 use super::*;
 use crate::authority::service::AuthorityVerificationControl;
-use crate::service::{
-    AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission,
-    message::ChainControlOperationClass,
-};
+use crate::service::{AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission};
 use crate::test_support::genesis_snapshot;
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::new_background_runtime;
@@ -91,10 +88,6 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
         .recv()
         .await
         .expect("readiness cannot suppress an authoritative chain transition");
-    assert_eq!(
-        delivered.external_operation_class(),
-        ChainControlOperationClass::Reconcile
-    );
     let ChainControl::Reconcile(Request {
         responder,
         arguments,

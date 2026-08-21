@@ -329,77 +329,6 @@ pub(crate) enum Message {
     SubmitLocalTestTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
 }
 
-/// Compiler-bound external operation identity for the production dispatcher.
-///
-/// The classifier exposes the discriminant of the real service message; it is
-/// not an executable protocol model and carries no policy.  A new production
-/// message cannot enter the internal proof universe until this exhaustive
-/// match and the dispatch match both classify it.
-#[cfg(any(test, feature = "internal"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExternalOperationClass {
-    BlockTemplate,
-    SubmitLocalTx,
-    RemoveLocalTx,
-    TestAcceptTx,
-    SubmitRemoteTx,
-    NotifyTxs,
-    FreshProposalsFilter,
-    FetchTxs,
-    FetchTxsWithCycles,
-    GetTxPoolInfo,
-    GetLiveCell,
-    GetTxStatus,
-    GetTransactionWithStatus,
-    NewUncle,
-    GetAllEntryInfo,
-    GetAllIds,
-    SavePool,
-    GetPoolTxDetails,
-    GetTotalRecentRejectNum,
-    UpdateIbdState,
-    EstimateFeeRate,
-    #[cfg(feature = "internal")]
-    PlugEntry,
-    #[cfg(feature = "internal")]
-    PackageTxs,
-    SubmitLocalTestTx,
-}
-
-#[cfg(any(test, feature = "internal"))]
-impl Message {
-    pub(crate) const fn external_operation_class(&self) -> ExternalOperationClass {
-        match self {
-            Self::BlockTemplate(_) => ExternalOperationClass::BlockTemplate,
-            Self::SubmitLocalTx(_) => ExternalOperationClass::SubmitLocalTx,
-            Self::RemoveLocalTx(_) => ExternalOperationClass::RemoveLocalTx,
-            Self::TestAcceptTx(_) => ExternalOperationClass::TestAcceptTx,
-            Self::SubmitRemoteTx(_) => ExternalOperationClass::SubmitRemoteTx,
-            Self::NotifyTxs(_) => ExternalOperationClass::NotifyTxs,
-            Self::FreshProposalsFilter(_) => ExternalOperationClass::FreshProposalsFilter,
-            Self::FetchTxs(_) => ExternalOperationClass::FetchTxs,
-            Self::FetchTxsWithCycles(_) => ExternalOperationClass::FetchTxsWithCycles,
-            Self::GetTxPoolInfo(_) => ExternalOperationClass::GetTxPoolInfo,
-            Self::GetLiveCell(_) => ExternalOperationClass::GetLiveCell,
-            Self::GetTxStatus(_) => ExternalOperationClass::GetTxStatus,
-            Self::GetTransactionWithStatus(_) => ExternalOperationClass::GetTransactionWithStatus,
-            Self::NewUncle(_) => ExternalOperationClass::NewUncle,
-            Self::GetAllEntryInfo(_) => ExternalOperationClass::GetAllEntryInfo,
-            Self::GetAllIds(_) => ExternalOperationClass::GetAllIds,
-            Self::SavePool(_) => ExternalOperationClass::SavePool,
-            Self::GetPoolTxDetails(_) => ExternalOperationClass::GetPoolTxDetails,
-            Self::GetTotalRecentRejectNum(_) => ExternalOperationClass::GetTotalRecentRejectNum,
-            Self::UpdateIBDState(_) => ExternalOperationClass::UpdateIbdState,
-            Self::EstimateFeeRate(_) => ExternalOperationClass::EstimateFeeRate,
-            #[cfg(feature = "internal")]
-            Self::PlugEntry(_) => ExternalOperationClass::PlugEntry,
-            #[cfg(feature = "internal")]
-            Self::PackageTxs(_) => ExternalOperationClass::PackageTxs,
-            Self::SubmitLocalTestTx(_) => ExternalOperationClass::SubmitLocalTestTx,
-        }
-    }
-}
-
 /// Rare generation controls that must preserve producer order with chain
 /// reconciliation.
 ///
@@ -415,25 +344,6 @@ pub(crate) enum ChainControl {
     /// Retire every pre-pool location as one generation without touching the
     /// accepted pool.
     ClearPipeline(AdmittedAdministration<SyncRequest<(), ()>>),
-}
-
-#[cfg(any(test, feature = "internal"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChainControlOperationClass {
-    Reconcile,
-    ClearPool,
-    ClearPipeline,
-}
-
-#[cfg(any(test, feature = "internal"))]
-impl ChainControl {
-    pub(crate) const fn external_operation_class(&self) -> ChainControlOperationClass {
-        match self {
-            Self::Reconcile(_) => ChainControlOperationClass::Reconcile,
-            Self::ClearPool(_) => ChainControlOperationClass::ClearPool,
-            Self::ClearPipeline(_) => ChainControlOperationClass::ClearPipeline,
-        }
-    }
 }
 
 /// Synchronous request using the `ckb_channel` oneshot responder.

@@ -1,10 +1,7 @@
 use super::{
     BoundedIdentifierSequenceError, BoundedProposalIds, BoundedTransaction,
-    BoundedTransactionError, BoundedTransactionHashes, ExternalOperationClass, Message,
-    NotifyTxBatch, NotifyTxBatchError,
+    BoundedTransactionError, BoundedTransactionHashes, NotifyTxBatch, NotifyTxBatchError,
 };
-use crate::service::Request;
-use ckb_channel::oneshot;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, TransactionBuilder, TransactionView, tx_pool::TRANSACTION_SIZE_LIMIT},
@@ -12,16 +9,6 @@ use ckb_types::{
     prelude::{Entity, Pack},
 };
 use std::sync::Arc;
-
-#[test]
-fn external_operation_class_is_bound_to_the_real_remove_message_variant() {
-    let (responder, _response) = oneshot::channel();
-    let message = Message::RemoveLocalTx(Request::call(Byte32::default(), responder));
-    assert_eq!(
-        message.external_operation_class(),
-        ExternalOperationClass::RemoveLocalTx
-    );
-}
 
 impl NotifyTxBatch {
     pub(crate) fn into_transactions_for_test(self) -> Vec<TransactionView> {
