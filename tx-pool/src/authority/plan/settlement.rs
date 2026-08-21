@@ -267,8 +267,6 @@ impl TxPoolAuthority {
                 clocks: clocks.finish(),
                 async_process_starts,
             }),
-            #[cfg(any(test, feature = "internal"))]
-            origin: super::AuthorityApplyOrigin::IndependentSettlement,
         }))
     }
 }

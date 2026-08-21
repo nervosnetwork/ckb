@@ -37,16 +37,6 @@ pub(super) struct RetainedIngressDelta {
     retired: Vec<OwnedTx>,
 }
 
-#[cfg(test)]
-impl RetainedIngressDelta {
-    pub(super) fn primary_keys_for_claim(&self) -> Vec<RawTxHash> {
-        self.updates
-            .iter()
-            .map(|update| update.key.clone())
-            .collect()
-    }
-}
-
 pub(super) fn apply_retained_ingress(
     authority: &mut TxPoolAuthority,
     delta: RetainedIngressDelta,
@@ -302,12 +292,7 @@ impl TxPoolAuthority {
         };
         if scratch.owners.changes.is_empty() {
             return Ok(PreparedRetainedAdmissionBatch {
-                plan: Some(self.prepared_effect_only(
-                    effect,
-                    clocks,
-                    #[cfg(any(test, feature = "internal"))]
-                    super::AuthorityApplyOrigin::RetainedIngressEffect,
-                )),
+                plan: Some(self.prepared_effect_only(effect, clocks)),
                 consumed,
             });
         }
@@ -375,8 +360,6 @@ impl TxPoolAuthority {
                     clocks: clocks.finish(),
                     retired,
                 }),
-                #[cfg(any(test, feature = "internal"))]
-                origin: super::AuthorityApplyOrigin::RetainedIngressBatch,
             }),
             consumed,
         })
