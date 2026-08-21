@@ -409,6 +409,47 @@ fn test_quic_connect_behavior() {
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
+fn test_quic_inbound_advertises_dialable_listen_addr() {
+    let outbound = net_service_start_quic(
+        "/test/1".to_string(),
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let inbound = net_service_start_quic(
+        "/test/1".to_string(),
+        Flags::COMPATIBILITY,
+        Flags::COMPATIBILITY,
+    );
+    let mut advertised = outbound.listen_addr.clone();
+    advertised.push(Protocol::P2P(Cow::Owned(
+        outbound.network_state.local_peer_id().as_bytes().to_vec(),
+    )));
+    outbound.network_state.add_public_addr(advertised);
+
+    outbound.dial(
+        &inbound,
+        TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+    );
+    wait_connect_state(&outbound, 1);
+    wait_connect_state(&inbound, 1);
+
+    let mut expected = outbound.listen_addr.clone();
+    expected.push(Protocol::P2P(Cow::Owned(
+        outbound.network_state.local_peer_id().as_bytes().to_vec(),
+    )));
+    assert!(wait_until(10, || {
+        inbound
+            .network_state
+            .peer_store
+            .lock()
+            .fetch_random_addrs(16, Flags::COMPATIBILITY)
+            .into_iter()
+            .any(|info| info.addr == expected)
+    }));
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[test]
 fn test_quic_outbound_without_quic_listen() {
     // A node that only listens on TCP must still be able to dial QUIC peers:
     // tentacle creates a one-shot QUIC client endpoint per dial, so only

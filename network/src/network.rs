@@ -46,7 +46,7 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable},
     yamux::config::Config as YamuxConfig,
 };
 use rand::prelude::IteratorRandom;
@@ -107,7 +107,7 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .cloned()
             .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
-                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+                Some(socket_addr) if !config.discovery_local_address && !is_reachable(socket_addr.ip()) => None,
                 _ => {
                     match extract_peer_id(&addr) {
                         Some(peer_id) if peer_id != local_peer_id => {
@@ -170,7 +170,11 @@ impl NetworkState {
             .chain(config.public_addresses.iter())
             .cloned()
             .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
-                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+                Some(socket_addr)
+                    if !config.discovery_local_address && !is_reachable(socket_addr.ip()) =>
+                {
+                    None
+                }
                 _ => {
                     if extract_peer_id(&addr).is_none() {
                         addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
@@ -873,8 +877,11 @@ impl NetworkService {
             identify_announce.1.clone(),
             identify_announce.2,
         );
+        let identify_global_ip_only = !config.discovery_local_address;
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+            ProtocolHandle::Callback(Box::new(
+                IdentifyProtocol::new(identify_callback).global_ip_only(identify_global_ip_only),
+            ))
         });
         protocol_metas.push(identify_meta);
 
@@ -1091,7 +1098,7 @@ impl NetworkService {
                             if matches!(init, BindType::Tcp) {
                                 continue;
                             }
-                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
+                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
                                 let bind_fn = move |socket: p2p::service::TcpSocket,
                                                     ctxt: p2p::service::TransformerContext| {
                                     bind_fn_with_addr(socket, ctxt, addr)
@@ -1105,7 +1112,7 @@ impl NetworkService {
                             if matches!(init, BindType::Ws) {
                                 continue;
                             }
-                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
+                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
                                 let bind_fn = move |socket: p2p::service::TcpSocket,
                                                     ctxt: p2p::service::TransformerContext| {
                                     bind_fn_with_addr(socket, ctxt, addr)

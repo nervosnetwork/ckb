@@ -108,7 +108,6 @@ impl<T: Callback> IdentifyProtocol<T> {
         }
     }
 
-    #[cfg(test)]
     pub fn global_ip_only(mut self, only: bool) -> Self {
         self.global_ip_only = only;
         self
@@ -494,9 +493,41 @@ impl Callback for IdentifyCallback {
                 Flags::COMPATIBILITY
             }
         });
+        let inbound_quic_ip = session
+            .ty
+            .is_inbound()
+            .then(|| multiaddr_to_ip_socketaddr(&session.address))
+            .flatten()
+            .filter(|_| {
+                session
+                    .address
+                    .iter()
+                    .any(|protocol| matches!(protocol, Protocol::QuicV1))
+            })
+            .map(|socket_addr| socket_addr.ip());
+
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
+                // A QUIC dial uses an ephemeral UDP source port, so the address
+                // of an inbound session is not dialable. Once Identify proves
+                // the remote peer's identity, prefer its advertised QUIC
+                // listener when it is on the same IP as the established
+                // session. Restricting this promotion to the connected IP
+                // prevents a peer from making us advertise arbitrary hosts.
+                let is_same_host_quic_listener = inbound_quic_ip.is_some_and(|session_ip| {
+                    addr.iter()
+                        .any(|protocol| matches!(protocol, Protocol::QuicV1))
+                        && multiaddr_to_ip_socketaddr(&addr)
+                            .is_some_and(|listen_addr| listen_addr.ip() == session_ip)
+                });
+
+                let result = if is_same_host_quic_listener {
+                    peer_store.add_outbound_addr(addr.clone(), flags);
+                    Ok(())
+                } else {
+                    peer_store.add_addr(addr.clone(), flags)
+                };
+                if let Err(err) = result {
                     error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
                 }
             }
