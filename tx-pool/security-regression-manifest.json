@@ -82,9 +82,10 @@
     "recovery_tree": "f54256aa52c071ffdaa9dfe1e4af7dc5424de592"
   },
   "phase_projection": {
-    "active": "partner_a_method_review",
+    "active": "legacy_generation_retirement",
     "completed": [
-      "method_same_subject_review"
+      "method_same_subject_review",
+      "partner_a_method_review"
     ],
     "controller_available": false,
     "entries": [
@@ -94,11 +95,11 @@
       },
       {
         "id": "partner_a_method_review",
-        "status": "ready_incomplete"
+        "status": "complete"
       },
       {
         "id": "legacy_generation_retirement",
-        "status": "blocked"
+        "status": "ready_incomplete"
       },
       {
         "id": "hard_and_static_proof",
@@ -133,15 +134,16 @@
       "valid": true
     },
     "partner_a": {
-      "passed": false,
-      "present": false,
-      "valid": false
+      "commit": "16d011d229fbffa91de254854b7d1a64989d24b7",
+      "passed": true,
+      "present": true,
+      "tree": "608b8522488af04ed7d74f4c574561f034974c57",
+      "valid": true
     }
   },
   "schema_version": 1,
   "warnings": [
     "34 active legacy proof routes remain",
-    "controller absent; machine phases fail closed",
-    "partner_a method review is missing"
+    "controller absent; machine phases fail closed"
   ]
 }

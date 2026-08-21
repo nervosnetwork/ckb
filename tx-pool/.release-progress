@@ -4,11 +4,11 @@ Generated mechanically; disposable and not proof.
 
 - method/bundle: `txpool-minimal-kernel-v2` / `f296b8f255f80a4c24065fea5dee913e9c6fb1588dc662b3db3b5b1b25f8d346`
 - recovery: `bc3a2c65e604212a2493fc0e12db27313179816c` / `f54256aa52c071ffdaa9dfe1e4af7dc5424de592`
-- state/completed/active: `construction` / `method_same_subject_review` / `partner_a_method_review`
+- state/completed/active: `construction` / `method_same_subject_review,partner_a_method_review` / `legacy_generation_retirement`
 - Acceptance: not established; controller absent; machine phases fail closed
 - review internal: PASS
-- review partner_a: MISSING
+- review partner_a: PASS
 - legacy artifacts/routes: `34` (manifest owns detail)
 
-Next: continue only `partner_a_method_review`; freeze one commit/tree before review.
+Next: continue only `legacy_generation_retirement`; freeze one commit/tree before review.
 Never restore retired Acceptance `d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f` or roll back production成果.
