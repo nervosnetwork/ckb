@@ -1504,6 +1504,74 @@ fn uak_disjoint_local_accepted_removals_commute_without_effect_observations() {
 }
 
 #[test]
+fn qhc_admin_owner_keys_alone_do_not_identify_external_observation() {
+    fn fixture() -> (TxPoolAuthority, RawTxHash) {
+        let mut authority = TxPoolAuthority::for_foundation(limits());
+        let hash = admit_remote_until(&mut authority, 1_728, 728, 10);
+        (authority, hash)
+    }
+
+    let (mut local, local_hash) = fixture();
+    let local_plan = local
+        .plan_local_removal(&local_hash)
+        .expect("the explicit removal plans")
+        .expect("the remote owner is present");
+    let local_keys = local_plan
+        .administrative_removal_keys_for_claim()
+        .expect("the real administrative delta carries its owner keys");
+    let local_committed = local_plan.apply();
+    assert_eq!(local_committed.retired_len(), 1);
+    let local_effect = local
+        .effect_publication_receipt_for_foundation()
+        .expect("explicit removal releases the remote ingress projection");
+
+    let (mut expired, expired_hash) = fixture();
+    assert_eq!(expired_hash, local_hash);
+    let expiry_plan = expired
+        .plan_remote_expiry(
+            RemoteDeadline(10),
+            NonZeroUsize::new(1).expect("the fixture limit is non-zero"),
+        )
+        .expect("the expiry lookup is valid")
+        .expect("the remote owner is due");
+    let expiry_keys = expiry_plan
+        .administrative_removal_keys_for_claim()
+        .expect("the real administrative delta carries its owner keys");
+    let expiry_committed = expiry_plan.apply();
+    assert_eq!(expiry_committed.retired_len(), 1);
+    let expiry_effect = expired
+        .effect_publication_receipt_for_foundation()
+        .expect("lease expiry publishes its terminal observation");
+
+    assert_eq!(
+        local_keys, expiry_keys,
+        "both production deltas have the same exact owner-key support"
+    );
+    assert!(matches!(
+        local_effect.effects(),
+        [CommittedEffect::RemoteIngressReleased(release)]
+            if release.tx_hash() == &local_hash
+    ));
+    assert_eq!(
+        expiry_effect.effects(),
+        &[CommittedEffect::RemoteExpired {
+            tx_hash: expired_hash,
+        }]
+    );
+    assert_ne!(
+        local.normalized_snapshot(),
+        expired.normalized_snapshot(),
+        "equal owner keys cannot collapse distinct committed effect observations"
+    );
+    assert!(local.entry(&local_hash).is_none());
+    assert!(expired.entry(&local_hash).is_none());
+    assert_resource_reference(&local);
+    assert_resource_reference(&expired);
+    assert!(local.primary_projection_consistent());
+    assert!(expired.primary_projection_consistent());
+}
+
+#[test]
 fn uak_local_preaccepted_removal_invalidates_work_and_releases_relay_state() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let hash = admit_remote(&mut authority, 1_725, 725);

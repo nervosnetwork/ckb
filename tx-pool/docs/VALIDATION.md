@@ -71,7 +71,6 @@ make fmt
 make check
 make clippy
 cargo nextest run -p ckb-tx-pool --features internal
-make quick-test
 make test
 python3 -B tx-pool/scripts/check_all.py
 git diff --check
@@ -79,8 +78,9 @@ git diff --check
 
 Rules:
 
-- Never invoke direct `cargo test` as tx-pool evidence. Repository-owned
-  `make quick-test` or `make test` may run their declared doc-test step.
+- Never invoke direct `cargo test` as tx-pool evidence. Use `make test`
+  directly when the full aggregate universe is required; do not precede it
+  with `make quick-test`.
 - Never invoke direct `cargo clippy`; use `make clippy`.
 - Different absolute source roots must not share one `CARGO_TARGET_DIR`.
 - Standalone Nextest `LEAK` is a known non-blocking false positive; test
