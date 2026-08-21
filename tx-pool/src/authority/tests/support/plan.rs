@@ -22,6 +22,8 @@ use crate::authority::ingress::RetainedIngress;
 use ckb_types::core::TransactionView;
 use ckb_verification::cache::ScriptVerificationRules;
 
+pub(in crate::authority) struct AuthorityTestToken(());
+
 #[derive(Debug)]
 pub(in crate::authority) enum DependencyMaintenanceDrainError {
     Rank(DependencyMaintenanceRankError),
@@ -713,13 +715,15 @@ impl TxPoolAuthority {
         verify_order: VerifyOrder,
         effect_limits: EffectLimits,
     ) -> Result<Self, AuthorityConfigError> {
-        Self::from_runtime(
+        let effects = EffectLog::new(effect_limits).map_err(AuthorityConfigError::Effect)?;
+        Ok(Self::from_test(
+            &AuthorityTestToken(()),
             limits,
             verify_order,
-            effect_limits,
+            effects,
             MembershipConfig::testing_default(),
             ChainViewId::initial(),
-        )
+        ))
     }
 
     pub(in crate::authority) fn with_replacement(
@@ -727,7 +731,10 @@ impl TxPoolAuthority {
         minimum_rate: ckb_types::core::FeeRate,
     ) -> Self {
         let mut authority = Self::for_foundation(limits);
-        authority.membership_config = MembershipConfig::testing_with_replacement(minimum_rate);
+        authority.replace_membership_config_for_test(
+            &AuthorityTestToken(()),
+            MembershipConfig::testing_with_replacement(minimum_rate),
+        );
         authority
     }
 
@@ -736,16 +743,20 @@ impl TxPoolAuthority {
         max_ancestors: usize,
     ) -> Self {
         let mut authority = Self::for_foundation(limits);
-        authority.membership_config = MembershipConfig::from_runtime(
-            max_ancestors,
-            crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-            None,
+        authority.replace_membership_config_for_test(
+            &AuthorityTestToken(()),
+            MembershipConfig::from_runtime(
+                max_ancestors,
+                crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+                None,
+            ),
         );
         authority
     }
 
     pub(in crate::authority) fn for_foundation(limits: ResourceLimits) -> Self {
-        Self::assemble(
+        Self::from_test(
+            &AuthorityTestToken(()),
             limits,
             VerifyOrder::Arrival,
             EffectLog::for_foundation(),
@@ -758,7 +769,8 @@ impl TxPoolAuthority {
         limits: ResourceLimits,
         verify_order: VerifyOrder,
     ) -> Self {
-        Self::assemble(
+        Self::from_test(
+            &AuthorityTestToken(()),
             limits,
             verify_order,
             EffectLog::for_foundation(),
@@ -931,15 +943,15 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn force_chain_view(&mut self, view: ChainViewId) {
-        self.chain_view = view;
+        self.replace_chain_view_for_test(&AuthorityTestToken(()), view);
     }
 
     pub(in crate::authority) fn force_next_sequence(&mut self, sequence: ApplySequence) {
-        self.clocks.next_sequence = sequence;
+        self.replace_next_sequence_for_test(&AuthorityTestToken(()), sequence);
     }
 
     pub(in crate::authority) fn force_next_version(&mut self, version: EntryVersion) {
-        self.clocks.next_version = version;
+        self.replace_next_version_for_test(&AuthorityTestToken(()), version);
     }
 
     pub(in crate::authority) fn normalized_snapshot(&self) -> AuthoritySnapshot {
@@ -1282,7 +1294,9 @@ impl TxPoolAuthority {
             Some(existing.charge_record()),
             Some(after.charge_record()),
         ));
-        let resource = self.resources.plan_batch(resource_changes)?;
+        let resource = self
+            .resources_for_test_plan()
+            .plan_batch(resource_changes)?;
         let scheduler = self
             .scheduler
             .plan_replace(Some(&existing), Some(&after), None)?;
@@ -1364,7 +1378,9 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
-        let effect = self.effects.plan_publication(publication, sequence)?;
+        let effect = self
+            .effects_for_test_plan()
+            .plan_publication(publication, sequence)?;
         Ok(self.prepared_effect_only(effect, clocks))
     }
 
@@ -1389,14 +1405,16 @@ impl TxPoolAuthority {
             hashes.extend(indexed.iter().cloned());
         }
         hashes.sort_unstable();
-        let marker = self.peer_bans.plan_record(peer, Instant::now())?;
+        let marker = self
+            .peer_bans_for_test_plan()
+            .plan_record(peer, Instant::now())?;
         let revocation =
             CommittedPeerCohortRevocation::administrative_for_foundation(marker.lease());
         self.plan_administrative_removal(hashes, AdminPlan::PeerRevocation { marker, revocation })
     }
 
     pub(in crate::authority) fn set_peer_ban_limit_for_foundation(&mut self, capacity: usize) {
-        self.peer_bans = PeerBanRegistry::with_limit_for_test(capacity);
+        self.replace_peer_bans_for_test(&AuthorityTestToken(()), capacity);
     }
 
     pub(in crate::authority) fn effect_publication_receipt_for_foundation(
@@ -1691,7 +1709,7 @@ impl TxPoolAuthority {
             compute_peer: attribution.peer(),
         };
         let resources = self
-            .resources
+            .resources_for_test_plan()
             .plan_replace(key.clone(), Some(expected_charge), Some(after_record))
             .map_err(|error| match error {
                 ResourceError::PreAcceptedLimit
@@ -1768,9 +1786,9 @@ impl TxPoolAuthority {
         let sources = self
             .source_versions
             .plan_replacements(std::iter::once((Some(&existing), Some(&after))), sequence);
-        let indexes = self
-            .indexes
-            .plan_replace(key, Some(&existing), Some(&after))?;
+        let indexes =
+            self.indexes_for_test_plan()
+                .plan_replace(key, Some(&existing), Some(&after))?;
         let plan = PreparedApply {
             authority: self,
             delta: AuthorityDelta::Entry(EntryDelta {

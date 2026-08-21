@@ -1,3 +1,4 @@
+use super::apply_seal::ScratchAuthority;
 use super::*;
 use crate::authority::chain::{
     ChainCommittedOwner, ChainConflictOwner, ChainProposalSubject, ChainRecoveryOwner,
@@ -1032,7 +1033,7 @@ impl TxPoolAuthority {
             )
         }));
         let resources = self
-            .resources
+            .resources_for_plan()
             .plan_batch(resource_changes)
             .map_err(chain_resource_error)?;
         let scheduler = self.scheduler.plan_batch(
@@ -1091,7 +1092,7 @@ impl TxPoolAuthority {
             sequence,
         );
         let indexes = self
-            .indexes
+            .indexes_for_plan()
             .plan_replacements(
                 changes
                     .iter()
@@ -1174,7 +1175,8 @@ impl TxPoolAuthority {
         let effect = if effects.is_empty() {
             EffectDelta::default()
         } else {
-            self.effects.plan_chain_rebuildable(effects, sequence)?
+            self.effects_for_plan()
+                .plan_chain_rebuildable(effects, sequence)?
         };
 
         let retired = retired_buffer(changes.len())?;
@@ -1332,15 +1334,15 @@ impl TxPoolAuthority {
                     PlanError::Fault(AuthorityFault::EffectProjection)
                 }
             })?;
-        let mut scratch = TxPoolAuthority::assemble(
+        let mut scratch = ScratchAuthority::assemble(
             self.resources.limits(),
             self.scheduler.verify_order(),
             scratch_effects,
             self.membership_config,
             new_view.clone(),
+            generation,
+            self.clocks,
         );
-        scratch.generation = generation;
-        scratch.clocks = self.clocks;
 
         let mut excluded = HashSet::new();
         excluded
@@ -1362,12 +1364,12 @@ impl TxPoolAuthority {
                 excluded.insert(key);
                 continue;
             }
-            let Some(admission) = charge_chain_recovery(&scratch.resources, admission)? else {
+            let Some(admission) = charge_chain_recovery(scratch.resources(), admission)? else {
                 excluded.insert(key);
                 continue;
             };
-            match scratch.plan_charged_admission(admission) {
-                Ok(plan) => drop(plan.apply()),
+            match scratch.apply_charged_admission(admission) {
+                Ok(()) => {}
                 Err(PlanError::Backpressure(
                     Backpressure::TotalResources
                     | Backpressure::ComputeResources
@@ -1382,14 +1384,8 @@ impl TxPoolAuthority {
             }
         }
 
-        let fresh = FreshGeneration {
-            entries: scratch.entries,
-            indexes: scratch.indexes,
-            resources: scratch.resources,
-            membership: scratch.membership,
-            scheduler: scratch.scheduler,
-            dependencies: scratch.dependencies,
-        };
+        let scratch_clocks = scratch.clocks();
+        let fresh = scratch.into_fresh_generation();
         let mut clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         // Scratch admission sequences are compiler-local: queued Resolve
@@ -1398,7 +1394,7 @@ impl TxPoolAuthority {
         // every external source at `sequence`, so the live clock advances
         // exactly once while versions and arrivals retain their monotonic
         // values from the compiled prefix.
-        clocks = clocks.adopt_owner_progress(scratch.clocks)?;
+        clocks = clocks.adopt_owner_progress(scratch_clocks)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let effect = self.effects.plan_generation_reset(sequence)?;
         Ok(PreparedApply {

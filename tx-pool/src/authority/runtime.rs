@@ -3472,6 +3472,13 @@ impl AuthorityRelayParentReader {
     }
 }
 
+/// Constructor capability owned by the runtime boundary.
+///
+/// Planner modules can name this type but cannot construct it, so an
+/// `&mut TxPoolAuthority` cannot be replaced with a freshly assembled value
+/// outside the runtime initialization cut.
+pub(in crate::authority) struct AuthorityInitToken(());
+
 impl AuthorityStore {
     fn from_runtime(
         runtime: AuthorityRuntimeConfig,
@@ -3479,6 +3486,7 @@ impl AuthorityStore {
     ) -> Result<Self, RuntimeConfigError> {
         let chain_view = ChainViewId::new(ChainRevision(0), snapshot.tip_hash());
         let authority = TxPoolAuthority::from_runtime(
+            AuthorityInitToken(()),
             runtime.resources,
             runtime.verify_order,
             runtime.effects,

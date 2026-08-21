@@ -1,3 +1,4 @@
+use super::apply_seal::ApplyToken;
 use super::{
     AuthorityDelta, AuthorityFault, ClockPlanReservation, DerivedOwnerDelta, PlanError,
     PreparedApply, TxPoolAuthority,
@@ -39,8 +40,10 @@ pub(super) struct RetainedIngressDelta {
 
 pub(super) fn apply_retained_ingress(
     authority: &mut TxPoolAuthority,
+    token: &ApplyToken,
     delta: RetainedIngressDelta,
 ) -> super::ApplyRetirement {
+    let authority = authority.write(token);
     let mut retired = delta.retired;
     for update in delta.updates {
         if let Some(previous) = authority.entries.insert(update.key, update.after) {
@@ -287,7 +290,9 @@ impl TxPoolAuthority {
         let clocks = scratch.clocks.commit()?;
         let sequence = clocks.sequence();
         let effect = match publication {
-            Some(publication) => self.effects.plan_publication(&publication, sequence)?,
+            Some(publication) => self
+                .effects_for_plan()
+                .plan_publication(&publication, sequence)?,
             None => EffectDelta::default(),
         };
         if scratch.owners.changes.is_empty() {
@@ -315,7 +320,7 @@ impl TxPoolAuthority {
                 Some(change.after.charge_record()),
             )
         }));
-        let resources = self.resources.plan_batch(resource_changes)?;
+        let resources = self.resources_for_plan().plan_batch(resource_changes)?;
         let scheduler = self.scheduler.plan_batch(
             changes
                 .iter()
@@ -332,7 +337,7 @@ impl TxPoolAuthority {
                 .map(|change| (change.before.as_ref(), Some(&change.after))),
             sequence,
         );
-        let indexes = self.indexes.plan_replacements(
+        let indexes = self.indexes_for_plan().plan_replacements(
             changes
                 .iter()
                 .map(|change| (&change.key, change.before.as_ref(), Some(&change.after))),

@@ -222,7 +222,7 @@ fn prepare_resources(
             Some(change.after.charge_record()),
         )
     }));
-    match authority.resources.plan_batch(resource_changes) {
+    match authority.resources_for_plan().plan_batch(resource_changes) {
         Ok(resource) => Ok(Some(resource)),
         Err(ResourceError::AcceptedLimit) => Ok(None),
         Err(ResourceError::Allocation) => Err(PlanError::Backpressure(Backpressure::Allocation)),
@@ -262,31 +262,7 @@ fn prepare_projection(
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
     }
 
-    authority
-        .membership
-        .spenders
-        .try_reserve(total_inputs)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    authority
-        .membership
-        .parents
-        .try_reserve(changes.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    authority
-        .membership
-        .children
-        .try_reserve(changes.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    authority
-        .membership
-        .ancestor_aggregates
-        .try_reserve(changes.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    authority
-        .membership
-        .descendant_aggregates
-        .try_reserve(changes.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    authority.reserve_membership_owner_insertions(total_inputs, changes.len())?;
 
     let mut dependency_reader_insertions = Vec::new();
     dependency_reader_insertions

@@ -637,6 +637,79 @@ impl MembershipProjection {
         self.children.get(hash)
     }
 
+    pub(super) fn reserve_owner_insertion_capacity(
+        &mut self,
+        input_insertions: usize,
+        owner_insertions: usize,
+    ) -> Result<(), super::PlanError> {
+        self.spenders
+            .try_reserve(input_insertions)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.parents
+            .try_reserve(owner_insertions)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.children
+            .try_reserve(owner_insertions)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.ancestor_aggregates
+            .try_reserve(owner_insertions)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.descendant_aggregates
+            .try_reserve(owner_insertions)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+    }
+
+    pub(super) fn reserve_dependency_reader_rows(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), super::PlanError> {
+        self.dependency_readers
+            .try_reserve(additional)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+    }
+
+    pub(super) fn reserve_dependency_reader_row(
+        &mut self,
+        dependency: &OutPoint,
+        additional: usize,
+    ) -> Result<(), super::PlanError> {
+        self.dependency_readers
+            .get_mut(dependency)
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ))?
+            .try_reserve(additional)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+    }
+
+    pub(super) fn reserve_child_row(
+        &mut self,
+        parent: &RawTxHash,
+        additional: usize,
+    ) -> Result<(), super::PlanError> {
+        self.children
+            .get_mut(parent)
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ))?
+            .try_reserve(additional)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+    }
+
+    pub(super) fn reserve_parent_row(
+        &mut self,
+        child: &RawTxHash,
+        additional: usize,
+    ) -> Result<(), super::PlanError> {
+        self.parents
+            .get_mut(child)
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ))?
+            .try_reserve(additional)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+    }
+
     pub(super) fn apply(&mut self, delta: ProjectionDelta) {
         for (input, spender) in delta.spender_changes {
             match spender {
@@ -1578,26 +1651,7 @@ impl TxPoolAuthority {
         causal_edge_insertions.sort_unstable();
         causal_edge_insertions.dedup();
 
-        self.membership
-            .spenders
-            .try_reserve(footprint.inputs().len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.membership
-            .parents
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.membership
-            .children
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.membership
-            .ancestor_aggregates
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.membership
-            .descendant_aggregates
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.reserve_membership_owner_insertions(footprint.inputs().len(), 1)?;
 
         let (dependency_row_insertions, dependency_row_removals) = self
             .prepare_dependency_edge_capacity(
@@ -1695,12 +1749,9 @@ impl TxPoolAuthority {
 
         let new_rows = counts
             .keys()
-            .filter(|dependency| !self.membership.dependency_readers.contains_key(*dependency))
+            .filter(|dependency| self.membership.dependency_readers(dependency).is_none())
             .count();
-        self.membership
-            .dependency_readers
-            .try_reserve(new_rows)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.reserve_membership_dependency_rows(new_rows)?;
         let mut row_insertions = Vec::new();
         row_insertions
             .try_reserve(new_rows)
@@ -1716,7 +1767,7 @@ impl TxPoolAuthority {
         ordered_counts.extend(counts);
         ordered_counts.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         for (dependency, (remove_count, insert_count)) in ordered_counts {
-            match self.membership.dependency_readers.get_mut(&dependency) {
+            match self.membership.dependency_readers(&dependency) {
                 Some(readers) => {
                     let remaining =
                         readers
@@ -1731,9 +1782,7 @@ impl TxPoolAuthority {
                             .ok_or(super::PlanError::Fault(
                                 super::AuthorityFault::CounterExhausted,
                             ))?;
-                    readers.try_reserve(insert_count).map_err(|_| {
-                        super::PlanError::Backpressure(super::Backpressure::Allocation)
-                    })?;
+                    self.reserve_membership_dependency_row(&dependency, insert_count)?;
                     if final_count == 0 {
                         row_removals.push(dependency);
                     }
@@ -1773,23 +1822,23 @@ impl TxPoolAuthority {
         }
         for edge in insertions {
             if &edge.parent != hash {
-                let existing = self.membership.children.get_mut(&edge.parent).ok_or(
-                    super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
-                )?;
+                let existing =
+                    self.membership
+                        .children(&edge.parent)
+                        .ok_or(super::PlanError::Fault(
+                            super::AuthorityFault::MembershipProjection,
+                        ))?;
                 if existing.contains(&edge.child) {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ));
                 }
-                existing
-                    .try_reserve(1)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                self.reserve_membership_child_row(&edge.parent, 1)?;
             }
             if &edge.child != hash {
                 let existing =
                     self.membership
-                        .parents
-                        .get_mut(&edge.child)
+                        .parents(&edge.child)
                         .ok_or(super::PlanError::Fault(
                             super::AuthorityFault::MembershipProjection,
                         ))?;
@@ -1798,9 +1847,7 @@ impl TxPoolAuthority {
                         super::AuthorityFault::MembershipProjection,
                     ));
                 }
-                existing
-                    .try_reserve(1)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                self.reserve_membership_parent_row(&edge.child, 1)?;
             }
         }
         let mut prepared_parents = HashSet::new();

@@ -209,7 +209,7 @@ impl TxPoolAuthority {
             .build_publication(policy, effects)
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
         let effect = self
-            .effects
+            .effects_for_plan()
             .plan_publication(&publication, source_sequence)?;
         let mut updates = Vec::new();
         updates
@@ -241,14 +241,15 @@ impl TxPoolAuthority {
                     .map(|update| (self.entries.get(&update.key), Some(&update.after))),
             )?
             .with_control(dependency_control);
-        let entries = &self.entries;
-        let sources = self.source_versions.plan_replacements(
+        let source_versions = self.source_versions;
+        let (entries, mut indexes) = self.entries_and_indexes_for_plan();
+        let sources = source_versions.plan_replacements(
             updates
                 .iter()
                 .map(|update| (entries.get(&update.key), Some(&update.after))),
             source_sequence,
         );
-        let indexes = self.indexes.plan_replacements(
+        let indexes = indexes.plan_replacements(
             updates
                 .iter()
                 .map(|update| (&update.key, entries.get(&update.key), Some(&update.after))),

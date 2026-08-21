@@ -1,3 +1,4 @@
+mod apply_seal;
 mod chain_transition;
 mod compute_exchange;
 mod ingress;
@@ -81,64 +82,10 @@ use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
 
-#[derive(Debug)]
-pub(super) struct TxPoolAuthority {
-    generation: PoolGeneration,
-    chain_view: ChainViewId,
-    entries: HashMap<RawTxHash, OwnedTx>,
-    indexes: AuthorityIndexes,
-    source_versions: AuthoritySourceVersions,
-    resources: ResourceLedger,
-    membership: MembershipProjection,
-    scheduler: FairFrontier,
-    dependencies: DependencyFrontier,
-    effects: EffectLog,
-    peer_bans: PeerBanRegistry,
-    membership_config: MembershipConfig,
-    clocks: AuthorityClocks,
-}
+use apply_seal::ApplyToken;
+pub(in crate::authority) use apply_seal::TxPoolAuthority;
 
 impl TxPoolAuthority {
-    pub(super) fn from_runtime(
-        limits: ResourceLimits,
-        verify_order: VerifyOrder,
-        effect_limits: EffectLimits,
-        membership_config: MembershipConfig,
-        chain_view: ChainViewId,
-    ) -> Result<Self, AuthorityConfigError> {
-        Ok(Self::assemble(
-            limits,
-            verify_order,
-            EffectLog::new(effect_limits).map_err(AuthorityConfigError::Effect)?,
-            membership_config,
-            chain_view,
-        ))
-    }
-
-    fn assemble(
-        limits: ResourceLimits,
-        verify_order: VerifyOrder,
-        effects: EffectLog,
-        membership_config: MembershipConfig,
-        chain_view: ChainViewId,
-    ) -> Self {
-        Self {
-            generation: PoolGeneration(0),
-            chain_view,
-            entries: HashMap::new(),
-            indexes: AuthorityIndexes::default(),
-            source_versions: AuthoritySourceVersions::initial(),
-            resources: ResourceLedger::new(limits),
-            membership: MembershipProjection::default(),
-            scheduler: FairFrontier::new(verify_order),
-            dependencies: DependencyFrontier::default(),
-            effects,
-            peer_bans: PeerBanRegistry::default(),
-            membership_config,
-            clocks: AuthorityClocks::first(),
-        }
-    }
-
     pub(super) fn entry(&self, hash: &RawTxHash) -> Option<&OwnedTx> {
         self.entries.get(hash)
     }
@@ -1238,26 +1185,38 @@ impl PreparedCandidateRejection<'_> {
 
 impl PreparedApply<'_> {
     pub(super) fn apply(self) -> CommittedDelta {
+        apply_seal::commit(self)
+    }
+
+    fn apply_with(self, token: &ApplyToken) -> CommittedDelta {
         let Self { authority, delta } = self;
         let before = authority.wake_projection();
         let retirement = match delta {
-            AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, delta),
+            AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, token, delta),
             AuthorityDelta::ComputeExchange(delta) => {
-                compute_exchange::apply_compute_exchange(&mut *authority, delta)
+                compute_exchange::apply_compute_exchange(&mut *authority, token, delta)
             }
             AuthorityDelta::RetainedIngress(delta) => {
-                ingress::apply_retained_ingress(&mut *authority, delta)
+                ingress::apply_retained_ingress(&mut *authority, token, delta)
             }
-            AuthorityDelta::Membership(delta) => Self::apply_membership(&mut *authority, delta),
-            AuthorityDelta::Independent(delta) => Self::apply_independent(&mut *authority, delta),
-            AuthorityDelta::Dependency(delta) => Self::apply_dependency(&mut *authority, delta),
-            AuthorityDelta::Effect(delta) => Self::apply_effect(&mut *authority, delta),
+            AuthorityDelta::Membership(delta) => {
+                Self::apply_membership(&mut *authority, token, delta)
+            }
+            AuthorityDelta::Independent(delta) => {
+                Self::apply_independent(&mut *authority, token, delta)
+            }
+            AuthorityDelta::Dependency(delta) => {
+                Self::apply_dependency(&mut *authority, token, delta)
+            }
+            AuthorityDelta::Effect(delta) => Self::apply_effect(&mut *authority, token, delta),
             AuthorityDelta::ClearPipeline(delta) => {
-                Self::apply_clear_pipeline(&mut *authority, delta)
+                Self::apply_clear_pipeline(&mut *authority, token, delta)
             }
-            AuthorityDelta::ClearPool(delta) => Self::apply_clear_pool(&mut *authority, delta),
-            AuthorityDelta::Admin(delta) => Self::apply_admin(&mut *authority, delta),
-            AuthorityDelta::Chain(delta) => Self::apply_chain(&mut *authority, delta),
+            AuthorityDelta::ClearPool(delta) => {
+                Self::apply_clear_pool(&mut *authority, token, delta)
+            }
+            AuthorityDelta::Admin(delta) => Self::apply_admin(&mut *authority, token, delta),
+            AuthorityDelta::Chain(delta) => Self::apply_chain(&mut *authority, token, delta),
         };
         let after = authority.wake_projection();
         let ApplyRetirement {
@@ -1277,7 +1236,12 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_entry(authority: &mut TxPoolAuthority, delta: EntryDelta) -> ApplyRetirement {
+    fn apply_entry(
+        authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
+        delta: EntryDelta,
+    ) -> ApplyRetirement {
+        let authority = authority.write(token);
         let previous = match delta.after {
             Some(entry) => authority.entries.insert(delta.key.clone(), entry),
             None => authority.entries.remove(&delta.key),
@@ -1311,8 +1275,10 @@ impl PreparedApply<'_> {
 
     fn apply_membership(
         authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
         mut delta: MembershipDelta,
     ) -> ApplyRetirement {
+        let authority = authority.write(token);
         let mut retirement = delta.retirement;
         for removal in &mut delta.removals {
             let previous = match removal.take_after() {
@@ -1365,8 +1331,10 @@ impl PreparedApply<'_> {
 
     fn apply_independent(
         authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
         delta: IndependentDelta,
     ) -> ApplyRetirement {
+        let authority = authority.write(token);
         for update in delta.updates {
             // Independent acceptance also replaces a pre-accepted shell whose
             // immutable transaction and resolved facts are shared by `after`.
@@ -1395,8 +1363,10 @@ impl PreparedApply<'_> {
 
     fn apply_dependency(
         authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
         delta: DependencyOnlyDelta,
     ) -> ApplyRetirement {
+        let authority = authority.write(token);
         authority.dependencies.apply_control(delta.control);
         authority.clocks = delta.clocks;
         ApplyRetirement {
@@ -1408,7 +1378,12 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_effect(authority: &mut TxPoolAuthority, delta: EffectOnlyDelta) -> ApplyRetirement {
+    fn apply_effect(
+        authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
+        delta: EffectOnlyDelta,
+    ) -> ApplyRetirement {
+        let authority = authority.write(token);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
         ApplyRetirement {
@@ -1420,7 +1395,12 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_clear_pool(authority: &mut TxPoolAuthority, delta: ClearPoolDelta) -> ApplyRetirement {
+    fn apply_clear_pool(
+        authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
+        delta: ClearPoolDelta,
+    ) -> ApplyRetirement {
+        let authority = authority.write(token);
         let FreshGeneration {
             entries,
             indexes,
@@ -1453,9 +1433,11 @@ impl PreparedApply<'_> {
 
     fn apply_clear_pipeline(
         authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
         delta: ClearPipelineDelta,
     ) -> ApplyRetirement {
-        let retired = Self::apply_owner_removal(authority, delta.removal);
+        let retired = Self::apply_owner_removal(authority, token, delta.removal);
+        let authority = authority.write(token);
         authority.generation = delta.generation;
         let retired_effect = authority.effects.apply(delta.effect);
         authority.clocks = delta.clocks;
@@ -1468,8 +1450,13 @@ impl PreparedApply<'_> {
         }
     }
 
-    fn apply_admin(authority: &mut TxPoolAuthority, delta: AdminDelta) -> ApplyRetirement {
-        let retired = Self::apply_owner_removal(authority, delta.removal);
+    fn apply_admin(
+        authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
+        delta: AdminDelta,
+    ) -> ApplyRetirement {
+        let retired = Self::apply_owner_removal(authority, token, delta.removal);
+        let authority = authority.write(token);
         let retired_effect = authority.effects.apply(delta.effect);
         match delta.control {
             AdminControl::PeerRevocation { marker } => authority.peer_bans.apply(marker),
@@ -1487,8 +1474,10 @@ impl PreparedApply<'_> {
 
     fn apply_owner_removal(
         authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
         removal: OwnerRemovalBatch,
     ) -> Vec<OwnedTx> {
+        let authority = authority.write(token);
         let mut retired = removal.retired;
         for hash in &removal.hashes {
             if let Some(owner) = authority.entries.remove(hash) {
@@ -1504,7 +1493,12 @@ impl PreparedApply<'_> {
         retired
     }
 
-    fn apply_chain(authority: &mut TxPoolAuthority, delta: ChainDelta) -> ApplyRetirement {
+    fn apply_chain(
+        authority: &mut TxPoolAuthority,
+        token: &ApplyToken,
+        delta: ChainDelta,
+    ) -> ApplyRetirement {
+        let authority = authority.write(token);
         let mut retired = delta.retired;
         for update in delta.updates {
             let previous = match update.after {
@@ -1800,15 +1794,6 @@ fn retired_buffer(capacity: usize) -> Result<Vec<OwnedTx>, PlanError> {
 }
 
 impl TxPoolAuthority {
-    fn reserve_primary_owner_insertions(&mut self, additional: usize) -> Result<(), PlanError> {
-        if additional == 0 {
-            return Ok(());
-        }
-        self.entries
-            .try_reserve(additional)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))
-    }
-
     fn missing_resolution_disposition(
         &self,
         source: PreAcceptedSource,
@@ -2123,10 +2108,7 @@ impl TxPoolAuthority {
             .len()
             .checked_add(1)
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let source_versions = self.source_versions;
-        let Self {
-            entries, indexes, ..
-        } = self;
+        let (entries, mut indexes, source_versions) = self.owner_derivation_parts();
         if removals.is_empty() {
             let indexes = indexes.plan_replace(key, existing, Some(after))?;
             let sources = source_versions
@@ -2285,7 +2267,7 @@ impl TxPoolAuthority {
                 removal.after().map(OwnedTx::charge_record),
             ));
         }
-        self.resources.plan_batch(changes)
+        self.resources_for_plan().plan_batch(changes)
     }
 
     fn membership_resource_error(error: ResourceError) -> PlanError {
@@ -2322,6 +2304,13 @@ impl TxPoolAuthority {
         &self,
         parents: impl IntoIterator<Item = &'entry OwnedTx>,
     ) -> Result<DependencyLossKeys, PlanError> {
+        Self::collect_dependency_loss_keys_from(&self.dependencies, parents)
+    }
+
+    fn collect_dependency_loss_keys_from<'entry>(
+        dependencies: &DependencyFrontier,
+        parents: impl IntoIterator<Item = &'entry OwnedTx>,
+    ) -> Result<DependencyLossKeys, PlanError> {
         let mut keys = Vec::new();
         #[cfg(test)]
         let mut work = DependencyLossWork::default();
@@ -2329,7 +2318,7 @@ impl TxPoolAuthority {
             let record = parent.record();
             let output_count = record.tx.data().raw().outputs().len();
             let origin = DependencyOrigin::Transaction(record.identity.raw.clone());
-            let origin_keys = self.dependencies.keys_for_origin(&origin);
+            let origin_keys = dependencies.keys_for_origin(&origin);
             let origin_count = origin_keys.map_or(0, |keys| keys.len());
             let additional = output_count
                 .checked_add(origin_count)
@@ -2441,7 +2430,9 @@ impl TxPoolAuthority {
             .map_err(PlanError::from)?;
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
-        let effect = self.effects.plan_publication(&publication, sequence)?;
+        let effect = self
+            .effects_for_plan()
+            .plan_publication(&publication, sequence)?;
         Ok(self.prepared_effect_only(effect, clocks))
     }
 
@@ -2793,7 +2784,7 @@ impl TxPoolAuthority {
             let clocks = ApplyClockReservation::begin(self.clocks)?;
             let sequence = clocks.sequence();
             let effect = self
-                .effects
+                .effects_for_plan()
                 .plan_publication(&publication, sequence)
                 .map_err(PlanError::from)?;
             let plan = self.prepared_effect_only(effect, clocks);
@@ -2829,7 +2820,7 @@ impl TxPoolAuthority {
                     .map_err(PlanError::from)?;
                 let effect_clocks = ApplyClockReservation::begin(self.clocks)?;
                 let effect = self
-                    .effects
+                    .effects_for_plan()
                     .plan_publication(&publication, effect_clocks.sequence())
                     .map_err(PlanError::from)?;
                 let plan = self.prepared_effect_only(effect, effect_clocks);
@@ -3258,7 +3249,7 @@ impl TxPoolAuthority {
             .effects
             .build_publication(policy, effects)
             .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-        self.effects
+        self.effects_for_plan()
             .plan_publication(&publication, sequence)
             .map_err(PlanError::from)
     }
@@ -3345,7 +3336,9 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let dependency_control = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
-        let effect = self.effects.plan_publication(publication, sequence)?;
+        let effect = self
+            .effects_for_plan()
+            .plan_publication(publication, sequence)?;
         self.prepare_entry_delta_with_controls(
             EntryTransition::Remove {
                 key: key.clone(),
@@ -3532,7 +3525,9 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(EffectPolicy::CriticalDetail, effects)
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-                let effect = self.effects.plan_publication(&publication, sequence)?;
+                let effect = self
+                    .effects_for_plan()
+                    .plan_publication(&publication, sequence)?;
                 (AdminControl::PeerRevocation { marker }, effect)
             }
             AdminPlan::RemoteExpiry { .. } => {
@@ -3560,7 +3555,9 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
                 let (publication, selected) = prefix.into_parts();
                 hashes.truncate(selected.get());
-                let effect = self.effects.plan_publication(&publication, sequence)?;
+                let effect = self
+                    .effects_for_plan()
+                    .plan_publication(&publication, sequence)?;
                 (AdminControl::None, effect)
             }
             AdminPlan::LocalRemoval { root } => {
@@ -3577,7 +3574,8 @@ impl TxPoolAuthority {
                                 CommittedEffect::RemoteIngressReleased(release),
                             )
                             .map_err(PlanError::from)?;
-                        self.effects.plan_publication(&publication, sequence)?
+                        self.effects_for_plan()
+                            .plan_publication(&publication, sequence)?
                     }
                     None => EffectDelta::default(),
                 };
@@ -3604,7 +3602,9 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(EffectPolicy::CriticalDetail, effects)
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-                let effect = self.effects.plan_publication(&publication, sequence)?;
+                let effect = self
+                    .effects_for_plan()
+                    .plan_publication(&publication, sequence)?;
                 (AdminControl::None, effect)
             }
         };
@@ -3640,13 +3640,21 @@ impl TxPoolAuthority {
         let membership = self.prepare_chain_projection(&accepted_removals, &HashMap::new())?;
         let available = self.collect_released_administrative_inputs(&accepted_removals)?;
 
+        let (
+            entries,
+            mut resources_ledger,
+            scheduler_frontier,
+            dependencies_frontier,
+            source_versions,
+            mut indexes,
+        ) = self.owner_removal_plan_parts();
         let mut owner_refs = Vec::new();
         owner_refs
             .try_reserve(hashes.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for hash in hashes.iter() {
             owner_refs.push(
-                self.entries
+                entries
                     .get(hash)
                     .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?,
             );
@@ -3661,26 +3669,25 @@ impl TxPoolAuthority {
                 .zip(&owner_refs)
                 .map(|(hash, owner)| (hash.clone(), Some(owner.charge_record()), None)),
         );
-        let resources = self.resources.plan_batch(resource_changes)?;
-        let scheduler = self
-            .scheduler
+        let resources = resources_ledger.plan_batch(resource_changes)?;
+        let scheduler = scheduler_frontier
             .plan_batch(owner_refs.iter().copied().map(|owner| (Some(owner), None)))?;
-        let lost = self
-            .collect_dependency_loss_keys(owner_refs.iter().copied())?
-            .keys;
-        let dependency_control = self
-            .dependencies
+        let lost = Self::collect_dependency_loss_keys_from(
+            dependencies_frontier,
+            owner_refs.iter().copied(),
+        )?
+        .keys;
+        let dependency_control = dependencies_frontier
             .plan_events(available, lost, DependencyCut(sequence))?
             .unwrap_or_default();
-        let dependency = self
-            .dependencies
+        let dependency = dependencies_frontier
             .plan_replacements(owner_refs.iter().copied().map(|owner| (Some(owner), None)))?
             .with_control(dependency_control);
-        let sources = self.source_versions.plan_replacements(
+        let sources = source_versions.plan_replacements(
             owner_refs.iter().copied().map(|owner| (Some(owner), None)),
             sequence,
         );
-        let indexes = self.indexes.plan_replacements(
+        let indexes = indexes.plan_replacements(
             hashes
                 .iter()
                 .zip(&owner_refs)
@@ -3731,7 +3738,9 @@ impl TxPoolAuthority {
             hashes.extend(indexed.iter().cloned());
         }
         hashes.sort_unstable();
-        let marker = self.peer_bans.plan_record(peer, Instant::now())?;
+        let marker = self
+            .peer_bans_for_plan()
+            .plan_record(peer, Instant::now())?;
         let revocation = CommittedPeerCohortRevocation::malformed(marker.lease(), tx_hash, reason)
             .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
         self.compile_administrative_removal(
@@ -4094,7 +4103,7 @@ impl TxPoolAuthority {
             )
             .map_err(|_| ComputeCancellationError::Fault(AuthorityFault::MembershipProjection))?;
         let resource = self
-            .resources
+            .resources_for_plan()
             .plan_compute_release(
                 token.hash.clone(),
                 existing.charge_record(),
@@ -4118,7 +4127,7 @@ impl TxPoolAuthority {
                 }
             })?;
         let indexes = self
-            .indexes
+            .indexes_for_plan()
             .plan_stable_replace(&token.hash, &existing, &after)
             .map_err(|error| match error {
                 StableIndexError::Projection => {
@@ -4496,7 +4505,7 @@ impl TxPoolAuthority {
             residency_peer: preaccepted.source.ingress_peer(),
             compute_peer: None,
         };
-        let (phase, retained_charge, resource) = match self.resources.plan_replace(
+        let (phase, retained_charge, resource) = match self.resources_for_plan().plan_replace(
             token.hash.clone(),
             Some(expected_charge),
             Some(desired_charge),
@@ -4530,7 +4539,10 @@ impl TxPoolAuthority {
             .as_ref()
             .map_or_else(
                 || Ok(EffectDelta::default()),
-                |publication| self.effects.plan_publication(publication, sequence),
+                |publication| {
+                    self.effects_for_plan()
+                        .plan_publication(publication, sequence)
+                },
             )
             .map_err(PlanError::from)?;
         self.prepare_entry_delta_with_controls(
@@ -4586,7 +4598,9 @@ impl TxPoolAuthority {
         let clocks = ApplyClockReservation::begin(self.clocks)?;
         let sequence = clocks.sequence();
         let dependency = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
-        let effect = self.effects.plan_publication(&publication, sequence)?;
+        let effect = self
+            .effects_for_plan()
+            .plan_publication(&publication, sequence)?;
         let key = preaccepted.record.identity.raw.clone();
         self.prepare_entry_delta_with_controls(
             EntryTransition::Remove {
@@ -4675,9 +4689,11 @@ impl TxPoolAuthority {
         self.reserve_primary_owner_insertions(primary_insertions)?;
         let resource = match explicit_resources {
             Some(resources) => resources,
-            None => self
-                .resources
-                .plan_replace(key.clone(), expected_charge, after_charge)?,
+            None => self.resources_for_plan().plan_replace(
+                key.clone(),
+                expected_charge,
+                after_charge,
+            )?,
         };
         let scheduler = self
             .scheduler
@@ -4690,9 +4706,9 @@ impl TxPoolAuthority {
             std::iter::once((expected.as_ref(), after.as_ref())),
             sequence,
         );
-        let indexes = self
-            .indexes
-            .plan_replace(&key, expected.as_ref(), after.as_ref())?;
+        let indexes =
+            self.indexes_for_plan()
+                .plan_replace(&key, expected.as_ref(), after.as_ref())?;
         let owners = DerivedOwnerDelta { indexes, sources };
         Ok(PreparedApply {
             authority: self,

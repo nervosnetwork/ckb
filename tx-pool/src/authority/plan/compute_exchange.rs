@@ -1,3 +1,4 @@
+use super::apply_seal::ApplyToken;
 use super::{
     ApplyClockReservation, ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault,
     CheckoutEligibility, DerivedOwnerDelta, OwnerLocalSettlement, PlanError, PreparedApply,
@@ -257,8 +258,10 @@ pub(super) struct ComputeExchangeDelta {
 
 pub(super) fn apply_compute_exchange(
     authority: &mut TxPoolAuthority,
+    token: &ApplyToken,
     delta: ComputeExchangeDelta,
 ) -> ApplyRetirement {
+    let authority = authority.write(token);
     let mut retired = delta.retired;
     for update in delta.updates {
         if let Some(previous) = authority.entries.insert(update.key, update.after) {
@@ -1135,8 +1138,9 @@ impl TxPoolAuthority {
                 Some(change.after.charge_record()),
             ));
         }
-        let resources = self.resources.plan_batch(resource_changes)?;
-        let indexes = self.indexes.plan_replacements(
+        let exchange_cursor = wave.into_cursor();
+        let resources = self.resources_for_plan().plan_batch(resource_changes)?;
+        let indexes = self.indexes_for_plan().plan_replacements(
             owners
                 .changes
                 .iter()
@@ -1154,7 +1158,7 @@ impl TxPoolAuthority {
                 .changes
                 .iter()
                 .map(|change| (Some(&change.before), Some(&change.after))),
-            wave.into_cursor(),
+            exchange_cursor,
         )?;
         let dependency = self.dependencies.plan_replacements(
             owners
