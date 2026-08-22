@@ -980,11 +980,11 @@ impl TxPoolAuthority {
         ),
         PlanError,
     > {
-        let local_count = classified
+        let owner_local_bound = classified
             .iter()
             .filter(|member| matches!(member, ClassifiedCompletion::OwnerLocal { .. }))
             .count();
-        let transition_bound = local_count
+        let transition_bound = owner_local_bound
             .checked_add(classified.len())
             .and_then(|count| count.checked_add(grant_slots.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
@@ -992,35 +992,98 @@ impl TxPoolAuthority {
         let mut resources = self.resources.ordered_projection(transition_bound)?;
         let first_version = self.clocks.next_version;
 
-        let mut local_offset = 0usize;
+        let mut local_count = 0usize;
         for member in classified.iter_mut() {
-            let ClassifiedCompletion::OwnerLocal {
-                token, settlement, ..
-            } = member
-            else {
-                continue;
+            let slot = match member {
+                ClassifiedCompletion::OwnerLocal { slot, .. } => *slot,
+                ClassifiedCompletion::Deferred { .. } | ClassifiedCompletion::Obsolete { .. } => {
+                    continue;
+                }
             };
-            let local = settlement
-                .take()
-                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let before = self
-                .entries
-                .get(&token.hash)
-                .cloned()
-                .ok_or(PlanError::Stale(super::StalePlan::Missing))?;
-            let version = provisional_version(first_version, local_offset)?;
-            local_offset = local_offset
+            let ClassifiedCompletion::OwnerLocal {
+                slot,
+                token,
+                ingress_peer,
+                settlement,
+                aftermath,
+            } = std::mem::replace(member, ClassifiedCompletion::Obsolete { slot })
+            else {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            };
+            let Some(local) = settlement else {
+                *member = ClassifiedCompletion::OwnerLocal {
+                    slot,
+                    token,
+                    ingress_peer,
+                    settlement: None,
+                    aftermath,
+                };
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            };
+            let before = match self.entries.get(&token.hash).cloned() {
+                Some(before) => before,
+                None => {
+                    *member = ClassifiedCompletion::OwnerLocal {
+                        slot,
+                        token,
+                        ingress_peer,
+                        settlement: Some(local),
+                        aftermath,
+                    };
+                    return Err(PlanError::Stale(super::StalePlan::Missing));
+                }
+            };
+            let desired_charge = ChargeRecord::PreAccepted {
+                resources: local.charge,
+                residency_peer: ingress_peer,
+                compute_peer: None,
+            };
+            match resources.replace(
+                &self.resources,
+                Some(before.charge_record()),
+                Some(desired_charge),
+            ) {
+                Ok(()) => {}
+                Err(
+                    ResourceError::PreAcceptedLimit
+                    | ResourceError::RemoteLimit
+                    | ResourceError::PeerLimit(_),
+                ) => {
+                    let next = local.into_exact_next();
+                    *member = ClassifiedCompletion::Deferred {
+                        slot,
+                        settlement: ComputeSettlement { token, next },
+                        aftermath,
+                        route: ComputeExchangeDeferredRoute::ExactSettlement,
+                    };
+                    continue;
+                }
+                Err(error) => {
+                    *member = ClassifiedCompletion::OwnerLocal {
+                        slot,
+                        token,
+                        ingress_peer,
+                        settlement: Some(local),
+                        aftermath,
+                    };
+                    return Err(error.into());
+                }
+            }
+            let version = provisional_version(first_version, local_count)?;
+            local_count = local_count
                 .checked_add(1)
                 .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
             let after = before
-                .with_preaccepted_phase(local.phase, version, local.charge)
+                .with_preaccepted_phase(local.phase.into_preaccepted(), version, local.charge)
                 .map_err(PlanError::Stale)?;
-            resources.replace(
-                &self.resources,
-                Some(before.charge_record()),
-                Some(after.charge_record()),
-            )?;
             owners.replace(self, token.hash.clone(), after)?;
+            *member = ClassifiedCompletion::OwnerLocal {
+                slot,
+                token,
+                ingress_peer,
+                settlement: None,
+                aftermath,
+            };
         }
 
         let mut wave = self.scheduler.exchange_wave_after(

@@ -58,7 +58,7 @@ use super::state::{
     DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
     PayloadPolicyEvolution, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
     ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry,
-    ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission,
+    ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission, VerifiedFacts,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
@@ -1029,8 +1029,41 @@ enum SettlementDisposition {
 }
 
 struct OwnerLocalSettlement {
-    phase: PreAcceptedPhase,
+    phase: OwnerLocalPhase,
     charge: ResourceVector,
+}
+
+enum OwnerLocalPhase {
+    Resolve,
+    Verify(ResolvedFacts),
+    Ready(VerifiedFacts),
+}
+
+impl OwnerLocalPhase {
+    fn into_preaccepted(self) -> PreAcceptedPhase {
+        match self {
+            Self::Resolve => PreAcceptedPhase::Queued(QueuedWork::Resolve),
+            Self::Verify(resolved) => PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
+            Self::Ready(verified) => PreAcceptedPhase::Ready(verified),
+        }
+    }
+
+    fn into_exact_next(self) -> SettlementNext {
+        match self {
+            Self::Resolve => SettlementNext::Retry,
+            Self::Verify(resolved) => SettlementNext::QueuedVerify(resolved),
+            Self::Ready(verified) => SettlementNext::Ready(verified),
+        }
+    }
+}
+
+impl OwnerLocalSettlement {
+    /// Recover the exact worker result from the owner-local normal form when
+    /// shared retained capacity requires the single-settlement planner. That
+    /// planner already owns the typed accept-or-resource-reject decision.
+    fn into_exact_next(self) -> SettlementNext {
+        self.phase.into_exact_next()
+    }
 }
 
 enum SettlementClassification {
@@ -4190,10 +4223,12 @@ impl TxPoolAuthority {
     /// Classify one finished compute result against a coherent authority cut.
     ///
     /// `OwnerLocal` results change only the named owner and its derived
-    /// projections. They are the closed commutative domain consumed by the
-    /// compute exchange. Results which may publish an effect, revoke a peer,
-    /// or terminalize dependency owners remain `NonLocal` and retain their
-    /// exact move-only evidence for the existing cohort planner.
+    /// projections. The compute exchange orders them by owner version and
+    /// retains only the prefix admitted by its shared resource projection;
+    /// an overflowing owner returns to exact settlement. Results which may
+    /// publish an effect, revoke a peer, or terminalize dependency owners
+    /// remain `NonLocal` and retain their exact move-only evidence for the
+    /// existing cohort planner.
     fn classify_settlement(
         &self,
         preaccepted: &PreAcceptedEntry,
@@ -4207,13 +4242,13 @@ impl TxPoolAuthority {
             .proof_is_current(preaccepted.dependencies(), dependency_cut)
         {
             return Ok(SettlementClassification::OwnerLocal(OwnerLocalSettlement {
-                phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
+                phase: OwnerLocalPhase::Resolve,
                 charge: raw_charge,
             }));
         }
 
         let chain_state_is_current = self.chain_view.has_same_chain_state(&active.chain_view);
-        let local = |phase, charge| {
+        let local = |phase: OwnerLocalPhase, charge| {
             SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, charge })
         };
         match next {
@@ -4227,10 +4262,7 @@ impl TxPoolAuthority {
                     return Err(PlanError::Fault(AuthorityFault::DependencyProjection));
                 }
                 if !chain_state_is_current {
-                    return Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        raw_charge,
-                    ));
+                    return Ok(local(OwnerLocalPhase::Resolve, raw_charge));
                 }
                 let dependencies = resolved.payload().dependencies().clone();
                 let retained_charge = active
@@ -4245,15 +4277,9 @@ impl TxPoolAuthority {
                     &dependencies,
                     dependency_cut,
                 ) {
-                    Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                        retained_charge,
-                    ))
+                    Ok(local(OwnerLocalPhase::Verify(resolved), retained_charge))
                 } else {
-                    Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        raw_charge,
-                    ))
+                    Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                 }
             }
             SettlementNext::Waiting(missing) => {
@@ -4270,10 +4296,7 @@ impl TxPoolAuthority {
                         NonLocalSettlement::Waiting(missing),
                     ))
                 } else {
-                    Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        raw_charge,
-                    ))
+                    Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                 }
             }
             SettlementNext::Ready(verified) => {
@@ -4295,12 +4318,9 @@ impl TxPoolAuthority {
                     &dependencies,
                     dependency_cut,
                 ) {
-                    Ok(local(PreAcceptedPhase::Ready(verified), retained_charge))
+                    Ok(local(OwnerLocalPhase::Ready(verified), retained_charge))
                 } else {
-                    Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        raw_charge,
-                    ))
+                    Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                 }
             }
             SettlementNext::Rejected(rejection) => {
@@ -4309,10 +4329,7 @@ impl TxPoolAuthority {
                         NonLocalSettlement::Rejected(rejection),
                     ))
                 } else {
-                    Ok(local(
-                        PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                        raw_charge,
-                    ))
+                    Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                 }
             }
             SettlementNext::VerificationRejected {
@@ -4338,18 +4355,12 @@ impl TxPoolAuthority {
                                 },
                             ))
                         } else {
-                            Ok(local(
-                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                raw_charge,
-                            ))
+                            Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                         }
                     }
                     PayloadPolicyEvolution::RemoteToTrusted => {
                         if !chain_state_is_current {
-                            return Ok(local(
-                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                raw_charge,
-                            ));
+                            return Ok(local(OwnerLocalPhase::Resolve, raw_charge));
                         }
                         let dependencies = resolved.payload().dependencies().clone();
                         let retained_charge = active
@@ -4364,15 +4375,9 @@ impl TxPoolAuthority {
                             &dependencies,
                             dependency_cut,
                         ) {
-                            Ok(local(
-                                PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)),
-                                retained_charge,
-                            ))
+                            Ok(local(OwnerLocalPhase::Verify(resolved), retained_charge))
                         } else {
-                            Ok(local(
-                                PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                                raw_charge,
-                            ))
+                            Ok(local(OwnerLocalPhase::Resolve, raw_charge))
                         }
                     }
                     PayloadPolicyEvolution::Invalid => {
@@ -4380,10 +4385,7 @@ impl TxPoolAuthority {
                     }
                 }
             }
-            SettlementNext::Retry => Ok(local(
-                PreAcceptedPhase::Queued(QueuedWork::Resolve),
-                raw_charge,
-            )),
+            SettlementNext::Retry => Ok(local(OwnerLocalPhase::Resolve, raw_charge)),
         }
     }
 
@@ -4422,7 +4424,10 @@ impl TxPoolAuthority {
         }
         let disposition = match self.classify_settlement(preaccepted, active, next)? {
             SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, charge }) => {
-                SettlementDisposition::Retain { phase, charge }
+                SettlementDisposition::Retain {
+                    phase: phase.into_preaccepted(),
+                    charge,
+                }
             }
             SettlementClassification::NonLocal(NonLocalSettlement::Waiting(missing)) => {
                 let dependencies = missing.dependencies().clone();

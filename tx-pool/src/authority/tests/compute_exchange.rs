@@ -1,6 +1,6 @@
 use super::foundation::{
     admit_remote, apply_plan, checkout_remote_for_verify_with_claim, limits, owner_version,
-    take_resolve_work, tx,
+    resolved_payload_with_facts, take_resolve_work, tx,
 };
 use crate::{
     authority::{
@@ -14,20 +14,28 @@ use crate::{
         },
         plan::{
             CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeDeferred,
-            PlanError, TxPoolAuthority, test_support::ComputeExchangeRecovery,
+            ComputeExchangeDeferredRoute, PlanError, TxPoolAuthority,
+            test_support::ComputeExchangeRecovery,
         },
-        resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
+        resources::{
+            AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceLimits, ResourceVector,
+        },
         state::{
-            ApplySequence, EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, ValidatedAdmission,
-            VerifyCapability, WorkPermit,
+            ApplySequence, EntryVersion, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
+            ValidatedAdmission, VerifyCapability, WorkPermit,
         },
         work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
     },
     error::Reject,
 };
 use ckb_network::PeerIndex;
-use ckb_types::{bytes::Bytes, packed::Byte32, prelude::Pack};
-use std::sync::Arc;
+use ckb_types::{
+    bytes::Bytes,
+    core::Capacity,
+    packed::{Byte32, OutPoint},
+    prelude::Pack,
+};
+use std::{num::NonZeroUsize, sync::Arc};
 use tokio::sync::{Notify, Semaphore};
 
 fn any_verifier(worker_id: usize) -> ComputeWorkerSlot {
@@ -126,6 +134,29 @@ fn limits_with_active_work(active_work: usize) -> ResourceLimits {
         ComputeLimits::new(4 * 1024, 4 * 1024, 16),
     )
     .expect("the fixture active-work partition is internally consistent")
+}
+
+fn limits_with_narrow_peer_retained_edges() -> ResourceLimits {
+    const COMPUTE_BYTES: usize = 4 * 1024;
+    let compute = ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 16);
+    let aggregate = ResourceVector::new(8, 64 * 1024, 64, 2)
+        .with_compute_capacity(2 * COMPUTE_BYTES, 32)
+        .expect("aggregate compute capacity fits");
+    let per_peer = ResourceVector::new(4, 32 * 1024, 1, 2)
+        .with_compute_capacity(2 * COMPUTE_BYTES, 32)
+        .expect("peer compute capacity fits");
+    ResourceLimits::with_residency_policy(
+        aggregate,
+        aggregate,
+        per_peer,
+        AcceptedResources::new(8, 64 * 1024, 64 * 1024, u64::MAX),
+        compute,
+        ResidencyPolicy::production(
+            NonZeroUsize::new(128).expect("entry metadata is non-zero"),
+            NonZeroUsize::new(64).expect("edge metadata is non-zero"),
+        ),
+    )
+    .expect("the peer-pressure fixture has a valid limit hierarchy")
 }
 
 fn stale_completion(worker: usize) -> ComputeExchangeCompletion {
@@ -335,6 +366,100 @@ fn uak_compute_exchange_selects_from_the_virtual_post_settlement_frontier() {
     assert!(assigned.contains(&first));
     assert!(assigned.contains(&third));
     assert!(!assigned.contains(&second));
+}
+
+#[test]
+fn uak_compute_exchange_defers_peer_retained_growth_to_exact_settlement() {
+    let mut authority = TxPoolAuthority::for_foundation(limits_with_narrow_peer_retained_edges());
+    let first = admit_remote(&mut authority, 80_014, 3);
+    let second = admit_remote(&mut authority, 80_015, 3);
+    let first_checkout = authority
+        .plan_checkout_for_foundation(
+            &first,
+            owner_version(&authority, &first),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the first bounded resolve grant checks out")
+        .apply();
+    let (_, first_resolve) = take_resolve_work(first_checkout);
+    let second_checkout = authority
+        .plan_checkout_for_foundation(
+            &second,
+            owner_version(&authority, &second),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the second bounded resolve grant checks out")
+        .apply();
+    let (_, second_resolve) = take_resolve_work(second_checkout);
+    let first_resolution = resolved_payload_with_facts(
+        first_resolve.transaction(),
+        vec![OutPoint::new(Byte32::new([41; 32]), 0)],
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    let first_settlement = first_resolve
+        .yield_verify(first_resolution)
+        .expect("the first resolved evidence belongs to its transaction");
+    let second_resolution = resolved_payload_with_facts(
+        second_resolve.transaction(),
+        vec![OutPoint::new(Byte32::new([42; 32]), 0)],
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    let second_settlement = second_resolve
+        .yield_verify(second_resolution)
+        .expect("the second resolved evidence belongs to its transaction");
+
+    let committed = authority
+        .apply_compute_exchange(
+            vec![
+                ComputeExchangeCompletion::new(any_verifier(0), second_settlement),
+                ComputeExchangeCompletion::new(
+                    ComputeWorkerSlot::ordered_resolve(),
+                    first_settlement,
+                ),
+            ],
+            Vec::new(),
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("legal peer pressure must remain exact settlement work: {error:?}");
+        });
+
+    assert_eq!(
+        committed.settled,
+        vec![ComputeWorkerSlot::ordered_resolve()]
+    );
+    assert_eq!(committed.deferred.len(), 1);
+    assert!(matches!(
+        authority.entry(&first),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert!(matches!(
+        authority.entry(&second),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+
+    let deferred = committed
+        .deferred
+        .into_iter()
+        .next()
+        .expect("the growing settlement retains one exact route");
+    let (route, completion) = deferred.into_parts();
+    assert_eq!(route, ComputeExchangeDeferredRoute::ExactSettlement);
+    let (_, finished) = completion.into_parts();
+    let (settlement, aftermath) = finished.into_parts();
+    drop(aftermath);
+    apply_plan(
+        authority
+            .apply_settlement(settlement)
+            .expect("the exact planner turns peer pressure into a resource rejection"),
+    );
+    assert!(authority.entry(&second).is_none());
+    assert_eq!(authority.resources().preaccepted().active_work, 0);
 }
 
 #[test]

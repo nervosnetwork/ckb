@@ -369,10 +369,6 @@ fn production_settlement_observation(
         Ok(SettlementClassificationObservationForFoundation::Rejected) => {
             ClaimSettlementObservation::Rejected
         }
-        Ok(
-            SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalWaiting
-            | SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalComputing,
-        ) => panic!("the classifier produced an unmodeled owner-local phase"),
         Err(PlanError::Fault(AuthorityFault::MembershipProjection)) => {
             ClaimSettlementObservation::Fault(ClaimSettlementFault::MembershipProjection)
         }

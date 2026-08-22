@@ -140,8 +140,6 @@ pub(in crate::authority) enum SettlementClassificationObservationForFoundation {
     Waiting,
     Ready,
     Rejected,
-    UnexpectedOwnerLocalWaiting,
-    UnexpectedOwnerLocalComputing,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1192,19 +1190,13 @@ impl TxPoolAuthority {
         Ok(match self.classify_settlement(preaccepted, active, next)? {
             SettlementClassification::OwnerLocal(OwnerLocalSettlement { phase, .. }) => match phase
             {
-                PreAcceptedPhase::Queued(QueuedWork::Resolve) => {
+                OwnerLocalPhase::Resolve => {
                     SettlementClassificationObservationForFoundation::QueuedResolve
                 }
-                PreAcceptedPhase::Queued(QueuedWork::Verify(_)) => {
+                OwnerLocalPhase::Verify(_) => {
                     SettlementClassificationObservationForFoundation::QueuedVerify
                 }
-                PreAcceptedPhase::Waiting(_) => {
-                    SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalWaiting
-                }
-                PreAcceptedPhase::Computing(_) => {
-                    SettlementClassificationObservationForFoundation::UnexpectedOwnerLocalComputing
-                }
-                PreAcceptedPhase::Ready(_) => {
+                OwnerLocalPhase::Ready(_) => {
                     SettlementClassificationObservationForFoundation::Ready
                 }
             },
