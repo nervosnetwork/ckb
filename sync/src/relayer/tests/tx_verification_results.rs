@@ -1,7 +1,12 @@
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::transaction_hashes_process::TransactionHashesProcess;
 use ckb_network::{CKBProtocolHandler, PeerIndex, SupportProtocols};
-use ckb_types::{packed, prelude::*};
+use ckb_types::{
+    bytes::Bytes,
+    core::{Capacity, TransactionBuilder},
+    packed::{self, Byte32, CellDep, CellInput, CellOutputBuilder, OutPoint},
+    prelude::*,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -118,4 +123,84 @@ fn committed_reset_wakes_the_existing_relayer_poll_path() {
             .expect("the relayer poll stream remains live");
     });
     assert!(!relayer.shared.state().already_known_tx(&tx_hash));
+}
+
+/// The protocol driver may cancel `poll` after it returns `Pending`. Once the
+/// mailbox wake fires, the poll arm therefore only consumes committed results
+/// into local projections. The uncancelled 300ms notify path remains the sole
+/// owner of taking and asynchronously broadcasting pending announcements.
+#[test]
+fn wake_poll_drains_before_the_token_path_broadcasts() {
+    let (_chain, mut relayer, always_success_out_point) = build_chain(1);
+    let accepted = new_transaction(&relayer, 41, &always_success_out_point);
+    let accepted_hash = accepted.hash();
+    let accepted_result = relayer
+        .shared
+        .shared()
+        .tx_pool_controller()
+        .submit_local_tx(accepted)
+        .expect("local submission reaches the tx-pool service");
+    assert!(accepted_result.is_ok());
+
+    let peer = PeerIndex::from(7);
+    let mock = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    mock.set_full_relay_peers(vec![peer]);
+    let nc: Arc<dyn ckb_network::CKBProtocolContext + Sync> =
+        Arc::clone(&mock) as Arc<dyn ckb_network::CKBProtocolContext + Sync>;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        // A missing-parent result is an ordering barrier that wakes the poll
+        // without clearing the pending accepted-announcement projection.
+        let missing = TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(Byte32::new([0xab; 32]), 0), 0))
+            .output(
+                CellOutputBuilder::default()
+                    .capacity(Capacity::bytes(999).unwrap())
+                    .build(),
+            )
+            .output_data(Bytes::new())
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(always_success_out_point)
+                    .build(),
+            )
+            .build();
+        relayer
+            .shared
+            .shared()
+            .tx_pool_controller()
+            .submit_remote_tx(missing, 1_000, PeerIndex::from(9))
+            .await
+            .expect("the missing-parent submission commits its ingress prefix");
+
+        tokio::time::timeout(Duration::from_secs(5), relayer.poll(Arc::clone(&nc)))
+            .await
+            .expect("the result wake drains without awaiting a network send")
+            .expect("the relayer poll stream remains live");
+        assert!(relayer.shared.state().already_known_tx(&accepted_hash));
+
+        let content = packed::RelayTransactionHashes::new_builder()
+            .tx_hashes(vec![accepted_hash])
+            .build();
+        let message = packed::RelayMessage::new_builder().set(content).build();
+        assert!(
+            !mock.has_sent(
+                SupportProtocols::RelayV3.protocol_id(),
+                peer,
+                message.as_bytes(),
+            ),
+            "the cancelable poll arm must not take or broadcast announcements"
+        );
+
+        relayer.send_bulk_of_tx_hashes(&nc).await;
+        assert!(mock.has_sent(
+            SupportProtocols::RelayV3.protocol_id(),
+            peer,
+            message.as_bytes(),
+        ));
+    });
 }

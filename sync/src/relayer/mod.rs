@@ -625,7 +625,48 @@ impl Relayer {
         }
     }
 
-    /// Send bulk of tx hashes to selected peers
+    /// Consume committed tx-pool effects into the relayer projections.
+    ///
+    /// This prefix is deliberately synchronous. `CKBProtocolHandler::poll`
+    /// is driven as a cancelable `select!` arm, so it must not remove pending
+    /// announcements and then suspend in an async network send.
+    fn drain_tx_verification_results(&self) {
+        let tx_verify_results = self
+            .shared
+            .state()
+            .take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH);
+        for tx_verify_result in tx_verify_results {
+            match tx_verify_result {
+                TxVerificationResult::Ok {
+                    original_peer,
+                    tx_hash,
+                } => {
+                    self.shared
+                        .state()
+                        .record_accepted_tx(tx_hash, original_peer);
+                }
+                TxVerificationResult::Reject { tx_hash } => {
+                    self.shared.state().reject_pending_relay_tx(&tx_hash);
+                }
+                TxVerificationResult::GenerationReset => {
+                    self.shared.state().reset_tx_pool_relay_projection();
+                }
+                TxVerificationResult::UnknownParents { peer, parents } => {
+                    let tx_hashes: Vec<_> = {
+                        let mut tx_filter = self.shared.state().tx_filter();
+                        tx_filter.remove_expired();
+                        parents
+                            .into_iter()
+                            .filter(|tx_hash| !tx_filter.contains(tx_hash))
+                            .collect()
+                    };
+                    self.shared.state().add_ask_for_txs(peer, tx_hashes);
+                }
+            }
+        }
+    }
+
+    /// Send bulk of tx hashes to selected peers.
     pub async fn send_bulk_of_tx_hashes(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         const BUFFER_SIZE: usize = 42;
 
@@ -639,41 +680,7 @@ impl Relayer {
             nc.full_relay_connected_peers()
         };
 
-        let tx_verify_results = self
-            .shared
-            .state()
-            .take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH);
-        {
-            for tx_verify_result in tx_verify_results {
-                match tx_verify_result {
-                    TxVerificationResult::Ok {
-                        original_peer,
-                        tx_hash,
-                    } => {
-                        self.shared
-                            .state()
-                            .record_accepted_tx(tx_hash, original_peer);
-                    }
-                    TxVerificationResult::Reject { tx_hash } => {
-                        self.shared.state().reject_pending_relay_tx(&tx_hash);
-                    }
-                    TxVerificationResult::GenerationReset => {
-                        self.shared.state().reset_tx_pool_relay_projection();
-                    }
-                    TxVerificationResult::UnknownParents { peer, parents } => {
-                        let tx_hashes: Vec<_> = {
-                            let mut tx_filter = self.shared.state().tx_filter();
-                            tx_filter.remove_expired();
-                            parents
-                                .into_iter()
-                                .filter(|tx_hash| !tx_filter.contains(tx_hash))
-                                .collect()
-                        };
-                        self.shared.state().add_ask_for_txs(peer, tx_hashes);
-                    }
-                }
-            }
-        }
+        self.drain_tx_verification_results();
         if connected_peers.is_empty() {
             return;
         }
@@ -967,9 +974,9 @@ impl CKBProtocolHandler for Relayer {
         );
     }
 
-    async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+    async fn poll(&mut self, _nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
         self.shared.state().wait_relay_tx_verify_results().await;
-        self.send_bulk_of_tx_hashes(&nc).await;
+        self.drain_tx_verification_results();
         Some(())
     }
 }
