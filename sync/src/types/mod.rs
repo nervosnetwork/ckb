@@ -1399,6 +1399,10 @@ impl SyncState {
         self.tx_relay_receiver.drain(limit)
     }
 
+    pub async fn wait_relay_tx_verify_results(&self) {
+        self.tx_relay_receiver.wait_for_drain().await;
+    }
+
     pub fn shared_best_header(&self) -> HeaderIndexView {
         self.shared_best_header.read().to_owned()
     }

@@ -17,6 +17,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+use tokio::sync::Notify;
 
 const MIN_RELAY_MAILBOX_ITEMS: usize = 2;
 const RELAY_PARENT_SLOT_OVERHEAD: usize = size_of::<u64>() + (2 * size_of::<usize>());
@@ -79,8 +80,11 @@ impl RelayMailboxState {
 struct RelayMailboxInner {
     state: Mutex<RelayMailboxState>,
     receiver_alive: AtomicBool,
+    drain_signal: Notify,
     max_items: usize,
     max_bytes: usize,
+    wake_items: usize,
+    wake_bytes: usize,
 }
 
 /// Move-only, nonblocking publication half owned by the sole effect endpoint.
@@ -118,8 +122,11 @@ pub(super) fn authority_relay_mailbox(
     let inner = Arc::new(RelayMailboxInner {
         state: Mutex::new(RelayMailboxState { queue, bytes: 0 }),
         receiver_alive: AtomicBool::new(true),
+        drain_signal: Notify::new(),
         max_items,
         max_bytes,
+        wake_items: max_items.div_ceil(2),
+        wake_bytes: max_bytes.div_ceil(2),
     });
     Ok((
         AuthorityRelaySink {
@@ -185,11 +192,20 @@ impl AuthorityRelaySink {
             return RelayMailboxDisposition::Disconnected;
         }
         if let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner) {
+            let prompt = matches!(
+                result,
+                TxVerificationResult::GenerationReset | TxVerificationResult::UnknownParents { .. }
+            );
+            let crossed_watermark = relay_drain_watermark_crossed(&state, bytes, &self.inner);
             state.bytes = bytes;
             state.queue.push_back(RelayEnvelope {
                 result,
                 bytes: result_bytes,
             });
+            drop(state);
+            if prompt || crossed_watermark {
+                self.inner.drain_signal.notify_one();
+            }
             return RelayMailboxDisposition::Exact;
         }
 
@@ -205,10 +221,9 @@ impl AuthorityRelaySink {
             bytes: reset_bytes,
         });
 
-        if matches!(result, TxVerificationResult::GenerationReset) {
-            return RelayMailboxDisposition::Reconciled;
-        }
-        if let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner) {
+        let disposition = if matches!(result, TxVerificationResult::GenerationReset) {
+            RelayMailboxDisposition::Reconciled
+        } else if let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner) {
             state.bytes = bytes;
             state.queue.push_back(RelayEnvelope {
                 result,
@@ -221,7 +236,10 @@ impl AuthorityRelaySink {
             // Reset conservatively clears known/pending relay state for an
             // ordinary Ok/Reject result that cannot itself fit.
             RelayMailboxDisposition::Reconciled
-        }
+        };
+        drop(state);
+        self.inner.drain_signal.notify_one();
+        disposition
     }
 
     fn reconcile_without_current(&self, result: TxVerificationResult) -> RelayMailboxDisposition {
@@ -240,15 +258,22 @@ impl AuthorityRelaySink {
             result: reset,
             bytes: reset_bytes,
         });
-        if matches!(result, TxVerificationResult::UnknownParents { .. }) {
+        let disposition = if matches!(result, TxVerificationResult::UnknownParents { .. }) {
             RelayMailboxDisposition::Unavailable
         } else {
             RelayMailboxDisposition::Reconciled
-        }
+        };
+        drop(state);
+        self.inner.drain_signal.notify_one();
+        disposition
     }
 }
 
 impl AuthorityRelayReceiver {
+    pub(super) async fn wait_for_drain(&self) {
+        self.inner.drain_signal.notified().await;
+    }
+
     pub(super) fn try_recv(&self) -> Option<TxVerificationResult> {
         self.inner.state.lock().pop_front()
     }
@@ -301,6 +326,20 @@ fn mailbox_bytes_after(
         .bytes
         .checked_add(result_bytes)
         .filter(|bytes| *bytes <= limits.max_bytes)
+}
+
+fn relay_drain_watermark_crossed(
+    state: &RelayMailboxState,
+    next_bytes: usize,
+    limits: &RelayMailboxInner,
+) -> bool {
+    (state.queue.len() < limits.wake_items
+        && state
+            .queue
+            .len()
+            .checked_add(1)
+            .is_some_and(|items| items >= limits.wake_items))
+        || (state.bytes < limits.wake_bytes && next_bytes >= limits.wake_bytes)
 }
 
 fn relay_result_bytes(result: &TxVerificationResult) -> Option<usize> {

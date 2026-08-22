@@ -264,6 +264,15 @@ impl TxVerificationResultReceiver {
         self.0.try_recv()
     }
 
+    /// Waits until the bounded producer asks the sole consumer to drain.
+    ///
+    /// The signal carries no transaction data and coalesces while a drain is
+    /// already pending. The periodic relayer tick remains the sparse-flow
+    /// liveness fallback.
+    pub async fn wait_for_drain(&self) {
+        self.0.wait_for_drain().await;
+    }
+
     /// Receives at most `limit` committed results without waiting.
     ///
     /// Allocation pressure returns the successfully reserved prefix and leaves

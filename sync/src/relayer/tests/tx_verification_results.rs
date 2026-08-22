@@ -1,6 +1,6 @@
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::transaction_hashes_process::TransactionHashesProcess;
-use ckb_network::{PeerIndex, SupportProtocols};
+use ckb_network::{CKBProtocolHandler, PeerIndex, SupportProtocols};
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,4 +89,33 @@ fn rejected_tx_can_be_requested_again_from_another_peer() {
         state.pop_ask_for_txs().get(&replacement_peer),
         Some(&vec![tx_hash])
     );
+}
+
+#[test]
+fn committed_reset_wakes_the_existing_relayer_poll_path() {
+    let (_chain, mut relayer, always_success_out_point) = build_chain(1);
+    let tx_hash = new_transaction(&relayer, 3, &always_success_out_point).hash();
+    relayer.shared.state().mark_as_known_tx(tx_hash.clone());
+    assert!(relayer.shared.state().already_known_tx(&tx_hash));
+
+    relayer
+        .shared
+        .shared()
+        .tx_pool_controller()
+        .clear_pool(relayer.shared.shared().cloned_snapshot())
+        .expect("the ordered clear publishes one generation reset");
+
+    let mock = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let nc: Arc<dyn ckb_network::CKBProtocolContext + Sync> = mock;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(5), relayer.poll(nc))
+            .await
+            .expect("the generation reset wakes the existing protocol poll path")
+            .expect("the relayer poll stream remains live");
+    });
+    assert!(!relayer.shared.state().already_known_tx(&tx_hash));
 }

@@ -16,6 +16,7 @@ use super::foundation::{
 use crate::service::TxVerificationResult;
 use ckb_network::PeerIndex;
 use ckb_types::packed::{Byte32, OutPoint};
+use std::time::Duration;
 use std::{collections::HashSet, mem::size_of, num::NonZeroUsize};
 
 const TEST_BYTES: usize = 16 * 1024;
@@ -86,6 +87,75 @@ fn uak_relay_mailbox_preserves_exact_order_within_its_bound() {
         Some(TxVerificationResult::Ok { tx_hash, .. }) if tx_hash == second
     ));
     assert!(receiver.try_recv().is_none());
+}
+
+#[tokio::test]
+async fn uak_relay_mailbox_coalesces_ordinary_wake_at_the_high_watermark() {
+    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([1; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), receiver.wait_for_drain())
+            .await
+            .is_err(),
+        "sparse ordinary results remain on the periodic batching path"
+    );
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([2; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("crossing the high watermark wakes the sole consumer");
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([3; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), receiver.wait_for_drain())
+            .await
+            .is_err(),
+        "one occupied high-water interval produces at most one wake"
+    );
+}
+
+#[tokio::test]
+async fn uak_relay_mailbox_wakes_promptly_for_order_barriers() {
+    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    assert_eq!(
+        sink.publish(TxVerificationResult::GenerationReset),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("a generation reset wakes the sole consumer immediately");
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(12),
+            parents: [Byte32::new([7; 32])].into_iter().collect(),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("a missing-parent request wakes the sole consumer immediately");
 }
 
 #[test]

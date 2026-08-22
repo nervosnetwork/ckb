@@ -522,6 +522,10 @@ impl AuthorityRelayDrain {
         }
         None
     }
+
+    pub(crate) async fn wait_for_drain(&self) {
+        self.receiver.wait_for_drain().await;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -966,4 +966,10 @@ impl CKBProtocolHandler for Relayer {
             Instant::now().saturating_duration_since(start_time)
         );
     }
+
+    async fn poll(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>) -> Option<()> {
+        self.shared.state().wait_relay_tx_verify_results().await;
+        self.send_bulk_of_tx_hashes(&nc).await;
+        Some(())
+    }
 }
