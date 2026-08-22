@@ -4223,9 +4223,10 @@ impl TxPoolAuthority {
     /// Classify one finished compute result against a coherent authority cut.
     ///
     /// `OwnerLocal` results change only the named owner and its derived
-    /// projections. The compute exchange orders them by owner version and
-    /// retains only the prefix admitted by its shared resource projection;
-    /// an overflowing owner returns to exact settlement. Results which may
+    /// projections. The compute exchange visits them by owner version and
+    /// retains the deterministic greedy subsequence admitted by its shared
+    /// resource projection; an overflowing owner returns to exact settlement,
+    /// while a later independent owner may still fit. Results which may
     /// publish an effect, revoke a peer, or terminalize dependency owners
     /// remain `NonLocal` and retain their exact move-only evidence for the
     /// existing cohort planner.

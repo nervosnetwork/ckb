@@ -139,11 +139,11 @@ fn limits_with_active_work(active_work: usize) -> ResourceLimits {
 fn limits_with_narrow_peer_retained_edges() -> ResourceLimits {
     const COMPUTE_BYTES: usize = 4 * 1024;
     let compute = ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 16);
-    let aggregate = ResourceVector::new(8, 64 * 1024, 64, 2)
-        .with_compute_capacity(2 * COMPUTE_BYTES, 32)
+    let aggregate = ResourceVector::new(8, 64 * 1024, 64, 3)
+        .with_compute_capacity(3 * COMPUTE_BYTES, 48)
         .expect("aggregate compute capacity fits");
-    let per_peer = ResourceVector::new(4, 32 * 1024, 1, 2)
-        .with_compute_capacity(2 * COMPUTE_BYTES, 32)
+    let per_peer = ResourceVector::new(4, 32 * 1024, 1, 3)
+        .with_compute_capacity(3 * COMPUTE_BYTES, 48)
         .expect("peer compute capacity fits");
     ResourceLimits::with_residency_policy(
         aggregate,
@@ -157,6 +157,35 @@ fn limits_with_narrow_peer_retained_edges() -> ResourceLimits {
         ),
     )
     .expect("the peer-pressure fixture has a valid limit hierarchy")
+}
+
+fn owner_local_resolve_settlement(
+    authority: &mut TxPoolAuthority,
+    hash: &RawTxHash,
+    dependency_marker: Option<u8>,
+) -> ComputeSettlement {
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            hash,
+            owner_version(authority, hash),
+            WorkPermit::ResolveOnly,
+        )
+        .expect("the bounded resolve grant checks out")
+        .apply();
+    let (_, resolve) = take_resolve_work(checkout);
+    let dependencies = dependency_marker
+        .map(|marker| OutPoint::new(Byte32::new([marker; 32]), 0))
+        .into_iter()
+        .collect();
+    let resolution = resolved_payload_with_facts(
+        resolve.transaction(),
+        dependencies,
+        Vec::new(),
+        Capacity::shannons(1),
+    );
+    resolve
+        .yield_verify(resolution)
+        .expect("the resolved evidence belongs to its transaction")
 }
 
 fn stale_completion(worker: usize) -> ComputeExchangeCompletion {
@@ -373,42 +402,8 @@ fn uak_compute_exchange_defers_peer_retained_growth_to_exact_settlement() {
     let mut authority = TxPoolAuthority::for_foundation(limits_with_narrow_peer_retained_edges());
     let first = admit_remote(&mut authority, 80_014, 3);
     let second = admit_remote(&mut authority, 80_015, 3);
-    let first_checkout = authority
-        .plan_checkout_for_foundation(
-            &first,
-            owner_version(&authority, &first),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the first bounded resolve grant checks out")
-        .apply();
-    let (_, first_resolve) = take_resolve_work(first_checkout);
-    let second_checkout = authority
-        .plan_checkout_for_foundation(
-            &second,
-            owner_version(&authority, &second),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the second bounded resolve grant checks out")
-        .apply();
-    let (_, second_resolve) = take_resolve_work(second_checkout);
-    let first_resolution = resolved_payload_with_facts(
-        first_resolve.transaction(),
-        vec![OutPoint::new(Byte32::new([41; 32]), 0)],
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    let first_settlement = first_resolve
-        .yield_verify(first_resolution)
-        .expect("the first resolved evidence belongs to its transaction");
-    let second_resolution = resolved_payload_with_facts(
-        second_resolve.transaction(),
-        vec![OutPoint::new(Byte32::new([42; 32]), 0)],
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    let second_settlement = second_resolve
-        .yield_verify(second_resolution)
-        .expect("the second resolved evidence belongs to its transaction");
+    let first_settlement = owner_local_resolve_settlement(&mut authority, &first, Some(41));
+    let second_settlement = owner_local_resolve_settlement(&mut authority, &second, Some(42));
 
     let committed = authority
         .apply_compute_exchange(
@@ -460,6 +455,79 @@ fn uak_compute_exchange_defers_peer_retained_growth_to_exact_settlement() {
     );
     assert!(authority.entry(&second).is_none());
     assert_eq!(authority.resources().preaccepted().active_work, 0);
+}
+
+#[test]
+fn uak_compute_exchange_admits_a_later_fitting_owner_after_exact_overflow() {
+    let mut authority = TxPoolAuthority::for_foundation(limits_with_narrow_peer_retained_edges());
+    let first = admit_remote(&mut authority, 80_016, 3);
+    let second = admit_remote(&mut authority, 80_017, 3);
+    let third = admit_remote(&mut authority, 80_018, 3);
+    let first_settlement = owner_local_resolve_settlement(&mut authority, &first, Some(43));
+    let second_settlement = owner_local_resolve_settlement(&mut authority, &second, Some(44));
+    let third_settlement = owner_local_resolve_settlement(&mut authority, &third, None);
+
+    let first_slot = ComputeWorkerSlot::ordered_resolve();
+    let second_slot = any_verifier(0);
+    let third_slot = any_verifier(1);
+    let committed = authority
+        .apply_compute_exchange(
+            vec![
+                ComputeExchangeCompletion::new(third_slot, third_settlement),
+                ComputeExchangeCompletion::new(second_slot, second_settlement),
+                ComputeExchangeCompletion::new(first_slot, first_settlement),
+            ],
+            Vec::new(),
+        )
+        .unwrap_or_else(|failure| {
+            let (error, recoveries) = failure.into_parts();
+            drop(recoveries);
+            panic!("version-ordered greedy admission remains valid: {error:?}");
+        });
+
+    assert!(
+        committed
+            .settled
+            .iter()
+            .any(|settled| settled.eq(&first_slot))
+    );
+    assert!(
+        committed
+            .settled
+            .iter()
+            .any(|settled| settled.eq(&third_slot))
+    );
+    assert!(
+        !committed
+            .settled
+            .iter()
+            .any(|settled| settled.eq(&second_slot))
+    );
+    assert_eq!(committed.deferred.len(), 1);
+    assert!(matches!(
+        authority.entry(&first),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    assert!(matches!(
+        authority.entry(&second),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+    ));
+    assert!(matches!(
+        authority.entry(&third),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
+    ));
+    let deferred = committed
+        .deferred
+        .into_iter()
+        .next()
+        .expect("only the overflowing middle owner remains exact");
+    assert_eq!(
+        deferred.into_parts().0,
+        ComputeExchangeDeferredRoute::ExactSettlement
+    );
 }
 
 #[test]
