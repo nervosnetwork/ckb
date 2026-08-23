@@ -103,7 +103,7 @@ pub(super) struct CommittedPublicReject {
     reject: Reject,
     malformed: bool,
     recordable: bool,
-    relay_allowed: bool,
+    publish_negative_relay_terminal: bool,
     description_bytes: usize,
 }
 
@@ -114,7 +114,10 @@ impl std::fmt::Debug for CommittedPublicReject {
             .field("reject", &self.reject)
             .field("malformed", &self.malformed)
             .field("recordable", &self.recordable)
-            .field("relay_allowed", &self.relay_allowed)
+            .field(
+                "publish_negative_relay_terminal",
+                &self.publish_negative_relay_terminal,
+            )
             .finish()
     }
 }
@@ -125,7 +128,7 @@ impl PartialEq for CommittedPublicReject {
             == PoolTransactionReject::from(other.reject.clone())
             && self.malformed == other.malformed
             && self.recordable == other.recordable
-            && self.relay_allowed == other.relay_allowed
+            && self.publish_negative_relay_terminal == other.publish_negative_relay_terminal
     }
 }
 
@@ -142,7 +145,12 @@ impl CommittedPublicReject {
     pub(super) fn new(reject: Reject) -> Self {
         let malformed = reject.is_malformed_tx();
         let recordable = reject.should_recorded();
-        let relay_allowed = reject.is_allowed_relay();
+        // `Reject::is_allowed_relay` is a historical public name. Its sole
+        // current production consumer emits a negative terminal into sync's
+        // pending-relay projection; it never positively disseminates the
+        // rejected transaction. Keep the compatibility method at the shared
+        // type boundary while naming the owned effect precisely here.
+        let publish_negative_relay_terminal = reject.is_allowed_relay();
         let reject = bound_reject_diagnostic(reject);
         let description_bytes =
             public_description(&PoolTransactionReject::from(reject.clone())).len();
@@ -150,7 +158,7 @@ impl CommittedPublicReject {
             reject,
             malformed,
             recordable,
-            relay_allowed,
+            publish_negative_relay_terminal,
             description_bytes,
         }
     }
@@ -167,8 +175,8 @@ impl CommittedPublicReject {
         self.recordable
     }
 
-    pub(super) const fn relay_allowed(&self) -> bool {
-        self.relay_allowed
+    pub(super) const fn publish_negative_relay_terminal(&self) -> bool {
+        self.publish_negative_relay_terminal
     }
 
     pub(super) const fn description_bytes(&self) -> usize {
@@ -305,6 +313,7 @@ fn bound_reject_diagnostic(reject: Reject) -> Reject {
         | Reject::ExceededTransactionSizeLimit(..)
         | Reject::Duplicated(_)
         | Reject::DeclaredWrongCycles(..)
+        | Reject::ExcessiveVerifyTime
         | Reject::Resolve(_)
         | Reject::Expiry(_)) => fixed,
     }
@@ -319,6 +328,7 @@ fn public_description(reject: &PoolTransactionReject) -> &str {
         | PoolTransactionReject::Duplicated(description)
         | PoolTransactionReject::Malformed(description)
         | PoolTransactionReject::DeclaredWrongCycles(description)
+        | PoolTransactionReject::ExcessiveVerifyTime(description)
         | PoolTransactionReject::Resolve(description)
         | PoolTransactionReject::Verification(description)
         | PoolTransactionReject::Expiry(description)

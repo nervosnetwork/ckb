@@ -45,6 +45,11 @@ pub enum Reject {
     #[error("Declared wrong cycles {0}, actual {1}")]
     DeclaredWrongCycles(Cycle, Cycle),
 
+    /// Verification exceeded this node's tx-pool wall-time resource limit.
+    /// This is a transient local capacity outcome, not consensus invalidity.
+    #[error("Transaction verification exceeded the local tx-pool time limit")]
+    ExcessiveVerifyTime,
+
     /// Resolve failed
     #[error("Resolve failed {0}")]
     Resolve(OutPointError),
@@ -111,7 +116,10 @@ impl Reject {
     /// DB only feeds RPC status queries, a resubmission merely re-runs the
     /// cheap RBF rule checks.
     pub fn should_recorded(&self) -> bool {
-        !matches!(self, Reject::Duplicated(..) | Reject::Full(..))
+        !matches!(
+            self,
+            Reject::Duplicated(..) | Reject::Full(..) | Reject::ExcessiveVerifyTime
+        )
     }
 
     /// Returns true if tx can be resubmitted, allowing relay
@@ -121,8 +129,10 @@ impl Reject {
     ///   or temporary limitations of the pool resources,
     ///   and expired clearing
     pub fn is_allowed_relay(&self) -> bool {
-        matches!(self, Reject::DeclaredWrongCycles(..))
-            || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
+        matches!(
+            self,
+            Reject::DeclaredWrongCycles(..) | Reject::ExcessiveVerifyTime
+        ) || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
     }
 }
 
@@ -448,7 +458,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn full_and_duplicated_are_not_recorded_in_recent_reject() {
+    fn transient_resource_outcomes_are_not_recorded_in_recent_reject() {
         // Backpressure and duplicates are not invalidity and must not
         // poison the recent-reject DB (see `should_recorded` docs).
         // Terminal `RBFRejected` (pool-rule failure / committed
@@ -457,6 +467,9 @@ mod tests {
         assert!(Reject::RBFRejected("replaced".to_string()).should_recorded());
         assert!(!Reject::Duplicated(Default::default()).should_recorded());
         assert!(!Reject::Full("full".to_string()).should_recorded());
+        assert!(!Reject::ExcessiveVerifyTime.should_recorded());
+        assert!(!Reject::ExcessiveVerifyTime.is_malformed_tx());
+        assert!(Reject::ExcessiveVerifyTime.is_allowed_relay());
         assert!(Reject::Malformed("pool".to_string(), "bad".to_string()).should_recorded());
     }
 }

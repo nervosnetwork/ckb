@@ -100,7 +100,9 @@ impl RejectionClass {
             | Reject::DeclaredWrongCycles(_, _)
             | Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => Self::Malformed,
             Reject::Verification(_) if reject.is_malformed_tx() => Self::Malformed,
-            Reject::Full(_) | Reject::ExceededMaximumAncestorsCount => Self::Capacity,
+            Reject::Full(_)
+            | Reject::ExceededMaximumAncestorsCount
+            | Reject::ExcessiveVerifyTime => Self::Capacity,
             Reject::Duplicated(_) => Self::Duplicate,
             Reject::Internal(_) => Self::Internal,
             Reject::LowFeeRate(_, _, _)

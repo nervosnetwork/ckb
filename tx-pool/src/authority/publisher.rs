@@ -446,7 +446,7 @@ fn compile_preaccepted_rejection(
     public: super::rejection::CommittedPublicReject,
 ) -> CompiledEndpointOutcome {
     let should_record = public.should_record();
-    let relay_allowed = public.relay_allowed();
+    let publish_negative_relay_terminal = public.publish_negative_relay_terminal();
     let reject = public.reject().clone();
     let tx_hash = compact_packed(&tx.hash());
     let recent_reject = should_record.then(|| RecentRejectAction {
@@ -457,13 +457,14 @@ fn compile_preaccepted_rejection(
     // the existing relayer contract defensive here as well: if a future
     // validation producer misclassifies one, it must not turn an accepted
     // transaction into a negative peer-filter result.
-    let relay =
-        (audience.has_ingress() && relay_allowed && !matches!(&reject, Reject::Duplicated(_)))
-            .then(|| {
-                RelayAction::new(TxVerificationResult::Reject {
-                    tx_hash: tx_hash.clone(),
-                })
-            });
+    let relay = (audience.has_ingress()
+        && publish_negative_relay_terminal
+        && !matches!(&reject, Reject::Duplicated(_)))
+    .then(|| {
+        RelayAction::new(TxVerificationResult::Reject {
+            tx_hash: tx_hash.clone(),
+        })
+    });
     CompiledEndpointOutcome {
         recent_reject,
         callback: None,
@@ -482,7 +483,9 @@ fn compile_accepted_rejection(
         tx_hash: tx_hash.clone(),
         reject: reject.clone(),
     });
-    let relay = (public.relay_allowed() && !matches!(&reject, Reject::Duplicated(_))).then(|| {
+    let relay = (public.publish_negative_relay_terminal()
+        && !matches!(&reject, Reject::Duplicated(_)))
+    .then(|| {
         RelayAction::new(TxVerificationResult::Reject {
             tx_hash: tx_hash.clone(),
         })

@@ -316,6 +316,9 @@ pub enum PoolTransactionReject {
     /// Declared wrong cycles
     DeclaredWrongCycles(String),
 
+    /// Verification exceeded this node's local tx-pool time limit
+    ExcessiveVerifyTime(String),
+
     /// Resolve failed
     Resolve(String),
 
@@ -349,6 +352,7 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
             Reject::Malformed(_, _) => Self::Malformed(format!("{reject}")),
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{reject}")),
+            Reject::ExcessiveVerifyTime => Self::ExcessiveVerifyTime(format!("{reject}")),
             Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),

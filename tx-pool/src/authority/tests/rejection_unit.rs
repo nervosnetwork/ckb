@@ -116,7 +116,20 @@ fn committed_public_rejection_bounds_diagnostics_without_changing_policy() {
     assert!(committed.description_bytes() <= MAX_TX_POOL_REJECT_DESCRIPTION_BYTES);
     assert!(!committed.is_malformed());
     assert!(committed.should_record());
-    assert!(committed.relay_allowed());
+    assert!(committed.publish_negative_relay_terminal());
+}
+
+#[test]
+fn excessive_verify_time_is_a_transient_negative_relay_terminal() {
+    let committed = CommittedPublicReject::new(Reject::ExcessiveVerifyTime);
+    assert!(matches!(committed.reject(), Reject::ExcessiveVerifyTime));
+    assert!(!committed.is_malformed());
+    assert!(!committed.should_record());
+    assert!(committed.publish_negative_relay_terminal());
+    assert!(matches!(
+        PoolTransactionReject::from(committed.reject().clone()),
+        PoolTransactionReject::ExcessiveVerifyTime(_)
+    ));
 }
 
 #[test]

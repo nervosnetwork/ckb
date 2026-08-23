@@ -221,6 +221,20 @@ fn uak_effect_compiler_keeps_rejection_owner_and_ingress_attribution_typed() {
         "a misclassified duplicate must never poison the relayer filter"
     );
 
+    let excessive_time =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
+            tx: Arc::clone(&candidate),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
+            reason: CommittedPublicReject::new(Reject::ExcessiveVerifyTime),
+        }));
+    assert!(excessive_time.recent_reject.is_none());
+    assert!(excessive_time.ban.is_none());
+    assert!(excessive_time.callback.is_none());
+    assert!(matches!(
+        excessive_time.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+
     let victim = entry(4_102);
     let replacement =
         compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Replaced {
