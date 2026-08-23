@@ -14,8 +14,10 @@ use super::{
         MembershipProjection,
     },
     resources::AcceptedResources,
-    shard::{ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerReadGuard},
-    source::PoolTemplateVersions,
+    shard::{
+        ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerReadGuard,
+    },
+    source::AuthoritySourceVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
         DependencySetError, KnownDependencies, ObservedDependencies, OwnedTx, PreAcceptedPhase,
@@ -297,15 +299,23 @@ fn rpc_status_for_accepted(status: AcceptedStatus) -> AuthorityRpcStatus {
 }
 
 pub(super) struct AcceptedReadEntry<'authority> {
-    entry: ShardedAcceptedReadGuard<'authority>,
+    entry: AcceptedReadOwner<'authority>,
     ancestor: AncestorAggregate,
     descendant: DescendantAggregate,
     order: AcceptedOrderKey,
 }
 
+enum AcceptedReadOwner<'authority> {
+    Point(ShardedAcceptedReadGuard<'authority>),
+    Full(&'authority super::state::AcceptedEntry),
+}
+
 impl<'authority> AcceptedReadEntry<'authority> {
     pub(super) fn entry(&self) -> &super::state::AcceptedEntry {
-        &self.entry
+        match &self.entry {
+            AcceptedReadOwner::Point(entry) => entry,
+            AcceptedReadOwner::Full(entry) => entry,
+        }
     }
 
     pub(super) fn ancestor(&self) -> AncestorAggregate {
@@ -352,36 +362,34 @@ pub(super) struct AuthorityReadView<'authority> {
     entries: &'authority ShardedOwnerMap,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
-    accepted_resources: AcceptedResources,
     membership_config: MembershipConfig,
     relay_parent_source: ApplySequence,
-    template_sources: PoolTemplateVersions,
+    source_versions: &'authority AuthoritySourceVersions,
+}
+
+pub(super) struct AuthorityFullReadCut<'authority> {
+    owners: ShardedOwnerReadCut<'authority>,
+    accepted_resources: AcceptedResources,
 }
 
 impl<'authority> AuthorityReadView<'authority> {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "this sole constructor makes every source of one coherent authority read cut explicit; a parameter bag would duplicate the view abstraction"
-    )]
     pub(super) fn new(
         chain_view: ChainViewId,
         entries: &'authority ShardedOwnerMap,
         indexes: &'authority AuthorityIndexes,
         membership: &'authority MembershipProjection,
-        accepted_resources: AcceptedResources,
         membership_config: MembershipConfig,
         relay_parent_source: ApplySequence,
-        template_sources: PoolTemplateVersions,
+        source_versions: &'authority AuthoritySourceVersions,
     ) -> Self {
         Self {
             chain_view,
             entries,
             indexes,
             membership,
-            accepted_resources,
             membership_config,
             relay_parent_source,
-            template_sources,
+            source_versions,
         }
     }
 
@@ -484,13 +492,14 @@ impl<'authority> AuthorityReadView<'authority> {
             return Err(AuthorityReadError::Projection);
         }
         Ok(Some(AcceptedReadEntry {
-            entry,
+            entry: AcceptedReadOwner::Point(entry),
             ancestor,
             descendant,
             order,
         }))
     }
 
+    #[cfg(test)]
     pub(super) fn accepted_entry_for_order(
         &self,
         order: &AcceptedOrderKey,
@@ -515,7 +524,7 @@ impl<'authority> AuthorityReadView<'authority> {
             return Err(AuthorityReadError::Projection);
         }
         Ok(AcceptedReadEntry {
-            entry,
+            entry: AcceptedReadOwner::Point(entry),
             ancestor,
             descendant,
             order: current_order,
@@ -530,19 +539,19 @@ impl<'authority> AuthorityReadView<'authority> {
         self.membership_config.minimum_replacement_rate()
     }
 
-    pub(super) fn accepted_order(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &'authority AcceptedOrderKey> + '_ {
-        self.membership.accepted_order()
+    #[cfg(test)]
+    pub(super) fn accepted_order(&self) -> impl DoubleEndedIterator<Item = AcceptedOrderKey> + '_ {
+        self.membership.accepted_order().into_iter()
     }
 
     pub(super) fn owner_count(&self) -> usize {
         self.entries.len()
     }
 
+    #[cfg(test)]
     pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
-        let counts = self
-            .entries
+        let owners = self.entries.read_all();
+        let counts = owners
             .status_counts()
             .ok_or(AuthorityReadError::Arithmetic)?;
         let pending = counts
@@ -552,12 +561,16 @@ impl<'authority> AuthorityReadView<'authority> {
         let total = pending
             .checked_add(counts.proposed)
             .ok_or(AuthorityReadError::Arithmetic)?;
-        if total != self.accepted_resources.entries {
+        let accepted_resources = owners
+            .accepted_resources()
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if total != accepted_resources.entries {
             return Err(AuthorityReadError::Projection);
         }
         Ok((pending, counts.proposed))
     }
 
+    #[cfg(test)]
     pub(super) fn replacement_history(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
         let owners = self.entries.read_all();
         let mut history = Vec::new();
@@ -582,7 +595,7 @@ impl<'authority> AuthorityReadView<'authority> {
         };
         let owner = self
             .entries
-            .get(hash)
+            .get(&hash)
             .ok_or(AuthorityReadError::Projection)?;
         if &owner.record().identity.proposal != proposal {
             return Err(AuthorityReadError::Projection);
@@ -657,16 +670,29 @@ impl<'authority> AuthorityReadView<'authority> {
         {
             return Err(AuthorityReadError::Projection);
         }
-        summary.accepted_resources = self.accepted_resources;
+        summary.accepted_resources = owners
+            .accepted_resources()
+            .ok_or(AuthorityReadError::Arithmetic)?;
         let accepted_count = counts
             .pending
             .checked_add(counts.gap)
             .and_then(|count| count.checked_add(counts.proposed))
             .ok_or(AuthorityReadError::Arithmetic)?;
-        if accepted_count != self.accepted_resources.entries {
+        if accepted_count != summary.accepted_resources.entries {
             return Err(AuthorityReadError::Projection);
         }
         Ok(summary)
+    }
+
+    pub(super) fn full_read_cut(&self) -> Result<AuthorityFullReadCut<'_>, AuthorityReadError> {
+        let owners = self.entries.read_all();
+        let accepted_resources = owners
+            .accepted_resources()
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        Ok(AuthorityFullReadCut {
+            owners,
+            accepted_resources,
+        })
     }
 
     pub(super) fn capture_persistence(&self) -> Result<PersistenceReadReceipt, AuthorityReadError> {
@@ -681,9 +707,8 @@ impl<'authority> AuthorityReadView<'authority> {
             }
             let relation = match owner {
                 OwnedTx::Accepted(_) => {
-                    let parents = self
-                        .membership
-                        .parents(hash)
+                    let parents = owners
+                        .membership_parents(hash)
                         .ok_or(AuthorityReadError::Projection)?;
                     let mut copied = Vec::new();
                     copied
@@ -719,13 +744,109 @@ impl<'authority> AuthorityReadView<'authority> {
         &self,
     ) -> Result<AuthorityTemplateReadReceipt, TemplateReadError> {
         let owners = self.entries.read_all();
+        let sources = owners.template_sources(self.source_versions.template());
         AuthorityTemplateReadReceipt::capture(
             self.chain_view.clone(),
-            self.template_sources,
+            sources,
             &owners,
             owners.status_counts(),
-            self.membership,
         )
+    }
+}
+
+impl AuthorityFullReadCut<'_> {
+    pub(super) fn owner_count(&self) -> usize {
+        self.owners.len()
+    }
+
+    pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
+        let counts = self
+            .owners
+            .status_counts()
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        let pending = counts
+            .pending
+            .checked_add(counts.gap)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        let total = pending
+            .checked_add(counts.proposed)
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if total != self.accepted_resources.entries {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok((pending, counts.proposed))
+    }
+
+    pub(super) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {
+        self.owners.accepted_order()
+    }
+
+    pub(super) fn accepted_entry_by_raw(
+        &self,
+        hash: &RawTxHash,
+    ) -> Result<Option<AcceptedReadEntry<'_>>, AuthorityReadError> {
+        let Some(OwnedTx::Accepted(entry)) = self.owners.get(hash) else {
+            return Ok(None);
+        };
+        let ancestor = self
+            .owners
+            .membership_ancestor(hash)
+            .ok_or(AuthorityReadError::Projection)?;
+        let descendant = self
+            .owners
+            .membership_descendant(hash)
+            .ok_or(AuthorityReadError::Projection)?;
+        let order = AcceptedOrderKey::new(entry, ancestor);
+        if !self.owners.contains_accepted_order(&order) {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(Some(AcceptedReadEntry {
+            entry: AcceptedReadOwner::Full(entry),
+            ancestor,
+            descendant,
+            order,
+        }))
+    }
+
+    pub(super) fn accepted_entry_for_order(
+        &self,
+        order: &AcceptedOrderKey,
+    ) -> Result<AcceptedReadEntry<'_>, AuthorityReadError> {
+        let Some(OwnedTx::Accepted(entry)) = self.owners.get(order.hash()) else {
+            return Err(AuthorityReadError::Projection);
+        };
+        let ancestor = self
+            .owners
+            .membership_ancestor(order.hash())
+            .ok_or(AuthorityReadError::Projection)?;
+        let descendant = self
+            .owners
+            .membership_descendant(order.hash())
+            .ok_or(AuthorityReadError::Projection)?;
+        let current_order = AcceptedOrderKey::new(entry, ancestor);
+        if &current_order != order {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(AcceptedReadEntry {
+            entry: AcceptedReadOwner::Full(entry),
+            ancestor,
+            descendant,
+            order: current_order,
+        })
+    }
+
+    pub(super) fn replacement_history(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
+        let mut history = Vec::new();
+        history
+            .try_reserve(self.owners.len())
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        history.extend(
+            self.owners
+                .iter()
+                .filter(|(_, owner)| matches!(owner, OwnedTx::ReplacementHistory(_)))
+                .map(|(hash, _)| hash.clone()),
+        );
+        Ok(history)
     }
 }
 

@@ -4,19 +4,31 @@
 //! enum or policy table: semantic delta types fold their own real keys.
 
 use super::{
-    plan::StatusCounts,
+    dependency::{DependencyLevel, UnindexedDependencyLevel},
+    indexes::{AcceptedDeadlineKey, DeadlineKey},
+    plan::{
+        AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey, StatusCounts,
+    },
     resources::{
         AcceptedResources, ChargeProjection, ResourceError, ResourceTotals, ResourceVector,
     },
-    state::{AcceptedEntry, AcceptedStatus, OwnedTx, RawTxHash},
+    source::PoolTemplateVersions,
+    state::{
+        AcceptedEntry, AcceptedStatus, ApplySequence, DependencyKey, DependencyOrigin, OwnedTx,
+        ProposalId, RawTxHash,
+    },
 };
 use ckb_network::PeerIndex;
+use ckb_types::packed::OutPoint;
+#[cfg(test)]
+use ckb_util::parking_lot::Mutex;
 use ckb_util::parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{
-    collections::{HashMap, hash_map},
+    collections::{BTreeSet, HashMap, HashSet, hash_map},
     fmt,
     hash::{BuildHasher, Hash, Hasher, RandomState},
     ops::Deref,
+    sync::Arc,
 };
 
 pub(super) const AUTHORITY_SHARD_COUNT: usize = 64;
@@ -33,14 +45,14 @@ impl AuthorityShardRouter {
         }
     }
 
-    fn shard<K: Hash>(&self, domain: &'static [u8], key: &K) -> usize {
+    pub(in crate::authority) fn shard<K: Hash>(&self, domain: &'static [u8], key: &K) -> usize {
         let mut hasher = self.state.build_hasher();
         domain.hash(&mut hasher);
         key.hash(&mut hasher);
         (hasher.finish() as usize) & (AUTHORITY_SHARD_COUNT - 1)
     }
 
-    fn owner(&self, key: &RawTxHash) -> usize {
+    pub(in crate::authority) fn owner(&self, key: &RawTxHash) -> usize {
         self.shard(b"owner-resource/owner", key)
     }
 
@@ -52,17 +64,81 @@ impl AuthorityShardRouter {
 /// Sole physical owner map, partitioned once for one authority-layout
 /// lifetime. The current outer authority guard still provides exclusion while
 /// the remaining domains migrate; no duplicate flat owner map exists.
+#[derive(Clone)]
 pub(in crate::authority) struct ShardedOwnerMap {
-    router: AuthorityShardRouter,
-    shards: Box<[RwLock<AuthorityShard>; AUTHORITY_SHARD_COUNT]>,
+    pub(in crate::authority) layout: Arc<AuthorityShardLayout>,
+}
+
+pub(in crate::authority) struct AuthorityShardLayout {
+    pub(in crate::authority) router: AuthorityShardRouter,
+    pub(in crate::authority) shards: Box<[RwLock<AuthorityShard>; AUTHORITY_SHARD_COUNT]>,
+    #[cfg(test)]
+    concurrent_removal_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
+    #[cfg(test)]
+    concurrent_removal_plan_probe: Mutex<Option<Arc<std::sync::Barrier>>>,
+}
+
+#[cfg(test)]
+pub(in crate::authority) struct ConcurrentRemovalProbe {
+    entered: std::sync::mpsc::Sender<()>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+#[cfg(test)]
+impl ConcurrentRemovalProbe {
+    pub(in crate::authority) fn new() -> (
+        Arc<Self>,
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered, observed) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        (
+            Arc::new(Self {
+                entered,
+                release: Mutex::new(released),
+            }),
+            observed,
+            release,
+        )
+    }
+
+    fn enter(&self) {
+        let _ = self.entered.send(());
+        let _ = self.release.lock().recv();
+    }
 }
 
 #[derive(Debug, Default)]
-struct AuthorityShard {
+pub(in crate::authority) struct AuthorityShard {
     owners: HashMap<RawTxHash, OwnedTx>,
     membership_counts: StatusCounts,
     resources: ShardResourceAggregate,
     peer_resources: HashMap<PeerIndex, ResourceVector>,
+    pub(in crate::authority) proposals: HashMap<ProposalId, RawTxHash>,
+    pub(in crate::authority) preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
+    pub(in crate::authority) context_sensitive_accepted: HashSet<RawTxHash>,
+    pub(in crate::authority) deadlines: BTreeSet<DeadlineKey>,
+    pub(in crate::authority) accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
+    pub(in crate::authority) spenders: HashMap<OutPoint, RawTxHash>,
+    pub(in crate::authority) dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
+    pub(in crate::authority) parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
+    pub(in crate::authority) children: HashMap<RawTxHash, HashSet<RawTxHash>>,
+    pub(in crate::authority) ancestor_aggregates: HashMap<RawTxHash, AncestorAggregate>,
+    pub(in crate::authority) descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
+    pub(in crate::authority) accepted_order: BTreeSet<AcceptedOrderKey>,
+    pub(in crate::authority) eviction_order: BTreeSet<EvictionOrderKey>,
+    pub(in crate::authority) dependency_consumers:
+        std::collections::BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
+    pub(in crate::authority) dependency_waiters:
+        std::collections::BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
+    pub(in crate::authority) dependency_keys_by_origin:
+        std::collections::BTreeMap<DependencyOrigin, BTreeSet<DependencyKey>>,
+    pub(in crate::authority) dependency_levels:
+        std::collections::BTreeMap<DependencyKey, DependencyLevel>,
+    pub(in crate::authority) dependency_unindexed: UnindexedDependencyLevel,
+    template_proposals_source: u128,
+    template_transactions_source: u128,
 }
 
 /// A point read keeps the owning shard locked for the complete lifetime of
@@ -111,6 +187,7 @@ impl Deref for ShardedAcceptedReadGuard<'_> {
 /// deliberately hold all fixed shards; point and bounded reads use the point
 /// guard above instead.
 pub(in crate::authority) struct ShardedOwnerReadCut<'map> {
+    router: AuthorityShardRouter,
     shards: [RwLockReadGuard<'map, AuthorityShard>; AUTHORITY_SHARD_COUNT],
 }
 
@@ -118,8 +195,17 @@ pub(in crate::authority) struct ShardedOwnerReadCut<'map> {
 pub(in crate::authority) struct ShardWriteSupport(u64);
 
 impl ShardWriteSupport {
-    fn insert(&mut self, shard: usize) {
+    pub(in crate::authority) fn insert(&mut self, shard: usize) {
         self.0 |= 1u64 << shard;
+    }
+
+    pub(in crate::authority) fn include(&mut self, other: Self) {
+        self.0 |= other.0;
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn is_disjoint(self, other: Self) -> bool {
+        self.0 & other.0 == 0
     }
 
     fn contains(self, shard: usize) -> bool {
@@ -146,6 +232,13 @@ impl ShardedOwnerWriteCut<'_> {
             .expect("write support contains every shard consumed by the prepared owner delta")
     }
 
+    pub(in crate::authority) fn projection_shard_mut(
+        &mut self,
+        shard: usize,
+    ) -> &mut AuthorityShard {
+        self.shard_mut(shard)
+    }
+
     pub(in crate::authority) fn replace(
         &mut self,
         shard: usize,
@@ -157,6 +250,18 @@ impl ShardedOwnerWriteCut<'_> {
             Some(after) => owners.insert(key, after),
             None => owners.remove(&key),
         }
+    }
+
+    pub(in crate::authority) fn owner_version(
+        &self,
+        shard: usize,
+        key: &RawTxHash,
+    ) -> Option<super::state::EntryVersion> {
+        self.shards
+            .get(shard)
+            .and_then(Option::as_deref)
+            .and_then(|shard| shard.owners.get(key))
+            .map(|owner| owner.record().version)
     }
 
     pub(in crate::authority) fn apply_status_counts(&mut self, plan: ShardStatusCountPlan) {
@@ -175,6 +280,22 @@ impl ShardedOwnerWriteCut<'_> {
                 rows.remove(&peer);
             } else {
                 rows.insert(peer, target);
+            }
+        }
+    }
+
+    pub(in crate::authority) fn apply_template_selection_sources(
+        &mut self,
+        proposals: Option<ApplySequence>,
+        transactions: Option<ApplySequence>,
+    ) {
+        for shard in self.shards.iter_mut().flatten() {
+            if let Some(sequence) = proposals {
+                shard.template_proposals_source = shard.template_proposals_source.max(sequence.0);
+            }
+            if let Some(sequence) = transactions {
+                shard.template_transactions_source =
+                    shard.template_transactions_source.max(sequence.0);
             }
         }
     }
@@ -242,10 +363,16 @@ impl fmt::Debug for ShardedOwnerMap {
 impl ShardedOwnerMap {
     pub(in crate::authority) fn new(router: AuthorityShardRouter) -> Self {
         Self {
-            router,
-            shards: Box::new(std::array::from_fn(|_| {
-                RwLock::new(AuthorityShard::default())
-            })),
+            layout: Arc::new(AuthorityShardLayout {
+                router,
+                shards: Box::new(std::array::from_fn(|_| {
+                    RwLock::new(AuthorityShard::default())
+                })),
+                #[cfg(test)]
+                concurrent_removal_probe: Mutex::new(None),
+                #[cfg(test)]
+                concurrent_removal_plan_probe: Mutex::new(None),
+            }),
         }
     }
 
@@ -272,7 +399,39 @@ impl ShardedOwnerMap {
     }
 
     pub(in crate::authority) fn router(&self) -> AuthorityShardRouter {
-        self.router.clone()
+        self.layout.router.clone()
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn set_concurrent_removal_probe(
+        &self,
+        probe: Option<Arc<ConcurrentRemovalProbe>>,
+    ) {
+        *self.layout.concurrent_removal_probe.lock() = probe;
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn enter_concurrent_removal_probe(&self) {
+        let probe = self.layout.concurrent_removal_probe.lock().clone();
+        if let Some(probe) = probe {
+            probe.enter();
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn set_concurrent_removal_plan_probe(
+        &self,
+        probe: Option<Arc<std::sync::Barrier>>,
+    ) {
+        *self.layout.concurrent_removal_plan_probe.lock() = probe;
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn enter_concurrent_removal_plan_probe(&self) {
+        let probe = self.layout.concurrent_removal_plan_probe.lock().clone();
+        if let Some(probe) = probe {
+            probe.wait();
+        }
     }
 
     pub(in crate::authority) fn owner_resource_write_support<'key>(
@@ -283,7 +442,7 @@ impl ShardedOwnerMap {
     ) -> ShardWriteSupport {
         let mut support = ShardWriteSupport::default();
         for key in owner_keys {
-            support.insert(self.router.owner(key));
+            support.insert(self.layout.router.owner(key));
         }
         for (shard, _) in &status_counts.0 {
             support.insert(usize::from(*shard));
@@ -304,7 +463,7 @@ impl ShardedOwnerMap {
     ) -> ShardWriteSupport {
         let mut support = ShardWriteSupport::default();
         for key in owner_keys {
-            support.insert(self.router.owner(key));
+            support.insert(self.layout.router.owner(key));
         }
         support
     }
@@ -319,7 +478,9 @@ impl ShardedOwnerMap {
     ) -> ShardedOwnerWriteCut<'_> {
         ShardedOwnerWriteCut {
             shards: std::array::from_fn(|shard| {
-                support.contains(shard).then(|| self.shards[shard].write())
+                support
+                    .contains(shard)
+                    .then(|| self.layout.shards[shard].write())
             }),
         }
     }
@@ -334,7 +495,7 @@ impl ShardedOwnerMap {
             if !support.contains(shard) {
                 return None;
             }
-            match self.shards[shard].try_write() {
+            match self.layout.shards[shard].try_write() {
                 Some(guard) => Some(guard),
                 None => {
                     unavailable = true;
@@ -346,7 +507,7 @@ impl ShardedOwnerMap {
     }
 
     pub(in crate::authority) fn owner_shard(&self, key: &RawTxHash) -> usize {
-        self.router.owner(key)
+        self.layout.router.owner(key)
     }
 
     #[expect(
@@ -354,9 +515,10 @@ impl ShardedOwnerMap {
         reason = "owner() masks to the fixed 64-entry array range"
     )]
     pub(in crate::authority) fn get(&self, key: &RawTxHash) -> Option<ShardedOwnerReadGuard<'_>> {
-        RwLockReadGuard::try_map(self.shards[self.router.owner(key)].read(), |shard| {
-            shard.owners.get(key)
-        })
+        RwLockReadGuard::try_map(
+            self.layout.shards[self.layout.router.owner(key)].read(),
+            |shard| shard.owners.get(key),
+        )
         .ok()
         .map(|owner| ShardedOwnerReadGuard { owner })
     }
@@ -375,12 +537,13 @@ impl ShardedOwnerMap {
         key: RawTxHash,
         owner: OwnedTx,
     ) -> Option<OwnedTx> {
-        let shard = self.router.owner(&key);
-        self.shards[shard].get_mut().owners.insert(key, owner)
+        let shard = self.layout.router.owner(&key);
+        self.layout.shards[shard].write().owners.insert(key, owner)
     }
 
     pub(in crate::authority) fn len(&self) -> usize {
-        self.shards
+        self.layout
+            .shards
             .iter()
             .map(|shard| shard.read().owners.len())
             .sum()
@@ -388,7 +551,8 @@ impl ShardedOwnerMap {
 
     #[cfg(test)]
     pub(in crate::authority) fn capacity(&self) -> usize {
-        self.shards
+        self.layout
+            .shards
             .iter()
             .map(|shard| shard.read().owners.capacity())
             .sum()
@@ -413,17 +577,19 @@ impl ShardedOwnerMap {
     ) -> Result<(), std::collections::TryReserveError> {
         let mut additional = [0usize; AUTHORITY_SHARD_COUNT];
         for key in keys {
-            let shard = self.router.owner(key);
+            let shard = self.layout.router.owner(key);
             additional[shard] = additional[shard].saturating_add(1);
         }
-        for (shard, additional) in self.shards.iter_mut().zip(additional) {
-            shard.get_mut().owners.try_reserve(additional)?;
+        for (shard, additional) in self.layout.shards.iter().zip(additional) {
+            shard.write().owners.try_reserve(additional)?;
         }
         Ok(())
     }
 
+    #[cfg(test)]
     pub(in crate::authority) fn status_counts(&self) -> Option<StatusCounts> {
-        self.shards
+        self.layout
+            .shards
             .iter()
             .try_fold(StatusCounts::default(), |total, shard| {
                 total.checked_add_counts(shard.read().membership_counts)
@@ -433,7 +599,7 @@ impl ShardedOwnerMap {
     pub(in crate::authority) fn resource_totals(
         &self,
     ) -> Option<(ResourceTotals, AcceptedResources)> {
-        self.shards.iter().try_fold(
+        self.layout.shards.iter().try_fold(
             (ResourceTotals::default(), AcceptedResources::default()),
             |(totals, accepted), shard| {
                 let shard = shard.read();
@@ -458,7 +624,7 @@ impl ShardedOwnerMap {
         reason = "peer_resource() masks to the fixed 64-entry array range"
     )]
     pub(in crate::authority) fn peer_resource(&self, peer: PeerIndex) -> ResourceVector {
-        self.shards[self.router.peer_resource(&peer)]
+        self.layout.shards[self.layout.router.peer_resource(&peer)]
             .read()
             .peer_resources
             .get(&peer)
@@ -471,7 +637,7 @@ impl ShardedOwnerMap {
         &self,
     ) -> HashMap<PeerIndex, ResourceVector> {
         let mut peers = HashMap::new();
-        for shard in &self.shards[..] {
+        for shard in &self.layout.shards[..] {
             let shard = shard.read();
             peers.extend(
                 shard
@@ -494,9 +660,9 @@ impl ShardedOwnerMap {
         let mut aggregate_targets = [None; AUTHORITY_SHARD_COUNT];
         let mut peer_targets = HashMap::new();
         for (key, before, after) in changes {
-            let owner_shard = self.router.owner(key);
+            let owner_shard = self.layout.router.owner(key);
             let aggregate = aggregate_targets[owner_shard]
-                .get_or_insert(self.shards[owner_shard].read().resources);
+                .get_or_insert(self.layout.shards[owner_shard].read().resources);
             *aggregate = aggregate.checked_remove(before)?.checked_add(after)?;
 
             for (peer, resources, add) in before
@@ -522,16 +688,22 @@ impl ShardedOwnerMap {
 
         let mut peer_insertions = [0usize; AUTHORITY_SHARD_COUNT];
         for (peer, target) in &peer_targets {
-            let shard = self.router.peer_resource(peer);
+            let shard = self.layout.router.peer_resource(peer);
             if *target != ResourceVector::default()
-                && !self.shards[shard].read().peer_resources.contains_key(peer)
+                && !self.layout.shards[shard]
+                    .read()
+                    .peer_resources
+                    .contains_key(peer)
             {
                 peer_insertions[shard] = peer_insertions[shard]
                     .checked_add(1)
                     .ok_or(ResourceError::Arithmetic)?;
             }
         }
-        for (shard, additional) in self.shards.iter().zip(peer_insertions) {
+        for (shard, additional) in self.layout.shards.iter().zip(peer_insertions) {
+            if additional == 0 {
+                continue;
+            }
             shard
                 .write()
                 .peer_resources
@@ -554,9 +726,9 @@ impl ShardedOwnerMap {
             .try_reserve(peer_targets.len())
             .map_err(|_| ResourceError::Allocation)?;
         peers.extend(
-            peer_targets
-                .into_iter()
-                .map(|(peer, target)| (self.router.peer_resource(&peer) as u8, peer, target)),
+            peer_targets.into_iter().map(|(peer, target)| {
+                (self.layout.router.peer_resource(&peer) as u8, peer, target)
+            }),
         );
         Ok(ShardResourcePlan { aggregates, peers })
     }
@@ -568,10 +740,11 @@ impl ShardedOwnerMap {
     #[cfg(test)]
     pub(in crate::authority) fn apply_resource_plan(&mut self, plan: ShardResourcePlan) {
         for (shard, aggregate) in plan.aggregates {
-            self.shards[usize::from(shard)].get_mut().resources = aggregate;
+            self.layout.shards[usize::from(shard)].write().resources = aggregate;
         }
         for (shard, peer, target) in plan.peers {
-            let rows = &mut self.shards[usize::from(shard)].get_mut().peer_resources;
+            let mut shard = self.layout.shards[usize::from(shard)].write();
+            let rows = &mut shard.peer_resources;
             if target == ResourceVector::default() {
                 rows.remove(&peer);
             } else {
@@ -596,8 +769,9 @@ impl ShardedOwnerMap {
     ) -> Result<ShardStatusCountPlan, ShardStatusCountPlanError> {
         let mut targets = [None; AUTHORITY_SHARD_COUNT];
         for (key, before, after) in changes {
-            let shard = self.router.owner(key);
-            let target = targets[shard].get_or_insert(self.shards[shard].read().membership_counts);
+            let shard = self.layout.router.owner(key);
+            let target =
+                targets[shard].get_or_insert(self.layout.shards[shard].read().membership_counts);
             if let Some(before) = before {
                 *target = target
                     .checked_sub(before)
@@ -628,8 +802,24 @@ impl ShardedOwnerMap {
     )]
     pub(in crate::authority) fn read_all(&self) -> ShardedOwnerReadCut<'_> {
         ShardedOwnerReadCut {
-            shards: std::array::from_fn(|shard| self.shards[shard].read()),
+            router: self.layout.router.clone(),
+            shards: std::array::from_fn(|shard| self.layout.shards[shard].read()),
         }
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn try_read_all(&self) -> Option<ShardedOwnerReadCut<'_>> {
+        let guards = self
+            .layout
+            .shards
+            .iter()
+            .map(RwLock::try_read)
+            .collect::<Option<Vec<_>>>()?;
+        let shards = guards.try_into().ok()?;
+        Some(ShardedOwnerReadCut {
+            router: self.layout.router.clone(),
+            shards,
+        })
     }
 }
 
@@ -648,6 +838,87 @@ impl ShardedOwnerReadCut<'_> {
             .try_fold(StatusCounts::default(), |total, shard| {
                 total.checked_add_counts(shard.membership_counts)
             })
+    }
+
+    pub(in crate::authority) fn accepted_resources(&self) -> Option<AcceptedResources> {
+        self.shards
+            .iter()
+            .try_fold(AcceptedResources::default(), |total, shard| {
+                total.checked_add(shard.resources.accepted)
+            })
+    }
+
+    pub(in crate::authority) fn template_sources(
+        &self,
+        mut base: PoolTemplateVersions,
+    ) -> PoolTemplateVersions {
+        for shard in &self.shards {
+            base.proposals = base
+                .proposals
+                .max(ApplySequence(shard.template_proposals_source));
+            base.transactions = base
+                .transactions
+                .max(ApplySequence(shard.template_transactions_source));
+        }
+        base
+    }
+
+    pub(in crate::authority) fn membership_parents(
+        &self,
+        key: &RawTxHash,
+    ) -> Option<&HashSet<RawTxHash>> {
+        let shard = self
+            .shards
+            .get(self.router.shard(b"membership/parents", key))?;
+        shard.parents.get(key)
+    }
+
+    pub(in crate::authority) fn membership_ancestor(
+        &self,
+        key: &RawTxHash,
+    ) -> Option<AncestorAggregate> {
+        self.shards
+            .get(self.router.shard(b"membership/ancestor", key))?
+            .ancestor_aggregates
+            .get(key)
+            .copied()
+    }
+
+    pub(in crate::authority) fn membership_descendant(
+        &self,
+        key: &RawTxHash,
+    ) -> Option<DescendantAggregate> {
+        self.shards
+            .get(self.router.shard(b"membership/descendant", key))?
+            .descendant_aggregates
+            .get(key)
+            .copied()
+    }
+
+    pub(in crate::authority) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {
+        let count = self
+            .shards
+            .iter()
+            .map(|shard| shard.accepted_order.len())
+            .sum();
+        let mut order = Vec::with_capacity(count);
+        for shard in &self.shards {
+            order.extend(shard.accepted_order.iter().cloned());
+        }
+        order.sort_unstable();
+        order
+    }
+
+    pub(in crate::authority) fn contains_accepted_order(&self, key: &AcceptedOrderKey) -> bool {
+        self.shards
+            .get(self.router.shard(b"membership/accepted-order", key.hash()))
+            .is_some_and(|shard| shard.accepted_order.contains(key))
+    }
+
+    pub(in crate::authority) fn contains_eviction_order(&self, key: &EvictionOrderKey) -> bool {
+        self.shards
+            .get(self.router.shard(b"membership/eviction-order", &key.hash))
+            .is_some_and(|shard| shard.eviction_order.contains(key))
     }
 
     pub(in crate::authority) fn iter(&self) -> ShardedOwnerIter<'_> {

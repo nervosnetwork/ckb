@@ -132,25 +132,61 @@ impl DependencyFrontier {
                 return None;
             }
         }
-        Some(Self {
-            levels: collected,
-            unindexed: UnindexedDependencyLevel {
+        let entries = crate::authority::shard::ShardedOwnerMap::new(
+            crate::authority::shard::AuthorityShardRouter::new(),
+        );
+        let frontier = Self::for_entries(&entries);
+        for (key, level) in collected {
+            frontier.replace_level(key, level);
+        }
+        for shard in &frontier.entries.layout.shards[..] {
+            shard.write().dependency_unindexed = UnindexedDependencyLevel {
                 last_change: unindexed.last_change,
                 last_definitive_loss: unindexed.last_definitive_loss,
-            },
-            ..Self::default()
-        })
+            };
+        }
+        Some(frontier)
     }
 
     pub(in crate::authority) fn snapshot(&self) -> DependencySnapshot {
+        let shards: [ckb_util::parking_lot::RwLockReadGuard<
+            '_,
+            crate::authority::shard::AuthorityShard,
+        >; crate::authority::shard::AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let mut consumers = BTreeMap::new();
+        let mut waiters = BTreeMap::new();
+        let mut keys_by_origin = BTreeMap::new();
+        let mut levels = BTreeMap::new();
+        let mut unindexed = UnindexedDependencyLevel::default();
+        for shard in &shards {
+            consumers.extend(shard.dependency_consumers.clone());
+            waiters.extend(shard.dependency_waiters.clone());
+            keys_by_origin.extend(shard.dependency_keys_by_origin.clone());
+            levels.extend(shard.dependency_levels.clone());
+            unindexed.last_change = match (
+                unindexed.last_change,
+                shard.dependency_unindexed.last_change,
+            ) {
+                (Some(left), Some(right)) => Some(left.max(right)),
+                (left, right) => left.or(right),
+            };
+            unindexed.last_definitive_loss = match (
+                unindexed.last_definitive_loss,
+                shard.dependency_unindexed.last_definitive_loss,
+            ) {
+                (Some(left), Some(right)) => Some(left.max(right)),
+                (left, right) => left.or(right),
+            };
+        }
         DependencySnapshot {
-            consumers: self.consumers.clone(),
-            waiters: self.waiters.clone(),
-            keys_by_origin: self.keys_by_origin.clone(),
-            levels: self.levels.clone(),
+            consumers,
+            waiters,
+            keys_by_origin,
+            levels,
             dirty: self.dirty.clone(),
             dirty_cursor: self.dirty_cursor.clone(),
-            unindexed: self.unindexed,
+            unindexed,
         }
     }
 
@@ -170,11 +206,11 @@ impl DependencyFrontier {
         &self,
     ) -> Result<DependencyMaintenanceRank, DependencyMaintenanceRankError> {
         let edges = |key: &DependencyKey, scope: DirtyScope| match scope {
-            DirtyScope::ExistingWaiters => self.waiters.get(key),
-            DirtyScope::AllConsumers => self.consumers.get(key),
+            DirtyScope::ExistingWaiters => self.waiters(key),
+            DirtyScope::AllConsumers => self.consumers(key),
         };
         let rank = self.dirty.iter().try_fold(0usize, |total, (key, dirty)| {
-            let remaining = edges(key, dirty.scope).map_or(0, |owners| {
+            let remaining = edges(key, dirty.scope).as_ref().map_or(0, |owners| {
                 owners
                     .iter()
                     .filter(|owner| dirty.cursor.as_ref().is_none_or(|cursor| *owner > cursor))
@@ -185,6 +221,7 @@ impl DependencyFrontier {
                 .ok_or(DependencyMaintenanceRankError::Arithmetic)?;
             let pending = match dirty.pending {
                 Some(pending) => edges(key, pending.scope)
+                    .as_ref()
                     .map_or(0, BTreeSet::len)
                     .checked_add(1)
                     .ok_or(DependencyMaintenanceRankError::Arithmetic)?,
@@ -202,7 +239,10 @@ impl DependencyFrontier {
         &self,
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
-        let mut expected = Self::default();
+        let expected_entries = crate::authority::shard::ShardedOwnerMap::new(
+            crate::authority::shard::AuthorityShardRouter::new(),
+        );
+        let mut expected = Self::for_entries(&expected_entries);
         let snapshot = entries.snapshot_for_test();
         for (_, owner) in &snapshot {
             let Ok(slot) = DependencySlot::from_owner(owner) else {
@@ -220,16 +260,18 @@ impl DependencyFrontier {
             }
             expected.attach(&slot);
         }
-        self.consumers == expected.consumers
-            && self.waiters == expected.waiters
-            && self.keys_by_origin == expected.keys_by_origin
-            && self
+        let current = self.snapshot();
+        let expected = expected.snapshot();
+        current.consumers == expected.consumers
+            && current.waiters == expected.waiters
+            && current.keys_by_origin == expected.keys_by_origin
+            && current
                 .levels
                 .keys()
-                .all(|key| self.consumers.contains_key(key))
+                .all(|key| current.consumers.contains_key(key))
             && self.dirty.iter().all(|(key, dirty)| {
-                self.consumers.contains_key(key)
-                    && self.levels.get(key).is_some_and(|level| {
+                current.consumers.contains_key(key)
+                    && current.levels.get(key).is_some_and(|level| {
                         dirty.target <= level.last_change
                             && (!dirty.scope.requires_definitive_loss()
                                 || level.last_definitive_loss.is_some())
@@ -241,13 +283,15 @@ impl DependencyFrontier {
                     })
             })
             && (!self.dirty.is_empty() || self.dirty_cursor.is_none())
-            && self.unindexed.last_definitive_loss.is_none_or(|loss| {
-                self.unindexed
+            && current.unindexed.last_definitive_loss.is_none_or(|loss| {
+                current
+                    .unindexed
                     .last_change
                     .is_some_and(|change| loss <= change)
             })
-            && self.waiters.iter().all(|(key, waiters)| {
-                self.consumers
+            && current.waiters.iter().all(|(key, waiters)| {
+                current
+                    .consumers
                     .get(key)
                     .is_some_and(|consumers| waiters.is_subset(consumers))
             })

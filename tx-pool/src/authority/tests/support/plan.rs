@@ -273,6 +273,13 @@ impl CommittedRetainedAdmissionBatch {
 }
 
 impl TxPoolAuthority {
+    pub(in crate::authority) fn dependency_consumers_for_foundation(
+        &self,
+        key: &crate::authority::state::DependencyKey,
+    ) -> Option<std::collections::BTreeSet<RawTxHash>> {
+        self.dependencies.consumers_for(key)
+    }
+
     pub(in crate::authority) fn plan_retained_admission(
         &mut self,
         ingress: RetainedIngress,
@@ -411,6 +418,78 @@ pub(in crate::authority) struct AuthoritySnapshot {
 }
 
 impl AuthoritySnapshot {
+    pub(in crate::authority) fn first_entry_difference(&self, other: &Self) -> Option<String> {
+        let mut hashes = self
+            .entries
+            .keys()
+            .chain(other.entries.keys())
+            .cloned()
+            .collect::<Vec<_>>();
+        hashes.sort_unstable();
+        hashes.dedup();
+        hashes.into_iter().find_map(|hash| {
+            let left = self.entries.get(&hash);
+            let right = other.entries.get(&hash);
+            match (left, right) {
+                (Some(left), Some(right)) if left != right => {
+                    let mut fields = Vec::new();
+                    if left.identity != right.identity {
+                        fields.push("identity");
+                    }
+                    if left.source != right.source {
+                        fields.push("source");
+                    }
+                    if left.version != right.version {
+                        fields.push("version");
+                    }
+                    if left.arrival != right.arrival {
+                        fields.push("arrival");
+                    }
+                    if left.charge != right.charge {
+                        fields.push("charge");
+                    }
+                    if left.phase != right.phase {
+                        fields.push("phase");
+                    }
+                    Some(format!("{hash:?}:{}", fields.join(",")))
+                }
+                (Some(_), None) => Some(format!("{hash:?}:left_only")),
+                (None, Some(_)) => Some(format!("{hash:?}:right_only")),
+                (Some(_), Some(_)) | (None, None) => None,
+            }
+        })
+    }
+
+    pub(in crate::authority) fn first_difference(&self, other: &Self) -> Option<&'static str> {
+        if self.generation != other.generation {
+            Some("generation")
+        } else if self.chain_view != other.chain_view {
+            Some("chain_view")
+        } else if self.entries != other.entries {
+            Some("entries")
+        } else if self.indexes != other.indexes {
+            Some("indexes")
+        } else if self.source_versions != other.source_versions {
+            Some("source_versions")
+        } else if self.resources != other.resources {
+            Some("resources")
+        } else if self.membership != other.membership {
+            Some("membership")
+        } else if self.scheduler != other.scheduler {
+            Some("scheduler")
+        } else if self.dependencies != other.dependencies {
+            Some("dependencies")
+        } else if self.effects != other.effects {
+            Some("effects")
+        } else if self.peer_bans != other.peer_bans {
+            Some("peer_bans")
+        } else if self.clocks != other.clocks {
+            Some("clocks")
+        } else {
+            None
+        }
+    }
+
     /// Compare committed authority semantics while requiring the exact named
     /// gaps in the three private identity/order allocators.
     ///
@@ -890,14 +969,14 @@ impl TxPoolAuthority {
     pub(in crate::authority) fn accepted_parents(
         &self,
         hash: &RawTxHash,
-    ) -> Option<&std::collections::HashSet<RawTxHash>> {
+    ) -> Option<std::collections::HashSet<RawTxHash>> {
         self.membership.parents(hash)
     }
 
     pub(in crate::authority) fn accepted_children(
         &self,
         hash: &RawTxHash,
-    ) -> Option<&std::collections::HashSet<RawTxHash>> {
+    ) -> Option<std::collections::HashSet<RawTxHash>> {
         self.membership.children(hash)
     }
 
@@ -1055,7 +1134,9 @@ impl TxPoolAuthority {
             chain_view: self.chain_view.clone(),
             entries,
             indexes: self.indexes.snapshot(),
-            source_versions: self.source_versions.snapshot(),
+            source_versions: self
+                .source_versions
+                .snapshot_with_template(self.template_source_versions()),
             resources: self.resources().snapshot(),
             membership: self.membership.snapshot(self.membership_counts()),
             scheduler: self.scheduler.snapshot(),

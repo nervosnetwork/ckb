@@ -1,3 +1,4 @@
+use super::shard::{ShardedOwnerMap, ShardedOwnerWriteCut};
 use super::state::{
     DependencyCut, DependencyKey, DependencyOrigin, KnownDependencies, MissingDependencies,
     ObservedDependencies, OwnedTx, PreAcceptedPhase, QueuedWork, RawTxHash,
@@ -8,13 +9,13 @@ use std::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct DependencyLevel {
+pub(in crate::authority) struct DependencyLevel {
     last_change: DependencyCut,
     last_definitive_loss: Option<DependencyCut>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct UnindexedDependencyLevel {
+pub(in crate::authority) struct UnindexedDependencyLevel {
     last_change: Option<DependencyCut>,
     last_definitive_loss: Option<DependencyCut>,
 }
@@ -214,15 +215,89 @@ enum VacancyPolicy {
     PrimaryVacancyProven,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct DependencyFrontier {
-    consumers: BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
-    waiters: BTreeMap<DependencyKey, BTreeSet<RawTxHash>>,
-    keys_by_origin: BTreeMap<DependencyOrigin, BTreeSet<DependencyKey>>,
-    levels: BTreeMap<DependencyKey, DependencyLevel>,
+    entries: ShardedOwnerMap,
     dirty: BTreeMap<DependencyKey, DirtyDependency>,
     dirty_cursor: Option<DependencyKey>,
-    unindexed: UnindexedDependencyLevel,
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sole shard router masks every domain/key result to the fixed 64-shard layout"
+)]
+impl DependencyFrontier {
+    pub(super) fn for_entries(entries: &ShardedOwnerMap) -> Self {
+        Self {
+            entries: entries.clone(),
+            dirty: BTreeMap::new(),
+            dirty_cursor: None,
+        }
+    }
+
+    fn shard<K: std::hash::Hash>(&self, domain: &'static [u8], key: &K) -> usize {
+        self.entries.layout.router.shard(domain, key)
+    }
+
+    fn consumers(&self, key: &DependencyKey) -> Option<BTreeSet<RawTxHash>> {
+        self.entries.layout.shards[self.shard(b"dependency/consumer", key)]
+            .read()
+            .dependency_consumers
+            .get(key)
+            .cloned()
+    }
+
+    fn waiters(&self, key: &DependencyKey) -> Option<BTreeSet<RawTxHash>> {
+        self.entries.layout.shards[self.shard(b"dependency/waiter", key)]
+            .read()
+            .dependency_waiters
+            .get(key)
+            .cloned()
+    }
+
+    fn level(&self, key: &DependencyKey) -> Option<DependencyLevel> {
+        self.entries.layout.shards[self.shard(b"dependency/level", key)]
+            .read()
+            .dependency_levels
+            .get(key)
+            .copied()
+    }
+
+    fn unindexed_level(&self, key: &DependencyKey) -> UnindexedDependencyLevel {
+        self.entries.layout.shards[self.shard(b"dependency/unindexed", key)]
+            .read()
+            .dependency_unindexed
+    }
+
+    fn origin_keys(&self, origin: &DependencyOrigin) -> Option<BTreeSet<DependencyKey>> {
+        self.entries.layout.shards[self.shard(b"dependency/origin", origin)]
+            .read()
+            .dependency_keys_by_origin
+            .get(origin)
+            .cloned()
+    }
+
+    fn has_consumers(&self, key: &DependencyKey) -> bool {
+        self.consumers(key).is_some_and(|owners| !owners.is_empty())
+    }
+
+    fn has_waiters(&self, key: &DependencyKey) -> bool {
+        self.waiters(key).is_some_and(|owners| !owners.is_empty())
+    }
+
+    fn replace_level(&self, key: DependencyKey, level: DependencyLevel) -> Option<DependencyLevel> {
+        self.entries.layout.shards[self.shard(b"dependency/level", &key)]
+            .write()
+            .dependency_levels
+            .insert(key, level)
+    }
+
+    fn remove_level(&self, key: &DependencyKey) -> Option<DependencyLevel> {
+        self.entries.layout.shards[self.shard(b"dependency/level", key)]
+            .write()
+            .dependency_levels
+            .remove(key)
+    }
 }
 
 impl DependencyDelta {
@@ -236,6 +311,163 @@ impl DependencyBatchDelta {
     pub(super) fn with_control(mut self, control: DependencyControlDelta) -> Self {
         self.control = control;
         self
+    }
+
+    pub(super) fn closed_removal_compatible(&self, frontier: &DependencyFrontier) -> bool {
+        let control_compatible = match &self.control {
+            DependencyControlDelta::None => true,
+            DependencyControlDelta::Event(event) => event.changes.iter().all(|change| {
+                change.scope == DirtyScope::AllConsumers
+                    && !frontier.dirty.contains_key(&change.key)
+                    && frontier.level(&change.key).is_none()
+                    && frontier
+                        .consumers(&change.key)
+                        .into_iter()
+                        .flatten()
+                        .all(|owner| self.removed.iter().any(|slot| slot.hash == owner))
+                    && frontier
+                        .waiters(&change.key)
+                        .into_iter()
+                        .flatten()
+                        .all(|owner| self.removed.iter().any(|slot| slot.hash == owner))
+            }),
+            DependencyControlDelta::Maintenance(_) => false,
+        };
+        control_compatible
+            && self.added.is_empty()
+            && self.removed.iter().all(|slot| {
+                slot.waiting.is_none()
+                    && slot.dependencies.keys().iter().all(|key| {
+                        frontier.level(key).is_none() && !frontier.dirty.contains_key(key)
+                    })
+            })
+    }
+
+    pub(in crate::authority) fn sharded_write_support(
+        &self,
+        entries: &ShardedOwnerMap,
+    ) -> super::shard::ShardWriteSupport {
+        let mut support = super::shard::ShardWriteSupport::default();
+        for slot in self.removed.iter().chain(&self.added) {
+            for key in slot.dependencies.keys() {
+                support.insert(entries.layout.router.shard(b"dependency/consumer", key));
+                support.insert(entries.layout.router.shard(b"dependency/waiter", key));
+                support.insert(
+                    entries
+                        .layout
+                        .router
+                        .shard(b"dependency/origin", &key.origin()),
+                );
+                support.insert(entries.layout.router.shard(b"dependency/level", key));
+            }
+            support.insert(entries.layout.router.shard(
+                b"dependency/origin",
+                &DependencyOrigin::Transaction(slot.hash.clone()),
+            ));
+            if let Some(waiting) = &slot.waiting {
+                for key in waiting.keys() {
+                    support.insert(entries.layout.router.shard(b"dependency/waiter", key));
+                }
+            }
+        }
+        if let DependencyControlDelta::Event(event) = &self.control {
+            for change in &event.changes {
+                support.insert(
+                    entries
+                        .layout
+                        .router
+                        .shard(b"dependency/consumer", &change.key),
+                );
+                support.insert(
+                    entries
+                        .layout
+                        .router
+                        .shard(b"dependency/waiter", &change.key),
+                );
+                support.insert(
+                    entries
+                        .layout
+                        .router
+                        .shard(b"dependency/level", &change.key),
+                );
+                support.insert(
+                    entries
+                        .layout
+                        .router
+                        .shard(b"dependency/unindexed", &change.key),
+                );
+            }
+        }
+        support
+    }
+
+    pub(in crate::authority) fn apply_closed_removal_sharded(
+        self,
+        entries: &ShardedOwnerMap,
+        cut: &mut ShardedOwnerWriteCut<'_>,
+    ) {
+        for slot in &self.removed {
+            for key in slot.dependencies.keys() {
+                let consumer_shard = entries.layout.router.shard(b"dependency/consumer", key);
+                let consumers = &mut cut
+                    .projection_shard_mut(consumer_shard)
+                    .dependency_consumers;
+                let empty = consumers.get_mut(key).is_none_or(|owners| {
+                    owners.remove(&slot.hash);
+                    owners.is_empty()
+                });
+                if empty {
+                    consumers.remove(key);
+                }
+            }
+        }
+        if let DependencyControlDelta::Event(event) = self.control {
+            for change in event.changes {
+                let shard = entries
+                    .layout
+                    .router
+                    .shard(b"dependency/unindexed", &change.key);
+                let unindexed = &mut cut.projection_shard_mut(shard).dependency_unindexed;
+                unindexed.last_change = Some(
+                    unindexed
+                        .last_change
+                        .map_or(change.level.last_change, |current| {
+                            current.max(change.level.last_change)
+                        }),
+                );
+                if let Some(loss) = change.level.last_definitive_loss {
+                    unindexed.last_definitive_loss = Some(
+                        unindexed
+                            .last_definitive_loss
+                            .map_or(loss, |current| current.max(loss)),
+                    );
+                }
+            }
+        }
+        for slot in &self.removed {
+            for key in slot.dependencies.keys() {
+                let consumer_shard = entries.layout.router.shard(b"dependency/consumer", key);
+                if cut
+                    .projection_shard_mut(consumer_shard)
+                    .dependency_consumers
+                    .contains_key(key)
+                {
+                    continue;
+                }
+                let origin = key.origin();
+                let origin_shard = entries.layout.router.shard(b"dependency/origin", &origin);
+                let rows = &mut cut
+                    .projection_shard_mut(origin_shard)
+                    .dependency_keys_by_origin;
+                let empty = rows.get_mut(&origin).is_none_or(|keys| {
+                    keys.remove(key);
+                    keys.is_empty()
+                });
+                if empty {
+                    rows.remove(&origin);
+                }
+            }
+        }
     }
 }
 
@@ -377,10 +609,14 @@ impl DependencySlot {
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sole shard router masks every domain/key result to the fixed 64-shard layout"
+)]
 impl DependencyFrontier {
     fn all_observed_dependencies_available(&self, observed: &ObservedDependencies) -> bool {
         observed.keys().all(|key| {
-            self.levels.get(key).is_some_and(|level| {
+            self.level(key).is_some_and(|level| {
                 observed.dependency_cut() < level.last_change
                     && level
                         .last_definitive_loss
@@ -401,12 +637,19 @@ impl DependencyFrontier {
     pub(super) fn keys_for_origin(
         &self,
         origin: &DependencyOrigin,
-    ) -> Option<&BTreeSet<DependencyKey>> {
-        self.keys_by_origin.get(origin)
+    ) -> Option<BTreeSet<DependencyKey>> {
+        self.origin_keys(origin)
     }
 
-    pub(super) fn consumers_for(&self, key: &DependencyKey) -> Option<&BTreeSet<RawTxHash>> {
-        self.consumers.get(key)
+    pub(super) fn consumers_for(&self, key: &DependencyKey) -> Option<BTreeSet<RawTxHash>> {
+        self.consumers(key)
+    }
+
+    pub(super) fn has_waiter_outside(&self, key: &DependencyKey, removed: &[RawTxHash]) -> bool {
+        self.waiters(key)
+            .into_iter()
+            .flatten()
+            .any(|owner| !removed.contains(&owner))
     }
 
     pub(super) fn proof_is_current(
@@ -415,27 +658,26 @@ impl DependencyFrontier {
         cut: DependencyCut,
     ) -> bool {
         dependencies.keys().iter().all(|key| {
-            self.levels
-                .get(key)
+            self.level(key)
                 .and_then(|level| level.last_definitive_loss)
                 .is_none_or(|loss| loss <= cut)
         })
     }
 
     /// Validate evidence produced before the transaction owned a dependency
-    /// slot. A loss for an unregistered key is retained only in the global
-    /// unindexed level, so direct admission must check both that level and all
-    /// key-specific levels before it creates the first resident consumer.
+    /// slot. Fixed per-shard unindexed fences retain losses without forcing
+    /// unrelated dependency keys through one global scalar.
     pub(super) fn owner_free_proof_is_current(
         &self,
         dependencies: &KnownDependencies,
         cut: DependencyCut,
     ) -> bool {
         self.proof_is_current(dependencies, cut)
-            && self
-                .unindexed
-                .last_definitive_loss
-                .is_none_or(|loss| loss <= cut)
+            && dependencies.keys().iter().all(|key| {
+                self.unindexed_level(key)
+                    .last_definitive_loss
+                    .is_none_or(|loss| loss <= cut)
+            })
     }
 
     pub(super) fn resolution_is_current(
@@ -445,11 +687,13 @@ impl DependencyFrontier {
         cut: DependencyCut,
     ) -> bool {
         self.proof_is_current(resolved, cut)
-            && (!Self::has_new_dependencies(baseline, resolved)
-                || self
-                    .unindexed
-                    .last_definitive_loss
-                    .is_none_or(|loss| loss <= cut))
+            && resolved.keys().iter().all(|key| {
+                baseline.keys().binary_search(key).is_ok()
+                    || self
+                        .unindexed_level(key)
+                        .last_definitive_loss
+                        .is_none_or(|loss| loss <= cut)
+            })
     }
 
     pub(super) fn missing_result_is_current(
@@ -471,29 +715,18 @@ impl DependencyFrontier {
     ) -> bool {
         self.proof_is_current(baseline, cut)
             && missing.keys().iter().all(|key| {
-                self.levels.get(key).is_none_or(|level| {
+                self.level(key).is_none_or(|level| {
                     level.last_change <= cut
                         && level.last_definitive_loss.is_none_or(|loss| loss <= cut)
                 })
             })
-            && (!missing
-                .keys()
-                .iter()
-                .any(|key| baseline.keys().binary_search(key).is_err())
-                || self
-                    .unindexed
-                    .last_change
-                    .is_none_or(|change| change <= cut))
-    }
-
-    fn has_new_dependencies(
-        baseline: &KnownDependencies,
-        dependencies: &KnownDependencies,
-    ) -> bool {
-        dependencies
-            .keys()
-            .iter()
-            .any(|key| baseline.keys().binary_search(key).is_err())
+            && missing.keys().iter().all(|key| {
+                baseline.keys().binary_search(key).is_ok()
+                    || self
+                        .unindexed_level(key)
+                        .last_change
+                        .is_none_or(|change| change <= cut)
+            })
     }
 
     /// Compile availability and definitive loss from one projected final
@@ -528,7 +761,7 @@ impl DependencyFrontier {
             .map(|key| (key, false))
             .chain(lost.into_iter().map(|key| (key, true)))
         {
-            let previous = self.levels.get(&key).copied();
+            let previous = self.level(&key);
             if previous.is_some_and(|level| level.last_change >= cut) {
                 return Err(DependencyError::Projection);
             }
@@ -570,10 +803,10 @@ impl DependencyFrontier {
             .cloned()
             .ok_or(DependencyError::Projection)?;
         let edges = match dirty.scope {
-            DirtyScope::ExistingWaiters => self.waiters.get(key),
-            DirtyScope::AllConsumers => self.consumers.get(key),
+            DirtyScope::ExistingWaiters => self.waiters(key),
+            DirtyScope::AllConsumers => self.consumers(key),
         };
-        let next = edges.and_then(|edges| {
+        let next = edges.as_ref().and_then(|edges| {
             dirty.cursor.as_ref().map_or_else(
                 || edges.iter().next().cloned(),
                 |cursor| edges.range((Excluded(cursor), Unbounded)).next().cloned(),
@@ -584,10 +817,7 @@ impl DependencyFrontier {
             hash: next,
             target: dirty.target,
             scope: dirty.scope,
-            last_definitive_loss: self
-                .levels
-                .get(key)
-                .and_then(|level| level.last_definitive_loss),
+            last_definitive_loss: self.level(key).and_then(|level| level.last_definitive_loss),
             expected: dirty,
         }))
     }
@@ -639,15 +869,15 @@ impl DependencyFrontier {
 
     fn apply_event(&mut self, DependencyEventPlan { changes }: DependencyEventPlan) {
         for change in changes {
-            if !self.consumers.contains_key(&change.key) {
-                self.retire_level(change.level);
-                if let Some(previous) = self.levels.remove(&change.key) {
-                    self.retire_level(previous);
+            if !self.has_consumers(&change.key) {
+                self.retire_level(&change.key, change.level);
+                if let Some(previous) = self.remove_level(&change.key) {
+                    self.retire_level(&change.key, previous);
                 }
                 self.dirty.remove(&change.key);
                 continue;
             }
-            self.levels.insert(change.key.clone(), change.level);
+            self.replace_level(change.key.clone(), change.level);
             if let Some(dirty) = self.dirty.get_mut(&change.key) {
                 dirty.pending = Some(match dirty.pending {
                     Some(pending) => PendingDependency {
@@ -662,14 +892,8 @@ impl DependencyFrontier {
                 continue;
             }
             let has_target = match change.scope {
-                DirtyScope::ExistingWaiters => self
-                    .waiters
-                    .get(&change.key)
-                    .is_some_and(|waiters| !waiters.is_empty()),
-                DirtyScope::AllConsumers => self
-                    .consumers
-                    .get(&change.key)
-                    .is_some_and(|consumers| !consumers.is_empty()),
+                DirtyScope::ExistingWaiters => self.has_waiters(&change.key),
+                DirtyScope::AllConsumers => self.has_consumers(&change.key),
             };
             if has_target {
                 self.dirty.insert(
@@ -695,15 +919,15 @@ impl DependencyFrontier {
                 expected,
                 cursor,
             } => {
-                if self.consumers.contains_key(&key) {
+                if self.has_consumers(&key) {
                     let mut next = expected;
                     next.cursor = Some(cursor);
                     self.dirty.insert(key.clone(), next);
                     self.dirty_cursor = Some(key);
                 } else {
                     self.dirty.remove(&key);
-                    if let Some(level) = self.levels.remove(&key) {
-                        self.retire_level(level);
+                    if let Some(level) = self.remove_level(&key) {
+                        self.retire_level(&key, level);
                     }
                     if self.dirty.is_empty() {
                         self.dirty_cursor = None;
@@ -723,10 +947,10 @@ impl DependencyFrontier {
                     );
                 } else {
                     self.dirty.remove(&key);
-                    if !self.consumers.contains_key(&key)
-                        && let Some(level) = self.levels.remove(&key)
+                    if !self.has_consumers(&key)
+                        && let Some(level) = self.remove_level(&key)
                     {
-                        self.retire_level(level);
+                        self.retire_level(&key, level);
                     }
                 }
                 self.dirty_cursor = (!self.dirty.is_empty()).then_some(key);
@@ -906,17 +1130,14 @@ impl DependencyFrontier {
 
     fn contains(&self, slot: &DependencySlot) -> bool {
         slot.dependencies.keys().iter().all(|key| {
-            self.consumers
-                .get(key)
+            self.consumers(key)
                 .is_some_and(|consumers| consumers.contains(&slot.hash))
                 && self
-                    .keys_by_origin
-                    .get(&key.origin())
+                    .origin_keys(&key.origin())
                     .is_some_and(|keys| keys.contains(key))
         }) && slot.waiting.as_ref().is_none_or(|observed| {
             observed.keys().all(|key| {
-                self.waiters
-                    .get(key)
+                self.waiters(key)
                     .is_some_and(|waiters| waiters.contains(&slot.hash))
             })
         })
@@ -924,18 +1145,25 @@ impl DependencyFrontier {
 
     fn attach(&mut self, slot: &DependencySlot) {
         for key in slot.dependencies.keys() {
-            self.consumers
+            self.entries.layout.shards[self.shard(b"dependency/consumer", key)]
+                .write()
+                .dependency_consumers
                 .entry(key.clone())
                 .or_default()
                 .insert(slot.hash.clone());
-            self.keys_by_origin
+            let origin = key.origin();
+            self.entries.layout.shards[self.shard(b"dependency/origin", &origin)]
+                .write()
+                .dependency_keys_by_origin
                 .entry(key.origin())
                 .or_default()
                 .insert(key.clone());
         }
         if let Some(observed) = &slot.waiting {
             for key in observed.keys() {
-                self.waiters
+                self.entries.layout.shards[self.shard(b"dependency/waiter", key)]
+                    .write()
+                    .dependency_waiters
                     .entry(key.clone())
                     .or_default()
                     .insert(slot.hash.clone());
@@ -946,42 +1174,56 @@ impl DependencyFrontier {
     fn detach(&mut self, slot: &DependencySlot) {
         if let Some(observed) = &slot.waiting {
             for key in observed.keys() {
-                let empty = self.waiters.get_mut(key).is_none_or(|waiters| {
+                let mut shard =
+                    self.entries.layout.shards[self.shard(b"dependency/waiter", key)].write();
+                let empty = shard.dependency_waiters.get_mut(key).is_none_or(|waiters| {
                     waiters.remove(&slot.hash);
                     waiters.is_empty()
                 });
                 if empty {
-                    self.waiters.remove(key);
+                    shard.dependency_waiters.remove(key);
                 }
             }
         }
         for key in slot.dependencies.keys() {
-            let empty = self.consumers.get_mut(key).is_none_or(|consumers| {
-                consumers.remove(&slot.hash);
-                consumers.is_empty()
-            });
+            let mut shard =
+                self.entries.layout.shards[self.shard(b"dependency/consumer", key)].write();
+            let empty = shard
+                .dependency_consumers
+                .get_mut(key)
+                .is_none_or(|consumers| {
+                    consumers.remove(&slot.hash);
+                    consumers.is_empty()
+                });
             if empty {
-                self.consumers.remove(key);
+                shard.dependency_consumers.remove(key);
             }
         }
     }
 
     fn prune_orphaned(&mut self, slot: &DependencySlot) {
         for key in slot.dependencies.keys() {
-            if self.consumers.contains_key(key) {
+            if self.consumers(key).is_some() {
                 continue;
             }
             let origin = key.origin();
-            let origin_empty = self.keys_by_origin.get_mut(&origin).is_none_or(|keys| {
-                keys.remove(key);
-                keys.is_empty()
-            });
+            let mut shard =
+                self.entries.layout.shards[self.shard(b"dependency/origin", &origin)].write();
+            let origin_empty =
+                shard
+                    .dependency_keys_by_origin
+                    .get_mut(&origin)
+                    .is_none_or(|keys| {
+                        keys.remove(key);
+                        keys.is_empty()
+                    });
             if origin_empty {
-                self.keys_by_origin.remove(&origin);
+                shard.dependency_keys_by_origin.remove(&origin);
             }
+            drop(shard);
             self.dirty.remove(key);
-            if let Some(level) = self.levels.remove(key) {
-                self.retire_level(level);
+            if let Some(level) = self.remove_level(key) {
+                self.retire_level(key, level);
             }
         }
         if self.dirty.is_empty() {
@@ -989,15 +1231,18 @@ impl DependencyFrontier {
         }
     }
 
-    fn retire_level(&mut self, level: DependencyLevel) {
-        self.unindexed.last_change = Some(
-            self.unindexed
+    fn retire_level(&self, key: &DependencyKey, level: DependencyLevel) {
+        let mut shard =
+            self.entries.layout.shards[self.shard(b"dependency/unindexed", key)].write();
+        let unindexed = &mut shard.dependency_unindexed;
+        unindexed.last_change = Some(
+            unindexed
                 .last_change
                 .map_or(level.last_change, |current| current.max(level.last_change)),
         );
         if let Some(loss) = level.last_definitive_loss {
-            self.unindexed.last_definitive_loss = Some(
-                self.unindexed
+            unindexed.last_definitive_loss = Some(
+                unindexed
                     .last_definitive_loss
                     .map_or(loss, |current| current.max(loss)),
             );

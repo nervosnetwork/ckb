@@ -598,7 +598,7 @@ fn uak_chain_commit_removes_a_parent_without_stranding_its_surviving_child() {
     assert!(
         authority
             .accepted_parents(&child)
-            .is_some_and(HashSet::is_empty)
+            .is_some_and(|children| children.is_empty())
     );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);

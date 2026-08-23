@@ -379,8 +379,15 @@ impl SchedulerDelta {
     }
 }
 
-#[cfg(test)]
 impl SchedulerBatchDelta {
+    pub(super) fn is_empty(&self) -> bool {
+        self.removed.is_empty()
+            && self.added.is_empty()
+            && self.resolve_cursor.is_none()
+            && self.verify_cursor.is_none()
+    }
+
+    #[cfg(test)]
     pub(in crate::authority) fn extend_shard_support(
         &self,
         support: &mut super::shard_support::AuthorityShardSupport,

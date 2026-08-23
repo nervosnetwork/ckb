@@ -7,9 +7,7 @@
 //! owner of rebuildable output.
 
 use super::{
-    plan::{
-        AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection, StatusCounts,
-    },
+    plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, StatusCounts},
     shard::ShardedOwnerReadCut,
     source::PoolTemplateVersions,
     state::{
@@ -175,7 +173,6 @@ impl AuthorityTemplateReadReceipt {
         sources: PoolTemplateVersions,
         entries: &ShardedOwnerReadCut<'_>,
         counts: Option<StatusCounts>,
-        membership: &MembershipProjection,
     ) -> Result<Self, TemplateReadError> {
         let counts = counts.ok_or(TemplateReadError::Arithmetic)?;
         let accepted_count = counts
@@ -188,7 +185,7 @@ impl AuthorityTemplateReadReceipt {
             .try_reserve(accepted_count)
             .map_err(|_| TemplateReadError::Allocation)?;
         let mut dependency_edge_bound = 0usize;
-        for order in membership.accepted_order().rev() {
+        for order in entries.accepted_order().into_iter().rev() {
             let hash = order.hash();
             let Some(OwnedTx::Accepted(entry)) = entries.get(hash) else {
                 return Err(TemplateReadError::Projection);
@@ -198,15 +195,19 @@ impl AuthorityTemplateReadReceipt {
             {
                 return Err(TemplateReadError::Projection);
             }
-            let parent_set = membership
-                .parents(hash)
+            let parent_set = entries
+                .membership_parents(hash)
                 .ok_or(TemplateReadError::Projection)?;
-            let ancestors = membership
-                .ancestor_aggregate(hash)
+            let ancestors = entries
+                .membership_ancestor(hash)
                 .ok_or(TemplateReadError::Projection)?;
-            let eviction = membership
-                .eviction_order_for(hash, entry)
+            let descendants = entries
+                .membership_descendant(hash)
                 .ok_or(TemplateReadError::Projection)?;
+            let eviction = EvictionOrderKey::new(entry, descendants);
+            if !entries.contains_eviction_order(&eviction) {
+                return Err(TemplateReadError::Projection);
+            }
             dependency_edge_bound = dependency_edge_bound
                 .checked_add(entry.proof.payload().footprint().dependencies().len())
                 .ok_or(TemplateReadError::Arithmetic)?;

@@ -1895,7 +1895,7 @@ fn uak_popular_dependency_maintenance_has_one_edge_steps_and_key_fairness() {
 }
 
 #[test]
-fn uak_unindexed_false_retries_are_bounded_by_checked_out_work() {
+fn uak_unindexed_retries_are_key_shard_scoped_and_bounded_by_checked_out_work() {
     const ACTIVE_RESOLVERS: usize = 4;
     let attack_limits = ResourceLimits::new(
         ResourceVector::new(16, 256 * 1024, 256, 8),
@@ -1929,6 +1929,20 @@ fn uak_unindexed_false_retries_are_bounded_by_checked_out_work() {
         );
         active.push(checkout_resolve(&mut authority, &hash));
     }
+    let router = authority.entries_for_reference().router();
+    let unindexed_shard = router.shard(b"dependency/unindexed", &indexed_key);
+    let mut discovered = Vec::new();
+    discovered.push(indexed_key.clone());
+    for candidate in 0u8..=u8::MAX {
+        if discovered.len() == ACTIVE_RESOLVERS {
+            break;
+        }
+        let key = DependencyKey::Cell(OutPoint::new(Byte32::new([candidate; 32]), 0));
+        if router.shard(b"dependency/unindexed", &key) != unindexed_shard {
+            discovered.push(key);
+        }
+    }
+    assert_eq!(discovered.len(), ACTIVE_RESOLVERS);
     apply_plan(
         authority
             .plan_dependency_availability_for_foundation(vec![indexed_key])
@@ -1943,10 +1957,8 @@ fn uak_unindexed_false_retries_are_bounded_by_checked_out_work() {
     );
 
     let mut retries = 0usize;
-    for (offset, work) in active.into_iter().enumerate() {
+    for (work, discovered) in active.into_iter().zip(discovered) {
         let hash = TxIdentity::from_transaction(work.transaction()).raw;
-        let discovered =
-            DependencyKey::Cell(OutPoint::new(Byte32::new([0xe0 + offset as u8; 32]), 0));
         apply_plan(
             authority
                 .apply_settlement(
@@ -1963,7 +1975,7 @@ fn uak_unindexed_false_retries_are_bounded_by_checked_out_work() {
             retries = retries.checked_add(1).expect("fixture retry count fits");
         }
     }
-    assert_eq!(retries, ACTIVE_RESOLVERS);
+    assert_eq!(retries, 1);
     assert_eq!(authority.resources().preaccepted().active_work, 0);
     assert!(authority.primary_projection_consistent());
 }

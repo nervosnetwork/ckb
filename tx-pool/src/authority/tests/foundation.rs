@@ -18,6 +18,7 @@ use super::super::resources::{
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
+use super::super::shard::ConcurrentRemovalProbe;
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
     CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, DependencyCut, DependencyKey,
@@ -57,6 +58,7 @@ use ckb_verification::cache::ScriptVerificationRules;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(super) fn runtime_config() -> TxPoolConfig {
     TxPoolConfig {
@@ -1161,6 +1163,331 @@ fn uak_runtime_local_removal_has_no_active_work_drain() {
             &ComputeSettlementRecovery::Obsolete(StalePlan::Missing)
         );
         drop(stale);
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[test]
+fn uak_disjoint_accepted_local_removals_overlap_inside_the_real_runtime_cut() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let (first, first_seed, second, second_seed, second_support) = runtime
+        .with_authority_for_foundation(|authority| {
+            let accept_independent = |authority: &mut TxPoolAuthority, seed: u8| {
+                let input = OutPoint::new(Byte32::new([seed; 32]), 0);
+                let transaction = TransactionBuilder::default()
+                    .version(u32::from(seed))
+                    .input(CellInput::new(input.clone(), 0))
+                    .output(CellOutput::default())
+                    .output_data(Bytes::new().pack())
+                    .build();
+                accept_remote_transaction_with_payload(
+                    authority,
+                    transaction.clone(),
+                    usize::from(seed),
+                    AcceptedStatus::Pending,
+                    resolved_payload_with_facts(
+                        &transaction,
+                        Vec::new(),
+                        vec![input],
+                        Capacity::shannons(1_000),
+                    ),
+                )
+            };
+            let first = accept_independent(authority, 200);
+            let first_owner = authority.entry(&first).expect("first owner exists");
+            let OwnedTx::Accepted(first_entry) = &first_owner else {
+                panic!("first owner is Accepted");
+            };
+            assert_eq!(authority.accepted_parents(&first), Some(HashSet::new()));
+            assert_eq!(authority.accepted_children(&first), Some(HashSet::new()));
+            for input in first_entry.proof.payload().footprint().inputs() {
+                assert_eq!(authority.accepted_spender(input), Some(first.clone()));
+            }
+            for key in first_owner.dependencies().keys() {
+                assert_eq!(
+                    authority.dependency_consumers_for_foundation(key),
+                    Some(std::collections::BTreeSet::from([first.clone()]))
+                );
+            }
+            let first_support = match authority
+                .plan_concurrent_local_removal(&first)
+                .expect("the first independent Accepted removal plans")
+            {
+                Ok(plan) => plan.physical_write_support(),
+                Err(_) => {
+                    panic!("the first independent Accepted owner has a concurrent cut")
+                }
+            };
+            let mut candidates = vec![(first, 200u8, first_support)];
+            for seed in 201u8..=255 {
+                let candidate = accept_independent(authority, seed);
+                let support = match authority
+                    .plan_concurrent_local_removal(&candidate)
+                    .expect("an independent Accepted removal plans")
+                {
+                    Ok(plan) => plan.physical_write_support(),
+                    Err(_) => {
+                        panic!("every candidate is an independent Accepted owner")
+                    }
+                };
+                candidates.push((candidate, seed, support));
+            }
+            for (candidate, _, support) in &mut candidates {
+                *support = match authority
+                    .plan_concurrent_local_removal(candidate)
+                    .expect("the frozen initial-state removal replans")
+                {
+                    Ok(plan) => plan.physical_write_support(),
+                    Err(_) => {
+                        panic!("the frozen candidate remains an independent Accepted owner")
+                    }
+                };
+            }
+            (0..candidates.len())
+                .find_map(|left| {
+                    ((left + 1)..candidates.len()).find_map(|right| {
+                        let (left_hash, left_seed, left_support) = &candidates[left];
+                        let (right_hash, right_seed, right_support) = &candidates[right];
+                        left_support.is_disjoint(*right_support).then(|| {
+                            (
+                                left_hash.clone(),
+                                *left_seed,
+                                right_hash.clone(),
+                                *right_seed,
+                                *right_support,
+                            )
+                        })
+                    })
+                })
+                .expect("the fixed layout admits a complete disjoint production removal pair")
+        });
+    let shared_entries = runtime
+        .with_authority_for_foundation(|authority| authority.entries_for_reference().clone());
+
+    let (probe, entered, release) = ConcurrentRemovalProbe::new();
+    runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_probe(Some(Arc::clone(&probe)));
+    });
+    std::thread::scope(|scope| {
+        let first_remove = scope.spawn(|| runtime.remove_local_transaction(&first.0));
+        let first_entered = entered.recv_timeout(Duration::from_secs(1));
+        assert!(first_entered.is_ok());
+        assert!(
+            shared_entries.try_write_cut(second_support).is_some(),
+            "the first live cut unexpectedly overlaps the frozen second support"
+        );
+        let (second_started_tx, second_started_rx) = std::sync::mpsc::channel();
+        let runtime_ref = &runtime;
+        let second_hash = second.0.clone();
+        let second_remove = scope.spawn(move || {
+            let _ = second_started_tx.send(());
+            runtime_ref.remove_local_transaction(&second_hash)
+        });
+        assert!(
+            second_started_rx
+                .recv_timeout(Duration::from_secs(1))
+                .is_ok()
+        );
+        let second_entered = entered.recv_timeout(Duration::from_secs(1));
+        assert!(
+            shared_entries.try_read_all().is_none(),
+            "a complete read cut must not splice two in-flight write cuts"
+        );
+        let _ = release.send(());
+        let _ = release.send(());
+        assert!(
+            first_remove
+                .join()
+                .expect("first removal thread joins")
+                .unwrap()
+        );
+        assert!(second_entered.is_ok());
+        assert!(
+            second_remove
+                .join()
+                .expect("second removal thread joins")
+                .unwrap()
+        );
+    });
+    let concurrent = runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_probe(None);
+        assert!(authority.primary_projection_consistent());
+        authority.normalized_snapshot()
+    });
+    let template = runtime
+        .template_input()
+        .expect("the post-commit template input captures one complete cut");
+    assert_eq!(
+        template.pool_source_cut(),
+        super::super::template::TemplatePoolSourceCut::new(runtime.template_source_versions())
+    );
+    assert_eq!(
+        template
+            .selection()
+            .pending_rank(&first)
+            .expect("the removed first owner is absent from a coherent template cut"),
+        None
+    );
+    assert_eq!(
+        template
+            .selection()
+            .pending_rank(&second)
+            .expect("the removed second owner is absent from a coherent template cut"),
+        None
+    );
+    let persistence = runtime
+        .persistence_receipt()
+        .expect("the post-commit persistence receipt captures one complete cut")
+        .into_parent_first()
+        .expect("the captured persistence graph is acyclic");
+    assert!(persistence.accepted().iter().all(|transaction| {
+        let hash = transaction.hash();
+        hash != first.0 && hash != second.0
+    }));
+
+    let baseline_snapshot = genesis_snapshot();
+    let baseline = AuthorityRuntime::new(
+        &runtime_config(),
+        baseline_snapshot.consensus(),
+        Arc::clone(&baseline_snapshot),
+    )
+    .expect("the sequential baseline runtime is valid");
+    let (baseline_first, baseline_second) = baseline.with_authority_for_foundation(|authority| {
+        let mut accepted = Vec::new();
+        for seed in 200u8..=255 {
+            let input = OutPoint::new(Byte32::new([seed; 32]), 0);
+            let transaction = TransactionBuilder::default()
+                .version(u32::from(seed))
+                .input(CellInput::new(input.clone(), 0))
+                .output(CellOutput::default())
+                .output_data(Bytes::new().pack())
+                .build();
+            let hash = accept_remote_transaction_with_payload(
+                authority,
+                transaction.clone(),
+                usize::from(seed),
+                AcceptedStatus::Pending,
+                resolved_payload_with_facts(
+                    &transaction,
+                    Vec::new(),
+                    vec![input],
+                    Capacity::shannons(1_000),
+                ),
+            );
+            let plan = authority
+                .plan_concurrent_local_removal(&hash)
+                .expect("the baseline probe plans");
+            assert!(plan.is_ok());
+            accepted.push((seed, hash));
+        }
+        for (_, hash) in &accepted {
+            let plan = authority
+                .plan_concurrent_local_removal(hash)
+                .expect("the baseline frozen-state probe plans");
+            assert!(plan.is_ok());
+        }
+        (
+            accepted
+                .iter()
+                .find_map(|(seed, hash)| (*seed == first_seed).then(|| hash.clone()))
+                .expect("first baseline owner"),
+            accepted
+                .iter()
+                .find_map(|(seed, hash)| (*seed == second_seed).then(|| hash.clone()))
+                .expect("second baseline owner"),
+        )
+    });
+    assert!(
+        baseline
+            .remove_local_transaction(&baseline_first.0)
+            .expect("first sequential removal commits")
+    );
+    assert!(
+        baseline
+            .remove_local_transaction(&baseline_second.0)
+            .expect("second sequential removal commits")
+    );
+    let sequential = baseline.with_authority_for_foundation(|authority| {
+        assert!(authority.primary_projection_consistent());
+        authority.normalized_snapshot()
+    });
+    assert_eq!(
+        concurrent.first_difference(&sequential),
+        None,
+        "entry difference: {:?}",
+        concurrent.first_entry_difference(&sequential)
+    );
+}
+
+#[test]
+fn uak_same_root_local_removal_stales_once_then_observes_the_committed_absence() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let hash = runtime.with_authority_for_foundation(|authority| {
+        let input = OutPoint::new(Byte32::new([199; 32]), 0);
+        let transaction = TransactionBuilder::default()
+            .version(199u32)
+            .input(CellInput::new(input.clone(), 0))
+            .output(CellOutput::default())
+            .output_data(Bytes::new().pack())
+            .build();
+        let hash = accept_remote_transaction_with_payload(
+            authority,
+            transaction.clone(),
+            199,
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(
+                &transaction,
+                Vec::new(),
+                vec![input],
+                Capacity::shannons(1_000),
+            ),
+        );
+        assert!(
+            authority
+                .plan_concurrent_local_removal(&hash)
+                .expect("the independent Accepted removal plans")
+                .is_ok()
+        );
+        hash
+    });
+    let plan_barrier = Arc::new(std::sync::Barrier::new(2));
+    runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_plan_probe(Some(Arc::clone(&plan_barrier)));
+    });
+
+    let mut outcomes = std::thread::scope(|scope| {
+        let left = scope.spawn(|| runtime.remove_local_transaction(&hash.0));
+        let right = scope.spawn(|| runtime.remove_local_transaction(&hash.0));
+        vec![
+            left.join().expect("left removal thread joins").unwrap(),
+            right.join().expect("right removal thread joins").unwrap(),
+        ]
+    });
+    outcomes.sort_unstable();
+    assert_eq!(outcomes, vec![false, true]);
+    runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_plan_probe(None);
+        assert!(authority.entry(&hash).is_none());
         assert!(authority.primary_projection_consistent());
     });
 }
@@ -3063,19 +3390,19 @@ fn uak_membership_projects_one_spender_and_one_causal_graph() {
 
     assert_eq!(
         authority.accepted_spender(&parent_output),
-        Some(&child_hash)
+        Some(child_hash.clone())
     );
     assert_eq!(
         authority
             .accepted_parents(&child_hash)
             .expect("accepted child has a graph row"),
-        &HashSet::from([parent_hash.clone()])
+        HashSet::from([parent_hash.clone()])
     );
     assert_eq!(
         authority
             .accepted_children(&parent_hash)
             .expect("accepted parent has a graph row"),
-        &HashSet::from([child_hash])
+        HashSet::from([child_hash])
     );
     let counts = authority.membership_counts();
     assert_eq!((counts.pending, counts.gap, counts.proposed), (1, 0, 1));
@@ -3128,19 +3455,19 @@ fn uak_fan_in_updates_each_ancestor_from_one_canonical_graph_delta() {
         authority
             .accepted_parents(&child)
             .expect("fan-in child has one parent row"),
-        &HashSet::from([left.clone(), right.clone()])
+        HashSet::from([left.clone(), right.clone()])
     );
     assert_eq!(
         authority
             .accepted_children(&left)
             .expect("left parent has one child row"),
-        &HashSet::from([child.clone()])
+        HashSet::from([child.clone()])
     );
     assert_eq!(
         authority
             .accepted_children(&right)
             .expect("right parent has one child row"),
-        &HashSet::from([child])
+        HashSet::from([child])
     );
     assert_resource_reference(&authority);
 }
@@ -4113,11 +4440,11 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
     let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&parent),
-        Some(&HashSet::from([child.clone()]))
+        Some(HashSet::from([child.clone()]))
     );
     assert_eq!(
         authority.accepted_parents(&child),
-        Some(&HashSet::from([parent.clone()]))
+        Some(HashSet::from([parent.clone()]))
     );
     assert_membership_reference(&authority);
 
@@ -4142,11 +4469,11 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
     let _ = accepted_disposition(disposition).apply();
     assert_eq!(
         authority.accepted_children(&grandparent),
-        Some(&HashSet::from([parent.clone()]))
+        Some(HashSet::from([parent.clone()]))
     );
     assert_eq!(
         authority.accepted_parents(&parent),
-        Some(&HashSet::from([grandparent]))
+        Some(HashSet::from([grandparent]))
     );
     assert_membership_reference(&authority);
 }
@@ -4215,15 +4542,15 @@ fn uak_coupled_late_parent_deduplicates_an_existing_descendant_path() {
 
     assert_eq!(
         authority.accepted_parents(&child),
-        Some(&HashSet::from([ancestor.clone(), parent.clone()]))
+        Some(HashSet::from([ancestor.clone(), parent.clone()]))
     );
     assert_eq!(
         authority.accepted_children(&ancestor),
-        Some(&HashSet::from([child.clone(), parent.clone()]))
+        Some(HashSet::from([child.clone(), parent.clone()]))
     );
     assert_eq!(
         authority.accepted_children(&parent),
-        Some(&HashSet::from([child]))
+        Some(HashSet::from([child]))
     );
     assert_membership_reference(&authority);
 }
@@ -4448,7 +4775,7 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
         authority.entry(&unrelated),
         Some(OwnedTx::Accepted(_))
     ));
-    assert_eq!(authority.accepted_children(&parent), Some(&HashSet::new()));
+    assert_eq!(authority.accepted_children(&parent), Some(HashSet::new()));
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
@@ -5075,7 +5402,10 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
         authority.entry(&replacement),
         Some(OwnedTx::Accepted(_))
     ));
-    assert_eq!(authority.accepted_spender(&chain_input), Some(&replacement));
+    assert_eq!(
+        authority.accepted_spender(&chain_input),
+        Some(replacement.clone())
+    );
     assert_eq!(authority.owner_count(), 3);
     assert_eq!(authority.resources().accepted().entries, 1);
     assert_eq!(authority.resources().replacement_history().entries, 2);
@@ -6299,11 +6629,11 @@ fn uak_rbf_accepts_new_input_only_with_positive_chain_evidence() {
     assert_eq!(authority.resources().replacement_history().entries, 1);
     assert_eq!(
         authority.accepted_spender(&replaced_input),
-        Some(&replacement)
+        Some(replacement.clone())
     );
     assert_eq!(
         authority.accepted_spender(&confirmed_input),
-        Some(&replacement)
+        Some(replacement.clone())
     );
     assert_resource_reference(&authority);
 }

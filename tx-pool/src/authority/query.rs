@@ -207,10 +207,11 @@ impl FullQueryPermit {
         &'permit mut self,
         view: &AuthorityReadView<'_>,
     ) -> Result<PreparedPoolIds<'permit>, AuthorityReadError> {
-        self.begin_capture(view.owner_count())?;
-        let (pending_count, proposed_count) = view.accepted_status_counts()?;
-        for order in view.accepted_order() {
-            let accepted = view.accepted_entry_for_order(order)?;
+        let cut = view.full_read_cut()?;
+        self.begin_capture(cut.owner_count())?;
+        let (pending_count, proposed_count) = cut.accepted_status_counts()?;
+        for order in cut.accepted_order() {
+            let accepted = cut.accepted_entry_for_order(&order)?;
             self.push(FullQueryRow::PoolId {
                 hash: order.hash().clone(),
                 status: accepted.entry().status(),
@@ -234,10 +235,11 @@ impl FullQueryPermit {
         &'permit mut self,
         view: &AuthorityReadView<'_>,
     ) -> Result<PreparedEntryInfo<'permit>, AuthorityReadError> {
-        self.begin_capture(view.owner_count())?;
-        let (pending_count, proposed_count) = view.accepted_status_counts()?;
-        for order in view.accepted_order().rev() {
-            let accepted = view.accepted_entry_for_order(order)?;
+        let cut = view.full_read_cut()?;
+        self.begin_capture(cut.owner_count())?;
+        let (pending_count, proposed_count) = cut.accepted_status_counts()?;
+        for order in cut.accepted_order().into_iter().rev() {
+            let accepted = cut.accepted_entry_for_order(&order)?;
             self.push(FullQueryRow::EntryInfo {
                 hash: order.hash().clone(),
                 status: accepted.entry().status(),
@@ -251,7 +253,7 @@ impl FullQueryPermit {
         if accepted_count != expected {
             return Err(AuthorityReadError::Projection);
         }
-        for hash in view.replacement_history()? {
+        for hash in cut.replacement_history()? {
             self.push(FullQueryRow::ReplacementHistory(hash))?;
         }
         let history_count = self
@@ -276,20 +278,21 @@ impl FullQueryPermit {
         if !self.state.rows.is_empty() {
             return Err(AuthorityReadError::Projection);
         }
-        let Some(target) = view.accepted_entry_by_raw(hash)? else {
+        let cut = view.full_read_cut()?;
+        let Some(target) = cut.accepted_entry_by_raw(hash)? else {
             return Ok(PreparedPoolDetail {
                 _permit: self,
                 detail: None,
             });
         };
-        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        let (pending_count, proposed_count) = cut.accepted_status_counts()?;
         let rank_in_pending = if target.entry().status() == AcceptedStatus::Proposed {
             0
         } else {
             let mut rank = None;
             let mut pending_position = 0usize;
-            for order in view.accepted_order().rev() {
-                let entry = view.accepted_entry_for_order(order)?;
+            for order in cut.accepted_order().into_iter().rev() {
+                let entry = cut.accepted_entry_for_order(&order)?;
                 if !matches!(
                     entry.entry().status(),
                     AcceptedStatus::Pending | AcceptedStatus::Gap
@@ -342,13 +345,14 @@ impl FullQueryPermit {
         snapshot: &Snapshot,
         min_fee_rate: FeeRate,
     ) -> Result<PreparedFeeEstimate<'permit>, AuthorityReadError> {
-        self.begin_capture(view.owner_count())?;
-        let (pending_count, proposed_count) = view.accepted_status_counts()?;
+        let cut = view.full_read_cut()?;
+        self.begin_capture(cut.owner_count())?;
+        let (pending_count, proposed_count) = cut.accepted_status_counts()?;
         let candidate_count = pending_count
             .checked_add(proposed_count)
             .ok_or(AuthorityReadError::Arithmetic)?;
-        for order in view.accepted_order().rev() {
-            let accepted = view.accepted_entry_for_order(order)?;
+        for order in cut.accepted_order().into_iter().rev() {
+            let accepted = cut.accepted_entry_for_order(&order)?;
             let metrics = accepted.entry().proof.metrics();
             self.push(FullQueryRow::Fee(FeeCandidate {
                 fee: metrics.fee,

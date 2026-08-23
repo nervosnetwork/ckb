@@ -73,6 +73,17 @@ impl AuthoritySourceVersions {
         *self.state.lock()
     }
 
+    #[cfg(test)]
+    pub(in crate::authority) fn snapshot_with_template(
+        &self,
+        template: PoolTemplateVersions,
+    ) -> AuthoritySourceVersionSnapshot {
+        let mut snapshot = self.snapshot();
+        snapshot.template.proposals = snapshot.template.proposals.max(template.proposals);
+        snapshot.template.transactions = snapshot.template.transactions.max(template.transactions);
+        snapshot
+    }
+
     pub(super) fn plan_replacements<'entry>(
         &self,
         replacements: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
@@ -93,6 +104,40 @@ impl AuthoritySourceVersions {
         let mut delta = SourceVersionDelta::between(before, after);
         if relay_parents_changed {
             delta.relay_parents = Some(sequence);
+        }
+        delta
+    }
+
+    /// Compile only Accepted selection sources from the transition itself.
+    /// Monotonic per-shard maxima need no read of the global chain/relay
+    /// source cell; callers must reject the route if another source can move.
+    pub(super) fn plan_template_selection_replacements<'entry>(
+        replacements: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
+        sequence: ApplySequence,
+    ) -> SourceVersionDelta {
+        let impact = replacements
+            .into_iter()
+            .fold(SourceImpact::None, |impact, (before, after)| {
+                impact.join(SourceImpact::for_replacement(before, after))
+            });
+        let mut delta = SourceVersionDelta {
+            relay_parents: None,
+            proposals: None,
+            transactions: None,
+            chain: None,
+        };
+        match impact {
+            SourceImpact::None => {}
+            SourceImpact::Status(TemplateSelectionImpact::Proposals) => {
+                delta.proposals = Some(sequence);
+            }
+            SourceImpact::Status(TemplateSelectionImpact::Transactions) => {
+                delta.transactions = Some(sequence);
+            }
+            SourceImpact::Status(TemplateSelectionImpact::Both) | SourceImpact::Accepted => {
+                delta.proposals = Some(sequence);
+                delta.transactions = Some(sequence);
+            }
         }
         delta
     }
@@ -222,6 +267,20 @@ pub(super) struct SourceVersionDelta {
 }
 
 impl SourceVersionDelta {
+    pub(super) fn is_template_selection_only(self) -> bool {
+        self.relay_parents.is_none() && self.chain.is_none() && self.template_selection_changed()
+    }
+
+    pub(super) fn template_selection_changed(self) -> bool {
+        self.proposals.is_some() || self.transactions.is_some()
+    }
+
+    pub(super) fn take_template_selection(
+        &mut self,
+    ) -> (Option<ApplySequence>, Option<ApplySequence>) {
+        (self.proposals.take(), self.transactions.take())
+    }
+
     fn is_empty(self) -> bool {
         self.relay_parents.is_none()
             && self.proposals.is_none()

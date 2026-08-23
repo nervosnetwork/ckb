@@ -1,5 +1,6 @@
 use super::super::{AuthorityFault, Backpressure, PlanError};
 use super::*;
+use std::collections::BTreeSet;
 
 impl MembershipConfig {
     pub(in crate::authority) fn testing_default() -> Self {
@@ -34,15 +35,68 @@ pub(in crate::authority) struct MembershipSnapshot {
 
 impl MembershipProjection {
     pub(in crate::authority) fn snapshot(&self, counts: StatusCounts) -> MembershipSnapshot {
+        let shards: [ckb_util::parking_lot::RwLockReadGuard<
+            '_,
+            crate::authority::shard::AuthorityShard,
+        >; crate::authority::shard::AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let mut spenders = HashMap::new();
+        let mut dependency_readers = HashMap::new();
+        let mut parents = HashMap::new();
+        let mut children = HashMap::new();
+        let mut ancestor_aggregates = HashMap::new();
+        let mut descendant_aggregates = HashMap::new();
+        let mut accepted_order = BTreeSet::new();
+        let mut eviction_order = BTreeSet::new();
+        for shard in &shards {
+            spenders.extend(
+                shard
+                    .spenders
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+            dependency_readers.extend(
+                shard
+                    .dependency_readers
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+            parents.extend(
+                shard
+                    .parents
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+            children.extend(
+                shard
+                    .children
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+            ancestor_aggregates.extend(
+                shard
+                    .ancestor_aggregates
+                    .iter()
+                    .map(|(key, value)| (key.clone(), *value)),
+            );
+            descendant_aggregates.extend(
+                shard
+                    .descendant_aggregates
+                    .iter()
+                    .map(|(key, value)| (key.clone(), *value)),
+            );
+            accepted_order.extend(shard.accepted_order.iter().cloned());
+            eviction_order.extend(shard.eviction_order.iter().cloned());
+        }
         MembershipSnapshot {
-            spenders: self.spenders.clone(),
-            dependency_readers: self.dependency_readers.clone(),
-            parents: self.parents.clone(),
-            children: self.children.clone(),
-            ancestor_aggregates: self.ancestor_aggregates.clone(),
-            descendant_aggregates: self.descendant_aggregates.clone(),
-            accepted_order: self.accepted_order.clone(),
-            eviction_order: self.eviction_order.clone(),
+            spenders,
+            dependency_readers,
+            parents,
+            children,
+            ancestor_aggregates,
+            descendant_aggregates,
+            accepted_order,
+            eviction_order,
             counts,
         }
     }
@@ -250,12 +304,10 @@ impl TxPoolAuthority {
         )))?;
         let aggregate = self
             .membership
-            .descendant_aggregates
-            .get(hash)
-            .copied()
+            .descendant_aggregate(hash)
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         let previous_key = EvictionOrderKey::new(before, aggregate);
-        if !self.membership.eviction_order.contains(&previous_key) {
+        if !self.membership.contains_eviction_order(&previous_key) {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
         let mut eviction_removals = Vec::new();

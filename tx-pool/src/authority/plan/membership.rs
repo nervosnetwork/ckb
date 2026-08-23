@@ -11,7 +11,9 @@ use super::TxPoolAuthority;
 use crate::authority::{
     rejection::{ComponentLimitKind, MembershipReject},
     resources::AcceptedCost,
-    shard::ShardedAcceptedReadGuard,
+    shard::{
+        AUTHORITY_SHARD_COUNT, ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerWriteCut,
+    },
     state::{
         AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash,
         ReplacementHistoryEntry,
@@ -25,7 +27,7 @@ use ckb_types::{
 };
 use std::{
     cmp::Reverse,
-    collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque},
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -144,16 +146,21 @@ impl StatusCounts {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(in crate::authority) struct MembershipProjection {
-    spenders: HashMap<OutPoint, RawTxHash>,
-    dependency_readers: HashMap<OutPoint, HashSet<RawTxHash>>,
-    parents: HashMap<RawTxHash, HashSet<RawTxHash>>,
-    children: HashMap<RawTxHash, HashSet<RawTxHash>>,
-    ancestor_aggregates: HashMap<RawTxHash, AncestorAggregate>,
-    descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
-    accepted_order: BTreeSet<AcceptedOrderKey>,
-    eviction_order: BTreeSet<EvictionOrderKey>,
+    entries: ShardedOwnerMap,
+}
+
+impl MembershipProjection {
+    pub(super) fn for_entries(entries: &ShardedOwnerMap) -> Self {
+        Self {
+            entries: entries.clone(),
+        }
+    }
+
+    fn shard<K: std::hash::Hash>(&self, domain: &'static [u8], key: &K) -> usize {
+        self.entries.layout.router.shard(domain, key)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -301,7 +308,7 @@ pub(in crate::authority) struct EvictionOrderKey {
 }
 
 impl EvictionOrderKey {
-    fn new(entry: &AcceptedEntry, aggregate: DescendantAggregate) -> Self {
+    pub(in crate::authority) fn new(entry: &AcceptedEntry, aggregate: DescendantAggregate) -> Self {
         let AcceptedCost {
             serialized_bytes,
             cycles,
@@ -529,6 +536,13 @@ pub(super) struct ProjectionDelta {
 }
 
 impl ProjectionDelta {
+    #[cfg(test)]
+    pub(in crate::authority) fn status_count_plan(
+        &self,
+    ) -> &super::super::shard::ShardStatusCountPlan {
+        &self.status_counts
+    }
+
     pub(super) fn take_status_counts(&mut self) -> super::super::shard::ShardStatusCountPlan {
         std::mem::take(&mut self.status_counts)
     }
@@ -537,11 +551,11 @@ impl ProjectionDelta {
     /// pre-Apply projection. Chain dependency publication uses this instead
     /// of treating a chain-live cell as globally available while a surviving
     /// Accepted transaction still owns its pool spend.
-    pub(super) fn spender_after<'projection>(
-        &'projection self,
-        before: &'projection MembershipProjection,
+    pub(super) fn spender_after(
+        &self,
+        before: &MembershipProjection,
         input: &OutPoint,
-    ) -> Option<&'projection RawTxHash> {
+    ) -> Option<RawTxHash> {
         match self
             .spender_changes
             .binary_search_by(|(candidate, _)| candidate.cmp(input))
@@ -549,7 +563,7 @@ impl ProjectionDelta {
             Ok(index) => self
                 .spender_changes
                 .get(index)
-                .and_then(|(_, spender)| spender.as_ref()),
+                .and_then(|(_, spender)| spender.clone()),
             Err(_) => before.spender(input),
         }
     }
@@ -667,94 +681,212 @@ pub(super) struct MembershipEvaluation {
     aggregate: AggregateDelta,
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sole shard router masks every domain/key result to the fixed 64-shard layout"
+)]
 impl MembershipProjection {
-    pub(in crate::authority) fn spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
-        self.spenders.get(input)
+    pub(in crate::authority) fn spender(&self, input: &OutPoint) -> Option<RawTxHash> {
+        self.entries.layout.shards[self.shard(b"membership/spender", input)]
+            .read()
+            .spenders
+            .get(input)
+            .cloned()
     }
 
     pub(in crate::authority) fn ancestor_aggregate(
         &self,
         hash: &RawTxHash,
     ) -> Option<AncestorAggregate> {
-        self.ancestor_aggregates.get(hash).copied()
+        self.entries.layout.shards[self.shard(b"membership/ancestor", hash)]
+            .read()
+            .ancestor_aggregates
+            .get(hash)
+            .copied()
     }
 
     pub(in crate::authority) fn descendant_aggregate(
         &self,
         hash: &RawTxHash,
     ) -> Option<DescendantAggregate> {
-        self.descendant_aggregates.get(hash).copied()
+        self.entries.layout.shards[self.shard(b"membership/descendant", hash)]
+            .read()
+            .descendant_aggregates
+            .get(hash)
+            .copied()
     }
 
-    fn dependency_readers(&self, dependency: &OutPoint) -> Option<&HashSet<RawTxHash>> {
-        self.dependency_readers.get(dependency)
+    pub(super) fn dependency_readers(&self, dependency: &OutPoint) -> Option<HashSet<RawTxHash>> {
+        self.entries.layout.shards[self.shard(b"membership/dependency-readers", dependency)]
+            .read()
+            .dependency_readers
+            .get(dependency)
+            .cloned()
     }
 
-    pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<&HashSet<RawTxHash>> {
-        self.parents.get(hash)
+    pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
+        self.entries.layout.shards[self.shard(b"membership/parents", hash)]
+            .read()
+            .parents
+            .get(hash)
+            .cloned()
     }
 
-    pub(in crate::authority) fn accepted_order(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &AcceptedOrderKey> {
-        self.accepted_order.iter()
+    #[cfg(test)]
+    pub(in crate::authority) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {
+        let shards = std::array::from_fn::<_, AUTHORITY_SHARD_COUNT, _>(|shard| {
+            self.entries.layout.shards[shard].read()
+        });
+        let count = shards.iter().map(|shard| shard.accepted_order.len()).sum();
+        let mut order = Vec::with_capacity(count);
+        for shard in &shards {
+            order.extend(shard.accepted_order.iter().cloned());
+        }
+        order.sort_unstable();
+        order
+    }
+
+    pub(in crate::authority) fn eviction_order(&self) -> Vec<EvictionOrderKey> {
+        let shards = std::array::from_fn::<_, AUTHORITY_SHARD_COUNT, _>(|shard| {
+            self.entries.layout.shards[shard].read()
+        });
+        let count = shards.iter().map(|shard| shard.eviction_order.len()).sum();
+        let mut order = Vec::with_capacity(count);
+        for shard in &shards {
+            order.extend(shard.eviction_order.iter().cloned());
+        }
+        order.sort_unstable();
+        order
     }
 
     pub(in crate::authority) fn contains_accepted_order(&self, key: &AcceptedOrderKey) -> bool {
-        self.accepted_order.contains(key)
+        self.entries.layout.shards[self.shard(b"membership/accepted-order", key.hash())]
+            .read()
+            .accepted_order
+            .contains(key)
     }
 
-    pub(in crate::authority) fn eviction_order_for(
+    pub(in crate::authority) fn contains_eviction_order(&self, key: &EvictionOrderKey) -> bool {
+        self.entries.layout.shards[self.shard(b"membership/eviction-order", &key.hash)]
+            .read()
+            .eviction_order
+            .contains(key)
+    }
+
+    fn contains_parent_node(&self, hash: &RawTxHash) -> bool {
+        self.parents(hash).is_some()
+    }
+
+    fn contains_child_node(&self, hash: &RawTxHash) -> bool {
+        self.children(hash).is_some()
+    }
+
+    pub(super) fn children(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
+        self.entries.layout.shards[self.shard(b"membership/children", hash)]
+            .read()
+            .children
+            .get(hash)
+            .cloned()
+    }
+
+    pub(super) fn reserve_owner_insertion_capacity<'input, 'owner>(
         &self,
-        hash: &RawTxHash,
-        entry: &AcceptedEntry,
-    ) -> Option<EvictionOrderKey> {
-        let aggregate = self.descendant_aggregates.get(hash).copied()?;
-        let key = EvictionOrderKey::new(entry, aggregate);
-        self.eviction_order.contains(&key).then_some(key)
-    }
-
-    pub(super) fn children(&self, hash: &RawTxHash) -> Option<&HashSet<RawTxHash>> {
-        self.children.get(hash)
-    }
-
-    pub(super) fn reserve_owner_insertion_capacity(
-        &mut self,
-        input_insertions: usize,
-        owner_insertions: usize,
+        inputs: impl IntoIterator<Item = &'input OutPoint>,
+        owners: impl IntoIterator<Item = &'owner RawTxHash>,
     ) -> Result<(), super::PlanError> {
-        self.spenders
-            .try_reserve(input_insertions)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.parents
-            .try_reserve(owner_insertions)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.children
-            .try_reserve(owner_insertions)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.ancestor_aggregates
-            .try_reserve(owner_insertions)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        self.descendant_aggregates
-            .try_reserve(owner_insertions)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+        let mut input_additions = [0usize; AUTHORITY_SHARD_COUNT];
+        for input in inputs {
+            let shard = self.shard(b"membership/spender", input);
+            input_additions[shard] =
+                input_additions[shard]
+                    .checked_add(1)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::CounterExhausted,
+                    ))?;
+        }
+        let mut owner_additions = [0usize; AUTHORITY_SHARD_COUNT];
+        for owner in owners {
+            for domain in [
+                b"membership/parents".as_slice(),
+                b"membership/children".as_slice(),
+                b"membership/ancestor".as_slice(),
+                b"membership/descendant".as_slice(),
+            ] {
+                let shard = self.shard(domain, owner);
+                owner_additions[shard] =
+                    owner_additions[shard]
+                        .checked_add(1)
+                        .ok_or(super::PlanError::Fault(
+                            super::AuthorityFault::CounterExhausted,
+                        ))?;
+            }
+        }
+        for (shard, (inputs, owners)) in self
+            .entries
+            .layout
+            .shards
+            .iter()
+            .zip(input_additions.into_iter().zip(owner_additions))
+        {
+            let mut shard = shard.write();
+            shard
+                .spenders
+                .try_reserve(inputs)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            shard
+                .parents
+                .try_reserve(owners)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            shard
+                .children
+                .try_reserve(owners)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            shard
+                .ancestor_aggregates
+                .try_reserve(owners)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            shard
+                .descendant_aggregates
+                .try_reserve(owners)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        }
+        Ok(())
     }
 
-    pub(super) fn reserve_dependency_reader_rows(
-        &mut self,
-        additional: usize,
+    pub(super) fn reserve_dependency_reader_rows<'dependency>(
+        &self,
+        dependencies: impl IntoIterator<Item = &'dependency OutPoint>,
     ) -> Result<(), super::PlanError> {
-        self.dependency_readers
-            .try_reserve(additional)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+        let mut additions = [0usize; AUTHORITY_SHARD_COUNT];
+        for dependency in dependencies {
+            let shard = self.shard(b"membership/dependency-readers", dependency);
+            additions[shard] = additions[shard]
+                .checked_add(1)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
+        }
+        for (shard, additional) in self.entries.layout.shards.iter().zip(additions) {
+            if additional == 0 {
+                continue;
+            }
+            shard
+                .write()
+                .dependency_readers
+                .try_reserve(additional)
+                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        }
+        Ok(())
     }
 
     pub(super) fn reserve_dependency_reader_row(
-        &mut self,
+        &self,
         dependency: &OutPoint,
         additional: usize,
     ) -> Result<(), super::PlanError> {
-        self.dependency_readers
+        self.entries.layout.shards[self.shard(b"membership/dependency-readers", dependency)]
+            .write()
+            .dependency_readers
             .get_mut(dependency)
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
@@ -764,11 +896,13 @@ impl MembershipProjection {
     }
 
     pub(super) fn reserve_child_row(
-        &mut self,
+        &self,
         parent: &RawTxHash,
         additional: usize,
     ) -> Result<(), super::PlanError> {
-        self.children
+        self.entries.layout.shards[self.shard(b"membership/children", parent)]
+            .write()
+            .children
             .get_mut(parent)
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
@@ -778,11 +912,13 @@ impl MembershipProjection {
     }
 
     pub(super) fn reserve_parent_row(
-        &mut self,
+        &self,
         child: &RawTxHash,
         additional: usize,
     ) -> Result<(), super::PlanError> {
-        self.parents
+        self.entries.layout.shards[self.shard(b"membership/parents", child)]
+            .write()
+            .parents
             .get_mut(child)
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
@@ -792,95 +928,298 @@ impl MembershipProjection {
     }
 
     pub(super) fn apply(&mut self, delta: ProjectionDelta) {
-        for (input, spender) in delta.spender_changes {
-            match spender {
-                Some(spender) => {
-                    self.spenders.insert(input, spender);
+        let support = delta.sharded_write_support(&self.entries);
+        let mut cut = self.entries.write_cut(support);
+        delta.apply_sharded(&self.entries, &mut cut);
+    }
+}
+
+impl ProjectionDelta {
+    pub(in crate::authority) fn sharded_write_support(
+        &self,
+        entries: &ShardedOwnerMap,
+    ) -> super::super::shard::ShardWriteSupport {
+        let mut support = super::super::shard::ShardWriteSupport::default();
+        for (input, _) in &self.spender_changes {
+            support.insert(entries.layout.router.shard(b"membership/spender", input));
+        }
+        for change in &self.dependency_changes {
+            let dependency = match change {
+                DependencyRelationChange::RemoveEdge(edge)
+                | DependencyRelationChange::InsertEdge(edge) => &edge.dependency,
+                DependencyRelationChange::InsertRow(row) => &row.dependency,
+                DependencyRelationChange::RemoveRow(dependency) => dependency,
+            };
+            support.insert(
+                entries
+                    .layout
+                    .router
+                    .shard(b"membership/dependency-readers", dependency),
+            );
+        }
+        for change in &self.causal_changes {
+            match change {
+                CausalRelationChange::RemoveEdge(edge) | CausalRelationChange::InsertEdge(edge) => {
+                    support.insert(
+                        entries
+                            .layout
+                            .router
+                            .shard(b"membership/children", &edge.parent),
+                    );
+                    support.insert(
+                        entries
+                            .layout
+                            .router
+                            .shard(b"membership/parents", &edge.child),
+                    );
                 }
-                None => {
-                    self.spenders.remove(&input);
+                CausalRelationChange::InsertNode(node) => {
+                    support.insert(
+                        entries
+                            .layout
+                            .router
+                            .shard(b"membership/parents", &node.hash),
+                    );
+                    support.insert(
+                        entries
+                            .layout
+                            .router
+                            .shard(b"membership/children", &node.hash),
+                    );
+                }
+                CausalRelationChange::RemoveNode(hash) => {
+                    support.insert(entries.layout.router.shard(b"membership/parents", hash));
+                    support.insert(entries.layout.router.shard(b"membership/children", hash));
                 }
             }
         }
-        for change in delta.dependency_changes {
+        for (hash, _) in &self.ancestor_changes {
+            support.insert(entries.layout.router.shard(b"membership/ancestor", hash));
+        }
+        for (hash, _) in &self.aggregate_changes {
+            support.insert(entries.layout.router.shard(b"membership/descendant", hash));
+        }
+        for key in self
+            .accepted_order_removals
+            .iter()
+            .chain(&self.accepted_order_insertions)
+        {
+            support.insert(
+                entries
+                    .layout
+                    .router
+                    .shard(b"membership/accepted-order", key.hash()),
+            );
+        }
+        for key in self
+            .eviction_removals
+            .iter()
+            .chain(&self.eviction_insertions)
+        {
+            support.insert(
+                entries
+                    .layout
+                    .router
+                    .shard(b"membership/eviction-order", &key.hash),
+            );
+        }
+        support
+    }
+
+    pub(in crate::authority) fn apply_sharded(
+        self,
+        entries: &ShardedOwnerMap,
+        cut: &mut ShardedOwnerWriteCut<'_>,
+    ) {
+        for (input, spender) in self.spender_changes {
+            let shard = entries.layout.router.shard(b"membership/spender", &input);
+            let spenders = &mut cut.projection_shard_mut(shard).spenders;
+            match spender {
+                Some(spender) => {
+                    spenders.insert(input, spender);
+                }
+                None => {
+                    spenders.remove(&input);
+                }
+            }
+        }
+        for change in self.dependency_changes {
             match change {
                 DependencyRelationChange::RemoveEdge(edge) => {
-                    if let Some(readers) = self.dependency_readers.get_mut(&edge.dependency) {
+                    let shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/dependency-readers", &edge.dependency);
+                    if let Some(readers) = cut
+                        .projection_shard_mut(shard)
+                        .dependency_readers
+                        .get_mut(&edge.dependency)
+                    {
                         readers.remove(&edge.reader);
                     }
                 }
                 DependencyRelationChange::InsertRow(row) => {
-                    self.dependency_readers.insert(row.dependency, row.readers);
+                    let shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/dependency-readers", &row.dependency);
+                    cut.projection_shard_mut(shard)
+                        .dependency_readers
+                        .insert(row.dependency, row.readers);
                 }
                 DependencyRelationChange::InsertEdge(edge) => {
-                    if let Some(readers) = self.dependency_readers.get_mut(&edge.dependency) {
+                    let shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/dependency-readers", &edge.dependency);
+                    if let Some(readers) = cut
+                        .projection_shard_mut(shard)
+                        .dependency_readers
+                        .get_mut(&edge.dependency)
+                    {
                         readers.insert(edge.reader);
                     }
                 }
                 DependencyRelationChange::RemoveRow(dependency) => {
-                    self.dependency_readers.remove(&dependency);
+                    let shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/dependency-readers", &dependency);
+                    cut.projection_shard_mut(shard)
+                        .dependency_readers
+                        .remove(&dependency);
                 }
             }
         }
-        for change in delta.causal_changes {
+        for change in self.causal_changes {
             match change {
                 CausalRelationChange::RemoveEdge(edge) => {
-                    if let Some(children) = self.children.get_mut(&edge.parent) {
+                    let children_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/children", &edge.parent);
+                    if let Some(children) = cut
+                        .projection_shard_mut(children_shard)
+                        .children
+                        .get_mut(&edge.parent)
+                    {
                         children.remove(&edge.child);
                     }
-                    if let Some(parents) = self.parents.get_mut(&edge.child) {
+                    let parents_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/parents", &edge.child);
+                    if let Some(parents) = cut
+                        .projection_shard_mut(parents_shard)
+                        .parents
+                        .get_mut(&edge.child)
+                    {
                         parents.remove(&edge.parent);
                     }
                 }
                 CausalRelationChange::InsertNode(node) => {
-                    self.parents.insert(node.hash.clone(), node.parents);
-                    self.children.insert(node.hash, node.children);
+                    let parents_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/parents", &node.hash);
+                    cut.projection_shard_mut(parents_shard)
+                        .parents
+                        .insert(node.hash.clone(), node.parents);
+                    let children_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/children", &node.hash);
+                    cut.projection_shard_mut(children_shard)
+                        .children
+                        .insert(node.hash, node.children);
                 }
                 CausalRelationChange::InsertEdge(edge) => {
-                    if let Some(children) = self.children.get_mut(&edge.parent) {
+                    let children_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/children", &edge.parent);
+                    if let Some(children) = cut
+                        .projection_shard_mut(children_shard)
+                        .children
+                        .get_mut(&edge.parent)
+                    {
                         children.insert(edge.child.clone());
                     }
-                    if let Some(parents) = self.parents.get_mut(&edge.child) {
+                    let parents_shard = entries
+                        .layout
+                        .router
+                        .shard(b"membership/parents", &edge.child);
+                    if let Some(parents) = cut
+                        .projection_shard_mut(parents_shard)
+                        .parents
+                        .get_mut(&edge.child)
+                    {
                         parents.insert(edge.parent);
                     }
                 }
                 CausalRelationChange::RemoveNode(hash) => {
-                    self.parents.remove(&hash);
-                    self.children.remove(&hash);
+                    let parents_shard = entries.layout.router.shard(b"membership/parents", &hash);
+                    cut.projection_shard_mut(parents_shard)
+                        .parents
+                        .remove(&hash);
+                    let children_shard = entries.layout.router.shard(b"membership/children", &hash);
+                    cut.projection_shard_mut(children_shard)
+                        .children
+                        .remove(&hash);
                 }
             }
         }
-        for (hash, aggregate) in delta.ancestor_changes {
+        for (hash, aggregate) in self.ancestor_changes {
+            let shard = entries.layout.router.shard(b"membership/ancestor", &hash);
+            let rows = &mut cut.projection_shard_mut(shard).ancestor_aggregates;
             match aggregate {
                 Some(aggregate) => {
-                    self.ancestor_aggregates.insert(hash, aggregate);
+                    rows.insert(hash, aggregate);
                 }
                 None => {
-                    self.ancestor_aggregates.remove(&hash);
+                    rows.remove(&hash);
                 }
             }
         }
-        for (hash, aggregate) in delta.aggregate_changes {
+        for (hash, aggregate) in self.aggregate_changes {
+            let shard = entries.layout.router.shard(b"membership/descendant", &hash);
+            let rows = &mut cut.projection_shard_mut(shard).descendant_aggregates;
             match aggregate {
                 Some(aggregate) => {
-                    self.descendant_aggregates.insert(hash, aggregate);
+                    rows.insert(hash, aggregate);
                 }
                 None => {
-                    self.descendant_aggregates.remove(&hash);
+                    rows.remove(&hash);
                 }
             }
         }
-        for key in delta.accepted_order_removals {
-            self.accepted_order.remove(&key);
+        for key in self.accepted_order_removals {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"membership/accepted-order", key.hash());
+            cut.projection_shard_mut(shard).accepted_order.remove(&key);
         }
-        for key in delta.accepted_order_insertions {
-            self.accepted_order.insert(key);
+        for key in self.accepted_order_insertions {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"membership/accepted-order", key.hash());
+            cut.projection_shard_mut(shard).accepted_order.insert(key);
         }
-        for key in delta.eviction_removals {
-            self.eviction_order.remove(&key);
+        for key in self.eviction_removals {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"membership/eviction-order", &key.hash);
+            cut.projection_shard_mut(shard).eviction_order.remove(&key);
         }
-        for key in delta.eviction_insertions {
-            self.eviction_order.insert(key);
+        for key in self.eviction_insertions {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"membership/eviction-order", &key.hash);
+            cut.projection_shard_mut(shard).eviction_order.insert(key);
         }
     }
 }
@@ -1047,7 +1386,7 @@ impl TxPoolAuthority {
     /// descendant aggregates subtract each removed entry through removed
     /// intermediate ancestors.
     pub(super) fn prepare_chain_projection(
-        &mut self,
+        &self,
         removals: &AcceptedRemovalSet,
         status_changes: &HashMap<RawTxHash, AcceptedEntry>,
     ) -> Result<ProjectionDelta, super::PlanError> {
@@ -1153,7 +1492,7 @@ impl TxPoolAuthority {
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             for input in entry.proof.payload().footprint.inputs() {
-                if self.membership.spender(input) != Some(hash) {
+                if self.membership.spender(input) != Some(hash.clone()) {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ));
@@ -1190,7 +1529,7 @@ impl TxPoolAuthority {
             for parent in parents {
                 if !self
                     .membership
-                    .children(parent)
+                    .children(&parent)
                     .is_some_and(|children| children.contains(hash))
                 {
                     return Err(super::PlanError::Fault(
@@ -1205,7 +1544,7 @@ impl TxPoolAuthority {
             for child in children {
                 if !self
                     .membership
-                    .parents(child)
+                    .parents(&child)
                     .is_some_and(|parents| parents.contains(hash))
                 {
                     return Err(super::PlanError::Fault(
@@ -1219,12 +1558,10 @@ impl TxPoolAuthority {
             }
 
             for ancestor in self.collect_surviving_ancestors_through_removals(hash, &removed)? {
-                let current = projected_aggregates.get(&ancestor).copied().or_else(|| {
-                    self.membership
-                        .descendant_aggregates
-                        .get(&ancestor)
-                        .copied()
-                });
+                let current = projected_aggregates
+                    .get(&ancestor)
+                    .copied()
+                    .or_else(|| self.membership.descendant_aggregate(&ancestor));
                 let next = current
                     .and_then(|aggregate| aggregate.checked_sub_entry(&entry))
                     .filter(|aggregate| aggregate.entries != 0)
@@ -1296,16 +1633,14 @@ impl TxPoolAuthority {
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
-            let aggregate = self
-                .membership
-                .descendant_aggregates
-                .get(hash)
-                .copied()
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            let aggregate =
+                self.membership
+                    .descendant_aggregate(hash)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
             let key = EvictionOrderKey::new(&entry, aggregate);
-            if !self.membership.eviction_order.contains(&key) {
+            if !self.membership.contains_eviction_order(&key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
@@ -1330,16 +1665,14 @@ impl TxPoolAuthority {
                 continue;
             }
             let before = self.accepted_entry(hash)?;
-            let aggregate = self
-                .membership
-                .descendant_aggregates
-                .get(hash)
-                .copied()
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            let aggregate =
+                self.membership
+                    .descendant_aggregate(hash)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
             let before_key = EvictionOrderKey::new(&before, aggregate);
-            if !self.membership.eviction_order.contains(&before_key) {
+            if !self.membership.contains_eviction_order(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
@@ -1355,16 +1688,14 @@ impl TxPoolAuthority {
         ordered_aggregates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         for (hash, after_aggregate) in ordered_aggregates {
             let before = self.accepted_entry(&hash)?;
-            let before_aggregate = self
-                .membership
-                .descendant_aggregates
-                .get(&hash)
-                .copied()
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            let before_aggregate =
+                self.membership
+                    .descendant_aggregate(&hash)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
             let before_key = EvictionOrderKey::new(&before, before_aggregate);
-            if !self.membership.eviction_order.contains(&before_key) {
+            if !self.membership.contains_eviction_order(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
@@ -1436,7 +1767,7 @@ impl TxPoolAuthority {
                 .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
             for child in children {
                 frontier.push_back(child.clone());
-                if !removals.contains(child) && !affected.contains(child) {
+                if !removals.contains(&child) && !affected.contains(&child) {
                     affected.try_reserve(1).map_err(|_| {
                         super::PlanError::Backpressure(super::Backpressure::Allocation)
                     })?;
@@ -1467,16 +1798,14 @@ impl TxPoolAuthority {
 
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
-            let aggregate = self
-                .membership
-                .ancestor_aggregates
-                .get(hash)
-                .copied()
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            let aggregate =
+                self.membership
+                    .ancestor_aggregate(hash)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
             let key = AcceptedOrderKey::new(&entry, aggregate);
-            if !self.membership.accepted_order.contains(&key) {
+            if !self.membership.contains_accepted_order(&key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
@@ -1493,16 +1822,14 @@ impl TxPoolAuthority {
         ordered_affected.sort_unstable();
         for hash in ordered_affected {
             let entry = self.accepted_entry(&hash)?;
-            let before = self
-                .membership
-                .ancestor_aggregates
-                .get(&hash)
-                .copied()
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            let before =
+                self.membership
+                    .ancestor_aggregate(&hash)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::MembershipProjection,
+                    ))?;
             let before_key = AcceptedOrderKey::new(&entry, before);
-            if !self.membership.accepted_order.contains(&before_key) {
+            if !self.membership.contains_accepted_order(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
@@ -1513,7 +1840,7 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let ancestors = self.collect_surviving_ancestors(parents, removed)?;
+            let ancestors = self.collect_surviving_ancestors(&parents, removed)?;
             let mut after = AncestorAggregate::one(&entry);
             for ancestor in ancestors {
                 after = after
@@ -1645,7 +1972,7 @@ impl TxPoolAuthority {
             let removal = &planned.hash;
             let entry = self.accepted_entry(removal)?;
             for input in entry.proof.payload().footprint.inputs() {
-                if self.membership.spender(input) != Some(removal) {
+                if self.membership.spender(input) != Some(removal.clone()) {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ));
@@ -1690,7 +2017,7 @@ impl TxPoolAuthority {
             for parent in removal_parents {
                 let parent_children =
                     self.membership
-                        .children(parent)
+                        .children(&parent)
                         .ok_or(super::PlanError::Fault(
                             super::AuthorityFault::MembershipProjection,
                         ))?;
@@ -1707,7 +2034,7 @@ impl TxPoolAuthority {
             for child in removal_children {
                 let child_parents =
                     self.membership
-                        .parents(child)
+                        .parents(&child)
                         .ok_or(super::PlanError::Fault(
                             super::AuthorityFault::MembershipProjection,
                         ))?;
@@ -1727,7 +2054,7 @@ impl TxPoolAuthority {
             if self
                 .membership
                 .spender(input)
-                .is_some_and(|spender| !removed.contains(spender))
+                .is_some_and(|spender| !removed.contains(&spender))
             {
                 return Err(super::PlanError::Membership(
                     MembershipReject::InputConflict(input.clone()),
@@ -1763,7 +2090,7 @@ impl TxPoolAuthority {
         causal_edge_insertions.sort_unstable();
         causal_edge_insertions.dedup();
 
-        self.reserve_membership_owner_insertions(footprint.inputs().len(), 1)?;
+        self.reserve_membership_owner_insertions(footprint.inputs().iter(), std::iter::once(hash))?;
 
         let (dependency_row_insertions, dependency_row_removals) = self
             .prepare_dependency_edge_capacity(
@@ -1814,7 +2141,7 @@ impl TxPoolAuthority {
     }
 
     fn prepare_dependency_edge_capacity(
-        &mut self,
+        &self,
         removals: &[DependencyReaderEdge],
         insertions: &[DependencyReaderEdge],
     ) -> Result<(Vec<PreparedDependencyRow>, Vec<OutPoint>), super::PlanError> {
@@ -1859,11 +2186,18 @@ impl TxPoolAuthority {
             ))?;
         }
 
-        let new_rows = counts
-            .keys()
-            .filter(|dependency| self.membership.dependency_readers(dependency).is_none())
-            .count();
-        self.reserve_membership_dependency_rows(new_rows)?;
+        let mut new_row_keys = Vec::new();
+        new_row_keys
+            .try_reserve(counts.len())
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        new_row_keys.extend(
+            counts
+                .keys()
+                .filter(|dependency| self.membership.dependency_readers(dependency).is_none())
+                .cloned(),
+        );
+        let new_rows = new_row_keys.len();
+        self.reserve_membership_dependency_rows(new_row_keys.iter())?;
         let mut row_insertions = Vec::new();
         row_insertions
             .try_reserve(new_rows)
@@ -1894,7 +2228,9 @@ impl TxPoolAuthority {
                             .ok_or(super::PlanError::Fault(
                                 super::AuthorityFault::CounterExhausted,
                             ))?;
-                    self.reserve_membership_dependency_row(&dependency, insert_count)?;
+                    if insert_count != 0 {
+                        self.reserve_membership_dependency_row(&dependency, insert_count)?;
+                    }
                     if final_count == 0 {
                         row_removals.push(dependency);
                     }
@@ -1920,14 +2256,13 @@ impl TxPoolAuthority {
     }
 
     fn prepare_causal_edge_capacity(
-        &mut self,
+        &self,
         hash: &RawTxHash,
         parents: &HashSet<RawTxHash>,
         children: &HashSet<RawTxHash>,
         insertions: &[CausalEdge],
     ) -> Result<Vec<PreparedCausalNode>, super::PlanError> {
-        if self.membership.parents.contains_key(hash) || self.membership.children.contains_key(hash)
-        {
+        if self.membership.contains_parent_node(hash) || self.membership.contains_child_node(hash) {
             return Err(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
             ));
@@ -2036,7 +2371,7 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ))?;
             for child in children {
-                if excluded.contains(child) || closure.contains(child) {
+                if excluded.contains(&child) || closure.contains(&child) {
                     continue;
                 }
                 if closure.len() == remaining_limit {
@@ -2095,11 +2430,11 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ))?;
             for parent in parents {
-                if !closure.contains(parent) {
+                if !closure.contains(&parent) {
                     continue;
                 }
                 let count = remaining_children
-                    .get_mut(parent)
+                    .get_mut(&parent)
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ))?;
@@ -2174,7 +2509,7 @@ impl TxPoolAuthority {
                 || self
                     .membership
                     .spender(input)
-                    .is_some_and(|spender| removed.contains(spender))
+                    .is_some_and(|spender| removed.contains(&spender))
             {
                 continue;
             }
@@ -2217,7 +2552,7 @@ impl TxPoolAuthority {
         let child_limit = self.membership_config.max_component;
         let mut children = HashSet::new();
         for child in self.accepted_children_of_candidate(candidate) {
-            if removed.contains(child) || children.contains(child) {
+            if removed.contains(&child) || children.contains(&child) {
                 continue;
             }
             if children.len() == child_limit {
@@ -2228,7 +2563,7 @@ impl TxPoolAuthority {
                     },
                 ));
             }
-            self.accepted_entry(child)?;
+            self.accepted_entry(&child)?;
             children
                 .try_reserve(1)
                 .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
@@ -2240,7 +2575,7 @@ impl TxPoolAuthority {
     fn accepted_children_of_candidate<'authority>(
         &'authority self,
         candidate: &'authority AcceptedEntry,
-    ) -> impl Iterator<Item = &'authority RawTxHash> + 'authority {
+    ) -> impl Iterator<Item = RawTxHash> + 'authority {
         candidate
             .record
             .tx

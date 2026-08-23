@@ -339,7 +339,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                 .parents(descendant)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             let existing_ancestors =
-                authority.collect_surviving_ancestors(descendant_parents, removed)?;
+                authority.collect_surviving_ancestors(&descendant_parents, removed)?;
             let new_candidate_ancestors = self
                 .candidate_ancestors
                 .iter()
@@ -356,9 +356,7 @@ impl<'candidate> VirtualProjection<'candidate> {
             let descendant_entry = authority.accepted_entry(descendant)?;
             let mut ancestor_after = authority
                 .membership
-                .ancestor_aggregates
-                .get(descendant)
-                .copied()
+                .ancestor_aggregate(descendant)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             let expected_current_count = existing_ancestors
                 .len()
@@ -431,9 +429,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         }
         let aggregate = authority
             .membership
-            .descendant_aggregates
-            .get(hash)
-            .copied()
+            .descendant_aggregate(hash)
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         self.aggregate_after
             .try_reserve(1)
@@ -491,12 +487,11 @@ impl<'candidate> VirtualProjection<'candidate> {
     ) -> Option<EvictionOrderKey> {
         let base = authority
             .membership
-            .eviction_order
-            .iter()
+            .eviction_order()
+            .into_iter()
             .find(|key| {
                 !removed.contains(&key.hash) && !self.aggregate_after.contains_key(&key.hash)
-            })
-            .cloned();
+            });
         let sparse = self.virtual_order.first().cloned();
         match (base, sparse) {
             (Some(base), Some(sparse)) => Some(base.min(sparse)),
@@ -552,12 +547,10 @@ impl<'candidate> VirtualProjection<'candidate> {
             let entry = authority.accepted_entry(&removal.hash)?;
             let aggregate = authority
                 .membership
-                .ancestor_aggregates
-                .get(&removal.hash)
-                .copied()
+                .ancestor_aggregate(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             let key = AcceptedOrderKey::new(&entry, aggregate);
-            if !authority.membership.accepted_order.contains(&key) {
+            if !authority.membership.contains_accepted_order(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
             accepted_order_removals.push(key);
@@ -573,12 +566,10 @@ impl<'candidate> VirtualProjection<'candidate> {
                 let entry = authority.accepted_entry(hash)?;
                 let before = authority
                     .membership
-                    .ancestor_aggregates
-                    .get(hash)
-                    .copied()
+                    .ancestor_aggregate(hash)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
                 let key = AcceptedOrderKey::new(&entry, before);
-                if !authority.membership.accepted_order.contains(&key) {
+                if !authority.membership.contains_accepted_order(&key) {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                 }
                 accepted_order_removals.push(key);
@@ -597,12 +588,10 @@ impl<'candidate> VirtualProjection<'candidate> {
             let entry = authority.accepted_entry(&removal.hash)?;
             let aggregate = authority
                 .membership
-                .descendant_aggregates
-                .get(&removal.hash)
-                .copied()
+                .descendant_aggregate(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             let key = EvictionOrderKey::new(&entry, aggregate);
-            if !authority.membership.eviction_order.contains(&key) {
+            if !authority.membership.contains_eviction_order(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
             eviction_removals.push(key);
@@ -614,12 +603,10 @@ impl<'candidate> VirtualProjection<'candidate> {
             let entry = authority.accepted_entry(hash)?;
             let aggregate = authority
                 .membership
-                .descendant_aggregates
-                .get(hash)
-                .copied()
+                .descendant_aggregate(hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
             let key = EvictionOrderKey::new(&entry, aggregate);
-            if !authority.membership.eviction_order.contains(&key) {
+            if !authority.membership.contains_eviction_order(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
             eviction_removals.push(key);

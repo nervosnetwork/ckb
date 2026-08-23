@@ -104,10 +104,11 @@ impl ClaimEvidenceFrontier {
         cut: ClaimDependencyCut,
     ) -> bool {
         self.proof_is_current(dependencies, cut)
-            && self
-                .unindexed
-                .last_definitive_loss
-                .is_none_or(|loss| loss <= cut)
+            && (dependencies.is_empty()
+                || self
+                    .unindexed
+                    .last_definitive_loss
+                    .is_none_or(|loss| loss <= cut))
     }
 
     pub(crate) fn resolution_is_current(

@@ -157,6 +157,7 @@ fn validate_owner(
     if authority
         .indexes
         .proposal_owner(&before.record.identity.proposal)
+        .as_ref()
         != Some(&change.key)
     {
         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -264,7 +265,13 @@ fn prepare_projection(
             .map(|change| (&change.key, None, Some(change.after.status()))),
     )?;
 
-    authority.reserve_membership_owner_insertions(total_inputs, changes.len())?;
+    let _ = total_inputs;
+    authority.reserve_membership_owner_insertions(
+        changes
+            .iter()
+            .flat_map(|change| change.after.proof.payload().footprint.inputs().iter()),
+        changes.iter().map(|change| &change.key),
+    )?;
 
     let mut dependency_reader_insertions = Vec::new();
     dependency_reader_insertions

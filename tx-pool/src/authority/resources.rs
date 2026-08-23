@@ -1,6 +1,8 @@
 use super::{
     shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerWriteCut},
-    state::{ComputeAttribution, PreAcceptedEntry, RawTxHash, ValidatedAdmission, WorkPermit},
+    state::{
+        ComputeAttribution, OwnedTx, PreAcceptedEntry, RawTxHash, ValidatedAdmission, WorkPermit,
+    },
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
@@ -1196,6 +1198,50 @@ pub(super) struct OrderedResourceProjection {
 }
 
 impl ResourceLedger {
+    pub(super) fn plan_removal_batch(
+        &self,
+        entries: &ShardedOwnerMap,
+        changes: Vec<(RawTxHash, ChargeRecord)>,
+        shards: ShardResourcePlan,
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        let mut release = ResourceCapacityDelta::default();
+        for (key, expected) in changes {
+            expected.validate()?;
+            if entries.get(&key).as_deref().map(OwnedTx::charge_record) != Some(expected) {
+                return Err(ResourceError::ExistingChargeMismatch);
+            }
+            let charge = ChargeProjection::from_validated(Some(expected))?;
+            if let Some(resources) = charge.preaccepted {
+                release.preaccepted = release
+                    .preaccepted
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+            if let Some((_, resources)) = charge.peer {
+                release.remote = release
+                    .remote
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+            if let Some(resources) = charge.replacement_history {
+                release.replacement_history = release
+                    .replacement_history
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+            if let Some(resources) = charge.accepted {
+                release.accepted = release
+                    .accepted
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+        }
+        let capacity =
+            self.capacity
+                .reserve(ResourceCapacityDelta::default(), release, self.limits)?;
+        Ok(ResourceBatchPlan { shards, capacity })
+    }
+
     pub(super) fn new(limits: ResourceLimits) -> Self {
         Self {
             limits,
@@ -1331,7 +1377,7 @@ impl ResourceLedger {
     }
 
     pub(super) fn plan_replace<F>(
-        &mut self,
+        &self,
         entries: &ShardedOwnerMap,
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
@@ -1525,7 +1571,7 @@ impl ResourceLedger {
     }
 
     pub(super) fn plan_batch<F>(
-        &mut self,
+        &self,
         entries: &ShardedOwnerMap,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
         shards: ShardResourcePlan,

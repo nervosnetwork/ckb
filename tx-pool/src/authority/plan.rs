@@ -51,6 +51,8 @@ use super::scheduler::{
     FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerWakeProjection, VerifyOrder,
 };
+#[cfg(test)]
+use super::shard::ShardWriteSupport;
 use super::shard::{ShardStatusCountPlanError, ShardedOwnerMap, ShardedOwnerReadGuard};
 #[cfg(test)]
 use super::source::AuthoritySourceVersionSnapshot;
@@ -123,7 +125,7 @@ impl TxPoolAuthority {
     pub(super) fn accepted_spender(
         &self,
         input: &ckb_types::packed::OutPoint,
-    ) -> Option<&RawTxHash> {
+    ) -> Option<RawTxHash> {
         self.membership.spender(input)
     }
 
@@ -154,10 +156,9 @@ impl TxPoolAuthority {
             &self.entries,
             &self.indexes,
             &self.membership,
-            self.resources.read(&self.entries).accepted(),
             self.membership_config,
             self.source_versions.relay_parents(),
-            self.source_versions.template(),
+            &self.source_versions,
         )
     }
 
@@ -179,7 +180,8 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn template_source_versions(&self) -> PoolTemplateVersions {
-        self.source_versions.template()
+        let owners = self.entries.read_all();
+        owners.template_sources(self.source_versions.template())
     }
 
     fn wake_projection(&self) -> AuthorityWakeProjection {
@@ -189,6 +191,27 @@ impl TxPoolAuthority {
             dependency_maintenance: self.dependencies.maintenance_pending(),
             effects: self.effects.wake_projection(),
             template: self.source_versions.template(),
+        }
+    }
+
+    fn wake_projection_for_accepted_removal(
+        &self,
+        template_selection_changed: bool,
+    ) -> AuthorityWakeProjection {
+        let template_marker = ApplySequence(u128::from(template_selection_changed));
+        AuthorityWakeProjection {
+            scheduler: self.scheduler.wake_projection(),
+            // Accepted removal cannot change preaccepted active work. Keeping
+            // one equal sentinel on both sides avoids a 64-shard total scan in
+            // the disjoint write route without fabricating a wake edge.
+            active_work: 0,
+            dependency_maintenance: self.dependencies.maintenance_pending(),
+            effects: self.effects.wake_projection(),
+            template: PoolTemplateVersions {
+                proposals: template_marker,
+                transactions: template_marker,
+                chain: ApplySequence(0),
+            },
         }
     }
 }
@@ -887,13 +910,17 @@ impl FreshGeneration {
         scheduler: &FairFrontier,
         entries: &ShardedOwnerMap,
     ) -> Self {
+        let entries = ShardedOwnerMap::new(entries.router());
+        let indexes = AuthorityIndexes::for_entries(&entries);
+        let membership = MembershipProjection::for_entries(&entries);
+        let dependencies = DependencyFrontier::for_entries(&entries);
         Self {
-            entries: ShardedOwnerMap::new(entries.router()),
-            indexes: AuthorityIndexes::default(),
+            entries,
+            indexes,
             resources: ResourceLedger::new(resources.limits()),
-            membership: MembershipProjection::default(),
+            membership,
             scheduler: FairFrontier::new(scheduler.verify_order()),
-            dependencies: DependencyFrontier::default(),
+            dependencies,
         }
     }
 }
@@ -985,12 +1012,19 @@ impl std::ops::Deref for OwnerRemovalKeys {
 /// source versions, and retirement cannot acquire separate manual maps.
 struct OwnerRemovalBatch {
     hashes: Vec<RawTxHash>,
+    expected_versions: Vec<EntryVersion>,
     owners: DerivedOwnerDelta,
     resources: ResourceBatchPlan,
     membership: ProjectionDelta,
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
     retired: Vec<OwnedTx>,
+}
+
+#[derive(Clone, Copy)]
+enum OwnerRemovalSourceScope {
+    Complete,
+    TemplateSelectionOnly,
 }
 
 #[cfg(test)]
@@ -1179,6 +1213,23 @@ pub(super) struct PreparedApply<'authority> {
     /// pair it with a second source label whose agreement would need tests.
     delta: AuthorityDelta,
 }
+
+pub(super) enum ConcurrentLocalRemovalFallback {
+    Absent,
+    RequiresExclusive,
+}
+
+pub(super) type ConcurrentLocalRemovalPlan<'authority> =
+    Result<PreparedConcurrentLocalRemoval<'authority>, ConcurrentLocalRemovalFallback>;
+
+#[must_use = "a concurrent local removal has no effect until explicitly applied"]
+pub(super) struct PreparedConcurrentLocalRemoval<'authority> {
+    authority: &'authority TxPoolAuthority,
+    removal: OwnerRemovalBatch,
+    clocks: AuthorityClocks,
+}
+
+pub(super) struct ConcurrentLocalRemovalStale;
 
 #[must_use = "candidate disposition must be applied exactly once"]
 pub(super) enum CandidateDispositionPlan<'authority> {
@@ -1612,6 +1663,7 @@ impl PreparedApply<'_> {
     ) -> Vec<OwnedTx> {
         let OwnerRemovalBatch {
             hashes,
+            expected_versions: _,
             owners,
             resources,
             mut membership,
@@ -1678,6 +1730,60 @@ impl PreparedApply<'_> {
             retired_effect,
             retired_generation: None,
         }
+    }
+}
+
+impl PreparedConcurrentLocalRemoval<'_> {
+    pub(super) fn apply(self) -> Result<CommittedDelta, ConcurrentLocalRemovalStale> {
+        apply_seal::commit_concurrent(self)
+    }
+
+    fn apply_with(self, token: &ApplyToken) -> Result<CommittedDelta, ConcurrentLocalRemovalStale> {
+        let template_selection_changed = self.removal.owners.sources.template_selection_changed();
+        let before = self.authority.wake_projection_for_accepted_removal(false);
+        let retired = self
+            .authority
+            .commit_concurrent_owner_removal(token, self.removal)?;
+        let _reserved_clock_high_water = self.clocks;
+        let after = self
+            .authority
+            .wake_projection_for_accepted_removal(template_selection_changed);
+        Ok(CommittedDelta {
+            async_process_observations: AsyncProcessObservations::None,
+            removals: Vec::new(),
+            retired,
+            retired_effect: None,
+            retired_generation: None,
+            wake: AuthorityWakeTransition { before, after },
+        })
+    }
+}
+
+#[cfg(test)]
+impl PreparedConcurrentLocalRemoval<'_> {
+    pub(in crate::authority) fn physical_write_support(&self) -> ShardWriteSupport {
+        let mut support = self.authority.entries.owner_resource_write_support(
+            self.removal.hashes.iter(),
+            self.removal.membership.status_count_plan(),
+            self.removal.resources.shard_plan(),
+        );
+        support.include(
+            self.removal
+                .owners
+                .indexes
+                .sharded_write_support(&self.authority.entries),
+        );
+        support.include(
+            self.removal
+                .membership
+                .sharded_write_support(&self.authority.entries),
+        );
+        support.include(
+            self.removal
+                .dependency
+                .sharded_write_support(&self.authority.entries),
+        );
+        support
     }
 }
 
@@ -2270,12 +2376,12 @@ impl TxPoolAuthority {
                     .membership
                     .spender(input)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                if !final_owners.contains_removed(spender) {
+                if !final_owners.contains_removed(&spender) {
                     return Ok(false);
                 }
             }
             ReleasedInputContext::Administrative { victim } => {
-                if self.membership.spender(input) != Some(victim) {
+                if self.membership.spender(input) != Some(victim.clone()) {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                 }
             }
@@ -2310,7 +2416,7 @@ impl TxPoolAuthority {
             .checked_add(1)
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         if removals.is_empty() {
-            let (_entries, mut indexes, source_versions) = self.owner_derivation_parts();
+            let (_entries, indexes, source_versions) = self.owner_derivation_parts();
             let indexes = indexes.plan_replace(key, existing, Some(after))?;
             let sources = source_versions
                 .plan_replacements(std::iter::once((existing, Some(after))), sequence);
@@ -2337,7 +2443,7 @@ impl TxPoolAuthority {
         for (removal, removed) in &removed_owners {
             changes.push((&removal.hash, Some(removed), removal.after()));
         }
-        let (_entries, mut indexes, source_versions) = self.owner_derivation_parts();
+        let (_entries, indexes, source_versions) = self.owner_derivation_parts();
         let sources = source_versions.plan_replacements(
             changes.iter().map(|(_, before, after)| (*before, *after)),
             sequence,
@@ -2534,7 +2640,7 @@ impl TxPoolAuthority {
             let output_count = record.tx.data().raw().outputs().len();
             let origin = DependencyOrigin::Transaction(record.identity.raw.clone());
             let origin_keys = dependencies.keys_for_origin(&origin);
-            let origin_count = origin_keys.map_or(0, |keys| keys.len());
+            let origin_count = origin_keys.as_ref().map_or(0, |keys| keys.len());
             let additional = output_count
                 .checked_add(origin_count)
                 .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
@@ -3881,7 +3987,7 @@ impl TxPoolAuthority {
     }
 
     fn plan_owner_removal_batch(
-        &mut self,
+        &self,
         hashes: OwnerRemovalKeys,
         sequence: ApplySequence,
     ) -> Result<OwnerRemovalBatch, PlanError> {
@@ -3901,20 +4007,58 @@ impl TxPoolAuthority {
                 .cloned(),
         );
         let accepted_removals = AcceptedRemovalSet::try_from_vec(accepted_removals)?;
+        let available = self.collect_released_administrative_inputs(&accepted_removals)?;
+        self.compile_owner_removal_batch(
+            hashes,
+            accepted_removals,
+            available,
+            sequence,
+            OwnerRemovalSourceScope::Complete,
+        )
+    }
+
+    /// Compile one no-scan Accepted removal after the caller proved an empty
+    /// tx-pool causal neighborhood and chain-backed inputs. The ordinary
+    /// administrative compiler retains its all-owner projected-final-set
+    /// calculation for arbitrary descendant closures.
+    fn plan_closed_accepted_owner_removal_batch(
+        &self,
+        hashes: OwnerRemovalKeys,
+        available: Vec<DependencyKey>,
+        sequence: ApplySequence,
+    ) -> Result<OwnerRemovalBatch, PlanError> {
+        let accepted_removals = AcceptedRemovalSet::try_from_vec(hashes.iter().cloned().collect())?;
+        self.compile_owner_removal_batch(
+            hashes,
+            accepted_removals,
+            available,
+            sequence,
+            OwnerRemovalSourceScope::TemplateSelectionOnly,
+        )
+    }
+
+    fn compile_owner_removal_batch(
+        &self,
+        hashes: OwnerRemovalKeys,
+        accepted_removals: AcceptedRemovalSet,
+        mut available: Vec<DependencyKey>,
+        sequence: ApplySequence,
+        source_scope: OwnerRemovalSourceScope,
+    ) -> Result<OwnerRemovalBatch, PlanError> {
         if hashes.iter().any(|hash| !self.entries.contains_key(hash)) {
             return Err(PlanError::Fault(AuthorityFault::IndexProjection));
         }
         let membership = self.prepare_chain_projection(&accepted_removals, &HashMap::new())?;
-        let available = self.collect_released_administrative_inputs(&accepted_removals)?;
 
         let (
             entries,
-            mut resources_ledger,
+            resources_ledger,
             scheduler_frontier,
             dependencies_frontier,
             source_versions,
-            mut indexes,
-        ) = self.owner_removal_plan_parts();
+            indexes,
+        ) = self.concurrent_owner_removal_plan_parts();
+        available.retain(|key| dependencies_frontier.has_waiter_outside(key, &hashes));
         let mut owner_snapshots = Vec::new();
         owner_snapshots
             .try_reserve(hashes.len())
@@ -3936,9 +4080,9 @@ impl TxPoolAuthority {
             hashes
                 .iter()
                 .zip(&owner_snapshots)
-                .map(|(hash, owner)| (hash.clone(), Some(owner.charge_record()), None)),
+                .map(|(hash, owner)| (hash.clone(), owner.charge_record())),
         );
-        let resources = resources_ledger.plan_batch(resource_changes)?;
+        let resources = resources_ledger.plan_removal_batch(resource_changes)?;
         let scheduler = scheduler_frontier
             .plan_batch(owner_snapshots.iter().map(|owner| (Some(owner), None)))?;
         let lost =
@@ -3950,10 +4094,18 @@ impl TxPoolAuthority {
         let dependency = dependencies_frontier
             .plan_replacements(owner_snapshots.iter().map(|owner| (Some(owner), None)))?
             .with_control(dependency_control);
-        let sources = source_versions.plan_replacements(
-            owner_snapshots.iter().map(|owner| (Some(owner), None)),
-            sequence,
-        );
+        let replacements = || owner_snapshots.iter().map(|owner| (Some(owner), None));
+        let sources = match source_scope {
+            OwnerRemovalSourceScope::Complete => {
+                source_versions.plan_replacements(replacements(), sequence)
+            }
+            OwnerRemovalSourceScope::TemplateSelectionOnly => {
+                AuthoritySourceVersions::plan_template_selection_replacements(
+                    replacements(),
+                    sequence,
+                )
+            }
+        };
         let indexes = indexes.plan_replacements(
             hashes
                 .iter()
@@ -3962,8 +4114,13 @@ impl TxPoolAuthority {
         )?;
         let owners = DerivedOwnerDelta { indexes, sources };
         let retired = retired_buffer(hashes.len())?;
+        let expected_versions = owner_snapshots
+            .iter()
+            .map(|owner| owner.record().version)
+            .collect();
         Ok(OwnerRemovalBatch {
             hashes: hashes.into_inner(),
+            expected_versions,
             owners,
             resources,
             membership,
@@ -4040,6 +4197,89 @@ impl TxPoolAuthority {
         };
         self.plan_administrative_removal(hashes, AdminPlan::LocalRemoval { root: root.clone() })
             .map(Some)
+    }
+
+    pub(super) fn plan_concurrent_local_removal(
+        &self,
+        root: &RawTxHash,
+    ) -> Result<ConcurrentLocalRemovalPlan<'_>, PlanError> {
+        let Some(owner) = self.entries.get(root) else {
+            return Ok(Err(ConcurrentLocalRemovalFallback::Absent));
+        };
+        let OwnedTx::Accepted(entry) = &*owner else {
+            return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
+        };
+        if self
+            .membership
+            .parents(root)
+            .is_none_or(|parents| !parents.is_empty())
+            || self
+                .membership
+                .children(root)
+                .is_none_or(|children| !children.is_empty())
+            || entry
+                .proof
+                .payload()
+                .footprint()
+                .inputs()
+                .iter()
+                .any(|input| {
+                    !entry.proof.is_chain_input(input)
+                        || self.membership.spender(input).as_ref() != Some(root)
+                })
+            || entry
+                .proof
+                .payload()
+                .footprint()
+                .dependencies()
+                .iter()
+                .any(|dependency| {
+                    self.membership
+                        .dependency_readers(dependency)
+                        .is_none_or(|readers| readers.len() != 1 || !readers.contains(root))
+                })
+            || owner.dependencies().keys().iter().any(|key| {
+                self.dependencies
+                    .consumers_for(key)
+                    .is_none_or(|consumers| consumers.len() != 1 || !consumers.contains(root))
+            })
+        {
+            return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
+        }
+        let mut available = Vec::new();
+        available
+            .try_reserve_exact(entry.proof.payload().footprint().inputs().len())
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        available.extend(
+            entry
+                .proof
+                .payload()
+                .footprint()
+                .inputs()
+                .iter()
+                .cloned()
+                .map(DependencyKey::Cell),
+        );
+        drop(owner);
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
+        let removal = self.plan_closed_accepted_owner_removal_batch(
+            OwnerRemovalKeys::new(vec![root.clone()])?,
+            available,
+            clocks.sequence(),
+        )?;
+        if !removal.scheduler.is_empty()
+            || !removal
+                .dependency
+                .closed_removal_compatible(&self.dependencies)
+            || !removal.owners.sources.is_template_selection_only()
+        {
+            return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
+        }
+        Ok(Ok(PreparedConcurrentLocalRemoval {
+            authority: self,
+            removal,
+            clocks: clocks.finish(),
+        }))
     }
 
     /// Expire the oldest due Accepted root and its complete descendant

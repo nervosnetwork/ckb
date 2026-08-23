@@ -3,15 +3,19 @@
 //! Every index transition is compiled from the same owner before/after set.
 //! Callers cannot update proposal and ingress-peer views independently.
 
-use super::state::{AcceptedAtMillis, OwnedTx, ProposalId, RawTxHash, RemoteDeadline};
+use super::{
+    shard::{AUTHORITY_SHARD_COUNT, ShardedOwnerMap, ShardedOwnerWriteCut},
+    state::{AcceptedAtMillis, OwnedTx, ProposalId, RawTxHash, RemoteDeadline},
+};
 use ckb_network::PeerIndex;
+use ckb_util::parking_lot::RwLockReadGuard;
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     ops::Bound::{Excluded, Unbounded},
 };
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct DeadlineKey {
+pub(in crate::authority) struct DeadlineKey {
     // Remote residency expiry is immutable for one owner and is validated
     // against the current primary entry when consumed. Compute phase/version
     // churn therefore must not detach and reinsert the same deadline.
@@ -22,7 +26,7 @@ struct DeadlineKey {
 /// Accepted expiry is tied to the immutable admission timestamp, not the OCC
 /// version. Status-only version changes therefore do not churn this index.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct AcceptedDeadlineKey {
+pub(in crate::authority) struct AcceptedDeadlineKey {
     accepted_at: AcceptedAtMillis,
     hash: RawTxHash,
 }
@@ -128,56 +132,146 @@ pub(super) struct IndexDelta {
     accepted_deadline_insertions: Vec<AcceptedDeadlineKey>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct AuthorityIndexes {
-    by_proposal: HashMap<ProposalId, RawTxHash>,
-    preaccepted_by_peer: HashMap<PeerIndex, HashSet<RawTxHash>>,
-    context_sensitive_accepted: HashSet<RawTxHash>,
-    deadlines: BTreeSet<DeadlineKey>,
-    accepted_deadlines: BTreeSet<AcceptedDeadlineKey>,
+    entries: ShardedOwnerMap,
 }
 
+pub(super) struct ContextSensitiveAcceptedReadCut<'authority> {
+    shards: [RwLockReadGuard<'authority, super::shard::AuthorityShard>; AUTHORITY_SHARD_COUNT],
+}
+
+impl ContextSensitiveAcceptedReadCut<'_> {
+    pub(super) fn iter(&self) -> impl Iterator<Item = &RawTxHash> {
+        self.shards
+            .iter()
+            .flat_map(|shard| shard.context_sensitive_accepted.iter())
+    }
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sole shard router and fixed-array enumerations stay within the 64-shard layout"
+)]
+impl AuthorityIndexes {
+    pub(super) fn for_entries(entries: &ShardedOwnerMap) -> Self {
+        Self {
+            entries: entries.clone(),
+        }
+    }
+
+    fn proposal_shard(&self, proposal: &ProposalId) -> usize {
+        self.entries
+            .layout
+            .router
+            .shard(b"index/proposal", proposal)
+    }
+
+    fn context_shard(&self, key: &RawTxHash) -> usize {
+        self.entries.layout.router.shard(b"index/context", key)
+    }
+
+    fn peer_shard(&self, peer: &PeerIndex) -> usize {
+        self.entries.layout.router.shard(b"index/peer", peer)
+    }
+
+    fn deadline_shard(&self, key: &DeadlineKey) -> usize {
+        self.entries.layout.router.shard(b"index/deadline", key)
+    }
+
+    fn accepted_deadline_shard(&self, key: &AcceptedDeadlineKey) -> usize {
+        self.entries
+            .layout
+            .router
+            .shard(b"index/accepted-deadline", key)
+    }
+
+    fn proposal_owner_ref(&self, proposal: &ProposalId) -> Option<RawTxHash> {
+        self.entries.layout.shards[self.proposal_shard(proposal)]
+            .read()
+            .proposals
+            .get(proposal)
+            .cloned()
+    }
+
+    fn contains_context(&self, key: &RawTxHash) -> bool {
+        self.entries.layout.shards[self.context_shard(key)]
+            .read()
+            .context_sensitive_accepted
+            .contains(key)
+    }
+
+    fn contains_accepted_deadline(&self, key: &AcceptedDeadlineKey) -> bool {
+        self.entries.layout.shards[self.accepted_deadline_shard(key)]
+            .read()
+            .accepted_deadlines
+            .contains(key)
+    }
+
+    fn contains_deadline(&self, key: &DeadlineKey) -> bool {
+        self.entries.layout.shards[self.deadline_shard(key)]
+            .read()
+            .deadlines
+            .contains(key)
+    }
+
+    fn peer_contains(&self, peer: PeerIndex, key: &RawTxHash) -> bool {
+        self.entries.layout.shards[self.peer_shard(&peer)]
+            .read()
+            .preaccepted_by_peer
+            .get(&peer)
+            .is_some_and(|owners| owners.contains(key))
+    }
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sole shard router and fixed-array enumerations stay within the 64-shard layout"
+)]
 impl AuthorityIndexes {
     fn validate_present_fact(&self, key: &RawTxHash, fact: &IndexFact) -> Result<(), IndexError> {
-        if self.by_proposal.get(&fact.proposal) != Some(key) {
+        if self.proposal_owner_ref(&fact.proposal).as_ref() != Some(key) {
             return Err(IndexError::Projection);
         }
         if let Some(peer) = fact.preaccepted_peer
-            && !self
-                .preaccepted_by_peer
-                .get(&peer)
-                .is_some_and(|owners| owners.contains(key))
+            && !self.peer_contains(peer, key)
         {
             return Err(IndexError::Projection);
         }
-        if self.context_sensitive_accepted.contains(key) != fact.context_sensitive_accepted {
+        if self.contains_context(key) != fact.context_sensitive_accepted {
             return Err(IndexError::Projection);
         }
         if fact
             .deadline_key(key)
-            .is_some_and(|deadline| !self.deadlines.contains(&deadline))
+            .is_some_and(|deadline| !self.contains_deadline(&deadline))
         {
             return Err(IndexError::Projection);
         }
         if fact
             .accepted_deadline_key(key)
-            .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
+            .is_some_and(|deadline| !self.contains_accepted_deadline(&deadline))
         {
             return Err(IndexError::Projection);
         }
         Ok(())
     }
 
-    pub(super) fn proposal_owner(&self, proposal: &ProposalId) -> Option<&RawTxHash> {
-        self.by_proposal.get(proposal)
+    pub(super) fn proposal_owner(&self, proposal: &ProposalId) -> Option<RawTxHash> {
+        self.proposal_owner_ref(proposal)
     }
 
-    pub(super) fn preaccepted_for_peer(&self, peer: PeerIndex) -> Option<&HashSet<RawTxHash>> {
-        self.preaccepted_by_peer.get(&peer)
+    pub(super) fn preaccepted_for_peer(&self, peer: PeerIndex) -> Option<HashSet<RawTxHash>> {
+        self.entries.layout.shards[self.peer_shard(&peer)]
+            .read()
+            .preaccepted_by_peer
+            .get(&peer)
+            .cloned()
     }
 
-    pub(super) fn context_sensitive_accepted(&self) -> &HashSet<RawTxHash> {
-        &self.context_sensitive_accepted
+    pub(super) fn context_sensitive_accepted(&self) -> ContextSensitiveAcceptedReadCut<'_> {
+        ContextSensitiveAcceptedReadCut {
+            shards: std::array::from_fn(|shard| self.entries.layout.shards[shard].read()),
+        }
     }
 
     pub(super) fn due_remote(
@@ -185,15 +279,27 @@ impl AuthorityIndexes {
         now: RemoteDeadline,
         limit: usize,
     ) -> Result<Vec<DueRemote>, IndexError> {
+        let shards: [RwLockReadGuard<'_, super::shard::AuthorityShard>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let mut rows: [std::collections::btree_set::Iter<'_, DeadlineKey>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| shards[shard].deadlines.iter());
+        let mut heads: [Option<&DeadlineKey>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| rows[shard].next());
         let mut due = Vec::new();
-        due.try_reserve(limit.min(self.deadlines.len()))
-            .map_err(|_| IndexError::Allocation)?;
-        for deadline in self
-            .deadlines
-            .iter()
-            .take_while(|deadline| deadline.expires_at <= now)
-            .take(limit)
-        {
+        due.try_reserve(limit).map_err(|_| IndexError::Allocation)?;
+        while due.len() < limit {
+            let Some((shard, deadline)) = heads
+                .iter()
+                .enumerate()
+                .filter_map(|(shard, row)| row.map(|row| (shard, row)))
+                .min_by(|(_, left), (_, right)| left.cmp(right))
+            else {
+                break;
+            };
+            if deadline.expires_at > now {
+                break;
+            }
+            heads[shard] = rows[shard].next();
             due.push(DueRemote {
                 expires_at: deadline.expires_at,
                 hash: deadline.hash.clone(),
@@ -213,7 +319,10 @@ impl AuthorityIndexes {
         page: &mut Vec<DueRemote>,
     ) -> Result<bool, IndexError> {
         page.clear();
-        if page.capacity() < limit.min(self.deadlines.len()) {
+        let shards: [RwLockReadGuard<'_, super::shard::AuthorityShard>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let total = shards.iter().map(|shard| shard.deadlines.len()).sum();
+        if page.capacity() < limit.min(total) {
             return Err(IndexError::Allocation);
         }
         let after = after.map(|cursor| DeadlineKey {
@@ -221,14 +330,26 @@ impl AuthorityIndexes {
             hash: cursor.hash.clone(),
         });
         let start = after.as_ref().map_or(Unbounded, Excluded);
-        let mut entries = self.deadlines.range((start, Unbounded));
-        for deadline in entries.by_ref().take(limit) {
+        let mut rows: [std::collections::btree_set::Range<'_, DeadlineKey>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| shards[shard].deadlines.range((start, Unbounded)));
+        let mut heads: [Option<&DeadlineKey>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| rows[shard].next());
+        while page.len() < limit {
+            let Some((shard, deadline)) = heads
+                .iter()
+                .enumerate()
+                .filter_map(|(shard, row)| row.map(|row| (shard, row)))
+                .min_by(|(_, left), (_, right)| left.cmp(right))
+            else {
+                break;
+            };
+            heads[shard] = rows[shard].next();
             page.push(DueRemote {
                 expires_at: deadline.expires_at,
                 hash: deadline.hash.clone(),
             });
         }
-        Ok(entries.next().is_some())
+        Ok(heads.iter().any(Option::is_some))
     }
 
     pub(super) fn due_accepted(
@@ -236,15 +357,28 @@ impl AuthorityIndexes {
         cutoff: AcceptedAtMillis,
         limit: usize,
     ) -> Result<Vec<DueAccepted>, IndexError> {
+        let shards: [RwLockReadGuard<'_, super::shard::AuthorityShard>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let mut rows: [std::collections::btree_set::Iter<'_, AcceptedDeadlineKey>;
+            AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| shards[shard].accepted_deadlines.iter());
+        let mut heads: [Option<&AcceptedDeadlineKey>; AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| rows[shard].next());
         let mut due = Vec::new();
-        due.try_reserve(limit.min(self.accepted_deadlines.len()))
-            .map_err(|_| IndexError::Allocation)?;
-        for deadline in self
-            .accepted_deadlines
-            .iter()
-            .take_while(|deadline| deadline.accepted_at <= cutoff)
-            .take(limit)
-        {
+        due.try_reserve(limit).map_err(|_| IndexError::Allocation)?;
+        while due.len() < limit {
+            let Some((shard, deadline)) = heads
+                .iter()
+                .enumerate()
+                .filter_map(|(shard, row)| row.map(|row| (shard, row)))
+                .min_by(|(_, left), (_, right)| left.cmp(right))
+            else {
+                break;
+            };
+            if deadline.accepted_at > cutoff {
+                break;
+            }
+            heads[shard] = rows[shard].next();
             due.push(DueAccepted {
                 accepted_at: deadline.accepted_at,
                 hash: deadline.hash.clone(),
@@ -257,7 +391,7 @@ impl AuthorityIndexes {
     /// index facts are unchanged. Compute phase and accepted-status changes
     /// therefore pay only projection validation, not batch-planner storage.
     pub(super) fn plan_replace(
-        &mut self,
+        &self,
         key: &RawTxHash,
         before: Option<&OwnedTx>,
         after: Option<&OwnedTx>,
@@ -284,10 +418,12 @@ impl AuthorityIndexes {
                     .push((before.proposal.clone(), key.clone()));
             }
             if let Some(after) = &after {
-                if self.by_proposal.contains_key(&after.proposal) {
+                if self.proposal_owner_ref(&after.proposal).is_some() {
                     return Err(IndexError::ProposalCollision);
                 }
-                self.by_proposal
+                self.entries.layout.shards[self.proposal_shard(&after.proposal)]
+                    .write()
+                    .proposals
                     .try_reserve(1)
                     .map_err(|_| IndexError::Allocation)?;
                 delta
@@ -316,14 +452,11 @@ impl AuthorityIndexes {
                 delta.touched_peers.push(peer);
             }
             if let Some(peer) = after_peer {
-                if self
-                    .preaccepted_by_peer
-                    .get(&peer)
-                    .is_some_and(|owners| owners.contains(key))
-                {
+                if self.peer_contains(peer, key) {
                     return Err(IndexError::Projection);
                 }
-                if let Some(row) = self.preaccepted_by_peer.get_mut(&peer) {
+                let mut shard = self.entries.layout.shards[self.peer_shard(&peer)].write();
+                if let Some(row) = shard.preaccepted_by_peer.get_mut(&peer) {
                     row.try_reserve(1).map_err(|_| IndexError::Allocation)?;
                     delta
                         .peer_insertions
@@ -336,7 +469,8 @@ impl AuthorityIndexes {
                     delta.peer_insertions.push((peer, key.clone()));
                     delta.touched_peers.push(peer);
                 } else {
-                    self.preaccepted_by_peer
+                    shard
+                        .preaccepted_by_peer
                         .try_reserve(1)
                         .map_err(|_| IndexError::Allocation)?;
                     let mut row = HashSet::new();
@@ -367,10 +501,12 @@ impl AuthorityIndexes {
                 delta.context_removals.push(key.clone());
             }
             if after_context {
-                if self.context_sensitive_accepted.contains(key) {
+                if self.contains_context(key) {
                     return Err(IndexError::Projection);
                 }
-                self.context_sensitive_accepted
+                self.entries.layout.shards[self.context_shard(key)]
+                    .write()
+                    .context_sensitive_accepted
                     .try_reserve(1)
                     .map_err(|_| IndexError::Allocation)?;
                 delta
@@ -387,7 +523,7 @@ impl AuthorityIndexes {
                 delta.deadline_removals.push(deadline);
             }
             if let Some(deadline) = after_deadline {
-                if self.deadlines.contains(&deadline) {
+                if self.contains_deadline(&deadline) {
                     return Err(IndexError::Projection);
                 }
                 delta.deadline_insertions.push(deadline);
@@ -404,7 +540,7 @@ impl AuthorityIndexes {
                 delta.accepted_deadline_removals.push(deadline);
             }
             if let Some(deadline) = after_accepted_deadline {
-                if self.accepted_deadlines.contains(&deadline) {
+                if self.contains_accepted_deadline(&deadline) {
                     return Err(IndexError::Projection);
                 }
                 delta.accepted_deadline_insertions.push(deadline);
@@ -418,7 +554,7 @@ impl AuthorityIndexes {
     /// general compiler is deliberately not called, so this emergency path
     /// has no insertion, removal, reservation, or allocation error surface.
     pub(super) fn plan_stable_replace(
-        &mut self,
+        &self,
         key: &RawTxHash,
         before: &OwnedTx,
         after: &OwnedTx,
@@ -436,7 +572,7 @@ impl AuthorityIndexes {
     }
 
     pub(super) fn plan_replacements<'entry>(
-        &mut self,
+        &self,
         changes: impl IntoIterator<
             Item = (
                 &'entry RawTxHash,
@@ -516,35 +652,30 @@ impl AuthorityIndexes {
             .map_err(|_| IndexError::Allocation)?;
         for change in &changes {
             if let Some(before) = &change.before {
-                if self.by_proposal.get(&before.proposal) != Some(&change.key) {
+                if self.proposal_owner_ref(&before.proposal).as_ref() != Some(&change.key) {
                     return Err(IndexError::Projection);
                 }
                 if let Some(peer) = before.preaccepted_peer
-                    && !self
-                        .preaccepted_by_peer
-                        .get(&peer)
-                        .is_some_and(|owners| owners.contains(&change.key))
+                    && !self.peer_contains(peer, &change.key)
                 {
                     return Err(IndexError::Projection);
                 }
-                if self.context_sensitive_accepted.contains(&change.key)
-                    != before.context_sensitive_accepted
-                {
+                if self.contains_context(&change.key) != before.context_sensitive_accepted {
                     return Err(IndexError::Projection);
                 }
                 if before
                     .deadline_key(&change.key)
-                    .is_some_and(|deadline| !self.deadlines.contains(&deadline))
+                    .is_some_and(|deadline| !self.contains_deadline(&deadline))
                 {
                     return Err(IndexError::Projection);
                 }
                 if before
                     .accepted_deadline_key(&change.key)
-                    .is_some_and(|deadline| !self.accepted_deadlines.contains(&deadline))
+                    .is_some_and(|deadline| !self.contains_accepted_deadline(&deadline))
                 {
                     return Err(IndexError::Projection);
                 }
-            } else if self.context_sensitive_accepted.contains(&change.key) {
+            } else if self.contains_context(&change.key) {
                 return Err(IndexError::Projection);
             }
             let before_proposal = change.before.as_ref().map(|fact| &fact.proposal);
@@ -629,7 +760,7 @@ impl AuthorityIndexes {
                 .array_windows::<2>()
                 .any(|[left, right]| left == right)
             || deadline_insertions.iter().any(|deadline| {
-                self.deadlines.contains(deadline)
+                self.contains_deadline(deadline)
                     && deadline_removals.binary_search(deadline).is_err()
             })
         {
@@ -645,7 +776,7 @@ impl AuthorityIndexes {
                 .array_windows::<2>()
                 .any(|[left, right]| left == right)
             || accepted_deadline_insertions.iter().any(|deadline| {
-                self.accepted_deadlines.contains(deadline)
+                self.contains_accepted_deadline(deadline)
                     && accepted_deadline_removals.binary_search(deadline).is_err()
             })
         {
@@ -667,44 +798,72 @@ impl AuthorityIndexes {
             return Err(IndexError::ProposalCollision);
         }
         for (proposal, _) in &proposal_insertions {
-            if let Some(current) = self.by_proposal.get(proposal)
+            if let Some(current) = self.proposal_owner_ref(proposal)
                 && proposal_removals
                     .binary_search_by(|(removed, _)| removed.cmp(proposal))
                     .ok()
                     .and_then(|index| proposal_removals.get(index))
                     .map(|(_, hash)| hash)
-                    != Some(current)
+                    != Some(&current)
             {
                 return Err(IndexError::ProposalCollision);
             }
         }
         let new_proposals = proposal_insertions
             .iter()
-            .filter(|(proposal, _)| !self.by_proposal.contains_key(proposal))
+            .filter(|(proposal, _)| self.proposal_owner_ref(proposal).is_none())
             .count();
-        self.by_proposal
-            .try_reserve(new_proposals)
-            .map_err(|_| IndexError::Allocation)?;
+        if new_proposals != 0 {
+            let mut additions = [0usize; AUTHORITY_SHARD_COUNT];
+            for (proposal, _) in &proposal_insertions {
+                if self.proposal_owner_ref(proposal).is_none() {
+                    let shard = self.proposal_shard(proposal);
+                    additions[shard] = additions[shard]
+                        .checked_add(1)
+                        .ok_or(IndexError::Arithmetic)?;
+                }
+            }
+            for (shard, additional) in self.entries.layout.shards.iter().zip(additions) {
+                if additional == 0 {
+                    continue;
+                }
+                shard
+                    .write()
+                    .proposals
+                    .try_reserve(additional)
+                    .map_err(|_| IndexError::Allocation)?;
+            }
+        }
 
         for key in &context_insertions {
-            if self.context_sensitive_accepted.contains(key) {
+            if self.contains_context(key) {
                 return Err(IndexError::Projection);
             }
         }
-        self.context_sensitive_accepted
-            .try_reserve(context_insertions.len())
-            .map_err(|_| IndexError::Allocation)?;
+        let mut context_additions = [0usize; AUTHORITY_SHARD_COUNT];
+        for key in &context_insertions {
+            let shard = self.context_shard(key);
+            context_additions[shard] = context_additions[shard]
+                .checked_add(1)
+                .ok_or(IndexError::Arithmetic)?;
+        }
+        for (shard, additional) in self.entries.layout.shards.iter().zip(context_additions) {
+            if additional == 0 {
+                continue;
+            }
+            shard
+                .write()
+                .context_sensitive_accepted
+                .try_reserve(additional)
+                .map_err(|_| IndexError::Allocation)?;
+        }
 
         let mut additions_by_peer = HashMap::<PeerIndex, usize>::new();
         additions_by_peer
             .try_reserve(peer_insertions.len())
             .map_err(|_| IndexError::Allocation)?;
         for (peer, key) in &peer_insertions {
-            if self
-                .preaccepted_by_peer
-                .get(peer)
-                .is_some_and(|owners| owners.contains(key))
-            {
+            if self.peer_contains(*peer, key) {
                 return Err(IndexError::Projection);
             }
             let count = additions_by_peer.entry(*peer).or_default();
@@ -712,18 +871,35 @@ impl AuthorityIndexes {
         }
         let new_peer_count = additions_by_peer
             .keys()
-            .filter(|peer| !self.preaccepted_by_peer.contains_key(peer))
+            .filter(|peer| self.preaccepted_for_peer(**peer).is_none())
             .count();
-        self.preaccepted_by_peer
-            .try_reserve(new_peer_count)
-            .map_err(|_| IndexError::Allocation)?;
+        let mut new_peers_by_shard = [0usize; AUTHORITY_SHARD_COUNT];
+        for peer in additions_by_peer.keys() {
+            if self.preaccepted_for_peer(*peer).is_none() {
+                let shard = self.peer_shard(peer);
+                new_peers_by_shard[shard] = new_peers_by_shard[shard]
+                    .checked_add(1)
+                    .ok_or(IndexError::Arithmetic)?;
+            }
+        }
+        for (shard, additional) in self.entries.layout.shards.iter().zip(new_peers_by_shard) {
+            if additional == 0 {
+                continue;
+            }
+            shard
+                .write()
+                .preaccepted_by_peer
+                .try_reserve(additional)
+                .map_err(|_| IndexError::Allocation)?;
+        }
 
         let mut new_rows = HashMap::<PeerIndex, HashSet<RawTxHash>>::new();
         new_rows
             .try_reserve(new_peer_count)
             .map_err(|_| IndexError::Allocation)?;
         for (peer, additions) in additions_by_peer {
-            if let Some(row) = self.preaccepted_by_peer.get_mut(&peer) {
+            let mut shard = self.entries.layout.shards[self.peer_shard(&peer)].write();
+            if let Some(row) = shard.preaccepted_by_peer.get_mut(&peer) {
                 row.try_reserve(additions)
                     .map_err(|_| IndexError::Allocation)?;
             } else {
@@ -786,52 +962,146 @@ impl AuthorityIndexes {
         })
     }
 
-    pub(super) fn apply(&mut self, delta: IndexDelta) {
-        for (proposal, _) in delta.proposal_removals {
-            self.by_proposal.remove(&proposal);
+    pub(super) fn apply(&self, mut delta: IndexDelta) {
+        let support = delta.sharded_write_support(&self.entries);
+        let mut cut = self.entries.write_cut(support);
+        delta.apply_sharded(&self.entries, &mut cut);
+    }
+}
+
+impl IndexDelta {
+    pub(in crate::authority) fn sharded_write_support(
+        &self,
+        entries: &ShardedOwnerMap,
+    ) -> super::shard::ShardWriteSupport {
+        let mut support = super::shard::ShardWriteSupport::default();
+        for (proposal, key) in self
+            .proposal_removals
+            .iter()
+            .chain(&self.proposal_insertions)
+        {
+            support.insert(entries.layout.router.shard(b"index/proposal", proposal));
+            support.insert(entries.layout.router.shard(b"index/context", key));
         }
-        for (proposal, key) in delta.proposal_insertions {
-            self.by_proposal.insert(proposal, key);
+        for (peer, _) in self.peer_removals.iter().chain(&self.peer_insertions) {
+            support.insert(entries.layout.router.shard(b"index/peer", peer));
         }
-        for (peer, key) in delta.peer_removals {
-            if let Some(row) = self.preaccepted_by_peer.get_mut(&peer) {
+        for (peer, _) in &self.new_peer_rows {
+            support.insert(entries.layout.router.shard(b"index/peer", peer));
+        }
+        for peer in &self.touched_peers {
+            support.insert(entries.layout.router.shard(b"index/peer", peer));
+        }
+        for key in self.context_removals.iter().chain(&self.context_insertions) {
+            support.insert(entries.layout.router.shard(b"index/context", key));
+        }
+        for deadline in self
+            .deadline_removals
+            .iter()
+            .chain(&self.deadline_insertions)
+        {
+            support.insert(entries.layout.router.shard(b"index/deadline", deadline));
+        }
+        for deadline in self
+            .accepted_deadline_removals
+            .iter()
+            .chain(&self.accepted_deadline_insertions)
+        {
+            support.insert(
+                entries
+                    .layout
+                    .router
+                    .shard(b"index/accepted-deadline", deadline),
+            );
+        }
+        support
+    }
+
+    pub(in crate::authority) fn apply_sharded(
+        &mut self,
+        entries: &ShardedOwnerMap,
+        cut: &mut ShardedOwnerWriteCut<'_>,
+    ) {
+        for (proposal, _) in std::mem::take(&mut self.proposal_removals) {
+            let shard = entries.layout.router.shard(b"index/proposal", &proposal);
+            cut.projection_shard_mut(shard).proposals.remove(&proposal);
+        }
+        for (proposal, key) in std::mem::take(&mut self.proposal_insertions) {
+            let shard = entries.layout.router.shard(b"index/proposal", &proposal);
+            cut.projection_shard_mut(shard)
+                .proposals
+                .insert(proposal, key);
+        }
+        for (peer, key) in std::mem::take(&mut self.peer_removals) {
+            let shard = entries.layout.router.shard(b"index/peer", &peer);
+            if let Some(row) = cut
+                .projection_shard_mut(shard)
+                .preaccepted_by_peer
+                .get_mut(&peer)
+            {
                 row.remove(&key);
             }
         }
-        for (peer, row) in delta.new_peer_rows {
-            self.preaccepted_by_peer.insert(peer, row);
+        for (peer, row) in std::mem::take(&mut self.new_peer_rows) {
+            let shard = entries.layout.router.shard(b"index/peer", &peer);
+            cut.projection_shard_mut(shard)
+                .preaccepted_by_peer
+                .insert(peer, row);
         }
-        for (peer, key) in delta.peer_insertions {
-            if let Some(row) = self.preaccepted_by_peer.get_mut(&peer) {
+        for (peer, key) in std::mem::take(&mut self.peer_insertions) {
+            let shard = entries.layout.router.shard(b"index/peer", &peer);
+            if let Some(row) = cut
+                .projection_shard_mut(shard)
+                .preaccepted_by_peer
+                .get_mut(&peer)
+            {
                 row.insert(key);
             }
         }
-        for peer in delta.touched_peers {
-            if self
-                .preaccepted_by_peer
-                .get(&peer)
-                .is_some_and(HashSet::is_empty)
-            {
-                self.preaccepted_by_peer.remove(&peer);
+        for peer in std::mem::take(&mut self.touched_peers) {
+            let shard = entries.layout.router.shard(b"index/peer", &peer);
+            let rows = &mut cut.projection_shard_mut(shard).preaccepted_by_peer;
+            if rows.get(&peer).is_some_and(HashSet::is_empty) {
+                rows.remove(&peer);
             }
         }
-        for key in delta.context_removals {
-            self.context_sensitive_accepted.remove(&key);
+        for key in std::mem::take(&mut self.context_removals) {
+            let shard = entries.layout.router.shard(b"index/context", &key);
+            cut.projection_shard_mut(shard)
+                .context_sensitive_accepted
+                .remove(&key);
         }
-        for key in delta.context_insertions {
-            self.context_sensitive_accepted.insert(key);
+        for key in std::mem::take(&mut self.context_insertions) {
+            let shard = entries.layout.router.shard(b"index/context", &key);
+            cut.projection_shard_mut(shard)
+                .context_sensitive_accepted
+                .insert(key);
         }
-        for deadline in delta.deadline_removals {
-            self.deadlines.remove(&deadline);
+        for deadline in std::mem::take(&mut self.deadline_removals) {
+            let shard = entries.layout.router.shard(b"index/deadline", &deadline);
+            cut.projection_shard_mut(shard).deadlines.remove(&deadline);
         }
-        for deadline in delta.deadline_insertions {
-            self.deadlines.insert(deadline);
+        for deadline in std::mem::take(&mut self.deadline_insertions) {
+            let shard = entries.layout.router.shard(b"index/deadline", &deadline);
+            cut.projection_shard_mut(shard).deadlines.insert(deadline);
         }
-        for deadline in delta.accepted_deadline_removals {
-            self.accepted_deadlines.remove(&deadline);
+        for deadline in std::mem::take(&mut self.accepted_deadline_removals) {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"index/accepted-deadline", &deadline);
+            cut.projection_shard_mut(shard)
+                .accepted_deadlines
+                .remove(&deadline);
         }
-        for deadline in delta.accepted_deadline_insertions {
-            self.accepted_deadlines.insert(deadline);
+        for deadline in std::mem::take(&mut self.accepted_deadline_insertions) {
+            let shard = entries
+                .layout
+                .router
+                .shard(b"index/accepted-deadline", &deadline);
+            cut.projection_shard_mut(shard)
+                .accepted_deadlines
+                .insert(deadline);
         }
     }
 }

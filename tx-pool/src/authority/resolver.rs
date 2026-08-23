@@ -333,7 +333,7 @@ impl AcceptedOverlay {
         authority: &TxPoolAuthority,
         out_point: &OutPoint,
     ) -> Option<AcceptedOwnerObservation> {
-        let key = authority.accepted_spender(out_point)?.clone();
+        let key = authority.accepted_spender(out_point)?;
         let owner = authority.entry_guard(&key);
         let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
             return None;

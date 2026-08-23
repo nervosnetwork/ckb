@@ -27,7 +27,7 @@ impl AuthorityReadView<'_> {
             .try_reserve(proposed_capacity)
             .map_err(|_| AuthorityReadError::Allocation)?;
         for order in self.accepted_order() {
-            let accepted = self.accepted_entry_for_order(order)?;
+            let accepted = self.accepted_entry_for_order(&order)?;
             match accepted.entry().status() {
                 AcceptedStatus::Pending | AcceptedStatus::Gap => pending.push(order.hash().clone()),
                 AcceptedStatus::Proposed => proposed.push(order.hash().clone()),

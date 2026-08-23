@@ -317,7 +317,7 @@ impl TxPoolAuthority {
                 // compact cell identity, never the whole block transaction.
                 let conflict_out_point = crate::util::compact_packed(&input);
                 if let Some(spender) = self.membership.spender(&input)
-                    && spender != &attached_hash
+                    && spender != attached_hash
                 {
                     causal.seed_accepted(
                         spender.clone(),
@@ -371,7 +371,8 @@ impl TxPoolAuthority {
         match facts.accepted_validity {
             crate::authority::chain::AcceptedValidityTransition::Preserved => {}
             crate::authority::chain::AcceptedValidityTransition::ContextChanged => {
-                for hash in self.indexes.context_sensitive_accepted() {
+                let context_sensitive = self.indexes.context_sensitive_accepted();
+                for hash in context_sensitive.iter() {
                     if !matches!(
                         self.entries.get(hash).as_deref(),
                         Some(OwnedTx::Accepted(_))
@@ -507,10 +508,10 @@ impl TxPoolAuthority {
             let Some(hash) = self.indexes.proposal_owner(proposal) else {
                 continue;
             };
-            if non_status_hashes.contains(hash) {
+            if non_status_hashes.contains(&hash) {
                 continue;
             }
-            let owner = self.entries.get(hash);
+            let owner = self.entries.get(&hash);
             match owner.as_deref() {
                 Some(OwnedTx::Accepted(entry)) => {
                     status_subjects.insert(
@@ -621,7 +622,7 @@ impl TxPoolAuthority {
             return Ok(());
         };
         for key in keys {
-            self.seed_consumers(key, disposition.clone(), causal)?;
+            self.seed_consumers(&key, disposition.clone(), causal)?;
         }
         Ok(())
     }
@@ -636,10 +637,10 @@ impl TxPoolAuthority {
             return Ok(());
         };
         for hash in consumers {
-            if causal.is_direct_fact(hash) {
+            if causal.is_direct_fact(&hash) {
                 continue;
             }
-            let owner = self.entries.get(hash);
+            let owner = self.entries.get(&hash);
             match owner.as_deref() {
                 Some(OwnedTx::Accepted(_)) => {
                     causal.seed_accepted(hash.clone(), disposition.clone())?;

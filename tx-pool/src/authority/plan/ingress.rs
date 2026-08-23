@@ -177,7 +177,7 @@ impl OwnerOverlay {
         self.proposals
             .get(proposal)
             .cloned()
-            .or_else(|| authority.indexes.proposal_owner(proposal).cloned())
+            .or_else(|| authority.indexes.proposal_owner(proposal))
     }
 
     fn replace(

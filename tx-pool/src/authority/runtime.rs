@@ -34,11 +34,11 @@ use super::{
         Backpressure, CandidateDispositionPlan, CommittedComputeExchange, CommittedDelta,
         ComputeCancellation, ComputeCancellationError, ComputeExchangeAssignment,
         ComputeExchangeCompletion, ComputeExchangeDeferred, ComputeExchangePlanFailure,
-        ComputeExchangeSettled, ComputeSettlementFailure, DirectAdmissionDisposition,
-        DirectAdmissionEvaluation, EffectCloseError, EffectSettlementCommit,
-        EffectSettlementFailure, FinalAdmissionDispositionPlan, IndependentCandidate,
-        MembershipConfig, MembershipReject, PlanError, SettlementBatch, SettlementPlan,
-        TxPoolAuthority,
+        ComputeExchangeSettled, ComputeSettlementFailure, ConcurrentLocalRemovalFallback,
+        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectCloseError,
+        EffectSettlementCommit, EffectSettlementFailure, FinalAdmissionDispositionPlan,
+        IndependentCandidate, MembershipConfig, MembershipReject, PlanError, SettlementBatch,
+        SettlementPlan, TxPoolAuthority,
     },
     query::{
         AcceptedTransactionsWithCycles, AuthorityPoolSummary, AuthorityQueryError,
@@ -2037,6 +2037,26 @@ impl AuthorityRuntime {
         &self,
         hash: &Byte32,
     ) -> Result<bool, AuthorityAdministrationError> {
+        {
+            let store = self.store.read();
+            match store
+                .authority
+                .plan_concurrent_local_removal(&RawTxHash(hash.clone()))
+                .map_err(AuthorityAdministrationError::from_plan)?
+            {
+                Err(ConcurrentLocalRemovalFallback::Absent) => return Ok(false),
+                Err(ConcurrentLocalRemovalFallback::RequiresExclusive) => {}
+                Ok(plan) => {
+                    #[cfg(test)]
+                    store.authority.enter_concurrent_removal_plan_probe();
+                    if let Ok(committed) = plan.apply() {
+                        drop(store);
+                        self.publish_committed(committed);
+                        return Ok(true);
+                    }
+                }
+            }
+        }
         let committed = {
             let mut store = self.store.write();
             let plan = store

@@ -218,7 +218,7 @@ fn uak_persistence_receipt_is_coherent_and_parent_first() {
     );
     assert_eq!(
         authority.accepted_parents(&accepted_child_hash),
-        Some(&std::collections::HashSet::from([accepted_parent_hash]))
+        Some(std::collections::HashSet::from([accepted_parent_hash]))
     );
 
     // Recovery also arrives child first. Raw cell dependencies are sufficient

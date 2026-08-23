@@ -96,6 +96,12 @@ impl Deref for TxPoolAuthority {
 /// Capability whose constructor is private to this sealing module.
 pub(super) struct ApplyToken(());
 
+pub(super) fn commit_concurrent(
+    plan: PreparedConcurrentLocalRemoval<'_>,
+) -> Result<CommittedDelta, ConcurrentLocalRemovalStale> {
+    plan.apply_with(&ApplyToken(()))
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum PreviousOwnerDisposition {
     Retire,
@@ -181,10 +187,30 @@ impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
 /// ledger directly.
 pub(in crate::authority) struct ResourcePlanner<'state> {
     entries: &'state ShardedOwnerMap,
-    ledger: &'state mut ResourceLedger,
+    ledger: &'state ResourceLedger,
 }
 
 impl ResourcePlanner<'_> {
+    pub(in crate::authority) fn plan_removal_batch(
+        &self,
+        changes: Vec<(RawTxHash, ChargeRecord)>,
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        let mut projections = Vec::new();
+        projections
+            .try_reserve(changes.len())
+            .map_err(|_| ResourceError::Allocation)?;
+        for (key, before) in &changes {
+            projections.push((
+                key,
+                ChargeProjection::from_validated(Some(*before))?,
+                ChargeProjection::from_validated(None)?,
+            ));
+        }
+        let shards = self.entries.plan_resource_transitions(projections)?;
+        self.ledger
+            .plan_removal_batch(self.entries, changes, shards)
+    }
+
     pub(in crate::authority) fn plan_replace(
         &mut self,
         key: RawTxHash,
@@ -264,12 +290,12 @@ impl ResourcePlanner<'_> {
 
 /// Physical-allocation capability for index planning.
 pub(in crate::authority) struct IndexPlanner<'state> {
-    indexes: &'state mut AuthorityIndexes,
+    indexes: &'state AuthorityIndexes,
 }
 
 impl IndexPlanner<'_> {
     pub(in crate::authority) fn plan_replace(
-        &mut self,
+        &self,
         key: &RawTxHash,
         before: Option<&OwnedTx>,
         after: Option<&OwnedTx>,
@@ -278,7 +304,7 @@ impl IndexPlanner<'_> {
     }
 
     pub(in crate::authority) fn plan_stable_replace(
-        &mut self,
+        &self,
         key: &RawTxHash,
         before: &OwnedTx,
         after: &OwnedTx,
@@ -287,7 +313,7 @@ impl IndexPlanner<'_> {
     }
 
     pub(in crate::authority) fn plan_replacements<'entry>(
-        &mut self,
+        &self,
         changes: impl IntoIterator<
             Item = (
                 &'entry RawTxHash,
@@ -339,6 +365,14 @@ impl PeerBanPlanner<'_> {
 }
 
 impl TxPoolAuthority {
+    #[cfg(test)]
+    pub(in crate::authority) fn enter_concurrent_removal_plan_probe(&self) {
+        self.state
+            .owner_resources
+            .entries
+            .enter_concurrent_removal_plan_probe();
+    }
+
     pub(in crate::authority) fn from_runtime(
         _init: crate::authority::runtime::AuthorityInitToken,
         limits: ResourceLimits,
@@ -365,19 +399,21 @@ impl TxPoolAuthority {
         chain_view: ChainViewId,
         router: AuthorityShardRouter,
     ) -> Self {
+        let entries = ShardedOwnerMap::new(router);
+        let dependencies = DependencyFrontier::for_entries(&entries);
         Self {
             state: AuthorityState {
                 generation: PoolGeneration(0),
                 chain_view,
                 owner_resources: OwnerResourceAuthority {
-                    entries: ShardedOwnerMap::new(router),
+                    entries: entries.clone(),
                     resources: ResourceLedger::new(limits),
                 },
-                indexes: AuthorityIndexes::default(),
+                indexes: AuthorityIndexes::for_entries(&entries),
                 source_versions: AuthoritySourceVersions::initial(),
-                membership: MembershipProjection::default(),
+                membership: MembershipProjection::for_entries(&entries),
                 scheduler: FairFrontier::new(verify_order),
-                dependencies: DependencyFrontier::default(),
+                dependencies,
                 effects,
                 peer_bans: PeerBanRegistry::default(),
                 membership_config,
@@ -438,6 +474,70 @@ impl TxPoolAuthority {
         let _ = token;
     }
 
+    pub(super) fn commit_concurrent_owner_removal(
+        &self,
+        token: &ApplyToken,
+        removal: OwnerRemovalBatch,
+    ) -> Result<Vec<OwnedTx>, ConcurrentLocalRemovalStale> {
+        let OwnerRemovalBatch {
+            hashes,
+            expected_versions,
+            owners,
+            resources,
+            mut membership,
+            scheduler: _,
+            dependency,
+            mut retired,
+        } = removal;
+        let status_counts = membership.take_status_counts();
+        let mut support = self
+            .state
+            .owner_resources
+            .entries
+            .owner_resource_write_support(hashes.iter(), &status_counts, resources.shard_plan());
+        support.include(
+            owners
+                .indexes
+                .sharded_write_support(&self.state.owner_resources.entries),
+        );
+        support.include(membership.sharded_write_support(&self.state.owner_resources.entries));
+        support.include(dependency.sharded_write_support(&self.state.owner_resources.entries));
+        let entries = &self.state.owner_resources.entries;
+        let mut cut = entries.write_cut(support);
+        #[cfg(test)]
+        entries.enter_concurrent_removal_probe();
+        if hashes
+            .iter()
+            .zip(&expected_versions)
+            .any(|(hash, version)| {
+                cut.owner_version(entries.owner_shard(hash), hash) != Some(*version)
+            })
+        {
+            return Err(ConcurrentLocalRemovalStale);
+        }
+        for hash in hashes {
+            if let Some(owner) = cut.replace(entries.owner_shard(&hash), hash, None) {
+                retired.push(owner);
+            }
+        }
+        cut.apply_status_counts(status_counts);
+        let capacity = resources.apply_shards(&mut cut);
+        let DerivedOwnerDelta {
+            mut indexes,
+            mut sources,
+        } = owners;
+        indexes.apply_sharded(entries, &mut cut);
+        membership.apply_sharded(entries, &mut cut);
+        dependency.apply_closed_removal_sharded(entries, &mut cut);
+        let (proposal_source, transaction_source) = sources.take_template_selection();
+        cut.apply_template_selection_sources(proposal_source, transaction_source);
+        self.state.source_versions.apply(sources);
+        drop(cut);
+        capacity.commit();
+        let _ = token;
+        Ok(retired)
+    }
+
     pub(super) fn replace_owner_resources(
         &mut self,
         token: &ApplyToken,
@@ -487,27 +587,27 @@ impl TxPoolAuthority {
         }
     }
 
-    pub(super) fn reserve_membership_owner_insertions(
-        &mut self,
-        input_insertions: usize,
-        owner_insertions: usize,
+    pub(super) fn reserve_membership_owner_insertions<'input, 'owner>(
+        &self,
+        inputs: impl IntoIterator<Item = &'input OutPoint>,
+        owners: impl IntoIterator<Item = &'owner RawTxHash>,
     ) -> Result<(), PlanError> {
         self.state
             .membership
-            .reserve_owner_insertion_capacity(input_insertions, owner_insertions)
+            .reserve_owner_insertion_capacity(inputs, owners)
     }
 
-    pub(super) fn reserve_membership_dependency_rows(
-        &mut self,
-        additional: usize,
+    pub(super) fn reserve_membership_dependency_rows<'dependency>(
+        &self,
+        dependencies: impl IntoIterator<Item = &'dependency OutPoint>,
     ) -> Result<(), PlanError> {
         self.state
             .membership
-            .reserve_dependency_reader_rows(additional)
+            .reserve_dependency_reader_rows(dependencies)
     }
 
     pub(super) fn reserve_membership_dependency_row(
-        &mut self,
+        &self,
         dependency: &OutPoint,
         additional: usize,
     ) -> Result<(), PlanError> {
@@ -517,7 +617,7 @@ impl TxPoolAuthority {
     }
 
     pub(super) fn reserve_membership_child_row(
-        &mut self,
+        &self,
         parent: &RawTxHash,
         additional: usize,
     ) -> Result<(), PlanError> {
@@ -525,7 +625,7 @@ impl TxPoolAuthority {
     }
 
     pub(super) fn reserve_membership_parent_row(
-        &mut self,
+        &self,
         child: &RawTxHash,
         additional: usize,
     ) -> Result<(), PlanError> {
@@ -553,8 +653,8 @@ impl TxPoolAuthority {
         )
     }
 
-    pub(super) fn owner_removal_plan_parts(
-        &mut self,
+    pub(super) fn concurrent_owner_removal_plan_parts(
+        &self,
     ) -> (
         &ShardedOwnerMap,
         ResourcePlanner<'_>,
@@ -567,13 +667,13 @@ impl TxPoolAuthority {
             &self.state.owner_resources.entries,
             ResourcePlanner {
                 entries: &self.state.owner_resources.entries,
-                ledger: &mut self.state.owner_resources.resources,
+                ledger: &self.state.owner_resources.resources,
             },
             &self.state.scheduler,
             &self.state.dependencies,
             &self.state.source_versions,
             IndexPlanner {
-                indexes: &mut self.state.indexes,
+                indexes: &self.state.indexes,
             },
         )
     }

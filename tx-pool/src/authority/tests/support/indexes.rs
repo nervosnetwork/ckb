@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct IndexSnapshot {
@@ -11,12 +12,39 @@ pub(in crate::authority) struct IndexSnapshot {
 
 impl AuthorityIndexes {
     pub(in crate::authority) fn snapshot(&self) -> IndexSnapshot {
+        let shards: [ckb_util::parking_lot::RwLockReadGuard<
+            '_,
+            crate::authority::shard::AuthorityShard,
+        >; crate::authority::shard::AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.entries.layout.shards[shard].read());
+        let mut by_proposal = HashMap::new();
+        let mut preaccepted_by_peer = HashMap::new();
+        let mut context_sensitive_accepted = HashSet::new();
+        let mut deadlines = BTreeSet::new();
+        let mut accepted_deadlines = BTreeSet::new();
+        for shard in &shards {
+            by_proposal.extend(
+                shard
+                    .proposals
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+            context_sensitive_accepted.extend(shard.context_sensitive_accepted.iter().cloned());
+            preaccepted_by_peer.extend(
+                shard
+                    .preaccepted_by_peer
+                    .iter()
+                    .map(|(key, value)| (*key, value.clone())),
+            );
+            deadlines.extend(shard.deadlines.iter().cloned());
+            accepted_deadlines.extend(shard.accepted_deadlines.iter().cloned());
+        }
         IndexSnapshot {
-            by_proposal: self.by_proposal.clone(),
-            preaccepted_by_peer: self.preaccepted_by_peer.clone(),
-            context_sensitive_accepted: self.context_sensitive_accepted.clone(),
-            deadlines: self.deadlines.clone(),
-            accepted_deadlines: self.accepted_deadlines.clone(),
+            by_proposal,
+            preaccepted_by_peer,
+            context_sensitive_accepted,
+            deadlines,
+            accepted_deadlines,
         }
     }
 
@@ -24,7 +52,13 @@ impl AuthorityIndexes {
         &self,
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
-        let mut expected = Self::default();
+        let mut expected = IndexSnapshot {
+            by_proposal: HashMap::new(),
+            preaccepted_by_peer: HashMap::new(),
+            context_sensitive_accepted: HashSet::new(),
+            deadlines: BTreeSet::new(),
+            accepted_deadlines: BTreeSet::new(),
+        };
         let snapshot = entries.snapshot_for_test();
         for (key, owner) in &snapshot {
             if expected
@@ -64,10 +98,6 @@ impl AuthorityIndexes {
                 }
             }
         }
-        self.by_proposal == expected.by_proposal
-            && self.preaccepted_by_peer == expected.preaccepted_by_peer
-            && self.context_sensitive_accepted == expected.context_sensitive_accepted
-            && self.deadlines == expected.deadlines
-            && self.accepted_deadlines == expected.accepted_deadlines
+        self.snapshot() == expected
     }
 }

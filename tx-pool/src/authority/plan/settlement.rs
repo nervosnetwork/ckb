@@ -266,7 +266,7 @@ impl TxPoolAuthority {
                 .map(|(update, before)| (before.as_ref(), Some(&update.after))),
             source_sequence,
         );
-        let (_entries, mut indexes) = self.entries_and_indexes_for_plan();
+        let (_entries, indexes) = self.entries_and_indexes_for_plan();
         let indexes = indexes.plan_replacements(
             updates
                 .iter()
