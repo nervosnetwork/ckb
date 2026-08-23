@@ -513,6 +513,48 @@ async fn check_spawn_suspend_shutdown() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn check_txpool_deadline_stops_and_joins_the_existing_vm_child() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let outcome = verifier
+        .verify_with_deadline_async(
+            script_version,
+            &rtx,
+            &mut command_rx,
+            std::time::Instant::now() + std::time::Duration::from_millis(20),
+        )
+        .await
+        .expect("deadline is a local typed outcome, not a script error");
+    assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn check_run_vm_with_pause_and_max_cycles() {
     let script_version = SCRIPT_VERSION;
     if script_version <= ScriptVersion::V1 {

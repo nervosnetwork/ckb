@@ -12,7 +12,7 @@ use crate::{
     verify_env::TxVerifyEnv,
 };
 use ckb_chain_spec::consensus::{Consensus, TYPE_ID_CODE_HASH};
-use ckb_error::Error;
+use ckb_error::{Error, ErrorKind, InternalErrorKind};
 #[cfg(feature = "logging")]
 use ckb_logger::{debug, info};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -26,6 +26,8 @@ use ckb_vm::machine::Pause as VMPause;
 use ckb_vm::{DefaultMachineRunner, Error as VMInternalError};
 use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
+use std::time::Instant;
+#[cfg(not(target_family = "wasm"))]
 use tokio::sync::{
     oneshot,
     watch::{self, Receiver},
@@ -33,6 +35,18 @@ use tokio::sync::{
 
 #[cfg(test)]
 mod tests;
+
+/// Result of tx-pool-controlled resumable script verification with one fixed
+/// wall deadline. Deadline expiry is node-local execution policy, not a script
+/// error and not a consensus result.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumableVerificationOutcome {
+    /// Every script group completed under the ordinary consensus cycle limit.
+    Completed(Cycle),
+    /// The fixed local wall deadline won after the current synchronous slice.
+    DeadlineExceeded,
+}
 
 /// This struct leverages CKB VM to verify transaction inputs.
 pub struct TransactionScriptsVerifier<
@@ -292,6 +306,35 @@ where
         limit_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, Error> {
+        match self
+            .resumable_verify_with_signal_control(limit_cycles, command_rx, None)
+            .await?
+        {
+            ResumableVerificationOutcome::Completed(cycles) => Ok(cycles),
+            ResumableVerificationOutcome::DeadlineExceeded => Err(ErrorKind::Internal
+                .because(InternalErrorKind::Interrupts.other(ScriptError::Interrupts.to_string()))),
+        }
+    }
+
+    /// Perform tx-pool-controlled verification with one fixed monotonic wall
+    /// deadline. The existing child pause/stop/join lifecycle is reused; no
+    /// watchdog task or detached work is created.
+    pub async fn resumable_verify_with_signal_and_deadline(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+        deadline: Instant,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        self.resumable_verify_with_signal_control(limit_cycles, command_rx, Some(deadline))
+            .await
+    }
+
+    async fn resumable_verify_with_signal_control(
+        &self,
+        limit_cycles: Cycle,
+        command_rx: &mut Receiver<ChunkCommand>,
+        deadline: Option<Instant>,
+    ) -> Result<ResumableVerificationOutcome, Error> {
         let mut cycles = 0;
 
         let groups: Vec<_> = self.groups().collect();
@@ -303,21 +346,24 @@ where
             })?;
 
             match self
-                .verify_group_with_signal(group, remain_cycles, command_rx)
+                .verify_group_with_signal(group, remain_cycles, command_rx, deadline)
                 .await
             {
-                Ok(used_cycles) => {
+                Ok(ResumableVerificationOutcome::Completed(used_cycles)) => {
                     cycles = wrapping_cycles_add(cycles, used_cycles, group)?;
                 }
-                Err(e) => {
+                Ok(ResumableVerificationOutcome::DeadlineExceeded) => {
+                    return Ok(ResumableVerificationOutcome::DeadlineExceeded);
+                }
+                Err(error) => {
                     #[cfg(feature = "logging")]
-                    logging::on_script_error(_hash, &self.hash(), &e);
-                    return Err(e.source(group).into());
+                    logging::on_script_error(_hash, &self.hash(), &error);
+                    return Err(error.source(group).into());
                 }
             }
         }
 
-        Ok(cycles)
+        Ok(ResumableVerificationOutcome::Completed(cycles))
     }
 
     async fn verify_group_with_signal(
@@ -325,7 +371,11 @@ where
         group: &ScriptGroup,
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, ScriptError> {
+        deadline: Option<Instant>,
+    ) -> Result<ResumableVerificationOutcome, ScriptError> {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Ok(ResumableVerificationOutcome::DeadlineExceeded);
+        }
         if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
         {
@@ -334,9 +384,14 @@ where
                 script_group: group,
                 max_cycles,
             };
-            verifier.verify()
+            let cycles = verifier.verify()?;
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                Ok(ResumableVerificationOutcome::DeadlineExceeded)
+            } else {
+                Ok(ResumableVerificationOutcome::Completed(cycles))
+            }
         } else {
-            self.chunk_run_with_signal(group, max_cycles, command_rx)
+            self.chunk_run_with_signal(group, max_cycles, command_rx, deadline)
                 .await
         }
     }
@@ -346,7 +401,8 @@ where
         script_group: &ScriptGroup,
         max_cycles: Cycle,
         signal: &mut Receiver<ChunkCommand>,
-    ) -> Result<Cycle, ScriptError> {
+        deadline: Option<Instant>,
+    ) -> Result<ResumableVerificationOutcome, ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
@@ -398,33 +454,29 @@ where
             }
         });
 
+        let deadline_wait = async move {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::pin!(deadline_wait);
+        let mut deadline_exceeded = false;
+        let mut externally_stopped = false;
         loop {
             tokio::select! {
-                Ok(_) = signal.changed() => {
-                    let command = signal.borrow().to_owned();
-                    //info!("[verify-test] run_vms_with_signal: {:?}", command);
-                    match command {
-                        ChunkCommand::Suspend => {
-                            pause.interrupt();
-                        }
-                        ChunkCommand::Stop => {
-                            pause.interrupt();
-                            let _ = child_tx.send(command);
-                        }
-                        ChunkCommand::Resume => {
-                            pause.free();
-                            let _ = child_tx.send(command);
-                        }
-                    }
-                }
+                biased;
                 Ok(res) = &mut finish_rx => {
                     let _ = jh.await;
+                    if deadline_exceeded {
+                        return Ok(ResumableVerificationOutcome::DeadlineExceeded);
+                    }
                     match res {
                         Ok(TerminatedResult {
                             exit_code: 0,
                             consumed_cycles: cycles,
                         }) => {
-                            return Ok(cycles);
+                            return Ok(ResumableVerificationOutcome::Completed(cycles));
                         }
                         Ok(TerminatedResult { exit_code, .. }) => {
                             return Err(ScriptError::validation_failure(
@@ -435,7 +487,29 @@ where
                             return Err(self.map_vm_internal_error(err, max_cycles));
                         }
                     }
-
+                }
+                Ok(_) = signal.changed() => {
+                    let command = signal.borrow().to_owned();
+                    //info!("[verify-test] run_vms_with_signal: {:?}", command);
+                    match command {
+                        ChunkCommand::Suspend => {
+                            pause.interrupt();
+                        }
+                        ChunkCommand::Stop => {
+                            externally_stopped = true;
+                            pause.interrupt();
+                            let _ = child_tx.send(command);
+                        }
+                        ChunkCommand::Resume => {
+                            pause.free();
+                            let _ = child_tx.send(command);
+                        }
+                    }
+                }
+                _ = &mut deadline_wait, if !deadline_exceeded && !externally_stopped => {
+                    deadline_exceeded = true;
+                    pause.interrupt();
+                    let _ = child_tx.send(ChunkCommand::Stop);
                 }
                 else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
             }

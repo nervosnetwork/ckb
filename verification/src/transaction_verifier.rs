@@ -10,7 +10,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::ChunkCommand;
+use ckb_script::{ChunkCommand, ResumableVerificationOutcome};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -24,6 +24,19 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 use std::sync::Arc;
+#[cfg(not(target_family = "wasm"))]
+use std::time::Instant;
+
+/// Tx-pool-only result of contextual verification under one fixed local wall
+/// deadline. Deadline expiry is not a transaction or consensus validity fact.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub enum DeadlineVerificationOutcome {
+    /// Ordinary contextual and script verification completed.
+    Verified(ScriptVerificationOutcome),
+    /// The fixed local deadline won after the current synchronous slice.
+    DeadlineExceeded,
+}
 
 /// The time-related TX verification
 ///
@@ -231,9 +244,7 @@ where
         cached: Option<ScriptVerificationProof>,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
     ) -> Result<ScriptVerificationOutcome, Error> {
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        if let Some(outcome) = self.reuse_script(max_cycles, cached)? {
+        if let Some(outcome) = self.prepare_resumable_script(max_cycles, cached)? {
             return Ok(outcome);
         }
         let cycles = self
@@ -243,6 +254,53 @@ where
         Ok(ScriptVerificationOutcome::Executed(
             ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
         ))
+    }
+
+    /// Perform tx-pool-only contextual verification under one fixed local
+    /// deadline while reusing the existing pause/stop/join VM child.
+    #[cfg(not(target_family = "wasm"))]
+    pub async fn verify_with_pause_and_deadline(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        deadline: Instant,
+    ) -> Result<DeadlineVerificationOutcome, Error> {
+        if Instant::now() >= deadline {
+            return Ok(DeadlineVerificationOutcome::DeadlineExceeded);
+        }
+        let cached = self.prepare_resumable_script(max_cycles, cached)?;
+        if Instant::now() >= deadline {
+            return Ok(DeadlineVerificationOutcome::DeadlineExceeded);
+        }
+        if let Some(outcome) = cached {
+            return Ok(DeadlineVerificationOutcome::Verified(outcome));
+        }
+        match self
+            .script
+            .resumable_verify_with_signal_and_deadline(max_cycles, command_rx, deadline)
+            .await?
+        {
+            ResumableVerificationOutcome::Completed(cycles) => Ok(
+                DeadlineVerificationOutcome::Verified(ScriptVerificationOutcome::Executed(
+                    ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+                )),
+            ),
+            ResumableVerificationOutcome::DeadlineExceeded => {
+                Ok(DeadlineVerificationOutcome::DeadlineExceeded)
+            }
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn prepare_resumable_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<Option<ScriptVerificationOutcome>, Error> {
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        self.reuse_script(max_cycles, cached)
     }
 }
 
