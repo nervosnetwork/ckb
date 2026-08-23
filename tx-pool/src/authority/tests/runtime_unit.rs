@@ -47,6 +47,9 @@ fn runtime_config() -> TxPoolConfig {
         min_fee_rate: FeeRate::zero(),
         min_rbf_rate: FeeRate::zero(),
         max_tx_verify_cycles: 70_000_000,
+        min_tx_verify_time_ms: 250,
+        tx_verify_cycles_per_ms: 10_000,
+        max_tx_verify_time_ms: 30_000,
         max_tx_verify_workers: 4,
         max_ancestors_count: 125,
         keep_rejected_tx_hashes_days: 1,
@@ -1141,6 +1144,34 @@ fn runtime_configuration_builds_every_authority_policy_together() {
     assert!(limit.compute_bytes() > 0);
     assert!(limit.compute_edges() > 0);
     assert!(limit.bytes < config.tx_pipeline_resident_size_budget());
+}
+
+#[test]
+fn runtime_configuration_rejects_an_unusable_verification_time_policy() {
+    let consensus = ConsensusBuilder::default().build();
+    for config in [
+        {
+            let mut config = runtime_config();
+            config.tx_verify_cycles_per_ms = 0;
+            config
+        },
+        {
+            let mut config = runtime_config();
+            config.min_tx_verify_time_ms = 0;
+            config
+        },
+        {
+            let mut config = runtime_config();
+            config.min_tx_verify_time_ms = 30_001;
+            config.max_tx_verify_time_ms = 30_000;
+            config
+        },
+    ] {
+        assert_eq!(
+            AuthorityRuntimeConfig::from_runtime(&config, &consensus).err(),
+            Some(RuntimeConfigError::VerificationTimeConfiguration)
+        );
+    }
 }
 
 #[test]

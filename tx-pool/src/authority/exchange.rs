@@ -6,6 +6,7 @@
 
 use super::state::{VerifyCapability, WorkPermit};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,14 +43,31 @@ pub(super) struct ComputeVerifierSlot {
 pub(in crate::authority) struct AuthorityComputeExecutionPermit {
     permit: Option<OwnedSemaphorePermit>,
     released: Arc<Notify>,
+    started_at: Instant,
+    hard_deadline: Instant,
 }
 
 impl AuthorityComputeExecutionPermit {
-    pub(in crate::authority) fn new(permit: OwnedSemaphorePermit, released: Arc<Notify>) -> Self {
+    pub(in crate::authority) fn new(
+        permit: OwnedSemaphorePermit,
+        released: Arc<Notify>,
+        hard_limit: Duration,
+    ) -> Self {
+        let started_at = Instant::now();
         Self {
             permit: Some(permit),
             released,
+            started_at,
+            hard_deadline: started_at.checked_add(hard_limit).unwrap_or(started_at),
         }
+    }
+
+    pub(in crate::authority) fn started_at(&self) -> Instant {
+        self.started_at
+    }
+
+    pub(in crate::authority) fn hard_deadline(&self) -> Instant {
+        self.hard_deadline
     }
 }
 

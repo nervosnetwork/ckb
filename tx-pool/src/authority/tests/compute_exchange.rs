@@ -48,7 +48,11 @@ fn grant(slot: ComputeWorkerSlot) -> ComputeWorkerGrant {
         .expect("fixture owns its one execution permit");
     ComputeWorkerGrant::new(
         slot,
-        AuthorityComputeExecutionPermit::new(permit, Arc::new(Notify::new())),
+        AuthorityComputeExecutionPermit::new(
+            permit,
+            Arc::new(Notify::new()),
+            std::time::Duration::from_secs(30),
+        ),
     )
 }
 

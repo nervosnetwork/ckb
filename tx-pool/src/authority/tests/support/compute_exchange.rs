@@ -4,10 +4,6 @@ use std::convert::Infallible;
 /// Test-only materialized observation of the production recovery visitor.
 /// Production never constructs this large enum; the allocation-free visitor
 /// remains the sole capability-routing implementation.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "test-only recovery observation preserves direct pattern assertions without changing the production failure path"
-)]
 pub(in crate::authority) enum ComputeExchangeRecovery {
     Settlement(ComputeExchangeCompletion),
     Obsolete(ComputeWorkerSlot),

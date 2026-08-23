@@ -9,7 +9,7 @@ use crate::authority::{
         DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
         DirectResolutionProbeObservation, DirectVerificationOutcome, ResolutionEvaluation,
         ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation, VerificationExecution,
-        VerificationJob,
+        VerificationJob, VerificationTimePolicy, VerificationTimePolicyError,
     },
     runtime::{
         AuthorityDirectAdmissionError, AuthorityDirectAdmissionExecution,
@@ -19,14 +19,14 @@ use crate::authority::{
         DirectAdmissionRejectionKind,
     },
     state::{
-        AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PreAcceptedPhase,
-        QueuedWork, ValidatedAdmission, VerifyCapability, WorkPermit,
+        AcceptedStatus, ChainRevision, ChainViewId, DependencyKey, OwnedTx, PayloadPolicy,
+        PreAcceptedPhase, QueuedWork, ValidatedAdmission, VerifyCapability, WorkPermit,
     },
     work::{CheckedOutWork, ResolutionEvidence, SettlementNext, SettlementRejection},
 };
 use crate::error::Reject;
 use ckb_network::PeerIndex;
-use ckb_script::TxVerifyEnv;
+use ckb_script::{ChunkCommand, TxVerifyEnv};
 use ckb_snapshot::Snapshot;
 use ckb_store::attach_block_cell;
 use ckb_test_chain_utils::{
@@ -41,6 +41,67 @@ use ckb_types::{
 };
 use ckb_verification::cache::{ScriptVerificationRules, TxVerificationCacheKey, init_cache};
 use std::{ops::ControlFlow, sync::Arc};
+
+fn verification_deadline() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(30)
+}
+
+#[test]
+fn uak_verification_time_policy_is_fixed_bounded_and_never_peer_extended() {
+    let policy = VerificationTimePolicy::from_runtime(250, 10_000, 30_000)
+        .expect("the fixture policy is valid");
+    let started_at = std::time::Instant::now();
+    let hard_deadline = started_at + std::time::Duration::from_secs(30);
+
+    assert_eq!(
+        policy.deadline(
+            started_at,
+            hard_deadline,
+            PayloadPolicy::remote_for_foundation(1),
+        ),
+        started_at + std::time::Duration::from_millis(250),
+        "a low peer declaration receives only the fixed minimum budget"
+    );
+    assert_eq!(
+        policy.deadline(
+            started_at,
+            hard_deadline,
+            PayloadPolicy::remote_for_foundation(2_500_001),
+        ),
+        started_at + std::time::Duration::from_millis(251),
+        "the cycle signal rounds up rather than truncating a partial millisecond"
+    );
+    let slow_signal_policy = VerificationTimePolicy::from_runtime(250, 1, 30_000)
+        .expect("the slow-signal fixture policy is valid");
+    assert_eq!(
+        slow_signal_policy.deadline(
+            started_at,
+            hard_deadline,
+            PayloadPolicy::remote_for_foundation(70_000_000),
+        ),
+        hard_deadline,
+        "an untrusted declaration can never extend the unconditional hard cap"
+    );
+    assert_eq!(
+        policy.deadline(started_at, hard_deadline, PayloadPolicy::Trusted),
+        hard_deadline,
+        "trusted local/proposal work is constrained only by the node hard cap"
+    );
+}
+
+#[test]
+fn uak_verification_time_policy_rejects_unusable_node_configuration() {
+    assert_eq!(
+        VerificationTimePolicy::from_runtime(250, 0, 30_000).err(),
+        Some(VerificationTimePolicyError::ZeroCycleRate)
+    );
+    for (minimum, maximum) in [(0, 30_000), (30_001, 30_000)] {
+        assert_eq!(
+            VerificationTimePolicy::from_runtime(minimum, 10_000, maximum).err(),
+            Some(VerificationTimePolicyError::InvalidDurationRange)
+        );
+    }
+}
 
 fn direct_input(transaction: &ckb_types::core::TransactionView) -> DirectIngressTransaction {
     BoundedTransaction::try_new(transaction.clone())
@@ -619,7 +680,7 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
     );
     let expected_key = TxVerificationCacheKey::from_transaction(&tx, expected_rules);
     let job = checkout_verification_job(&mut authority, Arc::clone(&snapshot), tx, 92);
-    let request = job.prepare();
+    let request = job.prepare(verification_deadline());
     assert_eq!(expected_key.witness_hash(), &witness_hash);
     let cache = init_cache();
 
@@ -638,6 +699,40 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn uak_expired_verification_deadline_is_transient_and_never_cached() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let transaction = TransactionBuilder::default().version(8_120u32).build();
+    let request =
+        checkout_verification_job(&mut authority, Arc::clone(&snapshot), transaction, 9_120)
+            .prepare(std::time::Instant::now() - std::time::Duration::from_millis(1));
+    let cache = init_cache();
+    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
+
+    let VerificationExecution {
+        settlement,
+        cache_update,
+    } = request
+        .bind_cache(&cache)
+        .execute(Some(&mut command_rx))
+        .await;
+    assert!(cache_update.is_none(), "a local timeout is never VM proof");
+    assert!(matches!(
+        &settlement.next,
+        SettlementNext::VerificationRejected { rejection, .. }
+            if matches!(rejection.reject(), Reject::ExcessiveVerifyTime)
+                && !rejection.should_record()
+                && rejection.publish_negative_relay_terminal()
+    ));
+    apply_plan(
+        authority
+            .apply_settlement(settlement)
+            .expect("the exact timed-out verification capability settles once"),
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     let snapshot = genesis_snapshot();
     let mut authority = authority_at(&snapshot);
@@ -645,7 +740,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     let requested_tx = TransactionBuilder::default().version(814u32).build();
     let mut cache = init_cache();
     let cached = checkout_verification_job(&mut authority, Arc::clone(&snapshot), cached_tx, 93)
-        .prepare()
+        .prepare(verification_deadline())
         .bind_cache(&cache)
         .execute(None)
         .await;
@@ -661,7 +756,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     );
     let request =
         checkout_verification_job(&mut authority, Arc::clone(&snapshot), requested_tx, 94)
-            .prepare();
+            .prepare(verification_deadline());
 
     let execution = request.bind_cache(&cache).execute(None).await;
     assert!(execution.cache_update.is_some());
@@ -696,7 +791,7 @@ async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
     )
     .expect("the direct cut captures the accepted parent without retaining the child");
     let DirectResolutionEvaluation::Verify(request) = job
-        .evaluate(FeeRate::zero())
+        .evaluate(FeeRate::zero(), verification_deadline())
         .expect("the accepted output resolves under the paired cut")
     else {
         panic!("the direct child must continue to verification")
@@ -732,6 +827,49 @@ async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
     assert_eq!(authority.normalized_snapshot(), before);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_direct_expired_deadline_returns_the_same_transient_local_rejection() {
+    let snapshot = genesis_snapshot();
+    let authority = authority_at(&snapshot);
+    let before = authority.normalized_snapshot();
+    let transaction = Arc::new(TransactionBuilder::default().version(8_121u32).build());
+    let job = DirectResolutionJob::capture_for_foundation(
+        &authority,
+        Arc::clone(&snapshot),
+        transaction,
+        1 << 20,
+        1_000,
+    )
+    .expect("the bounded direct fixture captures one coherent read cut");
+    let DirectResolutionEvaluation::Verify(request) = job
+        .evaluate(
+            FeeRate::zero(),
+            std::time::Instant::now() - std::time::Duration::from_millis(1),
+        )
+        .expect("the direct fixture resolves before script verification")
+    else {
+        panic!("the direct fixture must reach the deadline-bound verifier")
+    };
+    let cache = init_cache();
+    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
+
+    let DirectVerificationOutcome::Rejected(rejection) = request
+        .bind_cache(&cache)
+        .execute(Some(&mut command_rx))
+        .await
+        .expect("deadline expiry is a typed local outcome")
+    else {
+        panic!("an already-expired direct request cannot become a candidate")
+    };
+    assert!(matches!(
+        rejection.reason().reject(),
+        Reject::ExcessiveVerifyTime
+    ));
+    assert!(!rejection.reason().should_record());
+    assert!(rejection.reason().publish_negative_relay_terminal());
+    assert_eq!(authority.normalized_snapshot(), before);
+}
+
 #[test]
 fn uak_direct_resolution_terminalizes_an_unchanged_missing_frontier() {
     let snapshot = genesis_snapshot();
@@ -748,7 +886,7 @@ fn uak_direct_resolution_terminalizes_an_unchanged_missing_frontier() {
     )
     .expect("the direct request captures a coherent empty overlay");
     let DirectResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero())
+        .evaluate(FeeRate::zero(), verification_deadline())
         .expect("missing evidence is a transaction outcome")
     else {
         panic!("the first pass must expose the missing frontier")
@@ -830,7 +968,7 @@ fn uak_direct_permissive_rbf_never_fabricates_a_chain_cell() {
     )
     .expect("the direct RBF cut captures the accepted spender");
     let DirectResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero())
+        .evaluate(FeeRate::zero(), verification_deadline())
         .expect("permissive RBF still consults the chain snapshot")
     else {
         panic!("the unknown chain input cannot become resolved evidence")

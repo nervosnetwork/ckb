@@ -255,6 +255,11 @@ pub(crate) fn revalidate_tx_context(
     .map_err(Reject::Verification)
 }
 
+pub(crate) enum TxPoolVerificationOutcome {
+    Verified(ScriptVerificationOutcome),
+    DeadlineExceeded,
+}
+
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
@@ -262,7 +267,8 @@ pub(crate) async fn verify_rtx(
     cache_entry: Option<ScriptVerificationProof>,
     max_tx_verify_cycles: Cycle,
     command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-) -> Result<ScriptVerificationOutcome, Reject> {
+    deadline: std::time::Instant,
+) -> Result<TxPoolVerificationOutcome, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
@@ -271,19 +277,28 @@ pub(crate) async fn verify_rtx(
         // own Tokio task. Wrapping this parent future in `block_in_place` and
         // synchronously blocking on the same runtime does not offload VM work;
         // it only forces a compensating runtime thread for every verification.
-        ContextualTransactionVerifier::new(
+        let outcome = ContextualTransactionVerifier::new(
             Arc::clone(&rtx),
             consensus,
             data_loader,
             Arc::clone(&tx_env),
         )
-        .verify_with_pause(max_tx_verify_cycles, cache_entry, command_rx)
+        .verify_with_pause_and_deadline(max_tx_verify_cycles, cache_entry, command_rx, deadline)
         .await
-        .and_then(|result| {
-            verify_dao_script_size(&snapshot, rtx)?;
-            Ok(result)
-        })
-        .map_err(Reject::Verification)
+        .map_err(Reject::Verification)?;
+        match outcome {
+            ckb_verification::DeadlineVerificationOutcome::DeadlineExceeded => {
+                Ok(TxPoolVerificationOutcome::DeadlineExceeded)
+            }
+            ckb_verification::DeadlineVerificationOutcome::Verified(outcome) => {
+                verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
+                if std::time::Instant::now() >= deadline {
+                    Ok(TxPoolVerificationOutcome::DeadlineExceeded)
+                } else {
+                    Ok(TxPoolVerificationOutcome::Verified(outcome))
+                }
+            }
+        }
     } else {
         block_in_place(|| {
             ContextualTransactionVerifier::new(Arc::clone(&rtx), consensus, data_loader, tx_env)
@@ -291,7 +306,7 @@ pub(crate) async fn verify_rtx(
         })
         .and_then(|result| {
             verify_dao_script_size(&snapshot, rtx)?;
-            Ok(result)
+            Ok(TxPoolVerificationOutcome::Verified(result))
         })
         .map_err(Reject::Verification)
     }

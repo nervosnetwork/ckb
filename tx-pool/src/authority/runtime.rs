@@ -55,7 +55,8 @@ use super::{
         DirectResolutionProbeObservation, DirectVerificationOutcome, DirectVerificationRequest,
         DirectVerifiedCandidate, ResolutionEvaluation, ResolutionExecutionKind, ResolutionJob,
         ResolutionProbeObservation, ResolutionReceiptDefect, TxPoolVerificationRequest,
-        VerificationCacheUpdate, VerificationJob,
+        VerificationCacheUpdate, VerificationJob, VerificationTimePolicy,
+        VerificationTimePolicyError,
     },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceConfigError, ResourceLimits,
@@ -64,7 +65,7 @@ use super::{
     scheduler::VerifyOrder,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, ChainRevision, ChainViewId,
-        InputEvidenceError, RawTxHash, RemoteDeadline,
+        InputEvidenceError, PayloadPolicy, RawTxHash, RemoteDeadline,
     },
     template::{AuthorityTemplateInput, TemplateReadError},
     validation::{
@@ -166,6 +167,7 @@ pub(crate) enum RuntimeConfigError {
     PipelineBudgetTooSmall,
     Arithmetic,
     ResourceConfiguration,
+    VerificationTimeConfiguration,
     EffectConfiguration,
     AuthorityAllocation,
 }
@@ -194,6 +196,7 @@ struct AuthorityRuntimeConfig {
     effects: EffectLimits,
     membership: MembershipConfig,
     resolution_policy: ResolutionPolicy,
+    verification_time: VerificationTimePolicy,
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute_permits: NonZeroUsize,
@@ -438,6 +441,17 @@ impl AuthorityRuntimeConfig {
         let full_query_max_rows = resources
             .max_owner_entries()
             .ok_or(RuntimeConfigError::Arithmetic)?;
+        let verification_time = VerificationTimePolicy::from_runtime(
+            config.min_tx_verify_time_ms,
+            config.tx_verify_cycles_per_ms,
+            config.max_tx_verify_time_ms,
+        )
+        .map_err(|error| match error {
+            VerificationTimePolicyError::ZeroCycleRate
+            | VerificationTimePolicyError::InvalidDurationRange => {
+                RuntimeConfigError::VerificationTimeConfiguration
+            }
+        })?;
 
         Ok(Self {
             resources,
@@ -449,6 +463,7 @@ impl AuthorityRuntimeConfig {
                 compute_bytes_per_work,
                 compute_edges_per_work,
             ),
+            verification_time,
             expiry_policy: ExpiryPolicy {
                 accepted_residency_millis,
                 remote_slice,
@@ -891,13 +906,15 @@ pub(crate) struct AuthorityRuntime {
 struct ComputeGate {
     permits: Arc<Semaphore>,
     released: Arc<Notify>,
+    verification_time: VerificationTimePolicy,
 }
 
 impl ComputeGate {
-    fn new(permits: NonZeroUsize) -> Self {
+    fn new(permits: NonZeroUsize, verification_time: VerificationTimePolicy) -> Self {
         Self {
             permits: Arc::new(Semaphore::new(permits.get())),
             released: Arc::new(Notify::new()),
+            verification_time,
         }
     }
 
@@ -918,6 +935,7 @@ impl ComputeGate {
                     Some(AuthorityComputeExecutionPermit::new(
                         permit,
                         Arc::clone(&self.released),
+                        self.verification_time.hard_maximum(),
                     ))
                 }
             }
@@ -928,11 +946,21 @@ impl ComputeGate {
         Arc::clone(&self.permits)
             .try_acquire_owned()
             .ok()
-            .map(|permit| AuthorityComputeExecutionPermit::new(permit, Arc::clone(&self.released)))
+            .map(|permit| {
+                AuthorityComputeExecutionPermit::new(
+                    permit,
+                    Arc::clone(&self.released),
+                    self.verification_time.hard_maximum(),
+                )
+            })
     }
 
     fn release_signal(&self) -> &Notify {
         &self.released
+    }
+
+    fn verification_time(&self) -> VerificationTimePolicy {
+        self.verification_time
     }
 }
 
@@ -1786,7 +1814,8 @@ impl AuthorityRuntime {
         let resolution_policy = runtime.resolution_policy;
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
-        let transient_compute = ComputeGate::new(runtime.transient_compute_permits);
+        let transient_compute =
+            ComputeGate::new(runtime.transient_compute_permits, runtime.verification_time);
         let full_query = AuthorityQueryScratch::new(runtime.full_query_max_rows);
         Ok(Self {
             store: Arc::new(AuthorityStoreLock::new(AuthorityStore::from_runtime(
@@ -2814,9 +2843,15 @@ impl AuthorityRuntime {
                 &store.authority,
             )
         };
+        let deadline = self.transient_compute.verification_time().deadline(
+            execution.started_at(),
+            execution.hard_deadline(),
+            PayloadPolicy::Trusted,
+        );
         loop {
-            let evaluation =
-                crate::util::block_offload(|| job.evaluate(self.resolution_policy.min_fee_rate))?;
+            let evaluation = crate::util::block_offload(|| {
+                job.evaluate(self.resolution_policy.min_fee_rate, deadline)
+            })?;
             match evaluation {
                 DirectResolutionEvaluation::Verify(request) => {
                     return Ok(AuthorityDirectResolutionOutcome::Verification(
@@ -3168,8 +3203,13 @@ impl AuthorityRuntime {
         match inner {
             AuthorityComputeKind::Resolution(job) => self.execute_resolution(job, execution),
             AuthorityComputeKind::Verification(job) => {
+                let deadline = self.transient_compute.verification_time().deadline(
+                    execution.started_at(),
+                    execution.hard_deadline(),
+                    job.payload_policy(),
+                );
                 AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
-                    request: job.prepare(),
+                    request: job.prepare(deadline),
                     execution,
                 })
             }
@@ -3213,8 +3253,13 @@ impl AuthorityRuntime {
                     ));
                 }
                 ResolutionEvaluation::Verify(verification) => {
+                    let deadline = self.transient_compute.verification_time().deadline(
+                        execution.started_at(),
+                        execution.hard_deadline(),
+                        verification.payload_policy(),
+                    );
                     return AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
-                        request: verification.prepare(),
+                        request: verification.prepare(deadline),
                         execution,
                     });
                 }

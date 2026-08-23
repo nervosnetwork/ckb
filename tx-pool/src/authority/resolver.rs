@@ -31,7 +31,7 @@ use super::{
 use crate::{
     component::entry::resolved_transaction_charge_bytes,
     error::Reject,
-    util::{check_tx_fee_with_min_fee_rate, compact_packed, verify_rtx},
+    util::{TxPoolVerificationOutcome, check_tx_fee_with_min_fee_rate, compact_packed, verify_rtx},
 };
 use ckb_script::{ChunkCommand, TxVerifyEnv};
 use ckb_snapshot::Snapshot;
@@ -52,7 +52,9 @@ use ckb_verification::cache::{
 };
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroU64,
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tokio::sync::watch;
 
@@ -71,6 +73,65 @@ pub(super) struct DirectResolutionSeal(());
 /// rules and cache identity. It is intentionally distinct from block
 /// verification evidence.
 pub(super) struct DirectVerificationSeal(());
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum VerificationTimePolicyError {
+    ZeroCycleRate,
+    InvalidDurationRange,
+}
+
+/// Immutable node-local classification of one already-owned verification
+/// lease. Consensus cycles are only an untrusted signal selecting an equal or
+/// shorter duration; no transaction can extend the unconditional hard cap.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::authority) struct VerificationTimePolicy {
+    minimum: Duration,
+    cycles_per_millisecond: NonZeroU64,
+    hard_maximum: Duration,
+}
+
+impl VerificationTimePolicy {
+    pub(in crate::authority) fn from_runtime(
+        minimum_millis: u32,
+        cycles_per_millisecond: u64,
+        hard_maximum_millis: u32,
+    ) -> Result<Self, VerificationTimePolicyError> {
+        let cycles_per_millisecond = NonZeroU64::new(cycles_per_millisecond)
+            .ok_or(VerificationTimePolicyError::ZeroCycleRate)?;
+        if minimum_millis == 0 || minimum_millis > hard_maximum_millis {
+            return Err(VerificationTimePolicyError::InvalidDurationRange);
+        }
+        Ok(Self {
+            minimum: Duration::from_millis(u64::from(minimum_millis)),
+            cycles_per_millisecond,
+            hard_maximum: Duration::from_millis(u64::from(hard_maximum_millis)),
+        })
+    }
+
+    pub(in crate::authority) fn hard_maximum(self) -> Duration {
+        self.hard_maximum
+    }
+
+    pub(in crate::authority) fn deadline(
+        self,
+        started_at: Instant,
+        hard_deadline: Instant,
+        payload_policy: PayloadPolicy,
+    ) -> Instant {
+        let duration = match payload_policy {
+            PayloadPolicy::RemoteDeclaredCycles(limit) => {
+                let milliseconds = limit.declared().div_ceil(self.cycles_per_millisecond.get());
+                Duration::from_millis(milliseconds)
+                    .max(self.minimum)
+                    .min(self.hard_maximum)
+            }
+            PayloadPolicy::Trusted => self.hard_maximum,
+        };
+        started_at
+            .checked_add(duration)
+            .map_or(hard_deadline, |deadline| deadline.min(hard_deadline))
+    }
+}
 
 /// Production capability for constructing resolution evidence. Its private
 /// field keeps the evidence producer inside this resolver; test fixtures use
@@ -615,6 +676,7 @@ pub(crate) struct DirectVerificationRequest {
     environment: Arc<TxVerifyEnv>,
     cache_key: TxVerificationCacheKey,
     max_cycles: u64,
+    deadline: Instant,
 }
 
 #[derive(Debug)]
@@ -1179,6 +1241,7 @@ impl DirectResolutionJob {
     pub(super) fn evaluate(
         self,
         min_fee_rate: FeeRate,
+        deadline: Instant,
     ) -> Result<DirectResolutionEvaluation, DirectComputationError> {
         let resolved = match resolve_candidate(&self.tx, &self.snapshot, &self.overlay) {
             ResolutionAttempt::Resolved(resolved) => resolved,
@@ -1255,6 +1318,7 @@ impl DirectResolutionJob {
                 environment,
                 cache_key,
                 max_cycles,
+                deadline,
             },
         ))
     }
@@ -1531,6 +1595,7 @@ pub(crate) struct TxPoolVerificationRequest {
     cache_key: TxVerificationCacheKey,
     max_cycles: ckb_types::core::Cycle,
     started_at: AsyncProcessStart,
+    deadline: Instant,
 }
 
 /// A retained verification capability paired with the only cache entry whose
@@ -1605,7 +1670,7 @@ impl VerificationJob {
         self.work.payload_policy()
     }
 
-    pub(super) fn prepare(self) -> TxPoolVerificationRequest {
+    pub(super) fn prepare(self, deadline: Instant) -> TxPoolVerificationRequest {
         let status = proposal_status(&self.snapshot, &self.transaction().proposal_short_id());
         let environment = Arc::new(verification_environment(status, &self.snapshot));
         let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
@@ -1620,6 +1685,7 @@ impl VerificationJob {
             cache_key,
             max_cycles,
             started_at: AsyncProcessStart::now(),
+            deadline,
         }
     }
 
@@ -1664,6 +1730,7 @@ impl CacheBoundTxPoolVerification {
                     cache_key,
                     max_cycles,
                     started_at,
+                    deadline,
                 },
             cache_entry,
         } = self;
@@ -1677,10 +1744,17 @@ impl CacheBoundTxPoolVerification {
             cache_entry,
             max_cycles,
             command_rx,
+            deadline,
         )
         .await;
         let outcome = match verified {
-            Ok(outcome) => outcome,
+            Ok(TxPoolVerificationOutcome::Verified(outcome)) => outcome,
+            Ok(TxPoolVerificationOutcome::DeadlineExceeded) => {
+                return VerificationExecution {
+                    settlement: work.rejected(Reject::ExcessiveVerifyTime),
+                    cache_update: None,
+                };
+            }
             Err(reject) => {
                 return VerificationExecution {
                     settlement: work.rejected(reject),
@@ -1736,6 +1810,7 @@ impl CacheBoundDirectVerification {
                     environment,
                     cache_key,
                     max_cycles,
+                    deadline,
                 },
             cache_entry,
         } = self;
@@ -1755,10 +1830,22 @@ impl CacheBoundDirectVerification {
             cache_entry,
             max_cycles,
             command_rx,
+            deadline,
         )
         .await
         {
-            Ok(outcome) => outcome,
+            Ok(TxPoolVerificationOutcome::Verified(outcome)) => outcome,
+            Ok(TxPoolVerificationOutcome::DeadlineExceeded) => {
+                return Ok(DirectVerificationOutcome::Rejected(
+                    DirectTransactionRejection::accepted_reads(
+                        tx,
+                        command,
+                        Reject::ExcessiveVerifyTime,
+                        location.into_view(),
+                        accepted_reads,
+                    ),
+                ));
+            }
             Err(reason) => {
                 return Ok(DirectVerificationOutcome::Rejected(
                     DirectTransactionRejection::accepted_reads(

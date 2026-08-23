@@ -43,6 +43,13 @@ pub struct TxPoolConfig {
     pub min_rbf_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
+    /// Minimum local wall budget for one tx-pool verification attempt.
+    pub min_tx_verify_time_ms: u32,
+    /// Conservative local cycle signal rate used only to classify a wall
+    /// budget. It is not consensus accounting or measured execution truth.
+    pub tx_verify_cycles_per_ms: u64,
+    /// Unconditional local wall cap for one tx-pool verification attempt.
+    pub max_tx_verify_time_ms: u32,
     /// max tx verify workers, default is 3/4 of cpu cores
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
