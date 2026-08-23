@@ -965,27 +965,62 @@ impl AuthorityService {
         submissions: Vec<(BoundedTransaction, u64)>,
     ) -> RemoteIngressBatchProgress {
         let bytes = retained_batch_bytes(submissions.iter().map(|(transaction, _)| transaction));
-        if submissions.len() > crate::constants::MAX_POOL_MUTATION_CANDIDATES
-            || !matches!(bytes, Ok(bytes) if submissions.len() == 1
-                || bytes <= ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH)
+        if submissions.len() > ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH
+            || !matches!(bytes, Ok(bytes) if bytes
+                <= ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH)
         {
             return RemoteIngressBatchProgress::failed(
                 0,
                 AuthorityServiceError::ResourceUnavailable,
             );
         }
+        let expected_total = submissions.len();
         let consensus = self.runtime.paired_consensus();
-        let mut attempts = VecDeque::new();
-        if attempts.try_reserve(submissions.len()).is_err() {
-            return RemoteIngressBatchProgress::failed(
-                0,
-                AuthorityServiceError::ResourceUnavailable,
-            );
+        let mut submissions = VecDeque::from(submissions);
+        let mut completed_total = 0usize;
+        loop {
+            let mut attempts = VecDeque::new();
+            if attempts
+                .try_reserve(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
+                .is_err()
+            {
+                return RemoteIngressBatchProgress::failed(
+                    completed_total,
+                    AuthorityServiceError::ResourceUnavailable,
+                );
+            }
+            for _ in 0..crate::constants::MAX_POOL_MUTATION_CANDIDATES {
+                let Some((tx, declared_cycles)) = submissions.pop_front() else {
+                    break;
+                };
+                attempts.push_back(remote(tx, declared_cycles, peer, &consensus));
+            }
+            if attempts.is_empty() {
+                return if completed_total == expected_total {
+                    RemoteIngressBatchProgress::complete(completed_total)
+                } else {
+                    RemoteIngressBatchProgress::failed(
+                        completed_total,
+                        AuthorityServiceError::from(AuthorityFault::MembershipProjection),
+                    )
+                };
+            }
+            let expected_chunk = attempts.len();
+            let (completed_chunk, error) = self
+                .submit_retained_attempts(attempts)
+                .await
+                .into_checked_parts(expected_chunk);
+            let Some(next_completed) = completed_total.checked_add(completed_chunk) else {
+                return RemoteIngressBatchProgress::failed(
+                    completed_total,
+                    AuthorityServiceError::from(AuthorityFault::CounterExhausted),
+                );
+            };
+            completed_total = next_completed;
+            if let Some(error) = error {
+                return RemoteIngressBatchProgress::failed(completed_total, error);
+            }
         }
-        for (tx, declared_cycles) in submissions {
-            attempts.push_back(remote(tx, declared_cycles, peer, &consensus));
-        }
-        self.submit_retained_attempts(attempts).await
     }
 
     pub(crate) async fn submit_proposal_batch(

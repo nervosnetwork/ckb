@@ -12,7 +12,7 @@ pub(crate) use dispatch::process;
 pub use message::RemoteTxBatchOutcome;
 pub(crate) use message::{
     AsyncRequest, BoundedProposalIds, BoundedTransactionHashes, ChainControl, Message,
-    NotifyTxBatch, RemoteTxSubmission, RemoteTxSubmissionSequence, SyncRequest, TestAcceptTxResult,
+    NotifyTxBatch, RemoteTxSubmission, RemoteTxSubmissionBatch, SyncRequest, TestAcceptTxResult,
 };
 pub(crate) use message::{
     BlockTemplateResult, FeeEstimatesResult, FetchTxsWithCyclesResult,

@@ -7,12 +7,12 @@ use crate::service::{
     BoundedProposalIds, BoundedTransaction, BoundedTransactionError, BoundedTransactionHashes,
     ChainControl, ChainReorgArgs, ChainReorgPayloadLimit, FeeEstimatesResult,
     FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
-    NotifyTxBatch, RemoteTxBatchOutcome, RemoteTxSubmission, RemoteTxSubmissionSequence, Request,
+    NotifyTxBatch, RemoteTxBatchOutcome, RemoteTxSubmission, RemoteTxSubmissionBatch, Request,
     SubmitTxResult, TestAcceptTxResult,
 };
 use ckb_async_runtime::Handle;
 use ckb_channel::oneshot;
-use ckb_error::{AnyError, OtherError};
+use ckb_error::AnyError;
 use ckb_logger::info;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
@@ -283,11 +283,10 @@ impl TxPoolController {
         response.await.map_err(Into::into)
     }
 
-    /// Submit one already-bounded network relay batch with at most one
-    /// controller queue capability outstanding at a time.
+    /// Submit one already-bounded network relay batch through one controller
+    /// queue capability.
     ///
-    /// Each message is already one service-native authority chunk. The service
-    /// commits a canonical prefix across those chunks.
+    /// The service commits a canonical prefix in bounded authority chunks.
     /// The returned outcome identifies that exact prefix; the caller owns the
     /// corresponding known-filter release for the uncommitted suffix.
     pub async fn submit_remote_txs(
@@ -296,58 +295,19 @@ impl TxPoolController {
         peer: PeerIndex,
     ) -> Result<RemoteTxBatchOutcome, AnyError> {
         reject_callback_mutation!("submit_remote_txs");
-        let mut sequence = RemoteTxSubmissionSequence::try_new(submissions, peer)?;
-        let offered = sequence.len();
-        let mut completed = 0usize;
-        loop {
-            let batch = match sequence.next_batch() {
-                Ok(Some(batch)) => batch,
-                Ok(None) => return Ok(RemoteTxBatchOutcome::complete(offered)),
-                Err(error) => {
-                    return Ok(RemoteTxBatchOutcome::failed(offered, completed, error));
-                }
-            };
-            let chunk_offered = batch.len();
-            let (responder, response) = tokio::sync::oneshot::channel();
-            let request = AsyncRequest::call(batch, responder);
-            if let Err(error) = self.sender.try_send(Message::SubmitRemoteTxBatch(request)) {
-                let (_, error) = handle_try_send_error(error);
-                return Ok(RemoteTxBatchOutcome::failed(
-                    offered,
-                    completed,
-                    error.into(),
-                ));
-            }
-            let chunk = match response.await {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    return Ok(RemoteTxBatchOutcome::failed(
-                        offered,
-                        completed,
-                        error.into(),
-                    ));
-                }
-            };
-            let (reported, chunk_completed, error) = chunk.into_parts();
-            if reported != chunk_offered || chunk_completed > chunk_offered {
-                return Ok(RemoteTxBatchOutcome::failed(
-                    offered,
-                    completed,
-                    OtherError::new("invalid remote batch progress".to_owned()).into(),
-                ));
-            }
-            let Some(next_completed) = completed.checked_add(chunk_completed) else {
-                return Ok(RemoteTxBatchOutcome::failed(
-                    offered,
-                    completed,
-                    OtherError::new("remote batch progress overflow".to_owned()).into(),
-                ));
-            };
-            completed = next_completed;
-            if let Some(error) = error {
-                return Ok(RemoteTxBatchOutcome::failed(offered, completed, error));
-            }
+        if submissions.is_empty() {
+            return Ok(RemoteTxBatchOutcome::complete(0));
         }
+        let batch = RemoteTxSubmissionBatch::try_new(submissions, peer)?;
+        let (responder, response) = tokio::sync::oneshot::channel();
+        let request = AsyncRequest::call(batch, responder);
+        self.sender
+            .try_send(Message::SubmitRemoteTxBatch(request))
+            .map_err(|error| {
+                let (_, error) = handle_try_send_error(error);
+                error
+            })?;
+        response.await.map_err(Into::into)
     }
 
     /// Receive txs from network, try to add txs to tx-pool

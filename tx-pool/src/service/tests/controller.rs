@@ -469,32 +469,22 @@ fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
         let transaction = ckb_types::core::TransactionBuilder::default().build();
         let submissions = (0..BATCH_LEN).map(|_| (transaction.clone(), 0)).collect();
         let responder = tokio::spawn(async move {
-            let mut received = 0usize;
-            let mut chunks = 0usize;
-            while received < BATCH_LEN {
-                let Some(Message::SubmitRemoteTxBatch(AsyncRequest {
-                    responder,
-                    arguments,
-                })) = receiver.recv().await
-                else {
-                    panic!("remote batch message missing");
-                };
-                let (_, submissions) = arguments.into_parts();
-                assert!(
-                    submissions.len() <= crate::constants::MAX_POOL_MUTATION_CANDIDATES,
-                    "every controller slot preserves the authority apply bound"
-                );
-                assert!(
-                    matches!(receiver.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
-                    "one network batch has at most one controller queue slot outstanding"
-                );
-                received += submissions.len();
-                chunks += 1;
-                responder
-                    .send(RemoteTxBatchOutcome::complete(submissions.len()))
-                    .expect("test receiver remains present");
-            }
-            chunks
+            let Some(Message::SubmitRemoteTxBatch(AsyncRequest {
+                responder,
+                arguments,
+            })) = receiver.recv().await
+            else {
+                panic!("remote batch message missing");
+            };
+            let (_, submissions) = arguments.into_parts();
+            assert_eq!(submissions.len(), BATCH_LEN);
+            assert!(
+                matches!(receiver.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+                "one network batch consumes exactly one controller queue slot"
+            );
+            responder
+                .send(RemoteTxBatchOutcome::complete(BATCH_LEN))
+                .expect("test receiver remains present");
         });
 
         let outcome = controller
@@ -503,10 +493,7 @@ fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
             .expect("the single batch capability receives its response");
         assert_eq!(outcome.offered(), BATCH_LEN);
         assert_eq!(outcome.completed(), BATCH_LEN);
-        assert_eq!(
-            responder.await.expect("responder task does not panic"),
-            BATCH_LEN.div_ceil(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
-        );
+        responder.await.expect("responder task does not panic");
     });
 }
 

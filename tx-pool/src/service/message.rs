@@ -21,7 +21,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(feature = "internal")]
@@ -283,18 +283,18 @@ pub(crate) struct RemoteTxSubmission {
     pub(crate) peer: PeerIndex,
 }
 
-/// One bounded network relay message before controller chunking.
+/// One network relay message retained as one bounded controller capability.
 ///
-/// The sequence is bounded by the same count and byte limits as the wire
-/// message. It remains in the caller task while exactly one fixed-size chunk
-/// at a time crosses the controller queue.
+/// The vector is bounded by the same count and byte limits as the wire
+/// message. This is also the already-declared bound of `NotifyTxBatch`, so the
+/// new variant does not enlarge the controller channel's per-slot envelope.
 #[derive(Debug)]
-pub(crate) struct RemoteTxSubmissionSequence {
-    submissions: VecDeque<(BoundedTransaction, Cycle)>,
+pub(crate) struct RemoteTxSubmissionBatch {
+    submissions: Vec<(BoundedTransaction, Cycle)>,
     peer: PeerIndex,
 }
 
-impl RemoteTxSubmissionSequence {
+impl RemoteTxSubmissionBatch {
     pub(crate) fn try_new(
         submissions: Vec<(TransactionView, Cycle)>,
         peer: PeerIndex,
@@ -335,51 +335,9 @@ impl RemoteTxSubmissionSequence {
             ));
         }
         Ok(Self {
-            submissions: VecDeque::from(bounded),
+            submissions: bounded,
             peer,
         })
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.submissions.len()
-    }
-
-    pub(crate) fn next_batch(&mut self) -> Result<Option<RemoteTxSubmissionBatch>, AnyError> {
-        let count = self
-            .submissions
-            .len()
-            .min(crate::constants::MAX_POOL_MUTATION_CANDIDATES);
-        if count == 0 {
-            return Ok(None);
-        }
-        let mut submissions = Vec::new();
-        submissions
-            .try_reserve_exact(count)
-            .map_err(|_| NotifyTxBatchError::Allocation)?;
-        for _ in 0..count {
-            let Some(submission) = self.submissions.pop_front() else {
-                break;
-            };
-            submissions.push(submission);
-        }
-        Ok(Some(RemoteTxSubmissionBatch {
-            submissions,
-            peer: self.peer,
-        }))
-    }
-}
-
-/// One service-native remote chunk. Its private construction fixes every
-/// controller slot to the existing authority apply candidate bound.
-#[derive(Debug)]
-pub(crate) struct RemoteTxSubmissionBatch {
-    submissions: Vec<(BoundedTransaction, Cycle)>,
-    peer: PeerIndex,
-}
-
-impl RemoteTxSubmissionBatch {
-    pub(crate) fn len(&self) -> usize {
-        self.submissions.len()
     }
 
     pub(super) fn into_parts(self) -> (PeerIndex, Vec<(BoundedTransaction, Cycle)>) {
