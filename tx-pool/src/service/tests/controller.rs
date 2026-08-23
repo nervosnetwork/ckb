@@ -1,6 +1,9 @@
 use super::*;
 use crate::authority::service::AuthorityVerificationControl;
-use crate::service::{AsyncRequest, ChainControl, Notify, NotifyTxBatch, RemoteTxSubmission};
+use crate::service::{
+    AsyncRequest, ChainControl, DEFAULT_CHANNEL_SIZE, Notify, NotifyTxBatch, RemoteTxBatchOutcome,
+    RemoteTxSubmission,
+};
 use crate::test_support::genesis_snapshot;
 use ckb_app_config::TxPoolConfig;
 use ckb_async_runtime::new_background_runtime;
@@ -437,6 +440,73 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
             .await
             .expect("remote submission receives its response");
         responder.await.expect("responder task does not panic");
+    });
+}
+
+#[test]
+fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
+    const BATCH_LEN: usize = DEFAULT_CHANNEL_SIZE + 1;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("current-thread runtime builds");
+    runtime.block_on(async {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
+        let (_verification_control, verification_command) =
+            AuthorityVerificationControl::channel(ChunkCommand::Resume);
+        let controller = TxPoolController {
+            sender,
+            chain_control_sender,
+            verification_command,
+            handle: new_background_runtime(),
+            started: Arc::new(AtomicBool::new(true)),
+            administration_gate: AdministrationGate::new(),
+            chain_reorg_payload_limit: ChainReorgPayloadLimit::for_test(usize::MAX),
+            candidate_uncle_payload_limit: usize::MAX,
+            signal: CancellationToken::new(),
+        };
+        let transaction = ckb_types::core::TransactionBuilder::default().build();
+        let submissions = (0..BATCH_LEN).map(|_| (transaction.clone(), 0)).collect();
+        let responder = tokio::spawn(async move {
+            let mut received = 0usize;
+            let mut chunks = 0usize;
+            while received < BATCH_LEN {
+                let Some(Message::SubmitRemoteTxBatch(AsyncRequest {
+                    responder,
+                    arguments,
+                })) = receiver.recv().await
+                else {
+                    panic!("remote batch message missing");
+                };
+                let (_, submissions) = arguments.into_parts();
+                assert!(
+                    submissions.len() <= crate::constants::MAX_POOL_MUTATION_CANDIDATES,
+                    "every controller slot preserves the authority apply bound"
+                );
+                assert!(
+                    matches!(receiver.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+                    "one network batch has at most one controller queue slot outstanding"
+                );
+                received += submissions.len();
+                chunks += 1;
+                responder
+                    .send(RemoteTxBatchOutcome::complete(submissions.len()))
+                    .expect("test receiver remains present");
+            }
+            chunks
+        });
+
+        let outcome = controller
+            .submit_remote_txs(submissions, ckb_network::PeerIndex::from(1))
+            .await
+            .expect("the single batch capability receives its response");
+        assert_eq!(outcome.offered(), BATCH_LEN);
+        assert_eq!(outcome.completed(), BATCH_LEN);
+        assert_eq!(
+            responder.await.expect("responder task does not panic"),
+            BATCH_LEN.div_ceil(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
+        );
     });
 }
 

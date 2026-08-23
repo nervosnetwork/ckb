@@ -9,9 +9,10 @@ pub(crate) use crate::authority::{BoundedTransaction, BoundedTransactionError};
 pub use builder::TxPoolServiceBuilder;
 pub use controller::TxPoolController;
 pub(crate) use dispatch::process;
+pub use message::RemoteTxBatchOutcome;
 pub(crate) use message::{
     AsyncRequest, BoundedProposalIds, BoundedTransactionHashes, ChainControl, Message,
-    NotifyTxBatch, RemoteTxSubmission, SyncRequest, TestAcceptTxResult,
+    NotifyTxBatch, RemoteTxSubmission, RemoteTxSubmissionSequence, SyncRequest, TestAcceptTxResult,
 };
 pub(crate) use message::{
     BlockTemplateResult, FeeEstimatesResult, FetchTxsWithCyclesResult,

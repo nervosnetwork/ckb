@@ -83,7 +83,7 @@ pub(crate) mod test_support;
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;
-pub use service::{TxPoolController, TxPoolServiceBuilder};
+pub use service::{RemoteTxBatchOutcome, TxPoolController, TxPoolServiceBuilder};
 pub use tokio::sync::RwLock as TokioRwLock;
 
 /// Internal/test injection target retained for block-reconstruction fixtures.

@@ -21,7 +21,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 #[cfg(feature = "internal")]
@@ -283,6 +283,156 @@ pub(crate) struct RemoteTxSubmission {
     pub(crate) peer: PeerIndex,
 }
 
+/// One bounded network relay message before controller chunking.
+///
+/// The sequence is bounded by the same count and byte limits as the wire
+/// message. It remains in the caller task while exactly one fixed-size chunk
+/// at a time crosses the controller queue.
+#[derive(Debug)]
+pub(crate) struct RemoteTxSubmissionSequence {
+    submissions: VecDeque<(BoundedTransaction, Cycle)>,
+    peer: PeerIndex,
+}
+
+impl RemoteTxSubmissionSequence {
+    pub(crate) fn try_new(
+        submissions: Vec<(TransactionView, Cycle)>,
+        peer: PeerIndex,
+    ) -> Result<Self, AnyError> {
+        let actual = submissions.len();
+        if actual > ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH {
+            return Err(NotifyTxBatchError::TooMany {
+                actual,
+                maximum: ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
+            }
+            .into());
+        }
+        let bytes = submissions.iter().try_fold(0usize, |total, (tx, _)| {
+            total
+                .checked_add(tx.data().total_size())
+                .ok_or(NotifyTxBatchError::SizeOverflow)
+        })?;
+        if bytes > ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH {
+            return Err(NotifyTxBatchError::TooLarge {
+                actual: bytes,
+                maximum: ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH,
+            }
+            .into());
+        }
+        let mut bounded = Vec::new();
+        bounded
+            .try_reserve_exact(actual)
+            .map_err(|_| NotifyTxBatchError::Allocation)?;
+        for (tx, declared_cycles) in submissions {
+            bounded.push((
+                BoundedTransaction::try_new(tx).map_err(|error| match error {
+                    BoundedTransactionError::TooLarge { actual, maximum } => {
+                        NotifyTxBatchError::TransactionTooLarge { actual, maximum }
+                    }
+                    BoundedTransactionError::Allocation => NotifyTxBatchError::Allocation,
+                })?,
+                declared_cycles,
+            ));
+        }
+        Ok(Self {
+            submissions: VecDeque::from(bounded),
+            peer,
+        })
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.submissions.len()
+    }
+
+    pub(crate) fn next_batch(&mut self) -> Result<Option<RemoteTxSubmissionBatch>, AnyError> {
+        let count = self
+            .submissions
+            .len()
+            .min(crate::constants::MAX_POOL_MUTATION_CANDIDATES);
+        if count == 0 {
+            return Ok(None);
+        }
+        let mut submissions = Vec::new();
+        submissions
+            .try_reserve_exact(count)
+            .map_err(|_| NotifyTxBatchError::Allocation)?;
+        for _ in 0..count {
+            let Some(submission) = self.submissions.pop_front() else {
+                break;
+            };
+            submissions.push(submission);
+        }
+        Ok(Some(RemoteTxSubmissionBatch {
+            submissions,
+            peer: self.peer,
+        }))
+    }
+}
+
+/// One service-native remote chunk. Its private construction fixes every
+/// controller slot to the existing authority apply candidate bound.
+#[derive(Debug)]
+pub(crate) struct RemoteTxSubmissionBatch {
+    submissions: Vec<(BoundedTransaction, Cycle)>,
+    peer: PeerIndex,
+}
+
+impl RemoteTxSubmissionBatch {
+    pub(crate) fn len(&self) -> usize {
+        self.submissions.len()
+    }
+
+    pub(super) fn into_parts(self) -> (PeerIndex, Vec<(BoundedTransaction, Cycle)>) {
+        (self.peer, self.submissions)
+    }
+}
+
+/// Total result of handing one bounded network batch to tx-pool authority.
+///
+/// `completed` is the exact committed canonical prefix.  Any suffix belongs
+/// to the pre-commit failure domain and must have its relayer known marks
+/// released; it must never be reported as a tx-pool rejection or terminal.
+#[derive(Debug)]
+pub struct RemoteTxBatchOutcome {
+    offered: usize,
+    completed: usize,
+    error: Option<AnyError>,
+}
+
+impl RemoteTxBatchOutcome {
+    pub(crate) fn complete(offered: usize) -> Self {
+        Self {
+            offered,
+            completed: offered,
+            error: None,
+        }
+    }
+
+    pub(crate) fn failed(offered: usize, completed: usize, error: AnyError) -> Self {
+        Self {
+            offered,
+            completed,
+            error: Some(error),
+        }
+    }
+
+    /// Number of transactions in the bounded network batch.
+    pub fn offered(&self) -> usize {
+        self.offered
+    }
+
+    /// Number of transactions in the committed canonical prefix.
+    pub fn completed(&self) -> usize {
+        self.completed
+    }
+
+    /// Consume the outcome into offered count, committed-prefix count and the
+    /// optional reason why the suffix did not enter the terminal domain.
+    pub fn into_parts(self) -> (usize, usize, Option<AnyError>) {
+        (self.offered, self.completed, self.error)
+    }
+}
+
 impl RemoteTxSubmission {
     pub(crate) fn new(
         transaction: BoundedTransaction,
@@ -303,6 +453,7 @@ pub(crate) enum Message {
     RemoveLocalTx(SyncRequest<Byte32, bool>),
     TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
     SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
+    SubmitRemoteTxBatch(AsyncRequest<RemoteTxSubmissionBatch, RemoteTxBatchOutcome>),
     NotifyTxs(Notify<NotifyTxBatch>),
     FreshProposalsFilter(AsyncRequest<BoundedProposalIds, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<BoundedProposalIds, HashMap<ProposalShortId, TransactionView>>),

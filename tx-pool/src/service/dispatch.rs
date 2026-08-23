@@ -13,8 +13,8 @@ use crate::{
         },
     },
     service::{
-        AsyncRequest, Message, Notify, OneshotSender, RemoteTxSubmission, Request, SyncRequest,
-        respond,
+        AsyncRequest, Message, Notify, OneshotSender, RemoteTxBatchOutcome, RemoteTxSubmission,
+        Request, SyncRequest, respond,
     },
 };
 use ckb_error::{AnyError, OtherError};
@@ -110,6 +110,26 @@ pub(crate) async fn process(
                 .submit_remote(transaction, declared_cycles, peer)
                 .await;
             respond_outer(responder, result, "submit_remote_tx")
+        }
+        Message::SubmitRemoteTxBatch(request) => {
+            let AsyncRequest {
+                responder,
+                arguments,
+            } = request;
+            let (peer, submissions) = arguments.into_parts();
+            let offered = submissions.len();
+            let (completed, error) = service
+                .submit_remote_batch(peer, submissions)
+                .await
+                .into_checked_parts(offered);
+            let outcome = error.as_ref().map_or_else(
+                || RemoteTxBatchOutcome::complete(offered),
+                |error| {
+                    RemoteTxBatchOutcome::failed(offered, completed, authority_error_as_any(error))
+                },
+            );
+            respond(responder, outcome, "submit_remote_txs");
+            error.map_or(Ok(()), settle_service_error)
         }
         Message::NotifyTxs(Notify { arguments }) => {
             match service

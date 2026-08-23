@@ -75,6 +75,8 @@ impl<'a> TransactionsProcess<'a> {
 
         shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
 
+        let known_hashes: Vec<_> = txs.iter().map(|(tx, _)| tx.hash()).collect();
+
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
         let shared = Arc::clone(self.relayer.shared());
         let peer = self.peer;
@@ -83,24 +85,19 @@ impl<'a> TransactionsProcess<'a> {
             .shared()
             .async_handle()
             .spawn(async move {
-                futures::future::join_all(txs.into_iter().map(|(tx, declared_cycles)| {
-                    let tx_pool = &tx_pool;
-                    let shared = &shared;
-                    async move {
-                        let hash = tx.hash();
-                        if let Err(error) =
-                            tx_pool.submit_remote_tx(tx, declared_cycles, peer).await
-                        {
-                            // Settle each failed handoff as soon as its own
-                            // request completes. Waiting for unrelated members
-                            // of the bounded batch could otherwise extend a
-                            // stale known mark behind their authority wait.
-                            shared.state().remove_from_known_txs(&hash);
-                            error!("submit_tx error {}", error);
-                        }
+                let (completed, error) = match tx_pool.submit_remote_txs(txs, peer).await {
+                    Ok(outcome) => {
+                        let (_, completed, error) = outcome.into_parts();
+                        (completed, error)
                     }
-                }))
-                .await;
+                    Err(error) => (0, Some(error)),
+                };
+                for hash in known_hashes.into_iter().skip(completed) {
+                    shared.state().remove_from_known_txs(&hash);
+                }
+                if let Some(error) = error {
+                    error!("submit remote transaction batch error {error}");
+                }
             });
 
         Status::ok()
