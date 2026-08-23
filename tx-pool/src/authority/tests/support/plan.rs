@@ -1015,12 +1015,17 @@ impl TxPoolAuthority {
             .all(|(hash, owner)| &owner.record().identity.raw == hash)
             && self.indexes.semantically_matches(&self.entries)
             && self.resources.semantically_matches(&self.entries)
+            && self.membership_projection_consistent()
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
             && self.peer_bans.semantically_consistent()
             && self
                 .effects
                 .semantically_consistent(self.clocks.next_sequence)
+    }
+
+    pub(in crate::authority) fn membership_projection_consistent(&self) -> bool {
+        self.membership.semantically_matches(&self.entries)
     }
 
     pub(in crate::authority) fn independent_candidate_for_foundation(

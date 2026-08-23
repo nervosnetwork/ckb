@@ -4,14 +4,11 @@ use super::super::effect::{
     EffectCapacity, EffectLimits, EffectPolicy, RejectionAudience,
 };
 use super::super::plan::{
-    AcceptedOrderKey, AncestorAggregate, AuthorityFault, Backpressure, CandidateDispositionPlan,
-    CommittedDelta, ComputeSettlementFailure, ComputeSettlementRecovery, DescendantAggregate,
-    DirectAdmissionDisposition, EvictionOrderKey, MembershipReject, PlanError, PreparedApply,
-    RemovalCause, SettlementBatch, SettlementPlan, StalePlan, TxPoolAuthority,
-    test_support::{
-        CandidateBatchError, CommittedCheckout, ComponentLimitKind, MembershipSnapshot,
-        StatusCounts,
-    },
+    AuthorityFault, Backpressure, CandidateDispositionPlan, CommittedDelta,
+    ComputeSettlementFailure, ComputeSettlementRecovery, DirectAdmissionDisposition,
+    MembershipReject, PlanError, PreparedApply, RemovalCause, SettlementBatch, SettlementPlan,
+    StalePlan, TxPoolAuthority,
+    test_support::{CandidateBatchError, CommittedCheckout, ComponentLimitKind},
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeGrant, ComputeLimits,
@@ -56,7 +53,7 @@ use ckb_types::{
     prelude::{Builder, Entity, Pack},
 };
 use ckb_verification::cache::ScriptVerificationRules;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
@@ -853,181 +850,7 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
 }
 
 pub(super) fn assert_membership_reference(authority: &TxPoolAuthority) {
-    let accepted = authority
-        .entries_for_reference()
-        .iter()
-        .filter_map(|(hash, owner)| match owner {
-            OwnedTx::Accepted(entry) => Some((hash, entry)),
-            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
-        })
-        .collect::<HashMap<_, _>>();
-    let mut spenders = HashMap::new();
-    let mut dependency_readers = HashMap::<OutPoint, HashSet<_>>::new();
-    let mut parents = accepted
-        .keys()
-        .map(|hash| ((*hash).clone(), HashSet::new()))
-        .collect::<HashMap<_, _>>();
-    let mut children = parents.clone();
-    let mut counts = StatusCounts::default();
-
-    for (hash, entry) in &accepted {
-        match entry.status() {
-            AcceptedStatus::Pending => {
-                counts.pending = counts.pending.checked_add(1).expect("fixture count fits")
-            }
-            AcceptedStatus::Gap => {
-                counts.gap = counts.gap.checked_add(1).expect("fixture count fits")
-            }
-            AcceptedStatus::Proposed => {
-                counts.proposed = counts.proposed.checked_add(1).expect("fixture count fits")
-            }
-        }
-        for input in entry.proof.payload().footprint.inputs() {
-            assert!(
-                spenders.insert(input.clone(), (*hash).clone()).is_none(),
-                "accepted input has one spender"
-            );
-        }
-        for dependency in entry.proof.payload().footprint.dependencies() {
-            dependency_readers
-                .entry(dependency.clone())
-                .or_default()
-                .insert((*hash).clone());
-        }
-        for out_point in entry
-            .proof
-            .payload()
-            .footprint
-            .inputs()
-            .iter()
-            .chain(entry.proof.payload().footprint.dependencies())
-        {
-            let parent = super::super::state::RawTxHash(out_point.tx_hash());
-            if !accepted.contains_key(&parent) {
-                continue;
-            }
-            parents
-                .get_mut(*hash)
-                .expect("accepted candidate has a parent row")
-                .insert(parent.clone());
-            children
-                .get_mut(&parent)
-                .expect("accepted parent has a child row")
-                .insert((*hash).clone());
-        }
-    }
-
-    let mut ancestor_aggregates = HashMap::new();
-    let mut descendant_aggregates = HashMap::new();
-    let mut accepted_order = BTreeSet::new();
-    let mut eviction_order = BTreeSet::new();
-    for (root, root_entry) in &accepted {
-        let mut ancestor_aggregate = AncestorAggregate::default();
-        let mut visited = HashSet::new();
-        let mut frontier = VecDeque::from([(*root).clone()]);
-        while let Some(ancestor) = frontier.pop_front() {
-            if !visited.insert(ancestor.clone()) {
-                continue;
-            }
-            let entry = accepted
-                .get(&ancestor)
-                .expect("accepted ancestor has a primary entry");
-            let cost = entry.proof.metrics().cost;
-            ancestor_aggregate.entries = ancestor_aggregate
-                .entries
-                .checked_add(1)
-                .expect("fixture ancestor count fits");
-            ancestor_aggregate.serialized_bytes = ancestor_aggregate
-                .serialized_bytes
-                .checked_add(cost.serialized_bytes)
-                .expect("fixture ancestor size fits");
-            ancestor_aggregate.cycles = ancestor_aggregate
-                .cycles
-                .checked_add(cost.cycles)
-                .expect("fixture ancestor cycles fit");
-            ancestor_aggregate.fee = ancestor_aggregate
-                .fee
-                .safe_add(entry.proof.metrics().fee)
-                .expect("fixture ancestor fee fits");
-            frontier.extend(
-                parents
-                    .get(&ancestor)
-                    .expect("accepted ancestor has a parent row")
-                    .iter()
-                    .cloned(),
-            );
-        }
-        ancestor_aggregates.insert((*root).clone(), ancestor_aggregate);
-        accepted_order.insert(AcceptedOrderKey::new(root_entry, ancestor_aggregate));
-
-        let mut aggregate = DescendantAggregate::default();
-        let mut visited = HashSet::new();
-        let mut frontier = VecDeque::from([(*root).clone()]);
-        while let Some(descendant) = frontier.pop_front() {
-            if !visited.insert(descendant.clone()) {
-                continue;
-            }
-            let entry = accepted
-                .get(&descendant)
-                .expect("accepted descendant has a primary entry");
-            let cost = entry.proof.metrics().cost;
-            aggregate.entries = aggregate
-                .entries
-                .checked_add(1)
-                .expect("fixture aggregate count fits");
-            aggregate.serialized_bytes = aggregate
-                .serialized_bytes
-                .checked_add(cost.serialized_bytes)
-                .expect("fixture aggregate size fits");
-            aggregate.cycles = aggregate
-                .cycles
-                .checked_add(cost.cycles)
-                .expect("fixture aggregate cycles fit");
-            aggregate.fee = aggregate
-                .fee
-                .safe_add(entry.proof.metrics().fee)
-                .expect("fixture aggregate fee fits");
-            frontier.extend(
-                children
-                    .get(&descendant)
-                    .expect("accepted descendant has a child row")
-                    .iter()
-                    .cloned(),
-            );
-        }
-        descendant_aggregates.insert((*root).clone(), aggregate);
-        let cost = root_entry.proof.metrics().cost;
-        let self_rate = FeeRate::calculate(
-            root_entry.proof.metrics().fee,
-            get_transaction_weight(cost.serialized_bytes, cost.cycles),
-        );
-        let descendants_rate = FeeRate::calculate(
-            aggregate.fee,
-            get_transaction_weight(aggregate.serialized_bytes, aggregate.cycles),
-        );
-        eviction_order.insert(EvictionOrderKey {
-            status: root_entry.status(),
-            fee_rate: self_rate.max(descendants_rate),
-            descendants_count: aggregate.entries,
-            arrival: root_entry.record.arrival,
-            hash: (*root).clone(),
-        });
-    }
-
-    assert_eq!(
-        authority.membership_snapshot_for_reference(),
-        MembershipSnapshot {
-            spenders,
-            dependency_readers,
-            parents,
-            children,
-            ancestor_aggregates,
-            descendant_aggregates,
-            accepted_order,
-            eviction_order,
-            counts,
-        }
-    );
+    assert!(authority.membership_projection_consistent());
 }
 
 #[test]
