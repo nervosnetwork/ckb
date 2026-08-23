@@ -830,7 +830,9 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn membership_counts(&self) -> StatusCounts {
-        self.membership.counts()
+        self.entries
+            .status_counts()
+            .expect("foundation owner count is bounded by configured resources")
     }
 
     pub(in crate::authority) fn accepted_parents(
@@ -910,7 +912,7 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn membership_snapshot_for_reference(&self) -> MembershipSnapshot {
-        self.membership.snapshot()
+        self.membership.snapshot(self.membership_counts())
     }
 
     pub(in crate::authority) fn ready_for_reference(&self) -> Vec<(RawTxHash, EntryVersion)> {
@@ -1003,7 +1005,7 @@ impl TxPoolAuthority {
             indexes: self.indexes.snapshot(),
             source_versions: self.source_versions,
             resources: self.resources.snapshot(),
-            membership: self.membership.snapshot(),
+            membership: self.membership.snapshot(self.membership_counts()),
             scheduler: self.scheduler.snapshot(),
             dependencies: self.dependencies.snapshot(),
             effects: self.effects.snapshot(),

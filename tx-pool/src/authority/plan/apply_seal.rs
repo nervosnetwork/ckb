@@ -127,6 +127,7 @@ enum PreparedResourceApply {
 pub(super) struct PreparedOwnerResourceDelta<I> {
     updates: I,
     resources: PreparedResourceApply,
+    status_counts: super::super::shard::ShardStatusCountPlan,
 }
 
 impl<I> PreparedOwnerResourceDelta<I> {
@@ -134,7 +135,16 @@ impl<I> PreparedOwnerResourceDelta<I> {
         Self {
             updates,
             resources: PreparedResourceApply::Batch(resources),
+            status_counts: Default::default(),
         }
+    }
+
+    pub(super) fn with_status_counts(
+        mut self,
+        status_counts: super::super::shard::ShardStatusCountPlan,
+    ) -> Self {
+        self.status_counts = status_counts;
+        self
     }
 }
 
@@ -143,6 +153,7 @@ impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
         Self {
             updates: std::iter::once(update),
             resources: PreparedResourceApply::Single(resources),
+            status_counts: Default::default(),
         }
     }
 }
@@ -362,6 +373,9 @@ impl TxPoolAuthority {
                 (PreviousOwnerDisposition::Drop, previous) => drop(previous),
             }
         }
+        owner_resources
+            .entries
+            .apply_status_counts(delta.status_counts);
         match delta.resources {
             PreparedResourceApply::Single(plan) => owner_resources.resources.apply(plan),
             PreparedResourceApply::Batch(plan) => owner_resources.resources.apply_batch(plan),

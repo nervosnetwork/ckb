@@ -112,14 +112,14 @@ pub(in crate::authority) struct StatusCounts {
 }
 
 impl StatusCounts {
-    fn checked_add(self, status: AcceptedStatus) -> Option<Self> {
+    pub(in crate::authority) fn checked_add(self, status: AcceptedStatus) -> Option<Self> {
         let mut next = self;
         let count = next.for_status_mut(status);
         *count = count.checked_add(1)?;
         Some(next)
     }
 
-    fn checked_sub(self, status: AcceptedStatus) -> Option<Self> {
+    pub(in crate::authority) fn checked_sub(self, status: AcceptedStatus) -> Option<Self> {
         let mut next = self;
         let count = next.for_status_mut(status);
         *count = count.checked_sub(1)?;
@@ -133,6 +133,14 @@ impl StatusCounts {
             AcceptedStatus::Proposed => &mut self.proposed,
         }
     }
+
+    pub(in crate::authority) fn checked_add_counts(self, other: Self) -> Option<Self> {
+        Some(Self {
+            pending: self.pending.checked_add(other.pending)?,
+            gap: self.gap.checked_add(other.gap)?,
+            proposed: self.proposed.checked_add(other.proposed)?,
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -145,7 +153,6 @@ pub(in crate::authority) struct MembershipProjection {
     descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
     accepted_order: BTreeSet<AcceptedOrderKey>,
     eviction_order: BTreeSet<EvictionOrderKey>,
-    counts: StatusCounts,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -503,10 +510,14 @@ pub(super) struct ProjectionDelta {
     accepted_order_insertions: Vec<AcceptedOrderKey>,
     eviction_removals: Vec<EvictionOrderKey>,
     eviction_insertions: Vec<EvictionOrderKey>,
-    counts: StatusCounts,
+    status_counts: super::super::shard::ShardStatusCountPlan,
 }
 
 impl ProjectionDelta {
+    pub(super) fn take_status_counts(&mut self) -> super::super::shard::ShardStatusCountPlan {
+        std::mem::take(&mut self.status_counts)
+    }
+
     /// Read the post-Apply spender from this change log and the authoritative
     /// pre-Apply projection. Chain dependency publication uses this instead
     /// of treating a chain-live cell as globally available while a surviving
@@ -615,7 +626,7 @@ impl ProjectionDelta {
         {
             support.insert(b"membership/eviction-order", &key.hash);
         }
-        exclusive.membership_counts = true;
+        let _ = exclusive;
     }
 }
 
@@ -642,10 +653,6 @@ pub(super) struct MembershipEvaluation {
 }
 
 impl MembershipProjection {
-    pub(in crate::authority) fn counts(&self) -> StatusCounts {
-        self.counts
-    }
-
     pub(in crate::authority) fn spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
         self.spenders.get(input)
     }
@@ -860,7 +867,6 @@ impl MembershipProjection {
         for key in delta.eviction_insertions {
             self.eviction_order.insert(key);
         }
-        self.counts = delta.counts;
     }
 }
 
@@ -1024,17 +1030,18 @@ impl TxPoolAuthority {
         }
         let ancestor = self.prepare_chain_ancestor_delta(removals, &removed)?;
 
-        let mut counts = self.membership.counts;
+        let mut status_count_changes = Vec::new();
+        status_count_changes
+            .try_reserve(removals.len().checked_add(status_changes.len()).ok_or(
+                super::PlanError::Fault(super::AuthorityFault::CounterExhausted),
+            )?)
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         let mut relation_capacity = 0usize;
         let mut input_capacity = 0usize;
         let mut dependency_capacity = 0usize;
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
-            counts = counts
-                .checked_sub(entry.status())
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            status_count_changes.push((hash.clone(), Some(entry.status()), None));
             input_capacity = input_capacity
                 .checked_add(entry.proof.payload().footprint.inputs().len())
                 .ok_or(super::PlanError::Fault(
@@ -1074,13 +1081,13 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ));
             }
-            counts = counts
-                .checked_sub(before.status())
-                .and_then(|counts| counts.checked_add(after.status()))
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            status_count_changes.push((hash.clone(), Some(before.status()), Some(after.status())));
         }
+        let status_counts = self.entries.plan_status_counts(
+            status_count_changes
+                .iter()
+                .map(|(hash, before, after)| (hash, *before, *after)),
+        )?;
 
         let mut spender_changes = Vec::new();
         spender_changes
@@ -1347,7 +1354,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: ancestor.order_insertions,
             eviction_removals,
             eviction_insertions,
-            counts,
+            status_counts,
         })
     }
 
@@ -1503,21 +1510,28 @@ impl TxPoolAuthority {
             .try_reserve(removals.len())
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         removed.extend(removals.iter().map(|removal| removal.hash.clone()));
-        let mut counts = self.membership.counts;
+        let mut status_count_changes = Vec::new();
+        status_count_changes
+            .try_reserve(
+                removals
+                    .len()
+                    .checked_add(1)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::CounterExhausted,
+                    ))?,
+            )
+            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         for planned in removals {
             let removal = &planned.hash;
             let entry = self.accepted_entry(removal)?;
-            counts = counts
-                .checked_sub(entry.status())
-                .ok_or(super::PlanError::Fault(
-                    super::AuthorityFault::MembershipProjection,
-                ))?;
+            status_count_changes.push((removal.clone(), Some(entry.status()), None));
         }
-        counts = counts
-            .checked_add(candidate.status())
-            .ok_or(super::PlanError::Fault(
-                super::AuthorityFault::CounterExhausted,
-            ))?;
+        status_count_changes.push((hash.clone(), None, Some(candidate.status())));
+        let status_counts = self.entries.plan_status_counts(
+            status_count_changes
+                .iter()
+                .map(|(hash, before, after)| (hash, *before, *after)),
+        )?;
 
         let footprint = &candidate.proof.payload().footprint;
         let mut removal_inputs = 0usize;
@@ -1756,7 +1770,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: aggregate.accepted_order_insertions,
             eviction_removals: aggregate.eviction_removals,
             eviction_insertions: aggregate.eviction_insertions,
-            counts,
+            status_counts,
         })
     }
 

@@ -76,7 +76,7 @@ fn real_local_removal_delta_derives_one_disjoint_shard_pair_and_names_globals() 
     assert!(independent_support.len() > 0);
     assert_eq!(root_exclusive, independent_exclusive);
     assert!(root_exclusive.resource_totals);
-    assert!(root_exclusive.membership_counts);
+    assert!(!root_exclusive.membership_counts);
     assert!(root_exclusive.source_versions);
     assert!(!root_exclusive.scheduler_cursor);
     assert!(root_exclusive.clocks);

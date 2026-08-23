@@ -7,7 +7,9 @@
 //! owner of rebuildable output.
 
 use super::{
-    plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection},
+    plan::{
+        AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection, StatusCounts,
+    },
     shard::ShardedOwnerMap,
     source::PoolTemplateVersions,
     state::{
@@ -172,9 +174,10 @@ impl AuthorityTemplateReadReceipt {
         chain_view: ChainViewId,
         sources: PoolTemplateVersions,
         entries: &ShardedOwnerMap,
+        counts: Option<StatusCounts>,
         membership: &MembershipProjection,
     ) -> Result<Self, TemplateReadError> {
-        let counts = membership.counts();
+        let counts = counts.ok_or(TemplateReadError::Arithmetic)?;
         let accepted_count = counts
             .pending
             .checked_add(counts.gap)

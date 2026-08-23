@@ -51,7 +51,7 @@ use super::scheduler::{
     FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerWakeProjection, VerifyOrder,
 };
-use super::shard::ShardedOwnerMap;
+use super::shard::{ShardStatusCountPlanError, ShardedOwnerMap};
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
@@ -75,7 +75,7 @@ pub(in crate::authority) use membership::MembershipConfig;
 pub(in crate::authority) use membership::RemovalCause;
 pub(in crate::authority) use membership::{
     AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
-    MembershipProjection,
+    MembershipProjection, StatusCounts,
 };
 use membership::{AcceptedRemovalSet, MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use settlement::{IndependentCandidate, SettlementBatch, SettlementPlan};
@@ -449,6 +449,18 @@ impl From<PeerBanError> for PlanError {
     fn from(error: PeerBanError) -> Self {
         match error {
             PeerBanError::Allocation => Self::Backpressure(Backpressure::Allocation),
+        }
+    }
+}
+
+impl From<ShardStatusCountPlanError> for PlanError {
+    fn from(error: ShardStatusCountPlanError) -> Self {
+        match error {
+            ShardStatusCountPlanError::Projection => {
+                Self::Fault(AuthorityFault::MembershipProjection)
+            }
+            ShardStatusCountPlanError::Arithmetic => Self::Fault(AuthorityFault::CounterExhausted),
+            ShardStatusCountPlanError::Allocation => Self::Backpressure(Backpressure::Allocation),
         }
     }
 }
@@ -1380,9 +1392,11 @@ impl PreparedApply<'_> {
             Some(delta.changed_after),
             changed_previous,
         ));
+        let status_counts = delta.projection.take_status_counts();
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(removal_updates.chain(changed), delta.resource),
+            PreparedOwnerResourceDelta::batch(removal_updates.chain(changed), delta.resource)
+                .with_status_counts(status_counts),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1408,7 +1422,7 @@ impl PreparedApply<'_> {
     fn apply_independent(
         authority: &mut TxPoolAuthority,
         token: &ApplyToken,
-        delta: IndependentDelta,
+        mut delta: IndependentDelta,
     ) -> ApplyRetirement {
         let updates = delta.updates.into_iter().map(|update| {
             OwnerResourceUpdate::new(
@@ -1418,9 +1432,11 @@ impl PreparedApply<'_> {
             )
         });
         let mut retired = Vec::new();
+        let status_counts = delta.projection.take_status_counts();
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(updates, delta.resource),
+            PreparedOwnerResourceDelta::batch(updates, delta.resource)
+                .with_status_counts(status_counts),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1566,7 +1582,7 @@ impl PreparedApply<'_> {
             hashes,
             owners,
             resources,
-            membership,
+            mut membership,
             scheduler,
             dependency,
             mut retired,
@@ -1574,9 +1590,10 @@ impl PreparedApply<'_> {
         let updates = hashes
             .into_iter()
             .map(|hash| OwnerResourceUpdate::new(hash, None, PreviousOwnerDisposition::Retire));
+        let status_counts = membership.take_status_counts();
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(updates, resources),
+            PreparedOwnerResourceDelta::batch(updates, resources).with_status_counts(status_counts),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1591,15 +1608,17 @@ impl PreparedApply<'_> {
     fn apply_chain(
         authority: &mut TxPoolAuthority,
         token: &ApplyToken,
-        delta: ChainDelta,
+        mut delta: ChainDelta,
     ) -> ApplyRetirement {
         let mut retired = delta.retired;
         let updates = delta.updates.into_iter().map(|update| {
             OwnerResourceUpdate::new(update.key, update.after, PreviousOwnerDisposition::Retire)
         });
+        let status_counts = delta.membership.take_status_counts();
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(updates, delta.resources),
+            PreparedOwnerResourceDelta::batch(updates, delta.resources)
+                .with_status_counts(status_counts),
             &mut retired,
         );
         let authority = authority.write(token);

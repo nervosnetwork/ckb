@@ -3,7 +3,10 @@
 //! This module owns only representation and routing. It contains no operation
 //! enum or policy table: semantic delta types fold their own real keys.
 
-use super::state::{OwnedTx, RawTxHash};
+use super::{
+    plan::StatusCounts,
+    state::{AcceptedStatus, OwnedTx, RawTxHash},
+};
 use std::{
     collections::{HashMap, hash_map},
     fmt,
@@ -41,7 +44,13 @@ impl AuthorityShardRouter {
 /// the remaining domains migrate; no duplicate flat owner map exists.
 pub(in crate::authority) struct ShardedOwnerMap {
     router: AuthorityShardRouter,
-    shards: Box<[HashMap<RawTxHash, OwnedTx>; AUTHORITY_SHARD_COUNT]>,
+    shards: Box<[AuthorityShard; AUTHORITY_SHARD_COUNT]>,
+}
+
+#[derive(Debug, Default)]
+struct AuthorityShard {
+    owners: HashMap<RawTxHash, OwnedTx>,
+    membership_counts: StatusCounts,
 }
 
 impl fmt::Debug for ShardedOwnerMap {
@@ -58,7 +67,7 @@ impl ShardedOwnerMap {
     pub(in crate::authority) fn new(router: AuthorityShardRouter) -> Self {
         Self {
             router,
-            shards: Box::new(std::array::from_fn(|_| HashMap::new())),
+            shards: Box::new(std::array::from_fn(|_| AuthorityShard::default())),
         }
     }
 
@@ -82,7 +91,7 @@ impl ShardedOwnerMap {
         reason = "owner() masks to the fixed 64-entry array range"
     )]
     pub(in crate::authority) fn get(&self, key: &RawTxHash) -> Option<&OwnedTx> {
-        self.shards[self.router.owner(key)].get(key)
+        self.shards[self.router.owner(key)].owners.get(key)
     }
 
     pub(in crate::authority) fn contains_key(&self, key: &RawTxHash) -> bool {
@@ -99,7 +108,7 @@ impl ShardedOwnerMap {
         owner: OwnedTx,
     ) -> Option<OwnedTx> {
         let shard = self.router.owner(&key);
-        self.shards[shard].insert(key, owner)
+        self.shards[shard].owners.insert(key, owner)
     }
 
     #[expect(
@@ -107,16 +116,19 @@ impl ShardedOwnerMap {
         reason = "owner() masks to the fixed 64-entry array range"
     )]
     pub(in crate::authority) fn remove(&mut self, key: &RawTxHash) -> Option<OwnedTx> {
-        self.shards[self.router.owner(key)].remove(key)
+        self.shards[self.router.owner(key)].owners.remove(key)
     }
 
     pub(in crate::authority) fn len(&self) -> usize {
-        self.shards.iter().map(HashMap::len).sum()
+        self.shards.iter().map(|shard| shard.owners.len()).sum()
     }
 
     #[cfg(test)]
     pub(in crate::authority) fn capacity(&self) -> usize {
-        self.shards.iter().map(HashMap::capacity).sum()
+        self.shards
+            .iter()
+            .map(|shard| shard.owners.capacity())
+            .sum()
     }
 
     #[expect(
@@ -133,9 +145,69 @@ impl ShardedOwnerMap {
             additional[shard] = additional[shard].saturating_add(1);
         }
         for (shard, additional) in self.shards.iter_mut().zip(additional) {
-            shard.try_reserve(additional)?;
+            shard.owners.try_reserve(additional)?;
         }
         Ok(())
+    }
+
+    pub(in crate::authority) fn status_counts(&self) -> Option<StatusCounts> {
+        self.shards
+            .iter()
+            .try_fold(StatusCounts::default(), |total, shard| {
+                total.checked_add_counts(shard.membership_counts)
+            })
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "owner() masks to the fixed 64-entry array range"
+    )]
+    pub(in crate::authority) fn plan_status_counts<'change>(
+        &self,
+        changes: impl IntoIterator<
+            Item = (
+                &'change RawTxHash,
+                Option<AcceptedStatus>,
+                Option<AcceptedStatus>,
+            ),
+        >,
+    ) -> Result<ShardStatusCountPlan, ShardStatusCountPlanError> {
+        let mut targets = [None; AUTHORITY_SHARD_COUNT];
+        for (key, before, after) in changes {
+            let shard = self.router.owner(key);
+            let target = targets[shard].get_or_insert(self.shards[shard].membership_counts);
+            if let Some(before) = before {
+                *target = target
+                    .checked_sub(before)
+                    .ok_or(ShardStatusCountPlanError::Projection)?;
+            }
+            if let Some(after) = after {
+                *target = target
+                    .checked_add(after)
+                    .ok_or(ShardStatusCountPlanError::Arithmetic)?;
+            }
+        }
+        let mut planned = Vec::new();
+        planned
+            .try_reserve(AUTHORITY_SHARD_COUNT)
+            .map_err(|_| ShardStatusCountPlanError::Allocation)?;
+        planned.extend(
+            targets
+                .into_iter()
+                .enumerate()
+                .filter_map(|(shard, counts)| counts.map(|counts| (shard as u8, counts))),
+        );
+        Ok(ShardStatusCountPlan(planned))
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "planned shard ids originate only from the fixed array enumeration"
+    )]
+    pub(in crate::authority) fn apply_status_counts(&mut self, plan: ShardStatusCountPlan) {
+        for (shard, counts) in plan.0 {
+            self.shards[usize::from(shard)].membership_counts = counts;
+        }
     }
 
     pub(in crate::authority) fn iter(&self) -> ShardedOwnerIter<'_> {
@@ -160,7 +232,7 @@ impl<'map> IntoIterator for &'map ShardedOwnerMap {
 }
 
 pub(in crate::authority) struct ShardedOwnerIter<'map> {
-    shards: std::slice::Iter<'map, HashMap<RawTxHash, OwnedTx>>,
+    shards: std::slice::Iter<'map, AuthorityShard>,
     current: Option<hash_map::Iter<'map, RawTxHash, OwnedTx>>,
 }
 
@@ -172,7 +244,7 @@ impl<'map> Iterator for ShardedOwnerIter<'map> {
             if let Some(item) = self.current.as_mut().and_then(Iterator::next) {
                 return Some(item);
             }
-            self.current = Some(self.shards.next()?.iter());
+            self.current = Some(self.shards.next()?.owners.iter());
         }
     }
 
@@ -186,7 +258,17 @@ impl ExactSizeIterator for ShardedOwnerIter<'_> {
         let current = self.current.as_ref().map_or(0, ExactSizeIterator::len);
         self.shards
             .clone()
-            .map(HashMap::len)
+            .map(|shard| shard.owners.len())
             .fold(current, usize::saturating_add)
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::authority) enum ShardStatusCountPlanError {
+    Projection,
+    Arithmetic,
+    Allocation,
+}
+
+#[derive(Debug, Default)]
+pub(in crate::authority) struct ShardStatusCountPlan(Vec<(u8, StatusCounts)>);

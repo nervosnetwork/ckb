@@ -11,7 +11,7 @@ use super::{
     indexes::{AuthorityIndexes, DueRemote, IndexError},
     plan::{
         AcceptedOrderKey, AncestorAggregate, DescendantAggregate, MembershipConfig,
-        MembershipProjection,
+        MembershipProjection, StatusCounts,
     },
     resources::AcceptedResources,
     shard::ShardedOwnerMap,
@@ -352,6 +352,7 @@ pub(super) enum AuthorityReadError {
 pub(super) struct AuthorityReadView<'authority> {
     chain_view: ChainViewId,
     entries: &'authority ShardedOwnerMap,
+    status_counts: Option<StatusCounts>,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
     accepted_resources: AcceptedResources,
@@ -378,6 +379,7 @@ impl<'authority> AuthorityReadView<'authority> {
         Self {
             chain_view,
             entries,
+            status_counts: entries.status_counts(),
             indexes,
             membership,
             accepted_resources,
@@ -543,7 +545,7 @@ impl<'authority> AuthorityReadView<'authority> {
     }
 
     pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
-        let counts = self.membership.counts();
+        let counts = self.status_counts.ok_or(AuthorityReadError::Arithmetic)?;
         let pending = counts
             .pending
             .checked_add(counts.gap)
@@ -637,7 +639,7 @@ impl<'authority> AuthorityReadView<'authority> {
                 }
             }
         }
-        let counts = self.membership.counts();
+        let counts = self.status_counts.ok_or(AuthorityReadError::Arithmetic)?;
         if summary.accepted_pending != counts.pending
             || summary.accepted_gap != counts.gap
             || summary.accepted_proposed != counts.proposed
@@ -708,6 +710,7 @@ impl<'authority> AuthorityReadView<'authority> {
             self.chain_view.clone(),
             self.template_sources,
             self.entries,
+            self.status_counts,
             self.membership,
         )
     }

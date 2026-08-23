@@ -33,7 +33,7 @@ pub(in crate::authority) struct MembershipSnapshot {
 }
 
 impl MembershipProjection {
-    pub(in crate::authority) fn snapshot(&self) -> MembershipSnapshot {
+    pub(in crate::authority) fn snapshot(&self, counts: StatusCounts) -> MembershipSnapshot {
         MembershipSnapshot {
             spenders: self.spenders.clone(),
             dependency_readers: self.dependency_readers.clone(),
@@ -43,7 +43,7 @@ impl MembershipProjection {
             descendant_aggregates: self.descendant_aggregates.clone(),
             accepted_order: self.accepted_order.clone(),
             eviction_order: self.eviction_order.clone(),
-            counts: self.counts,
+            counts,
         }
     }
 
@@ -211,7 +211,10 @@ impl MembershipProjection {
             });
         }
 
-        self.snapshot()
+        let Some(actual_counts) = entries.status_counts() else {
+            return false;
+        };
+        self.snapshot(actual_counts)
             == (MembershipSnapshot {
                 spenders,
                 dependency_readers,
@@ -239,12 +242,11 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let counts = self
-            .membership
-            .counts
-            .checked_sub(before.status())
-            .and_then(|counts| counts.checked_add(after.status()))
-            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        let status_counts = self.entries.plan_status_counts(std::iter::once((
+            hash,
+            Some(before.status()),
+            Some(after.status()),
+        )))?;
         let aggregate = self
             .membership
             .descendant_aggregates
@@ -275,7 +277,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: Vec::new(),
             eviction_removals,
             eviction_insertions,
-            counts,
+            status_counts,
         })
     }
 }
