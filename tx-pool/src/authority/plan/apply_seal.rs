@@ -526,13 +526,13 @@ impl TxPoolAuthority {
 
     pub(super) fn owner_derivation_parts(
         &mut self,
-    ) -> (&ShardedOwnerMap, IndexPlanner<'_>, AuthoritySourceVersions) {
+    ) -> (&ShardedOwnerMap, IndexPlanner<'_>, &AuthoritySourceVersions) {
         (
             &self.state.owner_resources.entries,
             IndexPlanner {
                 indexes: &mut self.state.indexes,
             },
-            self.state.source_versions,
+            &self.state.source_versions,
         )
     }
 

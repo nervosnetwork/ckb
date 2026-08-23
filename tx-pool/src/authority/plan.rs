@@ -52,6 +52,8 @@ use super::scheduler::{
     SchedulerWakeProjection, VerifyOrder,
 };
 use super::shard::{ShardStatusCountPlanError, ShardedOwnerMap};
+#[cfg(test)]
+use super::source::AuthoritySourceVersionSnapshot;
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
@@ -707,7 +709,6 @@ impl EntryDelta {
         let mut exclusive = super::shard_support::ExclusiveSupport::default();
         support.insert(b"owner-resource/owner", &self.key);
         self.owners.indexes.extend_shard_support(&mut support);
-        self.owners.sources.mark_exclusive_support(&mut exclusive);
         self.resource
             .extend_shard_support(&mut support, &mut exclusive);
         self.scheduler
@@ -999,7 +1000,6 @@ impl OwnerRemovalBatch {
             support.insert(b"owner-resource/owner", hash);
         }
         self.owners.indexes.extend_shard_support(&mut support);
-        self.owners.sources.mark_exclusive_support(&mut exclusive);
         self.resources
             .extend_shard_support(&mut support, &mut exclusive);
         self.membership

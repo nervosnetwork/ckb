@@ -241,14 +241,13 @@ impl TxPoolAuthority {
                     .map(|update| (self.entries.get(&update.key), Some(&update.after))),
             )?
             .with_control(dependency_control);
-        let source_versions = self.source_versions;
-        let (entries, mut indexes) = self.entries_and_indexes_for_plan();
-        let sources = source_versions.plan_replacements(
+        let sources = self.source_versions.plan_replacements(
             updates
                 .iter()
-                .map(|update| (entries.get(&update.key), Some(&update.after))),
+                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
             source_sequence,
         );
+        let (entries, mut indexes) = self.entries_and_indexes_for_plan();
         let indexes = indexes.plan_replacements(
             updates
                 .iter()

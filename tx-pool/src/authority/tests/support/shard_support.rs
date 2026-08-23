@@ -41,7 +41,6 @@ impl AuthorityShardSupport {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::authority) struct ExclusiveSupport {
     pub(in crate::authority) membership_counts: bool,
-    pub(in crate::authority) source_versions: bool,
     pub(in crate::authority) scheduler_cursor: bool,
     pub(in crate::authority) dependency_control: bool,
     pub(in crate::authority) effect_log: bool,
