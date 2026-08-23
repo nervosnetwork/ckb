@@ -1,4 +1,5 @@
 use crate::cost_model::transferred_byte_cycles;
+use crate::initial_load::InitialProgramLoadReceipt;
 use crate::syscalls::{
     EXEC_LOAD_ELF_V2_CYCLES_BASE, INVALID_FD, MAX_FDS_CREATED, MAX_VMS_SPAWNED, OTHER_END_CLOSED,
     SPAWN_EXTRA_CYCLES_BASE, SUCCESS, WAIT_FAILURE,
@@ -11,12 +12,12 @@ use crate::types::{
 };
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_types::core::Cycle;
-use ckb_vm::snapshot2::Snapshot2Context;
+use ckb_vm::snapshot2::{DataSource, Snapshot2Context};
 use ckb_vm::{
     Error, FlattenedArgsReader, Register,
     bytes::Bytes,
     cost_model::estimate_cycles,
-    elf::parse_elf,
+    elf::{ProgramMetadata, parse_elf},
     machine::{CoreMachine, DefaultMachineBuilder, DefaultMachineRunner, Pause, SupportMachine},
     memory::Memory,
     registers::A0,
@@ -36,6 +37,11 @@ pub const MAX_VMS_COUNT: u64 = 16;
 pub const MAX_INSTANTIATED_VMS: usize = 4;
 /// The maximum number of fds.
 pub const MAX_FDS: u64 = 64;
+
+struct PreparedRootProgram {
+    program: Bytes,
+    metadata: ProgramMetadata,
+}
 
 /// A single Scheduler instance is used to verify a single script
 /// within a CKB transaction.
@@ -115,6 +121,10 @@ where
     /// read it anywhere except when initializing the root vm.
     /// Note: This field is intentionally not serialized in FullSuspendedState.
     root_vm_args: Vec<Bytes>,
+    /// Tx-pool preflight may parse the immutable root program once before VM
+    /// loading. The first boot consumes this exact program/metadata pair;
+    /// block and legacy paths leave it empty and retain the original flow.
+    prepared_root_program: Option<PreparedRootProgram>,
 
     /// MessageBox is expected to be empty before returning from `run`
     /// function, there is no need to persist messages.
@@ -149,7 +159,35 @@ where
             message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: BTreeMap::default(),
             root_vm_args: Vec::new(),
+            prepared_root_program: None,
         }
+    }
+
+    /// Parse and retain the exact root program before its first loader call.
+    ///
+    /// `None` means the cumulative mapping receipt overflowed `u64`; the
+    /// caller must reject the local resource attempt. ELF parse and data-load
+    /// failures retain their existing VM error semantics.
+    pub fn prepare_root_program_load(
+        &mut self,
+    ) -> Result<Option<InitialProgramLoadReceipt>, Error> {
+        if !self.states.is_empty() || self.prepared_root_program.is_some() {
+            return Err(Error::Unexpected(
+                "root program load can only be prepared once before scheduler execution".to_owned(),
+            ));
+        }
+        let program_id = self.sg_data.sg_info.program_data_piece_id.clone();
+        let (program, _) = self
+            .sg_data
+            .load_data(&program_id, 0, u64::MAX)
+            .ok_or(Error::SnapshotDataLoadError)?;
+        let metadata =
+            parse_elf::<u64>(&program, self.sg_data.sg_info.script_version.vm_version())?;
+        let receipt = InitialProgramLoadReceipt::from_metadata(&metadata);
+        if receipt.is_some() {
+            self.prepared_root_program = Some(PreparedRootProgram { program, metadata });
+        }
+        Ok(receipt)
     }
 
     /// Return total cycles.
@@ -436,6 +474,7 @@ where
                         &mut new_machine,
                         &args.location,
                         program,
+                        None,
                         VmArgs::Reader {
                             vm_id,
                             argc: args.argc,
@@ -942,11 +981,21 @@ where
         let id = self.next_vm_id;
         self.next_vm_id += 1;
         let (context, mut machine) = self.create_dummy_vm(&id)?;
-        let (program, _) = {
-            let sc = context.snapshot2_context.lock().expect("lock");
-            sc.load_data(&location.data_piece_id, location.offset, location.length)?
+        let prepared = if id == ROOT_VM_ID {
+            self.prepared_root_program.take()
+        } else {
+            None
         };
-        self.load_vm_program(&context, &mut machine, location, program, args)?;
+        let (program, metadata) = if let Some(prepared) = prepared {
+            (prepared.program, Some(prepared.metadata))
+        } else {
+            let (program, _) = {
+                let sc = context.snapshot2_context.lock().expect("lock");
+                sc.load_data(&location.data_piece_id, location.offset, location.length)?
+            };
+            (program, None)
+        };
+        self.load_vm_program(&context, &mut machine, location, program, metadata, args)?;
         // Newly booted VM will be instantiated by default
         while self.instantiated.len() >= MAX_INSTANTIATED_VMS {
             // Instantiated is a BTreeMap, first_entry will maintain key order
@@ -971,9 +1020,13 @@ where
         machine: &mut M,
         location: &DataLocation,
         program: Bytes,
+        prepared_metadata: Option<ProgramMetadata>,
         args: VmArgs,
     ) -> Result<u64, Error> {
-        let metadata = parse_elf::<u64>(&program, machine.inner_mut().version())?;
+        let metadata = match prepared_metadata {
+            Some(metadata) => metadata,
+            None => parse_elf::<u64>(&program, machine.inner_mut().version())?,
+        };
         let bytes = match args {
             VmArgs::Reader { vm_id, argc, argv } => {
                 let (_, machine_from) = self.ensure_get_instantiated(&vm_id)?;

@@ -20,6 +20,7 @@ ckb-traits = { path = "../../traits" }
 ckb-types = { path = "../../util/types" }
 ckb-script = { path = "../../script" }
 ckb-chain-spec = { path = "../../spec" }
+ckb-vm = { version = "=0.24.14", default-features = false }
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -52,5 +53,11 @@ doc = false
 [[bin]]
 name = "syscall_spawn"
 path = "fuzz_targets/syscall_spawn.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "initial_program_load_receipt"
+path = "fuzz_targets/initial_program_load_receipt.rs"
 test = false
 doc = false

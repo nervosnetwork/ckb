@@ -31,7 +31,10 @@ use super::{
 use crate::{
     component::entry::resolved_transaction_charge_bytes,
     error::Reject,
-    util::{TxPoolVerificationOutcome, check_tx_fee_with_min_fee_rate, compact_packed, verify_rtx},
+    util::{
+        TxPoolVerificationBudget, TxPoolVerificationOutcome, check_tx_fee_with_min_fee_rate,
+        compact_packed, verify_rtx,
+    },
 };
 use ckb_script::{ChunkCommand, TxVerifyEnv};
 use ckb_snapshot::Snapshot;
@@ -676,7 +679,7 @@ pub(crate) struct DirectVerificationRequest {
     environment: Arc<TxVerifyEnv>,
     cache_key: TxVerificationCacheKey,
     max_cycles: u64,
-    deadline: Instant,
+    budget: TxPoolVerificationBudget,
 }
 
 #[derive(Debug)]
@@ -1241,7 +1244,7 @@ impl DirectResolutionJob {
     pub(super) fn evaluate(
         self,
         min_fee_rate: FeeRate,
-        deadline: Instant,
+        budget: TxPoolVerificationBudget,
     ) -> Result<DirectResolutionEvaluation, DirectComputationError> {
         let resolved = match resolve_candidate(&self.tx, &self.snapshot, &self.overlay) {
             ResolutionAttempt::Resolved(resolved) => resolved,
@@ -1318,7 +1321,7 @@ impl DirectResolutionJob {
                 environment,
                 cache_key,
                 max_cycles,
-                deadline,
+                budget,
             },
         ))
     }
@@ -1595,7 +1598,7 @@ pub(crate) struct TxPoolVerificationRequest {
     cache_key: TxVerificationCacheKey,
     max_cycles: ckb_types::core::Cycle,
     started_at: AsyncProcessStart,
-    deadline: Instant,
+    budget: TxPoolVerificationBudget,
 }
 
 /// A retained verification capability paired with the only cache entry whose
@@ -1670,7 +1673,7 @@ impl VerificationJob {
         self.work.payload_policy()
     }
 
-    pub(super) fn prepare(self, deadline: Instant) -> TxPoolVerificationRequest {
+    pub(super) fn prepare(self, budget: TxPoolVerificationBudget) -> TxPoolVerificationRequest {
         let status = proposal_status(&self.snapshot, &self.transaction().proposal_short_id());
         let environment = Arc::new(verification_environment(status, &self.snapshot));
         let rules = ScriptVerificationRules::from_env(self.snapshot.consensus(), &environment);
@@ -1685,7 +1688,7 @@ impl VerificationJob {
             cache_key,
             max_cycles,
             started_at: AsyncProcessStart::now(),
-            deadline,
+            budget,
         }
     }
 
@@ -1730,7 +1733,7 @@ impl CacheBoundTxPoolVerification {
                     cache_key,
                     max_cycles,
                     started_at,
-                    deadline,
+                    budget,
                 },
             cache_entry,
         } = self;
@@ -1744,12 +1747,15 @@ impl CacheBoundTxPoolVerification {
             cache_entry,
             max_cycles,
             command_rx,
-            deadline,
+            budget,
         )
         .await;
         let outcome = match verified {
             Ok(TxPoolVerificationOutcome::Verified(outcome)) => outcome,
-            Ok(TxPoolVerificationOutcome::DeadlineExceeded) => {
+            Ok(
+                TxPoolVerificationOutcome::DeadlineExceeded
+                | TxPoolVerificationOutcome::InitialLoadExceeded,
+            ) => {
                 return VerificationExecution {
                     settlement: work.rejected(Reject::ExcessiveVerifyTime),
                     cache_update: None,
@@ -1810,7 +1816,7 @@ impl CacheBoundDirectVerification {
                     environment,
                     cache_key,
                     max_cycles,
-                    deadline,
+                    budget,
                 },
             cache_entry,
         } = self;
@@ -1830,12 +1836,15 @@ impl CacheBoundDirectVerification {
             cache_entry,
             max_cycles,
             command_rx,
-            deadline,
+            budget,
         )
         .await
         {
             Ok(TxPoolVerificationOutcome::Verified(outcome)) => outcome,
-            Ok(TxPoolVerificationOutcome::DeadlineExceeded) => {
+            Ok(
+                TxPoolVerificationOutcome::DeadlineExceeded
+                | TxPoolVerificationOutcome::InitialLoadExceeded,
+            ) => {
                 return Ok(DirectVerificationOutcome::Rejected(
                     DirectTransactionRejection::accepted_reads(
                         tx,

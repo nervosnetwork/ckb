@@ -46,6 +46,19 @@ fn verification_deadline() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(30)
 }
 
+fn initial_load_limit() -> ckb_script::InitialProgramLoadLimit {
+    ckb_script::InitialProgramLoadLimit::new(u64::MAX)
+        .expect("the test initial-load limit is non-zero")
+}
+
+fn verification_budget_at(deadline: std::time::Instant) -> crate::util::TxPoolVerificationBudget {
+    crate::util::TxPoolVerificationBudget::new(deadline, initial_load_limit())
+}
+
+fn verification_budget() -> crate::util::TxPoolVerificationBudget {
+    verification_budget_at(verification_deadline())
+}
+
 #[test]
 fn uak_verification_time_policy_is_fixed_bounded_and_never_peer_extended() {
     let policy = VerificationTimePolicy::from_runtime(250, 10_000, 30_000)
@@ -680,7 +693,7 @@ async fn uak_verification_request_binds_environment_rules_and_witness_cache_key(
     );
     let expected_key = TxVerificationCacheKey::from_transaction(&tx, expected_rules);
     let job = checkout_verification_job(&mut authority, Arc::clone(&snapshot), tx, 92);
-    let request = job.prepare(verification_deadline());
+    let request = job.prepare(verification_budget());
     assert_eq!(expected_key.witness_hash(), &witness_hash);
     let cache = init_cache();
 
@@ -705,7 +718,9 @@ async fn uak_expired_verification_deadline_is_transient_and_never_cached() {
     let transaction = TransactionBuilder::default().version(8_120u32).build();
     let request =
         checkout_verification_job(&mut authority, Arc::clone(&snapshot), transaction, 9_120)
-            .prepare(std::time::Instant::now() - std::time::Duration::from_millis(1));
+            .prepare(verification_budget_at(
+                std::time::Instant::now() - std::time::Duration::from_millis(1),
+            ));
     let cache = init_cache();
     let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
 
@@ -717,17 +732,74 @@ async fn uak_expired_verification_deadline_is_transient_and_never_cached() {
         .execute(Some(&mut command_rx))
         .await;
     assert!(cache_update.is_none(), "a local timeout is never VM proof");
-    assert!(matches!(
-        &settlement.next,
-        SettlementNext::VerificationRejected { rejection, .. }
-            if matches!(rejection.reject(), Reject::ExcessiveVerifyTime)
-                && !rejection.should_record()
-                && rejection.publish_negative_relay_terminal()
-    ));
+    assert!(
+        matches!(
+            &settlement.next,
+            SettlementNext::VerificationRejected { rejection, .. }
+                if matches!(rejection.reject(), Reject::ExcessiveVerifyTime)
+                    && !rejection.should_record()
+                    && rejection.publish_negative_relay_terminal()
+        ),
+        "unexpected expired-deadline settlement: {:?}",
+        settlement.next
+    );
     apply_plan(
         authority
             .apply_settlement(settlement)
             .expect("the exact timed-out verification capability settles once"),
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn uak_initial_program_load_limit_is_transient_and_never_cached() {
+    let snapshot = genesis_snapshot();
+    let mut authority = authority_at(&snapshot);
+    let parent = output_tx(8_122, 1_000, Bytes::new());
+    accept_remote_transaction(
+        &mut authority,
+        parent.clone(),
+        9_121,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let transaction = spending_tx(8_123, [OutPoint::new(parent.hash(), 0)], 900);
+    let request =
+        checkout_verification_job(&mut authority, Arc::clone(&snapshot), transaction, 9_123)
+            .prepare(crate::util::TxPoolVerificationBudget::new(
+                verification_deadline(),
+                ckb_script::InitialProgramLoadLimit::new(1)
+                    .expect("the rejecting fixture limit is non-zero"),
+            ));
+    let cache = init_cache();
+    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
+
+    let VerificationExecution {
+        settlement,
+        cache_update,
+    } = request
+        .bind_cache(&cache)
+        .execute(Some(&mut command_rx))
+        .await;
+    assert!(
+        cache_update.is_none(),
+        "a local load refusal is never VM proof"
+    );
+    assert!(
+        matches!(
+            &settlement.next,
+            SettlementNext::VerificationRejected { rejection, .. }
+                if matches!(rejection.reject(), Reject::ExcessiveVerifyTime)
+                    && !rejection.should_record()
+                    && rejection.publish_negative_relay_terminal()
+        ),
+        "unexpected initial-load settlement: {:?}",
+        settlement.next
+    );
+    apply_plan(
+        authority
+            .apply_settlement(settlement)
+            .expect("the exact load-refused verification capability settles once"),
     );
     assert!(authority.primary_projection_consistent());
 }
@@ -740,7 +812,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     let requested_tx = TransactionBuilder::default().version(814u32).build();
     let mut cache = init_cache();
     let cached = checkout_verification_job(&mut authority, Arc::clone(&snapshot), cached_tx, 93)
-        .prepare(verification_deadline())
+        .prepare(verification_budget())
         .bind_cache(&cache)
         .execute(None)
         .await;
@@ -756,7 +828,7 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     );
     let request =
         checkout_verification_job(&mut authority, Arc::clone(&snapshot), requested_tx, 94)
-            .prepare(verification_deadline());
+            .prepare(verification_budget());
 
     let execution = request.bind_cache(&cache).execute(None).await;
     assert!(execution.cache_update.is_some());
@@ -791,7 +863,7 @@ async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
     )
     .expect("the direct cut captures the accepted parent without retaining the child");
     let DirectResolutionEvaluation::Verify(request) = job
-        .evaluate(FeeRate::zero(), verification_deadline())
+        .evaluate(FeeRate::zero(), verification_budget())
         .expect("the accepted output resolves under the paired cut")
     else {
         panic!("the direct child must continue to verification")
@@ -844,7 +916,7 @@ async fn uak_direct_expired_deadline_returns_the_same_transient_local_rejection(
     let DirectResolutionEvaluation::Verify(request) = job
         .evaluate(
             FeeRate::zero(),
-            std::time::Instant::now() - std::time::Duration::from_millis(1),
+            verification_budget_at(std::time::Instant::now() - std::time::Duration::from_millis(1)),
         )
         .expect("the direct fixture resolves before script verification")
     else {
@@ -886,7 +958,7 @@ fn uak_direct_resolution_terminalizes_an_unchanged_missing_frontier() {
     )
     .expect("the direct request captures a coherent empty overlay");
     let DirectResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), verification_deadline())
+        .evaluate(FeeRate::zero(), verification_budget())
         .expect("missing evidence is a transaction outcome")
     else {
         panic!("the first pass must expose the missing frontier")
@@ -968,7 +1040,7 @@ fn uak_direct_permissive_rbf_never_fabricates_a_chain_cell() {
     )
     .expect("the direct RBF cut captures the accepted spender");
     let DirectResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), verification_deadline())
+        .evaluate(FeeRate::zero(), verification_budget())
         .expect("permissive RBF still consults the chain snapshot")
     else {
         panic!("the unknown chain input cannot become resolved evidence")

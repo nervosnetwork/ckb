@@ -554,6 +554,48 @@ async fn check_txpool_deadline_stops_and_joins_the_existing_vm_child() {
     assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_txpool_initial_root_load_uses_the_existing_metadata_receipt() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (program_cell, program_data_hash) = load_cell_from_path("testdata/always_success");
+    let program_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(program_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(program_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![program_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let outcome = verifier
+        .verify_with_deadline_and_initial_load_limit_async(
+            script_version,
+            &rtx,
+            &mut command_rx,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            crate::InitialProgramLoadLimit::new(1)
+                .expect("the rejecting test load limit is non-zero"),
+        )
+        .await
+        .expect("the load-work rejection is typed local policy, not a script error");
+    assert_eq!(outcome, ResumableVerificationOutcome::InitialLoadExceeded);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn check_run_vm_with_pause_and_max_cycles() {
     let script_version = SCRIPT_VERSION;

@@ -258,6 +258,33 @@ pub(crate) fn revalidate_tx_context(
 pub(crate) enum TxPoolVerificationOutcome {
     Verified(ScriptVerificationOutcome),
     DeadlineExceeded,
+    InitialLoadExceeded,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TxPoolVerificationBudget {
+    deadline: std::time::Instant,
+    initial_load_limit: ckb_script::InitialProgramLoadLimit,
+}
+
+impl TxPoolVerificationBudget {
+    pub(crate) const fn new(
+        deadline: std::time::Instant,
+        initial_load_limit: ckb_script::InitialProgramLoadLimit,
+    ) -> Self {
+        Self {
+            deadline,
+            initial_load_limit,
+        }
+    }
+
+    pub(crate) const fn deadline(self) -> std::time::Instant {
+        self.deadline
+    }
+
+    pub(crate) const fn initial_load_limit(self) -> ckb_script::InitialProgramLoadLimit {
+        self.initial_load_limit
+    }
 }
 
 pub(crate) async fn verify_rtx(
@@ -267,7 +294,7 @@ pub(crate) async fn verify_rtx(
     cache_entry: Option<ScriptVerificationProof>,
     max_tx_verify_cycles: Cycle,
     command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-    deadline: std::time::Instant,
+    budget: TxPoolVerificationBudget,
 ) -> Result<TxPoolVerificationOutcome, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
@@ -283,16 +310,25 @@ pub(crate) async fn verify_rtx(
             data_loader,
             Arc::clone(&tx_env),
         )
-        .verify_with_pause_and_deadline(max_tx_verify_cycles, cache_entry, command_rx, deadline)
+        .verify_with_pause_and_deadline(
+            max_tx_verify_cycles,
+            cache_entry,
+            command_rx,
+            budget.deadline(),
+            budget.initial_load_limit(),
+        )
         .await
         .map_err(Reject::Verification)?;
         match outcome {
             ckb_verification::DeadlineVerificationOutcome::DeadlineExceeded => {
                 Ok(TxPoolVerificationOutcome::DeadlineExceeded)
             }
+            ckb_verification::DeadlineVerificationOutcome::InitialLoadExceeded => {
+                Ok(TxPoolVerificationOutcome::InitialLoadExceeded)
+            }
             ckb_verification::DeadlineVerificationOutcome::Verified(outcome) => {
                 verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
-                if std::time::Instant::now() >= deadline {
+                if std::time::Instant::now() >= budget.deadline() {
                     Ok(TxPoolVerificationOutcome::DeadlineExceeded)
                 } else {
                     Ok(TxPoolVerificationOutcome::Verified(outcome))

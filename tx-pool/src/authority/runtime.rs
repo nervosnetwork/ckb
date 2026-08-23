@@ -82,9 +82,11 @@ use super::{
 };
 #[cfg(any(test, feature = "internal"))]
 use crate::component::entry::TxEntry;
+use crate::util::TxPoolVerificationBudget;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::error;
+use ckb_script::InitialProgramLoadLimit;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::EntryCompleted;
@@ -197,6 +199,7 @@ struct AuthorityRuntimeConfig {
     membership: MembershipConfig,
     resolution_policy: ResolutionPolicy,
     verification_time: VerificationTimePolicy,
+    initial_load_limit: InitialProgramLoadLimit,
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute_permits: NonZeroUsize,
@@ -452,6 +455,9 @@ impl AuthorityRuntimeConfig {
                 RuntimeConfigError::VerificationTimeConfiguration
             }
         })?;
+        let initial_load_limit =
+            InitialProgramLoadLimit::new(config.max_tx_verify_initial_load_bytes)
+                .ok_or(RuntimeConfigError::VerificationTimeConfiguration)?;
 
         Ok(Self {
             resources,
@@ -464,6 +470,7 @@ impl AuthorityRuntimeConfig {
                 compute_edges_per_work,
             ),
             verification_time,
+            initial_load_limit,
             expiry_policy: ExpiryPolicy {
                 accepted_residency_millis,
                 remote_slice,
@@ -894,6 +901,7 @@ pub(crate) struct AuthorityRuntime {
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute: ComputeGate,
+    initial_load_limit: InitialProgramLoadLimit,
     full_query: AuthorityQueryScratch,
     #[cfg(test)]
     template_captures: Arc<std::sync::atomic::AtomicUsize>,
@@ -1814,6 +1822,7 @@ impl AuthorityRuntime {
         let resolution_policy = runtime.resolution_policy;
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
+        let initial_load_limit = runtime.initial_load_limit;
         let transient_compute =
             ComputeGate::new(runtime.transient_compute_permits, runtime.verification_time);
         let full_query = AuthorityQueryScratch::new(runtime.full_query_max_rows);
@@ -1826,6 +1835,7 @@ impl AuthorityRuntime {
             expiry_policy,
             verify_workers,
             transient_compute,
+            initial_load_limit,
             full_query,
             #[cfg(test)]
             template_captures: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -2848,9 +2858,10 @@ impl AuthorityRuntime {
             execution.hard_deadline(),
             PayloadPolicy::Trusted,
         );
+        let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
         loop {
             let evaluation = crate::util::block_offload(|| {
-                job.evaluate(self.resolution_policy.min_fee_rate, deadline)
+                job.evaluate(self.resolution_policy.min_fee_rate, budget)
             })?;
             match evaluation {
                 DirectResolutionEvaluation::Verify(request) => {
@@ -3208,8 +3219,9 @@ impl AuthorityRuntime {
                     execution.hard_deadline(),
                     job.payload_policy(),
                 );
+                let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
                 AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
-                    request: job.prepare(deadline),
+                    request: job.prepare(budget),
                     execution,
                 })
             }
@@ -3258,8 +3270,9 @@ impl AuthorityRuntime {
                         execution.hard_deadline(),
                         verification.payload_policy(),
                     );
+                    let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
                     return AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
-                        request: verification.prepare(deadline),
+                        request: verification.prepare(budget),
                         execution,
                     });
                 }

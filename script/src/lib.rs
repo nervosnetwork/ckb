@@ -1,6 +1,7 @@
 //! CKB component to run the type/lock scripts.
 pub mod cost_model;
 mod error;
+mod initial_load;
 mod scheduler;
 mod syscalls;
 mod type_id;
@@ -9,6 +10,7 @@ mod verify;
 mod verify_env;
 
 pub use crate::error::{ScriptError, TransactionScriptError};
+pub use crate::initial_load::{InitialProgramLoadLimit, InitialProgramLoadReceipt};
 pub use crate::scheduler::{ROOT_VM_ID, Scheduler};
 pub use crate::syscalls::generator::generate_ckb_syscalls;
 pub use crate::types::{

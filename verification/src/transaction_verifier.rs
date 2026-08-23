@@ -10,7 +10,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::{ChunkCommand, ResumableVerificationOutcome};
+use ckb_script::{ChunkCommand, InitialProgramLoadLimit, ResumableVerificationOutcome};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -36,6 +36,8 @@ pub enum DeadlineVerificationOutcome {
     Verified(ScriptVerificationOutcome),
     /// The fixed local deadline won after the current synchronous slice.
     DeadlineExceeded,
+    /// The root ELF exceeds this node's fixed tx-pool initial-load work bound.
+    InitialLoadExceeded,
 }
 
 /// The time-related TX verification
@@ -265,6 +267,7 @@ where
         cached: Option<ScriptVerificationProof>,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         deadline: Instant,
+        initial_load_limit: InitialProgramLoadLimit,
     ) -> Result<DeadlineVerificationOutcome, Error> {
         if Instant::now() >= deadline {
             return Ok(DeadlineVerificationOutcome::DeadlineExceeded);
@@ -278,7 +281,12 @@ where
         }
         match self
             .script
-            .resumable_verify_with_signal_and_deadline(max_cycles, command_rx, deadline)
+            .resumable_verify_with_signal_and_deadline(
+                max_cycles,
+                command_rx,
+                deadline,
+                initial_load_limit,
+            )
             .await?
         {
             ResumableVerificationOutcome::Completed(cycles) => Ok(
@@ -288,6 +296,9 @@ where
             ),
             ResumableVerificationOutcome::DeadlineExceeded => {
                 Ok(DeadlineVerificationOutcome::DeadlineExceeded)
+            }
+            ResumableVerificationOutcome::InitialLoadExceeded => {
+                Ok(DeadlineVerificationOutcome::InitialLoadExceeded)
             }
         }
     }

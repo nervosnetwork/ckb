@@ -304,8 +304,31 @@ impl TransactionScriptsVerifierWithEnv {
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         deadline: std::time::Instant,
     ) -> Result<ResumableVerificationOutcome, Error> {
+        self.verify_with_deadline_and_initial_load_limit_async(
+            version,
+            rtx,
+            command_rx,
+            deadline,
+            crate::InitialProgramLoadLimit::new(u64::MAX).expect("the test load limit is non-zero"),
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_with_deadline_and_initial_load_limit_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        deadline: std::time::Instant,
+        initial_load_limit: crate::InitialProgramLoadLimit,
+    ) -> Result<ResumableVerificationOutcome, Error> {
         self.build_verifier(version, rtx)
-            .resumable_verify_with_signal_and_deadline(Cycle::MAX, command_rx, deadline)
+            .resumable_verify_with_signal_and_deadline(
+                Cycle::MAX,
+                command_rx,
+                deadline,
+                initial_load_limit,
+            )
             .await
     }
 

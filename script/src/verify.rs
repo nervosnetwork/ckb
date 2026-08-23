@@ -3,6 +3,7 @@ use crate::ChunkCommand;
 use crate::scheduler::Scheduler;
 use crate::{
     error::{ScriptError, TransactionScriptError},
+    initial_load::InitialProgramLoadLimit,
     syscalls::generator::generate_ckb_syscalls,
     type_id::TypeIdSystemScript,
     types::{
@@ -46,6 +47,9 @@ pub enum ResumableVerificationOutcome {
     Completed(Cycle),
     /// The fixed local wall deadline won after the current synchronous slice.
     DeadlineExceeded,
+    /// The parsed root program exceeds this node's fixed tx-pool initial-load
+    /// work limit. This is local resource policy, not script invalidity.
+    InitialLoadExceeded,
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
@@ -307,11 +311,12 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, Error> {
         match self
-            .resumable_verify_with_signal_control(limit_cycles, command_rx, None)
+            .resumable_verify_with_signal_control(limit_cycles, command_rx, None, None)
             .await?
         {
             ResumableVerificationOutcome::Completed(cycles) => Ok(cycles),
-            ResumableVerificationOutcome::DeadlineExceeded => Err(ErrorKind::Internal
+            ResumableVerificationOutcome::DeadlineExceeded
+            | ResumableVerificationOutcome::InitialLoadExceeded => Err(ErrorKind::Internal
                 .because(InternalErrorKind::Interrupts.other(ScriptError::Interrupts.to_string()))),
         }
     }
@@ -324,9 +329,15 @@ where
         limit_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Instant,
+        initial_load_limit: InitialProgramLoadLimit,
     ) -> Result<ResumableVerificationOutcome, Error> {
-        self.resumable_verify_with_signal_control(limit_cycles, command_rx, Some(deadline))
-            .await
+        self.resumable_verify_with_signal_control(
+            limit_cycles,
+            command_rx,
+            Some(deadline),
+            Some(initial_load_limit),
+        )
+        .await
     }
 
     async fn resumable_verify_with_signal_control(
@@ -334,6 +345,7 @@ where
         limit_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
+        initial_load_limit: Option<InitialProgramLoadLimit>,
     ) -> Result<ResumableVerificationOutcome, Error> {
         let mut cycles = 0;
 
@@ -346,7 +358,13 @@ where
             })?;
 
             match self
-                .verify_group_with_signal(group, remain_cycles, command_rx, deadline)
+                .verify_group_with_signal(
+                    group,
+                    remain_cycles,
+                    command_rx,
+                    deadline,
+                    initial_load_limit,
+                )
                 .await
             {
                 Ok(ResumableVerificationOutcome::Completed(used_cycles)) => {
@@ -354,6 +372,9 @@ where
                 }
                 Ok(ResumableVerificationOutcome::DeadlineExceeded) => {
                     return Ok(ResumableVerificationOutcome::DeadlineExceeded);
+                }
+                Ok(ResumableVerificationOutcome::InitialLoadExceeded) => {
+                    return Ok(ResumableVerificationOutcome::InitialLoadExceeded);
                 }
                 Err(error) => {
                     #[cfg(feature = "logging")]
@@ -372,6 +393,7 @@ where
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
+        initial_load_limit: Option<InitialProgramLoadLimit>,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Ok(ResumableVerificationOutcome::DeadlineExceeded);
@@ -391,7 +413,7 @@ where
                 Ok(ResumableVerificationOutcome::Completed(cycles))
             }
         } else {
-            self.chunk_run_with_signal(group, max_cycles, command_rx, deadline)
+            self.chunk_run_with_signal(group, max_cycles, command_rx, deadline, initial_load_limit)
                 .await
         }
     }
@@ -402,8 +424,20 @@ where
         max_cycles: Cycle,
         signal: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
+        initial_load_limit: Option<InitialProgramLoadLimit>,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
+        if let Some(limit) = initial_load_limit {
+            let receipt = scheduler
+                .prepare_root_program_load()
+                .map_err(|error| self.map_vm_internal_error(error, max_cycles))?;
+            if !receipt.is_some_and(|receipt| limit.admits(receipt)) {
+                return Ok(ResumableVerificationOutcome::InitialLoadExceeded);
+            }
+        }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Ok(ResumableVerificationOutcome::DeadlineExceeded);
+        }
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
         let (finish_tx, mut finish_rx) =

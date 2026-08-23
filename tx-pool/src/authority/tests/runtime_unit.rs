@@ -50,6 +50,7 @@ fn runtime_config() -> TxPoolConfig {
         min_tx_verify_time_ms: 250,
         tx_verify_cycles_per_ms: 10_000,
         max_tx_verify_time_ms: 30_000,
+        max_tx_verify_initial_load_bytes: 256 * 1024 * 1024,
         max_tx_verify_workers: 4,
         max_ancestors_count: 125,
         keep_rejected_tx_hashes_days: 1,
@@ -1164,6 +1165,11 @@ fn runtime_configuration_rejects_an_unusable_verification_time_policy() {
             let mut config = runtime_config();
             config.min_tx_verify_time_ms = 30_001;
             config.max_tx_verify_time_ms = 30_000;
+            config
+        },
+        {
+            let mut config = runtime_config();
+            config.max_tx_verify_initial_load_bytes = 0;
             config
         },
     ] {

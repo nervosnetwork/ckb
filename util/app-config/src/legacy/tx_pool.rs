@@ -15,6 +15,7 @@ const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 const DEFAULT_MIN_TX_VERIFY_TIME_MS: u32 = 250;
 const DEFAULT_TX_VERIFY_CYCLES_PER_MS: u64 = 10_000;
 const DEFAULT_MAX_TX_VERIFY_TIME_MS: u32 = 30_000;
+const DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES: u64 = 256 * 1024 * 1024;
 // default max ancestors count
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 1_000;
 // Default expiration time for pool transactions in hours
@@ -61,6 +62,8 @@ pub(crate) struct TxPoolConfig {
     tx_verify_cycles_per_ms: u64,
     #[serde(default = "default_max_tx_verify_time_ms")]
     max_tx_verify_time_ms: u32,
+    #[serde(default = "default_max_tx_verify_initial_load_bytes")]
+    max_tx_verify_initial_load_bytes: u64,
     max_ancestors_count: usize,
     #[serde(default)]
     persisted_data: PathBuf,
@@ -121,6 +124,10 @@ fn default_max_tx_verify_time_ms() -> u32 {
     DEFAULT_MAX_TX_VERIFY_TIME_MS
 }
 
+fn default_max_tx_verify_initial_load_bytes() -> u64 {
+    DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES
+}
+
 impl Default for crate::TxPoolConfig {
     fn default() -> Self {
         TxPoolConfig::default().into()
@@ -146,6 +153,7 @@ impl Default for TxPoolConfig {
             min_tx_verify_time_ms: DEFAULT_MIN_TX_VERIFY_TIME_MS,
             tx_verify_cycles_per_ms: DEFAULT_TX_VERIFY_CYCLES_PER_MS,
             max_tx_verify_time_ms: DEFAULT_MAX_TX_VERIFY_TIME_MS,
+            max_tx_verify_initial_load_bytes: DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
             persisted_data: Default::default(),
             recent_reject: Default::default(),
@@ -176,6 +184,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_tx_verify_time_ms,
             tx_verify_cycles_per_ms,
             max_tx_verify_time_ms,
+            max_tx_verify_initial_load_bytes,
             max_ancestors_count,
             persisted_data,
             recent_reject,
@@ -200,6 +209,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_tx_verify_time_ms,
             tx_verify_cycles_per_ms,
             max_tx_verify_time_ms,
+            max_tx_verify_initial_load_bytes,
             max_tx_verify_workers,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
             keep_rejected_tx_hashes_days,
@@ -261,6 +271,10 @@ max_ancestors_count = 25
             DEFAULT_TX_VERIFY_CYCLES_PER_MS
         );
         assert_eq!(config.max_tx_verify_time_ms, DEFAULT_MAX_TX_VERIFY_TIME_MS);
+        assert_eq!(
+            config.max_tx_verify_initial_load_bytes,
+            DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES
+        );
         assert_eq!(config.verify_ordering, VerifyOrdering::ArrivalTime);
     }
 
@@ -269,10 +283,12 @@ max_ancestors_count = 25
         let config = parse(
             "min_tx_verify_time_ms = 125\n\
              tx_verify_cycles_per_ms = 5_000\n\
-             max_tx_verify_time_ms = 12_000",
+             max_tx_verify_time_ms = 12_000\n\
+             max_tx_verify_initial_load_bytes = 134_217_728",
         );
         assert_eq!(config.min_tx_verify_time_ms, 125);
         assert_eq!(config.tx_verify_cycles_per_ms, 5_000);
         assert_eq!(config.max_tx_verify_time_ms, 12_000);
+        assert_eq!(config.max_tx_verify_initial_load_bytes, 134_217_728);
     }
 }

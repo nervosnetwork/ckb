@@ -222,6 +222,7 @@ max_tx_verify_cycles = 70_000_000
 # min_tx_verify_time_ms = 250
 # tx_verify_cycles_per_ms = 10_000
 # max_tx_verify_time_ms = 30_000
+# max_tx_verify_initial_load_bytes = 268_435_456
 max_ancestors_count = 25
 # Retained verification scheduling: `arrival_time` (FIFO) or `fee_rate`.
 # verify_ordering = "arrival_time"
