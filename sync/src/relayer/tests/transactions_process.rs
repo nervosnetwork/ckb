@@ -221,6 +221,42 @@ fn remote_known_batch_drop_releases_only_the_uncommitted_suffix() {
 }
 
 #[test]
+fn remote_batch_task_cancellation_returns_admission_and_releases_known() {
+    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let hash = new_transaction(&relayer, 706, &always_success_out_point).hash();
+    let state = relayer.shared.state();
+    state.mark_as_known_txs(std::iter::once(hash.clone()));
+    let admission = Arc::clone(&relayer.remote_batch_admission)
+        .try_acquire_owned()
+        .expect("one remote batch admission remains available");
+    let known = KnownRemoteBatch::new(Arc::clone(&relayer.shared), vec![hash.clone()]);
+    let task = relayer.shared.shared().async_handle().spawn(async move {
+        let _admission = admission;
+        let _known = known;
+        std::future::pending::<()>().await;
+    });
+    assert_eq!(
+        relayer.remote_batch_admission.available_permits(),
+        MAX_RELAY_PEERS - 1
+    );
+    task.abort();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !task.is_finished() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(task.is_finished(), "the cancelled task is dropped");
+    assert_eq!(
+        relayer.remote_batch_admission.available_permits(),
+        MAX_RELAY_PEERS,
+        "task cancellation returns the linear admission"
+    );
+    assert!(
+        !state.already_known_tx(&hash),
+        "task cancellation drops the guard and releases every uncommitted known mark"
+    );
+}
+
+#[test]
 fn duplicate_unknown_hash_from_one_peer_has_one_request_source() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let hash = new_transaction(&relayer, 702, &always_success_out_point).hash();
