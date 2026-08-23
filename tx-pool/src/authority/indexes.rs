@@ -837,5 +837,47 @@ impl AuthorityIndexes {
 }
 
 #[cfg(test)]
+impl IndexDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+    ) {
+        for (proposal, _) in self
+            .proposal_removals
+            .iter()
+            .chain(&self.proposal_insertions)
+        {
+            support.insert(b"index/proposal", proposal);
+        }
+        for (peer, _) in self.peer_removals.iter().chain(&self.peer_insertions) {
+            support.insert(b"index/peer", peer);
+        }
+        for (peer, _) in &self.new_peer_rows {
+            support.insert(b"index/peer", peer);
+        }
+        for peer in &self.touched_peers {
+            support.insert(b"index/peer", peer);
+        }
+        for key in self.context_removals.iter().chain(&self.context_insertions) {
+            support.insert(b"index/context", key);
+        }
+        for key in self
+            .deadline_removals
+            .iter()
+            .chain(&self.deadline_insertions)
+        {
+            support.insert(b"index/deadline", key);
+        }
+        for key in self
+            .accepted_deadline_removals
+            .iter()
+            .chain(&self.accepted_deadline_insertions)
+        {
+            support.insert(b"index/accepted-deadline", key);
+        }
+    }
+}
+
+#[cfg(test)]
 #[path = "tests/support/indexes.rs"]
 pub(in crate::authority) mod test_support;

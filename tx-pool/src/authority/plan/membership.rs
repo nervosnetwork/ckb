@@ -560,6 +560,65 @@ impl ProjectionDelta {
     }
 }
 
+#[cfg(test)]
+impl ProjectionDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::super::shard_support::ExclusiveSupport,
+    ) {
+        for (input, _) in &self.spender_changes {
+            support.insert(b"membership/spender", input);
+        }
+        for change in &self.dependency_changes {
+            let dependency = match change {
+                DependencyRelationChange::RemoveEdge(edge)
+                | DependencyRelationChange::InsertEdge(edge) => &edge.dependency,
+                DependencyRelationChange::InsertRow(row) => &row.dependency,
+                DependencyRelationChange::RemoveRow(dependency) => dependency,
+            };
+            support.insert(b"membership/dependency-readers", dependency);
+        }
+        for change in &self.causal_changes {
+            match change {
+                CausalRelationChange::RemoveEdge(edge) | CausalRelationChange::InsertEdge(edge) => {
+                    support.insert(b"membership/children", &edge.parent);
+                    support.insert(b"membership/parents", &edge.child);
+                }
+                CausalRelationChange::InsertNode(node) => {
+                    support.insert(b"membership/children", &node.hash);
+                    support.insert(b"membership/parents", &node.hash);
+                }
+                CausalRelationChange::RemoveNode(hash) => {
+                    support.insert(b"membership/children", hash);
+                    support.insert(b"membership/parents", hash);
+                }
+            }
+        }
+        for (hash, _) in &self.ancestor_changes {
+            support.insert(b"membership/ancestor", hash);
+        }
+        for (hash, _) in &self.aggregate_changes {
+            support.insert(b"membership/descendant", hash);
+        }
+        for key in self
+            .accepted_order_removals
+            .iter()
+            .chain(&self.accepted_order_insertions)
+        {
+            support.insert(b"membership/accepted-order", key.hash());
+        }
+        for key in self
+            .eviction_removals
+            .iter()
+            .chain(&self.eviction_insertions)
+        {
+            support.insert(b"membership/eviction-order", &key.hash);
+        }
+        exclusive.membership_counts = true;
+    }
+}
+
 struct AggregateDelta {
     changes: Vec<(RawTxHash, Option<DescendantAggregate>)>,
     ancestor_changes: Vec<(RawTxHash, Option<AncestorAggregate>)>,

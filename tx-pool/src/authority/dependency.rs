@@ -129,6 +129,85 @@ pub(super) struct DependencyBatchDelta {
     control: DependencyControlDelta,
 }
 
+#[cfg(test)]
+impl DependencySlot {
+    fn extend_shard_support(&self, support: &mut super::shard_support::AuthorityShardSupport) {
+        for key in self.dependencies.keys() {
+            support.insert(b"dependency/consumer", key);
+            support.insert(b"dependency/origin", &key.origin());
+            support.insert(b"dependency/level", key);
+        }
+        if let Some(waiting) = &self.waiting {
+            for key in waiting.keys() {
+                support.insert(b"dependency/waiter", key);
+                support.insert(b"dependency/origin", &key.origin());
+                support.insert(b"dependency/level", key);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl DependencyControlDelta {
+    fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        match self {
+            Self::None => {}
+            Self::Event(event) => {
+                for change in &event.changes {
+                    support.insert(b"dependency/consumer", &change.key);
+                    support.insert(b"dependency/waiter", &change.key);
+                    support.insert(b"dependency/level", &change.key);
+                }
+                exclusive.dependency_control = true;
+            }
+            Self::Maintenance(DependencyMaintenancePlan(step)) => {
+                let key = match step {
+                    DependencyMaintenanceStep::Advance { key, .. }
+                    | DependencyMaintenanceStep::Complete { key, .. } => key,
+                };
+                support.insert(b"dependency/consumer", key);
+                support.insert(b"dependency/level", key);
+                exclusive.dependency_control = true;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl DependencyDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        if let Some(before) = &self.before {
+            before.extend_shard_support(support);
+        }
+        if let Some(after) = &self.after {
+            after.extend_shard_support(support);
+        }
+        self.control.extend_shard_support(support, exclusive);
+    }
+}
+
+#[cfg(test)]
+impl DependencyBatchDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        for slot in self.removed.iter().chain(&self.added) {
+            slot.extend_shard_support(support);
+        }
+        self.control.extend_shard_support(support, exclusive);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VacancyPolicy {
     ExistingOwnersOnly,

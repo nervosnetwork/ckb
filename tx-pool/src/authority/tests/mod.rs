@@ -17,6 +17,7 @@ mod packing;
 mod progress_properties;
 mod publisher;
 mod query;
+mod r3_shard_support;
 mod read;
 mod relay;
 mod released_input_properties;

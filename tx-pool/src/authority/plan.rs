@@ -680,6 +680,31 @@ struct EntryDelta {
     clocks: AuthorityClocks,
 }
 
+#[cfg(test)]
+impl EntryDelta {
+    fn shard_support(
+        &self,
+    ) -> (
+        super::shard_support::AuthorityShardSupport,
+        super::shard_support::ExclusiveSupport,
+    ) {
+        let mut support = super::shard_support::AuthorityShardSupport::default();
+        let mut exclusive = super::shard_support::ExclusiveSupport::default();
+        support.insert(b"owner-resource/owner", &self.key);
+        self.owners.indexes.extend_shard_support(&mut support);
+        self.owners.sources.mark_exclusive_support(&mut exclusive);
+        self.resource
+            .extend_shard_support(&mut support, &mut exclusive);
+        self.scheduler
+            .extend_shard_support(&mut support, &mut exclusive);
+        self.dependency
+            .extend_shard_support(&mut support, &mut exclusive);
+        exclusive.effect_log = self.effect.has_exclusive_write();
+        exclusive.clocks = true;
+        (support, exclusive)
+    }
+}
+
 #[expect(
     clippy::large_enum_variant,
     reason = "this Plan-only value replaces an equally wide before/after option pair; boxing would add fallible allocation to every owner transition"
@@ -939,6 +964,33 @@ struct OwnerRemovalBatch {
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
     retired: Vec<OwnedTx>,
+}
+
+#[cfg(test)]
+impl OwnerRemovalBatch {
+    fn shard_support(
+        &self,
+    ) -> (
+        super::shard_support::AuthorityShardSupport,
+        super::shard_support::ExclusiveSupport,
+    ) {
+        let mut support = super::shard_support::AuthorityShardSupport::default();
+        let mut exclusive = super::shard_support::ExclusiveSupport::default();
+        for hash in &self.hashes {
+            support.insert(b"owner-resource/owner", hash);
+        }
+        self.owners.indexes.extend_shard_support(&mut support);
+        self.owners.sources.mark_exclusive_support(&mut exclusive);
+        self.resources
+            .extend_shard_support(&mut support, &mut exclusive);
+        self.membership
+            .extend_shard_support(&mut support, &mut exclusive);
+        self.scheduler
+            .extend_shard_support(&mut support, &mut exclusive);
+        self.dependency
+            .extend_shard_support(&mut support, &mut exclusive);
+        (support, exclusive)
+    }
 }
 
 struct ChainOwnerUpdate {
@@ -1561,6 +1613,39 @@ impl PreparedApply<'_> {
             retired_effect,
             retired_generation: None,
         }
+    }
+}
+
+#[cfg(test)]
+impl PreparedApply<'_> {
+    pub(in crate::authority) fn local_removal_shard_support(
+        &self,
+    ) -> Option<(
+        super::shard_support::AuthorityShardSupport,
+        super::shard_support::ExclusiveSupport,
+    )> {
+        let AuthorityDelta::Admin(delta) = &self.delta else {
+            return None;
+        };
+        if !matches!(delta.control, AdminControl::None) {
+            return None;
+        }
+        let (support, mut exclusive) = delta.removal.shard_support();
+        exclusive.effect_log = delta.effect.has_exclusive_write();
+        exclusive.clocks = true;
+        Some((support, exclusive))
+    }
+
+    pub(in crate::authority) fn entry_shard_support(
+        &self,
+    ) -> Option<(
+        super::shard_support::AuthorityShardSupport,
+        super::shard_support::ExclusiveSupport,
+    )> {
+        let AuthorityDelta::Entry(delta) = &self.delta else {
+            return None;
+        };
+        Some(delta.shard_support())
     }
 }
 

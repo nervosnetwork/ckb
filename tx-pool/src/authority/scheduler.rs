@@ -349,6 +349,51 @@ pub(super) struct SchedulerBatchDelta {
     verify_cursor: Option<WorkOwner>,
 }
 
+#[cfg(test)]
+impl SchedulerSlot {
+    fn extend_shard_support(&self, support: &mut super::shard_support::AuthorityShardSupport) {
+        match self {
+            Self::Queue { owner, .. } => match owner {
+                WorkOwner::Remote(peer) => support.insert(b"scheduler/owner", &(0u8, peer)),
+                WorkOwner::Trusted => support.insert(b"scheduler/owner", &(1u8, 0u8)),
+            },
+            Self::Ready(key) => support.insert(b"scheduler/ready", key.hash()),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SchedulerDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        if let Some(before) = &self.before {
+            before.extend_shard_support(support);
+        }
+        if let Some(after) = &self.after {
+            after.extend_shard_support(support);
+        }
+        exclusive.scheduler_cursor |= self.owner_cursor.is_some();
+    }
+}
+
+#[cfg(test)]
+impl SchedulerBatchDelta {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        for slot in self.removed.iter().chain(&self.added) {
+            slot.extend_shard_support(support);
+        }
+        // apply_batch writes both cursors absolutely, including unchanged None.
+        exclusive.scheduler_cursor = true;
+    }
+}
+
 /// Allocation-free runnable heads derived from the committed scheduler.
 ///
 /// `EntryVersion` is globally unique within one authority generation. A

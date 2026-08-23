@@ -1335,6 +1335,13 @@ enum EffectMutation {
 #[derive(Default)]
 pub(super) struct EffectDelta(EffectMutation);
 
+#[cfg(test)]
+impl EffectDelta {
+    pub(in crate::authority) fn has_exclusive_write(&self) -> bool {
+        !matches!(self.0, EffectMutation::None)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EffectPublisherLevel {
     Idle,

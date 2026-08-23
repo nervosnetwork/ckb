@@ -153,6 +153,17 @@ pub(super) struct SourceVersionDelta {
     after: AuthoritySourceVersions,
 }
 
+#[cfg(test)]
+impl SourceVersionDelta {
+    pub(in crate::authority) fn mark_exclusive_support(
+        &self,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        let _ = self;
+        exclusive.source_versions = true;
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TemplateSelectionImpact {
     Proposals,

@@ -650,6 +650,34 @@ pub(super) struct ResourceBatchPlan {
     accepted: AcceptedResources,
 }
 
+#[cfg(test)]
+impl ResourcePlan {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        for (peer, _) in self.peer_updates.iter().flatten() {
+            support.insert(b"resource/peer", peer);
+        }
+        exclusive.resource_totals = true;
+    }
+}
+
+#[cfg(test)]
+impl ResourceBatchPlan {
+    pub(in crate::authority) fn extend_shard_support(
+        &self,
+        support: &mut super::shard_support::AuthorityShardSupport,
+        exclusive: &mut super::shard_support::ExclusiveSupport,
+    ) {
+        for peer in self.peer_updates.keys() {
+            support.insert(b"resource/peer", peer);
+        }
+        exclusive.resource_totals = true;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ChargeProjection {
     preaccepted: Option<ResourceVector>,
