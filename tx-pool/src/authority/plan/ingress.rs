@@ -1,6 +1,4 @@
-use super::apply_seal::{
-    ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta, PreviousOwnerDisposition,
-};
+use super::apply_seal::{ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta};
 use super::{
     AuthorityDelta, AuthorityFault, ClockPlanReservation, DerivedOwnerDelta, PlanError,
     PreparedApply, TxPoolAuthority,
@@ -37,7 +35,7 @@ pub(super) struct RetainedIngressDelta {
     dependency: crate::authority::dependency::DependencyBatchDelta,
     effect: EffectDelta,
     clocks: AuthorityClocks,
-    retired: Vec<OwnedTx>,
+    retired: super::RetiredOwners,
 }
 
 pub(super) fn apply_retained_ingress(
@@ -52,13 +50,10 @@ pub(super) fn apply_retained_ingress(
         &status_counts,
         delta.resources.shard_plan(),
     );
-    let updates = delta.updates.into_iter().map(|update| {
-        OwnerResourceUpdate::new(
-            update.key,
-            Some(update.after),
-            PreviousOwnerDisposition::Retire,
-        )
-    });
+    let updates = delta
+        .updates
+        .into_iter()
+        .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
     authority.commit_owner_resources(
         token,
         PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),

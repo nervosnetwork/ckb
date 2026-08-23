@@ -1448,7 +1448,7 @@ impl TxPoolAuthority {
             delta: AuthorityDelta::Membership(MembershipDelta {
                 changed_key: key.clone(),
                 changed_after: after,
-                retirement: MembershipRetirement::Inline(Vec::new()),
+                retired: RetiredOwners::default(),
                 removals: Vec::new(),
                 owners,
                 resource,
@@ -1940,7 +1940,7 @@ impl TxPoolAuthority {
                 key: key.clone(),
                 after: Some(after),
                 owners: DerivedOwnerDelta { indexes, sources },
-                retirement: EntryRetirement::InlineDrop,
+                retired: RetiredOwners::default(),
                 resource: resources,
                 scheduler,
                 dependency,

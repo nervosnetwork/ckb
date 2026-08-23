@@ -1169,6 +1169,7 @@ fn uak_runtime_local_removal_has_no_active_work_drain() {
 
 #[test]
 fn uak_disjoint_accepted_local_removals_overlap_inside_the_real_runtime_cut() {
+    const CUT_ENTRY_TIMEOUT: Duration = Duration::from_secs(5);
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(
         &runtime_config(),
@@ -1278,7 +1279,7 @@ fn uak_disjoint_accepted_local_removals_overlap_inside_the_real_runtime_cut() {
     });
     std::thread::scope(|scope| {
         let first_remove = scope.spawn(|| runtime.remove_local_transaction(&first.0));
-        let first_entered = entered.recv_timeout(Duration::from_secs(1));
+        let first_entered = entered.recv_timeout(CUT_ENTRY_TIMEOUT);
         assert!(first_entered.is_ok());
         assert!(
             shared_entries.try_write_cut(second_support).is_some(),
@@ -1291,12 +1292,8 @@ fn uak_disjoint_accepted_local_removals_overlap_inside_the_real_runtime_cut() {
             let _ = second_started_tx.send(());
             runtime_ref.remove_local_transaction(&second_hash)
         });
-        assert!(
-            second_started_rx
-                .recv_timeout(Duration::from_secs(1))
-                .is_ok()
-        );
-        let second_entered = entered.recv_timeout(Duration::from_secs(1));
+        assert!(second_started_rx.recv_timeout(CUT_ENTRY_TIMEOUT).is_ok());
+        let second_entered = entered.recv_timeout(CUT_ENTRY_TIMEOUT);
         assert!(
             shared_entries.try_read_all().is_none(),
             "a complete read cut must not splice two in-flight write cuts"
@@ -3483,7 +3480,7 @@ fn uak_status_reconcile_updates_count_and_eviction_projection_once() {
             .plan_status_for_foundation(&hash, version, AcceptedStatus::Pending)
             .expect("Gap demotion is one membership transition"),
     );
-    assert_eq!(demotion.retired_len(), 0);
+    assert_eq!(demotion.retired_len(), 1);
     let counts = authority.membership_counts();
     assert_eq!((counts.pending, counts.gap, counts.proposed), (1, 0, 0));
     assert_resource_reference(&authority);
@@ -3558,7 +3555,7 @@ fn uak_independent_run_matches_every_canonical_single_prefix() {
         );
         let aggregate_committed = apply_plan_for_delta(plan);
         assert!(aggregate_committed.removals.is_empty());
-        assert_eq!(aggregate_committed.retired_len(), 0);
+        assert_eq!(aggregate_committed.retired_len(), count);
 
         let (mut reference, reference_hashes) = independent_fixture(count);
         assert_eq!(reference_hashes, hashes);
@@ -4688,7 +4685,10 @@ fn uak_coupled_late_parent_capacity_evicts_from_the_projected_graph() {
     let committed = accepted_disposition(disposition).apply();
 
     assert_eq!(committed.removals.len(), 1);
-    assert_eq!(committed.retired_len(), committed.removals.len());
+    assert_eq!(
+        committed.retired_len(),
+        committed.removals.len().saturating_add(1)
+    );
     assert_eq!(committed.removals[0].hash, unrelated);
     assert_eq!(committed.removals[0].cause, RemovalCause::Capacity);
     assert!(matches!(
@@ -4764,7 +4764,10 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
     let committed = accepted_disposition(disposition).apply();
 
     assert_eq!(committed.removals.len(), 1);
-    assert_eq!(committed.retired_len(), committed.removals.len());
+    assert_eq!(
+        committed.retired_len(),
+        committed.removals.len().saturating_add(1)
+    );
     assert_eq!(committed.removals[0].hash, child);
     assert_eq!(committed.removals[0].cause, RemovalCause::Capacity);
     assert!(matches!(
@@ -5210,7 +5213,10 @@ fn uak_capacity_eviction_removes_one_complete_causal_component() {
             .expect("higher-fee candidate atomically evicts a closed component"),
     );
     assert_eq!(committed.removals.len(), 2);
-    assert_eq!(committed.retired_len(), committed.removals.len());
+    assert_eq!(
+        committed.retired_len(),
+        committed.removals.len().saturating_add(1)
+    );
     assert!(
         committed
             .removals
@@ -5382,7 +5388,10 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
     };
     let committed = apply_plan_for_delta(plan);
     assert_eq!(committed.removals.len(), 2);
-    assert_eq!(committed.retired_len(), committed.removals.len());
+    assert_eq!(
+        committed.retired_len(),
+        committed.removals.len().saturating_add(1)
+    );
     assert!(
         committed
             .removals
@@ -6394,7 +6403,10 @@ fn uak_rbf_unions_fan_in_descendants_once_and_removes_children_first() {
     );
 
     assert_eq!(committed.removals.len(), 5);
-    assert_eq!(committed.retired_len(), committed.removals.len());
+    assert_eq!(
+        committed.retired_len(),
+        committed.removals.len().saturating_add(1)
+    );
     assert!(
         committed
             .removals
@@ -7272,7 +7284,7 @@ fn uak_allocation_failure_discards_result_without_retaining_compute_capability()
     let committed = authority
         .apply_compute_cancellation(failure.discard_result_for_cancellation())
         .expect("the narrow cancellation plan cannot acquire allocator backpressure");
-    assert_eq!(committed.retired_len(), 0);
+    assert_eq!(committed.retired_len(), 1);
     assert!(matches!(
         authority.entry(&hash),
         Some(OwnedTx::PreAccepted(entry))

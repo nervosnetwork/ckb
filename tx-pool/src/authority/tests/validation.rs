@@ -733,7 +733,7 @@ fn uak_final_validation_reuses_same_tip_positive_location_evidence() {
         panic!("an independent valid candidate must be accepted");
     };
     let committed = plan.apply();
-    assert_eq!(committed.retired_len(), 0);
+    assert_eq!(committed.retired_len(), 1);
 }
 
 #[test]

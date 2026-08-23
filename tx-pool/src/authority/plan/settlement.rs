@@ -286,6 +286,7 @@ impl TxPoolAuthority {
                 effect,
                 clocks: clocks.finish(),
                 async_process_starts,
+                retired: super::retired_buffer(before_owners.len())?,
             }),
         }))
     }

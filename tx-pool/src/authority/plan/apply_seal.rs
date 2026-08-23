@@ -102,29 +102,14 @@ pub(super) fn commit_concurrent(
     plan.apply_with(&ApplyToken(()))
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum PreviousOwnerDisposition {
-    Retire,
-    Drop,
-}
-
 pub(super) struct OwnerResourceUpdate {
     key: RawTxHash,
     after: Option<OwnedTx>,
-    previous: PreviousOwnerDisposition,
 }
 
 impl OwnerResourceUpdate {
-    pub(super) fn new(
-        key: RawTxHash,
-        after: Option<OwnedTx>,
-        previous: PreviousOwnerDisposition,
-    ) -> Self {
-        Self {
-            key,
-            after,
-            previous,
-        }
+    pub(super) fn new(key: RawTxHash, after: Option<OwnedTx>) -> Self {
+        Self { key, after }
     }
 }
 
@@ -452,7 +437,7 @@ impl TxPoolAuthority {
         &mut self,
         token: &ApplyToken,
         delta: PreparedOwnerResourceDelta<I>,
-        retired: &mut Vec<OwnedTx>,
+        retired: &mut RetiredOwners,
     ) where
         I: IntoIterator<Item = OwnerResourceUpdate>,
     {
@@ -461,10 +446,8 @@ impl TxPoolAuthority {
         for update in delta.updates {
             let shard = owner_resources.entries.owner_shard(&update.key);
             let previous = owners.replace(shard, update.key, update.after);
-            match (update.previous, previous) {
-                (PreviousOwnerDisposition::Retire, Some(owner)) => retired.push(owner),
-                (PreviousOwnerDisposition::Retire, None) => {}
-                (PreviousOwnerDisposition::Drop, previous) => drop(previous),
+            if let Some(owner) = previous {
+                retired.push(owner);
             }
         }
         owners.apply_status_counts(delta.status_counts);
@@ -478,7 +461,7 @@ impl TxPoolAuthority {
         &self,
         token: &ApplyToken,
         removal: OwnerRemovalBatch,
-    ) -> Result<Vec<OwnedTx>, ConcurrentLocalRemovalStale> {
+    ) -> Result<RetiredOwners, ConcurrentLocalRemovalStale> {
         let OwnerRemovalBatch {
             hashes,
             expected_versions,

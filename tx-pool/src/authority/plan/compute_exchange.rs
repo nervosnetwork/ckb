@@ -1,6 +1,4 @@
-use super::apply_seal::{
-    ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta, PreviousOwnerDisposition,
-};
+use super::apply_seal::{ApplyToken, OwnerResourceUpdate, PreparedOwnerResourceDelta};
 use super::{
     ApplyClockReservation, ApplyRetirement, AuthorityClocks, AuthorityDelta, AuthorityFault,
     CheckoutEligibility, DerivedOwnerDelta, OwnerLocalSettlement, PlanError, PreparedApply,
@@ -255,7 +253,7 @@ pub(super) struct ComputeExchangeDelta {
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
     clocks: AuthorityClocks,
-    retired: Vec<OwnedTx>,
+    retired: super::RetiredOwners,
 }
 
 pub(super) fn apply_compute_exchange(
@@ -270,13 +268,10 @@ pub(super) fn apply_compute_exchange(
         &status_counts,
         delta.resources.shard_plan(),
     );
-    let updates = delta.updates.into_iter().map(|update| {
-        OwnerResourceUpdate::new(
-            update.key,
-            Some(update.after),
-            PreviousOwnerDisposition::Retire,
-        )
-    });
+    let updates = delta
+        .updates
+        .into_iter()
+        .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
     authority.commit_owner_resources(
         token,
         PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),
