@@ -345,8 +345,8 @@ pub(super) struct SchedulerDelta {
 pub(super) struct SchedulerBatchDelta {
     removed: Vec<SchedulerSlot>,
     added: Vec<SchedulerSlot>,
-    resolve_cursor: Option<WorkOwner>,
-    verify_cursor: Option<WorkOwner>,
+    resolve_cursor: Option<Option<WorkOwner>>,
+    verify_cursor: Option<Option<WorkOwner>>,
 }
 
 #[cfg(test)]
@@ -389,8 +389,7 @@ impl SchedulerBatchDelta {
         for slot in self.removed.iter().chain(&self.added) {
             slot.extend_shard_support(support);
         }
-        // apply_batch writes both cursors absolutely, including unchanged None.
-        exclusive.scheduler_cursor = true;
+        exclusive.scheduler_cursor = self.resolve_cursor.is_some() || self.verify_cursor.is_some();
     }
 }
 
@@ -996,8 +995,8 @@ impl FairFrontier {
         Ok(SchedulerBatchDelta {
             removed,
             added,
-            resolve_cursor: self.resolve.owner_cursor,
-            verify_cursor: self.verify.owner_cursor,
+            resolve_cursor: None,
+            verify_cursor: None,
         })
     }
 
@@ -1010,8 +1009,10 @@ impl FairFrontier {
         cursor: SchedulerWaveCursor,
     ) -> Result<SchedulerBatchDelta, SchedulerError> {
         let mut delta = self.plan_batch(changes)?;
-        delta.resolve_cursor = cursor.resolve_cursor;
-        delta.verify_cursor = cursor.verify_cursor;
+        delta.resolve_cursor =
+            (cursor.resolve_cursor != self.resolve.owner_cursor).then_some(cursor.resolve_cursor);
+        delta.verify_cursor =
+            (cursor.verify_cursor != self.verify.owner_cursor).then_some(cursor.verify_cursor);
         Ok(delta)
     }
 
@@ -1190,8 +1191,12 @@ impl FairFrontier {
         for slot in delta.added {
             self.insert(slot);
         }
-        self.resolve.owner_cursor = delta.resolve_cursor;
-        self.verify.owner_cursor = delta.verify_cursor;
+        if let Some(cursor) = delta.resolve_cursor {
+            self.resolve.owner_cursor = cursor;
+        }
+        if let Some(cursor) = delta.verify_cursor {
+            self.verify.owner_cursor = cursor;
+        }
     }
 
     fn contains(&self, slot: &SchedulerSlot) -> bool {
