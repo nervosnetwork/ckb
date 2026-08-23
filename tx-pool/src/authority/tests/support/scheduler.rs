@@ -464,7 +464,9 @@ impl FairFrontier {
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let Ok(expected) = entries
-            .values()
+            .snapshot_for_test()
+            .iter()
+            .map(|(_, owner)| owner)
             .map(|owner| self.slot(owner))
             .collect::<Result<Vec<_>, _>>()
         else {

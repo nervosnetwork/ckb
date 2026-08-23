@@ -56,7 +56,8 @@ impl MembershipProjection {
         &self,
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
-        let accepted = entries
+        let snapshot = entries.snapshot_for_test();
+        let accepted = snapshot
             .iter()
             .filter_map(|(hash, owner)| match owner {
                 OwnedTx::Accepted(entry) => Some((hash, entry)),

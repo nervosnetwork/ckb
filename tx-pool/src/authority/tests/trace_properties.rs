@@ -321,11 +321,12 @@ impl ProductionTrace {
         let mut owners = self
             .authority
             .entries_for_reference()
-            .iter()
+            .snapshot_for_test()
+            .into_iter()
             .map(|(hash, owner)| {
-                let transaction = self.trace_transaction_for_hash(hash)?;
+                let transaction = self.trace_transaction_for_hash(&hash)?;
                 let record = owner.record();
-                let location = match owner {
+                let location = match &owner {
                     OwnedTx::PreAccepted(entry) => TraceOwnerLocation::Retained {
                         source: trace_source(entry.source),
                         phase: trace_retained_phase(&entry.phase),
@@ -495,7 +496,9 @@ impl ProductionTrace {
         let mut versions = self
             .authority
             .entries_for_reference()
-            .values()
+            .snapshot_for_test()
+            .into_iter()
+            .map(|(_, owner)| owner)
             .map(|owner| owner.record().version)
             .filter(|version| !self.version_ranks.contains_key(version))
             .collect::<Vec<_>>();
@@ -508,7 +511,9 @@ impl ProductionTrace {
         let mut arrivals = self
             .authority
             .entries_for_reference()
-            .values()
+            .snapshot_for_test()
+            .into_iter()
+            .map(|(_, owner)| owner)
             .map(|owner| owner.record().arrival)
             .filter(|arrival| !self.arrival_ranks.contains_key(arrival))
             .collect::<Vec<_>>();

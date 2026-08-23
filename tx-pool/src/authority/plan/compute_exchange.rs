@@ -264,6 +264,12 @@ pub(super) fn apply_compute_exchange(
     delta: ComputeExchangeDelta,
 ) -> ApplyRetirement {
     let mut retired = delta.retired;
+    let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+    let support = authority.entries.owner_resource_write_support(
+        delta.updates.iter().map(|update| &update.key),
+        &status_counts,
+        delta.resources.shard_plan(),
+    );
     let updates = delta.updates.into_iter().map(|update| {
         OwnerResourceUpdate::new(
             update.key,
@@ -273,7 +279,7 @@ pub(super) fn apply_compute_exchange(
     });
     authority.commit_owner_resources(
         token,
-        PreparedOwnerResourceDelta::batch(updates, delta.resources),
+        PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),
         &mut retired,
     );
     let authority = authority.write(token);
@@ -315,20 +321,18 @@ impl OwnerOverlay {
         Ok(Self { positions, changes })
     }
 
-    fn current<'owner>(
-        &'owner self,
-        authority: &'owner TxPoolAuthority,
-        key: &RawTxHash,
-    ) -> Result<&'owner OwnedTx, PlanError> {
+    fn current(&self, authority: &TxPoolAuthority, key: &RawTxHash) -> Result<OwnedTx, PlanError> {
         match self.positions.get(key).copied() {
             Some(position) => self
                 .changes
                 .get(position)
-                .map(|change| &change.after)
+                .map(|change| change.after.clone())
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection)),
             None => authority
                 .entries
                 .get(key)
+                .as_deref()
+                .cloned()
                 .ok_or(PlanError::Stale(super::StalePlan::Missing)),
         }
     }
@@ -350,6 +354,7 @@ impl OwnerOverlay {
         let before = authority
             .entries
             .get(&key)
+            .as_deref()
             .cloned()
             .ok_or(PlanError::Stale(super::StalePlan::Missing))?;
         let position = self.changes.len();
@@ -678,7 +683,7 @@ impl TxPoolAuthority {
             let ComputeExchangeCompletion { slot, finished } = completion;
             let (settlement, aftermath) = finished.into_parts();
             let ComputeSettlement { token, next } = settlement;
-            let existing = match self.entries.get(&token.hash) {
+            let existing = match self.entries.get(&token.hash).as_deref().cloned() {
                 Some(existing) if existing.record().version == token.version => existing,
                 Some(_) | None => {
                     drop(next);
@@ -686,7 +691,7 @@ impl TxPoolAuthority {
                     continue;
                 }
             };
-            let OwnedTx::PreAccepted(preaccepted) = existing else {
+            let OwnedTx::PreAccepted(preaccepted) = &existing else {
                 drop(next);
                 classified.push(ClassifiedCompletion::Obsolete { slot });
                 continue;
@@ -1022,7 +1027,7 @@ impl TxPoolAuthority {
                 };
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             };
-            let before = match self.entries.get(&token.hash).cloned() {
+            let before = match self.entries.get(&token.hash).as_deref().cloned() {
                 Some(before) => before,
                 None => {
                     *member = ClassifiedCompletion::OwnerLocal {
@@ -1319,7 +1324,7 @@ impl TxPoolAuthority {
         if before.record().version != ticket.version() {
             return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
         }
-        let OwnedTx::PreAccepted(preaccepted) = before else {
+        let OwnedTx::PreAccepted(preaccepted) = &before else {
             return Err(PlanError::Fault(AuthorityFault::SchedulerProjection));
         };
         if preaccepted
@@ -1360,7 +1365,7 @@ impl TxPoolAuthority {
             Some(desired),
         ) {
             Ok(()) => Ok(Ok(CheckoutReservation {
-                before: before.clone(),
+                before,
                 grant,
                 after_charge,
             })),

@@ -25,7 +25,8 @@ impl AuthorityIndexes {
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let mut expected = Self::default();
-        for (key, owner) in entries {
+        let snapshot = entries.snapshot_for_test();
+        for (key, owner) in &snapshot {
             if expected
                 .by_proposal
                 .insert(owner.record().identity.proposal.clone(), key.clone())

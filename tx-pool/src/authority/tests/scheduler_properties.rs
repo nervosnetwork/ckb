@@ -145,7 +145,7 @@ fn refinement_entries(
                 .entries_for_reference()
                 .get(hash)
                 .expect("the symbolic transaction remains owned");
-            refinement_projection_entry(owner, *symbol)
+            refinement_projection_entry(&owner, *symbol)
                 .expect("the scheduler wave fixture contains only runnable owners")
         })
         .collect::<Vec<_>>();

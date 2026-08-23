@@ -1,5 +1,5 @@
 use super::{
-    shard::{ShardResourcePlan, ShardedOwnerMap},
+    shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerWriteCut},
     state::{ComputeAttribution, PreAcceptedEntry, RawTxHash, ValidatedAdmission, WorkPermit},
 };
 use ckb_network::PeerIndex;
@@ -696,6 +696,42 @@ pub(super) struct ResourcePlan {
 pub(super) struct ResourceBatchPlan {
     shards: ShardResourcePlan,
     capacity: ResourceCapacityReservation,
+}
+
+pub(super) struct ResourceCapacityCommit(ResourceCapacityReservation);
+
+impl ResourceCapacityCommit {
+    pub(super) fn commit(self) {
+        self.0.commit();
+    }
+}
+
+impl ResourcePlan {
+    pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
+        &self.shards
+    }
+
+    pub(super) fn apply_shards(
+        self,
+        owners: &mut ShardedOwnerWriteCut<'_>,
+    ) -> ResourceCapacityCommit {
+        owners.apply_resource_plan(self.shards);
+        ResourceCapacityCommit(self.capacity)
+    }
+}
+
+impl ResourceBatchPlan {
+    pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
+        &self.shards
+    }
+
+    pub(super) fn apply_shards(
+        self,
+        owners: &mut ShardedOwnerWriteCut<'_>,
+    ) -> ResourceCapacityCommit {
+        owners.apply_resource_plan(self.shards);
+        ResourceCapacityCommit(self.capacity)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1586,18 +1622,6 @@ impl ResourceLedger {
         )?;
         let capacity = self.capacity.reserve(positive, release, self.limits)?;
         Ok(ResourceBatchPlan { shards, capacity })
-    }
-
-    pub(super) fn apply(&mut self, entries: &mut ShardedOwnerMap, plan: ResourcePlan) {
-        let ResourcePlan { shards, capacity } = plan;
-        entries.apply_resource_plan(shards);
-        capacity.commit();
-    }
-
-    pub(super) fn apply_batch(&mut self, entries: &mut ShardedOwnerMap, plan: ResourceBatchPlan) {
-        let ResourceBatchPlan { shards, capacity } = plan;
-        entries.apply_resource_plan(shards);
-        capacity.commit();
     }
 }
 

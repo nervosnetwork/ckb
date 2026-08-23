@@ -805,7 +805,7 @@ pub(super) fn assert_resource_reference(authority: &TxPoolAuthority) {
     let mut peers = HashMap::new();
     let mut replacement_history = ResourceVector::default();
     let mut accepted = AcceptedResources::default();
-    for owner in authority.entries_for_reference().values() {
+    for (_, owner) in authority.entries_for_reference().snapshot_for_test() {
         let charge = owner.charge_record();
         match charge {
             ChargeRecord::PreAccepted {
@@ -953,7 +953,6 @@ fn uak_non_status_accepted_change_advances_both_template_sources() {
     );
     let before = authority
         .entry(&hash)
-        .cloned()
         .expect("fixture accepted owner exists");
     let OwnedTx::Accepted(mut changed) = before.clone() else {
         panic!("fixture owner is accepted");
@@ -1987,7 +1986,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     let owner = authority.entry(&hash).expect("promoted owner exists");
     assert!(matches!(
         owner,
-        OwnedTx::PreAccepted(entry)
+        OwnedTx::PreAccepted(ref entry)
             if matches!(
                 entry.source,
                 PreAcceptedSource::Proposal {
@@ -2005,7 +2004,7 @@ fn uak_duplicate_and_promotion_never_create_second_owner() {
     );
     assert!(matches!(
         owner,
-        OwnedTx::PreAccepted(entry)
+        OwnedTx::PreAccepted(ref entry)
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
     assert!(authority.primary_projection_consistent());
@@ -2094,13 +2093,13 @@ fn uak_trusted_witness_replacement_preserves_ingress_and_changes_payload_blame()
     assert_eq!(owner.ingress_peer(), Some(peer));
     assert!(matches!(
         owner,
-        OwnedTx::PreAccepted(entry)
+        OwnedTx::PreAccepted(ref entry)
             if entry.source.payload_policy() == PayloadPolicy::Trusted
     ));
     assert!(owner.record().version > initial_version);
     assert!(matches!(
         owner,
-        OwnedTx::PreAccepted(entry)
+        OwnedTx::PreAccepted(ref entry)
             if matches!(
                 entry.source,
                 PreAcceptedSource::Proposal {
@@ -2410,7 +2409,7 @@ fn uak_direct_local_replaces_inactive_remote_payload_without_losing_attribution(
         OwnedTx::Accepted(AcceptedEntry {
             provenance: AcceptedProvenance::Peer { ingress },
             ..
-        }) if *ingress == peer
+        }) if ingress == peer
     ));
     assert_eq!(
         authority.resources().preaccepted(),
@@ -2875,7 +2874,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     assert_eq!(owner.ingress_peer(), Some(PeerIndex::from(17)));
     assert!(matches!(
         owner,
-        OwnedTx::PreAccepted(entry)
+        OwnedTx::PreAccepted(ref entry)
             if entry.source.payload_blame_peer() == Some(PeerIndex::from(17))
     ));
     assert_eq!(record.arrival.0, 0);
@@ -2883,7 +2882,7 @@ fn uak_foundation_types_preserve_distinct_domains_without_dead_state() {
     assert_eq!(authority.chain_view(), &ChainViewId::initial());
     assert_eq!(authority.generation(), PoolGeneration(0));
     assert_eq!(authority.resources().remote().entries, 1);
-    let declared_dependencies = match owner {
+    let declared_dependencies = match &owner {
         OwnedTx::PreAccepted(entry) => entry.basis.dependencies().clone(),
         OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => {
             unreachable!("fixture starts preaccepted")
@@ -5118,6 +5117,7 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
             .selected_len(),
         1
     );
+    drop(view);
     assert_resource_reference(&authority);
 
     let lease = authority
@@ -6840,7 +6840,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     let hash = admit_remote(&mut authority, 12, 31);
     let queued_charge = authority
         .entry(&hash)
-        .and_then(OwnedTx::preaccepted_charge)
+        .and_then(|owner| owner.preaccepted_charge())
         .expect("queued owner has an exact retained charge");
     let version = owner_version(&authority, &hash);
     let checkout_sequence = authority.clocks().next_sequence;
@@ -6887,7 +6887,7 @@ fn uak_checkout_is_move_only_and_exactly_charged() {
     );
     let retained = authority
         .entry(&hash)
-        .and_then(OwnedTx::preaccepted_charge)
+        .and_then(|owner| owner.preaccepted_charge())
         .expect("verified candidate remains preaccepted");
     assert_eq!(
         retained,
@@ -6922,7 +6922,7 @@ fn uak_allocation_failure_discards_result_without_retaining_compute_capability()
     let hash = admit_remote_until(&mut authority, 1_733, 733, 10);
     let original_charge = authority
         .entry(&hash)
-        .and_then(OwnedTx::preaccepted_charge)
+        .and_then(|owner| owner.preaccepted_charge())
         .expect("the queued owner has one retained charge");
     let checkout = authority
         .plan_checkout_for_foundation(

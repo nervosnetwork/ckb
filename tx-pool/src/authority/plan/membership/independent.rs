@@ -142,7 +142,8 @@ fn validate_owner(
     {
         return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
     }
-    match authority.entries.get(&change.key) {
+    let current = authority.entries.get(&change.key);
+    match current.as_deref() {
         Some(OwnedTx::PreAccepted(current))
             if current.record.version == before.record.version
                 && current.record.identity == before.record.identity => {}
@@ -167,6 +168,7 @@ fn is_accepted(authority: &TxPoolAuthority, hash: &RawTxHash) -> bool {
     authority
         .entries
         .get(hash)
+        .as_deref()
         .is_some_and(|entry| matches!(entry, OwnedTx::Accepted(_)))
 }
 

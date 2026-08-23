@@ -97,7 +97,7 @@ impl TxPoolAuthority {
             if owner.record().version != expected {
                 return Err(PlanError::Stale(StalePlan::Version));
             }
-            let OwnedTx::PreAccepted(before) = owner else {
+            let OwnedTx::PreAccepted(before) = &*owner else {
                 return Err(PlanError::Stale(StalePlan::Phase));
             };
             let PreAcceptedPhase::Ready(_) = &before.phase else {
@@ -226,10 +226,20 @@ impl TxPoolAuthority {
             key: change.key,
             after: OwnedTx::Accepted(change.after),
         }));
+        let mut before_owners = Vec::new();
+        before_owners
+            .try_reserve(updates.len())
+            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        before_owners.extend(
+            updates
+                .iter()
+                .map(|update| self.entries.get(&update.key).as_deref().cloned()),
+        );
         let scheduler = self.scheduler.plan_batch(
             updates
                 .iter()
-                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+                .zip(&before_owners)
+                .map(|(update, before)| (before.as_ref(), Some(&update.after))),
         )?;
         let dependency_control = self
             .dependencies
@@ -245,20 +255,23 @@ impl TxPoolAuthority {
             .plan_replacements(
                 updates
                     .iter()
-                    .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+                    .zip(&before_owners)
+                    .map(|(update, before)| (before.as_ref(), Some(&update.after))),
             )?
             .with_control(dependency_control);
         let sources = self.source_versions.plan_replacements(
             updates
                 .iter()
-                .map(|update| (self.entries.get(&update.key), Some(&update.after))),
+                .zip(&before_owners)
+                .map(|(update, before)| (before.as_ref(), Some(&update.after))),
             source_sequence,
         );
-        let (entries, mut indexes) = self.entries_and_indexes_for_plan();
+        let (_entries, mut indexes) = self.entries_and_indexes_for_plan();
         let indexes = indexes.plan_replacements(
             updates
                 .iter()
-                .map(|update| (&update.key, entries.get(&update.key), Some(&update.after))),
+                .zip(&before_owners)
+                .map(|(update, before)| (&update.key, before.as_ref(), Some(&update.after))),
         )?;
         let owners = super::DerivedOwnerDelta { indexes, sources };
         Ok(SettlementPlan::IndependentRun(PreparedApply {

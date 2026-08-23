@@ -46,6 +46,12 @@ pub(super) fn apply_retained_ingress(
     delta: RetainedIngressDelta,
 ) -> super::ApplyRetirement {
     let mut retired = delta.retired;
+    let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+    let support = authority.entries.owner_resource_write_support(
+        delta.updates.iter().map(|update| &update.key),
+        &status_counts,
+        delta.resources.shard_plan(),
+    );
     let updates = delta.updates.into_iter().map(|update| {
         OwnerResourceUpdate::new(
             update.key,
@@ -55,7 +61,7 @@ pub(super) fn apply_retained_ingress(
     });
     authority.commit_owner_resources(
         token,
-        PreparedOwnerResourceDelta::batch(updates, delta.resources),
+        PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),
         &mut retired,
     );
     let authority = authority.write(token);
@@ -155,7 +161,7 @@ impl OwnerOverlay {
         key: &RawTxHash,
     ) -> Result<Option<OwnedTx>, PlanError> {
         let Some(position) = self.positions.get(key).copied() else {
-            return Ok(authority.entries.get(key).cloned());
+            return Ok(authority.entries.get(key).as_deref().cloned());
         };
         self.changes
             .get(position)
@@ -188,7 +194,7 @@ impl OwnerOverlay {
             return Ok(());
         }
         let position = self.changes.len();
-        let before = authority.entries.get(&key).cloned();
+        let before = authority.entries.get(&key).as_deref().cloned();
         self.positions.insert(key.clone(), position);
         self.proposals
             .insert(after.record().identity.proposal.clone(), key.clone());

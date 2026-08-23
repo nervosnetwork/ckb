@@ -2269,14 +2269,20 @@ fn uak_runtime_chain_boundary_converges_an_unrepresentable_recovery_batch() {
         assert_eq!(authority.chain_revision(), ChainRevision(1));
         assert_eq!(authority.owner_count(), 1);
         assert!(authority.entry(&parent_hash).is_some());
-        assert!(authority.entries_for_reference().values().all(|owner| {
-            matches!(
-                owner,
-                OwnedTx::PreAccepted(entry)
-                    if matches!(entry.source, PreAcceptedSource::Recovery(lease)
-                        if lease.generation == authority.generation())
-            )
-        }));
+        assert!(
+            authority
+                .entries_for_reference()
+                .snapshot_for_test()
+                .into_iter()
+                .all(|(_, owner)| {
+                    matches!(
+                        owner,
+                        OwnedTx::PreAccepted(entry)
+                            if matches!(entry.source, PreAcceptedSource::Recovery(lease)
+                                if lease.generation == authority.generation())
+                    )
+                })
+        );
         assert_resource_reference(authority);
     });
 }
@@ -3035,15 +3041,21 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
         before_success_clocks.next_sequence.0 + 1,
         "one external generation swap consumes one Apply sequence"
     );
-    assert!(authority.entries_for_reference().values().all(|owner| {
-        matches!(
-            owner,
-            OwnedTx::PreAccepted(entry)
-                if matches!(entry.source, PreAcceptedSource::Recovery(lease)
-                    if lease.generation == authority.generation())
-                    && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-        )
-    }));
+    assert!(
+        authority
+            .entries_for_reference()
+            .snapshot_for_test()
+            .into_iter()
+            .all(|(_, owner)| {
+                matches!(
+                    owner,
+                    OwnedTx::PreAccepted(entry)
+                        if matches!(entry.source, PreAcceptedSource::Recovery(lease)
+                            if lease.generation == authority.generation())
+                            && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+                )
+            })
+    );
     drop(committed);
     assert_resource_reference(&authority);
 }

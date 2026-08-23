@@ -57,7 +57,7 @@ fn uak_query_never_splices_two_authority_cuts() {
 
     let before = {
         let view = authority.read_view();
-        assert_eq!(view.entries().count(), 1);
+        assert_eq!(view.owner_count(), 1);
         let raw = view
             .entry_by_raw(&hash)
             .expect("raw lookup finds the owner");

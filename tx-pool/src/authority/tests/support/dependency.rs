@@ -203,7 +203,8 @@ impl DependencyFrontier {
         entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let mut expected = Self::default();
-        for owner in entries.values() {
+        let snapshot = entries.snapshot_for_test();
+        for (_, owner) in &snapshot {
             let Ok(slot) = DependencySlot::from_owner(owner) else {
                 return false;
             };

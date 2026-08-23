@@ -306,7 +306,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                     .get_mut(&ancestor)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
                 *projected = projected
-                    .checked_sub_entry(removed_entry)
+                    .checked_sub_entry(&removed_entry)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
                 self.refresh_existing_key(authority, &ancestor)?;
             }
@@ -379,10 +379,10 @@ impl<'candidate> VirtualProjection<'candidate> {
                     .get_mut(ancestor)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
                 *projected = projected
-                    .checked_add_entry(descendant_entry)
+                    .checked_add_entry(&descendant_entry)
                     .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
                 ancestor_after = ancestor_after
-                    .checked_add_entry(authority.accepted_entry(ancestor)?)
+                    .checked_add_entry(&*authority.accepted_entry(ancestor)?)
                     .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
             }
             self.ancestor_after
@@ -400,7 +400,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         let mut aggregate = DescendantAggregate::one(self.candidate);
         for descendant in &self.candidate_descendants {
             aggregate = aggregate
-                .checked_add_entry(authority.accepted_entry(descendant)?)
+                .checked_add_entry(&*authority.accepted_entry(descendant)?)
                 .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
         }
         self.aggregate_after
@@ -408,7 +408,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         let mut ancestor_aggregate = AncestorAggregate::one(self.candidate);
         for ancestor in self.candidate_ancestors {
             ancestor_aggregate = ancestor_aggregate
-                .checked_add_entry(authority.accepted_entry(ancestor)?)
+                .checked_add_entry(&*authority.accepted_entry(ancestor)?)
                 .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
         }
         self.ancestor_after
@@ -447,17 +447,18 @@ impl<'candidate> VirtualProjection<'candidate> {
         authority: &TxPoolAuthority,
         hash: &RawTxHash,
     ) -> Result<(), PlanError> {
-        let entry = if hash == self.candidate_hash {
-            self.candidate
-        } else {
-            authority.accepted_entry(hash)?
-        };
         let aggregate = self
             .aggregate_after
             .get(hash)
             .copied()
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-        self.set_key(EvictionOrderKey::new(entry, aggregate))
+        let key = if hash == self.candidate_hash {
+            EvictionOrderKey::new(self.candidate, aggregate)
+        } else {
+            let entry = authority.accepted_entry(hash)?;
+            EvictionOrderKey::new(&entry, aggregate)
+        };
+        self.set_key(key)
     }
 
     fn set_key(&mut self, key: EvictionOrderKey) -> Result<(), PlanError> {
@@ -555,7 +556,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                 .get(&removal.hash)
                 .copied()
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let key = AcceptedOrderKey::new(entry, aggregate);
+            let key = AcceptedOrderKey::new(&entry, aggregate);
             if !authority.membership.accepted_order.contains(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
@@ -566,8 +567,8 @@ impl<'candidate> VirtualProjection<'candidate> {
             .try_reserve(self.ancestor_after.len())
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
         for (hash, aggregate) in &self.ancestor_after {
-            let entry = if hash == candidate_hash {
-                self.candidate
+            let key = if hash == candidate_hash {
+                AcceptedOrderKey::new(self.candidate, *aggregate)
             } else {
                 let entry = authority.accepted_entry(hash)?;
                 let before = authority
@@ -576,14 +577,14 @@ impl<'candidate> VirtualProjection<'candidate> {
                     .get(hash)
                     .copied()
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                let key = AcceptedOrderKey::new(entry, before);
+                let key = AcceptedOrderKey::new(&entry, before);
                 if !authority.membership.accepted_order.contains(&key) {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
                 }
                 accepted_order_removals.push(key);
-                entry
+                AcceptedOrderKey::new(&entry, *aggregate)
             };
-            accepted_order_insertions.push(AcceptedOrderKey::new(entry, *aggregate));
+            accepted_order_insertions.push(key);
         }
         accepted_order_removals.sort_unstable();
         accepted_order_insertions.sort_unstable();
@@ -600,7 +601,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                 .get(&removal.hash)
                 .copied()
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let key = EvictionOrderKey::new(entry, aggregate);
+            let key = EvictionOrderKey::new(&entry, aggregate);
             if !authority.membership.eviction_order.contains(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
@@ -617,7 +618,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                 .get(hash)
                 .copied()
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let key = EvictionOrderKey::new(entry, aggregate);
+            let key = EvictionOrderKey::new(&entry, aggregate);
             if !authority.membership.eviction_order.contains(&key) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }

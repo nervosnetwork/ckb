@@ -251,8 +251,8 @@ impl FullQueryPermit {
         if accepted_count != expected {
             return Err(AuthorityReadError::Projection);
         }
-        for hash in view.replacement_history() {
-            self.push(FullQueryRow::ReplacementHistory(hash.clone()))?;
+        for hash in view.replacement_history()? {
+            self.push(FullQueryRow::ReplacementHistory(hash))?;
         }
         let history_count = self
             .state

@@ -292,8 +292,9 @@ impl TxPoolAuthority {
                 .map(RetainedAdmissionDisposition::RemoteReleased);
         }
 
+        let existing = self.entries.get(&key).as_deref().cloned();
         match kind {
-            RetainedIngressKind::Remote(peer) => match self.entries.get(&key) {
+            RetainedIngressKind::Remote(peer) => match existing.as_ref() {
                 Some(OwnedTx::Accepted(_)) => {
                     return self
                         .plan_single_effect(
@@ -319,7 +320,7 @@ impl TxPoolAuthority {
                 }
                 None => {}
             },
-            RetainedIngressKind::Proposal => match self.entries.get(&key) {
+            RetainedIngressKind::Proposal => match existing.as_ref() {
                 Some(OwnedTx::Accepted(_)) => {
                     return Ok(RetainedAdmissionDisposition::ProposalUnchanged);
                 }
@@ -907,8 +908,8 @@ impl TxPoolAuthority {
         removed: &[RawTxHash],
         context: ReleasedInputContextForFoundation,
     ) -> Result<bool, PlanError> {
-        let entry = match self.entries.get(removed_entry) {
-            Some(OwnedTx::Accepted(entry)) => entry,
+        let entry = match self.entries.get(removed_entry).as_deref() {
+            Some(OwnedTx::Accepted(entry)) => entry.clone(),
             Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
@@ -924,7 +925,7 @@ impl TxPoolAuthority {
                     HashSet::new()
                 };
                 self.released_input_survives_final_owner_set(
-                    entry,
+                    &entry,
                     input,
                     ProjectedFinalOwnerSet {
                         removed: ProjectedRemovalSet::Replacement(&removed),
@@ -937,7 +938,7 @@ impl TxPoolAuthority {
             ReleasedInputContextForFoundation::Administrative => {
                 let removed = AcceptedRemovalSet::try_from_vec(removed.to_vec())?;
                 self.released_input_survives_final_owner_set(
-                    entry,
+                    &entry,
                     input,
                     ProjectedFinalOwnerSet {
                         removed: ProjectedRemovalSet::Administrative(&removed),
@@ -1009,8 +1010,8 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn normalized_snapshot(&self) -> AuthoritySnapshot {
-        let entries = self
-            .entries
+        let owner_snapshot = self.entries.snapshot_for_test();
+        let entries = owner_snapshot
             .iter()
             .map(|(hash, owner)| {
                 let record = owner.record();
@@ -1067,6 +1068,7 @@ impl TxPoolAuthority {
 
     pub(in crate::authority) fn primary_projection_consistent(&self) -> bool {
         self.entries
+            .snapshot_for_test()
             .iter()
             .all(|(hash, owner)| &owner.record().identity.raw == hash)
             && self.indexes.semantically_matches(&self.entries)
@@ -1106,10 +1108,12 @@ impl TxPoolAuthority {
             .map(|hash| {
                 self.entries
                     .get(hash)
+                    .as_deref()
+                    .cloned()
                     .ok_or(PlanError::Stale(StalePlan::Missing))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(self.collect_dependency_loss_keys(parents)?.work)
+        Ok(self.collect_dependency_loss_keys(parents.iter())?.work)
     }
 
     pub(in crate::authority) fn plan_admission(
@@ -1180,8 +1184,10 @@ impl TxPoolAuthority {
         let existing = self
             .entries
             .get(key)
+            .as_deref()
+            .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
         self.validate_acceptance_evidence(preaccepted, receipt)
@@ -1239,7 +1245,7 @@ impl TxPoolAuthority {
         if existing.record().version != token.version {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
+        let OwnedTx::PreAccepted(preaccepted) = &*existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
         let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
@@ -1316,6 +1322,7 @@ impl TxPoolAuthority {
         let existing = self
             .entries
             .get(key)
+            .as_deref()
             .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
@@ -1382,11 +1389,13 @@ impl TxPoolAuthority {
         let existing = self
             .entries
             .get(key)
+            .as_deref()
+            .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
         let policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
@@ -1616,7 +1625,7 @@ impl TxPoolAuthority {
             }
             let owner_requeued = observed_owner.is_some_and(|(hash, version)| {
                 matches!(
-                    self.entries.get(&hash),
+                    self.entries.get(&hash).as_deref(),
                     Some(OwnedTx::PreAccepted(entry))
                         if entry.record.version != version
                             && matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
@@ -1724,11 +1733,13 @@ impl TxPoolAuthority {
         let existing = self
             .entries
             .get(key)
+            .as_deref()
+            .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
             return Err(PlanError::Stale(StalePlan::Version));
         }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
+        let OwnedTx::PreAccepted(preaccepted) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
         let attribution = preaccepted.source.compute_attribution();
@@ -1790,6 +1801,7 @@ impl TxPoolAuthority {
         let existing = self
             .entries
             .get(key)
+            .as_deref()
             .cloned()
             .ok_or(PlanError::Stale(StalePlan::Missing))?;
         if existing.record().version != expected {
@@ -1864,19 +1876,22 @@ impl TxPoolAuthority {
         expected: EntryVersion,
         permit: super::super::state::WorkPermit,
     ) -> Result<PreparedCheckout<'_>, PlanError> {
-        let existing = self
-            .entries
-            .get(key)
-            .ok_or(PlanError::Stale(StalePlan::Missing))?;
-        if existing.record().version != expected {
-            return Err(PlanError::Stale(StalePlan::Version));
-        }
-        let OwnedTx::PreAccepted(preaccepted) = existing else {
-            return Err(PlanError::Stale(StalePlan::Phase));
+        let attribution = {
+            let existing = self
+                .entries
+                .get(key)
+                .ok_or(PlanError::Stale(StalePlan::Missing))?;
+            if existing.record().version != expected {
+                return Err(PlanError::Stale(StalePlan::Version));
+            }
+            let OwnedTx::PreAccepted(preaccepted) = &*existing else {
+                return Err(PlanError::Stale(StalePlan::Phase));
+            };
+            preaccepted.source.compute_attribution()
         };
         match self
             .resources()
-            .active_work_availability_for_reference(preaccepted.source.compute_attribution())?
+            .active_work_availability_for_reference(attribution)?
         {
             ActiveWorkAvailability::Available => {}
             ActiveWorkAvailability::PreAcceptedExhausted => {

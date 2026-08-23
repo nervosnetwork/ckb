@@ -131,6 +131,12 @@ impl TestResourceLedger {
     }
 
     pub(in crate::authority) fn apply(&mut self, plan: TestResourcePlan) {
+        let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+        let support = self.entries.owner_resource_write_support(
+            plan.changes.iter().map(|(key, _)| key),
+            &status_counts,
+            plan.plan.shard_plan(),
+        );
         for (key, after) in plan.changes {
             match after {
                 Some(after) => {
@@ -141,10 +147,19 @@ impl TestResourceLedger {
                 }
             }
         }
-        self.ledger.apply(&mut self.entries, plan.plan);
+        let mut owners = self.entries.write_cut(support);
+        let capacity = plan.plan.apply_shards(&mut owners);
+        drop(owners);
+        capacity.commit();
     }
 
     pub(in crate::authority) fn apply_batch(&mut self, plan: TestResourceBatchPlan) {
+        let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+        let support = self.entries.owner_resource_write_support(
+            plan.changes.iter().map(|(key, _)| key),
+            &status_counts,
+            plan.plan.shard_plan(),
+        );
         for (key, after) in plan.changes {
             match after {
                 Some(after) => {
@@ -155,7 +170,10 @@ impl TestResourceLedger {
                 }
             }
         }
-        self.ledger.apply_batch(&mut self.entries, plan.plan);
+        let mut owners = self.entries.write_cut(support);
+        let capacity = plan.plan.apply_shards(&mut owners);
+        drop(owners);
+        capacity.commit();
     }
 
     pub(in crate::authority) fn snapshot(&self) -> ResourceSnapshot {
@@ -281,7 +299,7 @@ impl ResourceRead<'_> {
             replacement_history: ResourceVector::default(),
             accepted: AcceptedResources::default(),
         };
-        for owner in self.entries.values() {
+        for (_, owner) in self.entries.snapshot_for_test() {
             let charge = owner.charge_record();
             match (owner, charge) {
                 (
@@ -295,7 +313,7 @@ impl ResourceRead<'_> {
                     let exact_resources = match &entry.phase {
                         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
                             let Ok(charge) = self.ledger.retained_entry_charge(
-                                entry,
+                                &entry,
                                 resolved.payload().resolved_resident_bytes(),
                                 resolved.payload().dependencies().len(),
                             ) else {
@@ -304,7 +322,7 @@ impl ResourceRead<'_> {
                             charge
                         }
                         PreAcceptedPhase::Computing(active) => {
-                            if active.grant != self.ledger.compute_grant(entry, active.permit) {
+                            if active.grant != self.ledger.compute_grant(&entry, active.permit) {
                                 return false;
                             }
                             let Some(exact) = active.grant.retained_charge(
@@ -320,7 +338,7 @@ impl ResourceRead<'_> {
                         }
                         PreAcceptedPhase::Waiting(observed) => {
                             let Ok(charge) = self.ledger.retained_entry_charge(
-                                entry,
+                                &entry,
                                 entry.basis.payload_bytes(),
                                 observed.retained().len(),
                             ) else {
@@ -335,7 +353,7 @@ impl ResourceRead<'_> {
                                 return false;
                             }
                             let Ok(charge) = self.ledger.retained_entry_charge(
-                                entry,
+                                &entry,
                                 verified.metrics().cost.resident_bytes,
                                 verified.payload().dependencies().len(),
                             ) else {

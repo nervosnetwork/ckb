@@ -10,7 +10,7 @@ use super::{
     plan::{
         AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection, StatusCounts,
     },
-    shard::ShardedOwnerMap,
+    shard::ShardedOwnerReadCut,
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, ChainViewId,
@@ -173,7 +173,7 @@ impl AuthorityTemplateReadReceipt {
     pub(super) fn capture(
         chain_view: ChainViewId,
         sources: PoolTemplateVersions,
-        entries: &ShardedOwnerMap,
+        entries: &ShardedOwnerReadCut<'_>,
         counts: Option<StatusCounts>,
         membership: &MembershipProjection,
     ) -> Result<Self, TemplateReadError> {

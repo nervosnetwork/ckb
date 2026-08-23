@@ -1893,11 +1893,13 @@ impl AuthorityRuntime {
             let view = store.authority.read_view();
             let observed_rows = view.owner_count();
             if !permit.is_prepared(observed_rows)? {
+                drop(view);
                 drop(store);
                 permit.grow(observed_rows)?;
                 continue;
             }
             let captured = permit.capture_pool_ids(&view);
+            drop(view);
             drop(store);
             return captured
                 .map_err(AuthorityQueryError::from)?
@@ -1915,11 +1917,13 @@ impl AuthorityRuntime {
             let view = store.authority.read_view();
             let observed_rows = view.owner_count();
             if !permit.is_prepared(observed_rows)? {
+                drop(view);
                 drop(store);
                 permit.grow(observed_rows)?;
                 continue;
             }
             let captured = permit.capture_entry_info(&view);
+            drop(view);
             drop(store);
             return captured
                 .map_err(AuthorityQueryError::from)?
@@ -1966,6 +1970,7 @@ impl AuthorityRuntime {
             let view = store.authority.read_view();
             let observed_rows = view.owner_count();
             if !permit.is_prepared(observed_rows)? {
+                drop(view);
                 drop(store);
                 permit.grow(observed_rows)?;
                 continue;
@@ -1975,6 +1980,7 @@ impl AuthorityRuntime {
                 &store.snapshot,
                 self.resolution_policy.min_fee_rate,
             );
+            drop(view);
             drop(store);
             return captured
                 .map_err(AuthorityQueryError::from)?

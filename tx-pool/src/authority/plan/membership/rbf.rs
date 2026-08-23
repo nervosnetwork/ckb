@@ -1,6 +1,7 @@
 use super::{ComponentLimitKind, MembershipReject, ReplacementPolicy};
 use crate::authority::{
     plan::{AuthorityFault, PlanError, TxPoolAuthority},
+    shard::ShardedAcceptedReadGuard,
     state::{AcceptedEntry, OwnedTx, RawTxHash},
 };
 use ckb_types::core::Capacity;
@@ -123,6 +124,7 @@ fn validate_descendant_overlap(
         if authority
             .entries
             .get(&parent)
+            .as_deref()
             .is_some_and(|entry| matches!(entry, OwnedTx::Accepted(_)))
         {
             parents.insert(parent);
@@ -218,14 +220,13 @@ fn validate_replacement_fee(
     Ok(())
 }
 
-fn accepted_entry<'a>(
-    authority: &'a TxPoolAuthority,
+fn accepted_entry<'authority>(
+    authority: &'authority TxPoolAuthority,
     hash: &RawTxHash,
-) -> Result<&'a AcceptedEntry, PlanError> {
-    match authority.entries.get(hash) {
-        Some(OwnedTx::Accepted(entry)) => Ok(entry),
-        Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => {
-            Err(PlanError::Fault(AuthorityFault::MembershipProjection))
-        }
-    }
+) -> Result<ShardedAcceptedReadGuard<'authority>, PlanError> {
+    authority
+        .entries
+        .get(hash)
+        .and_then(|owner| owner.into_accepted().ok())
+        .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))
 }

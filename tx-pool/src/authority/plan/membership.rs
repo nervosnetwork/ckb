@@ -11,6 +11,7 @@ use super::TxPoolAuthority;
 use crate::authority::{
     rejection::{ComponentLimitKind, MembershipReject},
     resources::AcceptedCost,
+    shard::ShardedAcceptedReadGuard,
     state::{
         AcceptedEntry, AcceptedStatus, Arrival, OwnedTx, PreAcceptedEntry, RawTxHash,
         ReplacementHistoryEntry,
@@ -898,7 +899,10 @@ impl TxPoolAuthority {
         &self,
         root: &RawTxHash,
     ) -> Result<Vec<RawTxHash>, super::PlanError> {
-        if !matches!(self.entries.get(root), Some(OwnedTx::Accepted(_))) {
+        if !matches!(
+            self.entries.get(root).as_deref(),
+            Some(OwnedTx::Accepted(_))
+        ) {
             return Err(super::PlanError::Stale(super::StalePlan::Phase));
         }
         let closure = self.bounded_descendant_postorder(
@@ -1222,7 +1226,7 @@ impl TxPoolAuthority {
                         .copied()
                 });
                 let next = current
-                    .and_then(|aggregate| aggregate.checked_sub_entry(entry))
+                    .and_then(|aggregate| aggregate.checked_sub_entry(&entry))
                     .filter(|aggregate| aggregate.entries != 0)
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
@@ -1300,7 +1304,7 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let key = EvictionOrderKey::new(entry, aggregate);
+            let key = EvictionOrderKey::new(&entry, aggregate);
             if !self.membership.eviction_order.contains(&key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
@@ -1334,7 +1338,7 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let before_key = EvictionOrderKey::new(before, aggregate);
+            let before_key = EvictionOrderKey::new(&before, aggregate);
             if !self.membership.eviction_order.contains(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
@@ -1359,17 +1363,18 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let before_key = EvictionOrderKey::new(before, before_aggregate);
+            let before_key = EvictionOrderKey::new(&before, before_aggregate);
             if !self.membership.eviction_order.contains(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
             }
             eviction_removals.push(before_key);
-            eviction_insertions.push(EvictionOrderKey::new(
-                status_changes.get(&hash).map_or(before, |after| after),
-                after_aggregate,
-            ));
+            let insertion = status_changes.get(&hash).map_or_else(
+                || EvictionOrderKey::new(&before, after_aggregate),
+                |after| EvictionOrderKey::new(after, after_aggregate),
+            );
+            eviction_insertions.push(insertion);
             aggregate_changes.push((hash, Some(after_aggregate)));
         }
         eviction_removals.sort_unstable();
@@ -1470,7 +1475,7 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let key = AcceptedOrderKey::new(entry, aggregate);
+            let key = AcceptedOrderKey::new(&entry, aggregate);
             if !self.membership.accepted_order.contains(&key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
@@ -1496,7 +1501,7 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            let before_key = AcceptedOrderKey::new(entry, before);
+            let before_key = AcceptedOrderKey::new(&entry, before);
             if !self.membership.accepted_order.contains(&before_key) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
@@ -1509,17 +1514,17 @@ impl TxPoolAuthority {
                     super::AuthorityFault::MembershipProjection,
                 ))?;
             let ancestors = self.collect_surviving_ancestors(parents, removed)?;
-            let mut after = AncestorAggregate::one(entry);
+            let mut after = AncestorAggregate::one(&entry);
             for ancestor in ancestors {
                 after = after
-                    .checked_add_entry(self.accepted_entry(&ancestor)?)
+                    .checked_add_entry(&*self.accepted_entry(&ancestor)?)
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ))?;
             }
             changes.push((hash.clone(), Some(after)));
             order_removals.push(before_key);
-            order_insertions.push(AcceptedOrderKey::new(entry, after));
+            order_insertions.push(AcceptedOrderKey::new(&entry, after));
         }
         order_removals.sort_unstable();
         order_insertions.sort_unstable();
@@ -1977,13 +1982,16 @@ impl TxPoolAuthority {
         Ok(prepared)
     }
 
-    fn accepted_entry(&self, hash: &RawTxHash) -> Result<&AcceptedEntry, super::PlanError> {
-        match self.entries.get(hash) {
-            Some(OwnedTx::Accepted(entry)) => Ok(entry),
-            Some(OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_)) | None => Err(
-                super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
-            ),
-        }
+    fn accepted_entry(
+        &self,
+        hash: &RawTxHash,
+    ) -> Result<ShardedAcceptedReadGuard<'_>, super::PlanError> {
+        self.entries
+            .get(hash)
+            .and_then(|owner| owner.into_accepted().ok())
+            .ok_or(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ))
     }
 
     fn bounded_descendant_postorder(
@@ -2135,7 +2143,8 @@ impl TxPoolAuthority {
         removed: &HashSet<RawTxHash>,
     ) -> Result<Option<RawTxHash>, super::PlanError> {
         let parent = RawTxHash(out_point.tx_hash());
-        let Some(OwnedTx::Accepted(entry)) = self.entries.get(&parent) else {
+        let owner = self.entries.get(&parent);
+        let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
             return Ok(None);
         };
         if removed.contains(&parent) {

@@ -88,6 +88,104 @@ fn real_local_removal_delta_derives_one_disjoint_shard_pair_and_names_globals() 
 }
 
 #[test]
+fn real_owner_shard_write_guards_for_a_disjoint_pair_coexist() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let first = accept_remote_transaction(
+        &mut authority,
+        tx(1_105),
+        1_105,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let second = (1_106usize..1_300)
+        .find_map(|seed| {
+            let candidate = accept_remote_transaction(
+                &mut authority,
+                tx(seed as u64),
+                seed,
+                AcceptedStatus::Pending,
+                Vec::new(),
+            );
+            (authority.entries_for_reference().owner_shard(&candidate)
+                != authority.entries_for_reference().owner_shard(&first))
+            .then_some(candidate)
+        })
+        .expect("the fixed layout yields a second real owner shard");
+
+    let entries = authority.entries_for_reference();
+    let first_owner = entries
+        .get(&first)
+        .as_deref()
+        .cloned()
+        .expect("the first Accepted owner exists");
+    let second_owner = entries
+        .get(&second)
+        .as_deref()
+        .cloned()
+        .expect("the second Accepted owner exists");
+    let first_support = entries.owner_write_support(std::iter::once(&first));
+    let second_support = entries.owner_write_support(std::iter::once(&second));
+
+    let mut first_cut = entries.write_cut(first_support);
+    let mut second_cut = entries
+        .try_write_cut(second_support)
+        .expect("a disjoint real owner shard has no common exclusive guard");
+    let first_previous = first_cut.replace(
+        entries.owner_shard(&first),
+        first.clone(),
+        Some(first_owner),
+    );
+    let second_previous = second_cut.replace(
+        entries.owner_shard(&second),
+        second.clone(),
+        Some(second_owner),
+    );
+    drop(second_cut);
+    drop(first_cut);
+    drop(second_previous);
+    drop(first_previous);
+
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn multi_owner_support_holds_one_atomic_sorted_guard_bundle() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let first = accept_remote_transaction(
+        &mut authority,
+        tx(1_301),
+        1_301,
+        AcceptedStatus::Pending,
+        Vec::new(),
+    );
+    let second = (1_302usize..1_500)
+        .find_map(|seed| {
+            let candidate = accept_remote_transaction(
+                &mut authority,
+                tx(seed as u64),
+                seed,
+                AcceptedStatus::Pending,
+                Vec::new(),
+            );
+            (authority.entries_for_reference().owner_shard(&candidate)
+                != authority.entries_for_reference().owner_shard(&first))
+            .then_some(candidate)
+        })
+        .expect("the fixed layout yields a distinct second owner shard");
+    let entries = authority.entries_for_reference();
+    let combined = entries.owner_write_support([&first, &second]);
+    let first_only = entries.owner_write_support(std::iter::once(&first));
+    let second_only = entries.owner_write_support(std::iter::once(&second));
+
+    let combined_cut = entries.write_cut(combined);
+    assert!(entries.try_write_cut(first_only).is_none());
+    assert!(entries.try_write_cut(second_only).is_none());
+    drop(combined_cut);
+    assert!(entries.try_write_cut(first_only).is_some());
+    assert!(entries.try_write_cut(second_only).is_some());
+}
+
+#[test]
 fn dependency_control_is_exclusive_only_for_a_real_loss_event() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let root = TransactionBuilder::default()

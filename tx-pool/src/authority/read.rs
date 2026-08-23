@@ -11,10 +11,10 @@ use super::{
     indexes::{AuthorityIndexes, DueRemote, IndexError},
     plan::{
         AcceptedOrderKey, AncestorAggregate, DescendantAggregate, MembershipConfig,
-        MembershipProjection, StatusCounts,
+        MembershipProjection,
     },
     resources::AcceptedResources,
-    shard::ShardedOwnerMap,
+    shard::{ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerReadGuard},
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
@@ -171,22 +171,21 @@ pub(super) enum AuthorityRpcStatus {
     Proposed,
 }
 
-#[derive(Clone, Copy)]
 pub(super) struct AuthorityReadEntry<'authority> {
-    owner: &'authority OwnedTx,
+    owner: ShardedOwnerReadGuard<'authority>,
 }
 
 impl<'authority> AuthorityReadEntry<'authority> {
-    fn new(owner: &'authority OwnedTx) -> Self {
+    fn new(owner: ShardedOwnerReadGuard<'authority>) -> Self {
         Self { owner }
     }
 
-    pub(super) fn transaction(&self) -> &'authority Arc<TransactionView> {
+    pub(super) fn transaction(&self) -> &Arc<TransactionView> {
         &self.owner.record().tx
     }
 
     pub(super) fn state(&self) -> AuthorityReadState {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => AuthorityReadState::Accepted(entry.status()),
             OwnedTx::PreAccepted(entry) => {
                 let phase = match &entry.phase {
@@ -213,7 +212,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
     /// the existing recent-reject lookup instead of inventing a live-pool RPC
     /// status for a retained victim.
     pub(super) fn rpc_status(&self, snapshot: &Snapshot) -> Option<AuthorityRpcStatus> {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => Some(rpc_status_for_accepted(entry.status())),
             OwnedTx::PreAccepted(entry) => Some(match &entry.phase {
                 PreAcceptedPhase::Queued(QueuedWork::Verify(_))
@@ -240,7 +239,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
     }
 
     pub(super) fn fee(&self) -> Option<Capacity> {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().fee),
             OwnedTx::PreAccepted(entry) => match &entry.phase {
                 PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
@@ -256,7 +255,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
     }
 
     pub(super) fn cycles(&self) -> Option<u64> {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
             OwnedTx::PreAccepted(entry) => match &entry.phase {
                 PreAcceptedPhase::Ready(verified) => Some(verified.metrics().cost.cycles),
@@ -269,7 +268,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
     }
 
     pub(super) fn transaction_status_cycles(&self) -> Option<u64> {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
             OwnedTx::PreAccepted(entry) => match &entry.phase {
                 PreAcceptedPhase::Ready(verified) => Some(verified.metrics().cost.cycles),
@@ -283,7 +282,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
     }
 
     pub(super) fn accepted_at(&self) -> Option<AcceptedAtMillis> {
-        match self.owner {
+        match &*self.owner {
             OwnedTx::Accepted(entry) => Some(entry.accepted_at),
             OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => None,
         }
@@ -297,17 +296,16 @@ fn rpc_status_for_accepted(status: AcceptedStatus) -> AuthorityRpcStatus {
     }
 }
 
-#[derive(Clone)]
 pub(super) struct AcceptedReadEntry<'authority> {
-    entry: &'authority super::state::AcceptedEntry,
+    entry: ShardedAcceptedReadGuard<'authority>,
     ancestor: AncestorAggregate,
     descendant: DescendantAggregate,
     order: AcceptedOrderKey,
 }
 
 impl<'authority> AcceptedReadEntry<'authority> {
-    pub(super) fn entry(&self) -> &'authority super::state::AcceptedEntry {
-        self.entry
+    pub(super) fn entry(&self) -> &super::state::AcceptedEntry {
+        &self.entry
     }
 
     pub(super) fn ancestor(&self) -> AncestorAggregate {
@@ -352,7 +350,6 @@ pub(super) enum AuthorityReadError {
 pub(super) struct AuthorityReadView<'authority> {
     chain_view: ChainViewId,
     entries: &'authority ShardedOwnerMap,
-    status_counts: Option<StatusCounts>,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
     accepted_resources: AcceptedResources,
@@ -379,7 +376,6 @@ impl<'authority> AuthorityReadView<'authority> {
         Self {
             chain_view,
             entries,
-            status_counts: entries.status_counts(),
             indexes,
             membership,
             accepted_resources,
@@ -416,11 +412,11 @@ impl<'authority> AuthorityReadView<'authority> {
                 .remote_page_into(after.as_ref(), limit.get(), &mut scratch.remote)?;
 
         for due in &scratch.remote {
-            let OwnedTx::PreAccepted(entry) = self
+            let owner = self
                 .entries
                 .get(&due.hash)
-                .ok_or(RelayParentRebuildError::Projection)?
-            else {
+                .ok_or(RelayParentRebuildError::Projection)?;
+            let OwnedTx::PreAccepted(entry) = &*owner else {
                 return Err(RelayParentRebuildError::Projection);
             };
             if entry.source.active_remote_deadline() != Some(due.expires_at) {
@@ -472,7 +468,7 @@ impl<'authority> AuthorityReadView<'authority> {
         let Some(owner) = self.entries.get(hash) else {
             return Ok(None);
         };
-        let OwnedTx::Accepted(entry) = owner else {
+        let Ok(entry) = owner.into_accepted() else {
             return Ok(None);
         };
         let ancestor = self
@@ -483,7 +479,7 @@ impl<'authority> AuthorityReadView<'authority> {
             .membership
             .descendant_aggregate(hash)
             .ok_or(AuthorityReadError::Projection)?;
-        let order = AcceptedOrderKey::new(entry, ancestor);
+        let order = AcceptedOrderKey::new(&entry, ancestor);
         if !self.membership.contains_accepted_order(&order) {
             return Err(AuthorityReadError::Projection);
         }
@@ -499,13 +495,13 @@ impl<'authority> AuthorityReadView<'authority> {
         &self,
         order: &AcceptedOrderKey,
     ) -> Result<AcceptedReadEntry<'authority>, AuthorityReadError> {
-        let OwnedTx::Accepted(entry) = self
+        let owner = self
             .entries
             .get(order.hash())
-            .ok_or(AuthorityReadError::Projection)?
-        else {
-            return Err(AuthorityReadError::Projection);
-        };
+            .ok_or(AuthorityReadError::Projection)?;
+        let entry = owner
+            .into_accepted()
+            .map_err(|_| AuthorityReadError::Projection)?;
         let ancestor = self
             .membership
             .ancestor_aggregate(order.hash())
@@ -514,7 +510,7 @@ impl<'authority> AuthorityReadView<'authority> {
             .membership
             .descendant_aggregate(order.hash())
             .ok_or(AuthorityReadError::Projection)?;
-        let current_order = AcceptedOrderKey::new(entry, ancestor);
+        let current_order = AcceptedOrderKey::new(&entry, ancestor);
         if &current_order != order {
             return Err(AuthorityReadError::Projection);
         }
@@ -545,7 +541,10 @@ impl<'authority> AuthorityReadView<'authority> {
     }
 
     pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
-        let counts = self.status_counts.ok_or(AuthorityReadError::Arithmetic)?;
+        let counts = self
+            .entries
+            .status_counts()
+            .ok_or(AuthorityReadError::Arithmetic)?;
         let pending = counts
             .pending
             .checked_add(counts.gap)
@@ -559,10 +558,19 @@ impl<'authority> AuthorityReadView<'authority> {
         Ok((pending, counts.proposed))
     }
 
-    pub(super) fn replacement_history(&self) -> impl Iterator<Item = &'authority RawTxHash> + '_ {
-        self.entries.iter().filter_map(|(hash, owner)| {
-            matches!(owner, OwnedTx::ReplacementHistory(_)).then_some(hash)
-        })
+    pub(super) fn replacement_history(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
+        let owners = self.entries.read_all();
+        let mut history = Vec::new();
+        history
+            .try_reserve(owners.len())
+            .map_err(|_| AuthorityReadError::Allocation)?;
+        history.extend(
+            owners
+                .iter()
+                .filter(|(_, owner)| matches!(owner, OwnedTx::ReplacementHistory(_)))
+                .map(|(hash, _)| hash.clone()),
+        );
+        Ok(history)
     }
 
     pub(super) fn entry_by_proposal(
@@ -600,11 +608,12 @@ impl<'authority> AuthorityReadView<'authority> {
     }
 
     pub(super) fn summary(&self) -> Result<AuthorityReadSummary, AuthorityReadError> {
+        let owners = self.entries.read_all();
         let mut summary = AuthorityReadSummary {
-            owners: self.entries.len(),
+            owners: owners.len(),
             ..AuthorityReadSummary::default()
         };
-        for owner in self.entries.values() {
+        for owner in owners.values() {
             match owner {
                 OwnedTx::Accepted(entry) => {
                     match entry.status() {
@@ -639,7 +648,9 @@ impl<'authority> AuthorityReadView<'authority> {
                 }
             }
         }
-        let counts = self.status_counts.ok_or(AuthorityReadError::Arithmetic)?;
+        let counts = owners
+            .status_counts()
+            .ok_or(AuthorityReadError::Arithmetic)?;
         if summary.accepted_pending != counts.pending
             || summary.accepted_gap != counts.gap
             || summary.accepted_proposed != counts.proposed
@@ -660,10 +671,11 @@ impl<'authority> AuthorityReadView<'authority> {
 
     pub(super) fn capture_persistence(&self) -> Result<PersistenceReadReceipt, AuthorityReadError> {
         let mut selected = Vec::new();
+        let owners = self.entries.read_all();
         selected
-            .try_reserve(self.entries.len())
+            .try_reserve(owners.len())
             .map_err(|_| AuthorityReadError::Allocation)?;
-        for (hash, owner) in self.entries {
+        for (hash, owner) in &owners {
             if &owner.record().identity.raw != hash {
                 return Err(AuthorityReadError::Projection);
             }
@@ -706,11 +718,12 @@ impl<'authority> AuthorityReadView<'authority> {
     pub(super) fn capture_template(
         &self,
     ) -> Result<AuthorityTemplateReadReceipt, TemplateReadError> {
+        let owners = self.entries.read_all();
         AuthorityTemplateReadReceipt::capture(
             self.chain_view.clone(),
             self.template_sources,
-            self.entries,
-            self.status_counts,
+            &owners,
+            owners.status_counts(),
             self.membership,
         )
     }

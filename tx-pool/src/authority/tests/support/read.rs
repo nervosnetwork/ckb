@@ -15,13 +15,7 @@ impl AuthorityReadEntry<'_> {
     }
 }
 
-impl<'authority> AuthorityReadView<'authority> {
-    pub(in crate::authority) fn entries(
-        &self,
-    ) -> impl Iterator<Item = AuthorityReadEntry<'authority>> + '_ {
-        self.entries.values().map(AuthorityReadEntry::new)
-    }
-
+impl AuthorityReadView<'_> {
     pub(in crate::authority) fn pool_ids(&self) -> Result<AuthorityPoolIds, AuthorityReadError> {
         let (pending_capacity, proposed_capacity) = self.accepted_status_counts()?;
         let mut pending = Vec::new();
@@ -54,7 +48,7 @@ impl<'authority> AuthorityReadView<'authority> {
         history
             .try_reserve(self.owner_count())
             .map_err(|_| AuthorityReadError::Allocation)?;
-        history.extend(self.replacement_history().cloned());
+        history.extend(self.replacement_history()?);
         history.sort_unstable();
         Ok(history)
     }

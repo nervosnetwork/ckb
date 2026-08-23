@@ -320,7 +320,8 @@ impl AcceptedOverlay {
         authority: &TxPoolAuthority,
         query: &CellQuery,
     ) -> Option<EntryVersion> {
-        let Some(OwnedTx::Accepted(entry)) = authority.entry(&query.producer) else {
+        let owner = authority.entry_guard(&query.producer);
+        let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
             return None;
         };
         let index: u32 = query.out_point.index().unpack();
@@ -333,7 +334,8 @@ impl AcceptedOverlay {
         out_point: &OutPoint,
     ) -> Option<AcceptedOwnerObservation> {
         let key = authority.accepted_spender(out_point)?.clone();
-        let Some(OwnedTx::Accepted(entry)) = authority.entry(&key) else {
+        let owner = authority.entry_guard(&key);
+        let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
             return None;
         };
         Some(AcceptedOwnerObservation {
@@ -361,7 +363,8 @@ impl AcceptedOverlay {
         if producers.contains_key(&query.producer) {
             return;
         }
-        let Some(OwnedTx::Accepted(entry)) = authority.entry(&query.producer) else {
+        let owner = authority.entry_guard(&query.producer);
+        let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
             return;
         };
         let index: u32 = query.out_point.index().unpack();

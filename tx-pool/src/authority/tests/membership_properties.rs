@@ -292,12 +292,13 @@ fn uak_eviction_order_refines_the_exact_ckb_weight_and_tuple() {
     let snapshot = authority.membership_snapshot_for_reference();
     let mut expected = authority
         .entries_for_reference()
-        .iter()
+        .snapshot_for_test()
+        .into_iter()
         .filter_map(|(hash, owner)| {
             let OwnedTx::Accepted(entry) = owner else {
                 return None;
             };
-            let aggregate = snapshot.descendant_aggregates.get(hash)?;
+            let aggregate = snapshot.descendant_aggregates.get(&hash)?;
             let own = production_cost_receipt(&entry.record.tx, entry.proof.metrics())?;
             Some(eviction_observation(EvictionRefinementInput {
                 status: production_eviction_status_receipt(&entry.proposal),
@@ -313,7 +314,7 @@ fn uak_eviction_order_refines_the_exact_ckb_weight_and_tuple() {
                 ),
                 descendants_count: aggregate.entries,
                 arrival: entry.record.arrival.0,
-                identity: refinement_identity(hash),
+                identity: refinement_identity(&hash),
             }))
         })
         .collect::<Vec<_>>();
@@ -671,7 +672,7 @@ fn production_ready_observation(
                 .entries_for_reference()
                 .get(hash)
                 .expect("every finite hash retains one Ready owner");
-            let OwnedTx::PreAccepted(entry) = owner else {
+            let OwnedTx::PreAccepted(entry) = &*owner else {
                 panic!("the finite order fixture has not entered Accepted membership");
             };
             let PreAcceptedPhase::Ready(verified) = &entry.phase else {

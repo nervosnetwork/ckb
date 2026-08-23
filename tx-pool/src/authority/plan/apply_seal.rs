@@ -1,4 +1,7 @@
-use super::super::shard::{AuthorityShardRouter, ShardedOwnerMap};
+use super::super::resources::ResourceCapacityCommit;
+use super::super::shard::{
+    AuthorityShardRouter, ShardWriteSupport, ShardedOwnerMap, ShardedOwnerWriteCut,
+};
 use super::*;
 use std::ops::Deref;
 
@@ -124,36 +127,49 @@ enum PreparedResourceApply {
     Batch(ResourceBatchPlan),
 }
 
+impl PreparedResourceApply {
+    fn apply_shards(self, owners: &mut ShardedOwnerWriteCut<'_>) -> ResourceCapacityCommit {
+        match self {
+            Self::Single(plan) => plan.apply_shards(owners),
+            Self::Batch(plan) => plan.apply_shards(owners),
+        }
+    }
+}
+
 pub(super) struct PreparedOwnerResourceDelta<I> {
     updates: I,
     resources: PreparedResourceApply,
     status_counts: super::super::shard::ShardStatusCountPlan,
+    support: ShardWriteSupport,
 }
 
 impl<I> PreparedOwnerResourceDelta<I> {
-    pub(super) fn batch(updates: I, resources: ResourceBatchPlan) -> Self {
+    pub(super) fn batch(
+        updates: I,
+        resources: ResourceBatchPlan,
+        status_counts: super::super::shard::ShardStatusCountPlan,
+        support: ShardWriteSupport,
+    ) -> Self {
         Self {
             updates,
             resources: PreparedResourceApply::Batch(resources),
-            status_counts: Default::default(),
+            status_counts,
+            support,
         }
-    }
-
-    pub(super) fn with_status_counts(
-        mut self,
-        status_counts: super::super::shard::ShardStatusCountPlan,
-    ) -> Self {
-        self.status_counts = status_counts;
-        self
     }
 }
 
 impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
-    pub(super) fn single(update: OwnerResourceUpdate, resources: ResourcePlan) -> Self {
+    pub(super) fn single(
+        update: OwnerResourceUpdate,
+        resources: ResourcePlan,
+        support: ShardWriteSupport,
+    ) -> Self {
         Self {
             updates: std::iter::once(update),
             resources: PreparedResourceApply::Single(resources),
             status_counts: Default::default(),
+            support,
         }
     }
 }
@@ -185,7 +201,7 @@ impl ResourcePlanner<'_> {
         let entries = self.entries;
         self.ledger
             .plan_replace(entries, expected, after, shards, || {
-                entries.get(&key).map(OwnedTx::charge_record)
+                entries.get(&key).as_deref().map(OwnedTx::charge_record)
             })
     }
 
@@ -207,7 +223,7 @@ impl ResourcePlanner<'_> {
         let shards = self.entries.plan_resource_transitions(projections)?;
         let entries = self.entries;
         self.ledger.plan_batch(entries, changes, shards, |key| {
-            entries.get(key).map(OwnedTx::charge_record)
+            entries.get(key).as_deref().map(OwnedTx::charge_record)
         })
     }
 
@@ -241,7 +257,7 @@ impl ResourcePlanner<'_> {
         let entries = self.entries;
         self.ledger
             .plan_compute_release(entries, expected, after, shards, || {
-                entries.get(&key).map(OwnedTx::charge_record)
+                entries.get(&key).as_deref().map(OwnedTx::charge_record)
             })
     }
 }
@@ -404,29 +420,21 @@ impl TxPoolAuthority {
     ) where
         I: IntoIterator<Item = OwnerResourceUpdate>,
     {
-        let owner_resources = &mut self.state.owner_resources;
+        let owner_resources = &self.state.owner_resources;
+        let mut owners = owner_resources.entries.write_cut(delta.support);
         for update in delta.updates {
-            let previous = match update.after {
-                Some(after) => owner_resources.entries.insert(update.key, after),
-                None => owner_resources.entries.remove(&update.key),
-            };
+            let shard = owner_resources.entries.owner_shard(&update.key);
+            let previous = owners.replace(shard, update.key, update.after);
             match (update.previous, previous) {
                 (PreviousOwnerDisposition::Retire, Some(owner)) => retired.push(owner),
                 (PreviousOwnerDisposition::Retire, None) => {}
                 (PreviousOwnerDisposition::Drop, previous) => drop(previous),
             }
         }
-        owner_resources
-            .entries
-            .apply_status_counts(delta.status_counts);
-        match delta.resources {
-            PreparedResourceApply::Single(plan) => owner_resources
-                .resources
-                .apply(&mut owner_resources.entries, plan),
-            PreparedResourceApply::Batch(plan) => owner_resources
-                .resources
-                .apply_batch(&mut owner_resources.entries, plan),
-        }
+        owners.apply_status_counts(delta.status_counts);
+        let capacity = delta.resources.apply_shards(&mut owners);
+        drop(owners);
+        capacity.commit();
         let _ = token;
     }
 
