@@ -1,3 +1,4 @@
+use super::super::shard::{AuthorityShardRouter, ShardedOwnerMap};
 use super::*;
 use std::ops::Deref;
 
@@ -28,7 +29,7 @@ pub(in crate::authority) struct AuthorityState {
 /// mutation remains private to this sealing module and requires `ApplyToken`.
 #[derive(Debug)]
 pub(in crate::authority) struct OwnerResourceAuthority {
-    pub(super) entries: HashMap<RawTxHash, OwnedTx>,
+    pub(super) entries: ShardedOwnerMap,
     pub(super) resources: ResourceLedger,
 }
 
@@ -56,6 +57,29 @@ pub(in crate::authority) struct TxPoolAuthority {
 /// the live authority.
 pub(super) struct ScratchAuthority {
     authority: TxPoolAuthority,
+}
+
+pub(super) struct ScratchAuthoritySeed {
+    chain_view: ChainViewId,
+    generation: PoolGeneration,
+    clocks: AuthorityClocks,
+    router: AuthorityShardRouter,
+}
+
+impl ScratchAuthoritySeed {
+    pub(super) fn new(
+        chain_view: ChainViewId,
+        generation: PoolGeneration,
+        clocks: AuthorityClocks,
+        router: AuthorityShardRouter,
+    ) -> Self {
+        Self {
+            chain_view,
+            generation,
+            clocks,
+            router,
+        }
+    }
 }
 
 impl Deref for TxPoolAuthority {
@@ -129,7 +153,7 @@ impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
 /// resource deltas, but cannot replace or otherwise mutate the authoritative
 /// ledger directly.
 pub(in crate::authority) struct ResourcePlanner<'state> {
-    entries: &'state HashMap<RawTxHash, OwnedTx>,
+    entries: &'state ShardedOwnerMap,
     ledger: &'state mut ResourceLedger,
 }
 
@@ -259,6 +283,7 @@ impl TxPoolAuthority {
             EffectLog::new(effect_limits).map_err(AuthorityConfigError::Effect)?,
             membership_config,
             chain_view,
+            AuthorityShardRouter::new(),
         ))
     }
 
@@ -268,13 +293,14 @@ impl TxPoolAuthority {
         effects: EffectLog,
         membership_config: MembershipConfig,
         chain_view: ChainViewId,
+        router: AuthorityShardRouter,
     ) -> Self {
         Self {
             state: AuthorityState {
                 generation: PoolGeneration(0),
                 chain_view,
                 owner_resources: OwnerResourceAuthority {
-                    entries: HashMap::new(),
+                    entries: ShardedOwnerMap::new(router),
                     resources: ResourceLedger::new(limits),
                 },
                 indexes: AuthorityIndexes::default(),
@@ -299,7 +325,14 @@ impl TxPoolAuthority {
         membership_config: MembershipConfig,
         chain_view: ChainViewId,
     ) -> Self {
-        Self::assemble(limits, verify_order, effects, membership_config, chain_view)
+        Self::assemble(
+            limits,
+            verify_order,
+            effects,
+            membership_config,
+            chain_view,
+            AuthorityShardRouter::new(),
+        )
     }
 
     pub(super) fn write<'authority>(
@@ -339,9 +372,9 @@ impl TxPoolAuthority {
     pub(super) fn replace_owner_resources(
         &mut self,
         token: &ApplyToken,
-        entries: HashMap<RawTxHash, OwnedTx>,
+        entries: ShardedOwnerMap,
         resources: ResourceLedger,
-    ) -> (HashMap<RawTxHash, OwnedTx>, ResourceLedger) {
+    ) -> (ShardedOwnerMap, ResourceLedger) {
         let owner_resources = &mut self.state.owner_resources;
         let previous_entries = std::mem::replace(&mut owner_resources.entries, entries);
         let previous_resources = std::mem::replace(&mut owner_resources.resources, resources);
@@ -349,17 +382,14 @@ impl TxPoolAuthority {
         (previous_entries, previous_resources)
     }
 
-    pub(super) fn reserve_primary_owner_insertions(
+    pub(super) fn reserve_primary_owner_insertions<'key>(
         &mut self,
-        additional: usize,
+        keys: impl IntoIterator<Item = &'key RawTxHash>,
     ) -> Result<(), PlanError> {
-        if additional == 0 {
-            return Ok(());
-        }
         self.state
             .owner_resources
             .entries
-            .try_reserve(additional)
+            .try_reserve_keys(keys)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))
     }
 
@@ -435,11 +465,7 @@ impl TxPoolAuthority {
 
     pub(super) fn owner_derivation_parts(
         &mut self,
-    ) -> (
-        &HashMap<RawTxHash, OwnedTx>,
-        IndexPlanner<'_>,
-        AuthoritySourceVersions,
-    ) {
+    ) -> (&ShardedOwnerMap, IndexPlanner<'_>, AuthoritySourceVersions) {
         (
             &self.state.owner_resources.entries,
             IndexPlanner {
@@ -449,9 +475,7 @@ impl TxPoolAuthority {
         )
     }
 
-    pub(super) fn entries_and_indexes_for_plan(
-        &mut self,
-    ) -> (&HashMap<RawTxHash, OwnedTx>, IndexPlanner<'_>) {
+    pub(super) fn entries_and_indexes_for_plan(&mut self) -> (&ShardedOwnerMap, IndexPlanner<'_>) {
         (
             &self.state.owner_resources.entries,
             IndexPlanner {
@@ -463,7 +487,7 @@ impl TxPoolAuthority {
     pub(super) fn owner_removal_plan_parts(
         &mut self,
     ) -> (
-        &HashMap<RawTxHash, OwnedTx>,
+        &ShardedOwnerMap,
         ResourcePlanner<'_>,
         &FairFrontier,
         &DependencyFrontier,
@@ -577,14 +601,18 @@ impl ScratchAuthority {
         verify_order: VerifyOrder,
         effects: EffectLog,
         membership_config: MembershipConfig,
-        chain_view: ChainViewId,
-        generation: PoolGeneration,
-        clocks: AuthorityClocks,
+        seed: ScratchAuthoritySeed,
     ) -> Self {
-        let mut authority =
-            TxPoolAuthority::assemble(limits, verify_order, effects, membership_config, chain_view);
-        authority.state.generation = generation;
-        authority.state.clocks = clocks;
+        let mut authority = TxPoolAuthority::assemble(
+            limits,
+            verify_order,
+            effects,
+            membership_config,
+            seed.chain_view,
+            seed.router,
+        );
+        authority.state.generation = seed.generation;
+        authority.state.clocks = seed.clocks;
         Self { authority }
     }
 

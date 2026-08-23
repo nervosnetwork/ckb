@@ -1,4 +1,4 @@
-use super::apply_seal::ScratchAuthority;
+use super::apply_seal::{ScratchAuthority, ScratchAuthoritySeed};
 use super::*;
 use crate::authority::chain::{
     ChainCommittedOwner, ChainConflictOwner, ChainProposalSubject, ChainRecoveryOwner,
@@ -6,6 +6,7 @@ use crate::authority::chain::{
     ChainTransitionFactsView, ChainTransitionReceipt, ChainValidationWork,
     ExpectedPreAcceptedOwner,
 };
+use crate::authority::shard::ShardedOwnerMap;
 use crate::authority::state::{DependencySetError, RemoteBase};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
@@ -990,11 +991,6 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let new_owner_count = changes
-            .iter()
-            .filter(|change| change.before.is_none() && change.after.is_some())
-            .count();
-
         let mut accepted_removals = Vec::new();
         accepted_removals
             .try_reserve_exact(changes.len())
@@ -1179,6 +1175,16 @@ impl TxPoolAuthority {
                 .plan_chain_rebuildable(effects, sequence)?
         };
 
+        // Keep the potentially large primary-map reservation behind all
+        // semantic/resource checks. An over-bound recovery must not grow the
+        // live authority merely because its rejected Plan carried many
+        // detached transactions.
+        self.reserve_primary_owner_insertions(
+            changes
+                .iter()
+                .filter(|change| change.before.is_none() && change.after.is_some())
+                .map(|change| &change.key),
+        )?;
         let retired = retired_buffer(changes.len())?;
         let mut updates = Vec::new();
         updates
@@ -1188,11 +1194,6 @@ impl TxPoolAuthority {
             key: change.key,
             after: change.after,
         }));
-        // Keep the potentially large primary-map reservation behind all
-        // semantic/resource checks. An over-bound recovery must not grow the
-        // live authority merely because its rejected Plan carried many
-        // detached transactions.
-        self.reserve_primary_owner_insertions(new_owner_count)?;
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Chain(ChainDelta {
@@ -1339,9 +1340,12 @@ impl TxPoolAuthority {
             self.scheduler.verify_order(),
             scratch_effects,
             self.membership_config,
-            new_view.clone(),
-            generation,
-            self.clocks,
+            ScratchAuthoritySeed::new(
+                new_view.clone(),
+                generation,
+                self.clocks,
+                self.entries.router(),
+            ),
         );
 
         let mut excluded = HashSet::new();
@@ -1600,7 +1604,7 @@ fn conflict_owner_matches(expected: ChainConflictOwner, owner: Option<&OwnedTx>)
 }
 
 fn validate_chain_receipt_owners(
-    entries: &HashMap<RawTxHash, OwnedTx>,
+    entries: &ShardedOwnerMap,
     receipt: &ChainTransitionReceipt,
 ) -> Result<(), PlanError> {
     for removal in &receipt.removals {

@@ -461,7 +461,7 @@ impl FairFrontier {
 
     pub(in crate::authority) fn semantically_matches(
         &self,
-        entries: &std::collections::HashMap<RawTxHash, OwnedTx>,
+        entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let Ok(expected) = entries
             .values()

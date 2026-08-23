@@ -8,6 +8,7 @@
 
 use super::{
     plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, MembershipProjection},
+    shard::ShardedOwnerMap,
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, CandidateMetrics, ChainViewId,
@@ -170,7 +171,7 @@ impl AuthorityTemplateReadReceipt {
     pub(super) fn capture(
         chain_view: ChainViewId,
         sources: PoolTemplateVersions,
-        entries: &HashMap<RawTxHash, OwnedTx>,
+        entries: &ShardedOwnerMap,
         membership: &MembershipProjection,
     ) -> Result<Self, TemplateReadError> {
         let counts = membership.counts();

@@ -14,6 +14,7 @@ use super::{
         MembershipProjection,
     },
     resources::AcceptedResources,
+    shard::ShardedOwnerMap,
     source::PoolTemplateVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
@@ -350,7 +351,7 @@ pub(super) enum AuthorityReadError {
 
 pub(super) struct AuthorityReadView<'authority> {
     chain_view: ChainViewId,
-    entries: &'authority HashMap<RawTxHash, OwnedTx>,
+    entries: &'authority ShardedOwnerMap,
     indexes: &'authority AuthorityIndexes,
     membership: &'authority MembershipProjection,
     accepted_resources: AcceptedResources,
@@ -366,7 +367,7 @@ impl<'authority> AuthorityReadView<'authority> {
     )]
     pub(super) fn new(
         chain_view: ChainViewId,
-        entries: &'authority HashMap<RawTxHash, OwnedTx>,
+        entries: &'authority ShardedOwnerMap,
         indexes: &'authority AuthorityIndexes,
         membership: &'authority MembershipProjection,
         accepted_resources: AcceptedResources,

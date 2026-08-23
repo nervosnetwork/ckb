@@ -30,6 +30,7 @@ mod resources;
 pub(crate) mod runtime;
 mod scheduler;
 pub(crate) mod service;
+mod shard;
 mod source;
 mod state;
 mod template;

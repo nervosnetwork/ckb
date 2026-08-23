@@ -51,6 +51,7 @@ use super::scheduler::{
     FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
     SchedulerWakeProjection, VerifyOrder,
 };
+use super::shard::ShardedOwnerMap;
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
@@ -586,7 +587,7 @@ struct RetiredGeneration {
             reason = "the map is an ownership carrier whose delayed Drop is the production behavior"
         )
     )]
-    entries: HashMap<RawTxHash, OwnedTx>,
+    entries: ShardedOwnerMap,
     _indexes: AuthorityIndexes,
     _resources: ResourceLedger,
     _membership: MembershipProjection,
@@ -850,7 +851,7 @@ struct EffectOnlyDelta {
 }
 
 struct FreshGeneration {
-    entries: HashMap<RawTxHash, OwnedTx>,
+    entries: ShardedOwnerMap,
     indexes: AuthorityIndexes,
     resources: ResourceLedger,
     membership: MembershipProjection,
@@ -859,9 +860,13 @@ struct FreshGeneration {
 }
 
 impl FreshGeneration {
-    fn empty(resources: &ResourceLedger, scheduler: &FairFrontier) -> Self {
+    fn empty(
+        resources: &ResourceLedger,
+        scheduler: &FairFrontier,
+        entries: &ShardedOwnerMap,
+    ) -> Self {
         Self {
-            entries: HashMap::new(),
+            entries: ShardedOwnerMap::new(entries.router()),
             indexes: AuthorityIndexes::default(),
             resources: ResourceLedger::new(resources.limits()),
             membership: MembershipProjection::default(),
@@ -3242,7 +3247,7 @@ impl TxPoolAuthority {
             async_process_start,
         } = compilation;
         if existing.is_none() {
-            self.reserve_primary_owner_insertions(1)?;
+            self.reserve_primary_owner_insertions(std::iter::once(&key))?;
         }
         let PreparedMembership {
             mut removals,
@@ -3522,7 +3527,7 @@ impl TxPoolAuthority {
         let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
-        let fresh = FreshGeneration::empty(&self.resources, &self.scheduler);
+        let fresh = FreshGeneration::empty(&self.resources, &self.scheduler, &self.entries);
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::ClearPool(ClearPoolDelta {
@@ -3751,7 +3756,7 @@ impl TxPoolAuthority {
         accepted_removals.extend(
             hashes
                 .iter()
-                .filter(|hash| matches!(self.entries.get(*hash), Some(OwnedTx::Accepted(_))))
+                .filter(|hash| matches!(self.entries.get(hash), Some(OwnedTx::Accepted(_))))
                 .cloned(),
         );
         let accepted_removals = AcceptedRemovalSet::try_from_vec(accepted_removals)?;
@@ -4780,7 +4785,9 @@ impl TxPoolAuthority {
         };
         let expected_charge = expected.as_ref().map(OwnedTx::charge_record);
         let after_charge = after.as_ref().map(OwnedTx::charge_record);
-        self.reserve_primary_owner_insertions(primary_insertions)?;
+        if primary_insertions != 0 {
+            self.reserve_primary_owner_insertions(std::iter::once(&key))?;
+        }
         let resource = match explicit_resources {
             Some(resources) => resources,
             None => self.resources_for_plan().plan_replace(

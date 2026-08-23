@@ -24,14 +24,14 @@ use crate::authority::{
         test_support::{SchedulerSetMemberObservation, SchedulerSetStageObservation},
     },
     state::{
-        EntryVersion, OwnedTx, PoolGeneration, RawTxHash, ValidatedAdmission, VerifyCapability,
+        EntryVersion, OwnedTx, PoolGeneration, ValidatedAdmission, VerifyCapability,
         VerifyCycleClass, WorkPermit,
     },
     work::CheckedOutWork,
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::Capacity;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 #[derive(Clone)]
 struct SchedulerVariants {
@@ -226,16 +226,14 @@ fn frontier_from_states(
 fn expected_owner_map(
     variants: &[SchedulerVariants; 3],
     states: [ProjectionState; 3],
-) -> HashMap<RawTxHash, OwnedTx> {
-    variants
-        .iter()
-        .zip(states)
-        .filter_map(|(variants, state)| {
+) -> crate::authority::shard::ShardedOwnerMap {
+    crate::authority::shard::ShardedOwnerMap::from_iter_for_test(
+        variants.iter().zip(states).filter_map(|(variants, state)| {
             variants
                 .owner(state)
                 .map(|owner| (owner.record().identity.raw.clone(), owner.clone()))
-        })
-        .collect()
+        }),
+    )
 }
 
 fn expected_set_observation(

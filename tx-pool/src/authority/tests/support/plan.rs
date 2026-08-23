@@ -784,7 +784,9 @@ impl TxPoolAuthority {
         Self::new(limits, VerifyOrder::Arrival, effect_limits)
     }
 
-    pub(in crate::authority) fn entries_for_reference(&self) -> &HashMap<RawTxHash, OwnedTx> {
+    pub(in crate::authority) fn entries_for_reference(
+        &self,
+    ) -> &crate::authority::shard::ShardedOwnerMap {
         &self.entries
     }
 
@@ -822,7 +824,8 @@ impl TxPoolAuthority {
         &mut self,
         additional: usize,
     ) -> Result<usize, PlanError> {
-        self.reserve_primary_owner_insertions(additional)?;
+        let key = RawTxHash(ckb_types::packed::Byte32::default());
+        self.reserve_primary_owner_insertions(std::iter::repeat_n(&key, additional))?;
         Ok(self.entries.capacity())
     }
 

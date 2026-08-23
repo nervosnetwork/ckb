@@ -312,7 +312,7 @@ impl TxPoolAuthority {
             changes
                 .iter()
                 .filter(|change| change.before.is_none())
-                .count(),
+                .map(|change| &change.key),
         )?;
         let mut resource_changes = Vec::new();
         resource_changes

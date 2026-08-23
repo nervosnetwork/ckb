@@ -122,7 +122,7 @@ impl ResourceLedger {
 
     pub(in crate::authority) fn semantically_matches(
         &self,
-        entries: &HashMap<RawTxHash, OwnedTx>,
+        entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let mut expected = ResourceSnapshot {
             preaccepted: ResourceVector::default(),

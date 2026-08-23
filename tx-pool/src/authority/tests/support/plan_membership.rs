@@ -54,7 +54,7 @@ impl MembershipProjection {
     /// and is never available to a production read or recovery path.
     pub(in crate::authority) fn semantically_matches(
         &self,
-        entries: &HashMap<RawTxHash, OwnedTx>,
+        entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let accepted = entries
             .iter()

@@ -6486,7 +6486,8 @@ fn uak_resource_reference_rejects_ghost_overcharge() {
         .entries_for_reference()
         .iter()
         .map(|(hash, owner)| (hash.clone(), owner.clone()))
-        .collect::<HashMap<_, _>>();
+        .collect::<Vec<_>>();
+    let entries = crate::authority::shard::ShardedOwnerMap::from_iter_for_test(entries);
     let exact = entries
         .get(&hash)
         .expect("fixture owner exists")

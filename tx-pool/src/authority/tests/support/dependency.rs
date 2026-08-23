@@ -200,7 +200,7 @@ impl DependencyFrontier {
 
     pub(in crate::authority) fn semantically_matches(
         &self,
-        entries: &std::collections::HashMap<RawTxHash, OwnedTx>,
+        entries: &crate::authority::shard::ShardedOwnerMap,
     ) -> bool {
         let mut expected = Self::default();
         for owner in entries.values() {
