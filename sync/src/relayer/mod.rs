@@ -52,6 +52,7 @@ use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 
 pub const TX_PROPOSAL_TOKEN: u64 = 0;
 pub const ASK_FOR_TXS_TOKEN: u64 = 1;
@@ -77,6 +78,10 @@ pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
+    // Each permit is moved into exactly one spawned remote-batch settlement
+    // task. Exhaustion fails before spawn, so task and known-hash residency are
+    // bounded independently of arrival rate and authority response time.
+    remote_batch_admission: Arc<Semaphore>,
 }
 
 impl Relayer {
@@ -93,6 +98,7 @@ impl Relayer {
             chain,
             shared,
             rate_limiter,
+            remote_batch_admission: Arc::new(Semaphore::new(MAX_RELAY_PEERS)),
         }
     }
 

@@ -2,7 +2,9 @@
 
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::{
-    transaction_hashes_process::TransactionHashesProcess, transactions_process::TransactionsProcess,
+    MAX_RELAY_PEERS,
+    transaction_hashes_process::TransactionHashesProcess,
+    transactions_process::{KnownRemoteBatch, TransactionsProcess},
 };
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_types::{packed, prelude::*};
@@ -141,6 +143,81 @@ fn remote_closed_controller_releases_known_projection() {
         state.pop_ask_for_txs().contains_key(&replacement_peer),
         "another peer can reannounce a transaction whose handoff failed"
     );
+}
+
+#[test]
+fn remote_batch_admission_exhaustion_releases_known_without_spawning() {
+    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let transaction = new_transaction(&relayer, 705, &always_success_out_point);
+    let hash = transaction.hash();
+    let source_peer = PeerIndex::from(10usize);
+    let state = relayer.shared.state();
+    state.add_ask_for_txs(source_peer, vec![hash.clone()]);
+    assert_eq!(
+        state.pop_ask_for_txs().get(&source_peer),
+        Some(&vec![hash.clone()])
+    );
+
+    let permits: Vec<_> = (0..MAX_RELAY_PEERS)
+        .map(|_| {
+            Arc::clone(&relayer.remote_batch_admission)
+                .try_acquire_owned()
+                .expect("the test owns every remote batch admission")
+        })
+        .collect();
+    let relay_transaction = packed::RelayTransaction::new_builder()
+        .cycles(0u64)
+        .transaction(transaction.data())
+        .build();
+    let content = packed::RelayTransactions::new_builder()
+        .transactions(
+            packed::RelayTransactionVec::new_builder()
+                .set(vec![relay_transaction])
+                .build(),
+        )
+        .build();
+    let context: Arc<dyn CKBProtocolContext + Sync> =
+        Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    TransactionsProcess::new(content.as_reader(), &relayer, context, source_peer).execute();
+
+    assert!(
+        !state.already_known_tx(&hash),
+        "a batch rejected before spawn releases every tentative known mark synchronously"
+    );
+    drop(permits);
+}
+
+#[test]
+fn remote_known_batch_drop_releases_only_the_uncommitted_suffix() {
+    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let first = new_transaction(&relayer, 703, &always_success_out_point).hash();
+    let second = new_transaction(&relayer, 704, &always_success_out_point).hash();
+    let state = relayer.shared.state();
+
+    state.mark_as_known_txs([first.clone(), second.clone()].into_iter());
+    drop(KnownRemoteBatch::new(
+        Arc::clone(&relayer.shared),
+        vec![first.clone(), second.clone()],
+    ));
+    assert!(!state.already_known_tx(&first));
+    assert!(!state.already_known_tx(&second));
+
+    state.mark_as_known_txs([first.clone(), second.clone()].into_iter());
+    let mut known = KnownRemoteBatch::new(
+        Arc::clone(&relayer.shared),
+        vec![first.clone(), second.clone()],
+    );
+    known.complete_prefix(1);
+    drop(known);
+    assert!(
+        state.already_known_tx(&first),
+        "the committed canonical prefix remains known"
+    );
+    assert!(
+        !state.already_known_tx(&second),
+        "the uncommitted suffix is released on drop"
+    );
+    state.remove_from_known_txs(&first);
 }
 
 #[test]

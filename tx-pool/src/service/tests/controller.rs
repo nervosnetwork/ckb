@@ -489,12 +489,25 @@ fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
 
         let outcome = controller
             .submit_remote_txs(submissions, ckb_network::PeerIndex::from(1))
+            .expect("the single batch capability is admitted")
             .await
             .expect("the single batch capability receives its response");
         assert_eq!(outcome.offered(), BATCH_LEN);
         assert_eq!(outcome.completed(), BATCH_LEN);
         responder.await.expect("responder task does not panic");
     });
+}
+
+#[test]
+fn remote_batch_full_controller_fails_before_creating_a_response_owner() {
+    let controller = full_controller();
+    let transaction = ckb_types::core::TransactionBuilder::default().build();
+    let result =
+        controller.submit_remote_txs(vec![(transaction, 0)], ckb_network::PeerIndex::from(1));
+    assert!(
+        result.is_err(),
+        "a full controller rejects the bounded batch synchronously"
+    );
 }
 
 #[test]

@@ -25,6 +25,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint, ProposalShortId},
 };
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -35,6 +36,11 @@ use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "internal")]
 use crate::{PlugTarget, component::entry::TxEntry};
+
+enum RemoteBatchWait {
+    Ready(RemoteTxBatchOutcome),
+    Pending(tokio::sync::oneshot::Receiver<RemoteTxBatchOutcome>),
+}
 
 /// Controller to the tx-pool service.
 ///
@@ -289,25 +295,38 @@ impl TxPoolController {
     /// The service commits a canonical prefix in bounded authority chunks.
     /// The returned outcome identifies that exact prefix; the caller owns the
     /// corresponding known-filter release for the uncommitted suffix.
-    pub async fn submit_remote_txs(
+    /// Validation and the non-blocking controller send finish before this
+    /// method returns, so a caller never needs to spawn merely to discover a
+    /// full queue. The returned future owns only the admitted response.
+    pub fn submit_remote_txs(
         &self,
         submissions: Vec<(TransactionView, Cycle)>,
         peer: PeerIndex,
-    ) -> Result<RemoteTxBatchOutcome, AnyError> {
+    ) -> Result<
+        impl Future<Output = Result<RemoteTxBatchOutcome, AnyError>> + Send + 'static,
+        AnyError,
+    > {
         reject_callback_mutation!("submit_remote_txs");
-        if submissions.is_empty() {
-            return Ok(RemoteTxBatchOutcome::complete(0));
-        }
-        let batch = RemoteTxSubmissionBatch::try_new(submissions, peer)?;
-        let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(batch, responder);
-        self.sender
-            .try_send(Message::SubmitRemoteTxBatch(request))
-            .map_err(|error| {
-                let (_, error) = handle_try_send_error(error);
-                error
-            })?;
-        response.await.map_err(Into::into)
+        let wait = if submissions.is_empty() {
+            RemoteBatchWait::Ready(RemoteTxBatchOutcome::complete(0))
+        } else {
+            let batch = RemoteTxSubmissionBatch::try_new(submissions, peer)?;
+            let (responder, response) = tokio::sync::oneshot::channel();
+            let request = AsyncRequest::call(batch, responder);
+            self.sender
+                .try_send(Message::SubmitRemoteTxBatch(request))
+                .map_err(|error| {
+                    let (_, error) = handle_try_send_error(error);
+                    error
+                })?;
+            RemoteBatchWait::Pending(response)
+        };
+        Ok(async move {
+            match wait {
+                RemoteBatchWait::Ready(outcome) => Ok(outcome),
+                RemoteBatchWait::Pending(response) => response.await.map_err(Into::into),
+            }
+        })
     }
 
     /// Receive txs from network, try to add txs to tx-pool
