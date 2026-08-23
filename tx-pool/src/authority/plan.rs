@@ -57,11 +57,12 @@ use super::source::AuthoritySourceVersionSnapshot;
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
 use super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AdmissionBasis, ApplySequence, Arrival,
-    AsyncProcessStart, AuthorityClocks, ChainRevision, ChainViewId, DependencyCut, DependencyKey,
-    DependencyOrigin, EntryVersion, KnownDependencies, MissingDependencies, OwnedTx, PayloadPolicy,
-    PayloadPolicyEvolution, PoolGeneration, PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource,
-    ProposalBase, QueuedWork, RawTxHash, RemoteDeadline, ReplacementHistoryEntry,
-    ReplacementHistoryError, ResolvedFacts, TxRecord, ValidatedAdmission, VerifiedFacts,
+    AsyncProcessStart, AuthorityClockBank, AuthorityClocks, ChainRevision, ChainViewId,
+    DependencyCut, DependencyKey, DependencyOrigin, EntryVersion, KnownDependencies,
+    MissingDependencies, OwnedTx, PayloadPolicy, PayloadPolicyEvolution, PoolGeneration,
+    PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase, QueuedWork, RawTxHash,
+    RemoteDeadline, ReplacementHistoryEntry, ReplacementHistoryError, ResolvedFacts, TxRecord,
+    ValidatedAdmission, VerifiedFacts,
 };
 use super::validation::FinalAdmissionValidationOutcome;
 use super::work::{
@@ -134,7 +135,9 @@ impl TxPoolAuthority {
     /// `next_sequence`, so its loss event is newer than this cut and makes the
     /// direct receipt stale instead of being mistaken for already observed.
     pub(super) fn dependency_observation_cut(&self) -> DependencyCut {
-        DependencyCut(ApplySequence(self.clocks.next_sequence.0.saturating_sub(1)))
+        DependencyCut(ApplySequence(
+            self.clocks.snapshot().next_sequence.0.saturating_sub(1),
+        ))
     }
 
     /// Borrow one immutable authority cut for every query projection. The view
@@ -716,7 +719,6 @@ impl EntryDelta {
         self.dependency
             .extend_shard_support(&mut support, &mut exclusive);
         exclusive.effect_log = self.effect.has_exclusive_write();
-        exclusive.clocks = true;
         (support, exclusive)
     }
 }
@@ -1363,7 +1365,7 @@ impl PreparedApply<'_> {
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1408,7 +1410,7 @@ impl PreparedApply<'_> {
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: delta.async_process_start.map_or(
                 AsyncProcessObservations::None,
@@ -1448,7 +1450,7 @@ impl PreparedApply<'_> {
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: if delta.async_process_starts.is_empty() {
                 AsyncProcessObservations::None
@@ -1469,7 +1471,7 @@ impl PreparedApply<'_> {
     ) -> ApplyRetirement {
         let authority = authority.write(token);
         authority.dependencies.apply_control(delta.control);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1486,7 +1488,7 @@ impl PreparedApply<'_> {
     ) -> ApplyRetirement {
         let authority = authority.write(token);
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1524,7 +1526,7 @@ impl PreparedApply<'_> {
         authority.chain_view = delta.chain_view;
         authority.source_versions.apply(delta.sources);
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1543,7 +1545,7 @@ impl PreparedApply<'_> {
         let authority = authority.write(token);
         authority.generation = delta.generation;
         let retired_effect = authority.effects.apply(delta.effect);
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1565,7 +1567,7 @@ impl PreparedApply<'_> {
             AdminControl::PeerRevocation { marker } => authority.peer_bans.apply(marker),
             AdminControl::None => {}
         }
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1631,7 +1633,7 @@ impl PreparedApply<'_> {
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
         authority.chain_view = delta.view.clone();
-        authority.clocks = delta.clocks;
+        let _reserved_clock_high_water = delta.clocks;
         ApplyRetirement {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
@@ -1658,7 +1660,6 @@ impl PreparedApply<'_> {
         }
         let (support, mut exclusive) = delta.removal.shard_support();
         exclusive.effect_log = delta.effect.has_exclusive_write();
-        exclusive.clocks = true;
         Some((support, exclusive))
     }
 
@@ -1700,21 +1701,24 @@ impl From<ClockReservationError> for PlanError {
     }
 }
 
-/// A discardable Plan capability for prospective owner identities.
+/// A Plan capability for globally unique prospective owner identities.
 ///
-/// An ordered batch may need versions and arrivals before resource projection
-/// proves that any owner or effect survives. This phase deliberately cannot
-/// expose an Apply sequence or finish into authoritative clocks. It must be
-/// consumed by [`Self::commit`] before a nonempty transition can be built.
+/// Resource and policy checks which do not need an identity run first. Once
+/// issued, an identity is never reused even if the prepared Plan is dropped;
+/// only the parent receipt is discardable. This phase deliberately cannot
+/// expose an Apply sequence and must be consumed by [`Self::commit`] before a
+/// nonempty transition can be built.
 pub(in crate::authority) struct ClockPlanReservation {
+    bank: Arc<AuthorityClockBank>,
     clocks: AuthorityClocks,
 }
 
 /// One prospective owner-identity branch borrowed from a live clock Plan.
 ///
-/// Reservations change only this stack value. Dropping it is a true no-op;
-/// [`Self::adopt`] is the only transition that advances the borrowed parent.
-/// The exclusive borrow prevents stale or cross-parent adoption.
+/// The bank advances when an identity is issued. [`Self::adopt`] records that
+/// high-water mark in the parent receipt; dropping the branch leaves a
+/// deliberate non-reusable gap. The exclusive borrow prevents stale or
+/// cross-parent adoption.
 pub(in crate::authority) struct OwnerClockBranch<'parent> {
     parent: &'parent mut ClockPlanReservation,
     next_version: EntryVersion,
@@ -1725,33 +1729,26 @@ impl OwnerClockBranch<'_> {
     pub(in crate::authority) fn replacement(
         mut self,
     ) -> Result<(EntryVersion, Self), ClockReservationError> {
-        let version = self.next_version;
-        let next_version = version
-            .0
-            .checked_add(1)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        self.next_version = next_version;
+        let (version, clocks) = self
+            .parent
+            .bank
+            .reserve_replacement()
+            .map_err(|_| ClockReservationError)?;
+        self.next_version = clocks.next_version;
+        self.next_arrival = self.next_arrival.max(clocks.next_arrival);
         Ok((version, self))
     }
 
     pub(in crate::authority) fn insertion(
         mut self,
     ) -> Result<(EntryVersion, Arrival, Self), ClockReservationError> {
-        let version = self.next_version;
-        let next_version = version
-            .0
-            .checked_add(1)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        let arrival = self.next_arrival;
-        let next_arrival = arrival
-            .0
-            .checked_add(1)
-            .map(Arrival)
-            .ok_or(ClockReservationError)?;
-        self.next_version = next_version;
-        self.next_arrival = next_arrival;
+        let (version, arrival, clocks) = self
+            .parent
+            .bank
+            .reserve_insertion()
+            .map_err(|_| ClockReservationError)?;
+        self.next_version = clocks.next_version;
+        self.next_arrival = clocks.next_arrival;
         Ok((version, arrival, self))
     }
 
@@ -1759,36 +1756,36 @@ impl OwnerClockBranch<'_> {
         mut self,
         members: NonZeroUsize,
     ) -> Result<(impl Iterator<Item = EntryVersion> + use<>, Self), ClockReservationError> {
-        let member_count = u128::try_from(members.get()).map_err(|_| ClockReservationError)?;
-        let first_version = self.next_version.0;
-        let next_version = first_version
-            .checked_add(member_count)
-            .map(EntryVersion)
-            .ok_or(ClockReservationError)?;
-        self.next_version = next_version;
-        Ok(((first_version..next_version.0).map(EntryVersion), self))
+        let (versions, clocks) = self
+            .parent
+            .bank
+            .reserve_replacements(members)
+            .map_err(|_| ClockReservationError)?;
+        self.next_version = clocks.next_version;
+        self.next_arrival = self.next_arrival.max(clocks.next_arrival);
+        Ok((versions.map(EntryVersion), self))
     }
 
     pub(in crate::authority) fn adopt(self) {
-        self.parent.clocks.next_version = self.next_version;
-        self.parent.clocks.next_arrival = self.next_arrival;
+        self.parent.clocks.next_version = self.parent.clocks.next_version.max(self.next_version);
+        self.parent.clocks.next_arrival = self.parent.clocks.next_arrival.max(self.next_arrival);
     }
 }
 
 impl ClockPlanReservation {
-    pub(in crate::authority) const fn begin(clocks: AuthorityClocks) -> Self {
-        Self { clocks }
+    pub(in crate::authority) fn begin(bank: Arc<AuthorityClockBank>) -> Self {
+        let clocks = bank.snapshot();
+        Self { bank, clocks }
     }
 
     pub(in crate::authority) fn commit(
         mut self,
     ) -> Result<ApplyClockReservation, ClockReservationError> {
-        let sequence = self.clocks.next_sequence;
-        self.clocks.next_sequence = sequence
-            .0
-            .checked_add(1)
-            .map(ApplySequence)
-            .ok_or(ClockReservationError)?;
+        let (sequence, clocks) = self
+            .bank
+            .reserve_sequence()
+            .map_err(|_| ClockReservationError)?;
+        self.clocks.next_sequence = self.clocks.next_sequence.max(clocks.next_sequence);
         Ok(ApplyClockReservation {
             sequence,
             plan: self,
@@ -1845,8 +1842,9 @@ impl ClockPlanReservation {
         if arrival_advance > version_advance {
             return Err(ClockReservationError);
         }
-        self.clocks.next_version = owner_clocks.next_version;
-        self.clocks.next_arrival = owner_clocks.next_arrival;
+        let clocks = self.bank.adopt_owner_progress(owner_clocks);
+        self.clocks.next_version = self.clocks.next_version.max(clocks.next_version);
+        self.clocks.next_arrival = self.clocks.next_arrival.max(clocks.next_arrival);
         Ok(self)
     }
 }
@@ -1863,9 +1861,25 @@ pub(in crate::authority) struct ApplyClockReservation {
 
 impl ApplyClockReservation {
     pub(in crate::authority) fn begin(
-        clocks: AuthorityClocks,
+        bank: Arc<AuthorityClockBank>,
     ) -> Result<Self, ClockReservationError> {
-        ClockPlanReservation::begin(clocks).commit()
+        ClockPlanReservation::begin(bank).commit()
+    }
+
+    pub(in crate::authority) fn begin_replacements(
+        bank: Arc<AuthorityClockBank>,
+        members: NonZeroUsize,
+    ) -> Result<(impl Iterator<Item = EntryVersion> + use<>, Self), ClockReservationError> {
+        let (sequence, versions, clocks) = bank
+            .reserve_apply_replacements(members)
+            .map_err(|_| ClockReservationError)?;
+        Ok((
+            versions.map(EntryVersion),
+            Self {
+                sequence,
+                plan: ClockPlanReservation { bank, clocks },
+            },
+        ))
     }
 
     pub(in crate::authority) const fn sequence(&self) -> ApplySequence {
@@ -1927,7 +1941,7 @@ impl ApplyClockReservation {
         })
     }
 
-    pub(in crate::authority) const fn finish(self) -> AuthorityClocks {
+    pub(in crate::authority) fn finish(self) -> AuthorityClocks {
         self.plan.clocks
     }
 }
@@ -2284,22 +2298,21 @@ impl TxPoolAuthority {
     /// Build the optional Accepted-victim continuation as one all-or-none
     /// cohort. Allocation pressure drops the optional history before any
     /// authoritative mutation; structural failures remain explicit faults.
-    fn retain_replacement_history<'clock>(
+    fn retain_replacement_history(
         &self,
         candidate: &AcceptedEntry,
         removals: &mut [MembershipRemoval],
         sequence: ApplySequence,
-        mut clocks: OwnerClockBranch<'clock>,
-    ) -> Result<(bool, OwnerClockBranch<'clock>), PlanError> {
+    ) -> Result<bool, PlanError> {
         if !removals
             .iter()
             .any(|removal| removal.cause == RemovalCause::Replacement)
         {
-            return Ok((true, clocks));
+            return Ok(true);
         }
         let mut removed = HashSet::new();
         if removed.try_reserve(removals.len()).is_err() {
-            return Ok((false, clocks));
+            return Ok(false);
         }
         removed.extend(removals.iter().map(|removal| removal.hash.clone()));
 
@@ -2324,7 +2337,7 @@ impl TxPoolAuthority {
                 .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
             let mut trigger_keys = Vec::new();
             if trigger_keys.try_reserve(trigger_capacity).is_err() {
-                return Ok((false, clocks));
+                return Ok(false);
             }
             for input in footprint.inputs() {
                 let producer_removed = removed.contains(&RawTxHash(input.tx_hash()));
@@ -2344,7 +2357,7 @@ impl TxPoolAuthority {
             let recovery_triggers = match MissingDependencies::new(trigger_keys, trigger_capacity) {
                 Ok(triggers) => triggers,
                 Err(super::state::DependencySetError::Allocation) => {
-                    return Ok((false, clocks));
+                    return Ok(false);
                 }
                 Err(
                     super::state::DependencySetError::Empty
@@ -2352,8 +2365,6 @@ impl TxPoolAuthority {
                     | super::state::DependencySetError::Arithmetic,
                 ) => return Err(PlanError::Fault(AuthorityFault::MembershipProjection)),
             };
-            let (version, arrival, next_clocks) = clocks.insertion()?;
-            clocks = next_clocks;
             let history = match ReplacementHistoryEntry::from_accepted(
                 accepted,
                 recovery_triggers,
@@ -2363,13 +2374,17 @@ impl TxPoolAuthority {
                         accepted.proof.payload().dependencies().len(),
                     )
                     .map_err(Self::membership_resource_error)?,
-                version,
-                arrival,
+                // Resource projection and trigger validation do not depend on
+                // the fresh history identity. The accepted identity is a
+                // non-authoritative placeholder which is replaced only after
+                // the complete optional cohort is proven retainable.
+                accepted.record.version,
+                accepted.record.arrival,
                 DependencyCut(sequence),
             ) {
                 Ok(history) => history,
                 Err(ReplacementHistoryError::ResourceAllocation) => {
-                    return Ok((false, clocks));
+                    return Ok(false);
                 }
                 Err(ReplacementHistoryError::InvalidRecoveryTrigger) => {
                     return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -2380,7 +2395,7 @@ impl TxPoolAuthority {
             };
             removal.retain_replacement_history(history)?;
         }
-        Ok((true, clocks))
+        Ok(true)
     }
 
     fn plan_membership_resources(
@@ -2528,6 +2543,9 @@ impl TxPoolAuthority {
         &mut self,
         admission: ChargedAdmission,
     ) -> Result<PreparedApply<'_>, PlanError> {
+        // Closing the effect authority freezes every new owner transition.
+        // Reject it before allocating an owner identity or Apply stamp.
+        self.effects.ensure_open()?;
         let key = admission.admission().identity.raw.clone();
         if let Some(existing) = self.entries.get(&key).cloned() {
             return self.plan_existing_admission(key, existing, admission);
@@ -2541,7 +2559,17 @@ impl TxPoolAuthority {
             return Err(PlanError::Backpressure(Backpressure::ProposalCollision));
         }
 
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        self.reserve_primary_owner_insertions(std::iter::once(&key))?;
+        let planned_charge = ChargeRecord::PreAccepted {
+            resources: charge,
+            residency_peer: admission.source.ingress_peer(),
+            compute_peer: None,
+        };
+        let resource =
+            self.resources_for_plan()
+                .plan_replace(key.clone(), None, Some(planned_charge))?;
+
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (version, arrival, clocks) = clocks.insertion()?;
         let payload_bytes = admission.payload_bytes;
@@ -2560,10 +2588,12 @@ impl TxPoolAuthority {
             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
             charge,
         });
-        self.prepare_entry_delta(
+        self.prepare_entry_delta_with_controls(
             EntryTransition::Insert { key, after },
             clocks.finish(),
             sequence,
+            TransitionControls::none(),
+            Some(resource),
         )
     }
 
@@ -2576,7 +2606,8 @@ impl TxPoolAuthority {
             .effects
             .build_single_publication(policy, effect)
             .map_err(PlanError::from)?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        self.effects.preflight_publication(&publication)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let effect = self
             .effects_for_plan()
@@ -2635,7 +2666,7 @@ impl TxPoolAuthority {
             }
         };
 
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (promoted, clocks) = if same_witness {
             // A policy-only promotion/refresh preserves EntryVersion and the
@@ -2720,7 +2751,7 @@ impl TxPoolAuthority {
                 PlanError::PayloadVariant
             });
         };
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement()?;
         let arrival = history.record().arrival;
@@ -2848,7 +2879,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let subject = retry.into_subject();
         let preaccepted = self.final_admission_subject_owner(&subject)?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement()?;
         let mut requeued = preaccepted.clone();
@@ -2929,7 +2960,7 @@ impl TxPoolAuthority {
                     }),
                 )
                 .map_err(PlanError::from)?;
-            let clocks = ApplyClockReservation::begin(self.clocks)?;
+            let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
             let sequence = clocks.sequence();
             let effect = self
                 .effects_for_plan()
@@ -2942,7 +2973,7 @@ impl TxPoolAuthority {
         }
         self.validate_direct_acceptance_evidence(&receipt)?;
 
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let (version, arrival, clocks) = match &existing {
             Some(owner) => {
                 let (version, clocks) = clocks.replacement()?;
@@ -2966,7 +2997,8 @@ impl TxPoolAuthority {
                         }),
                     )
                     .map_err(PlanError::from)?;
-                let effect_clocks = ApplyClockReservation::begin(self.clocks)?;
+                let effect_clocks =
+                    ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
                 let effect = self
                     .effects_for_plan()
                     .plan_publication(&publication, effect_clocks.sequence())
@@ -3015,7 +3047,8 @@ impl TxPoolAuthority {
         }
         self.validate_direct_acceptance_evidence(&receipt)?;
 
-        let clocks = ApplyClockReservation::begin(self.clocks).map_err(PlanError::from)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))
+            .map_err(PlanError::from)?;
         let (version, arrival, clocks) = clocks.insertion().map_err(PlanError::from)?;
         let (accepted, async_process_start) =
             Self::direct_candidate(receipt, None, version, arrival);
@@ -3059,12 +3092,9 @@ impl TxPoolAuthority {
             return Err(PlanError::Backpressure(Backpressure::ProposalCollision));
         }
         let completed = receipt.completed();
-        let (accepted, _async_process_start) = Self::direct_candidate(
-            receipt,
-            None,
-            self.clocks.next_version,
-            self.clocks.next_arrival,
-        );
+        let clocks = self.clocks.snapshot();
+        let (accepted, _async_process_start) =
+            Self::direct_candidate(receipt, None, clocks.next_version, clocks.next_arrival);
         match self.evaluate_membership_candidate(&key, &accepted) {
             Ok(_evaluation) => Ok(DirectAdmissionEvaluation::Accepted(completed)),
             Err(PlanError::Membership(reason)) => Ok(DirectAdmissionEvaluation::Rejected(reason)),
@@ -3229,18 +3259,23 @@ impl TxPoolAuthority {
         }
         self.validate_acceptance_evidence(preaccepted, &receipt)?;
         let (proof, proposal, accepted_at, async_process_start) = receipt.into_membership_parts();
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
-        let (version, clocks) = clocks.replacement()?;
-        let mut record = preaccepted.record.clone();
-        record.version = version;
-        let accepted = AcceptedEntry {
-            record,
+        let mut accepted = AcceptedEntry {
+            record: preaccepted.record.clone(),
             provenance: preaccepted.source.accepted_provenance(),
             proof,
             proposal,
             accepted_at,
         };
-        let prepared = self.prepare_membership(&key, preaccepted, &accepted)?;
+        // Membership/RBF/capacity policy is a read-only decision and does not
+        // depend on the fresh owner version. Reject every closed policy branch
+        // before touching the shared clock bank; only a candidate which can
+        // compile into a commit reserves its unique identity and Apply stamp.
+        let evaluation = self.evaluate_preaccepted_membership(&key, preaccepted, &accepted)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
+        let (version, clocks) = clocks.replacement()?;
+        accepted.record.version = version;
+        let prepared =
+            self.prepare_membership_after_evaluation(&key, preaccepted, &accepted, evaluation)?;
         let effect_policy = EffectPolicy::for_preaccepted_source(preaccepted.source);
         self.compile_membership_delta(MembershipCompilation {
             key,
@@ -3276,9 +3311,8 @@ impl TxPoolAuthority {
             projection,
         } = prepared;
         let sequence = clocks.sequence();
-        let history_clocks = clocks.owner_branch();
-        let (mut retained_history, history_clocks) =
-            self.retain_replacement_history(&accepted, &mut removals, sequence, history_clocks)?;
+        let mut retained_history =
+            self.retain_replacement_history(&accepted, &mut removals, sequence)?;
         if !retained_history {
             removals.iter_mut().for_each(MembershipRemoval::terminalize);
         }
@@ -3303,6 +3337,15 @@ impl TxPoolAuthority {
                 Err(error) => return Err(Self::membership_resource_error(error)),
             };
         if retained_history {
+            let mut history_clocks = clocks.owner_branch();
+            for removal in removals
+                .iter_mut()
+                .filter(|removal| removal.after().is_some())
+            {
+                let (version, arrival, next) = history_clocks.insertion()?;
+                history_clocks = next;
+                removal.assign_replacement_history_identity(version, arrival)?;
+            }
             history_clocks.adopt();
         }
         let retirement = match changed_retirement {
@@ -3481,7 +3524,8 @@ impl TxPoolAuthority {
         let OwnedTx::PreAccepted(_) = &existing else {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        self.effects.preflight_publication(publication)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let dependency_control = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
         let effect = self
@@ -3521,7 +3565,7 @@ impl TxPoolAuthority {
         );
         hashes.sort_unstable();
         let generation = next_generation(self.generation)?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
         let removal = self.plan_owner_removal_batch(OwnerRemovalKeys::new(hashes)?, sequence)?;
@@ -3545,7 +3589,7 @@ impl TxPoolAuthority {
     ) -> Result<PreparedApply<'_>, PlanError> {
         let chain_view = ChainViewId::new(next_chain_revision(self.chain_revision())?, tip_hash);
         let generation = next_generation(self.generation)?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
@@ -3660,9 +3704,7 @@ impl TxPoolAuthority {
             AdminPlan::PeerRevocation { .. } | AdminPlan::RemoteExpiry { .. } => {}
         }
 
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
-        let sequence = clocks.sequence();
-        let (control, effect) = match plan {
+        let (control, publication) = match plan {
             AdminPlan::PeerRevocation { marker, revocation } => {
                 let mut effects = Vec::new();
                 effects
@@ -3673,10 +3715,7 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(EffectPolicy::CriticalDetail, effects)
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-                let effect = self
-                    .effects_for_plan()
-                    .plan_publication(&publication, sequence)?;
-                (AdminControl::PeerRevocation { marker }, effect)
+                (AdminControl::PeerRevocation { marker }, Some(publication))
             }
             AdminPlan::RemoteExpiry { .. } => {
                 let mut effects = Vec::new();
@@ -3703,31 +3742,26 @@ impl TxPoolAuthority {
                     .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
                 let (publication, selected) = prefix.into_parts();
                 hashes.truncate(selected.get());
-                let effect = self
-                    .effects_for_plan()
-                    .plan_publication(&publication, sequence)?;
-                (AdminControl::None, effect)
+                (AdminControl::None, Some(publication))
             }
             AdminPlan::LocalRemoval { root } => {
                 let root_owner = self
                     .entries
                     .get(&root)
                     .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                let effect = match CommittedRemoteIngressRelease::removed_owner(root, root_owner) {
-                    Some(release) => {
-                        let publication = self
-                            .effects
-                            .build_single_publication(
-                                EffectPolicy::Trusted,
-                                CommittedEffect::RemoteIngressReleased(release),
-                            )
-                            .map_err(PlanError::from)?;
-                        self.effects_for_plan()
-                            .plan_publication(&publication, sequence)?
-                    }
-                    None => EffectDelta::default(),
-                };
-                (AdminControl::None, effect)
+                let publication =
+                    match CommittedRemoteIngressRelease::removed_owner(root, root_owner) {
+                        Some(release) => Some(
+                            self.effects
+                                .build_single_publication(
+                                    EffectPolicy::Trusted,
+                                    CommittedEffect::RemoteIngressReleased(release),
+                                )
+                                .map_err(PlanError::from)?,
+                        ),
+                        None => None,
+                    };
+                (AdminControl::None, publication)
             }
             AdminPlan::AcceptedExpiry { .. } => {
                 let mut effects = Vec::new();
@@ -3750,12 +3784,25 @@ impl TxPoolAuthority {
                     .effects
                     .build_publication(EffectPolicy::CriticalDetail, effects)
                     .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-                let effect = self
-                    .effects_for_plan()
-                    .plan_publication(&publication, sequence)?;
-                (AdminControl::None, effect)
+                (AdminControl::None, Some(publication))
             }
         };
+
+        if let Some(publication) = publication.as_ref() {
+            self.effects.preflight_publication(publication)?;
+        }
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
+        let sequence = clocks.sequence();
+        let effect = publication
+            .as_ref()
+            .map_or_else(
+                || Ok(EffectDelta::default()),
+                |publication| {
+                    self.effects_for_plan()
+                        .plan_publication(publication, sequence)
+                },
+            )
+            .map_err(PlanError::from)?;
 
         let removal = self.plan_owner_removal_batch(hashes, sequence)?;
         Ok(AdminDelta {
@@ -4012,7 +4059,7 @@ impl TxPoolAuthority {
         let EffectSettlementPlan::Apply(effect) = plan else {
             return Ok(EffectSettlementCommit::Superseded(settlement));
         };
-        let clocks = match ApplyClockReservation::begin(self.clocks) {
+        let clocks = match ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks)) {
             Ok(clocks) => clocks,
             Err(_) => {
                 return Err(EffectSettlementFailure {
@@ -4033,7 +4080,7 @@ impl TxPoolAuthority {
         let effect = self.effects.plan_close().map_err(|error| match error {
             EffectClosePlanError::AlreadyClosed => EffectCloseError::AlreadyClosed,
         })?;
-        let clocks = ApplyClockReservation::begin(self.clocks)
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))
             .map_err(|_| EffectCloseError::CounterExhausted)?;
         Ok(self.prepared_effect_only(effect, clocks))
     }
@@ -4073,7 +4120,7 @@ impl TxPoolAuthority {
             hash.as_ref().and_then(|hash| self.entries.get(hash)),
         )?;
         let control = self.dependencies.plan_maintenance(ticket)?.into_control();
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         match action {
             DependencyMaintenanceAction::Advance => {
@@ -4237,7 +4284,7 @@ impl TxPoolAuthority {
             return Err(ComputeCancellationError::EffectClosed);
         }
 
-        let clocks = ApplyClockReservation::begin(self.clocks)
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))
             .map_err(|_| ComputeCancellationError::Fault(AuthorityFault::CounterExhausted))?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks
@@ -4650,7 +4697,13 @@ impl TxPoolAuthority {
             }
             Err(error) => return Err(PlanError::from(error).into()),
         };
-        let clocks = ApplyClockReservation::begin(self.clocks).map_err(PlanError::from)?;
+        if let Some(publication) = publication.as_ref() {
+            self.effects
+                .preflight_publication(publication)
+                .map_err(PlanError::from)?;
+        }
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))
+            .map_err(PlanError::from)?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement().map_err(PlanError::from)?;
         let after = existing
@@ -4716,7 +4769,8 @@ impl TxPoolAuthority {
                 }),
             )
             .map_err(PlanError::from)?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        self.effects.preflight_publication(&publication)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let dependency = self.plan_dependency_loss(std::iter::once(&existing), sequence)?;
         let effect = self

@@ -2992,12 +2992,16 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
         .chain_generation_recoveries(&receipt)
         .expect("fallback payload is captured from the sealed receipt");
     let before = authority.normalized_snapshot();
-    let before_clocks = authority.clocks();
     assert_eq!(
         authority.plan_chain_transition(receipt).err(),
         Some(PlanError::Backpressure(Backpressure::GenerationReplacement))
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 2, 2, 1),
+        "the rejected recovery Plan may burn only its two issued owner identities and one Apply stamp"
+    );
 
     let old_generation = authority.generation();
     let duplicate = fallback
@@ -3011,7 +3015,13 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
         Some(PlanError::Fault(AuthorityFault::MembershipProjection)),
         "duplicate recovery evidence is a structural fault, not a capacity prefix"
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 2, 2, 1),
+        "the structurally invalid retry must allocate nothing beyond the already rejected Plan"
+    );
+    let before_success_clocks = authority.clocks();
     let committed = authority
         .plan_chain_generation_replacement(next, fallback)
         .expect("fresh recovery generation plans")
@@ -3022,7 +3032,7 @@ fn uak_unrepresentable_recovery_set_converges_to_a_fresh_parent_first_prefix() {
     assert!(authority.entry(&parent_hash).is_some());
     assert_eq!(
         authority.clocks().next_sequence.0,
-        before_clocks.next_sequence.0 + 1,
+        before_success_clocks.next_sequence.0 + 1,
         "one external generation swap consumes one Apply sequence"
     );
     assert!(authority.entries_for_reference().values().all(|owner| {

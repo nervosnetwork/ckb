@@ -21,7 +21,7 @@ pub(in crate::authority) struct AuthorityState {
     pub(super) effects: EffectLog,
     pub(super) peer_bans: PeerBanRegistry,
     pub(super) membership_config: MembershipConfig,
-    pub(super) clocks: AuthorityClocks,
+    pub(super) clocks: Arc<AuthorityClockBank>,
 }
 
 /// One physical owner for primary transactions and their bounded resource
@@ -365,7 +365,7 @@ impl TxPoolAuthority {
                 effects,
                 peer_bans: PeerBanRegistry::default(),
                 membership_config,
-                clocks: AuthorityClocks::first(),
+                clocks: Arc::new(AuthorityClockBank::first()),
             },
         }
     }
@@ -634,7 +634,9 @@ impl TxPoolAuthority {
         _test: &super::test_support::AuthorityTestToken,
         sequence: ApplySequence,
     ) {
-        self.state.clocks.next_sequence = sequence;
+        let mut clocks = self.state.clocks.snapshot();
+        clocks.next_sequence = sequence;
+        self.state.clocks.replace_for_test(clocks);
     }
 
     #[cfg(test)]
@@ -643,7 +645,9 @@ impl TxPoolAuthority {
         _test: &super::test_support::AuthorityTestToken,
         version: EntryVersion,
     ) {
-        self.state.clocks.next_version = version;
+        let mut clocks = self.state.clocks.snapshot();
+        clocks.next_version = version;
+        self.state.clocks.replace_for_test(clocks);
     }
 
     #[cfg(test)]
@@ -673,7 +677,7 @@ impl ScratchAuthority {
             seed.router,
         );
         authority.state.generation = seed.generation;
-        authority.state.clocks = seed.clocks;
+        authority.state.clocks = Arc::new(AuthorityClockBank::from_snapshot(seed.clocks));
         Self { authority }
     }
 
@@ -690,7 +694,7 @@ impl ScratchAuthority {
     }
 
     pub(super) fn clocks(&self) -> AuthorityClocks {
-        self.authority.state.clocks
+        self.authority.state.clocks.snapshot()
     }
 
     pub(super) fn into_fresh_generation(self) -> FreshGeneration {

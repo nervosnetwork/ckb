@@ -147,19 +147,18 @@ impl TxPoolAuthority {
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         let member_count = NonZeroUsize::new(facts.len())
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
-        let source_sequence = clocks.sequence();
-        let (versions, clocks) = clocks.replacements(member_count)?;
-        for (fact, version) in facts.into_iter().zip(versions) {
+        for fact in facts {
             if !matches!(&fact.before.phase, PreAcceptedPhase::Ready(_)) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
-            let mut record = fact.before.record.clone();
-            record.version = version;
             let (proof, proposal, accepted_at, async_process_start) =
                 fact.receipt.into_membership_parts();
             let after = AcceptedEntry {
-                record,
+                // Independent classification, graph projection and resource
+                // admission do not depend on the fresh committed version.
+                // Keep the current identity here and allocate replacements
+                // only after the whole cohort is proven independent.
+                record: fact.before.record.clone(),
                 provenance: fact.before.source.accepted_provenance(),
                 proof,
                 proposal,
@@ -188,6 +187,14 @@ impl TxPoolAuthority {
                 return Ok(SettlementPlan::CoupledComponent(disposition));
             }
         };
+        let (versions, clocks) = ApplyClockReservation::begin_replacements(
+            std::sync::Arc::clone(&self.clocks),
+            member_count,
+        )?;
+        let source_sequence = clocks.sequence();
+        for (change, version) in changes.iter_mut().zip(versions) {
+            change.after.record.version = version;
+        }
         let mut effects = Vec::new();
         effects
             .try_reserve(changes.len())

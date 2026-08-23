@@ -13,7 +13,7 @@ use crate::authority::{
     ingress::{
         RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngressAttempt, RetainedIngressKind,
     },
-    resources::{OrderedResourceProjection, ResourceBatchPlan, ResourceError},
+    resources::{ChargeRecord, OrderedResourceProjection, ResourceBatchPlan, ResourceError},
     scheduler::SchedulerBatchDelta,
     state::{
         AdmissionBasis, AuthorityClocks, OwnedTx, PreAcceptedEntry, PreAcceptedPhase,
@@ -64,7 +64,7 @@ pub(super) fn apply_retained_ingress(
     authority.scheduler.apply_batch(delta.scheduler);
     authority.dependencies.apply_batch(delta.dependency);
     let retired_effect = authority.effects.apply(delta.effect);
-    authority.clocks = delta.clocks;
+    let _reserved_clock_high_water = delta.clocks;
     super::ApplyRetirement {
         async_process_observations: super::AsyncProcessObservations::None,
         removals: Vec::new(),
@@ -256,7 +256,7 @@ impl TxPoolAuthority {
             resources: self
                 .resources
                 .ordered_projection(&self.entries, maximum_peers)?,
-            clocks: ClockPlanReservation::begin(self.clocks),
+            clocks: ClockPlanReservation::begin(std::sync::Arc::clone(&self.clocks)),
         };
         let mut consumed = 0usize;
 
@@ -487,6 +487,24 @@ impl TxPoolAuthority {
         if let Err(error) = self.resources.validate_admission(charge) {
             return self.retained_resource_pressure(kind, admission, error);
         }
+        let charge_record = ChargeRecord::PreAccepted {
+            resources: charge,
+            residency_peer: admission.source.ingress_peer(),
+            compute_peer: None,
+        };
+        if let Err(error) = scratch.resources.replace(
+            self.resources.read(&self.entries),
+            None,
+            Some(charge_record),
+        ) {
+            return self.retained_resource_pressure(kind, admission, error);
+        }
+
+        // Identity allocation follows every fallible resource decision which
+        // does not need that identity. A pressure-excluded item therefore
+        // consumes neither a version nor an arrival, while a subsequently
+        // dropped nonempty Plan still leaves its already-issued identities as
+        // non-reusable gaps.
         let (version, arrival, clock_branch) = scratch.clocks.owner_branch().insertion()?;
         let after = OwnedTx::PreAccepted(PreAcceptedEntry {
             record: TxRecord {
@@ -505,13 +523,6 @@ impl TxPoolAuthority {
             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
             charge,
         });
-        if let Err(error) = scratch.resources.replace(
-            self.resources.read(&self.entries),
-            None,
-            Some(after.charge_record()),
-        ) {
-            return self.retained_resource_pressure(kind, admission, error);
-        }
         scratch
             .owners
             .replace(self, admission.identity.raw.clone(), after)?;

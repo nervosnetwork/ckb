@@ -15,7 +15,8 @@ use ckb_types::{
     core::{Capacity, TransactionView, cell::ResolvedTransaction},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
-use std::{sync::Arc, time::Instant};
+use ckb_util::parking_lot::Mutex;
+use std::{num::NonZeroUsize, sync::Arc, time::Instant};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct RawTxHash(pub(super) Byte32);
@@ -1389,6 +1390,11 @@ impl ReplacementHistoryEntry {
         &self.record
     }
 
+    pub(super) fn assign_reserved_identity(&mut self, version: EntryVersion, arrival: Arrival) {
+        self.record.version = version;
+        self.record.arrival = arrival;
+    }
+
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         self.observed.retained()
     }
@@ -1554,6 +1560,11 @@ pub(super) struct AuthorityClocks {
     pub(super) next_sequence: ApplySequence,
 }
 
+#[derive(Debug)]
+pub(super) struct AuthorityClockBank {
+    state: Mutex<AuthorityClocks>,
+}
+
 impl AuthorityClocks {
     pub(super) const fn first() -> Self {
         Self {
@@ -1561,6 +1572,104 @@ impl AuthorityClocks {
             next_arrival: Arrival(0),
             next_sequence: ApplySequence(1),
         }
+    }
+}
+
+impl AuthorityClockBank {
+    pub(super) fn first() -> Self {
+        Self {
+            state: Mutex::new(AuthorityClocks::first()),
+        }
+    }
+
+    pub(super) fn from_snapshot(clocks: AuthorityClocks) -> Self {
+        Self {
+            state: Mutex::new(clocks),
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> AuthorityClocks {
+        *self.state.lock()
+    }
+
+    pub(super) fn reserve_sequence(&self) -> Result<(ApplySequence, AuthorityClocks), ()> {
+        let mut state = self.state.lock();
+        let sequence = state.next_sequence;
+        let Some(next) = sequence.0.checked_add(1).map(ApplySequence) else {
+            return Err(());
+        };
+        state.next_sequence = next;
+        Ok((sequence, *state))
+    }
+
+    pub(super) fn reserve_replacement(&self) -> Result<(EntryVersion, AuthorityClocks), ()> {
+        let mut state = self.state.lock();
+        let version = state.next_version;
+        let Some(next) = version.0.checked_add(1).map(EntryVersion) else {
+            return Err(());
+        };
+        state.next_version = next;
+        Ok((version, *state))
+    }
+
+    pub(super) fn reserve_insertion(&self) -> Result<(EntryVersion, Arrival, AuthorityClocks), ()> {
+        let mut state = self.state.lock();
+        let version = state.next_version;
+        let arrival = state.next_arrival;
+        let Some(next_version) = version.0.checked_add(1).map(EntryVersion) else {
+            return Err(());
+        };
+        let Some(next_arrival) = arrival.0.checked_add(1).map(Arrival) else {
+            return Err(());
+        };
+        state.next_version = next_version;
+        state.next_arrival = next_arrival;
+        Ok((version, arrival, *state))
+    }
+
+    pub(super) fn reserve_replacements(
+        &self,
+        members: NonZeroUsize,
+    ) -> Result<(std::ops::Range<u128>, AuthorityClocks), ()> {
+        let count = u128::try_from(members.get()).map_err(|_| ())?;
+        let mut state = self.state.lock();
+        let first = state.next_version.0;
+        let Some(next) = first.checked_add(count) else {
+            return Err(());
+        };
+        state.next_version = EntryVersion(next);
+        Ok((first..next, *state))
+    }
+
+    pub(super) fn reserve_apply_replacements(
+        &self,
+        members: NonZeroUsize,
+    ) -> Result<(ApplySequence, std::ops::Range<u128>, AuthorityClocks), ()> {
+        let count = u128::try_from(members.get()).map_err(|_| ())?;
+        let mut state = self.state.lock();
+        let sequence = state.next_sequence;
+        let first_version = state.next_version.0;
+        let next_sequence = sequence.0.checked_add(1).map(ApplySequence).ok_or(())?;
+        let next_version = first_version.checked_add(count).ok_or(())?;
+        state.next_sequence = next_sequence;
+        state.next_version = EntryVersion(next_version);
+        Ok((sequence, first_version..next_version, *state))
+    }
+
+    pub(super) fn adopt_owner_progress(&self, clocks: AuthorityClocks) -> AuthorityClocks {
+        let mut state = self.state.lock();
+        state.next_version = state.next_version.max(clocks.next_version);
+        state.next_arrival = state.next_arrival.max(clocks.next_arrival);
+        // A compiler-local scratch authority may consume its own Apply
+        // sequences while deriving one external generation replacement. Only
+        // owner identities cross this boundary; the live Apply sequence was
+        // already reserved exactly once by the caller.
+        *state
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn replace_for_test(&self, clocks: AuthorityClocks) {
+        *self.state.lock() = clocks;
     }
 }
 

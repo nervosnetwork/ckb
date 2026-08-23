@@ -410,6 +410,57 @@ pub(in crate::authority) struct AuthoritySnapshot {
 }
 
 impl AuthoritySnapshot {
+    /// Compare committed authority semantics while requiring the exact named
+    /// gaps in the three private identity/order allocators.
+    ///
+    /// Planning reserves globally unique owner identities and Apply stamps
+    /// before a prepared transition can race with another planner. Dropping or
+    /// rejecting that prepared transition must not reuse those identities, so
+    /// the clock high-water marks may advance even though no owner, projection,
+    /// effect, ban, generation, or chain fact commits. This relation keeps that
+    /// distinction explicit instead of weakening `PartialEq`: tests which bind
+    /// exact allocator consumption must continue to use exact equality.
+    pub(in crate::authority) fn equivalent_committed_state_with_exact_reservations(
+        &self,
+        before: &Self,
+        versions: u128,
+        arrivals: u128,
+        sequences: u128,
+    ) -> bool {
+        let expected_version = before
+            .clocks
+            .next_version
+            .0
+            .checked_add(versions)
+            .map(EntryVersion);
+        let expected_arrival = before
+            .clocks
+            .next_arrival
+            .0
+            .checked_add(arrivals)
+            .map(Arrival);
+        let expected_sequence = before
+            .clocks
+            .next_sequence
+            .0
+            .checked_add(sequences)
+            .map(ApplySequence);
+        self.generation == before.generation
+            && self.chain_view == before.chain_view
+            && self.entries == before.entries
+            && self.indexes == before.indexes
+            && self.source_versions == before.source_versions
+            && self.resources == before.resources
+            && self.membership == before.membership
+            && self.scheduler == before.scheduler
+            && self.dependencies == before.dependencies
+            && self.effects == before.effects
+            && self.peer_bans == before.peer_bans
+            && Some(self.clocks.next_version) == expected_version
+            && Some(self.clocks.next_arrival) == expected_arrival
+            && Some(self.clocks.next_sequence) == expected_sequence
+    }
+
     /// Compare one atomic batch with its named no-interleave per-owner
     /// reference under the exact Apply-sequence quotient.
     ///
@@ -908,7 +959,7 @@ impl TxPoolAuthority {
     }
 
     pub(in crate::authority) fn clocks(&self) -> AuthorityClocks {
-        self.clocks
+        self.clocks.snapshot()
     }
 
     pub(in crate::authority) fn membership_snapshot_for_reference(&self) -> MembershipSnapshot {
@@ -1010,7 +1061,7 @@ impl TxPoolAuthority {
             dependencies: self.dependencies.snapshot(),
             effects: self.effects.snapshot(),
             peer_bans: self.peer_bans.snapshot(),
-            clocks: self.clocks,
+            clocks: self.clocks.snapshot(),
         }
     }
 
@@ -1026,7 +1077,7 @@ impl TxPoolAuthority {
             && self.peer_bans.semantically_consistent()
             && self
                 .effects
-                .semantically_consistent(self.clocks.next_sequence)
+                .semantically_consistent(self.clocks.snapshot().next_sequence)
     }
 
     pub(in crate::authority) fn membership_projection_consistent(&self) -> bool {
@@ -1277,7 +1328,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Duplicate);
         }
 
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement()?;
         let mut after = before.clone();
@@ -1376,7 +1427,8 @@ impl TxPoolAuthority {
         &mut self,
         publication: &EffectPublication,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        self.effects.preflight_publication(publication)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let effect = self
             .effects_for_test_plan()
@@ -1387,7 +1439,7 @@ impl TxPoolAuthority {
     pub(in crate::authority) fn plan_generation_reset_for_foundation(
         &mut self,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let effect = self.effects.plan_generation_reset(sequence)?;
         Ok(self.prepared_effect_only(effect, clocks))
@@ -1477,14 +1529,14 @@ impl TxPoolAuthority {
         keys: Vec<DependencyKey>,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
         self.effects.ensure_open()?;
-        let sequence = self.clocks.next_sequence;
+        let sequence = self.clocks.snapshot().next_sequence;
         let Some(control) =
             self.dependencies
                 .plan_events(keys, Vec::new(), DependencyCut(sequence))?
         else {
             return Ok(None);
         };
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         Ok(Some(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
@@ -1499,14 +1551,14 @@ impl TxPoolAuthority {
         keys: Vec<DependencyKey>,
     ) -> Result<Option<PreparedApply<'_>>, PlanError> {
         self.effects.ensure_open()?;
-        let sequence = self.clocks.next_sequence;
+        let sequence = self.clocks.snapshot().next_sequence;
         let Some(control) =
             self.dependencies
                 .plan_events(Vec::new(), keys, DependencyCut(sequence))?
         else {
             return Ok(None);
         };
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         Ok(Some(PreparedApply {
             authority: self,
             delta: AuthorityDelta::Dependency(DependencyOnlyDelta {
@@ -1762,7 +1814,7 @@ impl TxPoolAuthority {
             grant,
             after_charge,
         } = reservation;
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (version, clocks) = clocks.replacement()?;
         let (work, active) = CheckedOutWork::from_owner(

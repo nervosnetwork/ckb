@@ -1529,14 +1529,10 @@ impl EffectLog {
         publication: &EffectPublication,
         sequence: ApplySequence,
     ) -> Result<EffectDelta, EffectError> {
-        self.ensure_open()?;
+        self.preflight_publication(publication)?;
         self.validate_new_sequence(sequence)?;
         let class = publication.policy.class();
         let bytes = publication.batch.charge_bytes();
-        let bound = self.limits.batch_bound(class);
-        if publication.batch.effects().len() > bound.max_effects || bytes > bound.max_bytes {
-            return Err(EffectError::Projection);
-        }
         if self.usage.fits(self.limits.regions, class, bytes) {
             if self
                 .pending_recent_rejects
@@ -1569,6 +1565,28 @@ impl EffectLog {
             return Ok(self.reset_delta(sequence));
         }
         Err(EffectError::Full)
+    }
+
+    /// Validate every publication condition that is independent of its fresh
+    /// Apply stamp. Callers use this before touching the global clock bank, so
+    /// a closed journal, impossible batch shape, or full non-resettable region
+    /// cannot consume identity/order capacity.
+    pub(super) fn preflight_publication(
+        &self,
+        publication: &EffectPublication,
+    ) -> Result<(), EffectError> {
+        self.ensure_open()?;
+        let class = publication.policy.class();
+        let bytes = publication.batch.charge_bytes();
+        let bound = self.limits.batch_bound(class);
+        if publication.batch.effects().len() > bound.max_effects || bytes > bound.max_bytes {
+            return Err(EffectError::Projection);
+        }
+        if self.usage.fits(self.limits.regions, class, bytes) || publication.policy.can_reset() {
+            Ok(())
+        } else {
+            Err(EffectError::Full)
+        }
     }
 
     pub(super) fn plan_generation_reset(

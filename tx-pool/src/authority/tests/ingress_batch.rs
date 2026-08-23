@@ -360,7 +360,12 @@ fn uak_retained_ingress_batch_plan_failure_and_drop_are_mutation_free() {
         .plan_retained_admission_batch(&proposal_batch(transactions.clone()))
         .expect("the batch plans without mutation");
     drop(prepared);
-    assert_eq!(dropped.normalized_snapshot(), before_drop);
+    assert!(
+        dropped
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before_drop, 2, 2, 1),
+        "the dropped retained batch burns exactly its two owner identities and one Apply stamp"
+    );
 
     let mut exhausted = TxPoolAuthority::for_foundation(limits());
     exhausted.force_next_version(EntryVersion(u128::MAX));

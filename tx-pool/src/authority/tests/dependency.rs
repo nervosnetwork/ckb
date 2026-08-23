@@ -824,7 +824,12 @@ fn uak_dependency_level_requeues_or_terminalizes_once() {
             .expect("availability event plans")
             .expect("a live consumer records the event"),
     );
-    assert_eq!(authority.normalized_snapshot(), before_dropped_event);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before_dropped_event, 0, 0, 1,),
+        "dropping the prepared dependency event burns exactly its issued Apply stamp"
+    );
 
     apply_plan(
         authority

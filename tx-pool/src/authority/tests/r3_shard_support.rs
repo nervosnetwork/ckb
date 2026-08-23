@@ -31,7 +31,6 @@ fn real_entry_delta_derives_support_from_its_typed_payload() {
 
     assert!(support.len() > 0);
     assert!(exclusive.effect_log);
-    assert!(exclusive.clocks);
     assert!(!exclusive.membership_counts);
 }
 
@@ -84,7 +83,6 @@ fn real_local_removal_delta_derives_one_disjoint_shard_pair_and_names_globals() 
     assert_eq!(root_exclusive, independent_exclusive);
     assert!(!root_exclusive.membership_counts);
     assert!(!root_exclusive.scheduler_cursor);
-    assert!(root_exclusive.clocks);
     assert!(!root_exclusive.dependency_control);
     assert!(!root_exclusive.effect_log);
 }

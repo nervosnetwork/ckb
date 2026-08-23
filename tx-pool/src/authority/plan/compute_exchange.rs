@@ -281,7 +281,7 @@ pub(super) fn apply_compute_exchange(
     authority.source_versions.apply(delta.owners.sources);
     authority.scheduler.apply_batch(delta.scheduler);
     authority.dependencies.apply_batch(delta.dependency);
-    authority.clocks = delta.clocks;
+    let _reserved_clock_high_water = delta.clocks;
     ApplyRetirement {
         async_process_observations: super::AsyncProcessObservations::None,
         removals: Vec::new(),
@@ -992,7 +992,7 @@ impl TxPoolAuthority {
         let mut resources = self
             .resources
             .ordered_projection(&self.entries, transition_bound)?;
-        let first_version = self.clocks.next_version;
+        let first_version = self.clocks.snapshot().next_version;
 
         let mut local_count = 0usize;
         for member in classified.iter_mut() {
@@ -1149,7 +1149,7 @@ impl TxPoolAuthority {
             jobs.resize_with(grant_slots.len(), || None);
             return Ok((None, jobs));
         }
-        let clocks = ApplyClockReservation::begin(self.clocks)?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let (mut versions, clocks) = clocks.replacements(
             NonZeroUsize::new(transition_count)

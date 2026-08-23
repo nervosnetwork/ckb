@@ -997,7 +997,12 @@ fn uak_clear_pipeline_preserves_accepted_and_invalidates_active_work() {
             .plan_clear_pipeline()
             .expect("pipeline clear plans with active work"),
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "a dropped clear Plan burns exactly its issued Apply stamp and commits no authority fact"
+    );
 
     let old_clocks = authority.clocks();
     let old_chain = authority.chain_view().clone();
@@ -2349,7 +2354,12 @@ fn uak_dropped_direct_local_plan_is_semantically_mutation_free() {
         .plan_direct_admission_for_foundation(transaction, verified, AcceptedStatus::Pending)
         .expect("direct admission plans without mutating authority state");
     drop(disposition);
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 1, 1),
+        "the dropped direct admission burns exactly its owner identity and Apply stamp"
+    );
 }
 
 #[test]
@@ -3536,7 +3546,12 @@ fn uak_independent_plan_drop_and_batch_clock_failure_are_mutation_free() {
         panic!("fixture is independent");
     };
     drop(plan);
-    assert_eq!(dropped.normalized_snapshot(), before);
+    assert!(
+        dropped
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 3, 0, 1),
+        "the dropped three-member batch burns exactly three replacement versions and one Apply stamp"
+    );
 
     let (mut final_sequence, hashes) = independent_fixture(2);
     final_sequence.force_next_sequence(ApplySequence(u128::MAX - 1));
@@ -3620,7 +3635,12 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
             .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
-    assert_eq!(conflicts.normalized_snapshot(), before);
+    assert!(
+        conflicts
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped strongest coupled candidate burns one replacement version and one Apply stamp"
+    );
 
     let spent = OutPoint::new(Byte32::new([213; 32]), 0);
     let independent_input = OutPoint::new(Byte32::new([214; 32]), 0);
@@ -3662,7 +3682,12 @@ fn uak_independent_classifier_routes_pairwise_edges_without_mutation() {
             .plan_settlement(&batch)
             .expect("classification itself is valid"),
     );
-    assert_eq!(conditional.normalized_snapshot(), before);
+    assert!(
+        conditional
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped conditional-edge candidate burns one replacement version and one Apply stamp"
+    );
 }
 
 #[test]
@@ -3682,7 +3707,12 @@ fn uak_independent_capacity_is_aggregate_and_never_partially_applied() {
             .plan_settlement(&batch)
             .expect("capacity coupling is a normal classification"),
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped strongest capacity candidate burns one replacement version and one Apply stamp"
+    );
     assert_resource_reference(&authority);
 }
 
@@ -3729,7 +3759,12 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::InputConflict(conflicted_input));
-    assert_eq!(conflict.normalized_snapshot(), before);
+    assert!(
+        conflict
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped conflict rejection burns only its effect Apply stamp"
+    );
 
     let conditional_cell = OutPoint::new(Byte32::new([219; 32]), 0);
     let reader_tx = tx(219);
@@ -3763,7 +3798,12 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
             .plan_settlement(&batch)
             .expect("accepted conditional edge routes normally"),
     );
-    assert_eq!(conditional.normalized_snapshot(), before);
+    assert!(
+        conditional
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped conditional-edge candidate burns one replacement version and one Apply stamp"
+    );
 
     let parent_tx = TransactionBuilder::default()
         .version(221u32)
@@ -3790,7 +3830,12 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
             .plan_settlement(&batch)
             .expect("pool parent routes normally"),
     );
-    assert_eq!(causal.normalized_snapshot(), before);
+    assert!(
+        causal
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped child admission burns one replacement version and one Apply stamp"
+    );
     assert!(matches!(causal.entry(&parent), Some(OwnedTx::Accepted(_))));
 
     let late_parent_tx = TransactionBuilder::default()
@@ -3823,7 +3868,11 @@ fn uak_independent_classifier_routes_every_accepted_relation_without_mutation() 
         late.plan_settlement(&batch)
             .expect("accepted child routes normally"),
     );
-    assert_eq!(late.normalized_snapshot(), before);
+    assert!(
+        late.normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped late-parent admission burns one replacement version and one Apply stamp"
+    );
     assert!(matches!(
         late.entry(&late_child),
         Some(OwnedTx::Accepted(_))
@@ -3857,7 +3906,12 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::MissingInputEvidence(missing));
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped terminal rejection burns only its effect Apply stamp"
+    );
 
     let parent_tx = TransactionBuilder::default()
         .version(239u32)
@@ -3894,7 +3948,12 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
         reason,
         MembershipReject::MissingPoolOutput(nonexistent_output)
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped missing-output rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 
@@ -3929,7 +3988,12 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
         reason,
         MembershipReject::MissingPoolOutput(nonexistent_dependency)
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped missing-dependency rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 
@@ -3986,7 +4050,12 @@ fn uak_coupled_membership_requires_exact_positive_input_evidence() {
         reason,
         MembershipReject::MissingDependencyEvidence(unsupported_dependency)
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped unsupported-dependency rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
@@ -4440,7 +4509,12 @@ fn uak_late_parent_component_bound_fails_before_authority_mutation() {
             limit: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
         }
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped component-limit rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
@@ -4519,7 +4593,12 @@ fn uak_nested_late_child_fanout_is_sliced_by_the_same_component_bound() {
             limit: crate::constants::MAX_POOL_MUTATION_CANDIDATES,
         }
     );
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped nested-component rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
@@ -4603,7 +4682,12 @@ fn uak_late_parent_cannot_bypass_the_descendant_ancestor_bound() {
             .expect("final membership rejection is a closed disposition"),
     );
     assert_eq!(reason, MembershipReject::TooManyAncestors);
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped ancestor-bound rejection burns only its effect Apply stamp"
+    );
     assert_membership_reference(&authority);
     assert_resource_reference(&authority);
 }
@@ -4678,7 +4762,12 @@ fn uak_develop_stale_parent_eviction_shape_is_total_rejection_without_mutation()
     );
 
     assert_eq!(reason, MembershipReject::TooManyAncestors);
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 0, 0, 1),
+        "the dropped stale-parent-shape rejection burns only its effect Apply stamp"
+    );
     assert!(matches!(
         authority.entry(&reader),
         Some(OwnedTx::Accepted(_))
@@ -6634,7 +6723,12 @@ fn uak_dropped_prepared_apply_is_semantically_mutation_free() {
             .expect("admission preflight plans");
         drop(prepared);
     }
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 1, 1),
+        "the dropped admission burns exactly its owner identity and Apply stamp"
+    );
     assert_resource_reference(&authority);
 }
 
@@ -7710,7 +7804,12 @@ fn uak_fair_frontier_is_a_derived_non_owning_projection() {
         .expect("frontier selection is valid")
         .expect("queued owner is selectable");
     drop(prepared);
-    assert_eq!(authority.normalized_snapshot(), before);
+    assert!(
+        authority
+            .normalized_snapshot()
+            .equivalent_committed_state_with_exact_reservations(&before, 1, 0, 1),
+        "the dropped checkout burns exactly its replacement version and Apply stamp"
+    );
 
     let committed = authority
         .plan_checkout_next(WorkPermit::ResolveOnly)

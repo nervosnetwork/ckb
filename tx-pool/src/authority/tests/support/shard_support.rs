@@ -44,7 +44,6 @@ pub(in crate::authority) struct ExclusiveSupport {
     pub(in crate::authority) scheduler_cursor: bool,
     pub(in crate::authority) dependency_control: bool,
     pub(in crate::authority) effect_log: bool,
-    pub(in crate::authority) clocks: bool,
 }
 
 /// Working finite-progress rule for support discovered after acquisition.

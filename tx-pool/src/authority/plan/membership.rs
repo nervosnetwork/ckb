@@ -371,6 +371,20 @@ impl MembershipRemoval {
         self.after = None;
     }
 
+    pub(super) fn assign_replacement_history_identity(
+        &mut self,
+        version: crate::authority::state::EntryVersion,
+        arrival: crate::authority::state::Arrival,
+    ) -> Result<(), super::PlanError> {
+        let Some(OwnedTx::ReplacementHistory(history)) = self.after.as_mut() else {
+            return Err(super::PlanError::Fault(
+                super::AuthorityFault::MembershipProjection,
+            ));
+        };
+        history.assign_reserved_identity(version, arrival);
+        Ok(())
+    }
+
     pub(super) fn after(&self) -> Option<&OwnedTx> {
         self.after.as_ref()
     }
@@ -904,12 +918,32 @@ impl TxPoolAuthority {
         }
     }
 
-    pub(super) fn prepare_membership(
+    pub(super) fn evaluate_preaccepted_membership(
+        &self,
+        hash: &RawTxHash,
+        before: &PreAcceptedEntry,
+        candidate: &AcceptedEntry,
+    ) -> Result<MembershipEvaluation, super::PlanError> {
+        Self::validate_preaccepted_membership_subject(hash, before, candidate)?;
+        self.evaluate_membership_candidate(hash, candidate)
+    }
+
+    pub(super) fn prepare_membership_after_evaluation(
         &mut self,
         hash: &RawTxHash,
         before: &PreAcceptedEntry,
         candidate: &AcceptedEntry,
+        evaluation: MembershipEvaluation,
     ) -> Result<PreparedMembership, super::PlanError> {
+        Self::validate_preaccepted_membership_subject(hash, before, candidate)?;
+        self.compile_membership_evaluation(hash, candidate, evaluation)
+    }
+
+    fn validate_preaccepted_membership_subject(
+        hash: &RawTxHash,
+        before: &PreAcceptedEntry,
+        candidate: &AcceptedEntry,
+    ) -> Result<(), super::PlanError> {
         if before.record.identity.raw != *hash
             || candidate.record.identity != before.record.identity
             || candidate.provenance != before.source.accepted_provenance()
@@ -919,7 +953,7 @@ impl TxPoolAuthority {
                 super::AuthorityFault::MembershipProjection,
             ));
         }
-        self.prepare_membership_candidate(hash, candidate)
+        Ok(())
     }
 
     /// Compile policy, eviction and accepted projections for a candidate

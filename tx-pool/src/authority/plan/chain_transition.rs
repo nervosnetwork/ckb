@@ -863,7 +863,7 @@ impl TxPoolAuthority {
 
         let recoveries = self.select_chain_recoveries(receipt.recoveries)?;
 
-        let mut clocks = ApplyClockReservation::begin(self.clocks)?;
+        let mut clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         let mut changes = Vec::new();
         let change_capacity = removals
@@ -1343,7 +1343,7 @@ impl TxPoolAuthority {
             ScratchAuthoritySeed::new(
                 new_view.clone(),
                 generation,
-                self.clocks,
+                self.clocks.snapshot(),
                 self.entries.router(),
             ),
         );
@@ -1390,7 +1390,7 @@ impl TxPoolAuthority {
 
         let scratch_clocks = scratch.clocks();
         let fresh = scratch.into_fresh_generation();
-        let mut clocks = ApplyClockReservation::begin(self.clocks)?;
+        let mut clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         // Scratch admission sequences are compiler-local: queued Resolve
         // owners and their primary projections retain no dependency/effect
