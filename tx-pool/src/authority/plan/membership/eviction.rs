@@ -83,7 +83,8 @@ pub(super) fn complete_removals(
     component_members.extend(removed.iter().cloned());
     component_members.extend(candidate_descendants.iter().cloned());
 
-    let mut projected_resources = authority.resources.accepted();
+    let resources = authority.resources.read(&authority.entries);
+    let mut projected_resources = resources.accepted();
     for removal in &removals {
         let entry = authority.accepted_entry(&removal.hash)?;
         projected_resources = projected_resources
@@ -97,7 +98,7 @@ pub(super) fn complete_removals(
     if removals.is_empty()
         && candidate_parents.is_empty()
         && candidate_children.is_empty()
-        && authority.resources.accepted_fits(projected_resources)
+        && resources.accepted_fits(projected_resources)
     {
         let candidate_aggregate = DescendantAggregate::one(candidate);
         let candidate_ancestors = AncestorAggregate::one(candidate);
@@ -149,7 +150,7 @@ pub(super) fn complete_removals(
     )?;
     virtual_projection.apply_candidate(authority, &removed)?;
 
-    while !authority.resources.accepted_fits(projected_resources) {
+    while !resources.accepted_fits(projected_resources) {
         let next = virtual_projection
             .next_eviction(authority, &removed)
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;

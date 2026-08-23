@@ -253,7 +253,9 @@ impl TxPoolAuthority {
         };
         let mut scratch = BatchScratch {
             owners: OwnerOverlay::new(item_count)?,
-            resources: self.resources.ordered_projection(maximum_peers)?,
+            resources: self
+                .resources
+                .ordered_projection(&self.entries, maximum_peers)?,
             clocks: ClockPlanReservation::begin(self.clocks),
         };
         let mut consumed = 0usize;
@@ -503,11 +505,11 @@ impl TxPoolAuthority {
             phase: PreAcceptedPhase::Queued(QueuedWork::Resolve),
             charge,
         });
-        if let Err(error) =
-            scratch
-                .resources
-                .replace(&self.resources, None, Some(after.charge_record()))
-        {
+        if let Err(error) = scratch.resources.replace(
+            self.resources.read(&self.entries),
+            None,
+            Some(after.charge_record()),
+        ) {
             return self.retained_resource_pressure(kind, admission, error);
         }
         scratch
@@ -621,7 +623,7 @@ impl TxPoolAuthority {
             }
         };
         if let Err(error) = scratch.resources.replace(
-            &self.resources,
+            self.resources.read(&self.entries),
             Some(current.charge_record()),
             Some(after.charge_record()),
         ) {
@@ -655,7 +657,8 @@ impl TxPoolAuthority {
             | ResourceError::Arithmetic
             | ResourceError::ExistingChargeMismatch
             | ResourceError::DuplicateChange
-            | ResourceError::AttributionMismatch => return Err(error.into()),
+            | ResourceError::AttributionMismatch
+            | ResourceError::CapacityBankFault => return Err(error.into()),
         };
         self.retained_pressure(kind, admission, pressure)
     }

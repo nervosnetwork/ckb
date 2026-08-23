@@ -989,7 +989,9 @@ impl TxPoolAuthority {
             .and_then(|count| count.checked_add(grant_slots.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         let mut owners = OwnerOverlay::new(transition_bound)?;
-        let mut resources = self.resources.ordered_projection(transition_bound)?;
+        let mut resources = self
+            .resources
+            .ordered_projection(&self.entries, transition_bound)?;
         let first_version = self.clocks.next_version;
 
         let mut local_count = 0usize;
@@ -1039,7 +1041,7 @@ impl TxPoolAuthority {
                 compute_peer: None,
             };
             match resources.replace(
-                &self.resources,
+                self.resources.read(&self.entries),
                 Some(before.charge_record()),
                 Some(desired_charge),
             ) {
@@ -1328,7 +1330,7 @@ impl TxPoolAuthority {
             return Ok(Err(CandidateUnavailable::SkipOwner));
         }
         let attribution = preaccepted.source.compute_attribution();
-        match resources.active_work_availability(&self.resources, attribution)? {
+        match resources.active_work_availability(self.resources.read(&self.entries), attribution)? {
             ActiveWorkAvailability::Available => {}
             ActiveWorkAvailability::PeerExhausted(_) => {
                 return Ok(Err(CandidateUnavailable::SkipOwner));
@@ -1352,7 +1354,11 @@ impl TxPoolAuthority {
             residency_peer: preaccepted.source.ingress_peer(),
             compute_peer: attribution.peer(),
         };
-        match resources.replace(&self.resources, Some(before.charge_record()), Some(desired)) {
+        match resources.replace(
+            self.resources.read(&self.entries),
+            Some(before.charge_record()),
+            Some(desired),
+        ) {
             Ok(()) => Ok(Ok(CheckoutReservation {
                 before: before.clone(),
                 grant,

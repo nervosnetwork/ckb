@@ -12,8 +12,9 @@ use super::super::plan::{
 };
 use super::super::resources::{
     AcceptedCost, AcceptedResources, ChargeRecord, ComputeGrant, ComputeLimits,
-    ComputeReleaseError, ResidencyPolicy, ResourceConfigError, ResourceError, ResourceLedger,
-    ResourceLimits, ResourceVector, test_support::ResourceSnapshot,
+    ComputeReleaseError, ResidencyPolicy, ResourceConfigError, ResourceError, ResourceLimits,
+    ResourceVector,
+    test_support::{ResourceSnapshot, TestResourceLedger},
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
@@ -3305,7 +3306,7 @@ fn uak_popular_dependency_appends_sparse_reader_edges() {
 fn uak_resource_batch_is_a_commutative_set_transition() {
     let bound = usize::MAX / 8;
     let unbounded = ResourceVector::new(bound, bound, bound, 1);
-    let mut ledger = ResourceLedger::new(
+    let mut ledger = TestResourceLedger::new(
         ResourceLimits::new(
             unbounded,
             unbounded,
@@ -3333,26 +3334,19 @@ fn uak_resource_batch_is_a_commutative_set_transition() {
         compute_peer: None,
     };
     let first_plan = ledger
-        .plan_replace(None, Some(first_before), || None)
+        .plan_replace(first.clone(), None, Some(first_before))
         .expect("first exact charge fits");
     ledger.apply(first_plan);
     let second_plan = ledger
-        .plan_replace(None, Some(second_before), || None)
+        .plan_replace(second.clone(), None, Some(second_before))
         .expect("second exact charge fills the byte limit");
     ledger.apply(second_plan);
 
-    let current = HashMap::from([
-        (first.clone(), first_before),
-        (second.clone(), second_before),
-    ]);
     let plan = ledger
-        .plan_batch(
-            vec![
-                (first, Some(first_before), Some(first_after)),
-                (second, Some(second_before), None),
-            ],
-            |key| current.get(key).copied(),
-        )
+        .plan_batch(vec![
+            (first, Some(first_before), Some(first_after)),
+            (second, Some(second_before), None),
+        ])
         .expect("net-neutral batch does not depend on caller order");
     ledger.apply_batch(plan);
     let snapshot = ledger.snapshot();
@@ -6479,46 +6473,13 @@ fn uak_resource_limit_failure_preserves_every_observable_fact() {
 }
 
 #[test]
-fn uak_resource_reference_rejects_ghost_overcharge() {
+fn uak_resource_aggregate_has_no_separate_ghost_write_surface() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 626, 74);
-    let entries = authority
-        .entries_for_reference()
-        .iter()
-        .map(|(hash, owner)| (hash.clone(), owner.clone()))
-        .collect::<Vec<_>>();
-    let entries = crate::authority::shard::ShardedOwnerMap::from_iter_for_test(entries);
-    let exact = entries
-        .get(&hash)
-        .expect("fixture owner exists")
-        .charge_record();
-    let ChargeRecord::PreAccepted {
-        resources,
-        residency_peer,
-        compute_peer,
-    } = exact
-    else {
-        panic!("fixture owner is preaccepted");
-    };
-    let inflated = ChargeRecord::PreAccepted {
-        resources: ResourceVector::new(
-            resources.entries,
-            resources.bytes.checked_add(1).expect("fixture fits"),
-            resources.edges,
-            resources.active_work,
-        ),
-        residency_peer,
-        compute_peer,
-    };
-    let mut ledger = ResourceLedger::new(limits());
-    let plan = ledger
-        .plan_replace(None, Some(inflated), || None)
-        .expect("inflated fixture still fits the configured ceiling");
-    ledger.apply(plan);
+    let _hash = admit_remote(&mut authority, 626, 74);
 
     assert!(
-        !ledger.semantically_matches(&entries),
-        "a normalized rebuild must reject both undercharge and ghost overcharge"
+        authority.resources().semantically_matches(),
+        "committed resource aggregates are derived in the same owner-shard transition"
     );
 }
 
@@ -6568,9 +6529,10 @@ fn uak_compute_release_requires_the_exact_non_compute_charge() {
         residency_peer: Some(peer),
         compute_peer: Some(peer),
     };
-    let mut ledger = ResourceLedger::new(limits());
+    let mut ledger = TestResourceLedger::new(limits());
+    let key = RawTxHash(tx(629).hash());
     let insertion = ledger
-        .plan_replace(None, Some(before), || None)
+        .plan_replace(key.clone(), None, Some(before))
         .expect("the fixture charge fits every resource partition");
     ledger.apply(insertion);
 
@@ -6580,9 +6542,7 @@ fn uak_compute_release_requires_the_exact_non_compute_charge() {
         compute_peer: None,
     };
     assert_eq!(
-        ledger
-            .plan_compute_release(before, shrunk, || Some(before))
-            .err(),
+        ledger.plan_compute_release(key, before, shrunk).err(),
         Some(ComputeReleaseError::Projection),
         "compute cancellation cannot disguise retained-charge drift as release"
     );

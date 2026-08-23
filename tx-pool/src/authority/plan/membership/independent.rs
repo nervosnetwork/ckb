@@ -235,7 +235,8 @@ fn prepare_resources(
             | ResourceError::ExistingChargeMismatch
             | ResourceError::DuplicateChange
             | ResourceError::ComputeEnvelope
-            | ResourceError::AttributionMismatch,
+            | ResourceError::AttributionMismatch
+            | ResourceError::CapacityBankFault,
         ) => Err(PlanError::Fault(AuthorityFault::ResourceProjection)),
     }
 }

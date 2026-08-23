@@ -16,12 +16,13 @@ use crate::authority::{
     resources::{
         AcceptedResources, ChargeRecord, ComputeGrant, ComputeLimits, ResidencyPolicy,
         ResourceConfigError, ResourceError, ResourceLedger, ResourceLimits, ResourceVector,
+        test_support::TestResourceLedger,
     },
     state::RawTxHash,
 };
 use ckb_network::PeerIndex;
 use ckb_types::packed::Byte32;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConfigurationObservation {
@@ -291,29 +292,20 @@ fn charge_domain() -> Vec<ContinuousChargeRecord> {
 fn production_ledger(
     limits: ContinuousResourceLimits,
     charges: &BTreeMap<u8, ContinuousChargeRecord>,
-) -> Result<ResourceLedger, ResourceError> {
-    let mut ledger = ResourceLedger::new(
+) -> Result<TestResourceLedger, ResourceError> {
+    let mut ledger = TestResourceLedger::new(
         production_limits(limits).expect("the transition fixture limits are valid"),
     );
     let changes = charges
         .iter()
         .map(|(key, charge)| (production_key(*key), None, Some(production_charge(*charge))))
         .collect();
-    let plan = ledger.plan_batch(changes, |_| None)?;
+    let plan = ledger.plan_batch(changes)?;
     ledger.apply_batch(plan);
     Ok(ledger)
 }
 
-fn production_owner_projection(
-    charges: &BTreeMap<u8, ContinuousChargeRecord>,
-) -> HashMap<RawTxHash, ChargeRecord> {
-    charges
-        .iter()
-        .map(|(key, charge)| (production_key(*key), production_charge(*charge)))
-        .collect()
-}
-
-fn production_usage(ledger: &ResourceLedger) -> ContinuousResourceUsage {
+fn production_usage(ledger: &TestResourceLedger) -> ContinuousResourceUsage {
     let snapshot = ledger.snapshot();
     let per_peer = snapshot
         .peers
@@ -334,7 +326,7 @@ fn production_usage(ledger: &ResourceLedger) -> ContinuousResourceUsage {
     }
 }
 
-fn assert_ledger_matches_claim(production: &ResourceLedger, claim: &ContinuousResourceLedger) {
+fn assert_ledger_matches_claim(production: &TestResourceLedger, claim: &ContinuousResourceLedger) {
     let usage = production_usage(production);
     assert_eq!(
         usage,
@@ -693,7 +685,6 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                         let expected = claim.plan_changes(&changes);
                         let mut actual = production_ledger(limits, &initial_map)
                             .expect("the initial production ledger was already validated");
-                        let current = production_owner_projection(&initial_map);
                         let before = actual.snapshot();
                         let plan = actual.plan_batch(
                             changes
@@ -706,7 +697,6 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                                     )
                                 })
                                 .collect(),
-                            |key| current.get(key).copied(),
                         );
                         assert_eq!(plan.is_ok(), expected.is_ok());
                         match (plan, expected) {
@@ -729,7 +719,6 @@ fn uak_resource_charge_and_batch_refine_the_finite_set_transition_exhaustively()
                                                 )
                                             })
                                             .collect(),
-                                        |key| current.get(key).copied(),
                                     )
                                     .expect("the same set transition is order independent");
                                 reversed.apply_batch(reverse_plan);
@@ -762,9 +751,9 @@ fn uak_compute_release_refines_exact_reservation_and_peer_attribution_exhaustive
                 .expect("the release fixture starts from a valid charge");
             let before = actual.snapshot();
             let plan = actual.plan_compute_release(
+                production_key(0),
                 production_charge(*expected),
                 production_charge(*after),
-                || Some(production_charge(*expected)),
             );
             assert_eq!(plan.is_ok(), expected_result.is_ok());
             match (plan, expected_result) {

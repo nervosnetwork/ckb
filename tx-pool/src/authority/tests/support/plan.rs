@@ -12,7 +12,7 @@ use super::super::{
         EffectWakeProjectionInput,
     },
     indexes::test_support::IndexSnapshot,
-    resources::{ActiveWorkAvailability, test_support::ResourceSnapshot},
+    resources::{ActiveWorkAvailability, ResourceRead, test_support::ResourceSnapshot},
     scheduler::{CheckoutTicket, test_support::SchedulerSnapshot},
     state::{AcceptedStatus, ComputeAttribution, TxIdentity},
     work::CheckedOutWork,
@@ -816,8 +816,8 @@ impl TxPoolAuthority {
         self.entries.len()
     }
 
-    pub(in crate::authority) fn resources(&self) -> &ResourceLedger {
-        &self.resources
+    pub(in crate::authority) fn resources(&self) -> ResourceRead<'_> {
+        self.resources.read(&self.entries)
     }
 
     pub(in crate::authority) fn reserve_primary_owner_capacity_for_foundation(
@@ -1004,7 +1004,7 @@ impl TxPoolAuthority {
             entries,
             indexes: self.indexes.snapshot(),
             source_versions: self.source_versions,
-            resources: self.resources.snapshot(),
+            resources: self.resources().snapshot(),
             membership: self.membership.snapshot(self.membership_counts()),
             scheduler: self.scheduler.snapshot(),
             dependencies: self.dependencies.snapshot(),
@@ -1019,7 +1019,7 @@ impl TxPoolAuthority {
             .iter()
             .all(|(hash, owner)| &owner.record().identity.raw == hash)
             && self.indexes.semantically_matches(&self.entries)
-            && self.resources.semantically_matches(&self.entries)
+            && self.resources().semantically_matches()
             && self.membership_projection_consistent()
             && self.scheduler.semantically_matches(&self.entries)
             && self.dependencies.semantically_matches(&self.entries)
@@ -1601,7 +1601,7 @@ impl TxPoolAuthority {
         permit: super::super::state::WorkPermit,
     ) -> Result<CheckoutSearch, PlanError> {
         match self
-            .resources
+            .resources()
             .active_work_availability_for_reference(ComputeAttribution::Trusted)?
         {
             ActiveWorkAvailability::Available => {}
@@ -1681,7 +1681,7 @@ impl TxPoolAuthority {
         };
         let attribution = preaccepted.source.compute_attribution();
         match self
-            .resources
+            .resources()
             .active_work_availability_for_reference(attribution)?
         {
             ActiveWorkAvailability::Available => {}
@@ -1823,7 +1823,7 @@ impl TxPoolAuthority {
             return Err(PlanError::Stale(StalePlan::Phase));
         };
         match self
-            .resources
+            .resources()
             .active_work_availability_for_reference(preaccepted.source.compute_attribution())?
         {
             ActiveWorkAvailability::Available => {}

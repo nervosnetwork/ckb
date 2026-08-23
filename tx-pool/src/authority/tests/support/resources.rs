@@ -10,6 +10,159 @@ pub(in crate::authority) struct ResourceSnapshot {
     pub(in crate::authority) accepted: AcceptedResources,
 }
 
+pub(in crate::authority) struct TestResourceLedger {
+    ledger: ResourceLedger,
+    entries: crate::authority::shard::ShardedOwnerMap,
+    charges: HashMap<RawTxHash, ChargeRecord>,
+}
+
+pub(in crate::authority) struct TestResourcePlan {
+    plan: ResourcePlan,
+    changes: Vec<(RawTxHash, Option<ChargeRecord>)>,
+}
+
+pub(in crate::authority) struct TestResourceBatchPlan {
+    plan: ResourceBatchPlan,
+    changes: Vec<(RawTxHash, Option<ChargeRecord>)>,
+}
+
+impl TestResourceLedger {
+    pub(in crate::authority) fn new(limits: ResourceLimits) -> Self {
+        Self {
+            ledger: ResourceLedger::new(limits),
+            entries: crate::authority::shard::ShardedOwnerMap::new(
+                crate::authority::shard::AuthorityShardRouter::new(),
+            ),
+            charges: HashMap::new(),
+        }
+    }
+
+    pub(in crate::authority) fn plan_replace(
+        &mut self,
+        key: RawTxHash,
+        expected: Option<ChargeRecord>,
+        after: Option<ChargeRecord>,
+    ) -> Result<TestResourcePlan, ResourceError> {
+        let shards = self.entries.plan_resource_transitions(std::iter::once((
+            &key,
+            ChargeProjection::from_validated(expected)?,
+            ChargeProjection::from_validated(after)?,
+        )))?;
+        let current = &self.charges;
+        let plan = self
+            .ledger
+            .plan_replace(&self.entries, expected, after, shards, || {
+                current.get(&key).copied()
+            })?;
+        Ok(TestResourcePlan {
+            plan,
+            changes: vec![(key, after)],
+        })
+    }
+
+    pub(in crate::authority) fn plan_batch(
+        &mut self,
+        changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
+    ) -> Result<TestResourceBatchPlan, ResourceError> {
+        let mut projections = Vec::new();
+        projections
+            .try_reserve(changes.len())
+            .map_err(|_| ResourceError::Allocation)?;
+        for (key, expected, after) in &changes {
+            projections.push((
+                key,
+                ChargeProjection::from_validated(*expected)?,
+                ChargeProjection::from_validated(*after)?,
+            ));
+        }
+        let shards = self.entries.plan_resource_transitions(projections)?;
+        let current = &self.charges;
+        let plan = self
+            .ledger
+            .plan_batch(&self.entries, changes.clone(), shards, |key| {
+                current.get(key).copied()
+            })?;
+        Ok(TestResourceBatchPlan {
+            plan,
+            changes: changes
+                .into_iter()
+                .map(|(key, _, after)| (key, after))
+                .collect(),
+        })
+    }
+
+    pub(in crate::authority) fn plan_compute_release(
+        &mut self,
+        key: RawTxHash,
+        expected: ChargeRecord,
+        after: ChargeRecord,
+    ) -> Result<TestResourcePlan, ComputeReleaseError> {
+        let before_projection = ChargeProjection::from_validated(Some(expected))
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let after_projection = ChargeProjection::from_validated(Some(after))
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let shards = self
+            .entries
+            .plan_resource_transitions(std::iter::once((&key, before_projection, after_projection)))
+            .map_err(|error| match error {
+                ResourceError::Arithmetic => ComputeReleaseError::Arithmetic,
+                ResourceError::PreAcceptedLimit
+                | ResourceError::RemoteLimit
+                | ResourceError::PeerLimit(_)
+                | ResourceError::ReplacementHistoryLimit
+                | ResourceError::AcceptedLimit
+                | ResourceError::ExistingChargeMismatch
+                | ResourceError::DuplicateChange
+                | ResourceError::ComputeEnvelope
+                | ResourceError::AttributionMismatch
+                | ResourceError::CapacityBankFault
+                | ResourceError::Allocation => ComputeReleaseError::Projection,
+            })?;
+        let current = &self.charges;
+        let plan =
+            self.ledger
+                .plan_compute_release(&self.entries, expected, after, shards, || {
+                    current.get(&key).copied()
+                })?;
+        Ok(TestResourcePlan {
+            plan,
+            changes: vec![(key, Some(after))],
+        })
+    }
+
+    pub(in crate::authority) fn apply(&mut self, plan: TestResourcePlan) {
+        for (key, after) in plan.changes {
+            match after {
+                Some(after) => {
+                    self.charges.insert(key, after);
+                }
+                None => {
+                    self.charges.remove(&key);
+                }
+            }
+        }
+        self.ledger.apply(&mut self.entries, plan.plan);
+    }
+
+    pub(in crate::authority) fn apply_batch(&mut self, plan: TestResourceBatchPlan) {
+        for (key, after) in plan.changes {
+            match after {
+                Some(after) => {
+                    self.charges.insert(key, after);
+                }
+                None => {
+                    self.charges.remove(&key);
+                }
+            }
+        }
+        self.ledger.apply_batch(&mut self.entries, plan.plan);
+    }
+
+    pub(in crate::authority) fn snapshot(&self) -> ResourceSnapshot {
+        self.ledger.read(&self.entries).snapshot()
+    }
+}
+
 impl ResidencyPolicy {
     pub(in crate::authority) const fn foundation() -> Self {
         Self {
@@ -44,7 +197,7 @@ impl ResourceVector {
     }
 }
 
-impl ResourceLedger {
+impl ResourceRead<'_> {
     /// Sequential-checkout resource probe retained only for refinement tests.
     /// Production compute plans against `OrderedResourceProjection` so a
     /// bounded wave observes earlier members of the same exchange.
@@ -53,10 +206,10 @@ impl ResourceLedger {
         attribution: ComputeAttribution,
     ) -> Result<ActiveWorkAvailability, ResourceError> {
         active_work_availability(
-            self.preaccepted,
-            self.remote,
+            self.preaccepted(),
+            self.remote(),
             attribution.peer().map(|peer| (peer, self.peer(peer))),
-            self.limits,
+            self.limits(),
         )
     }
 }
@@ -109,21 +262,18 @@ impl ResourceLimits {
     }
 }
 
-impl ResourceLedger {
-    pub(in crate::authority) fn snapshot(&self) -> ResourceSnapshot {
+impl ResourceRead<'_> {
+    pub(in crate::authority) fn snapshot(self) -> ResourceSnapshot {
         ResourceSnapshot {
-            preaccepted: self.preaccepted,
-            remote: self.remote,
-            peers: self.peers.clone(),
-            replacement_history: self.replacement_history,
-            accepted: self.accepted,
+            preaccepted: self.preaccepted(),
+            remote: self.remote(),
+            peers: self.entries.peer_resources_snapshot_for_test(),
+            replacement_history: self.replacement_history(),
+            accepted: self.accepted(),
         }
     }
 
-    pub(in crate::authority) fn semantically_matches(
-        &self,
-        entries: &crate::authority::shard::ShardedOwnerMap,
-    ) -> bool {
+    pub(in crate::authority) fn semantically_matches(self) -> bool {
         let mut expected = ResourceSnapshot {
             preaccepted: ResourceVector::default(),
             remote: ResourceVector::default(),
@@ -131,7 +281,7 @@ impl ResourceLedger {
             replacement_history: ResourceVector::default(),
             accepted: AcceptedResources::default(),
         };
-        for owner in entries.values() {
+        for owner in self.entries.values() {
             let charge = owner.charge_record();
             match (owner, charge) {
                 (
@@ -144,7 +294,7 @@ impl ResourceLedger {
                 ) => {
                     let exact_resources = match &entry.phase {
                         PreAcceptedPhase::Queued(QueuedWork::Verify(resolved)) => {
-                            let Ok(charge) = self.retained_entry_charge(
+                            let Ok(charge) = self.ledger.retained_entry_charge(
                                 entry,
                                 resolved.payload().resolved_resident_bytes(),
                                 resolved.payload().dependencies().len(),
@@ -154,7 +304,7 @@ impl ResourceLedger {
                             charge
                         }
                         PreAcceptedPhase::Computing(active) => {
-                            if active.grant != self.compute_grant(entry, active.permit) {
+                            if active.grant != self.ledger.compute_grant(entry, active.permit) {
                                 return false;
                             }
                             let Some(exact) = active.grant.retained_charge(
@@ -169,7 +319,7 @@ impl ResourceLedger {
                             exact
                         }
                         PreAcceptedPhase::Waiting(observed) => {
-                            let Ok(charge) = self.retained_entry_charge(
+                            let Ok(charge) = self.ledger.retained_entry_charge(
                                 entry,
                                 entry.basis.payload_bytes(),
                                 observed.retained().len(),
@@ -184,7 +334,7 @@ impl ResourceLedger {
                             {
                                 return false;
                             }
-                            let Ok(charge) = self.retained_entry_charge(
+                            let Ok(charge) = self.ledger.retained_entry_charge(
                                 entry,
                                 verified.metrics().cost.resident_bytes,
                                 verified.payload().dependencies().len(),
@@ -275,15 +425,27 @@ impl ResourceLedger {
             }
         }
         expected == self.snapshot()
-            && self.preaccepted.fits(self.limits.preaccepted)
-            && self.remote.fits(self.limits.remote)
+            && self.capacity_matches_committed()
+            && self.preaccepted().fits(self.ledger.limits.preaccepted)
+            && self.remote().fits(self.ledger.limits.remote)
             && self
-                .replacement_history
-                .fits(self.limits.replacement_history)
+                .replacement_history()
+                .fits(self.ledger.limits.replacement_history)
             && self
+                .snapshot()
                 .peers
                 .values()
-                .all(|usage| usage.fits(self.limits.per_peer))
-            && self.accepted.fits(self.limits.accepted)
+                .all(|usage| usage.fits(self.ledger.limits.per_peer))
+            && self.accepted().fits(self.ledger.limits.accepted)
+    }
+
+    fn capacity_matches_committed(self) -> bool {
+        let snapshot = self.snapshot();
+        let state = self.ledger.capacity.state.lock();
+        !state.faulted
+            && state.preaccepted == snapshot.preaccepted
+            && state.remote == snapshot.remote
+            && state.replacement_history == snapshot.replacement_history
+            && state.accepted == snapshot.accepted
     }
 }

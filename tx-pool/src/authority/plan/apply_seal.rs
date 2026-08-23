@@ -175,19 +175,40 @@ impl ResourcePlanner<'_> {
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
     ) -> Result<ResourcePlan, ResourceError> {
+        let before_projection = ChargeProjection::from_validated(expected)?;
+        let after_projection = ChargeProjection::from_validated(after)?;
+        let shards = self.entries.plan_resource_transitions(std::iter::once((
+            &key,
+            before_projection,
+            after_projection,
+        )))?;
         let entries = self.entries;
-        self.ledger.plan_replace(expected, after, || {
-            entries.get(&key).map(OwnedTx::charge_record)
-        })
+        self.ledger
+            .plan_replace(entries, expected, after, shards, || {
+                entries.get(&key).map(OwnedTx::charge_record)
+            })
     }
 
     pub(in crate::authority) fn plan_batch(
         &mut self,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
     ) -> Result<ResourceBatchPlan, ResourceError> {
+        let mut projections = Vec::new();
+        projections
+            .try_reserve(changes.len())
+            .map_err(|_| ResourceError::Allocation)?;
+        for (key, before, after) in &changes {
+            projections.push((
+                key,
+                ChargeProjection::from_validated(*before)?,
+                ChargeProjection::from_validated(*after)?,
+            ));
+        }
+        let shards = self.entries.plan_resource_transitions(projections)?;
         let entries = self.entries;
-        self.ledger
-            .plan_batch(changes, |key| entries.get(key).map(OwnedTx::charge_record))
+        self.ledger.plan_batch(entries, changes, shards, |key| {
+            entries.get(key).map(OwnedTx::charge_record)
+        })
     }
 
     pub(in crate::authority) fn plan_compute_release(
@@ -196,10 +217,32 @@ impl ResourcePlanner<'_> {
         expected: ChargeRecord,
         after: ChargeRecord,
     ) -> Result<ResourcePlan, ComputeReleaseError> {
+        let before_projection = ChargeProjection::from_validated(Some(expected))
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let after_projection = ChargeProjection::from_validated(Some(after))
+            .map_err(|_| ComputeReleaseError::Projection)?;
+        let shards = self
+            .entries
+            .plan_resource_transitions(std::iter::once((&key, before_projection, after_projection)))
+            .map_err(|error| match error {
+                ResourceError::Arithmetic => ComputeReleaseError::Arithmetic,
+                ResourceError::PreAcceptedLimit
+                | ResourceError::RemoteLimit
+                | ResourceError::PeerLimit(_)
+                | ResourceError::ReplacementHistoryLimit
+                | ResourceError::AcceptedLimit
+                | ResourceError::ExistingChargeMismatch
+                | ResourceError::DuplicateChange
+                | ResourceError::ComputeEnvelope
+                | ResourceError::AttributionMismatch
+                | ResourceError::CapacityBankFault
+                | ResourceError::Allocation => ComputeReleaseError::Projection,
+            })?;
         let entries = self.entries;
-        self.ledger.plan_compute_release(expected, after, || {
-            entries.get(&key).map(OwnedTx::charge_record)
-        })
+        self.ledger
+            .plan_compute_release(entries, expected, after, shards, || {
+                entries.get(&key).map(OwnedTx::charge_record)
+            })
     }
 }
 
@@ -377,8 +420,12 @@ impl TxPoolAuthority {
             .entries
             .apply_status_counts(delta.status_counts);
         match delta.resources {
-            PreparedResourceApply::Single(plan) => owner_resources.resources.apply(plan),
-            PreparedResourceApply::Batch(plan) => owner_resources.resources.apply_batch(plan),
+            PreparedResourceApply::Single(plan) => owner_resources
+                .resources
+                .apply(&mut owner_resources.entries, plan),
+            PreparedResourceApply::Batch(plan) => owner_resources
+                .resources
+                .apply_batch(&mut owner_resources.entries, plan),
         }
         let _ = token;
     }

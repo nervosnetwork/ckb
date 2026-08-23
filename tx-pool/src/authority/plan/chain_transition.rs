@@ -1452,7 +1452,8 @@ fn chain_resource_error(error: ResourceError) -> PlanError {
         | ResourceError::PeerLimit(_)
         | ResourceError::ReplacementHistoryLimit
         | ResourceError::AcceptedLimit
-        | ResourceError::ComputeEnvelope => PlanError::Fault(AuthorityFault::ResourceProjection),
+        | ResourceError::ComputeEnvelope
+        | ResourceError::CapacityBankFault => PlanError::Fault(AuthorityFault::ResourceProjection),
     }
 }
 
@@ -1472,7 +1473,8 @@ fn charge_chain_recovery(
             | ResourceError::AcceptedLimit
             | ResourceError::ExistingChargeMismatch
             | ResourceError::AttributionMismatch
-            | ResourceError::DuplicateChange,
+            | ResourceError::DuplicateChange
+            | ResourceError::CapacityBankFault,
         ) => Err(PlanError::Fault(AuthorityFault::ResourceProjection)),
     }
 }

@@ -30,7 +30,6 @@ fn real_entry_delta_derives_support_from_its_typed_payload() {
         .expect("terminalization is the real Entry arm");
 
     assert!(support.len() > 0);
-    assert!(exclusive.resource_totals);
     assert!(exclusive.source_versions);
     assert!(exclusive.effect_log);
     assert!(exclusive.clocks);
@@ -84,7 +83,6 @@ fn real_local_removal_delta_derives_one_disjoint_shard_pair_and_names_globals() 
     assert!(root_support.len() > 0);
     assert!(independent_support.len() > 0);
     assert_eq!(root_exclusive, independent_exclusive);
-    assert!(root_exclusive.resource_totals);
     assert!(!root_exclusive.membership_counts);
     assert!(root_exclusive.source_versions);
     assert!(!root_exclusive.scheduler_cursor);

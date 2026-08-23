@@ -44,8 +44,8 @@ use super::rejection::{
     CommittedPublicReject, DirectRejectionValidity, DirectTransactionRejection,
 };
 use super::resources::{
-    ChargeRecord, ChargedAdmission, ComputeGrant, ComputeReleaseError, ResourceBatchPlan,
-    ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
+    ChargeProjection, ChargeRecord, ChargedAdmission, ComputeGrant, ComputeReleaseError,
+    ResourceBatchPlan, ResourceError, ResourceLedger, ResourceLimits, ResourcePlan, ResourceVector,
 };
 use super::scheduler::{
     FairFrontier, QueueLane, SchedulerBatchDelta, SchedulerDelta, SchedulerError,
@@ -94,9 +94,10 @@ impl TxPoolAuthority {
     }
 
     pub(super) fn operational_metrics(&self) -> crate::metrics::OperationalMetrics {
-        let total = self.resources.preaccepted();
-        let remote = self.resources.remote();
-        let conflict = self.resources.replacement_history();
+        let resources = self.resources.read(&self.entries);
+        let total = resources.preaccepted();
+        let remote = resources.remote();
+        let conflict = resources.replacement_history();
         crate::metrics::OperationalMetrics {
             kernel: crate::metrics::KernelUsage {
                 total_entries: total.entries,
@@ -143,7 +144,7 @@ impl TxPoolAuthority {
             &self.entries,
             &self.indexes,
             &self.membership,
-            self.resources.accepted(),
+            self.resources.read(&self.entries).accepted(),
             self.membership_config,
             self.source_versions.relay_parents(),
             self.source_versions.template(),
@@ -174,7 +175,7 @@ impl TxPoolAuthority {
     fn wake_projection(&self) -> AuthorityWakeProjection {
         AuthorityWakeProjection {
             scheduler: self.scheduler.wake_projection(),
-            active_work: self.resources.preaccepted().active_work,
+            active_work: self.resources.read(&self.entries).preaccepted().active_work,
             dependency_maintenance: self.dependencies.maintenance_pending(),
             effects: self.effects.wake_projection(),
             template: self.source_versions.template(),
@@ -394,7 +395,8 @@ impl From<ResourceError> for PlanError {
             ResourceError::Allocation => Self::Backpressure(Backpressure::Allocation),
             ResourceError::Arithmetic
             | ResourceError::ExistingChargeMismatch
-            | ResourceError::AttributionMismatch => Self::Fault(AuthorityFault::ResourceProjection),
+            | ResourceError::AttributionMismatch
+            | ResourceError::CapacityBankFault => Self::Fault(AuthorityFault::ResourceProjection),
             ResourceError::DuplicateChange => Self::Fault(AuthorityFault::ResourceProjection),
         }
     }
@@ -2427,7 +2429,8 @@ impl TxPoolAuthority {
             | ResourceError::ExistingChargeMismatch
             | ResourceError::DuplicateChange
             | ResourceError::ComputeEnvelope
-            | ResourceError::AttributionMismatch => {
+            | ResourceError::AttributionMismatch
+            | ResourceError::CapacityBankFault => {
                 PlanError::Fault(AuthorityFault::ResourceProjection)
             }
         }
@@ -4024,7 +4027,7 @@ impl TxPoolAuthority {
     }
 
     pub(super) fn plan_effect_close(&mut self) -> Result<PreparedApply<'_>, EffectCloseError> {
-        if self.resources.preaccepted().active_work != 0 {
+        if self.resources.read(&self.entries).preaccepted().active_work != 0 {
             return Err(EffectCloseError::ActiveWork);
         }
         let effect = self.effects.plan_close().map_err(|error| match error {
