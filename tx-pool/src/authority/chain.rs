@@ -333,6 +333,17 @@ pub(super) struct FinalAdmissionWork {
     validation: MembershipValidationWork,
 }
 
+/// Minimal first-cut capability used only to allocate final-admission scratch
+/// outside the authority guard. The second OCC cut still captures the full
+/// [`FinalAdmissionWork`], so this value owns no reusable verification facts.
+#[derive(Clone, Debug)]
+pub(super) struct FinalAdmissionPreparation {
+    key: RawTxHash,
+    expected: EntryVersion,
+    view: ChainViewId,
+    payload: Arc<ResolvedPayload>,
+}
+
 /// Read-only validation work for a synchronous trusted admission. Unlike
 /// [`FinalAdmissionWork`], it has no resident PreAccepted owner or version:
 /// the exact transaction and its verification facts are sealed together and
@@ -429,10 +440,52 @@ impl FinalAdmissionWork {
         &self.validation.view
     }
 
+    #[cfg(test)]
+    pub(in crate::authority) fn preparation(&self) -> FinalAdmissionPreparation {
+        FinalAdmissionPreparation::new(
+            self.key.clone(),
+            self.expected,
+            self.validation.view.clone(),
+            Arc::clone(self.validation.verified.payload_arc()),
+        )
+    }
+
     pub(super) fn into_validation_parts(
         self,
     ) -> (RawTxHash, EntryVersion, MembershipValidationWork) {
         (self.key, self.expected, self.validation)
+    }
+}
+
+impl FinalAdmissionPreparation {
+    pub(super) fn new(
+        key: RawTxHash,
+        expected: EntryVersion,
+        view: ChainViewId,
+        payload: Arc<ResolvedPayload>,
+    ) -> Self {
+        Self {
+            key,
+            expected,
+            view,
+            payload,
+        }
+    }
+
+    pub(super) fn key(&self) -> &RawTxHash {
+        &self.key
+    }
+
+    pub(super) fn expected(&self) -> EntryVersion {
+        self.expected
+    }
+
+    pub(super) fn view(&self) -> &ChainViewId {
+        &self.view
+    }
+
+    pub(super) fn payload(&self) -> &ResolvedPayload {
+        &self.payload
     }
 }
 

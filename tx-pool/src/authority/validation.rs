@@ -11,10 +11,10 @@ use super::{
     chain::{
         AcceptedChainSensitivity, CellLocationReceiptError, DirectAdmissionReceipt,
         DirectAdmissionRejection, DirectAdmissionRetry, DirectAdmissionSubject,
-        DirectAdmissionWork, FinalAdmissionReceipt, FinalAdmissionRejection, FinalAdmissionRetry,
-        FinalAdmissionSubject, FinalAdmissionWork, MembershipReceipt, MembershipValidationWork,
-        ReadyPayloadRelation, TimeContextReceipt, VerificationContextReceipt,
-        proposal_context_receipt,
+        DirectAdmissionWork, FinalAdmissionPreparation, FinalAdmissionReceipt,
+        FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
+        MembershipReceipt, MembershipValidationWork, ReadyPayloadRelation, TimeContextReceipt,
+        VerificationContextReceipt, proposal_context_receipt,
     },
     plan::TxPoolAuthority,
     rejection::CommittedPublicReject,
@@ -242,7 +242,7 @@ impl PreparedDirectAdmissionValidation {
 impl FinalAdmissionValidation {
     pub(super) fn prepare(
         snapshot: Arc<Snapshot>,
-        work: FinalAdmissionWork,
+        work: FinalAdmissionPreparation,
         min_fee_rate: FeeRate,
     ) -> Result<PreparedFinalAdmissionValidation, FinalAdmissionValidationError> {
         if snapshot.tip_hash() != work.view().tip().0 {

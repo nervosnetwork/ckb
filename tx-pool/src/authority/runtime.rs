@@ -13,8 +13,8 @@ use super::rejection::{
 };
 use super::{
     chain::{
-        AcceptedValidityTransition, ChainValidationError, DirectAdmissionWork, FinalAdmissionWork,
-        ProposalTransitionFacts,
+        AcceptedValidityTransition, ChainValidationError, DirectAdmissionWork,
+        FinalAdmissionPreparation, ProposalTransitionFacts,
     },
     chain_boundary::{
         ChainBoundaryError, ChainGenerationReplacement, ChainUpdateCommand, ChainUpdateFailure,
@@ -1754,8 +1754,8 @@ struct ReadyValidationBatch {
 #[must_use = "Ready work must be preallocated and rechecked against one later authority cut"]
 struct ReadyWorkBatch {
     snapshot: Arc<Snapshot>,
-    head: FinalAdmissionWork,
-    tail: Vec<FinalAdmissionWork>,
+    head: FinalAdmissionPreparation,
+    tail: Vec<FinalAdmissionPreparation>,
 }
 
 #[must_use = "prepared Ready work must complete its OCC capture"]
@@ -3609,7 +3609,7 @@ impl AuthorityStore {
         };
         let head = self
             .authority
-            .final_admission_work(&head_key, head_expected)
+            .final_admission_preparation(&head_key, head_expected)
             .map_err(FinalAdmissionCaptureError::Plan)?;
         let mut tail = Vec::new();
         tail.try_reserve(candidates.len())
@@ -3617,7 +3617,7 @@ impl AuthorityStore {
         for (key, expected) in candidates {
             tail.push(
                 self.authority
-                    .final_admission_work(&key, expected)
+                    .final_admission_preparation(&key, expected)
                     .map_err(FinalAdmissionCaptureError::Plan)?,
             );
         }

@@ -20,8 +20,9 @@ use self::test_support::DependencyLossWork;
 
 use super::ban::{PeerBanDelta, PeerBanError, PeerBanRegistry};
 use super::chain::{
-    DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionReceipt,
-    FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject, FinalAdmissionWork,
+    DirectAdmissionReceipt, DirectAdmissionRejection, FinalAdmissionPreparation,
+    FinalAdmissionReceipt, FinalAdmissionRejection, FinalAdmissionRetry, FinalAdmissionSubject,
+    FinalAdmissionWork,
 };
 use super::dependency::{
     DependencyBatchDelta, DependencyControlDelta, DependencyDelta, DependencyError,
@@ -2169,6 +2170,32 @@ impl TxPoolAuthority {
             expected,
             self.chain_view.clone(),
             verified.clone(),
+        ))
+    }
+
+    pub(super) fn final_admission_preparation(
+        &self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+    ) -> Result<FinalAdmissionPreparation, PlanError> {
+        let existing = self
+            .entries
+            .get(key)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if existing.record().version != expected {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(preaccepted) = &*existing else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Ready(verified) = &preaccepted.phase else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        Ok(FinalAdmissionPreparation::new(
+            key.clone(),
+            expected,
+            self.chain_view.clone(),
+            Arc::clone(verified.payload_arc()),
         ))
     }
 
