@@ -724,6 +724,20 @@ impl MembershipProjection {
             .cloned()
     }
 
+    fn dependency_reader_row_facts(
+        &self,
+        dependency: &OutPoint,
+        reader: &RawTxHash,
+    ) -> Option<(usize, bool)> {
+        let shard = self.entries.layout.shards
+            [self.shard(b"membership/dependency-readers", dependency)]
+        .read();
+        shard
+            .dependency_readers
+            .get(dependency)
+            .map(|readers| (readers.len(), readers.contains(reader)))
+    }
+
     pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
         self.entries.layout.shards[self.shard(b"membership/parents", hash)]
             .read()
@@ -2131,6 +2145,12 @@ impl TxPoolAuthority {
         removals: &[DependencyReaderEdge],
         insertions: &[DependencyReaderEdge],
     ) -> Result<(Vec<PreparedDependencyRow>, Vec<OutPoint>), super::PlanError> {
+        struct RowCounts {
+            removals: usize,
+            insertions: usize,
+            existing_len: Option<usize>,
+        }
+
         let edge_count =
             removals
                 .len()
@@ -2138,52 +2158,67 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
-        let mut counts = HashMap::<OutPoint, (usize, usize)>::new();
+        let mut counts = HashMap::<OutPoint, RowCounts>::new();
         counts
             .try_reserve(edge_count)
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         for edge in removals {
-            let readers = self.membership.dependency_readers(&edge.dependency).ok_or(
-                super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
-            )?;
-            if !readers.contains(&edge.reader) {
+            let Some((existing_len, contains_reader)) = self
+                .membership
+                .dependency_reader_row_facts(&edge.dependency, &edge.reader)
+            else {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            };
+            if !contains_reader {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
             }
-            let count = counts.entry(edge.dependency.clone()).or_default();
-            count.0 = count.0.checked_add(1).ok_or(super::PlanError::Fault(
-                super::AuthorityFault::CounterExhausted,
-            ))?;
+            let count = counts.entry(edge.dependency.clone()).or_insert(RowCounts {
+                removals: 0,
+                insertions: 0,
+                existing_len: Some(existing_len),
+            });
+            count.removals = count
+                .removals
+                .checked_add(1)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
         }
         for edge in insertions {
-            if self
+            let row_facts = self
                 .membership
-                .dependency_readers(&edge.dependency)
-                .is_some_and(|readers| readers.contains(&edge.reader))
-            {
+                .dependency_reader_row_facts(&edge.dependency, &edge.reader);
+            if row_facts.is_some_and(|(_, contains_reader)| contains_reader) {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ));
             }
-            let count = counts.entry(edge.dependency.clone()).or_default();
-            count.1 = count.1.checked_add(1).ok_or(super::PlanError::Fault(
-                super::AuthorityFault::CounterExhausted,
-            ))?;
+            let count = counts.entry(edge.dependency.clone()).or_insert(RowCounts {
+                removals: 0,
+                insertions: 0,
+                existing_len: row_facts.map(|(existing_len, _)| existing_len),
+            });
+            count.insertions = count
+                .insertions
+                .checked_add(1)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?;
         }
 
-        let mut new_row_keys = Vec::new();
-        new_row_keys
-            .try_reserve(counts.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        new_row_keys.extend(
-            counts
-                .keys()
-                .filter(|dependency| self.membership.dependency_readers(dependency).is_none())
-                .cloned(),
-        );
-        let new_rows = new_row_keys.len();
-        self.reserve_membership_dependency_rows(new_row_keys.iter())?;
+        let new_rows = counts
+            .values()
+            .filter(|count| count.existing_len.is_none())
+            .count();
+        self.reserve_membership_dependency_rows(
+            counts.iter().filter_map(|(dependency, count)| {
+                count.existing_len.is_none().then_some(dependency)
+            }),
+        )?;
         let mut row_insertions = Vec::new();
         row_insertions
             .try_reserve(new_rows)
@@ -2198,37 +2233,36 @@ impl TxPoolAuthority {
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         ordered_counts.extend(counts);
         ordered_counts.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        for (dependency, (remove_count, insert_count)) in ordered_counts {
-            match self.membership.dependency_readers(&dependency) {
-                Some(readers) => {
+        for (dependency, count) in ordered_counts {
+            match count.existing_len {
+                Some(existing_len) => {
                     let remaining =
-                        readers
-                            .len()
-                            .checked_sub(remove_count)
+                        existing_len
+                            .checked_sub(count.removals)
                             .ok_or(super::PlanError::Fault(
                                 super::AuthorityFault::MembershipProjection,
                             ))?;
                     let final_count =
                         remaining
-                            .checked_add(insert_count)
+                            .checked_add(count.insertions)
                             .ok_or(super::PlanError::Fault(
                                 super::AuthorityFault::CounterExhausted,
                             ))?;
-                    if insert_count != 0 {
-                        self.reserve_membership_dependency_row(&dependency, insert_count)?;
+                    if count.insertions != 0 {
+                        self.reserve_membership_dependency_row(&dependency, count.insertions)?;
                     }
                     if final_count == 0 {
                         row_removals.push(dependency);
                     }
                 }
                 None => {
-                    if remove_count != 0 || insert_count == 0 {
+                    if count.removals != 0 || count.insertions == 0 {
                         return Err(super::PlanError::Fault(
                             super::AuthorityFault::MembershipProjection,
                         ));
                     }
                     let mut readers = HashSet::new();
-                    readers.try_reserve(insert_count).map_err(|_| {
+                    readers.try_reserve(count.insertions).map_err(|_| {
                         super::PlanError::Backpressure(super::Backpressure::Allocation)
                     })?;
                     row_insertions.push(PreparedDependencyRow {
