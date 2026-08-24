@@ -13,12 +13,14 @@ pub(super) fn replacement_removals(
 ) -> Result<Vec<RawTxHash>, PlanError> {
     let footprint = &candidate.proof.payload().footprint;
     let mut direct = Vec::new();
-    direct
-        .try_reserve_exact(footprint.inputs().len())
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
     let mut first_conflict = None;
     for input in footprint.inputs() {
         if let Some(spender) = authority.membership.spender(input) {
+            if direct.is_empty() {
+                direct
+                    .try_reserve_exact(footprint.inputs().len())
+                    .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+            }
             direct.push(spender.clone());
             first_conflict.get_or_insert_with(|| input.clone());
         }
@@ -39,12 +41,41 @@ pub(super) fn replacement_removals(
     };
 
     validate_no_new_unconfirmed_inputs(authority, candidate, &direct)?;
-    let removals = authority.bounded_descendant_postorder(
-        &direct,
-        &HashSet::new(),
-        authority.membership_config.max_component,
-        ComponentLimitKind::Replacement,
-    )?;
+    let removals = if let [root] = direct.as_slice() {
+        let children = authority
+            .membership
+            .children(root)
+            .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+        if children.is_empty() {
+            // The general postorder also validates both relation rows. Keep
+            // that fault boundary while avoiding its frontier, closure map,
+            // heap and output sort for the dominant leaf-victim case.
+            authority
+                .membership
+                .parents(root)
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            let mut removals = Vec::new();
+            removals
+                .try_reserve_exact(1)
+                .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+            removals.push(root.clone());
+            removals
+        } else {
+            authority.bounded_descendant_postorder(
+                &direct,
+                &HashSet::new(),
+                authority.membership_config.max_component,
+                ComponentLimitKind::Replacement,
+            )?
+        }
+    } else {
+        authority.bounded_descendant_postorder(
+            &direct,
+            &HashSet::new(),
+            authority.membership_config.max_component,
+            ComponentLimitKind::Replacement,
+        )?
+    };
     let mut removal_set = HashSet::new();
     removal_set
         .try_reserve(removals.len())
@@ -97,6 +128,9 @@ fn validate_descendant_overlap(
     direct: &[RawTxHash],
     removal_set: &HashSet<RawTxHash>,
 ) -> Result<(), PlanError> {
+    if removal_set.len() == direct.len() && direct.iter().all(|hash| removal_set.contains(hash)) {
+        return Ok(());
+    }
     let mut descendants = HashSet::new();
     descendants
         .try_reserve(removal_set.len())
