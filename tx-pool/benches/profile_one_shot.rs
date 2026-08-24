@@ -9,8 +9,6 @@ use ckb_fee_estimator::FeeEstimator;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
 use ckb_proposal_table::ProposalView;
 use ckb_snapshot::Snapshot;
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
-use ckb_stop_handler::broadcast_exit_signals;
 use ckb_store::attach_block_cell;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::{MockStore, always_success_cell};
@@ -28,8 +26,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
 };
 use ckb_verification::cache::init_cache;
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
-use std::io::Write;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     collections::{HashSet, VecDeque},
@@ -42,8 +38,6 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tempfile::TempDir;
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
-use tokio::sync::Barrier;
 use tokio::sync::{Notify, RwLock};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
@@ -598,7 +592,6 @@ fn snapshot_with_proposed(
     store: &MockStore,
     proposals: impl IntoIterator<Item = ckb_types::packed::ProposalShortId>,
 ) -> Arc<Snapshot> {
-    let proposals = proposals.into_iter().collect::<HashSet<_>>();
     Arc::new(Snapshot::new(
         base.tip_header().clone(),
         base.total_difficulty().clone(),
@@ -645,22 +638,18 @@ fn start_network(
     Ok((directory, controller))
 }
 
-fn build_tx_with_output_bytes(input: OutPoint, output_bytes: usize) -> TransactionView {
+fn build_tx(input: OutPoint) -> TransactionView {
     TransactionBuilder::default()
         .cell_dep(always_success_dep())
         .input(CellInput::new(input, 0))
         .output(
             CellOutput::new_builder()
-                .capacity(Capacity::bytes(output_bytes).expect("valid output capacity"))
+                .capacity(Capacity::bytes(100).expect("valid output capacity"))
                 .lock(always_success_script())
                 .build(),
         )
         .output_data(Bytes::default().pack())
         .build()
-}
-
-fn build_tx(input: OutPoint) -> TransactionView {
-    build_tx_with_output_bytes(input, 100)
 }
 
 fn build_multi_input_tx(inputs: impl IntoIterator<Item = OutPoint>) -> TransactionView {
@@ -851,25 +840,6 @@ fn build_workload(
         return Ok((consensus, transactions));
     }
     match scenario {
-        "rbf_pairs" => {
-            if !transaction_count.is_multiple_of(2) {
-                return Err(std::io::Error::other(
-                    "RBF workload requires equal victim and replacement halves",
-                )
-                .into());
-            }
-            let pair_count = transaction_count / 2;
-            let (consensus, issue_tx) = test_consensus(pair_count);
-            let mut victims = Vec::with_capacity(pair_count);
-            let mut replacements = Vec::with_capacity(pair_count);
-            for index in 0..pair_count {
-                let input = OutPoint::new(issue_tx.hash(), u32::try_from(index)?);
-                victims.push(build_tx_with_output_bytes(input.clone(), 101));
-                replacements.push(build_tx_with_output_bytes(input, 100));
-            }
-            victims.extend(replacements);
-            Ok((consensus, victims))
-        }
         "always_success" => {
             let (consensus, issue_tx) = test_consensus(transaction_count);
             let transactions = (0..transaction_count)
@@ -936,7 +906,6 @@ fn build_workload(
     }
 }
 
-#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
 async fn submit_batch(
     controller: &TxPoolController,
     completion: &Completion,
@@ -973,49 +942,6 @@ async fn submit_batch(
     }
     for response in futures_util::future::join_all(responses).await {
         response?;
-    }
-    completion.wait_for(expected_total).await
-}
-
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
-async fn submit_batch(
-    controller: &TxPoolController,
-    completion: &Completion,
-    transactions: Arc<Vec<TransactionView>>,
-    cycles: Arc<Vec<u64>>,
-    peers: usize,
-    expected_total: usize,
-) -> Result<(), Box<dyn Error>> {
-    let chunk_size = transactions.len().div_ceil(peers.max(1));
-    let ranges: Vec<_> = (0..transactions.len())
-        .step_by(chunk_size.max(1))
-        .map(|start| (start, (start + chunk_size).min(transactions.len())))
-        .collect();
-    let barrier = Arc::new(Barrier::new(ranges.len() + 1));
-    let mut submissions = Vec::with_capacity(ranges.len());
-    for (peer, (start, end)) in ranges.into_iter().enumerate() {
-        let controller = controller.clone();
-        let transactions = Arc::clone(&transactions);
-        let cycles = Arc::clone(&cycles);
-        let barrier = Arc::clone(&barrier);
-        submissions.push(tokio::spawn(async move {
-            barrier.wait().await;
-            for index in start..end {
-                controller
-                    .submit_remote_tx(
-                        transactions[index].clone(),
-                        cycles[index],
-                        (peer + 1).into(),
-                    )
-                    .await
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
-            }
-            Ok::<(), std::io::Error>(())
-        }));
-    }
-    barrier.wait().await;
-    for submission in submissions {
-        submission.await??;
     }
     completion.wait_for(expected_total).await
 }
@@ -1084,12 +1010,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let warm_count = parse_arg(3, 100)?;
     let workers = parse_arg(4, 8)?;
     let peers = parse_arg(5, 8)?;
-    if workload_scenario == "rbf_pairs" && warm_count != target_count {
-        return Err(std::io::Error::other(
-            "RBF workload requires warm victim count to equal measured replacement count",
-        )
-        .into());
-    }
     if workload_scenario.ends_with("_reverse") && warm_count != 0 {
         return Err(std::io::Error::other(
             "reverse dependency workloads require warm=0; a dependency prefix cannot be used as an accepted warm pool",
@@ -1106,7 +1026,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (mut builder, controller, _relay_guard) = {
         let (relay_sender, relay_receiver) = ckb_channel::bounded(1024);
         let (builder, controller) = TxPoolServiceBuilder::new(
-            tx_pool_config(workers, workload_scenario == "rbf_pairs"),
+            tx_pool_config(workers, false),
             Arc::clone(&snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
@@ -1119,7 +1039,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
     let (mut builder, controller, _relay_guard) = {
         let (builder, controller, relay_receiver) = TxPoolServiceBuilder::new(
-            tx_pool_config(workers, workload_scenario == "rbf_pairs"),
+            tx_pool_config(workers, false),
             Arc::clone(&snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
@@ -1313,22 +1233,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         reorg_started.elapsed().as_nanos()
     };
     let shutdown_started = Instant::now();
-    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-    {
-        controller.stop();
-        runtime.block_on(async {
-            tokio::time::timeout(Duration::from_secs(30), async {
-                while controller.service_started() {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-        })?;
-    }
-    #[cfg(feature = "cross-version-legacy-bench-adapter")]
-    {
-        broadcast_exit_signals();
-    }
+    controller.stop();
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while controller.service_started() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+    })?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     let throughput = target_count as f64 / elapsed.as_secs_f64();
     let profile_window = serde_json::json!({
@@ -1368,11 +1281,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!(
         "PROFILE_WINDOW start_unix_ns={profile_started_unix_ns} end_unix_ns={profile_ended_unix_ns}"
     );
-    #[cfg(feature = "cross-version-legacy-bench-adapter")]
-    {
-        std::io::stdout().flush()?;
-        std::process::exit(0)
-    }
-    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
     Ok(())
 }

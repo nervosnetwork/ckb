@@ -889,7 +889,9 @@ impl ShardedOwnerReadCut<'_> {
         &self,
         key: &RawTxHash,
     ) -> Option<&HashSet<RawTxHash>> {
-        let shard = self.shards.get(self.router.owner(key))?;
+        let shard = self
+            .shards
+            .get(self.router.shard(b"membership/parents", key))?;
         shard.parents.get(key)
     }
 
@@ -905,7 +907,7 @@ impl ShardedOwnerReadCut<'_> {
         key: &RawTxHash,
     ) -> Option<AncestorAggregate> {
         self.shards
-            .get(self.router.owner(key))?
+            .get(self.router.shard(b"membership/ancestor", key))?
             .ancestor_aggregates
             .get(key)
             .copied()
@@ -916,7 +918,7 @@ impl ShardedOwnerReadCut<'_> {
         key: &RawTxHash,
     ) -> Option<DescendantAggregate> {
         self.shards
-            .get(self.router.owner(key))?
+            .get(self.router.shard(b"membership/descendant", key))?
             .descendant_aggregates
             .get(key)
             .copied()
