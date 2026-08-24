@@ -1082,15 +1082,20 @@ impl DependencyFrontier {
                 .map_err(|_| DependencyError::Allocation)?;
         }
         for (before, after) in input.by_ref() {
+            let before = before.map(DependencySlot::from_owner).transpose()?;
+            let after = after.map(DependencySlot::from_owner).transpose()?;
+            if before == after {
+                if before.as_ref().is_some_and(|slot| !self.contains(slot)) {
+                    return Err(DependencyError::Projection);
+                }
+                continue;
+            }
             if changes.len() == changes.capacity() {
                 changes
                     .try_reserve(1)
                     .map_err(|_| DependencyError::Allocation)?;
             }
-            changes.push((
-                before.map(DependencySlot::from_owner).transpose()?,
-                after.map(DependencySlot::from_owner).transpose()?,
-            ));
+            changes.push((before, after));
         }
         let mut removed = Vec::new();
         let mut added = Vec::new();
