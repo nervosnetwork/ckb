@@ -9,6 +9,23 @@ use crate::authority::{
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+fn try_collect_exact<T, I>(items: I) -> Result<Vec<T>, PlanError>
+where
+    I: IntoIterator<Item = T>,
+{
+    let items = items.into_iter();
+    let (capacity, upper) = items.size_hint();
+    if upper != Some(capacity) {
+        return Err(PlanError::Fault(AuthorityFault::CounterExhausted));
+    }
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(capacity)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    values.extend(items);
+    Ok(values)
+}
+
 fn isolated_aggregate_delta(
     candidate_hash: &RawTxHash,
     candidate: &AcceptedEntry,
@@ -18,59 +35,44 @@ fn isolated_aggregate_delta(
     // RBF, graph and resource policy and proved there are no causal survivors
     // to update. Encode only the canonical removal/insertion keys that the
     // general virtual projection would emit for that empty relation cut.
-    let change_capacity = usize::from(removal.is_some())
-        .checked_add(1)
-        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
     let candidate_descendants = DescendantAggregate::one(candidate);
     let candidate_ancestors = AncestorAggregate::one(candidate);
-
-    let mut changes = Vec::new();
-    changes
-        .try_reserve_exact(change_capacity)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    let mut ancestor_changes = Vec::new();
-    ancestor_changes
-        .try_reserve_exact(change_capacity)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    let mut accepted_order_removals = Vec::new();
-    let mut eviction_removals = Vec::new();
-    if let Some((hash, accepted_order, eviction_order)) = removal {
-        accepted_order_removals
-            .try_reserve_exact(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        eviction_removals
-            .try_reserve_exact(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        changes.push((hash.clone(), None));
-        ancestor_changes.push((hash, None));
-        accepted_order_removals.push(accepted_order);
-        eviction_removals.push(eviction_order);
-    }
-    changes.push((candidate_hash.clone(), Some(candidate_descendants)));
-    ancestor_changes.push((candidate_hash.clone(), Some(candidate_ancestors)));
-    if change_capacity > 1 {
+    let mut changes = try_collect_exact(
+        removal
+            .iter()
+            .map(|(hash, _, _)| (hash.clone(), None))
+            .chain(std::iter::once((
+                candidate_hash.clone(),
+                Some(candidate_descendants),
+            ))),
+    )?;
+    let mut ancestor_changes = try_collect_exact(
+        removal
+            .iter()
+            .map(|(hash, _, _)| (hash.clone(), None))
+            .chain(std::iter::once((
+                candidate_hash.clone(),
+                Some(candidate_ancestors),
+            ))),
+    )?;
+    if removal.is_some() {
         changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         ancestor_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
     }
 
-    let mut accepted_order_insertions = Vec::new();
-    accepted_order_insertions
-        .try_reserve_exact(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    accepted_order_insertions.push(AcceptedOrderKey::new(candidate, candidate_ancestors));
-    let mut eviction_insertions = Vec::new();
-    eviction_insertions
-        .try_reserve_exact(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    eviction_insertions.push(EvictionOrderKey::new(candidate, candidate_descendants));
-
     Ok(AggregateDelta {
         changes,
         ancestor_changes,
-        accepted_order_removals,
-        accepted_order_insertions,
-        eviction_removals,
-        eviction_insertions,
+        accepted_order_removals: try_collect_exact(removal.iter().map(|(_, key, _)| key.clone()))?,
+        accepted_order_insertions: try_collect_exact(std::iter::once(AcceptedOrderKey::new(
+            candidate,
+            candidate_ancestors,
+        )))?,
+        eviction_removals: try_collect_exact(removal.iter().map(|(_, _, key)| key.clone()))?,
+        eviction_insertions: try_collect_exact(std::iter::once(EvictionOrderKey::new(
+            candidate,
+            candidate_descendants,
+        )))?,
     })
 }
 
@@ -137,17 +139,6 @@ pub(super) fn complete_removals(
             descendant.clone(),
         )));
     }
-    let component_capacity = removed
-        .len()
-        .checked_add(candidate_descendants.len())
-        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-    let mut component_members = HashSet::new();
-    component_members
-        .try_reserve(component_capacity)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    component_members.extend(removed.iter().cloned());
-    component_members.extend(candidate_descendants.iter().cloned());
-
     let resources = authority.resources.read(&authority.entries);
     let mut projected_resources = resources.accepted();
     for removal in &removals {
@@ -161,10 +152,8 @@ pub(super) fn complete_removals(
         .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
 
     let mut isolated_delta = None;
-    if candidate_ancestors.is_empty()
-        && candidate_parents.is_empty()
+    if candidate_parents.is_empty()
         && candidate_children.is_empty()
-        && candidate_descendants.is_empty()
         && resources.accepted_fits(projected_resources)
     {
         if removals.is_empty() {
@@ -174,11 +163,10 @@ pub(super) fn complete_removals(
                 .membership
                 .parents(&removal.hash)
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let children = authority
-                .membership
-                .children(&removal.hash)
-                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            if parents.is_empty() && children.is_empty() {
+            // `replacement_removals` already returned the complete descendant
+            // closure. One removal proves that victim has no accepted child;
+            // only a surviving parent can require the general projection.
+            if parents.is_empty() {
                 let entry = authority.accepted_entry(&removal.hash)?;
                 let ancestor = authority
                     .membership
@@ -218,6 +206,17 @@ pub(super) fn complete_removals(
             aggregate,
         });
     }
+
+    let component_capacity = removed
+        .len()
+        .checked_add(candidate_descendants.len())
+        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+    let mut component_members = HashSet::new();
+    component_members
+        .try_reserve(component_capacity)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    component_members.extend(removed.iter().cloned());
+    component_members.extend(candidate_descendants.iter().cloned());
 
     let mut virtual_projection = VirtualProjection::new(
         candidate_hash,
