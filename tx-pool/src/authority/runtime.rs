@@ -1896,20 +1896,29 @@ impl AuthorityRuntime {
         committed
             .try_reserve(requested.len())
             .map_err(|_| AuthorityQueryError::Allocation)?;
-        for proposal in &requested {
-            if view
-                .entry_by_proposal(&super::state::ProposalId(proposal.clone()))?
-                .is_none()
-                && let Some(hash) = store
-                    .committed_txs_hash_cache
-                    .as_ref()
-                    .and_then(|cache| cache.peek(proposal))
-            {
-                committed.push((proposal.clone(), hash.clone()));
+        let mut captured = Vec::new();
+        captured
+            .try_reserve(requested.len())
+            .map_err(|_| AuthorityQueryError::Allocation)?;
+        {
+            let cut = view.full_read_cut()?;
+            for proposal in &requested {
+                if cut
+                    .entry_by_proposal(&super::state::ProposalId(proposal.clone()))?
+                    .is_none()
+                    && let Some(hash) = store
+                        .committed_txs_hash_cache
+                        .as_ref()
+                        .and_then(|cache| cache.peek(proposal))
+                {
+                    committed.push((proposal.clone(), hash.clone()));
+                }
             }
+            cut.capture_compact_transactions_into(&requested, &mut captured)?;
         }
-        CompactBlockReadReceipt::capture(&view, Arc::clone(&store.snapshot), &requested, committed)
-            .map_err(Into::into)
+        let snapshot = Arc::clone(&store.snapshot);
+        drop(store);
+        CompactBlockReadReceipt::capture(snapshot, captured, committed).map_err(Into::into)
     }
 
     pub(crate) fn accepted_with_cycles(

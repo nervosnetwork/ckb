@@ -69,13 +69,15 @@ fn uak_query_never_splices_two_authority_cuts() {
         assert_eq!(raw.cycles(), Some(0));
         assert_eq!(raw.accepted_at(), Some(AcceptedAtMillis::FOUNDATION));
         let proposal = raw.identity().proposal.clone();
-        let by_proposal = view
+        drop(raw);
+        let cut = view.full_read_cut().expect("full read cut is coherent");
+        let by_proposal = cut
             .entry_by_proposal(&proposal)
             .expect("proposal index is coherent")
             .expect("proposal index finds the owner");
-        assert_eq!(by_proposal.identity().raw, hash);
-        let compact = view
-            .compact_transactions(std::slice::from_ref(&proposal.0))
+        assert_eq!(by_proposal.record().identity.raw, hash);
+        let mut compact = Vec::with_capacity(1);
+        cut.capture_compact_transactions_into(std::slice::from_ref(&proposal.0), &mut compact)
             .expect("compact lookup is one coherent cut");
         let first = compact.first().expect("the requested transaction exists");
         assert_eq!(compact.len(), 1);
@@ -141,6 +143,7 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
     assert_eq!(entry.fee(), None);
     assert_eq!(entry.cycles(), None);
     assert_eq!(entry.accepted_at(), None);
+    drop(entry);
     assert!(
         view.pool_ids()
             .expect("accepted IDs are coherent")
@@ -155,8 +158,9 @@ fn uak_read_view_keeps_unaccepted_payloads_visible_without_fabricating_proof() {
     assert_eq!(summary.waiting_missing, 0);
     assert_eq!(summary.replacement_history, 0);
     assert_eq!(summary.ready, 0);
-    let compact = view
-        .compact_transactions(std::slice::from_ref(&proposal.0))
+    let cut = view.full_read_cut().expect("full read cut is coherent");
+    let mut compact = Vec::with_capacity(1);
+    cut.capture_compact_transactions_into(std::slice::from_ref(&proposal.0), &mut compact)
         .expect("compact lookup includes every owner phase");
     let first = compact.first().expect("the requested transaction exists");
     assert_eq!(compact.len(), 1);
@@ -311,10 +315,10 @@ fn uak_dropped_persistence_receipt_has_no_authority_effect() {
     assert_eq!(authority.normalized_snapshot(), before);
 
     let unknown = super::super::state::ProposalId(tx(799).proposal_short_id());
+    let view = authority.read_view();
+    let cut = view.full_read_cut().expect("full read cut is coherent");
     assert!(
-        authority
-            .read_view()
-            .entry_by_proposal(&unknown)
+        cut.entry_by_proposal(&unknown)
             .expect("missing proposal is not a projection fault")
             .is_none()
     );

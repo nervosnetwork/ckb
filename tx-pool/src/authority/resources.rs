@@ -1,5 +1,5 @@
 use super::{
-    shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerWriteCut},
+    shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerWriteCut},
     state::{
         ComputeAttribution, OwnedTx, PreAcceptedEntry, RawTxHash, ValidatedAdmission, WorkPermit,
     },
@@ -1257,6 +1257,23 @@ impl ResourceLedger {
             entries,
             ledger: self,
         }
+    }
+
+    pub(in crate::authority) fn coherent_totals(
+        &self,
+        owners: &ShardedOwnerReadCut<'_>,
+    ) -> (ResourceTotals, AcceptedResources) {
+        owners.resource_totals().unwrap_or_else(|| {
+            self.capacity.mark_faulted();
+            (
+                ResourceTotals {
+                    preaccepted: ResourceVector::exhausted(),
+                    remote: ResourceVector::exhausted(),
+                    replacement_history: ResourceVector::exhausted(),
+                },
+                AcceptedResources::exhausted(),
+            )
+        })
     }
 
     pub(super) fn ordered_projection(

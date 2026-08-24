@@ -101,10 +101,15 @@ impl TxPoolAuthority {
     }
 
     pub(super) fn operational_metrics(&self) -> crate::metrics::OperationalMetrics {
-        let resources = self.resources.read(&self.entries);
-        let total = resources.preaccepted();
-        let remote = resources.remote();
-        let conflict = resources.replacement_history();
+        // Metrics are not policy authority, but their counters still promise
+        // one complete projection.  Hold the existing fixed-layout read cut so
+        // a concurrent sharded Apply cannot splice per-shard totals from two
+        // different moments.
+        let owners = self.entries.read_all();
+        let (resources, _accepted) = self.resources.coherent_totals(&owners);
+        let total = resources.preaccepted;
+        let remote = resources.remote;
+        let conflict = resources.replacement_history;
         crate::metrics::OperationalMetrics {
             kernel: crate::metrics::KernelUsage {
                 total_entries: total.entries,

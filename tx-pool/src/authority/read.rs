@@ -254,6 +254,7 @@ impl<'authority> AuthorityReadEntry<'authority> {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn cycles(&self) -> Option<u64> {
         match &*self.owner {
             OwnedTx::Accepted(entry) => Some(entry.proof.metrics().cost.cycles),
@@ -487,40 +488,6 @@ impl<'authority> AuthorityReadView<'authority> {
         Ok(history)
     }
 
-    pub(super) fn entry_by_proposal(
-        &self,
-        proposal: &ProposalId,
-    ) -> Result<Option<AuthorityReadEntry<'authority>>, AuthorityReadError> {
-        let Some(hash) = self.indexes.proposal_owner(proposal) else {
-            return Ok(None);
-        };
-        let owner = self
-            .entries
-            .get(&hash)
-            .ok_or(AuthorityReadError::Projection)?;
-        if &owner.record().identity.proposal != proposal {
-            return Err(AuthorityReadError::Projection);
-        }
-        Ok(Some(AuthorityReadEntry::new(owner)))
-    }
-
-    pub(super) fn compact_transactions(
-        &self,
-        proposals: &[ckb_types::packed::ProposalShortId],
-    ) -> Result<Vec<(ProposalId, Arc<TransactionView>)>, AuthorityReadError> {
-        let mut transactions = Vec::new();
-        transactions
-            .try_reserve(proposals.len())
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        for proposal in proposals {
-            let proposal = ProposalId(proposal.clone());
-            if let Some(entry) = self.entry_by_proposal(&proposal)? {
-                transactions.push((proposal, Arc::clone(entry.transaction())));
-            }
-        }
-        Ok(transactions)
-    }
-
     pub(super) fn summary(&self) -> Result<AuthorityReadSummary, AuthorityReadError> {
         let owners = self.entries.read_all();
         let mut summary = AuthorityReadSummary {
@@ -660,6 +627,10 @@ impl AuthorityFullReadCut<'_> {
         self.owners.len()
     }
 
+    pub(super) fn entry_by_raw(&self, hash: &RawTxHash) -> Option<&OwnedTx> {
+        self.owners.get(hash)
+    }
+
     pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
         let counts = self
             .owners
@@ -680,6 +651,40 @@ impl AuthorityFullReadCut<'_> {
 
     pub(super) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {
         self.owners.accepted_order()
+    }
+
+    pub(super) fn entry_by_proposal(
+        &self,
+        proposal: &ProposalId,
+    ) -> Result<Option<&OwnedTx>, AuthorityReadError> {
+        let Some(hash) = self.owners.proposal_owner(proposal) else {
+            return Ok(None);
+        };
+        let owner = self
+            .owners
+            .get(hash)
+            .ok_or(AuthorityReadError::Projection)?;
+        if &owner.record().identity.proposal != proposal {
+            return Err(AuthorityReadError::Projection);
+        }
+        Ok(Some(owner))
+    }
+
+    pub(super) fn capture_compact_transactions_into(
+        &self,
+        proposals: &[ckb_types::packed::ProposalShortId],
+        transactions: &mut Vec<(ProposalId, Arc<TransactionView>)>,
+    ) -> Result<(), AuthorityReadError> {
+        if !transactions.is_empty() || transactions.capacity() < proposals.len() {
+            return Err(AuthorityReadError::Projection);
+        }
+        for proposal in proposals {
+            let proposal = ProposalId(proposal.clone());
+            if let Some(owner) = self.entry_by_proposal(&proposal)? {
+                transactions.push((proposal, Arc::clone(&owner.record().tx)));
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn accepted_entry_by_raw(

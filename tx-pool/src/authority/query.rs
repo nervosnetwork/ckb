@@ -792,12 +792,10 @@ pub(crate) struct CompactBlockReadReceipt {
 
 impl CompactBlockReadReceipt {
     pub(super) fn capture(
-        view: &AuthorityReadView<'_>,
         snapshot: Arc<Snapshot>,
-        requested: &[ProposalShortId],
+        captured: Vec<(super::state::ProposalId, Arc<TransactionView>)>,
         committed: Vec<(ProposalShortId, Byte32)>,
     ) -> Result<Self, AuthorityReadError> {
-        let captured = view.compact_transactions(requested)?;
         let mut transactions = HashMap::new();
         transactions
             .try_reserve(captured.len())
@@ -844,15 +842,18 @@ pub(super) fn accepted_with_cycles(
     result
         .try_reserve_exact(requested.len())
         .map_err(|_| AuthorityReadError::Allocation)?;
+    let cut = view.full_read_cut()?;
     for hash in requested {
-        let Some(entry) = view.entry_by_raw(&RawTxHash(hash.clone())) else {
+        let Some(entry) = cut.entry_by_raw(&RawTxHash(hash.clone())) else {
             continue;
         };
-        if !matches!(entry.state(), super::read::AuthorityReadState::Accepted(_)) {
+        let super::state::OwnedTx::Accepted(entry) = entry else {
             continue;
-        }
-        let cycles = entry.cycles().ok_or(AuthorityReadError::Projection)?;
-        result.push((entry.transaction().as_ref().clone(), cycles));
+        };
+        result.push((
+            entry.record.tx.as_ref().clone(),
+            entry.proof.metrics().cost.cycles,
+        ));
     }
     Ok(result)
 }
@@ -861,9 +862,10 @@ pub(super) fn filter_fresh_proposals(
     view: &AuthorityReadView<'_>,
     proposals: &mut Vec<ProposalShortId>,
 ) -> Result<(), AuthorityReadError> {
+    let cut = view.full_read_cut()?;
     let mut failure = None;
     proposals.retain(|proposal| {
-        match view.entry_by_proposal(&super::state::ProposalId(proposal.clone())) {
+        match cut.entry_by_proposal(&super::state::ProposalId(proposal.clone())) {
             Ok(None) => true,
             Ok(Some(_)) => false,
             Err(error) => {

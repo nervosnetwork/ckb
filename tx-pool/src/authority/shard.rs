@@ -848,6 +848,28 @@ impl ShardedOwnerReadCut<'_> {
             })
     }
 
+    pub(in crate::authority) fn resource_totals(
+        &self,
+    ) -> Option<(ResourceTotals, AcceptedResources)> {
+        self.shards.iter().try_fold(
+            (ResourceTotals::default(), AcceptedResources::default()),
+            |(totals, accepted), shard| {
+                Some((
+                    ResourceTotals {
+                        preaccepted: totals
+                            .preaccepted
+                            .checked_add(shard.resources.totals.preaccepted)?,
+                        remote: totals.remote.checked_add(shard.resources.totals.remote)?,
+                        replacement_history: totals
+                            .replacement_history
+                            .checked_add(shard.resources.totals.replacement_history)?,
+                    },
+                    accepted.checked_add(shard.resources.accepted)?,
+                ))
+            },
+        )
+    }
+
     pub(in crate::authority) fn template_sources(
         &self,
         mut base: PoolTemplateVersions,
@@ -871,6 +893,13 @@ impl ShardedOwnerReadCut<'_> {
             .shards
             .get(self.router.shard(b"membership/parents", key))?;
         shard.parents.get(key)
+    }
+
+    pub(in crate::authority) fn proposal_owner(&self, proposal: &ProposalId) -> Option<&RawTxHash> {
+        self.shards
+            .get(self.router.shard(b"index/proposal", proposal))?
+            .proposals
+            .get(proposal)
     }
 
     pub(in crate::authority) fn membership_ancestor(
