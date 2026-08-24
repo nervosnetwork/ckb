@@ -460,12 +460,12 @@ impl TxPoolAuthority {
     /// Commit the owner/resource fact and the two owner-derived projections
     /// through one physical shard cut. The logical Apply order is unchanged;
     /// this only removes repeated acquisition of overlapping fixed shards.
-    pub(super) fn commit_owner_resources_with_projections<I>(
+    pub(super) fn commit_owner_resources_indexes_membership<I>(
         &mut self,
         token: &ApplyToken,
         delta: PreparedOwnerResourceDelta<I>,
-        mut indexes: Option<IndexDelta>,
-        membership: Option<ProjectionDelta>,
+        mut indexes: IndexDelta,
+        membership: ProjectionDelta,
         retired: &mut RetiredOwners,
     ) where
         I: IntoIterator<Item = OwnerResourceUpdate>,
@@ -473,12 +473,8 @@ impl TxPoolAuthority {
         let owner_resources = &self.state.owner_resources;
         let entries = &owner_resources.entries;
         let mut support = delta.support;
-        if let Some(indexes) = &indexes {
-            support.include(indexes.sharded_write_support(entries));
-        }
-        if let Some(membership) = &membership {
-            support.include(membership.sharded_write_support(entries));
-        }
+        support.include(indexes.sharded_write_support(entries));
+        support.include(membership.sharded_write_support(entries));
         let mut owners = entries.write_cut(support);
         for update in delta.updates {
             let shard = entries.owner_shard(&update.key);
@@ -490,12 +486,8 @@ impl TxPoolAuthority {
         owners.apply_status_counts(delta.status_counts);
         let capacity = delta.resources.apply_shards(&mut owners);
         capacity.commit();
-        if let Some(indexes) = &mut indexes {
-            indexes.apply_sharded(entries, &mut owners);
-        }
-        if let Some(membership) = membership {
-            membership.apply_sharded(entries, &mut owners);
-        }
+        indexes.apply_sharded(entries, &mut owners);
+        membership.apply_sharded(entries, &mut owners);
         drop(owners);
         let _ = token;
     }
