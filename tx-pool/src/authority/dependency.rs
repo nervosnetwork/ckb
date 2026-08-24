@@ -239,20 +239,30 @@ impl DependencyFrontier {
         self.entries.layout.router.shard(domain, key)
     }
 
+    fn with_consumers<T>(
+        &self,
+        key: &DependencyKey,
+        read: impl FnOnce(Option<&BTreeSet<RawTxHash>>) -> T,
+    ) -> T {
+        let shard = self.entries.layout.shards[self.shard(b"dependency/consumer", key)].read();
+        read(shard.dependency_consumers.get(key))
+    }
+
+    fn with_waiters<T>(
+        &self,
+        key: &DependencyKey,
+        read: impl FnOnce(Option<&BTreeSet<RawTxHash>>) -> T,
+    ) -> T {
+        let shard = self.entries.layout.shards[self.shard(b"dependency/waiter", key)].read();
+        read(shard.dependency_waiters.get(key))
+    }
+
     fn consumers(&self, key: &DependencyKey) -> Option<BTreeSet<RawTxHash>> {
-        self.entries.layout.shards[self.shard(b"dependency/consumer", key)]
-            .read()
-            .dependency_consumers
-            .get(key)
-            .cloned()
+        self.with_consumers(key, |owners| owners.cloned())
     }
 
     fn waiters(&self, key: &DependencyKey) -> Option<BTreeSet<RawTxHash>> {
-        self.entries.layout.shards[self.shard(b"dependency/waiter", key)]
-            .read()
-            .dependency_waiters
-            .get(key)
-            .cloned()
+        self.with_waiters(key, |owners| owners.cloned())
     }
 
     fn level(&self, key: &DependencyKey) -> Option<DependencyLevel> {
@@ -269,20 +279,61 @@ impl DependencyFrontier {
             .dependency_unindexed
     }
 
+    fn with_origin_keys<T>(
+        &self,
+        origin: &DependencyOrigin,
+        read: impl FnOnce(Option<&BTreeSet<DependencyKey>>) -> T,
+    ) -> T {
+        let shard = self.entries.layout.shards[self.shard(b"dependency/origin", origin)].read();
+        read(shard.dependency_keys_by_origin.get(origin))
+    }
+
     fn origin_keys(&self, origin: &DependencyOrigin) -> Option<BTreeSet<DependencyKey>> {
-        self.entries.layout.shards[self.shard(b"dependency/origin", origin)]
-            .read()
-            .dependency_keys_by_origin
-            .get(origin)
-            .cloned()
+        self.with_origin_keys(origin, |keys| keys.cloned())
     }
 
     fn has_consumers(&self, key: &DependencyKey) -> bool {
-        self.consumers(key).is_some_and(|owners| !owners.is_empty())
+        self.with_consumers(key, |owners| {
+            owners.is_some_and(|owners| !owners.is_empty())
+        })
     }
 
     fn has_waiters(&self, key: &DependencyKey) -> bool {
-        self.waiters(key).is_some_and(|owners| !owners.is_empty())
+        self.with_waiters(key, |owners| {
+            owners.is_some_and(|owners| !owners.is_empty())
+        })
+    }
+
+    fn has_consumer_row(&self, key: &DependencyKey) -> bool {
+        self.with_consumers(key, |owners| owners.is_some())
+    }
+
+    fn consumer_contains(&self, key: &DependencyKey, owner: &RawTxHash) -> bool {
+        self.with_consumers(key, |owners| {
+            owners.is_some_and(|owners| owners.contains(owner))
+        })
+    }
+
+    fn waiter_contains(&self, key: &DependencyKey, owner: &RawTxHash) -> bool {
+        self.with_waiters(key, |owners| {
+            owners.is_some_and(|owners| owners.contains(owner))
+        })
+    }
+
+    fn origin_contains(&self, origin: &DependencyOrigin, key: &DependencyKey) -> bool {
+        self.with_origin_keys(origin, |keys| keys.is_some_and(|keys| keys.contains(key)))
+    }
+
+    fn consumers_all(
+        &self,
+        key: &DependencyKey,
+        predicate: impl FnMut(&RawTxHash) -> bool,
+    ) -> bool {
+        self.with_consumers(key, |owners| owners.into_iter().flatten().all(predicate))
+    }
+
+    fn waiters_all(&self, key: &DependencyKey, predicate: impl FnMut(&RawTxHash) -> bool) -> bool {
+        self.with_waiters(key, |owners| owners.into_iter().flatten().all(predicate))
     }
 
     fn replace_level(&self, key: DependencyKey, level: DependencyLevel) -> Option<DependencyLevel> {
@@ -320,16 +371,12 @@ impl DependencyBatchDelta {
                 change.scope == DirtyScope::AllConsumers
                     && !frontier.dirty.contains_key(&change.key)
                     && frontier.level(&change.key).is_none()
-                    && frontier
-                        .consumers(&change.key)
-                        .into_iter()
-                        .flatten()
-                        .all(|owner| self.removed.iter().any(|slot| slot.hash == owner))
-                    && frontier
-                        .waiters(&change.key)
-                        .into_iter()
-                        .flatten()
-                        .all(|owner| self.removed.iter().any(|slot| slot.hash == owner))
+                    && frontier.consumers_all(&change.key, |owner| {
+                        self.removed.iter().any(|slot| &slot.hash == owner)
+                    })
+                    && frontier.waiters_all(&change.key, |owner| {
+                        self.removed.iter().any(|slot| &slot.hash == owner)
+                    })
             }),
             DependencyControlDelta::Maintenance(_) => false,
         };
@@ -646,10 +693,7 @@ impl DependencyFrontier {
     }
 
     pub(super) fn has_waiter_outside(&self, key: &DependencyKey, removed: &[RawTxHash]) -> bool {
-        self.waiters(key)
-            .into_iter()
-            .flatten()
-            .any(|owner| !removed.contains(&owner))
+        !self.waiters_all(key, |owner| removed.contains(owner))
     }
 
     pub(super) fn proof_is_current(
@@ -1130,16 +1174,11 @@ impl DependencyFrontier {
 
     fn contains(&self, slot: &DependencySlot) -> bool {
         slot.dependencies.keys().iter().all(|key| {
-            self.consumers(key)
-                .is_some_and(|consumers| consumers.contains(&slot.hash))
-                && self
-                    .origin_keys(&key.origin())
-                    .is_some_and(|keys| keys.contains(key))
+            self.consumer_contains(key, &slot.hash) && self.origin_contains(&key.origin(), key)
         }) && slot.waiting.as_ref().is_none_or(|observed| {
-            observed.keys().all(|key| {
-                self.waiters(key)
-                    .is_some_and(|waiters| waiters.contains(&slot.hash))
-            })
+            observed
+                .keys()
+                .all(|key| self.waiter_contains(key, &slot.hash))
         })
     }
 
@@ -1203,7 +1242,7 @@ impl DependencyFrontier {
 
     fn prune_orphaned(&mut self, slot: &DependencySlot) {
         for key in slot.dependencies.keys() {
-            if self.consumers(key).is_some() {
+            if self.has_consumer_row(key) {
                 continue;
             }
             let origin = key.origin();
