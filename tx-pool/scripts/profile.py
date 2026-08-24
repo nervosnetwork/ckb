@@ -836,8 +836,16 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
         samples = thread.get("samples")
         if not isinstance(samples, dict):
             raise ProfileError("Samply thread has no samples table")
+        if "time" in samples:
+            time_field = "time"
+            absolute_time = True
+        elif "timeDeltas" in samples:
+            time_field = "timeDeltas"
+            absolute_time = False
+        else:
+            raise ProfileError("Samply samples have no supported time coordinate")
         length = validate_parallel_table(
-            samples, ("timeDeltas", "stack", "threadCPUDelta"), "samples"
+            samples, (time_field, "stack", "threadCPUDelta"), "samples"
         )
         validate_parallel_table(thread["stackTable"], ("frame", "prefix"), "stackTable")
         validate_parallel_table(thread["frameTable"], ("func", "address"), "frameTable")
@@ -848,10 +856,15 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
         selected_cpu = 0
         previous_ms: float | None = None
         for index in range(length):
-            delta = samples["timeDeltas"][index]
-            if not isinstance(delta, (int, float)) or delta < 0:
-                raise ProfileError("Samply sample time delta is invalid")
-            elapsed_ms += delta
+            coordinate = samples[time_field][index]
+            if not isinstance(coordinate, (int, float)) or coordinate < 0:
+                raise ProfileError("Samply sample time coordinate is invalid")
+            if absolute_time:
+                if previous_ms is not None and coordinate < previous_ms:
+                    raise ProfileError("Samply absolute sample times are not monotonic")
+                elapsed_ms = coordinate
+            else:
+                elapsed_ms += coordinate
             inside = window_start_ms <= elapsed_ms <= window_end_ms
             if inside:
                 selected += 1
