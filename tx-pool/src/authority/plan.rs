@@ -1464,7 +1464,8 @@ impl PreparedApply<'_> {
             delta.changed_key,
             Some(delta.changed_after),
         ));
-        authority.commit_owner_resources(
+        let DerivedOwnerDelta { indexes, sources } = delta.owners;
+        authority.commit_owner_resources_indexes_membership(
             token,
             PreparedOwnerResourceDelta::batch(
                 removal_updates.chain(changed),
@@ -1472,12 +1473,12 @@ impl PreparedApply<'_> {
                 status_counts,
                 support,
             ),
+            indexes,
+            delta.projection,
             &mut retired,
         );
         let authority = authority.write(token);
-        authority.indexes.apply(delta.owners.indexes);
-        authority.source_versions.apply(delta.owners.sources);
-        authority.membership.apply(delta.projection);
+        authority.source_versions.apply(sources);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
@@ -1510,15 +1511,16 @@ impl PreparedApply<'_> {
             .into_iter()
             .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
         let mut retired = delta.retired;
-        authority.commit_owner_resources(
+        let DerivedOwnerDelta { indexes, sources } = delta.owners;
+        authority.commit_owner_resources_indexes_membership(
             token,
             PreparedOwnerResourceDelta::batch(updates, delta.resource, status_counts, support),
+            indexes,
+            delta.projection,
             &mut retired,
         );
         let authority = authority.write(token);
-        authority.indexes.apply(delta.owners.indexes);
-        authority.source_versions.apply(delta.owners.sources);
-        authority.membership.apply(delta.projection);
+        authority.source_versions.apply(sources);
         authority.scheduler.apply_batch(delta.scheduler);
         authority.dependencies.apply_batch(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);

@@ -457,6 +457,41 @@ impl TxPoolAuthority {
         let _ = token;
     }
 
+    /// Commit the owner/resource fact and the two owner-derived projections
+    /// through one physical shard cut. The logical Apply order is unchanged;
+    /// this only removes repeated acquisition of overlapping fixed shards.
+    pub(super) fn commit_owner_resources_indexes_membership<I>(
+        &mut self,
+        token: &ApplyToken,
+        delta: PreparedOwnerResourceDelta<I>,
+        mut indexes: IndexDelta,
+        membership: ProjectionDelta,
+        retired: &mut RetiredOwners,
+    ) where
+        I: IntoIterator<Item = OwnerResourceUpdate>,
+    {
+        let owner_resources = &self.state.owner_resources;
+        let entries = &owner_resources.entries;
+        let mut support = delta.support;
+        support.include(indexes.sharded_write_support(entries));
+        support.include(membership.sharded_write_support(entries));
+        let mut owners = entries.write_cut(support);
+        for update in delta.updates {
+            let shard = entries.owner_shard(&update.key);
+            let previous = owners.replace(shard, update.key, update.after);
+            if let Some(owner) = previous {
+                retired.push(owner);
+            }
+        }
+        owners.apply_status_counts(delta.status_counts);
+        let capacity = delta.resources.apply_shards(&mut owners);
+        capacity.commit();
+        indexes.apply_sharded(entries, &mut owners);
+        membership.apply_sharded(entries, &mut owners);
+        drop(owners);
+        let _ = token;
+    }
+
     pub(super) fn commit_concurrent_owner_removal(
         &self,
         token: &ApplyToken,
