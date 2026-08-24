@@ -9,7 +9,7 @@ use crate::authority::{
     plan::membership::{
         AncestorAggregate, DescendantAggregate, IndependentMembershipChange,
         IndependentMembershipOutcome, PreparedIndependentMembership,
-        prepare_independent_membership,
+        has_membership_relation_coupling, prepare_independent_membership,
     },
     scheduler::ReadyKey,
     state::{AcceptedEntry, OwnedTx, PreAcceptedPhase},
@@ -85,24 +85,35 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
 
 /// One canonical coupled candidate plus the already validated, same-policy
 /// Ready receipts that may be re-planned after it commits. Every continuation
-/// step still uses the ordinary single-candidate compiler against the newly
-/// committed authority; this is scheduling reuse, not a second batch
-/// membership engine.
+/// head is reclassified against the newly committed authority; a now
+/// independent tail returns to the ordinary batch planner. This is scheduling
+/// reuse, not a second membership engine.
 #[must_use = "a coupled settlement must be applied or explicitly discarded"]
 pub(in crate::authority) struct CoupledSettlementPlan<'authority> {
     disposition: CandidateDispositionPlan<'authority>,
     continuation: Vec<IndependentCandidate>,
 }
 
+/// The already ranked, single-policy tail emitted only by a coupled Plan.
+/// Runtime can therefore use the bounded coupled-head classifier without
+/// accidentally bypassing the ordinary first-pass batch planner.
+#[must_use = "a coupled continuation must be planned or returned to the Ready level"]
+pub(in crate::authority) struct CoupledSettlementContinuation {
+    batch: SettlementBatch,
+}
+
 impl<'authority> CoupledSettlementPlan<'authority> {
-    pub(in crate::authority) fn apply(self) -> (CommittedDelta, Option<SettlementBatch>) {
+    pub(in crate::authority) fn apply(
+        self,
+    ) -> (CommittedDelta, Option<CoupledSettlementContinuation>) {
         let committed = match self.disposition {
             CandidateDispositionPlan::Accepted(plan) => plan.apply(),
             CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
         };
         (
             committed,
-            SettlementBatch::from_candidates(self.continuation),
+            SettlementBatch::from_candidates(self.continuation)
+                .map(|batch| CoupledSettlementContinuation { batch }),
         )
     }
 
@@ -118,7 +129,102 @@ struct CandidateFact {
     rank: ReadyKey,
 }
 
+impl CandidateFact {
+    fn into_membership_change(
+        self,
+    ) -> Result<
+        (
+            IndependentMembershipChange,
+            Option<crate::authority::state::AsyncProcessStart>,
+        ),
+        PlanError,
+    > {
+        if !matches!(&self.before.phase, PreAcceptedPhase::Ready(_)) {
+            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+        }
+        let (proof, proposal, accepted_at, async_process_start) =
+            self.receipt.into_membership_parts();
+        let after = AcceptedEntry {
+            // Classification, graph projection and resource admission do not
+            // depend on the fresh committed version. The planner allocates it
+            // only after the complete cohort is proven independent.
+            record: self.before.record.clone(),
+            provenance: self.before.source.accepted_provenance(),
+            proof,
+            proposal,
+            accepted_at,
+        };
+        Ok((
+            IndependentMembershipChange {
+                key: self.before.record.identity.raw.clone(),
+                before: self.before,
+                after,
+            },
+            async_process_start,
+        ))
+    }
+}
+
 impl TxPoolAuthority {
+    fn ready_candidate_fact(
+        &self,
+        request: &IndependentCandidate,
+    ) -> Result<CandidateFact, PlanError> {
+        let key = request.receipt.key().clone();
+        let expected = request.receipt.expected();
+        let owner = self
+            .entries
+            .get(&key)
+            .ok_or(PlanError::Stale(StalePlan::Missing))?;
+        if owner.record().version != expected {
+            return Err(PlanError::Stale(StalePlan::Version));
+        }
+        let OwnedTx::PreAccepted(before) = &*owner else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        let PreAcceptedPhase::Ready(_) = &before.phase else {
+            return Err(PlanError::Stale(StalePlan::Phase));
+        };
+        self.validate_acceptance_evidence(before, &request.receipt)?;
+        Ok(CandidateFact {
+            receipt: request.receipt.clone(),
+            before: before.clone(),
+            rank: ReadyKey::from_ready(before)?,
+        })
+    }
+
+    /// Continue an already ranked, single-policy coupled tail without
+    /// rebuilding and sorting every weaker fact on every step. The current
+    /// head alone is revalidated and classified against the authority produced
+    /// by the preceding Apply. If it is no longer relation-coupled, return to
+    /// the ordinary full batch planner so a newly independent tail keeps its
+    /// one mechanical Apply and exact effect/clock observations.
+    pub(in crate::authority) fn plan_coupled_continuation(
+        &mut self,
+        continuation: CoupledSettlementContinuation,
+    ) -> Result<SettlementPlan<'_>, PlanError> {
+        self.effects.ensure_open()?;
+        let batch = continuation.batch;
+        let fact = self.ready_candidate_fact(&batch.head)?;
+        let strongest_receipt = fact.receipt.clone();
+        let coupled = if fact.receipt.payload_relation() == ReadyPayloadRelation::LocationRefreshed
+        {
+            true
+        } else {
+            let (change, _async_process_start) = fact.into_membership_change()?;
+            has_membership_relation_coupling(self, std::slice::from_ref(&change))?
+        };
+        if !coupled {
+            return self.plan_settlement(&batch);
+        }
+
+        let disposition = self.plan_candidate_disposition(strongest_receipt)?;
+        Ok(SettlementPlan::CoupledComponent(CoupledSettlementPlan {
+            disposition,
+            continuation: batch.tail,
+        }))
+    }
+
     pub(in crate::authority) fn plan_settlement(
         &mut self,
         batch: &SettlementBatch,
@@ -129,27 +235,7 @@ impl TxPoolAuthority {
             .try_reserve(batch.len())
             .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
         for request in batch.candidates() {
-            let key = request.receipt.key().clone();
-            let expected = request.receipt.expected();
-            let owner = self
-                .entries
-                .get(&key)
-                .ok_or(PlanError::Stale(StalePlan::Missing))?;
-            if owner.record().version != expected {
-                return Err(PlanError::Stale(StalePlan::Version));
-            }
-            let OwnedTx::PreAccepted(before) = &*owner else {
-                return Err(PlanError::Stale(StalePlan::Phase));
-            };
-            let PreAcceptedPhase::Ready(_) = &before.phase else {
-                return Err(PlanError::Stale(StalePlan::Phase));
-            };
-            self.validate_acceptance_evidence(before, &request.receipt)?;
-            facts.push(CandidateFact {
-                receipt: request.receipt.clone(),
-                before: before.clone(),
-                rank: ReadyKey::from_ready(before)?,
-            });
+            facts.push(self.ready_candidate_fact(request)?);
         }
         facts.sort_unstable_by(|left, right| right.rank.cmp(&left.rank));
         let strongest = facts
@@ -203,30 +289,11 @@ impl TxPoolAuthority {
         let member_count = NonZeroUsize::new(facts.len())
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
         for fact in facts {
-            if !matches!(&fact.before.phase, PreAcceptedPhase::Ready(_)) {
-                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-            }
-            let (proof, proposal, accepted_at, async_process_start) =
-                fact.receipt.into_membership_parts();
-            let after = AcceptedEntry {
-                // Independent classification, graph projection and resource
-                // admission do not depend on the fresh committed version.
-                // Keep the current identity here and allocate replacements
-                // only after the whole cohort is proven independent.
-                record: fact.before.record.clone(),
-                provenance: fact.before.source.accepted_provenance(),
-                proof,
-                proposal,
-                accepted_at,
-            };
+            let (change, async_process_start) = fact.into_membership_change()?;
             if let Some(started_at) = async_process_start {
                 async_process_starts.push(started_at);
             }
-            changes.push(IndependentMembershipChange {
-                key: fact.before.record.identity.raw.clone(),
-                before: fact.before,
-                after,
-            });
+            changes.push(change);
         }
 
         let PreparedIndependentMembership {

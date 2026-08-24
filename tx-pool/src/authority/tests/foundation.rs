@@ -5563,6 +5563,110 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
 }
 
 #[test]
+fn uak_coupled_continuation_restores_one_independent_tail_apply() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let conflicted_input = OutPoint::new(Byte32::new([63; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(63u32)
+        .input(CellInput::new(conflicted_input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        63,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![conflicted_input.clone()],
+            Capacity::shannons(1_000),
+        ),
+    );
+
+    let replacement_tx = TransactionBuilder::default()
+        .version(64u32)
+        .input(CellInput::new(conflicted_input.clone(), 0))
+        .build();
+    let replacement = verify_remote_transaction_with_payload(
+        &mut authority,
+        replacement_tx.clone(),
+        64,
+        resolved_payload_with_facts(
+            &replacement_tx,
+            Vec::new(),
+            vec![conflicted_input],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let independent = [
+        verify_remote_transaction_with_payload(
+            &mut authority,
+            tx(65),
+            65,
+            resolved_payload_with_facts(&tx(65), Vec::new(), Vec::new(), Capacity::shannons(2_000)),
+        ),
+        verify_remote_transaction_with_payload(
+            &mut authority,
+            tx(66),
+            66,
+            resolved_payload_with_facts(&tx(66), Vec::new(), Vec::new(), Capacity::shannons(1_000)),
+        ),
+    ];
+    let before = authority.clocks();
+    let batch = independent_batch(
+        &authority,
+        &[
+            replacement.clone(),
+            independent[0].clone(),
+            independent[1].clone(),
+        ],
+    );
+    let SettlementPlan::CoupledComponent(plan) = authority
+        .plan_settlement(&batch)
+        .expect("the strongest RBF candidate owns the first coupled component")
+    else {
+        panic!("the accepted victim must couple the first settlement")
+    };
+    let (replacement_committed, Some(continuation)) = plan.apply() else {
+        panic!("the coupled replacement must retain its weaker Ready tail")
+    };
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+
+    let SettlementPlan::IndependentRun(plan) = authority
+        .plan_coupled_continuation(continuation)
+        .expect("the unrelated tail is replanned against the committed replacement")
+    else {
+        panic!("the unrelated tail must return to the canonical independent planner")
+    };
+    assert_eq!(
+        plan.independent_order_for_foundation()
+            .expect("the exact independent tail order is observable in tests")
+            .len(),
+        independent.len()
+    );
+    let independent_committed = apply_plan_for_delta(plan);
+
+    assert!(matches!(
+        authority.entry(&replacement),
+        Some(OwnedTx::Accepted(_))
+    ));
+    for hash in independent {
+        assert!(matches!(authority.entry(&hash), Some(OwnedTx::Accepted(_))));
+    }
+    assert_eq!(
+        authority.clocks().next_sequence,
+        ApplySequence(before.next_sequence.0 + 2),
+        "one coupled Apply followed by one independent-tail Apply consumes two stamps"
+    );
+    drop((replacement_committed, independent_committed));
+    assert_resource_reference(&authority);
+    assert_membership_reference(&authority);
+}
+
+#[test]
 fn uak_independent_rbf_churn_never_exceeds_replacement_history_budget() {
     let probe_input = OutPoint::new(Byte32::new([90; 32]), 0);
     let probe = TransactionBuilder::default()

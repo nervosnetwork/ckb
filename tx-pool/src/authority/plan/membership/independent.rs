@@ -35,7 +35,7 @@ pub(in crate::authority::plan) fn prepare_independent_membership(
     authority: &mut TxPoolAuthority,
     changes: &[IndependentMembershipChange],
 ) -> Result<IndependentMembershipOutcome, PlanError> {
-    if classify(authority, changes)? {
+    if has_membership_relation_coupling(authority, changes)? {
         return Ok(IndependentMembershipOutcome::Coupled);
     }
 
@@ -52,7 +52,12 @@ pub(in crate::authority::plan) fn prepare_independent_membership(
     ))
 }
 
-fn classify(
+/// Read-only relation classifier shared by the ordinary independent planner
+/// and the coupled-continuation fast path. `true` means the canonical
+/// single-candidate policy must run; capacity coupling remains owned by
+/// `prepare_independent_membership` so the common independent path does not
+/// perform a second aggregate-resource read.
+pub(in crate::authority::plan) fn has_membership_relation_coupling(
     authority: &TxPoolAuthority,
     changes: &[IndependentMembershipChange],
 ) -> Result<bool, PlanError> {

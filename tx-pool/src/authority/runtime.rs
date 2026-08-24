@@ -3494,14 +3494,21 @@ impl AuthorityRuntime {
         let mut committed: [Option<CommittedDelta>; MAX_READY_BATCH] =
             std::array::from_fn(|_| None);
         let mut failure = None;
-        let mut continuation = Some(batch);
+        let mut initial = Some(batch);
+        let mut continuation = None;
         {
             let mut store = self.store.write();
             for slot in &mut committed {
-                let Some(batch) = continuation.take() else {
-                    break;
+                let planned = match initial.take() {
+                    Some(batch) => store.authority.plan_settlement(&batch),
+                    None => {
+                        let Some(continuation) = continuation.take() else {
+                            break;
+                        };
+                        store.authority.plan_coupled_continuation(continuation)
+                    }
                 };
-                let plan = match store.authority.plan_settlement(&batch) {
+                let plan = match planned {
                     Ok(plan) => plan,
                     Err(error) => {
                         failure = Some(error);

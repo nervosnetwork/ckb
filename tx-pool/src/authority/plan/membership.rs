@@ -4,7 +4,7 @@ mod rbf;
 
 pub(in crate::authority::plan) use independent::{
     IndependentMembershipChange, IndependentMembershipOutcome, PreparedIndependentMembership,
-    prepare_independent_membership,
+    has_membership_relation_coupling, prepare_independent_membership,
 };
 
 use super::TxPoolAuthority;
