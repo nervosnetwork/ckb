@@ -4236,8 +4236,10 @@ impl TxPoolAuthority {
                 .iter()
                 .any(|dependency| {
                     self.membership
-                        .dependency_readers(dependency)
-                        .is_none_or(|readers| readers.len() != 1 || !readers.contains(root))
+                        .dependency_reader_row_facts(dependency, root)
+                        .is_none_or(|(reader_count, contains_root)| {
+                            reader_count != 1 || !contains_root
+                        })
                 })
             || entry
                 .proof

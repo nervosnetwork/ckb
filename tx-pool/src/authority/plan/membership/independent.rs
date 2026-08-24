@@ -66,8 +66,8 @@ fn classify(
             }
             if authority
                 .membership
-                .dependency_readers(input)
-                .is_some_and(|readers| !readers.is_empty())
+                .dependency_reader_row_len(input)
+                .is_some_and(|reader_count| reader_count != 0)
             {
                 return Ok(true);
             }

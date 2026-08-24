@@ -716,7 +716,7 @@ impl MembershipProjection {
             .copied()
     }
 
-    pub(super) fn dependency_readers(&self, dependency: &OutPoint) -> Option<HashSet<RawTxHash>> {
+    fn dependency_readers(&self, dependency: &OutPoint) -> Option<HashSet<RawTxHash>> {
         self.entries.layout.shards[self.shard(b"membership/dependency-readers", dependency)]
             .read()
             .dependency_readers
@@ -724,7 +724,7 @@ impl MembershipProjection {
             .cloned()
     }
 
-    fn dependency_reader_row_facts(
+    pub(super) fn dependency_reader_row_facts(
         &self,
         dependency: &OutPoint,
         reader: &RawTxHash,
@@ -736,6 +736,14 @@ impl MembershipProjection {
             .dependency_readers
             .get(dependency)
             .map(|readers| (readers.len(), readers.contains(reader)))
+    }
+
+    pub(super) fn dependency_reader_row_len(&self, dependency: &OutPoint) -> Option<usize> {
+        self.entries.layout.shards[self.shard(b"membership/dependency-readers", dependency)]
+            .read()
+            .dependency_readers
+            .get(dependency)
+            .map(HashSet::len)
     }
 
     pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
@@ -1502,8 +1510,8 @@ impl TxPoolAuthority {
             for dependency in entry.proof.payload().footprint.dependencies() {
                 if !self
                     .membership
-                    .dependency_readers(dependency)
-                    .is_some_and(|readers| readers.contains(hash))
+                    .dependency_reader_row_facts(dependency, hash)
+                    .is_some_and(|(_, contains_hash)| contains_hash)
                 {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
@@ -1980,10 +1988,11 @@ impl TxPoolAuthority {
                 spender_after.insert(input.clone(), None);
             }
             for dependency in entry.proof.payload().footprint.dependencies() {
-                let readers = self.membership.dependency_readers(dependency).ok_or(
-                    super::PlanError::Fault(super::AuthorityFault::MembershipProjection),
-                )?;
-                if !readers.contains(removal) {
+                if !self
+                    .membership
+                    .dependency_reader_row_facts(dependency, removal)
+                    .is_some_and(|(_, contains_removal)| contains_removal)
+                {
                     return Err(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ));
