@@ -732,20 +732,6 @@ impl MembershipProjection {
             .cloned()
     }
 
-    #[cfg(test)]
-    pub(in crate::authority) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {
-        let shards = std::array::from_fn::<_, AUTHORITY_SHARD_COUNT, _>(|shard| {
-            self.entries.layout.shards[shard].read()
-        });
-        let count = shards.iter().map(|shard| shard.accepted_order.len()).sum();
-        let mut order = Vec::with_capacity(count);
-        for shard in &shards {
-            order.extend(shard.accepted_order.iter().cloned());
-        }
-        order.sort_unstable();
-        order
-    }
-
     pub(in crate::authority) fn eviction_order(&self) -> Vec<EvictionOrderKey> {
         let shards = std::array::from_fn::<_, AUTHORITY_SHARD_COUNT, _>(|shard| {
             self.entries.layout.shards[shard].read()

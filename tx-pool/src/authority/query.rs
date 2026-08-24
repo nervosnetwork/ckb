@@ -492,21 +492,50 @@ pub(super) fn transaction_lookup(
     let Some(status) = transaction_status(&entry, snapshot) else {
         return Ok(AuthorityTransactionLookup::RecentRejectFallback);
     };
-    let min_replace_fee = match entry.state() {
+    let replacement_rate = match entry.state() {
         super::read::AuthorityReadState::Accepted(
             AcceptedStatus::Pending | AcceptedStatus::Gap,
-        ) => minimum_replacement_fee(view, hash)?,
+        ) => view.minimum_replacement_rate(),
         super::read::AuthorityReadState::Accepted(AcceptedStatus::Proposed)
         | super::read::AuthorityReadState::PreAccepted(_)
         | super::read::AuthorityReadState::ReplacementHistory => None,
     };
+    if let Some(rate) = replacement_rate {
+        // A point owner guard and the membership projections live in
+        // independently routed shards.  Never hold the point guard while
+        // acquiring those projection locks: a concurrent multi-shard Apply
+        // acquires its write cut in ascending order.  Re-capture this uncommon
+        // RBF detail from the already existing fixed-layout full read cut,
+        // which provides one coherent and deadlock-free lock order.
+        drop(entry);
+        let cut = view.full_read_cut()?;
+        let Some(accepted) = cut.accepted_entry_by_raw(hash)? else {
+            return Ok(AuthorityTransactionLookup::RecentRejectFallback);
+        };
+        if !matches!(
+            accepted.entry().status(),
+            AcceptedStatus::Pending | AcceptedStatus::Gap
+        ) {
+            return Err(AuthorityReadError::Projection);
+        }
+        let min_replace_fee = minimum_replacement_fee(rate, &accepted);
+        let accepted_entry = accepted.entry();
+        return Ok(AuthorityTransactionLookup::Live(AuthorityTransaction {
+            transaction: Arc::clone(&accepted_entry.record.tx),
+            status: PublicPoolStatus::Pending,
+            cycles: Some(accepted_entry.proof.metrics().cost.cycles),
+            fee: Some(accepted_entry.proof.metrics().fee),
+            accepted_at: Some(accepted_entry.accepted_at.0),
+            min_replace_fee,
+        }));
+    }
     Ok(AuthorityTransactionLookup::Live(AuthorityTransaction {
         transaction: Arc::clone(entry.transaction()),
         status: status.status,
         cycles: status.cycles,
         fee: entry.fee(),
         accepted_at: entry.accepted_at().map(|accepted_at| accepted_at.0),
-        min_replace_fee,
+        min_replace_fee: None,
     }))
 }
 
@@ -540,19 +569,13 @@ fn transaction_status(
 }
 
 fn minimum_replacement_fee(
-    view: &AuthorityReadView<'_>,
-    hash: &RawTxHash,
-) -> Result<Option<Capacity>, AuthorityReadError> {
-    let Some(rate) = view.minimum_replacement_rate() else {
-        return Ok(None);
-    };
-    let Some(accepted) = view.accepted_entry_by_raw(hash)? else {
-        return Ok(None);
-    };
+    rate: FeeRate,
+    accepted: &super::read::AcceptedReadEntry<'_>,
+) -> Option<Capacity> {
     let Ok(size) = u64::try_from(accepted.entry().proof.metrics().cost.serialized_bytes) else {
-        return Ok(None);
+        return None;
     };
-    Ok(accepted.descendant().fee.safe_add(rate.fee(size)).ok())
+    accepted.descendant().fee.safe_add(rate.fee(size)).ok()
 }
 
 impl PreparedPoolIds<'_> {

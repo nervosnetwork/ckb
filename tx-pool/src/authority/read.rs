@@ -14,9 +14,7 @@ use super::{
         MembershipProjection,
     },
     resources::AcceptedResources,
-    shard::{
-        ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerReadGuard,
-    },
+    shard::{ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerReadGuard},
     source::AuthoritySourceVersions,
     state::{
         AcceptedAtMillis, AcceptedStatus, ApplySequence, Arrival, ChainViewId, DependencyKey,
@@ -299,23 +297,15 @@ fn rpc_status_for_accepted(status: AcceptedStatus) -> AuthorityRpcStatus {
 }
 
 pub(super) struct AcceptedReadEntry<'authority> {
-    entry: AcceptedReadOwner<'authority>,
+    entry: &'authority super::state::AcceptedEntry,
     ancestor: AncestorAggregate,
     descendant: DescendantAggregate,
     order: AcceptedOrderKey,
 }
 
-enum AcceptedReadOwner<'authority> {
-    Point(ShardedAcceptedReadGuard<'authority>),
-    Full(&'authority super::state::AcceptedEntry),
-}
-
 impl<'authority> AcceptedReadEntry<'authority> {
     pub(super) fn entry(&self) -> &super::state::AcceptedEntry {
-        match &self.entry {
-            AcceptedReadOwner::Point(entry) => entry,
-            AcceptedReadOwner::Full(entry) => entry,
-        }
+        self.entry
     }
 
     pub(super) fn ancestor(&self) -> AncestorAggregate {
@@ -469,68 +459,6 @@ impl<'authority> AuthorityReadView<'authority> {
         self.entries.get(hash).map(AuthorityReadEntry::new)
     }
 
-    pub(super) fn accepted_entry_by_raw(
-        &self,
-        hash: &RawTxHash,
-    ) -> Result<Option<AcceptedReadEntry<'authority>>, AuthorityReadError> {
-        let Some(owner) = self.entries.get(hash) else {
-            return Ok(None);
-        };
-        let Ok(entry) = owner.into_accepted() else {
-            return Ok(None);
-        };
-        let ancestor = self
-            .membership
-            .ancestor_aggregate(hash)
-            .ok_or(AuthorityReadError::Projection)?;
-        let descendant = self
-            .membership
-            .descendant_aggregate(hash)
-            .ok_or(AuthorityReadError::Projection)?;
-        let order = AcceptedOrderKey::new(&entry, ancestor);
-        if !self.membership.contains_accepted_order(&order) {
-            return Err(AuthorityReadError::Projection);
-        }
-        Ok(Some(AcceptedReadEntry {
-            entry: AcceptedReadOwner::Point(entry),
-            ancestor,
-            descendant,
-            order,
-        }))
-    }
-
-    #[cfg(test)]
-    pub(super) fn accepted_entry_for_order(
-        &self,
-        order: &AcceptedOrderKey,
-    ) -> Result<AcceptedReadEntry<'authority>, AuthorityReadError> {
-        let owner = self
-            .entries
-            .get(order.hash())
-            .ok_or(AuthorityReadError::Projection)?;
-        let entry = owner
-            .into_accepted()
-            .map_err(|_| AuthorityReadError::Projection)?;
-        let ancestor = self
-            .membership
-            .ancestor_aggregate(order.hash())
-            .ok_or(AuthorityReadError::Projection)?;
-        let descendant = self
-            .membership
-            .descendant_aggregate(order.hash())
-            .ok_or(AuthorityReadError::Projection)?;
-        let current_order = AcceptedOrderKey::new(&entry, ancestor);
-        if &current_order != order {
-            return Err(AuthorityReadError::Projection);
-        }
-        Ok(AcceptedReadEntry {
-            entry: AcceptedReadOwner::Point(entry),
-            ancestor,
-            descendant,
-            order: current_order,
-        })
-    }
-
     pub(super) fn accepted_spends(&self, out_point: &OutPoint) -> bool {
         self.membership.spender(out_point).is_some()
     }
@@ -539,35 +467,8 @@ impl<'authority> AuthorityReadView<'authority> {
         self.membership_config.minimum_replacement_rate()
     }
 
-    #[cfg(test)]
-    pub(super) fn accepted_order(&self) -> impl DoubleEndedIterator<Item = AcceptedOrderKey> + '_ {
-        self.membership.accepted_order().into_iter()
-    }
-
     pub(super) fn owner_count(&self) -> usize {
         self.entries.len()
-    }
-
-    #[cfg(test)]
-    pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
-        let owners = self.entries.read_all();
-        let counts = owners
-            .status_counts()
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        let pending = counts
-            .pending
-            .checked_add(counts.gap)
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        let total = pending
-            .checked_add(counts.proposed)
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        let accepted_resources = owners
-            .accepted_resources()
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        if total != accepted_resources.entries {
-            return Err(AuthorityReadError::Projection);
-        }
-        Ok((pending, counts.proposed))
     }
 
     #[cfg(test)]
@@ -801,7 +702,7 @@ impl AuthorityFullReadCut<'_> {
             return Err(AuthorityReadError::Projection);
         }
         Ok(Some(AcceptedReadEntry {
-            entry: AcceptedReadOwner::Full(entry),
+            entry,
             ancestor,
             descendant,
             order,
@@ -828,7 +729,7 @@ impl AuthorityFullReadCut<'_> {
             return Err(AuthorityReadError::Projection);
         }
         Ok(AcceptedReadEntry {
-            entry: AcceptedReadOwner::Full(entry),
+            entry,
             ancestor,
             descendant,
             order: current_order,

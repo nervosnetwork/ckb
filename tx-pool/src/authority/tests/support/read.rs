@@ -17,7 +17,8 @@ impl AuthorityReadEntry<'_> {
 
 impl AuthorityReadView<'_> {
     pub(in crate::authority) fn pool_ids(&self) -> Result<AuthorityPoolIds, AuthorityReadError> {
-        let (pending_capacity, proposed_capacity) = self.accepted_status_counts()?;
+        let cut = self.full_read_cut()?;
+        let (pending_capacity, proposed_capacity) = cut.accepted_status_counts()?;
         let mut pending = Vec::new();
         let mut proposed = Vec::new();
         pending
@@ -26,8 +27,8 @@ impl AuthorityReadView<'_> {
         proposed
             .try_reserve(proposed_capacity)
             .map_err(|_| AuthorityReadError::Allocation)?;
-        for order in self.accepted_order() {
-            let accepted = self.accepted_entry_for_order(&order)?;
+        for order in cut.accepted_order() {
+            let accepted = cut.accepted_entry_for_order(&order)?;
             match accepted.entry().status() {
                 AcceptedStatus::Pending | AcceptedStatus::Gap => pending.push(order.hash().clone()),
                 AcceptedStatus::Proposed => proposed.push(order.hash().clone()),

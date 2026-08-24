@@ -4163,9 +4163,19 @@ impl TxPoolAuthority {
         let Some(owner) = self.entries.get(root) else {
             return Ok(Err(ConcurrentLocalRemovalFallback::Absent));
         };
-        let OwnedTx::Accepted(entry) = &*owner else {
-            return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
+        let entry = match &*owner {
+            OwnedTx::Accepted(entry) => entry.clone(),
+            OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => {
+                return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
+            }
         };
+        // The projection keys below route independently from the owner key.
+        // Release the point owner guard before taking any of those shard reads;
+        // the concurrent Apply path later revalidates the exact owner version
+        // after acquiring its complete sorted write support.  Keeping the
+        // guard here would invert that order against a writer holding a lower
+        // projection shard while waiting for this owner shard.
+        drop(owner);
         if self
             .membership
             .parents(root)
@@ -4195,11 +4205,17 @@ impl TxPoolAuthority {
                         .dependency_readers(dependency)
                         .is_none_or(|readers| readers.len() != 1 || !readers.contains(root))
                 })
-            || owner.dependencies().keys().iter().any(|key| {
-                self.dependencies
-                    .consumers_for(key)
-                    .is_none_or(|consumers| consumers.len() != 1 || !consumers.contains(root))
-            })
+            || entry
+                .proof
+                .payload()
+                .dependencies()
+                .keys()
+                .iter()
+                .any(|key| {
+                    self.dependencies
+                        .consumers_for(key)
+                        .is_none_or(|consumers| consumers.len() != 1 || !consumers.contains(root))
+                })
         {
             return Ok(Err(ConcurrentLocalRemovalFallback::RequiresExclusive));
         }
@@ -4217,7 +4233,6 @@ impl TxPoolAuthority {
                 .cloned()
                 .map(DependencyKey::Cell),
         );
-        drop(owner);
         let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let removal = self.plan_closed_accepted_owner_removal_batch(
             OwnerRemovalKeys::new(vec![root.clone()])?,
