@@ -1948,8 +1948,8 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
-        let mut spender_after = HashMap::new();
-        spender_after
+        let mut spender_changes = Vec::new();
+        spender_changes
             .try_reserve(spender_capacity)
             .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         let mut dependency_reader_removals = Vec::new();
@@ -1985,7 +1985,7 @@ impl TxPoolAuthority {
                         super::AuthorityFault::MembershipProjection,
                     ));
                 }
-                spender_after.insert(input.clone(), None);
+                spender_changes.push((input.clone(), None));
             }
             for dependency in entry.proof.payload().footprint.dependencies() {
                 if !self
@@ -2069,7 +2069,7 @@ impl TxPoolAuthority {
                     MembershipReject::InputConflict(input.clone()),
                 ));
             }
-            spender_after.insert(input.clone(), Some(hash.clone()));
+            spender_changes.push((input.clone(), Some(hash.clone())));
         }
         for dependency in footprint.dependencies() {
             dependency_reader_insertions.push(DependencyReaderEdge {
@@ -2109,12 +2109,15 @@ impl TxPoolAuthority {
         let causal_node_insertions =
             self.prepare_causal_edge_capacity(hash, &parents, &children, &causal_edge_insertions)?;
 
-        let mut spender_changes = Vec::new();
-        spender_changes
-            .try_reserve(spender_after.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        spender_changes.extend(spender_after);
-        spender_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        // Candidate ownership must dominate the released victim for a shared
+        // input. Put `Some(candidate)` before `None`, then keep the first row
+        // for each canonical input without a temporary hash table.
+        spender_changes.sort_unstable_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.is_none().cmp(&right.1.is_none()))
+        });
+        spender_changes.dedup_by(|later, earlier| later.0 == earlier.0);
 
         let mut causal_node_removals = Vec::new();
         causal_node_removals
