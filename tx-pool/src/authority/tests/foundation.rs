@@ -5563,6 +5563,91 @@ fn uak_rbf_replaces_the_complete_descendant_closure_atomically() {
 }
 
 #[test]
+fn uak_isolated_rbf_preserves_exact_projection_and_effect_contract() {
+    let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
+    let input = OutPoint::new(Byte32::new([62; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(62u32)
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        &mut authority,
+        victim_tx.clone(),
+        62,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![input.clone()],
+            Capacity::shannons(1_000),
+        ),
+    );
+
+    let replacement_tx = TransactionBuilder::default()
+        .version(63u32)
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let replacement = verify_remote_transaction_with_payload(
+        &mut authority,
+        replacement_tx.clone(),
+        63,
+        resolved_payload_with_facts(
+            &replacement_tx,
+            Vec::new(),
+            vec![input.clone()],
+            Capacity::shannons(10_000),
+        ),
+    );
+    let replacement_version = owner_version(&authority, &replacement);
+    let committed = apply_plan_for_delta(
+        authority
+            .plan_accept_for_foundation(&replacement, replacement_version, AcceptedStatus::Pending)
+            .expect("a funded isolated replacement has one canonical plan"),
+    );
+
+    let [removal] = committed.removals.as_slice() else {
+        panic!("the isolated replacement removes exactly one victim");
+    };
+    assert_eq!(removal.hash, victim);
+    assert_eq!(removal.cause, RemovalCause::Replacement);
+    assert!(matches!(
+        authority.entry(&victim),
+        Some(OwnedTx::ReplacementHistory(_))
+    ));
+    assert!(matches!(
+        authority.entry(&replacement),
+        Some(OwnedTx::Accepted(_))
+    ));
+    assert_eq!(
+        authority.accepted_spender(&input),
+        Some(replacement.clone())
+    );
+    assert_membership_reference(&authority);
+    assert_resource_reference(&authority);
+
+    let lease = authority
+        .effect_publication_receipt_for_foundation()
+        .expect("the isolated replacement publishes one exact effect batch");
+    assert!(matches!(
+        lease.effects(),
+        [
+            CommittedEffect::Accepted(CommittedAcceptance::Admission { entry, .. }),
+            CommittedEffect::Rejected(CommittedRejection::Replaced {
+                entry: victim_entry,
+                winner,
+            }),
+        ] if entry.tx.hash() == replacement.0
+            && victim_entry.tx.hash() == victim.0
+            && winner == &replacement
+    ));
+    drop(
+        authority
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
+            .expect("the isolated replacement effect batch settles"),
+    );
+}
+
+#[test]
 fn uak_coupled_continuation_restores_one_independent_tail_apply() {
     let mut authority = TxPoolAuthority::with_replacement(limits(), FeeRate::from_u64(1_000));
     let conflicted_input = OutPoint::new(Byte32::new([63; 32]), 0);

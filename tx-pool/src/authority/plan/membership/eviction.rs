@@ -9,6 +9,71 @@ use crate::authority::{
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+fn isolated_aggregate_delta(
+    candidate_hash: &RawTxHash,
+    candidate: &AcceptedEntry,
+    removal: Option<(RawTxHash, AcceptedOrderKey, EvictionOrderKey)>,
+) -> Result<AggregateDelta, PlanError> {
+    // This is not a second policy path: the caller has already run the sole
+    // RBF, graph and resource policy and proved there are no causal survivors
+    // to update. Encode only the canonical removal/insertion keys that the
+    // general virtual projection would emit for that empty relation cut.
+    let change_capacity = usize::from(removal.is_some())
+        .checked_add(1)
+        .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+    let candidate_descendants = DescendantAggregate::one(candidate);
+    let candidate_ancestors = AncestorAggregate::one(candidate);
+
+    let mut changes = Vec::new();
+    changes
+        .try_reserve_exact(change_capacity)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut ancestor_changes = Vec::new();
+    ancestor_changes
+        .try_reserve_exact(change_capacity)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut accepted_order_removals = Vec::new();
+    let mut eviction_removals = Vec::new();
+    if let Some((hash, accepted_order, eviction_order)) = removal {
+        accepted_order_removals
+            .try_reserve_exact(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        eviction_removals
+            .try_reserve_exact(1)
+            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        changes.push((hash.clone(), None));
+        ancestor_changes.push((hash, None));
+        accepted_order_removals.push(accepted_order);
+        eviction_removals.push(eviction_order);
+    }
+    changes.push((candidate_hash.clone(), Some(candidate_descendants)));
+    ancestor_changes.push((candidate_hash.clone(), Some(candidate_ancestors)));
+    if change_capacity > 1 {
+        changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        ancestor_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    }
+
+    let mut accepted_order_insertions = Vec::new();
+    accepted_order_insertions
+        .try_reserve_exact(1)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    accepted_order_insertions.push(AcceptedOrderKey::new(candidate, candidate_ancestors));
+    let mut eviction_insertions = Vec::new();
+    eviction_insertions
+        .try_reserve_exact(1)
+        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    eviction_insertions.push(EvictionOrderKey::new(candidate, candidate_descendants));
+
+    Ok(AggregateDelta {
+        changes,
+        ancestor_changes,
+        accepted_order_removals,
+        accepted_order_insertions,
+        eviction_removals,
+        eviction_insertions,
+    })
+}
+
 pub(super) fn complete_removals(
     authority: &TxPoolAuthority,
     candidate_hash: &RawTxHash,
@@ -95,45 +160,62 @@ pub(super) fn complete_removals(
         .checked_add(AcceptedResources::one(candidate.proof.metrics().cost))
         .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
 
-    if removals.is_empty()
+    let mut isolated_delta = None;
+    if candidate_ancestors.is_empty()
         && candidate_parents.is_empty()
         && candidate_children.is_empty()
+        && candidate_descendants.is_empty()
         && resources.accepted_fits(projected_resources)
     {
-        let candidate_aggregate = DescendantAggregate::one(candidate);
-        let candidate_ancestors = AncestorAggregate::one(candidate);
-        let mut changes = Vec::new();
-        changes
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        changes.push((candidate_hash.clone(), Some(candidate_aggregate)));
-        let mut ancestor_changes = Vec::new();
-        ancestor_changes
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        ancestor_changes.push((candidate_hash.clone(), Some(candidate_ancestors)));
-        let mut accepted_order_insertions = Vec::new();
-        accepted_order_insertions
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        accepted_order_insertions.push(AcceptedOrderKey::new(candidate, candidate_ancestors));
-        let mut eviction_insertions = Vec::new();
-        eviction_insertions
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        eviction_insertions.push(EvictionOrderKey::new(candidate, candidate_aggregate));
+        if removals.is_empty() {
+            isolated_delta = Some(isolated_aggregate_delta(candidate_hash, candidate, None)?);
+        } else if let [removal] = removals.as_slice() {
+            let parents = authority
+                .membership
+                .parents(&removal.hash)
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            let children = authority
+                .membership
+                .children(&removal.hash)
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            if parents.is_empty() && children.is_empty() {
+                let entry = authority.accepted_entry(&removal.hash)?;
+                let ancestor = authority
+                    .membership
+                    .ancestor_aggregate(&removal.hash)
+                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                let accepted_order = AcceptedOrderKey::new(&entry, ancestor);
+                if !authority
+                    .membership
+                    .contains_accepted_order(&accepted_order)
+                {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                let descendants = authority
+                    .membership
+                    .descendant_aggregate(&removal.hash)
+                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+                let eviction_order = EvictionOrderKey::new(&entry, descendants);
+                if !authority
+                    .membership
+                    .contains_eviction_order(&eviction_order)
+                {
+                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+                }
+                isolated_delta = Some(isolated_aggregate_delta(
+                    candidate_hash,
+                    candidate,
+                    Some((removal.hash.clone(), accepted_order, eviction_order)),
+                )?);
+            }
+        }
+    }
+    if let Some(aggregate) = isolated_delta {
         return Ok(MembershipEvaluation {
             removals,
             candidate_parents,
             candidate_children,
-            aggregate: AggregateDelta {
-                changes,
-                ancestor_changes,
-                accepted_order_removals: Vec::new(),
-                accepted_order_insertions,
-                eviction_removals: Vec::new(),
-                eviction_insertions,
-            },
+            aggregate,
         });
     }
 
