@@ -26,6 +26,17 @@ safety, Rust, validation and handoff rules remain inherited from the root
 - Prefer compiler-bound production property and differential tests over
   hand-maintained symbol or behavior inventories. Use a separate mathematical
   model only for a named cross-operation safety, composition or liveness claim.
+- Treat the feature-gated profiling instrumentation, capture/analyze runner,
+  one-shot workload harness and benchmark runners as maintained development
+  components shipped with the production source, not disposable experiments.
+  A production ingress, lifecycle, authority or observation change updates the
+  applicable profiling and benchmark path in the same owned slice.
+- Profiling remains semantically read-only, bounded and disabled by default.
+  Its reproducible artifacts bind source, binary, workload, environment,
+  target window, raw samples and deterministic analysis; they prove causal
+  cost attribution only for that identity and never replace correctness or
+  global optimality proof. `PROFILING.md` owns its maintained entry points,
+  coverage, evidence boundary and analyzer canaries.
 - Before an expensive build, test universe, model search, mutation run, formal
   run or benchmark, preflight the exact subject, tool and command, discovered
   scope, resource isolation, expected discriminator, abort rule and output

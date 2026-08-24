@@ -38,7 +38,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tempfile::TempDir;
-use tokio::sync::{Barrier, Notify, RwLock};
+use tokio::sync::{Notify, RwLock};
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_CAPACITY_BYTES: usize = 500_000;
@@ -96,7 +96,7 @@ fn end_allocation_window() -> (u64, u64) {
 }
 
 #[cfg(unix)]
-fn process_cpu_nanos() -> Result<u64, Box<dyn Error>> {
+fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
     let mut usage = MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: `getrusage` initializes the complete `rusage` value on success.
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
@@ -115,18 +115,19 @@ fn process_cpu_nanos() -> Result<u64, Box<dyn Error>> {
             .and_then(|nanos| nanos.checked_add(micros * 1_000))
             .ok_or_else(|| std::io::Error::other("process CPU time overflow"))?)
     };
-    Ok(timeval_nanos(usage.ru_utime)?
-        .checked_add(timeval_nanos(usage.ru_stime)?)
-        .ok_or_else(|| std::io::Error::other("process CPU time overflow"))?)
+    Ok((
+        timeval_nanos(usage.ru_utime)?,
+        timeval_nanos(usage.ru_stime)?,
+    ))
 }
 
 #[cfg(not(unix))]
-fn process_cpu_nanos() -> Result<u64, Box<dyn Error>> {
+fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
     Err(std::io::Error::other("target-window process CPU measurement requires Unix").into())
 }
 
 #[cfg(feature = "profiling")]
-const PROFILE_SPAN_NAMES: [&str; 12] = [
+const PROFILE_SPAN_NAMES: [&str; 13] = [
     "tx_pool.authority.read_hold",
     "tx_pool.authority.read_wait",
     "tx_pool.authority.upgradable_read_hold",
@@ -135,6 +136,7 @@ const PROFILE_SPAN_NAMES: [&str; 12] = [
     "tx_pool.authority.write_hold",
     "tx_pool.authority.write_wait",
     "tx_pool.effects.publish",
+    "tx_pool.ingress.remote_batch",
     "tx_pool.stage.ready_attempt",
     "tx_pool.stage.ready_work",
     "tx_pool.stage.resolve",
@@ -917,31 +919,29 @@ async fn submit_batch(
         .step_by(chunk_size.max(1))
         .map(|start| (start, (start + chunk_size).min(transactions.len())))
         .collect();
-    let barrier = Arc::new(Barrier::new(ranges.len() + 1));
-    let mut submissions = Vec::with_capacity(ranges.len());
+    let mut responses = Vec::with_capacity(ranges.len());
     for (peer, (start, end)) in ranges.into_iter().enumerate() {
-        let controller = controller.clone();
-        let transactions = Arc::clone(&transactions);
-        let cycles = Arc::clone(&cycles);
-        let barrier = Arc::clone(&barrier);
-        submissions.push(tokio::spawn(async move {
-            barrier.wait().await;
-            for index in start..end {
-                controller
-                    .submit_remote_tx(
-                        transactions[index].clone(),
-                        cycles[index],
-                        (peer + 1).into(),
-                    )
-                    .await
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let batch = (start..end)
+            .map(|index| (transactions[index].clone(), cycles[index]))
+            .collect();
+        let response = controller
+            .submit_remote_txs(batch, (peer + 1).into())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        responses.push(async move {
+            let outcome = response
+                .await
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let (offered, completed, error) = outcome.into_parts();
+            if offered != end - start || completed != offered || error.is_some() {
+                return Err(std::io::Error::other(format!(
+                    "remote batch outcome mismatch: offered={offered}, completed={completed}, error={error:?}"
+                )));
             }
-            Ok::<(), std::io::Error>(())
-        }));
+            Ok(())
+        });
     }
-    barrier.wait().await;
-    for submission in submissions {
-        submission.await??;
+    for response in futures_util::future::join_all(responses).await {
+        response?;
     }
     completion.wait_for(expected_total).await
 }
@@ -1010,6 +1010,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let warm_count = parse_arg(3, 100)?;
     let workers = parse_arg(4, 8)?;
     let peers = parse_arg(5, 8)?;
+    if workload_scenario.ends_with("_reverse") && warm_count != 0 {
+        return Err(std::io::Error::other(
+            "reverse dependency workloads require warm=0; a dependency prefix cannot be used as an accepted warm pool",
+        )
+        .into());
+    }
     let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
     let (handle, _handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
     let (consensus, transactions) = build_workload(workload_scenario, target_count + warm_count)?;
@@ -1131,7 +1137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let started = Instant::now();
     completion.begin_target(started);
     begin_allocation_window();
-    let target_cpu_started = process_cpu_nanos()?;
+    let (target_user_cpu_started, target_system_cpu_started) = process_cpu_nanos()?;
     #[cfg(feature = "profiling")]
     if let Some(recorder) = span_recorder.as_ref() {
         recorder.begin().map_err(std::io::Error::other)?;
@@ -1188,9 +1194,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         (0, 0)
     };
     let elapsed = started.elapsed();
-    let target_cpu_ns = process_cpu_nanos()?
-        .checked_sub(target_cpu_started)
-        .ok_or_else(|| std::io::Error::other("target-window process CPU clock moved backwards"))?;
+    let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
+    let target_user_cpu_ns = target_user_cpu_ended
+        .checked_sub(target_user_cpu_started)
+        .ok_or_else(|| std::io::Error::other("target user CPU clock moved backwards"))?;
+    let target_system_cpu_ns = target_system_cpu_ended
+        .checked_sub(target_system_cpu_started)
+        .ok_or_else(|| std::io::Error::other("target system CPU clock moved backwards"))?;
+    let target_cpu_ns = target_user_cpu_ns
+        .checked_add(target_system_cpu_ns)
+        .ok_or_else(|| std::io::Error::other("target-window process CPU time overflow"))?;
     let (allocation_calls, allocated_bytes) = end_allocation_window();
     let p99_latency_ns = completion.end_target(target_count)?;
     let profile_ended_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
@@ -1231,11 +1244,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     })?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     let throughput = target_count as f64 / elapsed.as_secs_f64();
+    let profile_window = serde_json::json!({
+        "schema_version": 1,
+        "scenario": scenario,
+        "start_unix_nanos": profile_started_unix_ns,
+        "end_unix_nanos": profile_ended_unix_ns,
+        "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
+    });
+    let profile_observation = serde_json::json!({
+        "schema_version": 1,
+        "scenario": scenario,
+        "target": target_count,
+        "warm": warm_count,
+        "workers": workers,
+        "peers": peers,
+        "elapsed_nanos": elapsed.as_nanos(),
+        "throughput_tps": throughput,
+        "accepted": completion.accepted.load(Ordering::Acquire),
+        "p99_latency_nanos": p99_latency_ns,
+        "target_cpu_nanos": target_cpu_ns,
+        "target_user_cpu_nanos": target_user_cpu_ns,
+        "target_system_cpu_nanos": target_system_cpu_ns,
+        "allocation_calls": allocation_calls,
+        "allocated_bytes": allocated_bytes,
+        "reorg_latency_nanos": reorg_latency_ns,
+        "reorg_overlap_callbacks": reorg_overlap_callbacks,
+        "shutdown_latency_nanos": shutdown_latency_ns,
+    });
     println!(
         "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
         elapsed.as_nanos(),
         completion.accepted.load(Ordering::Acquire)
     );
+    println!("TX_POOL_PROFILE_OBSERVATION {profile_observation}");
+    println!("TX_POOL_PROFILE_WINDOW {profile_window}");
     println!(
         "PROFILE_WINDOW start_unix_ns={profile_started_unix_ns} end_unix_ns={profile_ended_unix_ns}"
     );

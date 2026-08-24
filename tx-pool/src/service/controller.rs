@@ -307,6 +307,12 @@ impl TxPoolController {
         AnyError,
     > {
         reject_callback_mutation!("submit_remote_txs");
+        #[cfg(feature = "profiling")]
+        let _batch_span = tracing::trace_span!(
+            target: "ckb_tx_pool_profile",
+            "tx_pool.ingress.remote_batch"
+        )
+        .entered();
         let wait = if submissions.is_empty() {
             RemoteBatchWait::Ready(RemoteTxBatchOutcome::complete(0))
         } else {

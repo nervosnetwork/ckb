@@ -926,9 +926,10 @@ async fn submit_and_wait_inner(
     target_pending: usize,
     submitters: usize,
 ) {
-    // Split into per-submitter ranges.  Each spawned task gets a cheap
-    // Arc clone and indexes directly into the shared Vec, avoiding a
-    // full Vec clone per submitter.
+    // Mirror the production relayer boundary: one peer hands one already
+    // bounded batch to `submit_remote_txs`, consuming one controller queue
+    // capability and receiving one exact committed-prefix outcome.  Multiple
+    // peers may have one batch in flight concurrently.
     let chunk_size = if submitters == 0 || txs.is_empty() {
         txs.len()
     } else {
@@ -939,24 +940,24 @@ async fn submit_and_wait_inner(
         .map(|start| (start, (start + chunk_size).min(txs.len())))
         .collect();
 
-    let mut handles = Vec::with_capacity(ranges.len());
+    let mut responses = Vec::with_capacity(ranges.len());
     for (submitter, (start, end)) in ranges.into_iter().enumerate() {
-        let controller = controller.clone();
-        let txs = Arc::clone(&txs);
-        let cycles = Arc::clone(&cycles);
+        let submissions = (start..end)
+            .map(|index| (txs[index].clone(), cycles[index]))
+            .collect();
         let peer = (submitter + 1).into();
-        handles.push(tokio::spawn(async move {
-            for i in start..end {
-                controller
-                    .submit_remote_tx(txs[i].clone(), cycles[i], peer)
-                    .await
-                    .expect("submit remote tx");
-            }
-        }));
+        let response = controller
+            .submit_remote_txs(submissions, peer)
+            .expect("submit production-shaped remote batch");
+        responses.push(async move {
+            let outcome = response.await.expect("receive remote batch outcome");
+            let (offered, completed, error) = outcome.into_parts();
+            assert_eq!(offered, end - start, "remote batch offered count changed");
+            assert_eq!(completed, offered, "remote batch committed only a prefix");
+            assert!(error.is_none(), "remote batch returned an error: {error:?}");
+        });
     }
-    for handle in handles {
-        handle.await.expect("submitter");
-    }
+    futures_util::future::join_all(responses).await;
     completion.wait_for(target_pending).await;
 }
 
@@ -989,7 +990,7 @@ fn unix_nanos() -> Result<u64, String> {
 }
 
 #[cfg(any(test, feature = "profiling"))]
-const PROFILE_SPAN_NAMES: [&str; 12] = [
+const PROFILE_SPAN_NAMES: [&str; 13] = [
     "tx_pool.authority.read_hold",
     "tx_pool.authority.read_wait",
     "tx_pool.authority.upgradable_read_hold",
@@ -998,6 +999,7 @@ const PROFILE_SPAN_NAMES: [&str; 12] = [
     "tx_pool.authority.write_hold",
     "tx_pool.authority.write_wait",
     "tx_pool.effects.publish",
+    "tx_pool.ingress.remote_batch",
     "tx_pool.stage.ready_attempt",
     "tx_pool.stage.ready_work",
     "tx_pool.stage.resolve",

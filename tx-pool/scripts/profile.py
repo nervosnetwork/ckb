@@ -28,14 +28,17 @@ from typing import Any
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_SOURCE = WORKSPACE_ROOT / "tx-pool" / "src" / "benchmark.rs"
+ONE_SHOT_SOURCE = WORKSPACE_ROOT / "tx-pool" / "benches" / "profile_one_shot.rs"
 SCRIPT_SOURCE = Path(__file__).resolve()
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
-PROFILE_FEATURES = ("internal", "profiling")
+OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
+PIPELINE_FEATURES = ("internal", "profiling")
+ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 1
-MANIFEST_SCHEMA_VERSION = 3
-SUMMARY_SCHEMA_VERSION = 2
-SPAN_COUNTER_SCHEMA_VERSION = 1
+OBSERVATION_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 4
+SUMMARY_SCHEMA_VERSION = 3
 
 
 class ProfileError(RuntimeError):
@@ -105,6 +108,37 @@ def parse_args() -> argparse.Namespace:
         "--force", action="store_true", help="replace an existing artifact set"
     )
 
+    one_shot = subparsers.add_parser(
+        "capture-one-shot",
+        help="capture one production-shaped one-shot workload and analyze it",
+    )
+    one_shot.add_argument(
+        "--output-prefix",
+        type=Path,
+        required=True,
+        help="artifact prefix outside the source tree, for example /tmp/txpool-fanout",
+    )
+    one_shot.add_argument(
+        "--binary",
+        type=Path,
+        help="reuse an existing profiling-enabled profile_one_shot binary",
+    )
+    one_shot.add_argument(
+        "--target-dir",
+        type=Path,
+        default=WORKSPACE_ROOT / "target" / "tx-pool-profile-one-shot",
+        help="Cargo target directory used only when --binary is omitted",
+    )
+    one_shot.add_argument("--rate", type=positive_integer, default=1000)
+    one_shot.add_argument("--scenario", required=True)
+    one_shot.add_argument("--target", type=positive_integer, required=True)
+    one_shot.add_argument("--warm", type=nonnegative_integer, required=True)
+    one_shot.add_argument("--workers", type=positive_integer, required=True)
+    one_shot.add_argument("--peers", type=positive_integer, required=True)
+    one_shot.add_argument(
+        "--force", action="store_true", help="replace an existing artifact set"
+    )
+
     analyze = subparsers.add_parser(
         "analyze", help="verify a manifest and regenerate its deterministic summary"
     )
@@ -162,21 +196,41 @@ def files_sha256(paths: list[Path]) -> str:
     return digest.hexdigest()
 
 
-def artifact(path: Path) -> dict[str, Any]:
+def input_file(path: Path) -> dict[str, Any]:
     resolved = path.resolve(strict=True)
     return {
-        "path": str(resolved),
+        "path_at_capture": str(resolved),
         "size_bytes": resolved.stat().st_size,
         "sha256": sha256_file(resolved),
     }
 
 
-def verify_artifact(record: dict[str, Any], label: str) -> Path:
+def artifact(path: Path, bundle_dir: Path) -> dict[str, Any]:
+    resolved = path.resolve(strict=True)
+    try:
+        relative = resolved.relative_to(bundle_dir.resolve(strict=True))
+    except ValueError as error:
+        raise ProfileError(f"profile artifact is outside its bundle: {resolved}") from error
+    return {
+        "path": relative.as_posix(),
+        "size_bytes": resolved.stat().st_size,
+        "sha256": sha256_file(resolved),
+    }
+
+
+def verify_artifact(record: dict[str, Any], label: str, bundle_dir: Path) -> Path:
     required = {"path", "size_bytes", "sha256"}
     if set(record) != required:
         raise ProfileError(f"{label} artifact has an unsupported schema")
-    path = Path(record["path"])
-    if not path.is_absolute() or not path.is_file():
+    relative = Path(record["path"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ProfileError(f"{label} artifact path is not bundle-relative")
+    path = (bundle_dir / relative).resolve()
+    try:
+        path.relative_to(bundle_dir.resolve())
+    except ValueError as error:
+        raise ProfileError(f"{label} artifact escapes its bundle") from error
+    if not path.is_file():
         raise ProfileError(f"{label} artifact is missing: {path}")
     if path.stat().st_size != record["size_bytes"]:
         raise ProfileError(f"{label} artifact size changed: {path}")
@@ -255,16 +309,18 @@ def build_environment(target_dir: Path) -> dict[str, str]:
     return env
 
 
-def build_binary(target_dir: Path) -> tuple[Path, list[str], dict[str, str]]:
+def build_binary(
+    target_dir: Path, bench_name: str, features: tuple[str, ...]
+) -> tuple[Path, list[str], dict[str, str]]:
     command = [
         "cargo",
         "bench",
         "-p",
         "ckb-tx-pool",
         "--features",
-        ",".join(PROFILE_FEATURES),
+        ",".join(features),
         "--bench",
-        "pipeline",
+        bench_name,
         "--no-run",
         "--locked",
         "--message-format",
@@ -298,7 +354,7 @@ def build_binary(target_dir: Path) -> tuple[Path, list[str], dict[str, str]]:
         executable = message.get("executable")
         if (
             message.get("reason") == "compiler-artifact"
-            and target.get("name") == "pipeline"
+            and target.get("name") == bench_name
             and "bench" in target.get("kind", [])
             and executable
         ):
@@ -306,15 +362,12 @@ def build_binary(target_dir: Path) -> tuple[Path, list[str], dict[str, str]]:
     unique = sorted(set(executables))
     if len(unique) != 1 or not unique[0].is_file():
         raise ProfileError(
-            f"Cargo reported {len(unique)} pipeline benchmark executables; expected one"
+            f"Cargo reported {len(unique)} {bench_name} benchmark executables; expected one"
         )
     return unique[0], command, env
 
 
-def scenario_environment(args: argparse.Namespace) -> dict[str, str]:
-    dependent = args.tx_type.startswith("dependent_")
-    if args.dependency_order == "child_first" and not dependent:
-        raise ProfileError("child_first order requires a dependent transaction type")
+def sanitized_runtime_environment() -> dict[str, str]:
     env = os.environ.copy()
     for name in (
         "QUICK_BENCH",
@@ -330,6 +383,14 @@ def scenario_environment(args: argparse.Namespace) -> dict[str, str]:
         "TX_POOL_PROFILE_TRACE_PATH",
     ):
         env.pop(name, None)
+    return env
+
+
+def scenario_environment(args: argparse.Namespace) -> dict[str, str]:
+    dependent = args.tx_type.startswith("dependent_")
+    if args.dependency_order == "child_first" and not dependent:
+        raise ProfileError("child_first order requires a dependent transaction type")
+    env = sanitized_runtime_environment()
     env.update(
         {
             "TX_POOL_PROFILE_TX_TYPE": args.tx_type,
@@ -377,6 +438,102 @@ def parse_marker(stdout: str) -> dict[str, Any]:
     if not isinstance(marker["scenario"], str) or not marker["scenario"]:
         raise ProfileError("profile scenario name is empty")
     return marker
+
+
+def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
+    records = [
+        line.removeprefix(OBSERVATION_PREFIX)
+        for line in stdout.splitlines()
+        if line.startswith(OBSERVATION_PREFIX)
+    ]
+    if len(records) != 1:
+        raise ProfileError(
+            f"expected exactly one profile observation, found {len(records)}"
+        )
+    try:
+        observation = json.loads(records[0])
+    except json.JSONDecodeError as error:
+        raise ProfileError(f"profile observation is invalid JSON: {error}") from error
+    required = {
+        "schema_version",
+        "scenario",
+        "target",
+        "warm",
+        "workers",
+        "peers",
+        "elapsed_nanos",
+        "throughput_tps",
+        "accepted",
+        "p99_latency_nanos",
+        "target_cpu_nanos",
+        "target_user_cpu_nanos",
+        "target_system_cpu_nanos",
+        "allocation_calls",
+        "allocated_bytes",
+        "reorg_latency_nanos",
+        "reorg_overlap_callbacks",
+        "shutdown_latency_nanos",
+    }
+    if not isinstance(observation, dict) or set(observation) != required:
+        raise ProfileError("profile observation has an unsupported schema")
+    if observation["schema_version"] != OBSERVATION_SCHEMA_VERSION:
+        raise ProfileError("profile observation schema version is unsupported")
+    identity = {
+        name: observation[name]
+        for name in ("scenario", "target", "warm", "workers", "peers")
+    }
+    if identity != expected:
+        raise ProfileError(f"profile observation drifted: {identity} != {expected}")
+    integer_metrics = (
+        "elapsed_nanos",
+        "accepted",
+        "p99_latency_nanos",
+        "target_cpu_nanos",
+        "target_user_cpu_nanos",
+        "target_system_cpu_nanos",
+        "allocation_calls",
+        "allocated_bytes",
+        "reorg_latency_nanos",
+        "reorg_overlap_callbacks",
+        "shutdown_latency_nanos",
+    )
+    if any(
+        not isinstance(observation[name], int)
+        or isinstance(observation[name], bool)
+        or observation[name] < 0
+        for name in integer_metrics
+    ):
+        raise ProfileError("profile observation has an invalid integer metric")
+    positive_metrics = (
+        "elapsed_nanos",
+        "p99_latency_nanos",
+        "target_cpu_nanos",
+        "allocation_calls",
+        "allocated_bytes",
+        "reorg_latency_nanos",
+        "shutdown_latency_nanos",
+    )
+    if any(observation[name] <= 0 for name in positive_metrics):
+        raise ProfileError("profile observation has an empty target metric")
+    if (
+        observation["target_user_cpu_nanos"]
+        + observation["target_system_cpu_nanos"]
+        != observation["target_cpu_nanos"]
+    ):
+        raise ProfileError("profile observation CPU components do not sum to total")
+    if observation["accepted"] != expected["target"] + expected["warm"]:
+        raise ProfileError("profile observation did not accept the exact workload")
+    throughput = observation["throughput_tps"]
+    if (
+        not isinstance(throughput, (int, float))
+        or isinstance(throughput, bool)
+        or throughput <= 0
+    ):
+        raise ProfileError("profile observation throughput is invalid")
+    expected_overlap = expected["scenario"] == "reorg_in_flight"
+    if (observation["reorg_overlap_callbacks"] > 0) != expected_overlap:
+        raise ProfileError("profile observation reorg overlap differs from the scenario")
+    return observation
 
 
 def filesystem_type(path: Path) -> str:
@@ -499,8 +656,54 @@ def environment_identity(output_dir: Path, effective_env: dict[str, str]) -> dic
 def capture(args: argparse.Namespace) -> Path:
     paths = output_paths(args.output_prefix)
     prepare_outputs(paths, args.force)
+    if args.action == "capture":
+        harness = "pipeline"
+        features = PIPELINE_FEATURES
+        sources = [BENCHMARK_SOURCE, SCRIPT_SOURCE]
+        scenario = {
+            "tx_type": args.tx_type,
+            "pool_state": args.pool_state,
+            "dependency_order": args.dependency_order,
+            "peers": args.peers,
+            "workers": args.workers,
+            "size": args.size,
+            "warm_pool_size": args.warm_pool_size,
+        }
+        runtime_env = scenario_environment(args)
+        runtime_args = [
+            "--bench",
+            "--noplot",
+            "--discard-baseline",
+            "--color",
+            "never",
+        ]
+        expected_observation = None
+    elif args.action == "capture-one-shot":
+        harness = "profile_one_shot"
+        features = ONE_SHOT_FEATURES
+        sources = [ONE_SHOT_SOURCE, SCRIPT_SOURCE]
+        scenario = {
+            "scenario": args.scenario,
+            "target": args.target,
+            "warm": args.warm,
+            "workers": args.workers,
+            "peers": args.peers,
+        }
+        runtime_env = sanitized_runtime_environment()
+        runtime_args = [
+            args.scenario,
+            str(args.target),
+            str(args.warm),
+            str(args.workers),
+            str(args.peers),
+        ]
+        expected_observation = scenario
+    else:
+        raise ProfileError(f"unsupported capture action: {args.action}")
     if args.binary is None:
-        binary, build_command, build_env = build_binary(args.target_dir)
+        binary, build_command, build_env = build_binary(
+            args.target_dir, harness, features
+        )
     else:
         binary = args.binary.expanduser().resolve(strict=True)
         if not binary.is_file() or not os.access(binary, os.X_OK):
@@ -508,7 +711,6 @@ def capture(args: argparse.Namespace) -> Path:
         build_command = []
         build_env = os.environ.copy()
 
-    env = scenario_environment(args)
     command = [
         "samply",
         "record",
@@ -519,18 +721,14 @@ def capture(args: argparse.Namespace) -> Path:
         "--output",
         str(paths["profile"]),
         str(binary),
-        "--bench",
-        "--noplot",
-        "--discard-baseline",
-        "--color",
-        "never",
+        *runtime_args,
     ]
     started_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
         completed = subprocess.run(
             command,
             cwd=WORKSPACE_ROOT,
-            env=env,
+            env=runtime_env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -548,6 +746,11 @@ def capture(args: argparse.Namespace) -> Path:
     except OSError as error:
         raise ProfileError(f"cannot save profiler output: {error}") from error
     marker = parse_marker(completed.stdout)
+    observation = (
+        parse_observation(completed.stdout, expected_observation)
+        if expected_observation is not None
+        else None
+    )
     if not paths["profile"].is_file() or not paths["symbols"].is_file():
         raise ProfileError("Samply capture did not produce profile and symbol artifacts")
 
@@ -555,16 +758,9 @@ def capture(args: argparse.Namespace) -> Path:
     # subscriber uses fixed relaxed-atomic counters while the target is active
     # and writes one JSON artifact afterward; it performs no per-span format,
     # file-lock or I/O work.
-    span_env = scenario_environment(args)
+    span_env = runtime_env.copy()
     span_env["TX_POOL_PROFILE_TRACE_PATH"] = str(paths["spans"])
-    span_command = [
-        str(binary),
-        "--bench",
-        "--noplot",
-        "--discard-baseline",
-        "--color",
-        "never",
-    ]
+    span_command = [str(binary), *runtime_args]
     span_started_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     try:
         span_completed = subprocess.run(
@@ -588,6 +784,8 @@ def capture(args: argparse.Namespace) -> Path:
     except OSError as error:
         raise ProfileError(f"cannot save span capture output: {error}") from error
     span_marker = parse_marker(span_completed.stdout)
+    if expected_observation is not None:
+        parse_observation(span_completed.stdout, expected_observation)
     if not paths["spans"].is_file():
         raise ProfileError("span capture did not produce its trace artifact")
     if span_marker["scenario"] != marker["scenario"]:
@@ -596,16 +794,10 @@ def capture(args: argparse.Namespace) -> Path:
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "git": git_identity(),
-        "features": list(PROFILE_FEATURES),
-        "scenario": {
-            "tx_type": args.tx_type,
-            "pool_state": args.pool_state,
-            "dependency_order": args.dependency_order,
-            "peers": args.peers,
-            "workers": args.workers,
-            "size": args.size,
-            "warm_pool_size": args.warm_pool_size,
-        },
+        "harness": harness,
+        "features": list(features),
+        "scenario": scenario,
+        "observation": observation,
         "window": marker,
         "capture": {
             "sample_rate_hz": args.rate,
@@ -623,8 +815,8 @@ def capture(args: argparse.Namespace) -> Path:
             "command": span_command,
             "window": span_marker,
             "isolation": (
-                "separate execution from CPU sampling; in-memory span-start "
-                "counters with one post-window JSON write"
+                "separate execution from CPU sampling; in-memory span counters "
+                "with one post-window JSON write"
             ),
         },
         "environment": environment_identity(paths["profile"].parent, build_env),
@@ -634,19 +826,26 @@ def capture(args: argparse.Namespace) -> Path:
             "tx_pool_manifest_sha256": sha256_file(
                 WORKSPACE_ROOT / "tx-pool" / "Cargo.toml"
             ),
-            "harness_sha256": files_sha256([BENCHMARK_SOURCE, SCRIPT_SOURCE]),
+            "harness_sources": [
+                source.relative_to(WORKSPACE_ROOT).as_posix() for source in sources
+            ],
+            "harness_sha256": files_sha256(sources),
+            "binary": input_file(binary),
         },
         "artifacts": {
-            "binary": artifact(binary),
-            "profile": artifact(paths["profile"]),
-            "symbols": artifact(paths["symbols"]),
-            "stdout": artifact(paths["stdout"]),
-            "stderr": artifact(paths["stderr"]),
-            "spans": artifact(paths["spans"]),
-            "span_stdout": artifact(paths["span_stdout"]),
-            "span_stderr": artifact(paths["span_stderr"]),
+            "profile": artifact(paths["profile"], paths["manifest"].parent),
+            "symbols": artifact(paths["symbols"], paths["manifest"].parent),
+            "stdout": artifact(paths["stdout"], paths["manifest"].parent),
+            "stderr": artifact(paths["stderr"], paths["manifest"].parent),
+            "spans": artifact(paths["spans"], paths["manifest"].parent),
+            "span_stdout": artifact(
+                paths["span_stdout"], paths["manifest"].parent
+            ),
+            "span_stderr": artifact(
+                paths["span_stderr"], paths["manifest"].parent
+            ),
         },
-        "summary_path": str(paths["summary"]),
+        "summary_path": paths["summary"].name,
     }
     write_json(paths["manifest"], manifest)
     analyze_manifest(paths["manifest"])
@@ -735,7 +934,9 @@ def stack_frames(thread: dict[str, Any], stack_index: int) -> list[int]:
     return frames
 
 
-def ranked(counter: Counter[str], total: int, limit: int = 100) -> list[dict[str, Any]]:
+def ranked_samples(
+    counter: Counter[str], total: int, limit: int = 100
+) -> list[dict[str, Any]]:
     return [
         {
             "symbol": symbol,
@@ -743,6 +944,25 @@ def ranked(counter: Counter[str], total: int, limit: int = 100) -> list[dict[str
             "percent_of_window_samples": round(100.0 * count / total, 4) if total else 0.0,
         }
         for symbol, count in sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def ranked_cpu(
+    counter: Counter[str], total_cpu_micros: float, limit: int = 100
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "symbol": symbol,
+            "thread_cpu_delta_micros": round(cpu_micros, 3),
+            "percent_of_complete_interval_thread_cpu_delta": (
+                round(100.0 * cpu_micros / total_cpu_micros, 4)
+                if total_cpu_micros
+                else 0.0
+            ),
+        }
+        for symbol, cpu_micros in sorted(
+            counter.items(), key=lambda item: (-item[1], item[0])
+        )[:limit]
     ]
 
 
@@ -758,9 +978,13 @@ def analyze_span_counters(manifest: dict[str, Any], path: Path) -> dict[str, Any
     counters = read_json(path)
     if set(counters) != {"schema_version", "measurement", "window", "spans"}:
         raise ProfileError("span counter artifact has an unsupported shape")
-    if counters["schema_version"] != SPAN_COUNTER_SCHEMA_VERSION:
-        raise ProfileError("span counter artifact schema version is unsupported")
-    if counters["measurement"] != "span_starts_during_target_work":
+    schema = counters["schema_version"]
+    measurement = counters["measurement"]
+    supported = {
+        (1, "span_starts_during_target_work"),
+        (2, "span_lifetimes_started_during_target_work"),
+    }
+    if (schema, measurement) not in supported:
         raise ProfileError("span counter artifact has an unsupported measurement")
     if counters["window"] != window:
         raise ProfileError("span counter artifact and manifest windows differ")
@@ -769,8 +993,14 @@ def analyze_span_counters(manifest: dict[str, Any], path: Path) -> dict[str, Any
         raise ProfileError("span counter artifact has no registered coordinates")
     names: list[str] = []
     selected = 0
+    selected_elapsed_nanos = 0
     for span in spans:
-        if not isinstance(span, dict) or set(span) != {"name", "start_count"}:
+        expected_fields = (
+            {"name", "start_count"}
+            if schema == 1
+            else {"name", "start_count", "elapsed_nanos"}
+        )
+        if not isinstance(span, dict) or set(span) != expected_fields:
             raise ProfileError("span counter entry has an unsupported shape")
         name = span["name"]
         count = span["start_count"]
@@ -780,13 +1010,38 @@ def analyze_span_counters(manifest: dict[str, Any], path: Path) -> dict[str, Any
             raise ProfileError(f"span counter {name} has an invalid count")
         names.append(name)
         selected += count
+        if schema == 2:
+            elapsed_nanos = span["elapsed_nanos"]
+            if (
+                not isinstance(elapsed_nanos, int)
+                or isinstance(elapsed_nanos, bool)
+                or elapsed_nanos < 0
+            ):
+                raise ProfileError(f"span counter {name} has an invalid lifetime")
+            selected_elapsed_nanos += elapsed_nanos
     if names != sorted(set(names)):
         raise ProfileError("span counter names must be unique and sorted")
     if selected == 0:
         raise ProfileError("span counter artifact contains no target-window work")
+    batch_counts = {
+        span["name"]: span["start_count"]
+        for span in spans
+        if isinstance(span, dict)
+    }
+    if manifest.get("harness") in {"pipeline", "profile_one_shot"} and batch_counts.get(
+        "tx_pool.ingress.remote_batch", 0
+    ) <= 0:
+        raise ProfileError(
+            "profile target did not traverse the production remote-batch ingress"
+        )
     return {
         "window": window,
+        "schema_version": schema,
+        "measurement": measurement,
         "selected_span_starts": selected,
+        "selected_span_elapsed_nanos": (
+            selected_elapsed_nanos if schema == 2 else None
+        ),
         "spans": spans,
         "measurement_caveat": (
             "start counts are schedule-dependent control-flow observations from a separate "
@@ -795,14 +1050,36 @@ def analyze_span_counters(manifest: dict[str, Any], path: Path) -> dict[str, Any
     }
 
 
-def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
+def analyze_profile(manifest: dict[str, Any], bundle_dir: Path) -> dict[str, Any]:
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
         raise ProfileError("profile manifest has no artifact table")
     paths = {
-        label: verify_artifact(record, label)
+        label: verify_artifact(record, label, bundle_dir)
         for label, record in artifacts.items()
     }
+    try:
+        stdout = paths["stdout"].read_text()
+        span_stdout = paths["span_stdout"].read_text()
+    except (OSError, UnicodeError) as error:
+        raise ProfileError(f"cannot read profile process output: {error}") from error
+    if parse_marker(stdout) != manifest.get("window"):
+        raise ProfileError("profile stdout window differs from its manifest")
+    span_capture = manifest.get("span_capture")
+    if not isinstance(span_capture, dict) or parse_marker(span_stdout) != span_capture.get(
+        "window"
+    ):
+        raise ProfileError("span stdout window differs from its manifest")
+    if manifest.get("harness") == "profile_one_shot":
+        expected = manifest.get("scenario")
+        if not isinstance(expected, dict):
+            raise ProfileError("one-shot profile manifest has no scenario identity")
+        observation = parse_observation(stdout, expected)
+        if observation != manifest.get("observation"):
+            raise ProfileError("profile observation differs from its manifest")
+        parse_observation(span_stdout, expected)
+    elif manifest.get("observation") is not None:
+        raise ProfileError("pipeline profile manifest contains a one-shot observation")
     profile = read_json(paths["profile"])
     sidecar = read_json(paths["symbols"])
     resolver = SymbolResolver(profile, sidecar)
@@ -825,11 +1102,14 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
     if window_start_ms < 0 or window_start_ms >= window_end_ms:
         raise ProfileError("target window falls before the Samply profile")
 
-    leaf: Counter[str] = Counter()
-    inclusive: Counter[str] = Counter()
+    sample_leaf: Counter[str] = Counter()
+    sample_inclusive: Counter[str] = Counter()
+    cpu_leaf: Counter[str] = Counter()
+    cpu_inclusive: Counter[str] = Counter()
     thread_summaries: list[dict[str, Any]] = []
     total_samples = 0
     total_cpu_micros = 0
+    attributed_cpu_micros = 0
     for thread in threads:
         if not isinstance(thread, dict):
             raise ProfileError("Samply thread entry is not an object")
@@ -869,13 +1149,14 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
             if inside:
                 selected += 1
                 stack_index = samples["stack"][index]
+                names: list[str] = []
                 if stack_index is not None:
                     frames = stack_frames(thread, stack_index)
                     names = [resolver.frame_name(thread, frame) for frame in frames]
                     if names:
-                        leaf[names[0]] += 1
+                        sample_leaf[names[0]] += 1
                         for name in set(names):
-                            inclusive[name] += 1
+                            sample_inclusive[name] += 1
                 cpu_delta = samples["threadCPUDelta"][index]
                 if not isinstance(cpu_delta, (int, float)) or cpu_delta < 0:
                     raise ProfileError("Samply thread CPU delta is invalid")
@@ -883,6 +1164,11 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
                 # Exclude an interval that crosses the benchmark window boundary.
                 if previous_ms is not None and previous_ms >= window_start_ms:
                     selected_cpu += cpu_delta
+                    if names:
+                        attributed_cpu_micros += cpu_delta
+                        cpu_leaf[names[0]] += cpu_delta
+                        for name in set(names):
+                            cpu_inclusive[name] += cpu_delta
             previous_ms = elapsed_ms
         if selected:
             thread_summaries.append(
@@ -898,11 +1184,31 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
             total_cpu_micros += selected_cpu
     if total_samples == 0:
         raise ProfileError("Samply profile contains no samples in the target window")
+    if total_cpu_micros <= 0:
+        raise ProfileError("Samply profile contains no CPU time in complete target intervals")
     thread_summaries.sort(key=lambda item: (-item["samples"], str(item["tid"])))
-    top_leaf = ranked(leaf, total_samples)
+    unattributed_cpu_micros = total_cpu_micros - attributed_cpu_micros
+    observation = manifest.get("observation")
+    cpu_clock_crosscheck = None
+    if isinstance(observation, dict):
+        process_cpu_micros = observation["target_cpu_nanos"] / 1_000
+        cpu_clock_crosscheck = {
+            "process_rusage_cpu_micros": round(process_cpu_micros, 3),
+            "samply_complete_interval_cpu_micros": round(total_cpu_micros, 3),
+            "difference_micros": round(total_cpu_micros - process_cpu_micros, 3),
+            "samply_percent_of_process_cpu": round(
+                100.0 * total_cpu_micros / process_cpu_micros, 4
+            ),
+            "interpretation": (
+                "aggregate coverage cross-check only; thread CPU delta is associated with "
+                "the interval-ending sampled stack and is not exact async attribution"
+            ),
+        }
     return {
         "schema_version": SUMMARY_SCHEMA_VERSION,
+        "harness": manifest["harness"],
         "scenario": manifest["scenario"],
+        "observation": manifest.get("observation"),
         "window": {
             "scenario_name": window["scenario"],
             "start_unix_nanos": window["start_unix_nanos"],
@@ -916,11 +1222,31 @@ def analyze_profile(manifest: dict[str, Any]) -> dict[str, Any]:
             "profile_interval_ms": interval_ms,
             "window_samples": total_samples,
             "cpu_micros_complete_intervals": round(total_cpu_micros, 3),
+            "attributed_cpu_micros": round(attributed_cpu_micros, 3),
+            "unattributed_cpu_micros": round(unattributed_cpu_micros, 3),
+            "cpu_attribution_percent": round(
+                100.0 * attributed_cpu_micros / total_cpu_micros, 4
+            ),
             "cpu_boundary_policy": "exclude intervals whose previous sample precedes the window",
+            "cpu_stack_policy": (
+                "attribute each complete interval's threadCPUDelta to the stack at its ending "
+                "sample; sample-count rankings separately describe sampled residency"
+            ),
+            "cpu_clock_crosscheck": cpu_clock_crosscheck,
         },
         "threads": thread_summaries,
-        "top_leaf_symbols": top_leaf,
-        "top_inclusive_symbols": ranked(inclusive, total_samples),
+        "top_leaf_symbols_by_thread_cpu_delta": ranked_cpu(
+            cpu_leaf, total_cpu_micros
+        ),
+        "top_inclusive_symbols_by_thread_cpu_delta": ranked_cpu(
+            cpu_inclusive, total_cpu_micros
+        ),
+        "top_leaf_symbols_by_window_samples": ranked_samples(
+            sample_leaf, total_samples
+        ),
+        "top_inclusive_symbols_by_window_samples": ranked_samples(
+            sample_inclusive, total_samples
+        ),
         "span_capture": analyze_span_counters(manifest, paths["spans"]),
     }
 
@@ -933,16 +1259,51 @@ def analyze_manifest(manifest_path: Path) -> Path:
     inputs = manifest.get("inputs")
     if not isinstance(inputs, dict):
         raise ProfileError("profile manifest has no input identity")
-    current_harness = files_sha256([BENCHMARK_SOURCE, SCRIPT_SOURCE])
+    binary = inputs.get("binary")
+    if not isinstance(binary, dict) or set(binary) != {
+        "path_at_capture",
+        "size_bytes",
+        "sha256",
+    }:
+        raise ProfileError("profile manifest has no exact binary identity")
+    if (
+        not isinstance(binary["path_at_capture"], str)
+        or not binary["path_at_capture"]
+        or not isinstance(binary["size_bytes"], int)
+        or isinstance(binary["size_bytes"], bool)
+        or binary["size_bytes"] <= 0
+        or not isinstance(binary["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", binary["sha256"]) is None
+    ):
+        raise ProfileError("profile manifest binary identity is invalid")
+    harness = manifest.get("harness")
+    expected_sources = {
+        "pipeline": [BENCHMARK_SOURCE, SCRIPT_SOURCE],
+        "profile_one_shot": [ONE_SHOT_SOURCE, SCRIPT_SOURCE],
+    }.get(harness)
+    if expected_sources is None:
+        raise ProfileError("profile manifest names an unsupported harness")
+    recorded_sources = inputs.get("harness_sources")
+    current_sources = [
+        source.relative_to(WORKSPACE_ROOT).as_posix() for source in expected_sources
+    ]
+    if recorded_sources != current_sources:
+        raise ProfileError("profile manifest harness source set is unsupported")
+    current_harness = files_sha256(expected_sources)
     if inputs.get("harness_sha256") != current_harness:
         raise ProfileError(
             "profile manifest belongs to a different benchmark/analyzer source; "
             "check out its recorded revision before re-analysis"
         )
-    summary_path = Path(manifest.get("summary_path", ""))
-    if not summary_path.is_absolute():
-        raise ProfileError("profile manifest summary path is not absolute")
-    summary = analyze_profile(manifest)
+    summary_relative = Path(manifest.get("summary_path", ""))
+    if summary_relative.is_absolute() or ".." in summary_relative.parts:
+        raise ProfileError("profile manifest summary path is not bundle-relative")
+    summary_path = (absolute.parent / summary_relative).resolve()
+    try:
+        summary_path.relative_to(absolute.parent.resolve())
+    except ValueError as error:
+        raise ProfileError("profile summary escapes its bundle") from error
+    summary = analyze_profile(manifest, absolute.parent)
     write_json(summary_path, summary)
     return summary_path
 
@@ -950,7 +1311,7 @@ def analyze_manifest(manifest_path: Path) -> Path:
 def main() -> int:
     args = parse_args()
     try:
-        if args.action == "capture":
+        if args.action in {"capture", "capture-one-shot"}:
             manifest = capture(args)
             print(f"profile manifest: {manifest}")
             print(f"profile summary: {read_json(manifest)['summary_path']}")
