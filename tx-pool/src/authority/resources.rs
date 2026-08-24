@@ -664,10 +664,12 @@ impl ResourceRead<'_> {
         self.totals().0.preaccepted
     }
 
+    #[cfg(test)]
     pub(super) fn remote(self) -> ResourceVector {
         self.totals().0.remote
     }
 
+    #[cfg(test)]
     pub(super) fn replacement_history(self) -> ResourceVector {
         self.totals().0.replacement_history
     }
@@ -1282,16 +1284,17 @@ impl ResourceLedger {
         maximum_peers: usize,
     ) -> Result<OrderedResourceProjection, ResourceError> {
         let current = self.read(entries);
+        let (totals, accepted) = current.totals();
         let mut peers = HashMap::new();
         peers
             .try_reserve(maximum_peers)
             .map_err(|_| ResourceError::Allocation)?;
         Ok(OrderedResourceProjection {
-            preaccepted: current.preaccepted(),
-            remote: current.remote(),
+            preaccepted: totals.preaccepted,
+            remote: totals.remote,
             peers,
-            replacement_history: current.replacement_history(),
-            accepted: current.accepted(),
+            replacement_history: totals.replacement_history,
+            accepted,
             limits: self.limits,
         })
     }
