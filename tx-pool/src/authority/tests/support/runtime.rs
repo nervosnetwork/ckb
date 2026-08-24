@@ -598,7 +598,7 @@ impl AuthorityRuntime {
         &self,
         settlement: EffectSettlement,
     ) -> Result<(), EffectSettlementFailure> {
-        self.settle_effect(settlement)
+        self.settle_effect(settlement).map(|_| ())
     }
 }
 

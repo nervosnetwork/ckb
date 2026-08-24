@@ -10,7 +10,7 @@ use super::rejection::{bounded_commit_ban_reason, serialized_recent_reject};
 use super::{
     effect::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
-        CommittedRejection, EffectEndpoint, RejectionAudience,
+        CommittedRejection, EffectEndpoint, EffectPublicationObservation, RejectionAudience,
     },
     relay::{
         AuthorityRelaySink, RelayMailboxDisposition, RelayParentProjectionError,
@@ -575,7 +575,7 @@ async fn run_blocking_effect<T: Send + 'static>(
 async fn publish_committed_effect_batch(
     endpoints: &mut AuthorityEffectEndpoints,
     mut publication: AuthorityEffectPublicationLease<'_, '_>,
-) -> Result<(), AuthorityEffectPublisherFault> {
+) -> Result<EffectPublicationObservation, AuthorityEffectPublisherFault> {
     let mut disposition = EndpointDisposition::Published;
     'batch: while let Some(work) = publication.current() {
         let effect_index = work.effect_index;
@@ -615,12 +615,25 @@ pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
     mut endpoints: AuthorityEffectEndpoints,
     mut claim: AuthorityEffectPublisherClaim,
 ) -> Result<(), AuthorityEffectPublisherFault> {
+    let mut next = None;
     loop {
-        let Some(lease) = runtime.wait_effect_publication(&mut claim).await else {
-            info!("tx-pool authority effect publisher drained and exited");
-            return Ok(());
+        let lease = match next.take() {
+            Some(EffectPublicationObservation::Receipt(receipt)) => {
+                runtime.effect_publication_lease(&mut claim, receipt)
+            }
+            Some(EffectPublicationObservation::ClosedAndDrained) => {
+                info!("tx-pool authority effect publisher drained and exited");
+                return Ok(());
+            }
+            Some(EffectPublicationObservation::Idle) | None => {
+                let Some(lease) = runtime.wait_effect_publication(&mut claim).await else {
+                    info!("tx-pool authority effect publisher drained and exited");
+                    return Ok(());
+                };
+                lease
+            }
         };
-        publish_committed_effect_batch(&mut endpoints, lease).await?;
+        next = Some(publish_committed_effect_batch(&mut endpoints, lease).await?);
     }
 }
 

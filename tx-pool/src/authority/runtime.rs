@@ -832,20 +832,22 @@ impl AuthorityEffectPublicationLease<'_, '_> {
             .mark_current_processed()
     }
 
-    pub(in crate::authority) fn publish(self) -> Result<(), AuthorityEffectPublicationFault> {
+    pub(in crate::authority) fn publish(
+        self,
+    ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
         self.settle(EffectTerminalDisposition::Published)
     }
 
     pub(in crate::authority) fn circuit_dispose(
         self,
-    ) -> Result<(), AuthorityEffectPublicationFault> {
+    ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
         self.settle(EffectTerminalDisposition::CircuitDisposed)
     }
 
     fn settle(
         mut self,
         disposition: EffectTerminalDisposition,
-    ) -> Result<(), AuthorityEffectPublicationFault> {
+    ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
         let receipt = self
             .receipt
             .take()
@@ -2971,18 +2973,41 @@ impl AuthorityRuntime {
         }
     }
 
-    fn settle_effect(&self, settlement: EffectSettlement) -> Result<(), EffectSettlementFailure> {
+    /// Reuse an observation captured by the preceding settlement Apply.
+    ///
+    /// The sole mutable publisher claim still makes the receipt linear. This
+    /// constructor only removes the otherwise redundant authority read between
+    /// two already-resident FIFO heads; endpoint I/O and journal settlement
+    /// remain one batch at a time and in exactly the same order.
+    pub(in crate::authority) fn effect_publication_lease<'runtime, 'claim>(
+        &'runtime self,
+        claim: &'claim mut AuthorityEffectPublisherClaim,
+        receipt: EffectReceipt,
+    ) -> AuthorityEffectPublicationLease<'runtime, 'claim> {
+        AuthorityEffectPublicationLease {
+            runtime: self,
+            receipt: Some(receipt),
+            _claim: claim,
+        }
+    }
+
+    fn settle_effect(
+        &self,
+        settlement: EffectSettlement,
+    ) -> Result<EffectPublicationObservation, EffectSettlementFailure> {
         let rejection_metrics = settlement.rejection_metrics();
-        let commit = {
+        let (commit, next) = {
             let mut store = self.store.write();
-            store.authority.apply_effect_settlement(settlement)?
+            let commit = store.authority.apply_effect_settlement(settlement)?;
+            let next = store.authority.effect_publication_observation();
+            (commit, next)
         };
         match commit {
             EffectSettlementCommit::Applied(retirement) => self.publish_committed(retirement),
             EffectSettlementCommit::Superseded(settlement) => drop(settlement),
         }
         rejection_metrics.publish();
-        Ok(())
+        Ok(next)
     }
 
     /// Publish a coalesced operational projection without creating another

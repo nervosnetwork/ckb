@@ -532,6 +532,47 @@ async fn uak_publisher_relay_disconnect_disposes_and_drains_the_authority_head()
     assert!(runtime.claim_effect_publisher().is_some());
 }
 
+#[tokio::test]
+async fn uak_publisher_preserves_fifo_across_resident_settlement_handoffs() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let first = RawTxHash(Byte32::new([21; 32]));
+    let second = RawTxHash(Byte32::new([22; 32]));
+    for tx_hash in [first.clone(), second.clone()] {
+        runtime
+            .queue_effect_for_foundation(
+                EffectPolicy::Remote,
+                CommittedEffect::RemoteExpired { tx_hash },
+            )
+            .expect("each bounded fixture effect commits before publication starts");
+    }
+    runtime
+        .close_effects()
+        .expect("the fixture closes production after both FIFO heads commit");
+
+    let (relay, relay_rx) = relay_mailbox(4);
+    run_authority_effect_publisher(
+        runtime.clone(),
+        endpoints(relay, Arc::new(Callbacks::new())),
+    )
+    .await
+    .expect("the closed resident FIFO drains without a fault");
+
+    for expected in [first.0, second.0] {
+        assert!(matches!(
+            relay_rx.try_recv(),
+            Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == expected
+        ));
+    }
+    assert!(relay_rx.try_recv().is_none());
+    assert!(runtime.effects_closed_and_drained());
+}
+
 #[test]
 fn uak_effect_publisher_claim_is_move_only_and_exclusive() {
     let snapshot = genesis_snapshot();
