@@ -9,7 +9,7 @@ mod contract_observation_properties;
 mod dependency;
 mod effect;
 mod evidence_properties;
-mod foundation;
+pub(in crate::authority) mod foundation;
 mod ingress;
 mod ingress_batch;
 mod membership_properties;

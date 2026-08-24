@@ -82,7 +82,7 @@ use super::{
 };
 #[cfg(any(test, feature = "internal"))]
 use crate::component::entry::TxEntry;
-use crate::util::TxPoolVerificationBudget;
+use crate::{constants::MAX_READY_BATCH, util::TxPoolVerificationBudget};
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::error;
@@ -3432,40 +3432,88 @@ impl AuthorityRuntime {
         let disposition = batch
             .validate()
             .map_err(AuthorityDriverError::from_ready_validation)?;
+        let outcome = match disposition {
+            ReadyDisposition::Candidates(batch) => return self.apply_ready_candidates(batch),
+            ReadyDisposition::Head(outcome) => outcome,
+        };
+
         let committed = {
             let mut store = self.store.write();
-            match disposition {
-                ReadyDisposition::Candidates(batch) => {
-                    let plan = store
-                        .authority
-                        .plan_settlement(&batch)
-                        .map_err(AuthorityDriverError::from_ready_plan)?;
-                    match plan {
-                        SettlementPlan::IndependentRun(plan) => plan.apply(),
-                        SettlementPlan::CoupledComponent(disposition) => match disposition {
-                            CandidateDispositionPlan::Accepted(plan) => plan.apply(),
-                            CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
-                        },
-                    }
-                }
-                ReadyDisposition::Head(outcome) => {
-                    let plan = store
-                        .authority
-                        .plan_final_admission(outcome)
-                        .map_err(AuthorityDriverError::from_ready_plan)?;
-                    match plan {
-                        FinalAdmissionDispositionPlan::Candidate(plan) => match plan {
-                            CandidateDispositionPlan::Accepted(plan) => plan.apply(),
-                            CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
-                        },
-                        FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
-                        FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
-                    }
-                }
+            let plan = store
+                .authority
+                .plan_final_admission(outcome)
+                .map_err(AuthorityDriverError::from_ready_plan)?;
+            match plan {
+                FinalAdmissionDispositionPlan::Candidate(plan) => match plan {
+                    CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+                    CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+                },
+                FinalAdmissionDispositionPlan::ValidationRejected(plan) => plan.apply().1,
+                FinalAdmissionDispositionPlan::Reresolve(plan) => plan.apply(),
             }
         };
         self.publish_committed(committed);
         Ok(AuthorityReadyOutcome::Applied)
+    }
+
+    /// Commit one validated Ready batch under one existing authority cut.
+    /// Independent members retain their one mechanical Apply. Coupled members
+    /// reuse the canonical single-candidate planner sequentially, and every
+    /// continuation receipt is revalidated against the authority produced by
+    /// the preceding Apply. Retired owners and effects stay move-owned until
+    /// the write guard is released and are then published in commit order.
+    fn apply_ready_candidates(
+        &self,
+        batch: SettlementBatch,
+    ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {
+        let mut committed: [Option<CommittedDelta>; MAX_READY_BATCH] =
+            std::array::from_fn(|_| None);
+        let mut failure = None;
+        let mut continuation = Some(batch);
+        {
+            let mut store = self.store.write();
+            for slot in &mut committed {
+                let Some(batch) = continuation.take() else {
+                    break;
+                };
+                let plan = match store.authority.plan_settlement(&batch) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        failure = Some(error);
+                        break;
+                    }
+                };
+                match plan {
+                    SettlementPlan::IndependentRun(plan) => {
+                        *slot = Some(plan.apply());
+                        break;
+                    }
+                    SettlementPlan::CoupledComponent(plan) => {
+                        let (next, remaining) = plan.apply();
+                        *slot = Some(next);
+                        continuation = remaining;
+                    }
+                }
+            }
+        }
+        let applied = committed.iter().any(Option::is_some);
+        for committed in committed.into_iter().flatten() {
+            self.publish_committed(committed);
+        }
+        if let Some(error) = failure {
+            // A prior coupled Apply may invalidate a later receipt in the
+            // same captured batch. That is ordinary bounded OCC progress: the
+            // next driver turn captures the new exact Ready prefix.
+            if applied && matches!(&error, PlanError::Stale(_)) {
+                return Ok(AuthorityReadyOutcome::Applied);
+            }
+            return Err(AuthorityDriverError::from_ready_plan(error));
+        }
+        Ok(if applied {
+            AuthorityReadyOutcome::Applied
+        } else {
+            AuthorityReadyOutcome::Idle
+        })
     }
 }
 

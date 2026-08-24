@@ -20,8 +20,10 @@ use crate::authority::state::{
     RemoteResidencyLease, ValidatedAdmission, VerifyCapability, WorkPermit,
     test_support::RejectionKind,
 };
+use crate::authority::tests::foundation::accepted_parent_with_ready_children;
 use crate::authority::validation::FinalAdmissionValidationError;
 use crate::authority::worker::test_support::AuthorityTestWorkerOwner;
+use crate::constants::MAX_READY_BATCH;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -472,6 +474,44 @@ async fn runtime_continuous_worker_and_ready_driver_close_one_owner_lifecycle() 
         store.authority.entry(&key),
         Some(OwnedTx::Accepted(_))
     ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_one_ready_attempt_commits_a_bounded_coupled_sibling_batch() {
+    let runtime = runtime();
+    let (parent, children) = runtime.with_authority_for_foundation(|authority| {
+        accepted_parent_with_ready_children(authority, 120, MAX_READY_BATCH)
+    });
+    assert_eq!(children.len(), MAX_READY_BATCH);
+    assert!(runtime.with_authority_for_foundation(|authority| {
+        children.iter().all(|child| {
+            matches!(
+                authority.entry(child),
+                Some(OwnedTx::PreAccepted(entry))
+                    if matches!(entry.phase, PreAcceptedPhase::Ready(_))
+            )
+        })
+    }));
+
+    assert_eq!(
+        runtime
+            .try_drive_ready()
+            .expect("the bounded coupled Ready batch commits"),
+        AuthorityReadyOutcome::Applied
+    );
+
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(matches!(
+            authority.entry(&parent),
+            Some(OwnedTx::Accepted(_))
+        ));
+        assert!(
+            children
+                .iter()
+                .all(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+        );
+        assert!(authority.primary_projection_consistent());
+    });
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

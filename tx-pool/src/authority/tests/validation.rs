@@ -873,6 +873,7 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
     else {
         panic!("a refreshed payload cannot use inline independent retirement");
     };
+    let disposition = disposition.into_disposition();
     let CandidateDispositionPlan::Accepted(plan) = disposition else {
         panic!("a live child of an Accepted parent must be admitted");
     };

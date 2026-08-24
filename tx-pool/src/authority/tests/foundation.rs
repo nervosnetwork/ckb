@@ -651,6 +651,64 @@ pub(super) fn accepted_parent_child_at(
     (parent, child)
 }
 
+pub(in crate::authority) fn accepted_parent_with_ready_children(
+    authority: &mut TxPoolAuthority,
+    nonce: u8,
+    child_count: usize,
+) -> (RawTxHash, Vec<RawTxHash>) {
+    let chain_input = OutPoint::new(Byte32::new([nonce; 32]), 0);
+    let mut parent_builder = TransactionBuilder::default()
+        .version(u32::from(nonce))
+        .input(CellInput::new(chain_input.clone(), 0));
+    for _ in 0..child_count {
+        parent_builder = parent_builder
+            .output(CellOutput::default())
+            .output_data(Bytes::new().pack());
+    }
+    let parent_tx = parent_builder.build();
+    let parent_payload = resolved_payload_with_facts(
+        &parent_tx,
+        Vec::new(),
+        vec![chain_input],
+        Capacity::shannons(1_000),
+    );
+    let parent = accept_remote_transaction_with_payload_at(
+        authority,
+        parent_tx.clone(),
+        usize::from(nonce),
+        AcceptedStatus::Pending,
+        parent_payload,
+        AcceptedAtMillis(0),
+    );
+    let mut children = Vec::new();
+    children
+        .try_reserve_exact(child_count)
+        .expect("the finite Ready sibling fixture is bounded");
+    for index in 0..child_count {
+        let output_index = u32::try_from(index).expect("the finite output index fits u32");
+        let version = u32::from(nonce)
+            .checked_add(output_index)
+            .and_then(|value| value.checked_add(1))
+            .expect("the finite child version is bounded");
+        let child_tx = TransactionBuilder::default()
+            .version(version)
+            .input(CellInput::new(
+                OutPoint::new(parent_tx.hash(), output_index),
+                0,
+            ))
+            .build();
+        let child_payload =
+            resolved_payload_with_facts(&child_tx, Vec::new(), Vec::new(), Capacity::shannons(500));
+        children.push(verify_remote_transaction_with_payload(
+            authority,
+            child_tx,
+            usize::from(nonce) + index + 1,
+            child_payload,
+        ));
+    }
+    (parent, children)
+}
+
 pub(super) fn verify_remote_transaction(
     authority: &mut TxPoolAuthority,
     transaction: TransactionView,
@@ -799,6 +857,7 @@ fn rejected_coupled_reason_and_drop(plan: SettlementPlan<'_>) -> MembershipRejec
     let SettlementPlan::CoupledComponent(disposition) = plan else {
         panic!("fixture expected a coupled settlement");
     };
+    let disposition = disposition.into_disposition();
     let CandidateDispositionPlan::Rejected(rejection) = disposition else {
         panic!("fixture candidate must be rejected");
     };
@@ -4438,7 +4497,7 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
     else {
         panic!("late parent must not use IndependentRun");
     };
-    let _ = accepted_disposition(disposition).apply();
+    let _ = accepted_disposition(disposition.into_disposition()).apply();
     assert_eq!(
         authority.accepted_children(&parent),
         Some(HashSet::from([child.clone()]))
@@ -4467,7 +4526,7 @@ fn uak_coupled_reverse_chain_restores_late_parents_atomically() {
     else {
         panic!("late grandparent must not use IndependentRun");
     };
-    let _ = accepted_disposition(disposition).apply();
+    let _ = accepted_disposition(disposition.into_disposition()).apply();
     assert_eq!(
         authority.accepted_children(&grandparent),
         Some(HashSet::from([parent.clone()]))
@@ -4539,7 +4598,7 @@ fn uak_coupled_late_parent_deduplicates_an_existing_descendant_path() {
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    let _ = accepted_disposition(disposition).apply();
+    let _ = accepted_disposition(disposition.into_disposition()).apply();
 
     assert_eq!(
         authority.accepted_parents(&child),
@@ -4686,7 +4745,7 @@ fn uak_coupled_late_parent_capacity_evicts_from_the_projected_graph() {
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    let committed = accepted_disposition(disposition).apply();
+    let committed = accepted_disposition(disposition.into_disposition()).apply();
 
     assert_eq!(committed.removals.len(), 1);
     assert_eq!(
@@ -4765,7 +4824,7 @@ fn uak_coupled_capacity_can_remove_a_late_child_without_stale_parent_weight() {
     else {
         panic!("accepted child must route through the coupled planner");
     };
-    let committed = accepted_disposition(disposition).apply();
+    let committed = accepted_disposition(disposition.into_disposition()).apply();
 
     assert_eq!(committed.removals.len(), 1);
     assert_eq!(

@@ -1,6 +1,7 @@
 use super::{
     ApplyClockReservation, AuthorityDelta, AuthorityFault, CandidateDispositionPlan,
-    IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan, TxPoolAuthority,
+    CommittedDelta, IndependentDelta, IndependentUpdate, PlanError, PreparedApply, StalePlan,
+    TxPoolAuthority,
 };
 use crate::authority::{
     chain::{FinalAdmissionReceipt, ReadyPayloadRelation},
@@ -54,6 +55,17 @@ impl SettlementBatch {
     fn candidates(&self) -> impl Iterator<Item = &IndependentCandidate> {
         std::iter::once(&self.head).chain(&self.tail)
     }
+
+    fn from_candidates(mut candidates: Vec<IndependentCandidate>) -> Option<Self> {
+        if candidates.is_empty() {
+            return None;
+        }
+        let head = candidates.remove(0);
+        Some(Self {
+            head,
+            tail: candidates,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -68,7 +80,36 @@ pub(in crate::authority) enum SettlementPlan<'authority> {
     /// The canonical strongest member is fully planned against the same
     /// authority. Remaining cohort members retain their Ready owner and
     /// are reclassified after this single coupled component commits.
-    CoupledComponent(CandidateDispositionPlan<'authority>),
+    CoupledComponent(CoupledSettlementPlan<'authority>),
+}
+
+/// One canonical coupled candidate plus the already validated, same-policy
+/// Ready receipts that may be re-planned after it commits. Every continuation
+/// step still uses the ordinary single-candidate compiler against the newly
+/// committed authority; this is scheduling reuse, not a second batch
+/// membership engine.
+#[must_use = "a coupled settlement must be applied or explicitly discarded"]
+pub(in crate::authority) struct CoupledSettlementPlan<'authority> {
+    disposition: CandidateDispositionPlan<'authority>,
+    continuation: Vec<IndependentCandidate>,
+}
+
+impl<'authority> CoupledSettlementPlan<'authority> {
+    pub(in crate::authority) fn apply(self) -> (CommittedDelta, Option<SettlementBatch>) {
+        let committed = match self.disposition {
+            CandidateDispositionPlan::Accepted(plan) => plan.apply(),
+            CandidateDispositionPlan::Rejected(plan) => plan.apply().1,
+        };
+        (
+            committed,
+            SettlementBatch::from_candidates(self.continuation),
+        )
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn into_disposition(self) -> CandidateDispositionPlan<'authority> {
+        self.disposition
+    }
 }
 
 struct CandidateFact {
@@ -125,6 +166,17 @@ impl TxPoolAuthority {
         // the sole membership planner instead of trusting a caller convention.
         facts.retain(|fact| EffectPolicy::for_preaccepted_source(fact.before.source) == policy);
 
+        let mut continuation = Vec::new();
+        continuation
+            .try_reserve_exact(facts.len().saturating_sub(1))
+            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        continuation.extend(
+            facts
+                .iter()
+                .skip(1)
+                .map(|fact| IndependentCandidate::new(fact.receipt.clone())),
+        );
+
         if facts
             .iter()
             .any(|fact| fact.receipt.payload_relation() == ReadyPayloadRelation::LocationRefreshed)
@@ -134,7 +186,10 @@ impl TxPoolAuthority {
             // allocation, so use the single-candidate compiler that reserves
             // an outside-guard retirement carrier.
             let disposition = self.plan_candidate_disposition(strongest_receipt)?;
-            return Ok(SettlementPlan::CoupledComponent(disposition));
+            return Ok(SettlementPlan::CoupledComponent(CoupledSettlementPlan {
+                disposition,
+                continuation,
+            }));
         }
 
         let mut changes = Vec::new();
@@ -184,7 +239,10 @@ impl TxPoolAuthority {
                 // exact proof issued by final validation instead of creating
                 // a second proof-construction path at the handoff boundary.
                 let disposition = self.plan_candidate_disposition(strongest_receipt)?;
-                return Ok(SettlementPlan::CoupledComponent(disposition));
+                return Ok(SettlementPlan::CoupledComponent(CoupledSettlementPlan {
+                    disposition,
+                    continuation,
+                }));
             }
         };
         let (versions, clocks) = ApplyClockReservation::begin_replacements(

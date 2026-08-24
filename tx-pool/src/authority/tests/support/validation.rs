@@ -21,8 +21,7 @@ impl FinalAdmissionValidation {
         min_fee_rate: ckb_types::core::FeeRate,
     ) -> Result<Self, FinalAdmissionValidationError> {
         let preparation = work.preparation();
-        let current = work.clone();
-        Self::prepare(snapshot, preparation, min_fee_rate)?.complete_inner(authority, current)
+        Self::prepare(snapshot, preparation, min_fee_rate)?.complete_inner(authority, work)
     }
 }
 

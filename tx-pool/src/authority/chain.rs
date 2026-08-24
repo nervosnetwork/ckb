@@ -424,7 +424,8 @@ impl FinalAdmissionWork {
         }
     }
 
-    pub(super) fn payload(&self) -> &ResolvedPayload {
+    #[cfg(test)]
+    pub(in crate::authority) fn payload(&self) -> &ResolvedPayload {
         self.validation.payload()
     }
 
