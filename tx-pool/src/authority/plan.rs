@@ -1419,14 +1419,16 @@ impl PreparedApply<'_> {
             delta.resource.shard_plan(),
         );
         let update = OwnerResourceUpdate::new(delta.key, delta.after);
-        authority.commit_owner_resources(
+        let DerivedOwnerDelta { indexes, sources } = delta.owners;
+        authority.commit_owner_resources_with_projections(
             token,
             PreparedOwnerResourceDelta::single(update, delta.resource, support),
+            Some(indexes),
+            None,
             &mut retired,
         );
         let authority = authority.write(token);
-        authority.indexes.apply(delta.owners.indexes);
-        authority.source_versions.apply(delta.owners.sources);
+        authority.source_versions.apply(sources);
         authority.scheduler.apply(delta.scheduler);
         authority.dependencies.apply(delta.dependency);
         let retired_effect = authority.effects.apply(delta.effect);
@@ -1465,7 +1467,7 @@ impl PreparedApply<'_> {
             Some(delta.changed_after),
         ));
         let DerivedOwnerDelta { indexes, sources } = delta.owners;
-        authority.commit_owner_resources_indexes_membership(
+        authority.commit_owner_resources_with_projections(
             token,
             PreparedOwnerResourceDelta::batch(
                 removal_updates.chain(changed),
@@ -1473,8 +1475,8 @@ impl PreparedApply<'_> {
                 status_counts,
                 support,
             ),
-            indexes,
-            delta.projection,
+            Some(indexes),
+            Some(delta.projection),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1512,11 +1514,11 @@ impl PreparedApply<'_> {
             .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
         let mut retired = delta.retired;
         let DerivedOwnerDelta { indexes, sources } = delta.owners;
-        authority.commit_owner_resources_indexes_membership(
+        authority.commit_owner_resources_with_projections(
             token,
             PreparedOwnerResourceDelta::batch(updates, delta.resource, status_counts, support),
-            indexes,
-            delta.projection,
+            Some(indexes),
+            Some(delta.projection),
             &mut retired,
         );
         let authority = authority.write(token);
