@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().with_name("profile.py")
@@ -26,6 +27,37 @@ class ProfileAnalyzerTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_reused_binary_requires_explicit_prod_profile(self) -> None:
+        self.assertEqual(PROFILE.require_final_build_profile("prod"), "prod")
+        for invalid in (None, "bench", "release"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "explicit prod"):
+                    PROFILE.require_final_build_profile(invalid)
+
+    def test_capture_build_uses_prod_profile(self) -> None:
+        executable = self.root / "target" / "prod" / "deps" / "profile_one_shot"
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b"profile-binary")
+        message = {
+            "reason": "compiler-artifact",
+            "target": {"name": "profile_one_shot", "kind": ["bench"]},
+            "executable": str(executable),
+        }
+        completed = mock.Mock(
+            returncode=0,
+            stdout=json.dumps(message),
+            stderr="",
+        )
+        with mock.patch.object(PROFILE.subprocess, "run", return_value=completed) as run:
+            binary, command, _ = PROFILE.build_binary(
+                self.root / "target", "profile_one_shot", ("profiling",)
+            )
+
+        self.assertEqual(binary, executable.resolve())
+        self.assertIn("--profile", command)
+        self.assertEqual(command[command.index("--profile") + 1], "prod")
+        self.assertEqual(run.call_args.args[0], command)
 
     @staticmethod
     def write_json(path: Path, value: object) -> None:

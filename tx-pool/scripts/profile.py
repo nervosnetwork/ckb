@@ -38,6 +38,7 @@ ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 1
 OBSERVATION_SCHEMA_VERSION = 1
 MANIFEST_SCHEMA_VERSION = 4
+FINAL_BUILD_PROFILE = "prod"
 SUMMARY_SCHEMA_VERSION = 3
 
 
@@ -76,6 +77,10 @@ def parse_args() -> argparse.Namespace:
         "--binary",
         type=Path,
         help="reuse an existing internal+profiling pipeline benchmark binary",
+    )
+    capture.add_argument(
+        "--binary-profile",
+        help="required prod-profile attestation when --binary is supplied",
     )
     capture.add_argument(
         "--target-dir",
@@ -124,6 +129,10 @@ def parse_args() -> argparse.Namespace:
         help="reuse an existing profiling-enabled profile_one_shot binary",
     )
     one_shot.add_argument(
+        "--binary-profile",
+        help="required prod-profile attestation when --binary is supplied",
+    )
+    one_shot.add_argument(
         "--target-dir",
         type=Path,
         default=WORKSPACE_ROOT / "target" / "tx-pool-profile-one-shot",
@@ -143,7 +152,24 @@ def parse_args() -> argparse.Namespace:
         "analyze", help="verify a manifest and regenerate its deterministic summary"
     )
     analyze.add_argument("--manifest", type=Path, required=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.action in {"capture", "capture-one-shot"}:
+        if args.binary is None and args.binary_profile is not None:
+            parser.error("--binary-profile requires --binary")
+        if args.binary is not None:
+            try:
+                require_final_build_profile(args.binary_profile)
+            except ValueError as error:
+                parser.error(str(error))
+    return args
+
+
+def require_final_build_profile(profile: str | None) -> str:
+    if profile != FINAL_BUILD_PROFILE:
+        raise ValueError(
+            "reused profile binaries require an explicit prod build-profile attestation"
+        )
+    return profile
 
 
 def run_text(command: list[str], *, env: dict[str, str] | None = None) -> str:
@@ -323,6 +349,8 @@ def build_binary(
         bench_name,
         "--no-run",
         "--locked",
+        "--profile",
+        FINAL_BUILD_PROFILE,
         "--message-format",
         "json",
     ]
@@ -808,6 +836,7 @@ def capture(args: argparse.Namespace) -> Path:
             "binary_provenance": (
                 "built_by_profile_runner" if build_command else "reused_by_sha256"
             ),
+            "build_profile": FINAL_BUILD_PROFILE,
         },
         "span_capture": {
             "started_utc": span_started_utc,

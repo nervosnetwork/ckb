@@ -38,12 +38,12 @@ The one-shot harness is also the source used by
 candidate before comparison; the cross-version runner owns paired randomized
 performance adjudication.
 
-The cross-version runner builds both one-shot binaries with Cargo profile
-`prod`, matching the shipped LTO and single-codegen-unit configuration. A
-binary supplied with `--baseline-binary` or `--candidate-binary` must also
-carry the corresponding `--*-binary-profile prod` attestation; the runner
-records it with the binary SHA-256. Results from Cargo profile `bench` remain
-diagnostic and cannot select or retire a production candidate.
+Both profiling capture entry points and the cross-version runner build their
+benchmark binaries with Cargo profile `prod`, matching the shipped LTO and
+single-codegen-unit configuration. A binary supplied to either tool must also
+carry its explicit `prod` profile attestation; the tools record it with the
+binary SHA-256. Results from Cargo profile `bench` remain diagnostic and cannot
+select or retire a production candidate.
 
 ## Evidence boundary
 
