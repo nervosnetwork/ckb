@@ -38,6 +38,13 @@ The one-shot harness is also the source used by
 candidate before comparison; the cross-version runner owns paired randomized
 performance adjudication.
 
+The cross-version runner builds both one-shot binaries with Cargo profile
+`prod`, matching the shipped LTO and single-codegen-unit configuration. A
+binary supplied with `--baseline-binary` or `--candidate-binary` must also
+carry the corresponding `--*-binary-profile prod` attestation; the runner
+records it with the binary SHA-256. Results from Cargo profile `bench` remain
+diagnostic and cannot select or retire a production candidate.
+
 ## Evidence boundary
 
 Every capture produces one movable bundle containing the raw Samply profile,
@@ -96,6 +103,7 @@ or manifest format:
 
 ```sh
 python3 -m unittest tx-pool/scripts/test_profile.py
+python3 -m unittest tx-pool/scripts/test_cross_version_benchmark.py
 ```
 
 They require absolute and delta time coordinates to agree, reject a

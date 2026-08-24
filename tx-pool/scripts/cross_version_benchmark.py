@@ -47,6 +47,7 @@ RESOURCE_RESULT = re.compile(
 MIN_CLOCK_TOLERANCE_NS = 1_000_000
 CLOCK_TOLERANCE_DIVISOR = 10_000
 MAX_SCENARIO_TRANSACTIONS = 32_768
+FINAL_BUILD_PROFILE = "prod"
 
 
 def sha256(path: Path) -> str:
@@ -140,6 +141,8 @@ def build_binary(
         "profile_one_shot",
         "--no-run",
         "--locked",
+        "--profile",
+        FINAL_BUILD_PROFILE,
         "--message-format=json",
     ]
     if features:
@@ -195,6 +198,7 @@ def build_binary(
         "command": command,
         "target_dir": str(target_dir),
         "features": features,
+        "profile": FINAL_BUILD_PROFILE,
         "cargo_incremental": environment["CARGO_INCREMENTAL"],
         "inherited_rustflags": inherited_flags,
         "logical_rustflags": [
@@ -205,14 +209,29 @@ def build_binary(
 
 
 def prepare_binary(
-    root: Path, supplied: Path | None, target_dir: Path | None, features: str
+    root: Path,
+    supplied: Path | None,
+    target_dir: Path | None,
+    features: str,
+    supplied_profile: str | None,
 ) -> tuple[dict[str, object], dict[str, object]]:
     if supplied is not None:
-        return binary_record(supplied), {"provenance": "supplied_by_sha256"}
+        return binary_record(supplied), {
+            "provenance": "supplied_by_sha256",
+            "profile": require_final_build_profile(supplied_profile),
+        }
     selected_target = target_dir or root / "target" / "tx-pool-cross"
     binary, build = build_binary(root, selected_target, features)
     build["provenance"] = "built_once_by_runner"
     return binary, build
+
+
+def require_final_build_profile(profile: str | None) -> str:
+    if profile != FINAL_BUILD_PROFILE:
+        raise ValueError(
+            "fixed binaries require an explicit prod build-profile attestation"
+        )
+    return profile
 
 
 def parse_scenario(value: str) -> dict[str, object]:
@@ -271,6 +290,14 @@ def arguments() -> argparse.Namespace:
         "--candidate-binary",
         type=Path,
         help="reuse this immutable binary instead of building the candidate once",
+    )
+    parser.add_argument(
+        "--baseline-binary-profile",
+        help="required prod-profile attestation for --baseline-binary",
+    )
+    parser.add_argument(
+        "--candidate-binary-profile",
+        help="required prod-profile attestation for --candidate-binary",
     )
     parser.add_argument("--baseline-root", type=Path, required=True)
     parser.add_argument("--candidate-root", type=Path, required=True)
@@ -339,6 +366,16 @@ def arguments() -> argparse.Namespace:
         parser.error("--baseline-target-dir cannot accompany --baseline-binary")
     if args.candidate_binary is not None and args.candidate_target_dir is not None:
         parser.error("--candidate-target-dir cannot accompany --candidate-binary")
+    for side in ("baseline", "candidate"):
+        binary = getattr(args, f"{side}_binary")
+        profile = getattr(args, f"{side}_binary_profile")
+        if binary is None and profile is not None:
+            parser.error(f"--{side}-binary-profile requires --{side}-binary")
+        if binary is not None:
+            try:
+                require_final_build_profile(profile)
+            except ValueError as error:
+                parser.error(str(error))
     return args
 
 
@@ -739,15 +776,17 @@ def main() -> None:
         args.baseline_binary,
         args.baseline_target_dir,
         args.baseline_build_features,
+        args.baseline_binary_profile,
     )
     candidate, candidate_build = prepare_binary(
         candidate_root,
         args.candidate_binary,
         args.candidate_target_dir,
         args.candidate_build_features,
+        args.candidate_binary_profile,
     )
     record: dict[str, object] = {
-        "schema": 3,
+        "schema": 4,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "runner_sha256": sha256(Path(__file__)),
         "harness_sha256": harness_hash,
