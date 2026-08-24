@@ -161,6 +161,10 @@ impl MembershipProjection {
     fn shard<K: std::hash::Hash>(&self, domain: &'static [u8], key: &K) -> usize {
         self.entries.layout.router.shard(domain, key)
     }
+
+    fn owner_shard(&self, key: &RawTxHash) -> usize {
+        self.entries.layout.router.owner(key)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -622,24 +626,22 @@ impl ProjectionDelta {
         for change in &self.causal_changes {
             match change {
                 CausalRelationChange::RemoveEdge(edge) | CausalRelationChange::InsertEdge(edge) => {
-                    support.insert(b"membership/children", &edge.parent);
-                    support.insert(b"membership/parents", &edge.child);
+                    support.insert(b"owner-resource/owner", &edge.parent);
+                    support.insert(b"owner-resource/owner", &edge.child);
                 }
                 CausalRelationChange::InsertNode(node) => {
-                    support.insert(b"membership/children", &node.hash);
-                    support.insert(b"membership/parents", &node.hash);
+                    support.insert(b"owner-resource/owner", &node.hash);
                 }
                 CausalRelationChange::RemoveNode(hash) => {
-                    support.insert(b"membership/children", hash);
-                    support.insert(b"membership/parents", hash);
+                    support.insert(b"owner-resource/owner", hash);
                 }
             }
         }
         for (hash, _) in &self.ancestor_changes {
-            support.insert(b"membership/ancestor", hash);
+            support.insert(b"owner-resource/owner", hash);
         }
         for (hash, _) in &self.aggregate_changes {
-            support.insert(b"membership/descendant", hash);
+            support.insert(b"owner-resource/owner", hash);
         }
         for key in self
             .accepted_order_removals
@@ -698,7 +700,7 @@ impl MembershipProjection {
         &self,
         hash: &RawTxHash,
     ) -> Option<AncestorAggregate> {
-        self.entries.layout.shards[self.shard(b"membership/ancestor", hash)]
+        self.entries.layout.shards[self.owner_shard(hash)]
             .read()
             .ancestor_aggregates
             .get(hash)
@@ -709,7 +711,7 @@ impl MembershipProjection {
         &self,
         hash: &RawTxHash,
     ) -> Option<DescendantAggregate> {
-        self.entries.layout.shards[self.shard(b"membership/descendant", hash)]
+        self.entries.layout.shards[self.owner_shard(hash)]
             .read()
             .descendant_aggregates
             .get(hash)
@@ -739,7 +741,7 @@ impl MembershipProjection {
     }
 
     pub(in crate::authority) fn parents(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
-        self.entries.layout.shards[self.shard(b"membership/parents", hash)]
+        self.entries.layout.shards[self.owner_shard(hash)]
             .read()
             .parents
             .get(hash)
@@ -782,7 +784,7 @@ impl MembershipProjection {
     }
 
     pub(super) fn children(&self, hash: &RawTxHash) -> Option<HashSet<RawTxHash>> {
-        self.entries.layout.shards[self.shard(b"membership/children", hash)]
+        self.entries.layout.shards[self.owner_shard(hash)]
             .read()
             .children
             .get(hash)
@@ -806,20 +808,13 @@ impl MembershipProjection {
         }
         let mut owner_additions = [0usize; AUTHORITY_SHARD_COUNT];
         for owner in owners {
-            for domain in [
-                b"membership/parents".as_slice(),
-                b"membership/children".as_slice(),
-                b"membership/ancestor".as_slice(),
-                b"membership/descendant".as_slice(),
-            ] {
-                let shard = self.shard(domain, owner);
-                owner_additions[shard] =
-                    owner_additions[shard]
-                        .checked_add(1)
-                        .ok_or(super::PlanError::Fault(
-                            super::AuthorityFault::CounterExhausted,
-                        ))?;
-            }
+            let shard = self.owner_shard(owner);
+            owner_additions[shard] =
+                owner_additions[shard]
+                    .checked_add(1)
+                    .ok_or(super::PlanError::Fault(
+                        super::AuthorityFault::CounterExhausted,
+                    ))?;
         }
         for (shard, (inputs, owners)) in self
             .entries
@@ -900,7 +895,7 @@ impl MembershipProjection {
         parent: &RawTxHash,
         additional: usize,
     ) -> Result<(), super::PlanError> {
-        self.entries.layout.shards[self.shard(b"membership/children", parent)]
+        self.entries.layout.shards[self.owner_shard(parent)]
             .write()
             .children
             .get_mut(parent)
@@ -916,7 +911,7 @@ impl MembershipProjection {
         child: &RawTxHash,
         additional: usize,
     ) -> Result<(), super::PlanError> {
-        self.entries.layout.shards[self.shard(b"membership/parents", child)]
+        self.entries.layout.shards[self.owner_shard(child)]
             .write()
             .parents
             .get_mut(child)
@@ -960,44 +955,22 @@ impl ProjectionDelta {
         for change in &self.causal_changes {
             match change {
                 CausalRelationChange::RemoveEdge(edge) | CausalRelationChange::InsertEdge(edge) => {
-                    support.insert(
-                        entries
-                            .layout
-                            .router
-                            .shard(b"membership/children", &edge.parent),
-                    );
-                    support.insert(
-                        entries
-                            .layout
-                            .router
-                            .shard(b"membership/parents", &edge.child),
-                    );
+                    support.insert(entries.layout.router.owner(&edge.parent));
+                    support.insert(entries.layout.router.owner(&edge.child));
                 }
                 CausalRelationChange::InsertNode(node) => {
-                    support.insert(
-                        entries
-                            .layout
-                            .router
-                            .shard(b"membership/parents", &node.hash),
-                    );
-                    support.insert(
-                        entries
-                            .layout
-                            .router
-                            .shard(b"membership/children", &node.hash),
-                    );
+                    support.insert(entries.layout.router.owner(&node.hash));
                 }
                 CausalRelationChange::RemoveNode(hash) => {
-                    support.insert(entries.layout.router.shard(b"membership/parents", hash));
-                    support.insert(entries.layout.router.shard(b"membership/children", hash));
+                    support.insert(entries.layout.router.owner(hash));
                 }
             }
         }
         for (hash, _) in &self.ancestor_changes {
-            support.insert(entries.layout.router.shard(b"membership/ancestor", hash));
+            support.insert(entries.layout.router.owner(hash));
         }
         for (hash, _) in &self.aggregate_changes {
-            support.insert(entries.layout.router.shard(b"membership/descendant", hash));
+            support.insert(entries.layout.router.owner(hash));
         }
         for key in self
             .accepted_order_removals
@@ -1094,10 +1067,7 @@ impl ProjectionDelta {
         for change in self.causal_changes {
             match change {
                 CausalRelationChange::RemoveEdge(edge) => {
-                    let children_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/children", &edge.parent);
+                    let children_shard = entries.layout.router.owner(&edge.parent);
                     if let Some(children) = cut
                         .projection_shard_mut(children_shard)
                         .children
@@ -1105,10 +1075,7 @@ impl ProjectionDelta {
                     {
                         children.remove(&edge.child);
                     }
-                    let parents_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/parents", &edge.child);
+                    let parents_shard = entries.layout.router.owner(&edge.child);
                     if let Some(parents) = cut
                         .projection_shard_mut(parents_shard)
                         .parents
@@ -1118,26 +1085,17 @@ impl ProjectionDelta {
                     }
                 }
                 CausalRelationChange::InsertNode(node) => {
-                    let parents_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/parents", &node.hash);
+                    let parents_shard = entries.layout.router.owner(&node.hash);
                     cut.projection_shard_mut(parents_shard)
                         .parents
                         .insert(node.hash.clone(), node.parents);
-                    let children_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/children", &node.hash);
+                    let children_shard = entries.layout.router.owner(&node.hash);
                     cut.projection_shard_mut(children_shard)
                         .children
                         .insert(node.hash, node.children);
                 }
                 CausalRelationChange::InsertEdge(edge) => {
-                    let children_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/children", &edge.parent);
+                    let children_shard = entries.layout.router.owner(&edge.parent);
                     if let Some(children) = cut
                         .projection_shard_mut(children_shard)
                         .children
@@ -1145,10 +1103,7 @@ impl ProjectionDelta {
                     {
                         children.insert(edge.child.clone());
                     }
-                    let parents_shard = entries
-                        .layout
-                        .router
-                        .shard(b"membership/parents", &edge.child);
+                    let parents_shard = entries.layout.router.owner(&edge.child);
                     if let Some(parents) = cut
                         .projection_shard_mut(parents_shard)
                         .parents
@@ -1158,11 +1113,11 @@ impl ProjectionDelta {
                     }
                 }
                 CausalRelationChange::RemoveNode(hash) => {
-                    let parents_shard = entries.layout.router.shard(b"membership/parents", &hash);
+                    let parents_shard = entries.layout.router.owner(&hash);
                     cut.projection_shard_mut(parents_shard)
                         .parents
                         .remove(&hash);
-                    let children_shard = entries.layout.router.shard(b"membership/children", &hash);
+                    let children_shard = entries.layout.router.owner(&hash);
                     cut.projection_shard_mut(children_shard)
                         .children
                         .remove(&hash);
@@ -1170,7 +1125,7 @@ impl ProjectionDelta {
             }
         }
         for (hash, aggregate) in self.ancestor_changes {
-            let shard = entries.layout.router.shard(b"membership/ancestor", &hash);
+            let shard = entries.layout.router.owner(&hash);
             let rows = &mut cut.projection_shard_mut(shard).ancestor_aggregates;
             match aggregate {
                 Some(aggregate) => {
@@ -1182,7 +1137,7 @@ impl ProjectionDelta {
             }
         }
         for (hash, aggregate) in self.aggregate_changes {
-            let shard = entries.layout.router.shard(b"membership/descendant", &hash);
+            let shard = entries.layout.router.owner(&hash);
             let rows = &mut cut.projection_shard_mut(shard).descendant_aggregates;
             match aggregate {
                 Some(aggregate) => {
