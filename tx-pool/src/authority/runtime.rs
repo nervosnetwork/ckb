@@ -157,6 +157,10 @@ pub(super) fn accepted_validity_transition(
 const COMPUTE_RESOURCE_DIVISOR: usize = 4;
 const COMMITTED_HASH_CACHE_SIZE: usize = 100_000;
 const ADMIN_MAINTENANCE_SLICE: usize = 32;
+/// Bound one dependency maintenance authority hold without turning the
+/// level-triggered dirty cursor into a second queue. Each element remains one
+/// existing Plan/Apply step and publishes only after the guard is released.
+const DEPENDENCY_MAINTENANCE_APPLY_BATCH: usize = 8;
 const MILLIS_PER_HOUR: u64 = 60 * 60 * 1_000;
 
 /// Construction capability for a validator job captured from the paired
@@ -2446,19 +2450,37 @@ impl AuthorityRuntime {
     pub(super) fn maintain_dependency(
         &self,
     ) -> Result<AuthorityMaintenanceOutcome, AuthorityDriverError> {
-        let committed = {
+        let mut committed: [Option<CommittedDelta>; DEPENDENCY_MAINTENANCE_APPLY_BATCH] =
+            std::array::from_fn(|_| None);
+        let mut failure = None;
+        {
             let mut store = self.store.write();
-            let plan = store
-                .authority
-                .plan_dependency_maintenance()
-                .map_err(AuthorityDriverError::from_maintenance_plan)?;
-            let Some(plan) = plan else {
-                return Ok(AuthorityMaintenanceOutcome::Idle);
-            };
-            plan.apply()
-        };
-        self.publish_committed(committed);
-        Ok(AuthorityMaintenanceOutcome::Applied)
+            for committed in &mut committed {
+                let plan = match store.authority.plan_dependency_maintenance() {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        failure = Some(AuthorityDriverError::from_maintenance_plan(error));
+                        break;
+                    }
+                };
+                let Some(plan) = plan else {
+                    break;
+                };
+                *committed = Some(plan.apply());
+            }
+        }
+        let applied = committed.iter().any(Option::is_some);
+        for committed in committed.into_iter().flatten() {
+            self.publish_committed(committed);
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        Ok(if applied {
+            AuthorityMaintenanceOutcome::Applied
+        } else {
+            AuthorityMaintenanceOutcome::Idle
+        })
     }
 
     fn publish_committed(&self, committed: CommittedDelta) {

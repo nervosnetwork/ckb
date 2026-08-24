@@ -723,7 +723,7 @@ fn uak_replacement_history_excludes_references_to_a_surviving_pool_parent() {
 }
 
 #[test]
-fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
+fn uak_runtime_dependency_maintenance_batches_bounded_level_triggered_steps() {
     let snapshot = genesis_snapshot();
     let runtime = AuthorityRuntime::new(
         &runtime_config(),
@@ -736,19 +736,13 @@ fn uak_runtime_dependency_maintenance_is_one_level_triggered_step() {
     assert_eq!(
         runtime
             .maintain_dependency()
-            .expect("the first bounded step requeues one owner"),
+            .expect("one bounded runtime batch requeues the owner and completes the dirty key"),
         AuthorityMaintenanceOutcome::Applied
     );
     assert_eq!(
         runtime
             .maintain_dependency()
-            .expect("the second bounded step completes the dirty key"),
-        AuthorityMaintenanceOutcome::Applied
-    );
-    assert_eq!(
-        runtime
-            .maintain_dependency()
-            .expect("the level-triggered frontier becomes idle"),
+            .expect("the drained level-triggered frontier becomes idle"),
         AuthorityMaintenanceOutcome::Idle
     );
     runtime.with_authority_for_foundation(|authority| {
