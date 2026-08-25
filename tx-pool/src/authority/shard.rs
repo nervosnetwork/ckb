@@ -41,8 +41,15 @@ pub(super) struct AuthorityShardRouter {
 
 impl AuthorityShardRouter {
     pub(super) fn new() -> Self {
+        let source = std::collections::hash_map::RandomState::new();
+        let seed = |index: u8| {
+            let mut hasher = source.build_hasher();
+            b"ckb-tx-pool/authority-shard-router".hash(&mut hasher);
+            index.hash(&mut hasher);
+            hasher.finish()
+        };
         Self {
-            state: RandomState::new(),
+            state: RandomState::with_seeds(seed(0), seed(1), seed(2), seed(3)),
         }
     }
 
