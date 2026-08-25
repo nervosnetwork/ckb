@@ -832,8 +832,12 @@ impl ShardedOwnerMap {
 }
 
 impl ShardedOwnerReadCut<'_> {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "owner() masks to the fixed 64-entry array range"
+    )]
     pub(in crate::authority) fn get(&self, key: &RawTxHash) -> Option<&OwnedTx> {
-        self.shards.iter().find_map(|shard| shard.owners.get(key))
+        self.shards[self.router.owner(key)].owners.get(key)
     }
 
     pub(in crate::authority) fn len(&self) -> usize {

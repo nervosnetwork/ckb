@@ -28,6 +28,7 @@ mod scheduler_properties;
 mod scheduler_transition_properties;
 mod service;
 mod settlement_properties;
+mod shard_properties;
 mod template;
 mod template_driver;
 mod topology;
