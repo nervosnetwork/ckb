@@ -35,10 +35,10 @@ use super::{
         ComputeCancellation, ComputeCancellationError, ComputeExchangeAssignment,
         ComputeExchangeCompletion, ComputeExchangeDeferred, ComputeExchangePlanFailure,
         ComputeExchangeSettled, ComputeSettlementFailure, ConcurrentLocalRemovalFallback,
-        DirectAdmissionDisposition, DirectAdmissionEvaluation, EffectCloseError,
-        EffectSettlementCommit, EffectSettlementFailure, FinalAdmissionDispositionPlan,
-        IndependentCandidate, MembershipConfig, MembershipReject, PlanError, SettlementBatch,
-        SettlementPlan, TxPoolAuthority,
+        CoupledSettlementContinuation, DirectAdmissionDisposition, DirectAdmissionEvaluation,
+        EffectCloseError, EffectSettlementCommit, EffectSettlementFailure,
+        FinalAdmissionDispositionPlan, IndependentCandidate, MembershipConfig, MembershipReject,
+        PlanError, SettlementBatch, SettlementPlan, TxPoolAuthority,
     },
     query::{
         AcceptedTransactionsWithCycles, AuthorityPoolSummary, AuthorityQueryError,
@@ -1685,6 +1685,25 @@ impl AuthorityLocalAdmissionExecution {
 pub(in crate::authority) enum AuthorityReadyOutcome {
     Idle,
     Applied,
+    /// The existing effect journal is the sole releaser. The continuation is
+    /// bounded by the captured Ready batch and owns no authority state.
+    EffectCapacity(AuthorityReadyContinuation),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ReadyPlanInput {
+    Initial(SettlementBatch),
+    Coupled(CoupledSettlementContinuation),
+}
+
+/// Exact validated Ready work retained only across the publisher's existing
+/// effect-capacity wait. The single Ready task owns this value; dropping it is
+/// safe because the authoritative owners remain at the level-triggered Ready
+/// frontier and every receipt is revalidated before a later Apply.
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "effect-blocked Ready work must resume or be dropped back to the Ready level"]
+pub(in crate::authority) struct AuthorityReadyContinuation {
+    input: Box<ReadyPlanInput>,
 }
 
 #[derive(Debug)]
@@ -3458,7 +3477,9 @@ impl AuthorityRuntime {
             .validate()
             .map_err(AuthorityDriverError::from_ready_validation)?;
         let outcome = match disposition {
-            ReadyDisposition::Candidates(batch) => return self.apply_ready_candidates(batch),
+            ReadyDisposition::Candidates(batch) => {
+                return self.apply_ready_input(ReadyPlanInput::Initial(batch));
+            }
             ReadyDisposition::Head(outcome) => outcome,
         };
 
@@ -3487,32 +3508,46 @@ impl AuthorityRuntime {
     /// continuation receipt is revalidated against the authority produced by
     /// the preceding Apply. Retired owners and effects stay move-owned until
     /// the write guard is released and are then published in commit order.
-    fn apply_ready_candidates(
+    pub(in crate::authority) fn resume_ready(
         &self,
-        batch: SettlementBatch,
+        continuation: AuthorityReadyContinuation,
+    ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {
+        self.apply_ready_input(*continuation.input)
+    }
+
+    fn apply_ready_input(
+        &self,
+        input: ReadyPlanInput,
     ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {
         let mut committed: [Option<CommittedDelta>; MAX_READY_BATCH] =
             std::array::from_fn(|_| None);
         let mut failure = None;
-        let mut initial = Some(batch);
-        let mut continuation = None;
+        let mut next_input = Some(input);
         {
             let mut store = self.store.write();
             for slot in &mut committed {
-                let planned = match initial.take() {
-                    Some(batch) => store.authority.plan_settlement(&batch),
-                    None => {
-                        let Some(continuation) = continuation.take() else {
-                            break;
-                        };
-                        store.authority.plan_coupled_continuation(continuation)
-                    }
+                let Some(input) = next_input.take() else {
+                    break;
                 };
-                let plan = match planned {
-                    Ok(plan) => plan,
-                    Err(error) => {
-                        failure = Some(error);
-                        break;
+                let plan = match input {
+                    ReadyPlanInput::Initial(batch) => {
+                        match store.authority.plan_settlement(&batch) {
+                            Ok(plan) => plan,
+                            Err(error) => {
+                                failure = Some((error, ReadyPlanInput::Initial(batch)));
+                                break;
+                            }
+                        }
+                    }
+                    ReadyPlanInput::Coupled(continuation) => {
+                        match store.authority.plan_coupled_continuation(continuation) {
+                            Ok(plan) => plan,
+                            Err(error) => {
+                                let (error, continuation) = error.into_parts();
+                                failure = Some((error, ReadyPlanInput::Coupled(continuation)));
+                                break;
+                            }
+                        }
                     }
                 };
                 match plan {
@@ -3521,9 +3556,9 @@ impl AuthorityRuntime {
                         break;
                     }
                     SettlementPlan::CoupledComponent(plan) => {
-                        let (next, remaining) = plan.apply();
-                        *slot = Some(next);
-                        continuation = remaining;
+                        let (committed_delta, remaining) = plan.apply();
+                        *slot = Some(committed_delta);
+                        next_input = remaining.map(ReadyPlanInput::Coupled);
                     }
                 }
             }
@@ -3532,7 +3567,17 @@ impl AuthorityRuntime {
         for committed in committed.into_iter().flatten() {
             self.publish_committed(committed);
         }
-        if let Some(error) = failure {
+        if let Some((error, input)) = failure {
+            if matches!(
+                &error,
+                PlanError::Backpressure(Backpressure::EffectCapacity)
+            ) {
+                return Ok(AuthorityReadyOutcome::EffectCapacity(
+                    AuthorityReadyContinuation {
+                        input: Box::new(input),
+                    },
+                ));
+            }
             // A prior coupled Apply may invalidate a later receipt in the
             // same captured batch. That is ordinary bounded OCC progress: the
             // next driver turn captures the new exact Ready prefix.

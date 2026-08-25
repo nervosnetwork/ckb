@@ -98,8 +98,33 @@ pub(in crate::authority) struct CoupledSettlementPlan<'authority> {
 /// Runtime can therefore use the bounded coupled-head classifier without
 /// accidentally bypassing the ordinary first-pass batch planner.
 #[must_use = "a coupled continuation must be planned or returned to the Ready level"]
+#[derive(Debug, PartialEq, Eq)]
 pub(in crate::authority) struct CoupledSettlementContinuation {
     batch: SettlementBatch,
+}
+
+/// A continuation Plan that could not commit still owns the exact validated
+/// Ready tail. Only effect-capacity pressure may retain this value across the
+/// existing publisher wait; every other caller must consume the error and let
+/// the level-triggered Ready frontier recapture current work.
+#[derive(Debug, PartialEq, Eq)]
+#[must_use = "a failed coupled Plan still owns its validated Ready continuation"]
+pub(in crate::authority) struct CoupledSettlementPlanFailure {
+    error: PlanError,
+    continuation: Box<CoupledSettlementContinuation>,
+}
+
+impl CoupledSettlementPlanFailure {
+    fn new(error: impl Into<PlanError>, batch: SettlementBatch) -> Self {
+        Self {
+            error: error.into(),
+            continuation: Box::new(CoupledSettlementContinuation { batch }),
+        }
+    }
+
+    pub(in crate::authority) fn into_parts(self) -> (PlanError, CoupledSettlementContinuation) {
+        (self.error, *self.continuation)
+    }
 }
 
 impl<'authority> CoupledSettlementPlan<'authority> {
@@ -202,23 +227,48 @@ impl TxPoolAuthority {
     pub(in crate::authority) fn plan_coupled_continuation(
         &mut self,
         continuation: CoupledSettlementContinuation,
-    ) -> Result<SettlementPlan<'_>, PlanError> {
-        self.effects.ensure_open()?;
+    ) -> Result<SettlementPlan<'_>, CoupledSettlementPlanFailure> {
         let batch = continuation.batch;
-        let fact = self.ready_candidate_fact(&batch.head)?;
+        if let Err(error) = self.effects.ensure_open() {
+            return Err(CoupledSettlementPlanFailure::new(error, batch));
+        }
+        let fact = match self.ready_candidate_fact(&batch.head) {
+            Ok(fact) => fact,
+            Err(error) => {
+                return Err(CoupledSettlementPlanFailure::new(error, batch));
+            }
+        };
         let strongest_receipt = fact.receipt.clone();
         let coupled = if fact.receipt.payload_relation() == ReadyPayloadRelation::LocationRefreshed
         {
             true
         } else {
-            let (change, _async_process_start) = fact.into_membership_change()?;
-            has_membership_relation_coupling(self, std::slice::from_ref(&change))?
+            let (change, _async_process_start) = match fact.into_membership_change() {
+                Ok(change) => change,
+                Err(error) => {
+                    return Err(CoupledSettlementPlanFailure::new(error, batch));
+                }
+            };
+            match has_membership_relation_coupling(self, std::slice::from_ref(&change)) {
+                Ok(coupled) => coupled,
+                Err(error) => {
+                    return Err(CoupledSettlementPlanFailure::new(error, batch));
+                }
+            }
         };
         if !coupled {
-            return self.plan_settlement(&batch);
+            return match self.plan_settlement(&batch) {
+                Ok(plan) => Ok(plan),
+                Err(error) => Err(CoupledSettlementPlanFailure::new(error, batch)),
+            };
         }
 
-        let disposition = self.plan_candidate_disposition(strongest_receipt)?;
+        let disposition = match self.plan_candidate_disposition(strongest_receipt) {
+            Ok(disposition) => disposition,
+            Err(error) => {
+                return Err(CoupledSettlementPlanFailure::new(error, batch));
+            }
+        };
         Ok(SettlementPlan::CoupledComponent(CoupledSettlementPlan {
             disposition,
             continuation: batch.tail,

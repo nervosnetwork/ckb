@@ -39,7 +39,10 @@ use ckb_types::{
 };
 use ckb_verification::cache::ScriptVerificationRules;
 use std::ops::ControlFlow;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use tokio::sync::{RwLock as TokioRwLock, mpsc};
 
 fn runtime_config() -> TxPoolConfig {
@@ -126,6 +129,23 @@ fn runtime_with_effect_limits(
         effects,
     )
     .expect("the narrow effect runtime reserves every bounded projection")
+}
+
+fn runtime_with_one_effect_batch() -> AuthorityRuntime {
+    const EFFECT_BYTES: usize = 1024 * 1024;
+    let snapshot = genesis_snapshot();
+    let effects = EffectLimits::partitioned(
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectCapacity::new(1, EFFECT_BYTES),
+        EffectBatchBounds::new(
+            EffectBatchBound::new(MAX_READY_BATCH, EFFECT_BYTES),
+            EffectBatchBound::new(MAX_READY_BATCH, EFFECT_BYTES),
+            EffectBatchBound::new(MAX_READY_BATCH, EFFECT_BYTES),
+        ),
+    )
+    .expect("the narrow fixture admits one bounded effect batch");
+    runtime_with_effect_limits(&runtime_config(), snapshot, effects)
 }
 
 fn queue_remote_rejection(runtime: &AuthorityRuntime, nonce: u32) {
@@ -512,6 +532,228 @@ async fn runtime_one_ready_attempt_commits_a_bounded_coupled_sibling_batch() {
         );
         assert!(authority.primary_projection_consistent());
     });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_effect_capacity_resumes_the_exact_coupled_ready_tail() {
+    let runtime = runtime_with_one_effect_batch();
+    let (_parent, children) = runtime.with_authority_for_foundation(|authority| {
+        accepted_parent_with_ready_children(authority, 121, MAX_READY_BATCH)
+    });
+
+    let mut continuation = match runtime
+        .try_drive_ready()
+        .expect("effect pressure is an owned Ready outcome")
+    {
+        AuthorityReadyOutcome::EffectCapacity(continuation) => continuation,
+        outcome => panic!("the resident parent effect must block Ready, got {outcome:?}"),
+    };
+
+    let mut accepted = runtime.with_authority_for_foundation(|authority| {
+        children
+            .iter()
+            .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+            .count()
+    });
+    assert!(accepted < children.len());
+
+    while accepted < children.len() {
+        let occupied = runtime
+            .wait_effect_publication_for_foundation()
+            .await
+            .expect("one prior effect owns the only resident slot");
+        runtime
+            .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+            .expect("the exact prior publication releases capacity");
+
+        let outcome = runtime
+            .resume_ready(continuation)
+            .expect("the exact retained Ready tail revalidates");
+        let next_accepted = runtime.with_authority_for_foundation(|authority| {
+            children
+                .iter()
+                .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+                .count()
+        });
+        assert!(next_accepted > accepted);
+        accepted = next_accepted;
+
+        match outcome {
+            AuthorityReadyOutcome::EffectCapacity(next) => {
+                assert!(accepted < children.len());
+                continuation = next;
+            }
+            AuthorityReadyOutcome::Applied => {
+                assert_eq!(accepted, children.len());
+                break;
+            }
+            AuthorityReadyOutcome::Idle => {
+                panic!("a non-empty retained Ready tail cannot become idle")
+            }
+        }
+    }
+
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(
+            children
+                .iter()
+                .all(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+        );
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_ready_worker_resumes_capacity_blocked_tail_after_publication_release() {
+    let runtime = runtime_with_one_effect_batch();
+    let (_parent, children) = runtime.with_authority_for_foundation(|authority| {
+        accepted_parent_with_ready_children(authority, 124, MAX_READY_BATCH)
+    });
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let workers = AuthorityTestWorkerOwner::spawn_observed_ready(
+        runtime.clone(),
+        &handle,
+        Arc::clone(&attempts),
+    )
+    .expect("the test owns the capacity-blocked Ready worker");
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let accepted = runtime.with_authority_for_foundation(|authority| {
+                assert!(authority.primary_projection_consistent());
+                children
+                    .iter()
+                    .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+                    .count()
+            });
+            if accepted == children.len() {
+                break;
+            }
+            let occupied = runtime
+                .wait_effect_publication_for_foundation()
+                .await
+                .expect("the blocked Ready worker publishes one bounded effect batch");
+            runtime
+                .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+                .expect("publication settlement releases the existing capacity signal");
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("capacity releases drive the exact retained tail to completion");
+
+    workers
+        .shutdown()
+        .await
+        .expect("the capacity-blocked Ready worker cancels and joins cleanly");
+    assert!(
+        attempts.load(Ordering::Relaxed) > 1,
+        "the real worker must cross at least one effect-capacity wait"
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(
+            children
+                .iter()
+                .all(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+        );
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_effect_capacity_continuation_refuses_a_cleared_ready_generation() {
+    let runtime = runtime_with_one_effect_batch();
+    let (_parent, children) = runtime.with_authority_for_foundation(|authority| {
+        accepted_parent_with_ready_children(authority, 122, MAX_READY_BATCH)
+    });
+    let continuation = match runtime
+        .try_drive_ready()
+        .expect("effect pressure is an owned Ready outcome")
+    {
+        AuthorityReadyOutcome::EffectCapacity(continuation) => continuation,
+        outcome => panic!("the resident parent effect must block Ready, got {outcome:?}"),
+    };
+
+    let occupied = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("one prior effect owns the only resident slot");
+    runtime
+        .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+        .expect("the exact prior publication releases capacity");
+    let accepted_before_clear = runtime.with_authority_for_foundation(|authority| {
+        children
+            .iter()
+            .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+            .count()
+    });
+    runtime
+        .clear_pipeline()
+        .expect("the generation clear owns its exact administrative cut");
+
+    assert_eq!(
+        runtime.resume_ready(continuation),
+        Err(AuthorityDriverError::Stale)
+    );
+    runtime.with_authority_for_foundation(|authority| {
+        let accepted_after_clear = children
+            .iter()
+            .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+            .count();
+        assert_eq!(accepted_after_clear, accepted_before_clear);
+        assert!(
+            children
+                .iter()
+                .all(|child| { !matches!(authority.entry(child), Some(OwnedTx::PreAccepted(_))) })
+        );
+        assert!(authority.primary_projection_consistent());
+    });
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_dropped_effect_capacity_continuation_returns_to_the_ready_level() {
+    let runtime = runtime_with_one_effect_batch();
+    let (_parent, children) = runtime.with_authority_for_foundation(|authority| {
+        accepted_parent_with_ready_children(authority, 123, MAX_READY_BATCH)
+    });
+    let continuation = match runtime
+        .try_drive_ready()
+        .expect("effect pressure is an owned Ready outcome")
+    {
+        AuthorityReadyOutcome::EffectCapacity(continuation) => continuation,
+        outcome => panic!("the resident parent effect must block Ready, got {outcome:?}"),
+    };
+    let accepted_before_drop = runtime.with_authority_for_foundation(|authority| {
+        children
+            .iter()
+            .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+            .count()
+    });
+    drop(continuation);
+
+    let occupied = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("one prior effect owns the only resident slot");
+    runtime
+        .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+        .expect("the exact prior publication releases capacity");
+    let fresh = runtime
+        .try_drive_ready()
+        .expect("the level-triggered Ready frontier recaptures dropped receipts");
+    assert!(matches!(
+        fresh,
+        AuthorityReadyOutcome::Applied | AuthorityReadyOutcome::EffectCapacity(_)
+    ));
+    let accepted_after_recapture = runtime.with_authority_for_foundation(|authority| {
+        assert!(authority.primary_projection_consistent());
+        children
+            .iter()
+            .filter(|child| matches!(authority.entry(child), Some(OwnedTx::Accepted(_))))
+            .count()
+    });
+    assert!(accepted_after_recapture > accepted_before_drop);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

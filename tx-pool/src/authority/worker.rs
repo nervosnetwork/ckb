@@ -191,6 +191,7 @@ async fn run_ready_driver_loop(
     cancel: CancellationToken,
     mut observe_attempt: impl FnMut(),
 ) -> Result<(), AuthorityWorkerFault> {
+    let mut continuation = None;
     loop {
         if cancel.is_cancelled() {
             return Ok(());
@@ -200,9 +201,17 @@ async fn run_ready_driver_loop(
         tokio::pin!(capacity_notified);
         let _ = capacity_notified.as_mut().enable();
         observe_attempt();
-        let step = match runtime.try_drive_ready() {
+        let result = match continuation.take() {
+            Some(continuation) => runtime.resume_ready(continuation),
+            None => runtime.try_drive_ready(),
+        };
+        let step = match result {
             Ok(AuthorityReadyOutcome::Applied) => WorkerStep::Progress,
             Ok(AuthorityReadyOutcome::Idle) => WorkerStep::WaitForRunnable,
+            Ok(AuthorityReadyOutcome::EffectCapacity(blocked)) => {
+                continuation = Some(blocked);
+                WorkerStep::WaitForEffectCapacity
+            }
             Err(error) => classify_driver_error(&runtime, error)?,
         };
         if step == WorkerStep::Progress {

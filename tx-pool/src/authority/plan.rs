@@ -83,7 +83,9 @@ pub(in crate::authority) use membership::{
     MembershipProjection, StatusCounts,
 };
 use membership::{AcceptedRemovalSet, MembershipRemoval, PreparedMembership, ProjectionDelta};
-pub(in crate::authority) use settlement::{IndependentCandidate, SettlementBatch, SettlementPlan};
+pub(in crate::authority) use settlement::{
+    CoupledSettlementContinuation, IndependentCandidate, SettlementBatch, SettlementPlan,
+};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Instant};
