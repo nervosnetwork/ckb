@@ -123,6 +123,7 @@ members = [
 ignored = ["ckb-test"]
 
 [workspace.dependencies]
+ahash = "0.8.12"
 tempfile = "3"
 itertools = "0.11.0"
 schemars = "1"

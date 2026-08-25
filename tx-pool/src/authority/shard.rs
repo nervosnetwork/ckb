@@ -18,6 +18,7 @@ use super::{
         ProposalId, RawTxHash,
     },
 };
+use ahash::RandomState;
 use ckb_network::PeerIndex;
 use ckb_types::packed::OutPoint;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use ckb_util::parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLo
 use std::{
     collections::{BTreeSet, HashMap, HashSet, hash_map},
     fmt,
-    hash::{BuildHasher, Hash, Hasher, RandomState},
+    hash::{BuildHasher, Hash, Hasher},
     ops::Deref,
     sync::Arc,
 };
