@@ -218,16 +218,20 @@ fn verify_dao_script_size(
     snapshot: &Snapshot,
     rtx: Arc<ResolvedTransaction>,
 ) -> Result<(), ckb_error::Error> {
-    // DAO verification loads cell data through the data loader, which may hit
-    // RocksDB. Keep it off the async executor, like the script verifier.
-    block_offload(|| {
-        DaoScriptSizeVerifier::new(
-            Arc::clone(&rtx),
-            snapshot.cloned_consensus(),
-            snapshot.borrow_as_data_loader(),
-        )
-        .verify()
-    })
+    let verifier = DaoScriptSizeVerifier::new(
+        rtx,
+        snapshot.cloned_consensus(),
+        snapshot.borrow_as_data_loader(),
+    );
+    // The verifier owns the exact predicate for whether either of its branches
+    // can reach the data provider. Keep only that potentially blocking path off
+    // the async executor; the common non-DAO path still runs the complete
+    // verifier, but avoids a compensating Tokio worker handoff.
+    if verifier.may_load_cell_data() {
+        block_offload(|| verifier.verify())
+    } else {
+        verifier.verify()
+    }
 }
 
 /// Revalidate every chain-context rule that is not covered by a reusable

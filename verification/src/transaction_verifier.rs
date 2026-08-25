@@ -945,6 +945,27 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
         self.consensus.dao_type_hash()
     }
 
+    /// Return whether [`Self::verify`] may need cell data from the provider.
+    ///
+    /// Both data-loading branches require the input and output at the same
+    /// index to use the Nervos DAO type script. Keeping this conservative
+    /// execution-context decision beside the verifier prevents tx-pool callers
+    /// from copying DAO policy. A `false` result never replaces verification;
+    /// it only proves that running the complete verifier cannot block on the
+    /// data provider.
+    #[must_use]
+    pub fn may_load_cell_data(&self) -> bool {
+        let dao_type_hash = self.dao_type_hash();
+        self.resolved_transaction
+            .resolved_inputs
+            .iter()
+            .zip(self.resolved_transaction.transaction.outputs())
+            .any(|(input_meta, output)| {
+                cell_uses_dao_type_script(&input_meta.cell_output, &dao_type_hash)
+                    && cell_uses_dao_type_script(&output, &dao_type_hash)
+            })
+    }
+
     /// Verifies that for all Nervos DAO transactions, withdrawing cells must use lock scripts
     /// of the same size as corresponding deposit cells
     pub fn verify(&self) -> Result<(), Error> {

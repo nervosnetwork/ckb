@@ -902,6 +902,18 @@ impl CellDataProvider for EmptyDataProvider {
     }
 }
 
+struct UnexpectedDataProvider;
+
+impl CellDataProvider for UnexpectedDataProvider {
+    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+        panic!("non-DAO verification must not load cell data")
+    }
+
+    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+        panic!("non-DAO verification must not load a cell-data hash")
+    }
+}
+
 fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>, Script) {
     let dao_script = build_genesis_type_id_script(OUTPUT_INDEX_DAO);
     let mut consensus = ConsensusBuilder::default()
@@ -945,6 +957,50 @@ fn build_input_cell_meta(cell_output: CellOutput, data: Bytes) -> CellMeta {
             0,
         ))
         .build()
+}
+
+#[test]
+fn dao_data_load_predicate_keeps_the_non_dao_path_provider_free() {
+    let (consensus, _) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_normal_cell_output())
+        .output_data(Bytes::new())
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_normal_cell_output(),
+            Bytes::new(),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, UnexpectedDataProvider);
+
+    assert!(!verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+fn dao_data_load_predicate_covers_a_same_index_dao_pair() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_dao_cell_output(&dao_type_script))
+        .output_data(Bytes::from(vec![0; 8]))
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_dao_cell_output(&dao_type_script),
+            Bytes::from(vec![0; 8]),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider);
+
+    assert!(verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]
