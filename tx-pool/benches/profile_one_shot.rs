@@ -1719,7 +1719,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
     });
     let profile_observation = serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "scenario": scenario,
         "target": target_count,
         "warm": warm_count,

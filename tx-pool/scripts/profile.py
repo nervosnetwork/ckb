@@ -36,7 +36,7 @@ OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 PIPELINE_FEATURES = ("internal", "profiling")
 ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 1
-OBSERVATION_SCHEMA_VERSION = 1
+OBSERVATION_SCHEMA_VERSION = 2
 MANIFEST_SCHEMA_VERSION = 4
 FINAL_BUILD_PROFILE = "prod"
 SUMMARY_SCHEMA_VERSION = 3
@@ -502,10 +502,25 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
         "reorg_overlap_callbacks",
         "shutdown_latency_nanos",
     }
-    if not isinstance(observation, dict) or set(observation) != required:
+    terminal_fields = {
+        "callback_duplicates",
+        "relay_ok",
+        "relay_duplicate_ok",
+        "relay_rejects",
+        "relay_unknown_parents",
+        "relay_generation_resets",
+    }
+    if not isinstance(observation, dict):
         raise ProfileError("profile observation has an unsupported schema")
-    if observation["schema_version"] != OBSERVATION_SCHEMA_VERSION:
+    schema_version = observation.get("schema_version")
+    if schema_version == 1:
+        expected_fields = required
+    elif schema_version == OBSERVATION_SCHEMA_VERSION:
+        expected_fields = required | terminal_fields
+    else:
         raise ProfileError("profile observation schema version is unsupported")
+    if set(observation) != expected_fields:
+        raise ProfileError("profile observation has an unsupported schema")
     identity = {
         name: observation[name]
         for name in ("scenario", "target", "warm", "workers", "peers")
@@ -525,6 +540,8 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
         "reorg_overlap_callbacks",
         "shutdown_latency_nanos",
     )
+    if schema_version == OBSERVATION_SCHEMA_VERSION:
+        integer_metrics += tuple(sorted(terminal_fields))
     if any(
         not isinstance(observation[name], int)
         or isinstance(observation[name], bool)
@@ -561,6 +578,21 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
     expected_overlap = expected["scenario"] == "reorg_in_flight"
     if (observation["reorg_overlap_callbacks"] > 0) != expected_overlap:
         raise ProfileError("profile observation reorg overlap differs from the scenario")
+    if schema_version == OBSERVATION_SCHEMA_VERSION:
+        exact_accepted = expected["target"] + expected["warm"]
+        if observation["callback_duplicates"] != 0:
+            raise ProfileError("profile observation contains duplicate callbacks")
+        if observation["relay_ok"] != exact_accepted:
+            raise ProfileError("profile observation did not relay the exact accepted workload")
+        if observation["relay_duplicate_ok"] != 0:
+            raise ProfileError("profile observation contains duplicate relay terminals")
+        if observation["relay_unknown_parents"] != 0:
+            raise ProfileError("profile observation contains unknown-parent terminals")
+        if observation["relay_generation_resets"] != 0:
+            raise ProfileError("profile observation contains generation-reset terminals")
+        expected_rejects = expected["warm"] if expected["scenario"] == "rbf_pairs" else 0
+        if observation["relay_rejects"] != expected_rejects:
+            raise ProfileError("profile observation contains an unexpected reject terminal set")
     return observation
 
 

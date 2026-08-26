@@ -274,6 +274,44 @@ class ProfileAnalyzerTests(unittest.TestCase):
         with self.assertRaisesRegex(PROFILE.ProfileError, "drifted"):
             PROFILE.parse_observation(stdout, {**expected, "peers": 1})
 
+    def test_one_shot_observation_v2_terminal_identity_is_checked(self) -> None:
+        expected = {
+            "scenario": "rbf_pairs",
+            "target": 4,
+            "warm": 2,
+            "workers": 2,
+            "peers": 2,
+        }
+        observation = {
+            "schema_version": 2,
+            **expected,
+            "elapsed_nanos": 1,
+            "throughput_tps": 1.0,
+            "accepted": 6,
+            "callback_duplicates": 0,
+            "p99_latency_nanos": 1,
+            "target_cpu_nanos": 1,
+            "target_user_cpu_nanos": 1,
+            "target_system_cpu_nanos": 0,
+            "allocation_calls": 1,
+            "allocated_bytes": 1,
+            "reorg_latency_nanos": 1,
+            "reorg_overlap_callbacks": 0,
+            "relay_ok": 6,
+            "relay_duplicate_ok": 0,
+            "relay_rejects": 2,
+            "relay_unknown_parents": 0,
+            "relay_generation_resets": 0,
+            "shutdown_latency_nanos": 1,
+        }
+        stdout = f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(observation)}\n"
+        self.assertEqual(PROFILE.parse_observation(stdout, expected), observation)
+        with self.assertRaisesRegex(PROFILE.ProfileError, "unexpected reject"):
+            PROFILE.parse_observation(
+                f"{PROFILE.OBSERVATION_PREFIX}{json.dumps({**observation, 'relay_rejects': 0})}\n",
+                expected,
+            )
+
     def test_presymbolication_sidecar_resolves_an_address_frame(self) -> None:
         profile = {"libs": [{"name": "synthetic", "codeId": "code"}]}
         sidecar = {
