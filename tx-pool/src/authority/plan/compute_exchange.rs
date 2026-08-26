@@ -268,10 +268,10 @@ pub(super) fn apply_compute_exchange(
     delta: ComputeExchangeDelta,
 ) -> ApplyRetirement {
     let mut retired = delta.retired;
-    let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+    let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
     let support = authority.entries.owner_resource_write_support(
         delta.updates.iter().map(|update| &update.key),
-        &status_counts,
+        &proposed_counts,
         delta.resources.shard_plan(),
     );
     let updates = delta
@@ -280,7 +280,7 @@ pub(super) fn apply_compute_exchange(
         .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
     authority.commit_owner_resources(
         token,
-        PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),
+        PreparedOwnerResourceDelta::batch(updates, delta.resources, proposed_counts, support),
         &mut retired,
     );
     let authority = authority.write(token);

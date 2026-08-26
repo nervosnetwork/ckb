@@ -529,22 +529,19 @@ impl<'authority> AuthorityReadView<'authority> {
                 }
             }
         }
-        let counts = owners
-            .status_counts()
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        if summary.accepted_pending != counts.pending
-            || summary.accepted_gap != counts.gap
-            || summary.accepted_proposed != counts.proposed
-        {
-            return Err(AuthorityReadError::Projection);
-        }
         summary.accepted_resources = owners
             .accepted_resources()
             .ok_or(AuthorityReadError::Arithmetic)?;
-        let accepted_count = counts
-            .pending
-            .checked_add(counts.gap)
-            .and_then(|count| count.checked_add(counts.proposed))
+        let proposed_count = owners
+            .proposed_count()
+            .ok_or(AuthorityReadError::Arithmetic)?;
+        if summary.accepted_proposed != proposed_count {
+            return Err(AuthorityReadError::Projection);
+        }
+        let accepted_count = summary
+            .accepted_pending
+            .checked_add(summary.accepted_gap)
+            .and_then(|count| count.checked_add(summary.accepted_proposed))
             .ok_or(AuthorityReadError::Arithmetic)?;
         if accepted_count != summary.accepted_resources.entries {
             return Err(AuthorityReadError::Projection);
@@ -617,7 +614,7 @@ impl<'authority> AuthorityReadView<'authority> {
             self.chain_view.clone(),
             sources,
             &owners,
-            owners.status_counts(),
+            owners.accepted_count(),
         )
     }
 }
@@ -632,21 +629,16 @@ impl AuthorityFullReadCut<'_> {
     }
 
     pub(super) fn accepted_status_counts(&self) -> Result<(usize, usize), AuthorityReadError> {
-        let counts = self
+        let proposed = self
             .owners
-            .status_counts()
+            .proposed_count()
             .ok_or(AuthorityReadError::Arithmetic)?;
-        let pending = counts
-            .pending
-            .checked_add(counts.gap)
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        let total = pending
-            .checked_add(counts.proposed)
-            .ok_or(AuthorityReadError::Arithmetic)?;
-        if total != self.accepted_resources.entries {
-            return Err(AuthorityReadError::Projection);
-        }
-        Ok((pending, counts.proposed))
+        let pending = self
+            .accepted_resources
+            .entries
+            .checked_sub(proposed)
+            .ok_or(AuthorityReadError::Projection)?;
+        Ok((pending, proposed))
     }
 
     pub(super) fn accepted_order(&self) -> Vec<AcceptedOrderKey> {

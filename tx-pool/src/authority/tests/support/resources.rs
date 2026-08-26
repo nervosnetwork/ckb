@@ -131,10 +131,10 @@ impl TestResourceLedger {
     }
 
     pub(in crate::authority) fn apply(&mut self, plan: TestResourcePlan) {
-        let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+        let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
         let support = self.entries.owner_resource_write_support(
             plan.changes.iter().map(|(key, _)| key),
-            &status_counts,
+            &proposed_counts,
             plan.plan.shard_plan(),
         );
         for (key, after) in plan.changes {
@@ -154,10 +154,10 @@ impl TestResourceLedger {
     }
 
     pub(in crate::authority) fn apply_batch(&mut self, plan: TestResourceBatchPlan) {
-        let status_counts = crate::authority::shard::ShardStatusCountPlan::default();
+        let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
         let support = self.entries.owner_resource_write_support(
             plan.changes.iter().map(|(key, _)| key),
-            &status_counts,
+            &proposed_counts,
             plan.plan.shard_plan(),
         );
         for (key, after) in plan.changes {

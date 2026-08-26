@@ -894,7 +894,10 @@ sequenceDiagram
 
 `MembershipProjection` is derived from Accepted owners and stores the causal
 input/cell-dependency graph, spender relation, ancestor/descendant aggregates,
-status counts and deterministic ordering required by admission and templates.
+the Proposed-count aggregate and deterministic ordering required by admission
+and templates. Accepted total count comes from the same-cut resource aggregate;
+Pending and Gap remain exact owner states but intentionally share one public
+aggregate class, so no duplicate counters are stored for them.
 It is not a second payload owner. Membership preparation validates the complete
 virtual final set before the authority owner map changes.
 
@@ -991,6 +994,15 @@ ordinary admission. Peer revocation, local removal, remote expiry and accepted
 expiry use a cause-complete owner-removal compiler that updates every projection
 and required effect once. Reorg and clear use neither a recovery lock, nested
 undo nor a detached-block payload owner.
+
+An independent Accepted root may use the optimistic local-removal path while
+the outer store remains shared. Its complete sorted shard cut revalidates the
+exact owner version, then subtracts the current owner's resource charge and
+Proposed contribution from the values held by that cut. It never installs an
+absolute aggregate target computed before the cut. Distinct removals with
+disjoint support can overlap; removals sharing a shard serialize and compose
+their relative changes. A stale owner falls back to the ordinary exclusive
+compiler rather than retrying an unchanged plan.
 
 Authority-owned allocation failure has no monotonic allocator level and never
 uses that ordered lane as a retry loop. Caller-owned and derived work returns a

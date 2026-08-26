@@ -744,6 +744,14 @@ impl ResourceBatchPlan {
         owners.apply_resource_plan(self.shards);
         ResourceCapacityCommit(self.capacity)
     }
+
+    pub(super) fn commit_capacity_without_shards(self) -> ResourceCapacityCommit {
+        let Self {
+            shards: _,
+            capacity,
+        } = self;
+        ResourceCapacityCommit(capacity)
+    }
 }
 
 #[derive(Debug, Default)]

@@ -6,9 +6,7 @@
 use super::{
     dependency::{DependencyLevel, UnindexedDependencyLevel},
     indexes::{AcceptedDeadlineKey, DeadlineKey},
-    plan::{
-        AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey, StatusCounts,
-    },
+    plan::{AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey},
     resources::{
         AcceptedResources, ChargeProjection, ResourceError, ResourceTotals, ResourceVector,
     },
@@ -120,7 +118,7 @@ impl ConcurrentRemovalProbe {
 #[derive(Debug, Default)]
 pub(in crate::authority) struct AuthorityShard {
     owners: HashMap<RawTxHash, OwnedTx>,
-    membership_counts: StatusCounts,
+    proposed_count: usize,
     resources: ShardResourceAggregate,
     peer_resources: HashMap<PeerIndex, ResourceVector>,
     pub(in crate::authority) proposals: HashMap<ProposalId, RawTxHash>,
@@ -272,9 +270,9 @@ impl ShardedOwnerWriteCut<'_> {
             .map(|owner| owner.record().version)
     }
 
-    pub(in crate::authority) fn apply_status_counts(&mut self, plan: ShardStatusCountPlan) {
-        for (shard, counts) in plan.0 {
-            self.shard_mut(usize::from(shard)).membership_counts = counts;
+    pub(in crate::authority) fn apply_proposed_counts(&mut self, plan: ShardProposedCountPlan) {
+        for (shard, proposed) in plan.0 {
+            self.shard_mut(usize::from(shard)).proposed_count = proposed;
         }
     }
 
@@ -290,6 +288,74 @@ impl ShardedOwnerWriteCut<'_> {
                 rows.insert(peer, target);
             }
         }
+    }
+
+    pub(in crate::authority) fn remove_current_owner_resources(
+        &mut self,
+        entries: &ShardedOwnerMap,
+        key: &RawTxHash,
+    ) -> Result<Option<OwnedTx>, ResourceError> {
+        let owner_shard = entries.layout.router.owner(key);
+        let Some(owner) = self
+            .shards
+            .get(owner_shard)
+            .and_then(Option::as_deref)
+            .and_then(|shard| shard.owners.get(key))
+        else {
+            return Ok(None);
+        };
+        let charge = ChargeProjection::from_validated(Some(owner.charge_record()))?;
+        let removes_proposed = matches!(
+            owner,
+            OwnedTx::Accepted(entry) if entry.status() == AcceptedStatus::Proposed
+        );
+        let shard = self
+            .shards
+            .get(owner_shard)
+            .and_then(Option::as_deref)
+            .ok_or(ResourceError::Arithmetic)?;
+        let aggregate_after = shard.resources.checked_remove(charge)?;
+        let proposed_after = if removes_proposed {
+            shard
+                .proposed_count
+                .checked_sub(1)
+                .ok_or(ResourceError::Arithmetic)?
+        } else {
+            shard.proposed_count
+        };
+        let peer_after = charge
+            .peer
+            .map(|(peer, resources)| {
+                let peer_shard = entries.layout.router.peer_resource(&peer);
+                let current = self
+                    .shards
+                    .get(peer_shard)
+                    .and_then(Option::as_deref)
+                    .and_then(|shard| shard.peer_resources.get(&peer))
+                    .copied()
+                    .unwrap_or_default();
+                current
+                    .checked_sub(resources)
+                    .map(|after| (peer_shard, peer, after))
+                    .ok_or(ResourceError::Arithmetic)
+            })
+            .transpose()?;
+
+        let removed = {
+            let shard = self.shard_mut(owner_shard);
+            shard.resources = aggregate_after;
+            shard.proposed_count = proposed_after;
+            shard.owners.remove(key)
+        };
+        if let Some((peer_shard, peer, after)) = peer_after {
+            let peers = &mut self.shard_mut(peer_shard).peer_resources;
+            if after == ResourceVector::default() {
+                peers.remove(&peer);
+            } else {
+                peers.insert(peer, after);
+            }
+        }
+        Ok(removed)
     }
 
     pub(in crate::authority) fn apply_template_selection_sources(
@@ -445,14 +511,14 @@ impl ShardedOwnerMap {
     pub(in crate::authority) fn owner_resource_write_support<'key>(
         &self,
         owner_keys: impl IntoIterator<Item = &'key RawTxHash>,
-        status_counts: &ShardStatusCountPlan,
+        proposed_counts: &ShardProposedCountPlan,
         resources: &ShardResourcePlan,
     ) -> ShardWriteSupport {
         let mut support = ShardWriteSupport::default();
         for key in owner_keys {
             support.insert(self.layout.router.owner(key));
         }
-        for (shard, _) in &status_counts.0 {
+        for (shard, _) in &proposed_counts.0 {
             support.insert(usize::from(*shard));
         }
         for (shard, _) in &resources.aggregates {
@@ -595,13 +661,10 @@ impl ShardedOwnerMap {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn status_counts(&self) -> Option<StatusCounts> {
-        self.layout
-            .shards
-            .iter()
-            .try_fold(StatusCounts::default(), |total, shard| {
-                total.checked_add_counts(shard.read().membership_counts)
-            })
+    pub(in crate::authority) fn status_counts(&self) -> Option<super::plan::StatusCounts> {
+        let owners = self.read_all();
+        let counts = owners.status_counts()?;
+        (owners.proposed_count()? == counts.proposed).then_some(counts)
     }
 
     pub(in crate::authority) fn resource_totals(
@@ -765,7 +828,7 @@ impl ShardedOwnerMap {
         clippy::indexing_slicing,
         reason = "owner() masks to the fixed 64-entry array range"
     )]
-    pub(in crate::authority) fn plan_status_counts<'change>(
+    pub(in crate::authority) fn plan_proposed_counts<'change>(
         &self,
         changes: impl IntoIterator<
             Item = (
@@ -774,34 +837,61 @@ impl ShardedOwnerMap {
                 Option<AcceptedStatus>,
             ),
         >,
-    ) -> Result<ShardStatusCountPlan, ShardStatusCountPlanError> {
+    ) -> Result<ShardProposedCountPlan, ShardProposedCountPlanError> {
         let mut targets = [None; AUTHORITY_SHARD_COUNT];
+        let mut changed_shards = 0usize;
         for (key, before, after) in changes {
-            let shard = self.layout.router.owner(key);
-            let target =
-                targets[shard].get_or_insert(self.layout.shards[shard].read().membership_counts);
-            if let Some(before) = before {
-                *target = target
-                    .checked_sub(before)
-                    .ok_or(ShardStatusCountPlanError::Projection)?;
+            let before = before == Some(AcceptedStatus::Proposed);
+            let after = after == Some(AcceptedStatus::Proposed);
+            if before == after {
+                continue;
             }
-            if let Some(after) = after {
+            let shard = self.layout.router.owner(key);
+            let (base, target) = targets[shard].get_or_insert_with(|| {
+                let current = self.layout.shards[shard].read().proposed_count;
+                (current, current)
+            });
+            let was_changed = *base != *target;
+            if before {
                 *target = target
-                    .checked_add(after)
-                    .ok_or(ShardStatusCountPlanError::Arithmetic)?;
+                    .checked_sub(1)
+                    .ok_or(ShardProposedCountPlanError::Projection)?;
+            }
+            if after {
+                *target = target
+                    .checked_add(1)
+                    .ok_or(ShardProposedCountPlanError::Arithmetic)?;
+            }
+            let is_changed = *base != *target;
+            match (was_changed, is_changed) {
+                (false, true) => {
+                    changed_shards = changed_shards
+                        .checked_add(1)
+                        .ok_or(ShardProposedCountPlanError::Arithmetic)?;
+                }
+                (true, false) => {
+                    changed_shards = changed_shards
+                        .checked_sub(1)
+                        .ok_or(ShardProposedCountPlanError::Projection)?;
+                }
+                (false, false) | (true, true) => {}
             }
         }
         let mut planned = Vec::new();
         planned
-            .try_reserve(AUTHORITY_SHARD_COUNT)
-            .map_err(|_| ShardStatusCountPlanError::Allocation)?;
+            .try_reserve(changed_shards)
+            .map_err(|_| ShardProposedCountPlanError::Allocation)?;
         planned.extend(
             targets
                 .into_iter()
                 .enumerate()
-                .filter_map(|(shard, counts)| counts.map(|counts| (shard as u8, counts))),
+                .filter_map(|(shard, target)| {
+                    target
+                        .filter(|(before, after)| before != after)
+                        .map(|(_, after)| (shard as u8, after))
+                }),
         );
-        Ok(ShardStatusCountPlan(planned))
+        Ok(ShardProposedCountPlan(planned))
     }
 
     #[expect(
@@ -844,12 +934,27 @@ impl ShardedOwnerReadCut<'_> {
         self.shards.iter().map(|shard| shard.owners.len()).sum()
     }
 
-    pub(in crate::authority) fn status_counts(&self) -> Option<StatusCounts> {
-        self.shards
-            .iter()
-            .try_fold(StatusCounts::default(), |total, shard| {
-                total.checked_add_counts(shard.membership_counts)
-            })
+    pub(in crate::authority) fn proposed_count(&self) -> Option<usize> {
+        self.shards.iter().try_fold(0usize, |total, shard| {
+            total.checked_add(shard.proposed_count)
+        })
+    }
+
+    pub(in crate::authority) fn accepted_count(&self) -> Option<usize> {
+        self.shards.iter().try_fold(0usize, |total, shard| {
+            total.checked_add(shard.resources.accepted.entries)
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn status_counts(&self) -> Option<super::plan::StatusCounts> {
+        self.values().try_fold(
+            super::plan::StatusCounts::default(),
+            |counts, owner| match owner {
+                OwnedTx::Accepted(entry) => counts.checked_add(entry.status()),
+                OwnedTx::PreAccepted(_) | OwnedTx::ReplacementHistory(_) => Some(counts),
+            },
+        )
     }
 
     pub(in crate::authority) fn accepted_resources(&self) -> Option<AcceptedResources> {
@@ -1016,11 +1121,18 @@ impl ExactSizeIterator for ShardedOwnerIter<'_> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum ShardStatusCountPlanError {
+pub(in crate::authority) enum ShardProposedCountPlanError {
     Projection,
     Arithmetic,
     Allocation,
 }
 
 #[derive(Debug, Default)]
-pub(in crate::authority) struct ShardStatusCountPlan(Vec<(u8, StatusCounts)>);
+pub(in crate::authority) struct ShardProposedCountPlan(Vec<(u8, usize)>);
+
+#[cfg(test)]
+impl ShardProposedCountPlan {
+    pub(in crate::authority) fn len(&self) -> usize {
+        self.0.len()
+    }
+}

@@ -31,7 +31,9 @@ fn materialize_query(authority: &TxPoolAuthority, hash: &RawTxHash) -> QueryCut 
     let view = authority.read_view();
     let snapshot = genesis_snapshot();
     let entry = view.entry_by_raw(hash).expect("fixture owner is visible");
-    let ids = view.pool_ids().expect("derived status counts are coherent");
+    let ids = view
+        .pool_ids()
+        .expect("derived Proposed and accepted-total counts are coherent");
     let summary = view.summary().expect("derived owner counts are coherent");
     QueryCut {
         state: entry.state(),

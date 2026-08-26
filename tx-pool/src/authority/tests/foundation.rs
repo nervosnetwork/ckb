@@ -18,7 +18,7 @@ use super::super::resources::{
 };
 use super::super::runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime};
 use super::super::scheduler::VerifyOrder;
-use super::super::shard::ConcurrentRemovalProbe;
+use super::super::shard::{AuthorityShardRouter, ConcurrentRemovalProbe, ShardedOwnerMap};
 use super::super::state::{
     AcceptedAtMillis, AcceptedEntry, AcceptedProvenance, AcceptedStatus, ActiveWork, ApplySequence,
     CandidateMetrics, ChainRevision, ChainViewId, ComputeAttribution, DependencyCut, DependencyKey,
@@ -1487,6 +1487,84 @@ fn uak_disjoint_accepted_local_removals_overlap_inside_the_real_runtime_cut() {
         "entry difference: {:?}",
         concurrent.first_entry_difference(&sequential)
     );
+}
+
+#[test]
+fn uak_same_shard_distinct_local_removals_preserve_aggregate_projection() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        Arc::clone(&snapshot),
+    )
+    .expect("the authority runtime fixture is valid");
+    let (first, second) = runtime.with_authority_for_foundation(|authority| {
+        let mut first_by_shard = HashMap::new();
+        let mut pair = None;
+        for seed in 100u8..=180 {
+            let input = OutPoint::new(Byte32::new([seed; 32]), 0);
+            let transaction = TransactionBuilder::default()
+                .version(u32::from(seed))
+                .input(CellInput::new(input.clone(), 0))
+                .output(CellOutput::default())
+                .output_data(Bytes::new().pack())
+                .build();
+            let hash = accept_remote_transaction_with_payload(
+                authority,
+                transaction.clone(),
+                usize::from(seed),
+                AcceptedStatus::Proposed,
+                resolved_payload_with_facts(
+                    &transaction,
+                    Vec::new(),
+                    vec![input],
+                    Capacity::shannons(1_000),
+                ),
+            );
+            let shard = authority.entries_for_reference().owner_shard(&hash);
+            if let Some(first) = first_by_shard.insert(shard, hash.clone()) {
+                pair = Some((first, hash));
+                break;
+            }
+        }
+        let pair = pair.expect("more than 64 independent owners contain a same-shard pair");
+        for hash in [&pair.0, &pair.1] {
+            assert!(
+                authority
+                    .plan_concurrent_local_removal(hash)
+                    .expect("the independent Proposed owner removal plans")
+                    .is_ok()
+            );
+        }
+        pair
+    });
+    let plan_barrier = Arc::new(std::sync::Barrier::new(2));
+    runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_plan_probe(Some(Arc::clone(&plan_barrier)));
+    });
+
+    let outcomes = std::thread::scope(|scope| {
+        let left = scope.spawn(|| runtime.remove_local_transaction(&first.0));
+        let right = scope.spawn(|| runtime.remove_local_transaction(&second.0));
+        [
+            left.join().expect("left removal thread joins").unwrap(),
+            right.join().expect("right removal thread joins").unwrap(),
+        ]
+    });
+    assert_eq!(outcomes, [true, true]);
+    runtime.with_authority_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_concurrent_removal_plan_probe(None);
+        assert!(authority.entry(&first).is_none());
+        assert!(authority.entry(&second).is_none());
+        assert!(
+            authority.primary_projection_consistent(),
+            "serialized same-shard concurrent Apply must not install stale absolute aggregates"
+        );
+    });
 }
 
 #[test]
@@ -3538,11 +3616,15 @@ fn uak_status_reconcile_updates_count_and_eviction_projection_once() {
     let hash =
         accept_remote_transaction(&mut authority, tx(70), 70, AcceptedStatus::Gap, Vec::new());
     let version = owner_version(&authority, &hash);
-    let demotion = apply_plan_for_delta(
-        authority
-            .plan_status_for_foundation(&hash, version, AcceptedStatus::Pending)
-            .expect("Gap demotion is one membership transition"),
+    let demotion_plan = authority
+        .plan_status_for_foundation(&hash, version, AcceptedStatus::Pending)
+        .expect("Gap demotion is one membership transition");
+    assert_eq!(
+        demotion_plan.proposed_count_delta_len_for_foundation(),
+        Some(0),
+        "Pending and Gap share the public aggregate class and need no stored counter write"
     );
+    let demotion = apply_plan_for_delta(demotion_plan);
     assert_eq!(demotion.retired_len(), 1);
     let counts = authority.membership_counts();
     assert_eq!((counts.pending, counts.gap, counts.proposed), (1, 0, 0));
@@ -3558,14 +3640,58 @@ fn uak_status_reconcile_updates_count_and_eviction_projection_once() {
     );
     assert_eq!(authority.normalized_snapshot(), before);
 
-    apply_plan(
-        authority
-            .plan_status_for_foundation(&hash, version, AcceptedStatus::Proposed)
-            .expect("Pending promotion is one membership transition"),
+    let promotion_plan = authority
+        .plan_status_for_foundation(&hash, version, AcceptedStatus::Proposed)
+        .expect("Pending promotion is one membership transition");
+    assert_eq!(
+        promotion_plan.proposed_count_delta_len_for_foundation(),
+        Some(1),
+        "crossing the Proposed boundary changes exactly one shard scalar"
     );
+    apply_plan(promotion_plan);
     let counts = authority.membership_counts();
     assert_eq!((counts.pending, counts.gap, counts.proposed), (0, 0, 1));
     assert_resource_reference(&authority);
+}
+
+#[test]
+fn uak_proposed_count_batch_elides_same_shard_net_zero() {
+    let entries = ShardedOwnerMap::new(AuthorityShardRouter::new());
+    let removed = RawTxHash(Byte32::new([1; 32]));
+    let shard = entries.owner_shard(&removed);
+    let inserted = (2u8..=u8::MAX)
+        .map(|byte| RawTxHash(Byte32::new([byte; 32])))
+        .find(|hash| entries.owner_shard(hash) == shard)
+        .expect("the fixed 64-shard layout has another key in this bounded search");
+
+    let initial = entries
+        .plan_proposed_counts(std::iter::once((
+            &removed,
+            None,
+            Some(AcceptedStatus::Proposed),
+        )))
+        .expect("one proposed owner is representable");
+    assert_eq!(initial.len(), 1);
+    let mut initial_cut = entries.write_cut(entries.owner_write_support([&removed]));
+    initial_cut.apply_proposed_counts(initial);
+    drop(initial_cut);
+
+    let replacement = entries
+        .plan_proposed_counts([
+            (&removed, Some(AcceptedStatus::Proposed), None),
+            (&inserted, None, Some(AcceptedStatus::Proposed)),
+        ])
+        .expect("a same-shard proposed replacement preserves the aggregate");
+    assert_eq!(
+        replacement.len(),
+        0,
+        "a same-shard net-zero batch must not acquire or write an aggregate scalar"
+    );
+    assert_eq!(
+        entries.read_all().proposed_count(),
+        Some(1),
+        "eliding the net-zero plan preserves the existing exact aggregate"
+    );
 }
 
 #[test]

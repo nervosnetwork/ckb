@@ -264,7 +264,7 @@ fn prepare_projection(
         })
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
 
-    let status_counts = authority.entries.plan_status_counts(
+    let proposed_counts = authority.entries.plan_proposed_counts(
         changes
             .iter()
             .map(|change| (&change.key, None, Some(change.after.status()))),
@@ -377,6 +377,6 @@ fn prepare_projection(
         accepted_order_insertions,
         eviction_removals: Vec::new(),
         eviction_insertions,
-        status_counts,
+        proposed_counts,
     })
 }

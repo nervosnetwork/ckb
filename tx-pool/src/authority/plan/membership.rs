@@ -107,6 +107,7 @@ impl AcceptedRemovalSet {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::authority) struct StatusCounts {
     pub(in crate::authority) pending: usize,
@@ -114,18 +115,12 @@ pub(in crate::authority) struct StatusCounts {
     pub(in crate::authority) proposed: usize,
 }
 
+#[cfg(test)]
 impl StatusCounts {
     pub(in crate::authority) fn checked_add(self, status: AcceptedStatus) -> Option<Self> {
         let mut next = self;
         let count = next.for_status_mut(status);
         *count = count.checked_add(1)?;
-        Some(next)
-    }
-
-    pub(in crate::authority) fn checked_sub(self, status: AcceptedStatus) -> Option<Self> {
-        let mut next = self;
-        let count = next.for_status_mut(status);
-        *count = count.checked_sub(1)?;
         Some(next)
     }
 
@@ -135,14 +130,6 @@ impl StatusCounts {
             AcceptedStatus::Gap => &mut self.gap,
             AcceptedStatus::Proposed => &mut self.proposed,
         }
-    }
-
-    pub(in crate::authority) fn checked_add_counts(self, other: Self) -> Option<Self> {
-        Some(Self {
-            pending: self.pending.checked_add(other.pending)?,
-            gap: self.gap.checked_add(other.gap)?,
-            proposed: self.proposed.checked_add(other.proposed)?,
-        })
     }
 }
 
@@ -532,19 +519,19 @@ pub(super) struct ProjectionDelta {
     accepted_order_insertions: Vec<AcceptedOrderKey>,
     eviction_removals: Vec<EvictionOrderKey>,
     eviction_insertions: Vec<EvictionOrderKey>,
-    status_counts: super::super::shard::ShardStatusCountPlan,
+    proposed_counts: super::super::shard::ShardProposedCountPlan,
 }
 
 impl ProjectionDelta {
     #[cfg(test)]
-    pub(in crate::authority) fn status_count_plan(
+    pub(in crate::authority) fn proposed_count_plan(
         &self,
-    ) -> &super::super::shard::ShardStatusCountPlan {
-        &self.status_counts
+    ) -> &super::super::shard::ShardProposedCountPlan {
+        &self.proposed_counts
     }
 
-    pub(super) fn take_status_counts(&mut self) -> super::super::shard::ShardStatusCountPlan {
-        std::mem::take(&mut self.status_counts)
+    pub(super) fn take_proposed_counts(&mut self) -> super::super::shard::ShardProposedCountPlan {
+        std::mem::take(&mut self.proposed_counts)
     }
 
     /// Read the post-Apply spender from this change log and the authoritative
@@ -1468,7 +1455,7 @@ impl TxPoolAuthority {
             }
             status_count_changes.push((hash.clone(), Some(before.status()), Some(after.status())));
         }
-        let status_counts = self.entries.plan_status_counts(
+        let proposed_counts = self.entries.plan_proposed_counts(
             status_count_changes
                 .iter()
                 .map(|(hash, before, after)| (hash, *before, *after)),
@@ -1732,7 +1719,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: ancestor.order_insertions,
             eviction_removals,
             eviction_insertions,
-            status_counts,
+            proposed_counts,
         })
     }
 
@@ -1901,7 +1888,7 @@ impl TxPoolAuthority {
             status_count_changes.push((removal.clone(), Some(entry.status()), None));
         }
         status_count_changes.push((hash.clone(), None, Some(candidate.status())));
-        let status_counts = self.entries.plan_status_counts(
+        let proposed_counts = self.entries.plan_proposed_counts(
             status_count_changes
                 .iter()
                 .map(|(hash, before, after)| (hash, *before, *after)),
@@ -2148,7 +2135,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: aggregate.accepted_order_insertions,
             eviction_removals: aggregate.eviction_removals,
             eviction_insertions: aggregate.eviction_insertions,
-            status_counts,
+            proposed_counts,
         })
     }
 

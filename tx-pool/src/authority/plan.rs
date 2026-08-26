@@ -53,7 +53,7 @@ use super::scheduler::{
 };
 #[cfg(test)]
 use super::shard::ShardWriteSupport;
-use super::shard::{ShardStatusCountPlanError, ShardedOwnerMap, ShardedOwnerReadGuard};
+use super::shard::{ShardProposedCountPlanError, ShardedOwnerMap, ShardedOwnerReadGuard};
 #[cfg(test)]
 use super::source::AuthoritySourceVersionSnapshot;
 use super::source::{AuthoritySourceVersions, PoolTemplateVersions, SourceVersionDelta};
@@ -78,9 +78,11 @@ use ckb_types::{
 };
 pub(in crate::authority) use membership::MembershipConfig;
 pub(in crate::authority) use membership::RemovalCause;
+#[cfg(test)]
+pub(in crate::authority) use membership::StatusCounts;
 pub(in crate::authority) use membership::{
     AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey,
-    MembershipProjection, StatusCounts,
+    MembershipProjection,
 };
 use membership::{AcceptedRemovalSet, MembershipRemoval, PreparedMembership, ProjectionDelta};
 pub(in crate::authority) use settlement::{
@@ -497,14 +499,16 @@ impl From<PeerBanError> for PlanError {
     }
 }
 
-impl From<ShardStatusCountPlanError> for PlanError {
-    fn from(error: ShardStatusCountPlanError) -> Self {
+impl From<ShardProposedCountPlanError> for PlanError {
+    fn from(error: ShardProposedCountPlanError) -> Self {
         match error {
-            ShardStatusCountPlanError::Projection => {
+            ShardProposedCountPlanError::Projection => {
                 Self::Fault(AuthorityFault::MembershipProjection)
             }
-            ShardStatusCountPlanError::Arithmetic => Self::Fault(AuthorityFault::CounterExhausted),
-            ShardStatusCountPlanError::Allocation => Self::Backpressure(Backpressure::Allocation),
+            ShardProposedCountPlanError::Arithmetic => {
+                Self::Fault(AuthorityFault::CounterExhausted)
+            }
+            ShardProposedCountPlanError::Allocation => Self::Backpressure(Backpressure::Allocation),
         }
     }
 }
@@ -1445,10 +1449,10 @@ impl PreparedApply<'_> {
         delta: EntryDelta,
     ) -> ApplyRetirement {
         let mut retired = delta.retired;
-        let status_counts = super::shard::ShardStatusCountPlan::default();
+        let proposed_counts = super::shard::ShardProposedCountPlan::default();
         let support = authority.entries.owner_resource_write_support(
             std::iter::once(&delta.key),
-            &status_counts,
+            &proposed_counts,
             delta.resource.shard_plan(),
         );
         let update = OwnerResourceUpdate::new(delta.key, delta.after);
@@ -1479,14 +1483,14 @@ impl PreparedApply<'_> {
         mut delta: MembershipDelta,
     ) -> ApplyRetirement {
         let mut retired = delta.retired;
-        let status_counts = delta.projection.take_status_counts();
+        let proposed_counts = delta.projection.take_proposed_counts();
         let support = authority.entries.owner_resource_write_support(
             delta
                 .removals
                 .iter()
                 .map(|removal| &removal.hash)
                 .chain(std::iter::once(&delta.changed_key)),
-            &status_counts,
+            &proposed_counts,
             delta.resource.shard_plan(),
         );
         let removal_updates = delta
@@ -1503,7 +1507,7 @@ impl PreparedApply<'_> {
             PreparedOwnerResourceDelta::batch(
                 removal_updates.chain(changed),
                 delta.resource,
-                status_counts,
+                proposed_counts,
                 support,
             ),
             indexes,
@@ -1533,10 +1537,10 @@ impl PreparedApply<'_> {
         token: &ApplyToken,
         mut delta: IndependentDelta,
     ) -> ApplyRetirement {
-        let status_counts = delta.projection.take_status_counts();
+        let proposed_counts = delta.projection.take_proposed_counts();
         let support = authority.entries.owner_resource_write_support(
             delta.updates.iter().map(|update| &update.key),
-            &status_counts,
+            &proposed_counts,
             delta.resource.shard_plan(),
         );
         let updates = delta
@@ -1547,7 +1551,7 @@ impl PreparedApply<'_> {
         let DerivedOwnerDelta { indexes, sources } = delta.owners;
         authority.commit_owner_resources_indexes_membership(
             token,
-            PreparedOwnerResourceDelta::batch(updates, delta.resource, status_counts, support),
+            PreparedOwnerResourceDelta::batch(updates, delta.resource, proposed_counts, support),
             indexes,
             delta.projection,
             &mut retired,
@@ -1699,10 +1703,10 @@ impl PreparedApply<'_> {
             dependency,
             mut retired,
         } = removal;
-        let status_counts = membership.take_status_counts();
+        let proposed_counts = membership.take_proposed_counts();
         let support = authority.entries.owner_resource_write_support(
             hashes.iter(),
-            &status_counts,
+            &proposed_counts,
             resources.shard_plan(),
         );
         let updates = hashes
@@ -1710,7 +1714,7 @@ impl PreparedApply<'_> {
             .map(|hash| OwnerResourceUpdate::new(hash, None));
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(updates, resources, status_counts, support),
+            PreparedOwnerResourceDelta::batch(updates, resources, proposed_counts, support),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1728,10 +1732,10 @@ impl PreparedApply<'_> {
         mut delta: ChainDelta,
     ) -> ApplyRetirement {
         let mut retired = delta.retired;
-        let status_counts = delta.membership.take_status_counts();
+        let proposed_counts = delta.membership.take_proposed_counts();
         let support = authority.entries.owner_resource_write_support(
             delta.updates.iter().map(|update| &update.key),
-            &status_counts,
+            &proposed_counts,
             delta.resources.shard_plan(),
         );
         let updates = delta
@@ -1740,7 +1744,7 @@ impl PreparedApply<'_> {
             .map(|update| OwnerResourceUpdate::new(update.key, update.after));
         authority.commit_owner_resources(
             token,
-            PreparedOwnerResourceDelta::batch(updates, delta.resources, status_counts, support),
+            PreparedOwnerResourceDelta::batch(updates, delta.resources, proposed_counts, support),
             &mut retired,
         );
         let authority = authority.write(token);
@@ -1793,7 +1797,7 @@ impl PreparedConcurrentLocalRemoval<'_> {
     pub(in crate::authority) fn physical_write_support(&self) -> ShardWriteSupport {
         let mut support = self.authority.entries.owner_resource_write_support(
             self.removal.hashes.iter(),
-            self.removal.membership.status_count_plan(),
+            self.removal.membership.proposed_count_plan(),
             self.removal.resources.shard_plan(),
         );
         support.include(

@@ -297,7 +297,7 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let status_counts = self.entries.plan_status_counts(std::iter::once((
+        let proposed_counts = self.entries.plan_proposed_counts(std::iter::once((
             hash,
             Some(before.status()),
             Some(after.status()),
@@ -330,7 +330,7 @@ impl TxPoolAuthority {
             accepted_order_insertions: Vec::new(),
             eviction_removals,
             eviction_insertions,
-            status_counts,
+            proposed_counts,
         })
     }
 }

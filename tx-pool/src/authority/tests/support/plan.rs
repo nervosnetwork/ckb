@@ -803,6 +803,16 @@ impl PreparedApply<'_> {
                 .collect(),
         )
     }
+
+    /// Observe only the size of the production-sealed proposed-count delta.
+    /// This proves that a Pending/Gap-only status transition does not retain a
+    /// redundant aggregate write without creating a second status model.
+    pub(in crate::authority) fn proposed_count_delta_len_for_foundation(&self) -> Option<usize> {
+        let AuthorityDelta::Membership(delta) = &self.delta else {
+            return None;
+        };
+        Some(delta.projection.proposed_count_plan().len())
+    }
 }
 
 impl PreparedDirectDuplicate<'_> {

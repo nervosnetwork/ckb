@@ -130,7 +130,7 @@ impl PreparedResourceApply {
 pub(super) struct PreparedOwnerResourceDelta<I> {
     updates: I,
     resources: PreparedResourceApply,
-    status_counts: super::super::shard::ShardStatusCountPlan,
+    proposed_counts: super::super::shard::ShardProposedCountPlan,
     support: ShardWriteSupport,
 }
 
@@ -138,13 +138,13 @@ impl<I> PreparedOwnerResourceDelta<I> {
     pub(super) fn batch(
         updates: I,
         resources: ResourceBatchPlan,
-        status_counts: super::super::shard::ShardStatusCountPlan,
+        proposed_counts: super::super::shard::ShardProposedCountPlan,
         support: ShardWriteSupport,
     ) -> Self {
         Self {
             updates,
             resources: PreparedResourceApply::Batch(resources),
-            status_counts,
+            proposed_counts,
             support,
         }
     }
@@ -159,7 +159,7 @@ impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
         Self {
             updates: std::iter::once(update),
             resources: PreparedResourceApply::Single(resources),
-            status_counts: Default::default(),
+            proposed_counts: Default::default(),
             support,
         }
     }
@@ -450,7 +450,7 @@ impl TxPoolAuthority {
                 retired.push(owner);
             }
         }
-        owners.apply_status_counts(delta.status_counts);
+        owners.apply_proposed_counts(delta.proposed_counts);
         let capacity = delta.resources.apply_shards(&mut owners);
         drop(owners);
         capacity.commit();
@@ -483,7 +483,7 @@ impl TxPoolAuthority {
                 retired.push(owner);
             }
         }
-        owners.apply_status_counts(delta.status_counts);
+        owners.apply_proposed_counts(delta.proposed_counts);
         let capacity = delta.resources.apply_shards(&mut owners);
         capacity.commit();
         indexes.apply_sharded(entries, &mut owners);
@@ -507,12 +507,12 @@ impl TxPoolAuthority {
             dependency,
             mut retired,
         } = removal;
-        let status_counts = membership.take_status_counts();
+        let proposed_counts = membership.take_proposed_counts();
         let mut support = self
             .state
             .owner_resources
             .entries
-            .owner_resource_write_support(hashes.iter(), &status_counts, resources.shard_plan());
+            .owner_resource_write_support(hashes.iter(), &proposed_counts, resources.shard_plan());
         support.include(
             owners
                 .indexes
@@ -534,12 +534,13 @@ impl TxPoolAuthority {
             return Err(ConcurrentLocalRemovalStale);
         }
         for hash in hashes {
-            if let Some(owner) = cut.replace(entries.owner_shard(&hash), hash, None) {
-                retired.push(owner);
-            }
+            let owner = cut
+                .remove_current_owner_resources(entries, &hash)
+                .map_err(|_| ConcurrentLocalRemovalStale)?
+                .ok_or(ConcurrentLocalRemovalStale)?;
+            retired.push(owner);
         }
-        cut.apply_status_counts(status_counts);
-        let capacity = resources.apply_shards(&mut cut);
+        let capacity = resources.commit_capacity_without_shards();
         let DerivedOwnerDelta {
             mut indexes,
             mut sources,

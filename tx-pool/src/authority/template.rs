@@ -7,7 +7,7 @@
 //! owner of rebuildable output.
 
 use super::{
-    plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey, StatusCounts},
+    plan::{AcceptedOrderKey, AncestorAggregate, EvictionOrderKey},
     shard::ShardedOwnerReadCut,
     source::PoolTemplateVersions,
     state::{
@@ -172,14 +172,9 @@ impl AuthorityTemplateReadReceipt {
         chain_view: ChainViewId,
         sources: PoolTemplateVersions,
         entries: &ShardedOwnerReadCut<'_>,
-        counts: Option<StatusCounts>,
+        accepted_count: Option<usize>,
     ) -> Result<Self, TemplateReadError> {
-        let counts = counts.ok_or(TemplateReadError::Arithmetic)?;
-        let accepted_count = counts
-            .pending
-            .checked_add(counts.gap)
-            .and_then(|count| count.checked_add(counts.proposed))
-            .ok_or(TemplateReadError::Arithmetic)?;
+        let accepted_count = accepted_count.ok_or(TemplateReadError::Arithmetic)?;
         let mut captured = Vec::new();
         captured
             .try_reserve(accepted_count)
