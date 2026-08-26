@@ -41,7 +41,13 @@ pub struct TxPoolConfig {
     /// txs need to pay larger fee rate than this for RBF
     #[serde(with = "FeeRateDef")]
     pub min_rbf_rate: FeeRate,
-    /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
+    /// Historical configuration name retained for compatibility.
+    ///
+    /// This value is the Remote verification scheduling threshold: declared
+    /// work above it enters the large-cycle lane, while work at or below it
+    /// remains eligible for small-cycle workers. It is not an admission or VM
+    /// execution limit. A Remote request is bounded by its consensus-checked
+    /// declaration; Trusted work is bounded by the consensus block maximum.
     pub max_tx_verify_cycles: Cycle,
     /// Minimum local wall budget for one tx-pool verification attempt.
     pub min_tx_verify_time_ms: u32,
