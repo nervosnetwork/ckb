@@ -83,6 +83,8 @@ inherits CPU used earlier in the interval.
 
 One-shot observations additionally bind:
 
+- exact callback and relay terminal counts, including duplicate, rejection,
+  unknown-parent and generation-reset classifications (`schema_version = 2`);
 - monotonic target elapsed time and throughput;
 - process user, system and total CPU time within the target window;
 - target-completion p99 measured from the common target start;
@@ -92,9 +94,9 @@ One-shot observations additionally bind:
 
 Cumulative allocated bytes are allocation traffic, not peak resident memory.
 The paired comparison runner separately records process peak RSS and context
-switches. A large fixed CKB-VM allocation therefore motivates a reuse
-feasibility check only after CPU/RSS evidence shows material benefit and a
-complete reset/ownership contract exists.
+switches. Fixed CKB-VM allocation and execution costs are reported as a
+separate consensus-bound component: tx-pool profiling must not turn them into
+a memory-reuse, pooling or VM-semantics optimization target.
 
 ## Required checks
 
