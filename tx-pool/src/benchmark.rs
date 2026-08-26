@@ -67,7 +67,7 @@ fn tx_pool_config(max_workers: usize) -> TxPoolConfig {
         max_tx_verify_cycles: MAX_TX_VERIFY_CYCLES,
         min_tx_verify_time_ms: 250,
         tx_verify_cycles_per_ms: 10_000,
-        max_tx_verify_time_ms: 30_000,
+        max_tx_verify_time_ms: 8_000,
         max_tx_verify_initial_load_bytes: 256 * 1024 * 1024,
         max_tx_verify_workers: max_workers,
         max_ancestors_count: 1000,

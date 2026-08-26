@@ -55,6 +55,7 @@ pub struct TxPoolConfig {
     /// budget. It is not consensus accounting or measured execution truth.
     pub tx_verify_cycles_per_ms: u64,
     /// Unconditional local wall cap for one tx-pool verification attempt.
+    /// The default is one consensus minimum block-interval quantum (8 s).
     pub max_tx_verify_time_ms: u32,
     /// Maximum cumulative root-program bytes mapped by the VM loader before
     /// one tx-pool script group begins resumable execution.

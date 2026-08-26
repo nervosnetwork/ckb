@@ -1,5 +1,5 @@
 use crate::configs::{VerifyOrdering, default_max_tx_verify_workers};
-use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
+use ckb_chain_spec::consensus::{MIN_BLOCK_INTERVAL, TWO_IN_TWO_OUT_CYCLES};
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::Deserialize;
@@ -14,7 +14,10 @@ const DEFAULT_MIN_RBF_RATE: FeeRate = FeeRate::from_u64(1500);
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 const DEFAULT_MIN_TX_VERIFY_TIME_MS: u32 = 250;
 const DEFAULT_TX_VERIFY_CYCLES_PER_MS: u64 = 10_000;
-const DEFAULT_MAX_TX_VERIFY_TIME_MS: u32 = 30_000;
+// A tx-pool attempt may occupy one verifier for at most one consensus minimum
+// block-interval quantum. This is node-local admission policy only; block
+// verification remains governed exclusively by consensus cycles.
+const DEFAULT_MAX_TX_VERIFY_TIME_MS: u32 = MIN_BLOCK_INTERVAL as u32 * 1_000;
 const DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES: u64 = 256 * 1024 * 1024;
 // default max ancestors count
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 1_000;
@@ -271,6 +274,11 @@ max_ancestors_count = 25
             DEFAULT_TX_VERIFY_CYCLES_PER_MS
         );
         assert_eq!(config.max_tx_verify_time_ms, DEFAULT_MAX_TX_VERIFY_TIME_MS);
+        assert_eq!(
+            u64::from(config.max_tx_verify_time_ms),
+            MIN_BLOCK_INTERVAL * 1_000,
+            "the default local fallback cap is exactly one minimum block interval"
+        );
         assert_eq!(
             config.max_tx_verify_initial_load_bytes,
             DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES
