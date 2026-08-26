@@ -325,8 +325,8 @@ impl TxPoolServiceBuilder {
                 .ok()
         });
         let recent_reject = Self::build_recent_reject(&tx_pool_config).map(Arc::new);
-        let (bootstrap, relay_receiver) = AuthorityService::prepare(tx_pool_config, snapshot)
-            .map_err(|error| {
+        let (bootstrap, relay_receiver) =
+            AuthorityService::prepare(handle, tx_pool_config, snapshot).map_err(|error| {
                 OtherError::new(format!(
                     "invalid unified tx-pool authority configuration: {error:?}"
                 ))

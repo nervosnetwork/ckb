@@ -85,8 +85,8 @@ use crate::component::entry::TxEntry;
 use crate::{constants::MAX_READY_BATCH, util::TxPoolVerificationBudget};
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_logger::error;
-use ckb_script::InitialProgramLoadLimit;
+use ckb_logger::{error, warn};
+use ckb_script::{InitialProgramLoadLimit, TxPoolVmExecutionMode};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_types::core::EntryCompleted;
@@ -114,7 +114,10 @@ impl RetainedIngressBatchFailure {
         (self.error, self.batch)
     }
 }
-use tokio::sync::{Notify, Semaphore, watch};
+use tokio::{
+    runtime::RuntimeFlavor,
+    sync::{Notify, Semaphore, watch},
+};
 
 const PREACCEPTED_ENTRY_BYTES: usize = 768;
 const DEPENDENCY_EDGE_BYTES: usize = 160;
@@ -207,6 +210,7 @@ struct AuthorityRuntimeConfig {
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute_permits: NonZeroUsize,
+    vm_execution_mode: TxPoolVmExecutionMode,
     full_query_max_rows: usize,
 }
 
@@ -246,9 +250,26 @@ impl ResolutionPolicy {
 }
 
 impl AuthorityRuntimeConfig {
+    #[cfg(test)]
     fn from_runtime(
         config: &TxPoolConfig,
         consensus: &Consensus,
+    ) -> Result<Self, RuntimeConfigError> {
+        Self::from_runtime_on_executor(config, consensus, None)
+    }
+
+    fn from_runtime_with_handle(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        handle: &ckb_async_runtime::Handle,
+    ) -> Result<Self, RuntimeConfigError> {
+        Self::from_runtime_on_executor(config, consensus, Some(handle))
+    }
+
+    fn from_runtime_on_executor(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        handle: Option<&ckb_async_runtime::Handle>,
     ) -> Result<Self, RuntimeConfigError> {
         let entry_metadata_bytes = PREACCEPTED_ENTRY_BYTES
             .checked_add(
@@ -287,8 +308,35 @@ impl AuthorityRuntimeConfig {
         if active_work > Semaphore::MAX_PERMITS {
             return Err(RuntimeConfigError::ResourceConfiguration);
         }
-        let transient_compute_permits =
-            NonZeroUsize::new(active_work).ok_or(RuntimeConfigError::Arithmetic)?;
+        let (transient_compute_permits, vm_execution_mode) = match handle {
+            Some(handle) => {
+                let tokio_handle = handle.clone().into_inner();
+                if tokio_handle.runtime_flavor() != RuntimeFlavor::MultiThread {
+                    return Err(RuntimeConfigError::ResourceConfiguration);
+                }
+                let runtime_workers = tokio_handle.metrics().num_workers().max(1);
+                let maximum_inline_compute = runtime_workers.saturating_sub(1);
+                let effective_compute = active_work.min(maximum_inline_compute).max(1);
+                if effective_compute < active_work {
+                    warn!(
+                        "tx-pool compute concurrency {} exceeds the {}-worker Tokio runtime's parent-progress bound; limiting active compute to {}",
+                        active_work, runtime_workers, effective_compute
+                    );
+                }
+                (
+                    NonZeroUsize::new(effective_compute).ok_or(RuntimeConfigError::Arithmetic)?,
+                    if runtime_workers == 1 {
+                        TxPoolVmExecutionMode::YieldRuntimeWorker
+                    } else {
+                        TxPoolVmExecutionMode::Inline
+                    },
+                )
+            }
+            None => (
+                NonZeroUsize::new(active_work).ok_or(RuntimeConfigError::Arithmetic)?,
+                TxPoolVmExecutionMode::Inline,
+            ),
+        };
 
         let compute_partition_bytes = pipeline_bytes / COMPUTE_RESOURCE_DIVISOR;
         let compute_bytes_per_work = compute_partition_bytes
@@ -481,8 +529,16 @@ impl AuthorityRuntimeConfig {
             },
             verify_workers,
             transient_compute_permits,
+            vm_execution_mode,
             full_query_max_rows,
         })
+    }
+}
+
+#[cfg(test)]
+impl AuthorityRuntimeConfig {
+    pub(in crate::authority) fn executor_shape_for_test(&self) -> (usize, TxPoolVmExecutionMode) {
+        (self.transient_compute_permits.get(), self.vm_execution_mode)
     }
 }
 
@@ -907,6 +963,7 @@ pub(crate) struct AuthorityRuntime {
     expiry_policy: ExpiryPolicy,
     verify_workers: NonZeroUsize,
     transient_compute: ComputeGate,
+    vm_execution_mode: TxPoolVmExecutionMode,
     initial_load_limit: InitialProgramLoadLimit,
     full_query: AuthorityQueryScratch,
     #[cfg(test)]
@@ -1831,11 +1888,12 @@ impl AuthorityRuntime {
     /// configuration. Returning both prevents service assembly from compiling
     /// the policy twice or pairing a relay drain with another runtime.
     pub(in crate::authority) fn new_with_relay_parent_limit(
+        handle: &ckb_async_runtime::Handle,
         config: &TxPoolConfig,
         consensus: &Consensus,
         snapshot: Arc<Snapshot>,
     ) -> Result<(Self, usize), RuntimeConfigError> {
-        let runtime = AuthorityRuntimeConfig::from_runtime(config, consensus)?;
+        let runtime = AuthorityRuntimeConfig::from_runtime_with_handle(config, consensus, handle)?;
         let relay_parent_limit = runtime.resolution_policy.direct_max_edges;
         Self::from_config(runtime, snapshot).map(|runtime| (runtime, relay_parent_limit))
     }
@@ -1848,6 +1906,7 @@ impl AuthorityRuntime {
         let expiry_policy = runtime.expiry_policy;
         let verify_workers = runtime.verify_workers;
         let initial_load_limit = runtime.initial_load_limit;
+        let vm_execution_mode = runtime.vm_execution_mode;
         let transient_compute =
             ComputeGate::new(runtime.transient_compute_permits, runtime.verification_time);
         let full_query = AuthorityQueryScratch::new(runtime.full_query_max_rows);
@@ -1860,6 +1919,7 @@ impl AuthorityRuntime {
             expiry_policy,
             verify_workers,
             transient_compute,
+            vm_execution_mode,
             initial_load_limit,
             full_query,
             #[cfg(test)]
@@ -2910,7 +2970,8 @@ impl AuthorityRuntime {
             execution.hard_deadline(),
             PayloadPolicy::Trusted,
         );
-        let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
+        let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit)
+            .with_vm_execution_mode(self.vm_execution_mode);
         loop {
             let evaluation = crate::util::block_offload(|| {
                 job.evaluate(self.resolution_policy.min_fee_rate, budget)
@@ -3294,7 +3355,8 @@ impl AuthorityRuntime {
                     execution.hard_deadline(),
                     job.payload_policy(),
                 );
-                let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
+                let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit)
+                    .with_vm_execution_mode(self.vm_execution_mode);
                 AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
                     request: job.prepare(budget),
                     execution,
@@ -3345,7 +3407,8 @@ impl AuthorityRuntime {
                         execution.hard_deadline(),
                         verification.payload_policy(),
                     );
-                    let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit);
+                    let budget = TxPoolVerificationBudget::new(deadline, self.initial_load_limit)
+                        .with_vm_execution_mode(self.vm_execution_mode);
                     return AuthorityComputeOutcome::Verification(AuthorityVerificationRequest {
                         request: verification.prepare(budget),
                         execution,

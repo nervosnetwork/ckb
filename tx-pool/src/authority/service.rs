@@ -822,13 +822,16 @@ impl AuthorityService {
     }
 
     /// Construct the authority, relay publisher and read-only reconciliation
-    /// drain from one configuration/snapshot pair before any task starts.
+    /// drain from one executor/configuration/snapshot tuple before any task
+    /// starts. The exact executor identity fixes the parent-progress bound.
     pub(crate) fn prepare(
+        handle: &Handle,
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
     ) -> Result<(AuthorityServiceBootstrap, AuthorityRelayDrain), AuthorityServiceStartError> {
         let consensus = snapshot.consensus();
         let (runtime, max_parents) = AuthorityRuntime::new_with_relay_parent_limit(
+            handle,
             &config,
             consensus,
             Arc::clone(&snapshot),

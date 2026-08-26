@@ -60,7 +60,10 @@ pub struct TxPoolConfig {
     /// Maximum cumulative root-program bytes mapped by the VM loader before
     /// one tx-pool script group begins resumable execution.
     pub max_tx_verify_initial_load_bytes: u64,
-    /// max tx verify workers, default is 3/4 of cpu cores
+    /// Maximum tx verification worker population, defaulting to 3/4 of CPU
+    /// cores. The production service may admit fewer simultaneous compute
+    /// executions when the selected Tokio runtime needs one worker reserved
+    /// for verification deadlines, pause/stop control, and settlement.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
     /// max ancestors size limit for a single tx

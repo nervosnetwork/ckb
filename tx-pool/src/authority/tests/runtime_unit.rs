@@ -28,7 +28,7 @@ use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_network::PeerIndex;
-use ckb_script::ChunkCommand;
+use ckb_script::{ChunkCommand, TxPoolVmExecutionMode};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_test_chain_utils::MockStore;
@@ -1427,6 +1427,50 @@ fn runtime_configuration_builds_every_authority_policy_together() {
     assert!(limit.compute_bytes() > 0);
     assert!(limit.compute_edges() > 0);
     assert!(limit.bytes < config.tx_pipeline_resident_size_budget());
+}
+
+#[test]
+fn runtime_configuration_reserves_parent_progress_on_the_exact_executor() {
+    let consensus = ConsensusBuilder::default().build();
+    for (runtime_workers, verify_workers, expected_permits, expected_mode) in [
+        (1, 1, 1, TxPoolVmExecutionMode::YieldRuntimeWorker),
+        (2, 1, 1, TxPoolVmExecutionMode::Inline),
+        (4, 3, 3, TxPoolVmExecutionMode::Inline),
+        (8, 6, 7, TxPoolVmExecutionMode::Inline),
+        (8, 1, 2, TxPoolVmExecutionMode::Inline),
+    ] {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(runtime_workers)
+            .enable_all()
+            .build()
+            .expect("the executor-shape fixture must build");
+        let handle = Handle::new(runtime.handle().clone(), None);
+        let mut config = runtime_config();
+        config.max_tx_verify_workers = verify_workers;
+        let compiled =
+            AuthorityRuntimeConfig::from_runtime_with_handle(&config, &consensus, &handle)
+                .expect("the executor-bound authority configuration must compile");
+        assert_eq!(
+            compiled.executor_shape_for_test(),
+            (expected_permits, expected_mode),
+            "runtime_workers={runtime_workers}, verify_workers={verify_workers}"
+        );
+    }
+}
+
+#[test]
+fn runtime_configuration_rejects_a_current_thread_executor() {
+    let consensus = ConsensusBuilder::default().build();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("the current-thread negative fixture must build");
+    let handle = Handle::new(runtime.handle().clone(), None);
+    assert_eq!(
+        AuthorityRuntimeConfig::from_runtime_with_handle(&runtime_config(), &consensus, &handle,)
+            .err(),
+        Some(RuntimeConfigError::ResourceConfiguration)
+    );
 }
 
 #[test]

@@ -17,7 +17,7 @@ pub use crate::types::{
     ChunkCommand, DataLocation, DataPieceId, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
     TransactionState, TxData, VerifyResult, VmArgs, VmIsa, VmState, VmVersion,
 };
-#[cfg(not(target_family = "wasm"))]
-pub use crate::verify::ResumableVerificationOutcome;
 pub use crate::verify::TransactionScriptsVerifier;
+#[cfg(not(target_family = "wasm"))]
+pub use crate::verify::{ResumableVerificationOutcome, TxPoolVmExecutionMode};
 pub use crate::verify_env::TxVerifyEnv;

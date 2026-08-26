@@ -146,13 +146,13 @@ async fn service_assembly_with_config_and_recent_reject(
     AuthorityRelayDrain,
 ) {
     let snapshot = genesis_snapshot();
-    let (bootstrap, relay) = AuthorityService::prepare(config, Arc::clone(&snapshot))
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (bootstrap, relay) = AuthorityService::prepare(&handle, config, Arc::clone(&snapshot))
         .expect("the production relay handoff is constructed before service startup");
     let (verification_control, _command_tx) =
         AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
     let cancel = CancellationToken::new();
-    let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
         &handle,
         AuthorityServiceInputs {
@@ -300,12 +300,12 @@ async fn uak_service_persists_one_coherent_authority_receipt_outside_the_guard()
     config.persisted_data = directory.path().join("tx_pool");
     let read_config = config.clone();
     let snapshot = genesis_snapshot();
-    let (bootstrap, _relay) = AuthorityService::prepare(config, snapshot)
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (bootstrap, _relay) = AuthorityService::prepare(&handle, config, snapshot)
         .expect("the relay handoff is constructed before service startup");
     let (verification_control, _command_tx) =
         AuthorityVerificationControl::channel(ChunkCommand::Resume);
     let (_chain_control_sender, chain_control_receiver) = mpsc::channel(1);
-    let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let assembly = AuthorityService::assemble(
         &handle,
         AuthorityServiceInputs {

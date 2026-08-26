@@ -269,6 +269,7 @@ pub(crate) enum TxPoolVerificationOutcome {
 pub(crate) struct TxPoolVerificationBudget {
     deadline: std::time::Instant,
     initial_load_limit: ckb_script::InitialProgramLoadLimit,
+    vm_execution_mode: ckb_script::TxPoolVmExecutionMode,
 }
 
 impl TxPoolVerificationBudget {
@@ -279,7 +280,16 @@ impl TxPoolVerificationBudget {
         Self {
             deadline,
             initial_load_limit,
+            vm_execution_mode: ckb_script::TxPoolVmExecutionMode::Inline,
         }
+    }
+
+    pub(crate) const fn with_vm_execution_mode(
+        mut self,
+        vm_execution_mode: ckb_script::TxPoolVmExecutionMode,
+    ) -> Self {
+        self.vm_execution_mode = vm_execution_mode;
+        self
     }
 
     pub(crate) const fn deadline(self) -> std::time::Instant {
@@ -288,6 +298,10 @@ impl TxPoolVerificationBudget {
 
     pub(crate) const fn initial_load_limit(self) -> ckb_script::InitialProgramLoadLimit {
         self.initial_load_limit
+    }
+
+    pub(crate) const fn vm_execution_mode(self) -> ckb_script::TxPoolVmExecutionMode {
+        self.vm_execution_mode
     }
 }
 
@@ -320,6 +334,7 @@ pub(crate) async fn verify_rtx(
             command_rx,
             budget.deadline(),
             budget.initial_load_limit(),
+            budget.vm_execution_mode(),
         )
         .await
         .map_err(Reject::Verification)?;

@@ -10,7 +10,9 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::{ChunkCommand, InitialProgramLoadLimit, ResumableVerificationOutcome};
+use ckb_script::{
+    ChunkCommand, InitialProgramLoadLimit, ResumableVerificationOutcome, TxPoolVmExecutionMode,
+};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -268,6 +270,7 @@ where
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         deadline: Instant,
         initial_load_limit: InitialProgramLoadLimit,
+        execution_mode: TxPoolVmExecutionMode,
     ) -> Result<DeadlineVerificationOutcome, Error> {
         if Instant::now() >= deadline {
             return Ok(DeadlineVerificationOutcome::DeadlineExceeded);
@@ -286,6 +289,7 @@ where
                 command_rx,
                 deadline,
                 initial_load_limit,
+                execution_mode,
             )
             .await?
         {

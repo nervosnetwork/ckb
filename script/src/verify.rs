@@ -31,6 +31,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_family = "wasm"))]
 use std::time::Instant;
 #[cfg(not(target_family = "wasm"))]
+use tokio::runtime::{Handle, RuntimeFlavor};
+#[cfg(not(target_family = "wasm"))]
 use tokio::sync::watch::{self, Receiver};
 #[cfg(not(target_family = "wasm"))]
 use tokio::task::{JoinError, JoinHandle};
@@ -48,6 +50,7 @@ tokio::task_local! {
 struct VmChildTestProbe {
     active: AtomicBool,
     paused: AtomicBool,
+    pause: std::sync::Mutex<Option<VMPause>>,
 }
 
 #[cfg(test)]
@@ -126,6 +129,21 @@ pub enum ResumableVerificationOutcome {
     /// The parsed root program exceeds this node's fixed tx-pool initial-load
     /// work limit. This is local resource policy, not script invalidity.
     InitialLoadExceeded,
+}
+
+/// Executor placement for the tx-pool-only resumable verification path.
+///
+/// This does not change VM instructions, cycles, script results, or hardfork
+/// behavior. `YieldRuntimeWorker` is reserved for a multi-thread Tokio runtime
+/// with one worker, where an inline synchronous VM slice would otherwise
+/// prevent the parent deadline and control future from being polled.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxPoolVmExecutionMode {
+    /// Execute the synchronous VM slice directly in its owned Tokio child.
+    Inline,
+    /// Let Tokio replace the sole runtime worker while the same VM slice runs.
+    YieldRuntimeWorker,
 }
 
 /// This struct leverages CKB VM to verify transaction inputs.
@@ -387,7 +405,13 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, Error> {
         match self
-            .resumable_verify_with_signal_control(limit_cycles, command_rx, None, None)
+            .resumable_verify_with_signal_control(
+                limit_cycles,
+                command_rx,
+                None,
+                None,
+                TxPoolVmExecutionMode::Inline,
+            )
             .await?
         {
             ResumableVerificationOutcome::Completed(cycles) => Ok(cycles),
@@ -406,12 +430,14 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Instant,
         initial_load_limit: InitialProgramLoadLimit,
+        execution_mode: TxPoolVmExecutionMode,
     ) -> Result<ResumableVerificationOutcome, Error> {
         self.resumable_verify_with_signal_control(
             limit_cycles,
             command_rx,
             Some(deadline),
             Some(initial_load_limit),
+            execution_mode,
         )
         .await
     }
@@ -422,6 +448,7 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
         initial_load_limit: Option<InitialProgramLoadLimit>,
+        execution_mode: TxPoolVmExecutionMode,
     ) -> Result<ResumableVerificationOutcome, Error> {
         let mut cycles = 0;
 
@@ -440,6 +467,7 @@ where
                     command_rx,
                     deadline,
                     initial_load_limit,
+                    execution_mode,
                 )
                 .await
             {
@@ -470,6 +498,7 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
         initial_load_limit: Option<InitialProgramLoadLimit>,
+        execution_mode: TxPoolVmExecutionMode,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Ok(ResumableVerificationOutcome::DeadlineExceeded);
@@ -489,8 +518,15 @@ where
                 Ok(ResumableVerificationOutcome::Completed(cycles))
             }
         } else {
-            self.chunk_run_with_signal(group, max_cycles, command_rx, deadline, initial_load_limit)
-                .await
+            self.chunk_run_with_signal(
+                group,
+                max_cycles,
+                command_rx,
+                deadline,
+                initial_load_limit,
+                execution_mode,
+            )
+            .await
         }
     }
 
@@ -501,6 +537,7 @@ where
         signal: &mut Receiver<ChunkCommand>,
         deadline: Option<Instant>,
         initial_load_limit: Option<InitialProgramLoadLimit>,
+        execution_mode: TxPoolVmExecutionMode,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
         if let Some(limit) = initial_load_limit {
@@ -523,6 +560,13 @@ where
         let (child_tx, mut child_rx) = watch::channel(ChunkCommand::Resume);
         #[cfg(test)]
         let test_probe = VM_CHILD_TEST_PROBE.try_with(Arc::clone).ok();
+        #[cfg(test)]
+        if let Some(probe) = test_probe.as_ref() {
+            *probe
+                .pause
+                .lock()
+                .expect("the VM test probe is not poisoned") = Some(pause.clone());
+        }
         let jh = tokio::spawn(async move {
             #[cfg(test)]
             let _active_vm_child = test_probe
@@ -543,7 +587,21 @@ where
                     }
                     ChunkCommand::Resume => {
                         //info!("[verify-test] run_vms_child: resume");
-                        let res = scheduler.run(RunMode::Pause(pause_cloned, max_cycles));
+                        let res = match execution_mode {
+                            TxPoolVmExecutionMode::Inline => {
+                                scheduler.run(RunMode::Pause(pause_cloned, max_cycles))
+                            }
+                            TxPoolVmExecutionMode::YieldRuntimeWorker => {
+                                debug_assert_eq!(
+                                    Handle::current().runtime_flavor(),
+                                    RuntimeFlavor::MultiThread,
+                                    "the yielding tx-pool VM mode requires a multi-thread runtime"
+                                );
+                                tokio::task::block_in_place(|| {
+                                    scheduler.run(RunMode::Pause(pause_cloned, max_cycles))
+                                })
+                            }
+                        };
                         match res {
                             Ok(_) => {
                                 return res;
