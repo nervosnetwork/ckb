@@ -101,8 +101,8 @@ fn overlay_fixture() -> OverlayFixture {
     }
 }
 
-#[test]
-fn uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee() {
+#[tokio::test]
+async fn uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee() {
     let rate = FeeRate::from_u64(1_000);
     let mut authority = TxPoolAuthority::with_replacement(limits(), rate);
     let chain_input = OutPoint::new(Byte32::new([81; 32]), 0);
@@ -171,6 +171,17 @@ fn uak_owned_transaction_query_hides_replacement_history_and_reports_minimum_fee
     };
     assert_eq!(replacement.transaction.hash(), replacement_tx.hash());
     assert_eq!(replacement.status, PublicPoolStatus::Pending);
+
+    let ids = runtime.pool_ids().await.expect("pool IDs remain coherent");
+    assert_eq!(ids.pending, vec![replacement_tx.hash()]);
+    assert!(ids.proposed.is_empty());
+    let info = runtime
+        .all_entry_info()
+        .await
+        .expect("entry info exposes the retained conflict history");
+    assert!(info.pending.contains_key(&replacement_tx.hash()));
+    assert!(info.proposed.is_empty());
+    assert_eq!(info.conflicted, vec![victim_tx.hash()]);
 }
 
 #[test]

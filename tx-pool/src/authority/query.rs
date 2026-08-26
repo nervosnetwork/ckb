@@ -210,8 +210,8 @@ impl FullQueryPermit {
         let cut = view.full_read_cut()?;
         self.begin_capture(cut.owner_count())?;
         let (pending_count, proposed_count) = cut.accepted_status_counts()?;
-        for order in cut.accepted_order() {
-            let accepted = cut.accepted_entry_for_order(&order)?;
+        for order in cut.accepted_orders() {
+            let accepted = cut.accepted_entry_for_order(order)?;
             self.push(FullQueryRow::PoolId {
                 hash: order.hash().clone(),
                 status: accepted.entry().status(),
@@ -238,8 +238,8 @@ impl FullQueryPermit {
         let cut = view.full_read_cut()?;
         self.begin_capture(cut.owner_count())?;
         let (pending_count, proposed_count) = cut.accepted_status_counts()?;
-        for order in cut.accepted_order().into_iter().rev() {
-            let accepted = cut.accepted_entry_for_order(&order)?;
+        for order in cut.accepted_orders() {
+            let accepted = cut.accepted_entry_for_order(order)?;
             self.push(FullQueryRow::EntryInfo {
                 hash: order.hash().clone(),
                 status: accepted.entry().status(),
@@ -253,8 +253,8 @@ impl FullQueryPermit {
         if accepted_count != expected {
             return Err(AuthorityReadError::Projection);
         }
-        for hash in cut.replacement_history()? {
-            self.push(FullQueryRow::ReplacementHistory(hash))?;
+        for hash in cut.replacement_history_iter() {
+            self.push(FullQueryRow::ReplacementHistory(hash.clone()))?;
         }
         let history_count = self
             .state

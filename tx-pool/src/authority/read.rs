@@ -645,6 +645,10 @@ impl AuthorityFullReadCut<'_> {
         self.owners.accepted_order()
     }
 
+    pub(super) fn accepted_orders(&self) -> impl Iterator<Item = &AcceptedOrderKey> + '_ {
+        self.owners.accepted_orders()
+    }
+
     pub(super) fn entry_by_proposal(
         &self,
         proposal: &ProposalId,
@@ -733,18 +737,10 @@ impl AuthorityFullReadCut<'_> {
         })
     }
 
-    pub(super) fn replacement_history(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
-        let mut history = Vec::new();
-        history
-            .try_reserve(self.owners.len())
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        history.extend(
-            self.owners
-                .iter()
-                .filter(|(_, owner)| matches!(owner, OwnedTx::ReplacementHistory(_)))
-                .map(|(hash, _)| hash.clone()),
-        );
-        Ok(history)
+    pub(super) fn replacement_history_iter(&self) -> impl Iterator<Item = &RawTxHash> + '_ {
+        self.owners.iter().filter_map(|(hash, owner)| {
+            matches!(owner, OwnedTx::ReplacementHistory(_)).then_some(hash)
+        })
     }
 }
 

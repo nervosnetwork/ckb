@@ -1055,6 +1055,18 @@ impl ShardedOwnerReadCut<'_> {
         order
     }
 
+    /// Borrow every canonical accepted-order key without materializing or
+    /// globally sorting a second collection. Consumers whose public contract
+    /// does not observe the global fee-priority order can validate every
+    /// derived key while keeping their lock-held work linear.
+    pub(in crate::authority) fn accepted_orders(
+        &self,
+    ) -> impl Iterator<Item = &AcceptedOrderKey> + '_ {
+        self.shards
+            .iter()
+            .flat_map(|shard| shard.accepted_order.iter())
+    }
+
     pub(in crate::authority) fn contains_accepted_order(&self, key: &AcceptedOrderKey) -> bool {
         self.shards
             .get(self.router.shard(b"membership/accepted-order", key.hash()))
