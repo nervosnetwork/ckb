@@ -6,7 +6,9 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
 use ckb_dao_utils::genesis_dao_data;
 use ckb_fee_estimator::FeeEstimator;
-use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
+use ckb_network::{
+    Flags, NetworkController, NetworkService, NetworkState, PeerIndex, network::TransportType,
+};
 use ckb_proposal_table::ProposalView;
 use ckb_snapshot::Snapshot;
 #[cfg(feature = "cross-version-legacy-bench-adapter")]
@@ -14,7 +16,9 @@ use ckb_stop_handler::broadcast_exit_signals;
 use ckb_store::attach_block_cell;
 use ckb_system_scripts::BUNDLED_CELL;
 use ckb_test_chain_utils::{MockStore, always_success_cell};
-use ckb_tx_pool::{TxPoolController, TxPoolServiceBuilder};
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+use ckb_tx_pool::service::TxVerificationResultReceiver;
+use ckb_tx_pool::{TxPoolController, TxPoolServiceBuilder, service::TxVerificationResult};
 use ckb_types::{
     H160, H256, U256,
     bytes::Bytes,
@@ -23,7 +27,7 @@ use ckb_types::{
         TransactionView,
     },
     h160, h256,
-    packed::{CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script, WitnessArgs},
     prelude::*,
     utilities::difficulty_to_compact,
 };
@@ -53,6 +57,8 @@ const SECP_PRIVKEY: H256 =
 const SECP_PUBKEY_HASH: H160 = h160!("0x779e5930892a0a9bf2fedfe048f685466c7d0396");
 const SECP_ISSUE_CAPACITY: u64 = 10_000_000 * 100_000_000;
 const SECP_FEE: u64 = 1_000 * 100_000_000;
+type RelayOk = (Byte32, Option<PeerIndex>);
+type RelayOkSet = HashSet<RelayOk>;
 
 struct CountingAllocator;
 
@@ -382,6 +388,7 @@ fn init_profile_span_recorder() -> Result<Option<ProfileSpanRecorder>, String> {
 #[derive(Default)]
 struct Completion {
     accepted: AtomicUsize,
+    duplicate_callbacks: AtomicUsize,
     changed: Notify,
     callbacks_in_flight: AtomicUsize,
     seen: Mutex<HashSet<ckb_types::packed::Byte32>>,
@@ -408,6 +415,7 @@ impl Completion {
             .expect("completion set poisoned")
             .insert(hash)
         {
+            self.duplicate_callbacks.fetch_add(1, Ordering::Relaxed);
             return;
         }
         if let Some(started) = *self.target_started.lock().expect("latency clock poisoned") {
@@ -420,12 +428,46 @@ impl Completion {
         self.changed.notify_one();
     }
 
+    fn prepare(&self, total: usize, target: usize) -> Result<(), Box<dyn Error>> {
+        self.seen
+            .lock()
+            .expect("completion set poisoned")
+            .try_reserve(total)?;
+        self.target_latencies_ns
+            .lock()
+            .expect("latency samples poisoned")
+            .try_reserve(target)?;
+        Ok(())
+    }
+
     fn begin_target(&self, started: Instant) {
         self.target_latencies_ns
             .lock()
             .expect("latency samples poisoned")
             .clear();
         *self.target_started.lock().expect("latency clock poisoned") = Some(started);
+    }
+
+    fn validate_seen(
+        &self,
+        expected: &HashSet<Byte32>,
+        allow_duplicates: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let seen = self.seen.lock().expect("completion set poisoned");
+        let duplicates = self.duplicate_callbacks.load(Ordering::Relaxed);
+        let callbacks_in_flight = self.callbacks_in_flight.load(Ordering::Acquire);
+        if *seen != *expected || (!allow_duplicates && duplicates != 0) || callbacks_in_flight != 0
+        {
+            return Err(std::io::Error::other(format!(
+                "callback terminal differs: observed={} expected={} duplicates={} in_flight={}",
+                seen.len(),
+                expected.len(),
+                duplicates,
+                callbacks_in_flight
+            ))
+            .into());
+        }
+        Ok(())
     }
 
     async fn wait_for_callback_in_flight(&self) -> Result<usize, Box<dyn Error>> {
@@ -483,6 +525,207 @@ impl Completion {
                 target
             ))
         })?;
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RelayCompletion {
+    ok: Mutex<RelayOkSet>,
+    duplicate_ok: AtomicUsize,
+    rejects: AtomicUsize,
+    unknown_parents: AtomicUsize,
+    generation_resets: AtomicUsize,
+    changed: Notify,
+}
+
+impl RelayCompletion {
+    #[cfg(feature = "cross-version-legacy-bench-adapter")]
+    fn record(&self, result: TxVerificationResult) {
+        match result {
+            TxVerificationResult::Ok {
+                original_peer,
+                tx_hash,
+            } => {
+                if !self
+                    .ok
+                    .lock()
+                    .expect("relay result set poisoned")
+                    .insert((tx_hash, original_peer))
+                {
+                    self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            TxVerificationResult::Reject { .. } => {
+                self.rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            TxVerificationResult::UnknownParents { .. } => {
+                self.unknown_parents.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.changed.notify_one();
+    }
+
+    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+    fn record(&self, result: TxVerificationResult) {
+        match result {
+            TxVerificationResult::Ok {
+                original_peer,
+                tx_hash,
+            } => {
+                if !self
+                    .ok
+                    .lock()
+                    .expect("relay result set poisoned")
+                    .insert((tx_hash, original_peer))
+                {
+                    self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            TxVerificationResult::Reject { .. } => {
+                self.rejects.fetch_add(1, Ordering::Relaxed);
+            }
+            TxVerificationResult::UnknownParents { .. } => {
+                self.unknown_parents.fetch_add(1, Ordering::Relaxed);
+            }
+            TxVerificationResult::GenerationReset => {
+                self.generation_resets.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.changed.notify_one();
+    }
+
+    fn ok_count(&self) -> usize {
+        self.ok.lock().expect("relay result set poisoned").len()
+    }
+
+    fn reserve(&self, count: usize) -> Result<(), Box<dyn Error>> {
+        self.ok
+            .lock()
+            .expect("relay result set poisoned")
+            .try_reserve(count)?;
+        Ok(())
+    }
+
+    async fn wait_for_ok(&self, target: usize) -> Result<(), Box<dyn Error>> {
+        tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                if self.ok_count() >= target {
+                    break;
+                }
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            std::io::Error::other(format!(
+                "timed out after observing {}/{} relay Ok results",
+                self.ok_count(),
+                target
+            ))
+        })?;
+        Ok(())
+    }
+
+    fn validate(
+        &self,
+        expected: &RelayOkSet,
+        allow_unknown_parents: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let ok = self.ok.lock().expect("relay result set poisoned");
+        if *ok != *expected {
+            return Err(std::io::Error::other(format!(
+                "relay Ok set differs: observed={}, expected={}",
+                ok.len(),
+                expected.len()
+            ))
+            .into());
+        }
+        let rejects = self.rejects.load(Ordering::Relaxed);
+        let duplicate_ok = self.duplicate_ok.load(Ordering::Relaxed);
+        let unknown_parents = self.unknown_parents.load(Ordering::Relaxed);
+        let generation_resets = self.generation_resets.load(Ordering::Relaxed);
+        if rejects != 0
+            || duplicate_ok != 0
+            || generation_resets != 0
+            || (!allow_unknown_parents && unknown_parents != 0)
+        {
+            return Err(std::io::Error::other(format!(
+                "relay terminal stream contains rejects={rejects} duplicate_ok={duplicate_ok} unknown_parents={unknown_parents} generation_resets={generation_resets}"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "cross-version-legacy-bench-adapter")]
+type BenchmarkRelayReceiver = ckb_channel::Receiver<TxVerificationResult>;
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+type BenchmarkRelayReceiver = TxVerificationResultReceiver;
+
+#[cfg(feature = "cross-version-legacy-bench-adapter")]
+fn try_recv_relay(receiver: &BenchmarkRelayReceiver) -> Option<TxVerificationResult> {
+    receiver.try_recv().ok()
+}
+
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+fn try_recv_relay(receiver: &BenchmarkRelayReceiver) -> Option<TxVerificationResult> {
+    receiver.try_recv()
+}
+
+struct RelayDrainGuard {
+    stop: Arc<AtomicBool>,
+    completion: Arc<RelayCompletion>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RelayDrainGuard {
+    fn start(receiver: BenchmarkRelayReceiver) -> Result<Self, Box<dyn Error>> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let completion = Arc::new(RelayCompletion::default());
+        let thread_stop = Arc::clone(&stop);
+        let thread_completion = Arc::clone(&completion);
+        let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(0);
+        let handle = std::thread::Builder::new()
+            .name("txpool-bench-relay-drain".to_owned())
+            .spawn(move || {
+                if ready_sender.send(()).is_err() {
+                    return;
+                }
+                loop {
+                    let mut drained = false;
+                    while let Some(result) = try_recv_relay(&receiver) {
+                        thread_completion.record(result);
+                        drained = true;
+                    }
+                    if thread_stop.load(Ordering::Acquire) && !drained {
+                        break;
+                    }
+                    if !drained {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            })?;
+        ready_receiver.recv_timeout(Duration::from_secs(1))?;
+        Ok(Self {
+            stop,
+            completion,
+            handle: Some(handle),
+        })
+    }
+
+    fn completion(&self) -> Arc<RelayCompletion> {
+        Arc::clone(&self.completion)
+    }
+
+    fn stop(mut self) -> Result<(), Box<dyn Error>> {
+        self.stop.store(true, Ordering::Release);
+        self.handle
+            .take()
+            .expect("relay drain handle already consumed")
+            .join()
+            .map_err(|_| std::io::Error::other("relay drain thread panicked"))?;
         Ok(())
     }
 }
@@ -1057,6 +1300,56 @@ async fn submit_dependency_forest(
     Ok(())
 }
 
+fn extend_expected_relay_batch(
+    expected: &mut RelayOkSet,
+    transactions: &[&TransactionView],
+    peers: usize,
+) -> Result<(), Box<dyn Error>> {
+    let chunk_size = transactions.len().div_ceil(peers.max(1));
+    for (peer, start) in (0..transactions.len())
+        .step_by(chunk_size.max(1))
+        .enumerate()
+    {
+        let end = (start + chunk_size).min(transactions.len());
+        let peer = Some((peer + 1).into());
+        for transaction in &transactions[start..end] {
+            if !expected.insert((transaction.hash(), peer)) {
+                return Err(
+                    std::io::Error::other("benchmark expected duplicate relay terminal").into(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn expected_relay_batch(
+    transactions: &[TransactionView],
+    dependency_depth: Option<usize>,
+    peers: usize,
+) -> Result<RelayOkSet, Box<dyn Error>> {
+    let mut expected = HashSet::with_capacity(transactions.len());
+    if let Some(depth) = dependency_depth {
+        if depth == 0 || !transactions.len().is_multiple_of(depth) {
+            return Err(std::io::Error::other(
+                "dependency relay expectation requires complete chains",
+            )
+            .into());
+        }
+        let chain_count = transactions.len() / depth;
+        for level in 0..depth {
+            let layer = (0..chain_count)
+                .map(|chain| &transactions[chain * depth + level])
+                .collect::<Vec<_>>();
+            extend_expected_relay_batch(&mut expected, &layer, peers)?;
+        }
+    } else {
+        let transactions = transactions.iter().collect::<Vec<_>>();
+        extend_expected_relay_batch(&mut expected, &transactions, peers)?;
+    }
+    Ok(expected)
+}
+
 fn parse_arg(index: usize, default: usize) -> Result<usize, Box<dyn Error>> {
     match std::env::args().nth(index) {
         Some(value) => Ok(value.parse()?),
@@ -1103,8 +1396,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
     let (_network_directory, network) = start_network(&consensus, &handle)?;
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
-    let (mut builder, controller, _relay_guard) = {
-        let (relay_sender, relay_receiver) = ckb_channel::bounded(1024);
+    let (mut builder, controller, relay_receiver) = {
+        let (relay_sender, relay_receiver) = ckb_channel::unbounded();
         let (builder, controller) = TxPoolServiceBuilder::new(
             tx_pool_config(workers, workload_scenario == "rbf_pairs"),
             Arc::clone(&snapshot),
@@ -1117,7 +1410,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         (builder, controller, relay_receiver)
     };
     #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-    let (mut builder, controller, _relay_guard) = {
+    let (mut builder, controller, relay_receiver) = {
         let (builder, controller, relay_receiver) = TxPoolServiceBuilder::new(
             tx_pool_config(workers, workload_scenario == "rbf_pairs"),
             Arc::clone(&snapshot),
@@ -1129,6 +1422,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|error| std::io::Error::other(error.to_string()))?;
         (builder, controller, relay_receiver)
     };
+    let relay_guard = RelayDrainGuard::start(relay_receiver)?;
+    let relay_completion = relay_guard.completion();
     let completion = Arc::new(Completion::default());
     let pending_completion = Arc::clone(&completion);
     builder.register_pending(Box::new(move |entry| {
@@ -1186,6 +1481,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter(|depth| !depth.ends_with("_reverse"))
         .map(str::parse::<usize>)
         .transpose()?;
+    let warm_expected_relay = expected_relay_batch(&warm, dependency_depth, peers)?;
+    let target_expected_relay = expected_relay_batch(&target, dependency_depth, peers)?;
+    let mut all_expected_relay = warm_expected_relay.clone();
+    if target_expected_relay
+        .iter()
+        .any(|terminal| !all_expected_relay.insert(terminal.clone()))
+    {
+        return Err(std::io::Error::other("warm and target relay terminals overlap").into());
+    }
+    let warm_expected_callbacks = warm
+        .iter()
+        .map(TransactionView::hash)
+        .collect::<HashSet<_>>();
+    let all_expected_callbacks = transactions
+        .iter()
+        .map(TransactionView::hash)
+        .collect::<HashSet<_>>();
+    completion.prepare(transactions.len(), target_count)?;
+    relay_completion.reserve(transactions.len())?;
     let reorg_snapshot = reorg_in_flight.then(|| {
         snapshot_with_proposed(
             &snapshot,
@@ -1213,6 +1527,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             warm_count,
         ))?;
     }
+    runtime.block_on(relay_completion.wait_for_ok(warm_expected_relay.len()))?;
+    relay_completion.validate(&warm_expected_relay, false)?;
+    completion.validate_seen(&warm_expected_callbacks, false)?;
     let profile_started_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let started = Instant::now();
     completion.begin_target(started);
@@ -1273,6 +1590,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         ))?;
         (0, 0)
     };
+    runtime.block_on(relay_completion.wait_for_ok(all_expected_relay.len()))?;
+    relay_completion.validate(&all_expected_relay, workload_scenario.ends_with("_reverse"))?;
+    completion.validate_seen(&all_expected_callbacks, reorg_in_flight)?;
     let elapsed = started.elapsed();
     let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
     let target_user_cpu_ns = target_user_cpu_ended
@@ -1329,6 +1649,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         broadcast_exit_signals();
     }
+    relay_guard.stop()?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     let throughput = target_count as f64 / elapsed.as_secs_f64();
     let profile_window = serde_json::json!({
@@ -1348,6 +1669,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "elapsed_nanos": elapsed.as_nanos(),
         "throughput_tps": throughput,
         "accepted": completion.accepted.load(Ordering::Acquire),
+        "callback_duplicates": completion.duplicate_callbacks.load(Ordering::Relaxed),
         "p99_latency_nanos": p99_latency_ns,
         "target_cpu_nanos": target_cpu_ns,
         "target_user_cpu_nanos": target_user_cpu_ns,
@@ -1356,10 +1678,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         "allocated_bytes": allocated_bytes,
         "reorg_latency_nanos": reorg_latency_ns,
         "reorg_overlap_callbacks": reorg_overlap_callbacks,
+        "relay_ok": relay_completion.ok_count(),
+        "relay_duplicate_ok": relay_completion.duplicate_ok.load(Ordering::Relaxed),
+        "relay_rejects": relay_completion.rejects.load(Ordering::Relaxed),
+        "relay_unknown_parents": relay_completion.unknown_parents.load(Ordering::Relaxed),
+        "relay_generation_resets": relay_completion.generation_resets.load(Ordering::Relaxed),
         "shutdown_latency_nanos": shutdown_latency_ns,
     });
+    let adapter = if cfg!(feature = "cross-version-legacy-bench-adapter") {
+        "legacy_peer_local_sequential"
+    } else {
+        "bounded_remote_batch"
+    };
     println!(
-        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
+        "BENCH_BUILD profiling={} adapter={} debug_assertions={}",
+        cfg!(feature = "profiling"),
+        adapter,
+        cfg!(debug_assertions)
+    );
+    let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Relaxed);
+    let relay_ok = relay_completion.ok_count();
+    let relay_duplicate_ok = relay_completion.duplicate_ok.load(Ordering::Relaxed);
+    let relay_rejects = relay_completion.rejects.load(Ordering::Relaxed);
+    let relay_unknown_parents = relay_completion.unknown_parents.load(Ordering::Relaxed);
+    let relay_generation_resets = relay_completion.generation_resets.load(Ordering::Relaxed);
+    println!(
+        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={} callback_duplicates={callback_duplicates} relay_ok={relay_ok} relay_duplicate_ok={relay_duplicate_ok} relay_rejects={relay_rejects} relay_unknown_parents={relay_unknown_parents} relay_generation_resets={relay_generation_resets} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
         elapsed.as_nanos(),
         completion.accepted.load(Ordering::Acquire)
     );

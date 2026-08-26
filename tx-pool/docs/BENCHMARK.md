@@ -145,6 +145,11 @@ fixture and its Cargo bench declaration must be committed in both measurement
 worktrees; `profile_one_shot.rs` must be byte-identical. A compatibility
 feature may adapt only the benchmark's service-construction call to an older
 API. It must not change the workload, completion condition or measured window.
+Each revision retains its production relay transport: the legacy builder uses
+its unbounded channel while the authority candidate uses the bounded receiver
+returned by its builder. A byte-identical, ready-before-start consumer drains
+both at a fixed one-millisecond cadence, so an unconsumed synthetic channel
+cannot become a benchmark-only backpressure limit.
 
 ```bash
 python3 tx-pool/scripts/cross_version_benchmark.py \
@@ -183,6 +188,18 @@ scenario, accepted-count and clock-window checks, and all remain in the JSON.
 Values above one must be even and are bounded to eight. The replicate count
 must be chosen before measurement; regrouping an already observed artifact is
 diagnostic only and cannot create release evidence.
+
+Warmup is complete only after both the callback hash set and the relay
+`(tx_hash, original_peer)` set exactly match the warm workload with no
+callback in flight. The measured window ends only after the corresponding
+target sets also match. Duplicate relay results, rejects, unexpected-parent
+results and generation resets invalidate an ordinary sample; reverse
+dependency workloads may emit the expected intermediate unknown-parent
+results, and reorg workloads may repeat callbacks while still requiring the
+exact final hash set. The observer preallocates its complete set before the
+target allocation window. This is a non-backpressured tx-pool pipeline
+measurement, not a claim about the production relayer's network-send cadence;
+relay saturation must be measured as a separately named workload.
 
 The harness reports the measured duration from Rust's monotonic `Instant` and
 the profiling crop in Unix wall-clock nanoseconds. These are different clock

@@ -24,7 +24,14 @@ RESULT = re.compile(
     r"^BENCH_RESULT scenario=(?P<scenario>\S+) target=(?P<target>\d+) "
     r"warm=(?P<warm>\d+) workers=(?P<workers>\d+) peers=(?P<peers>\d+) "
     r"elapsed_ns=(?P<elapsed_ns>\d+) throughput_tps=(?P<throughput>[0-9.]+) "
-    r"accepted=(?P<accepted>\d+) p99_latency_ns=(?P<p99_latency_ns>\d+) "
+    r"accepted=(?P<accepted>\d+) "
+    r"callback_duplicates=(?P<callback_duplicates>\d+) "
+    r"relay_ok=(?P<relay_ok>\d+) "
+    r"relay_duplicate_ok=(?P<relay_duplicate_ok>\d+) "
+    r"relay_rejects=(?P<relay_rejects>\d+) "
+    r"relay_unknown_parents=(?P<relay_unknown_parents>\d+) "
+    r"relay_generation_resets=(?P<relay_generation_resets>\d+) "
+    r"p99_latency_ns=(?P<p99_latency_ns>\d+) "
     r"target_cpu_ns=(?P<target_cpu_ns>\d+) "
     r"allocation_calls=(?P<allocation_calls>\d+) "
     r"allocated_bytes=(?P<allocated_bytes>\d+) "
@@ -53,6 +60,35 @@ MIN_CLOCK_TOLERANCE_NS = 1_000_000
 CLOCK_TOLERANCE_DIVISOR = 10_000
 MAX_SCENARIO_TRANSACTIONS = 65_536
 FINAL_BUILD_PROFILE = "prod"
+
+
+def terminal_observation_error(
+    *,
+    scenario_name: str,
+    expected_accepted: int,
+    accepted: int,
+    callback_duplicates: int,
+    relay_ok: int,
+    relay_duplicate_ok: int,
+    relay_rejects: int,
+    relay_unknown_parents: int,
+    relay_generation_resets: int,
+) -> str | None:
+    if accepted != expected_accepted:
+        return f"accepted {accepted}, expected {expected_accepted}"
+    if relay_ok != expected_accepted:
+        return f"relay Ok {relay_ok}, expected {expected_accepted}"
+    if callback_duplicates != 0 and scenario_name != "reorg_in_flight":
+        return f"unexpected duplicate callbacks: {callback_duplicates}"
+    if relay_duplicate_ok != 0:
+        return f"unexpected duplicate relay Ok results: {relay_duplicate_ok}"
+    if relay_rejects != 0:
+        return f"unexpected relay rejects: {relay_rejects}"
+    if relay_generation_resets != 0:
+        return f"unexpected relay generation resets: {relay_generation_resets}"
+    if relay_unknown_parents != 0 and not scenario_name.endswith("_reverse"):
+        return f"unexpected unknown-parent relay results: {relay_unknown_parents}"
+    return None
 
 
 def sha256(path: Path) -> str:
@@ -562,6 +598,12 @@ def run_attempt(
     }
     expected_accepted = int(scenario["target"]) + int(scenario["warm"])
     accepted = int(parsed["accepted"])
+    callback_duplicates = int(parsed["callback_duplicates"])
+    relay_ok = int(parsed["relay_ok"])
+    relay_duplicate_ok = int(parsed["relay_duplicate_ok"])
+    relay_rejects = int(parsed["relay_rejects"])
+    relay_unknown_parents = int(parsed["relay_unknown_parents"])
+    relay_generation_resets = int(parsed["relay_generation_resets"])
     p99_latency_ns = int(parsed["p99_latency_ns"])
     target_cpu_ns = int(parsed["target_cpu_ns"])
     allocation_calls = int(parsed["allocation_calls"])
@@ -588,23 +630,35 @@ def run_attempt(
     evidence_error = None
     if observed != scenario:
         evidence_error = f"scenario drift: {observed} != {scenario}"
-    elif accepted != expected_accepted:
-        evidence_error = f"accepted {accepted}, expected {expected_accepted}"
-    elif wall_window_ns <= 0:
+    else:
+        evidence_error = terminal_observation_error(
+            scenario_name=observed["name"],
+            expected_accepted=expected_accepted,
+            accepted=accepted,
+            callback_duplicates=callback_duplicates,
+            relay_ok=relay_ok,
+            relay_duplicate_ok=relay_duplicate_ok,
+            relay_rejects=relay_rejects,
+            relay_unknown_parents=relay_unknown_parents,
+            relay_generation_resets=relay_generation_resets,
+        )
+    if evidence_error is None and wall_window_ns <= 0:
         evidence_error = "target wall-clock window is not monotonic"
-    elif p99_latency_ns <= 0:
+    elif evidence_error is None and p99_latency_ns <= 0:
         evidence_error = "target p99 latency is not positive"
-    elif target_cpu_ns <= 0:
+    elif evidence_error is None and target_cpu_ns <= 0:
         evidence_error = "target-window process CPU time is not positive"
-    elif allocation_calls <= 0 or allocated_bytes <= 0:
+    elif evidence_error is None and (allocation_calls <= 0 or allocated_bytes <= 0):
         evidence_error = "target allocation observation is not positive"
-    elif peak_rss_bytes <= 0:
+    elif evidence_error is None and peak_rss_bytes <= 0:
         evidence_error = "process peak RSS is not positive"
-    elif reorg_latency_ns <= 0 or shutdown_latency_ns <= 0:
+    elif evidence_error is None and (reorg_latency_ns <= 0 or shutdown_latency_ns <= 0):
         evidence_error = "reorg/shutdown latency observation is not positive"
-    elif (observed["name"] == "reorg_in_flight") != (reorg_overlap_callbacks > 0):
+    elif evidence_error is None and (
+        (observed["name"] == "reorg_in_flight") != (reorg_overlap_callbacks > 0)
+    ):
         evidence_error = "reorg/callback overlap observation differs from the scenario"
-    elif clock_delta_ns < -clock_tolerance_ns:
+    elif evidence_error is None and clock_delta_ns < -clock_tolerance_ns:
         evidence_error = (
             f"target wall-clock window is shorter by {-clock_delta_ns}ns, exceeding "
             f"{clock_tolerance_ns}ns tolerance"
@@ -659,6 +713,12 @@ def run_attempt(
         "span_observation": "NOT_COLLECTED_IN_PROFILING_DISABLED_FINAL_TIMING_BINARY",
         "throughput_tps": float(parsed["throughput"]),
         "accepted": accepted,
+        "callback_duplicates": callback_duplicates,
+        "relay_ok": relay_ok,
+        "relay_duplicate_ok": relay_duplicate_ok,
+        "relay_rejects": relay_rejects,
+        "relay_unknown_parents": relay_unknown_parents,
+        "relay_generation_resets": relay_generation_resets,
         "p99_latency_ns": p99_latency_ns,
         "allocation_calls": allocation_calls,
         "allocated_bytes": allocated_bytes,
