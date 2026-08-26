@@ -745,6 +745,10 @@ impl EffectSettlementFailure {
 }
 
 impl CommittedDelta {
+    pub(in crate::authority) fn compute_wake_for_foundation(&self) -> bool {
+        self.wake.compute_advanced()
+    }
+
     pub(in crate::authority) fn retired_len(&self) -> usize {
         self.retired.len().saturating_add(
             self.retired_generation

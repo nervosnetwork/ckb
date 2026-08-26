@@ -1416,6 +1416,8 @@ impl TxPoolAuthority {
         clocks = clocks.adopt_owner_progress(scratch_clocks)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let effect = self.effects.plan_generation_reset(sequence)?;
+        let compute_slot_released = self.resources.read(&self.entries).preaccepted().active_work
+            > fresh.preaccepted_active_work();
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::ClearPool(ClearPoolDelta {
@@ -1425,6 +1427,7 @@ impl TxPoolAuthority {
                 sources,
                 effect,
                 clocks: clocks.finish(),
+                compute_slot_released,
             }),
         })
     }

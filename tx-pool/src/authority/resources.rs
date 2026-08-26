@@ -711,6 +711,10 @@ impl ResourceCapacityCommit {
 }
 
 impl ResourcePlan {
+    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
+        self.capacity.releases_preaccepted_active_work()
+    }
+
     pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
         &self.shards
     }
@@ -725,6 +729,10 @@ impl ResourcePlan {
 }
 
 impl ResourceBatchPlan {
+    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
+        self.capacity.releases_preaccepted_active_work()
+    }
+
     pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
         &self.shards
     }
@@ -946,6 +954,12 @@ impl ResourceCapacityBank {
 }
 
 impl ResourceCapacityReservation {
+    fn releases_preaccepted_active_work(&self) -> bool {
+        self.release
+            .as_ref()
+            .is_some_and(|release| release.preaccepted.active_work != 0)
+    }
+
     fn commit(mut self) {
         let release = self.release.take().unwrap_or_default();
         let _closed_or_faulted = self.bank.subtract(&release);

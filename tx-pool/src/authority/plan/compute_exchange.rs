@@ -256,6 +256,12 @@ pub(super) struct ComputeExchangeDelta {
     retired: super::RetiredOwners,
 }
 
+impl ComputeExchangeDelta {
+    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
+        self.resources.releases_preaccepted_active_work()
+    }
+}
+
 pub(super) fn apply_compute_exchange(
     authority: &mut TxPoolAuthority,
     token: &ApplyToken,

@@ -192,7 +192,11 @@ impl TxPoolAuthority {
     fn wake_projection(&self) -> AuthorityWakeProjection {
         AuthorityWakeProjection {
             scheduler: self.scheduler.wake_projection(),
-            active_work: self.resources.read(&self.entries).preaccepted().active_work,
+            // Ordinary Apply supplies the exact net release bit from its
+            // already-reserved resource delta. Keeping a neutral sentinel in
+            // this O(1) projection avoids two fixed 64-shard aggregate scans
+            // while preserving the existing before/after wake relation.
+            active_work: 0,
             dependency_maintenance: self.dependencies.maintenance_pending(),
             effects: self.effects.wake_projection(),
             template: self.source_versions.template(),
@@ -932,6 +936,10 @@ impl FreshGeneration {
             dependencies,
         }
     }
+
+    fn preaccepted_active_work(&self) -> usize {
+        self.resources.read(&self.entries).preaccepted().active_work
+    }
 }
 
 struct ClearPoolDelta {
@@ -941,6 +949,7 @@ struct ClearPoolDelta {
     sources: SourceVersionDelta,
     effect: EffectDelta,
     clocks: AuthorityClocks,
+    compute_slot_released: bool,
 }
 
 struct ClearPipelineDelta {
@@ -1092,6 +1101,25 @@ enum AuthorityDelta {
     ClearPool(ClearPoolDelta),
     Admin(AdminDelta),
     Chain(ChainDelta),
+}
+
+impl AuthorityDelta {
+    fn releases_preaccepted_active_work(&self) -> bool {
+        match self {
+            Self::Entry(delta) => delta.resource.releases_preaccepted_active_work(),
+            Self::ComputeExchange(delta) => delta.releases_preaccepted_active_work(),
+            Self::RetainedIngress(delta) => delta.releases_preaccepted_active_work(),
+            Self::Membership(delta) => delta.resource.releases_preaccepted_active_work(),
+            Self::Independent(delta) => delta.resource.releases_preaccepted_active_work(),
+            Self::Dependency(_) | Self::Effect(_) => false,
+            Self::ClearPipeline(delta) => {
+                delta.removal.resources.releases_preaccepted_active_work()
+            }
+            Self::ClearPool(delta) => delta.compute_slot_released,
+            Self::Admin(delta) => delta.removal.resources.releases_preaccepted_active_work(),
+            Self::Chain(delta) => delta.resources.releases_preaccepted_active_work(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1363,7 +1391,8 @@ impl PreparedApply<'_> {
 
     fn apply_with(self, token: &ApplyToken) -> CommittedDelta {
         let Self { authority, delta } = self;
-        let before = authority.wake_projection();
+        let compute_slot_released = delta.releases_preaccepted_active_work();
+        let mut before = authority.wake_projection();
         let retirement = match delta {
             AuthorityDelta::Entry(delta) => Self::apply_entry(&mut *authority, token, delta),
             AuthorityDelta::ComputeExchange(delta) => {
@@ -1392,6 +1421,7 @@ impl PreparedApply<'_> {
             AuthorityDelta::Chain(delta) => Self::apply_chain(&mut *authority, token, delta),
         };
         let after = authority.wake_projection();
+        before.active_work = usize::from(compute_slot_released);
         let ApplyRetirement {
             async_process_observations,
             removals,
@@ -3756,6 +3786,8 @@ impl TxPoolAuthority {
         let effect = self.effects.plan_generation_reset(sequence)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let fresh = FreshGeneration::empty(&self.resources, &self.scheduler, &self.entries);
+        let compute_slot_released = self.resources.read(&self.entries).preaccepted().active_work
+            > fresh.preaccepted_active_work();
         Ok(PreparedApply {
             authority: self,
             delta: AuthorityDelta::ClearPool(ClearPoolDelta {
@@ -3765,6 +3797,7 @@ impl TxPoolAuthority {
                 sources,
                 effect,
                 clocks: clocks.finish(),
+                compute_slot_released,
             }),
         })
     }

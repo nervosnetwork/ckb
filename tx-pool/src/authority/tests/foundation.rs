@@ -7559,6 +7559,30 @@ fn uak_allocation_failure_discards_result_without_retaining_compute_capability()
 }
 
 #[test]
+fn uak_compute_slot_release_wake_is_carried_by_the_sealed_resource_delta() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let hash = admit_remote(&mut authority, 112, 22);
+    let waiting = admit_remote(&mut authority, 113, 23);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("fixture checkout plans")
+            .apply(),
+    );
+    let committed = authority
+        .apply_settlement(work.rejected(RejectionKind::Policy))
+        .expect("the terminal settlement seals one resource release");
+    assert!(
+        committed.compute_wake_for_foundation(),
+        "the real Apply must publish the resource-carried wake without rereading all shards"
+    );
+    drop(committed);
+    assert_eq!(authority.resources().preaccepted().active_work, 0);
+    assert!(authority.entry(&waiting).is_some());
+}
+
+#[test]
 fn uak_compute_growth_requires_an_authority_issued_grant() {
     let mut resolve_authority = TxPoolAuthority::for_foundation(limits());
     let resolve_hash = admit_remote(&mut resolve_authority, 540, 54);

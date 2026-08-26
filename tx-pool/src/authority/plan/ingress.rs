@@ -38,6 +38,12 @@ pub(super) struct RetainedIngressDelta {
     retired: super::RetiredOwners,
 }
 
+impl RetainedIngressDelta {
+    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
+        self.resources.releases_preaccepted_active_work()
+    }
+}
+
 pub(super) fn apply_retained_ingress(
     authority: &mut TxPoolAuthority,
     token: &ApplyToken,
