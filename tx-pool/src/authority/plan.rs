@@ -1425,6 +1425,11 @@ impl PreparedApply<'_> {
             AuthorityDelta::Chain(delta) => Self::apply_chain(&mut *authority, token, delta),
         };
         let after = authority.wake_projection();
+        #[cfg(test)]
+        assert!(
+            authority.primary_projection_consistent(),
+            "every committed Apply must preserve the production owner/projection relation"
+        );
         before.active_work = usize::from(compute_slot_released);
         let ApplyRetirement {
             async_process_observations,
@@ -1781,6 +1786,11 @@ impl PreparedConcurrentLocalRemoval<'_> {
         let after = self
             .authority
             .wake_projection_for_accepted_removal(template_selection_changed);
+        #[cfg(test)]
+        assert!(
+            self.authority.primary_projection_consistent(),
+            "concurrent committed removal must preserve the production owner/projection relation"
+        );
         Ok(CommittedDelta {
             async_process_observations: AsyncProcessObservations::None,
             removals: Vec::new(),
