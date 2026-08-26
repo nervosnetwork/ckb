@@ -44,9 +44,14 @@ RESOURCE_RESULT = re.compile(
     r"involuntary_context_switches=(?P<involuntary_context_switches>\d+)$",
     re.MULTILINE,
 )
+BUILD = re.compile(
+    r"^BENCH_BUILD profiling=(?P<profiling>true|false) "
+    r"adapter=(?P<adapter>\S+) debug_assertions=(?P<debug_assertions>true|false)$",
+    re.MULTILINE,
+)
 MIN_CLOCK_TOLERANCE_NS = 1_000_000
 CLOCK_TOLERANCE_DIVISOR = 10_000
-MAX_SCENARIO_TRANSACTIONS = 32_768
+MAX_SCENARIO_TRANSACTIONS = 65_536
 FINAL_BUILD_PROFILE = "prod"
 
 
@@ -417,6 +422,27 @@ def timeout_output(error: subprocess.TimeoutExpired) -> str:
     return output
 
 
+def timing_build_observation(
+    output: str, spans: object
+) -> tuple[dict[str, str] | None, str | None]:
+    builds = list(BUILD.finditer(output))
+    if len(builds) != 1:
+        return None, f"observed {len(builds)} BENCH_BUILD records"
+    build = builds[0].groupdict()
+    if build["profiling"] != "false":
+        return None, "final timing binary unexpectedly enables profiling"
+    if build["debug_assertions"] != "false":
+        return None, "final timing binary unexpectedly enables debug assertions"
+    if build["adapter"] not in {
+        "bounded_remote_batch",
+        "legacy_peer_local_sequential",
+    }:
+        return None, f"unsupported benchmark adapter {build['adapter']}"
+    if spans is not None:
+        return None, "profiling-disabled final timing unexpectedly emitted span evidence"
+    return build, None
+
+
 def run_attempt(
     binary: dict[str, object],
     root: Path,
@@ -504,11 +530,12 @@ def run_attempt(
     except (OSError, json.JSONDecodeError):
         spans = None
     trace_directory.cleanup()
+    build, build_error = timing_build_observation(completed.stdout, spans)
     if (
         len(results) != 1
         or len(windows) != 1
         or len(resources) != 1
-        or not isinstance(spans, dict)
+        or build_error is not None
     ):
         return failure_attempt(
             side=side,
@@ -520,7 +547,8 @@ def run_attempt(
             detail=(
                 f"observed {len(results)} results, {len(windows)} windows and "
                 f"{len(resources)} resource records and "
-                f"{'one' if isinstance(spans, dict) else 'no'} span record"
+                f"{'one' if isinstance(spans, dict) else 'no'} span record; "
+                f"build={build_error or 'valid'}"
             ),
             output=completed.stdout,
         )
@@ -543,23 +571,8 @@ def run_attempt(
     shutdown_latency_ns = int(parsed["shutdown_latency_ns"])
     resource_record = resources[0].groupdict()
     peak_rss_bytes = int(resource_record["max_rss_bytes"])
-    span_rows = spans.get("spans") if isinstance(spans, dict) else None
-    authority_span_elapsed_nanos = {
-        row.get("name"): row.get("elapsed_nanos")
-        for row in span_rows or []
-        if isinstance(row, dict)
-    }
-    authority_span_start_counts = {
-        row.get("name"): row.get("start_count")
-        for row in span_rows or []
-        if isinstance(row, dict)
-    }
-    required_lock_spans = {
-        "tx_pool.authority.read_wait",
-        "tx_pool.authority.read_hold",
-        "tx_pool.authority.write_wait",
-        "tx_pool.authority.write_hold",
-    }
+    authority_span_elapsed_nanos: dict[str, int] = {}
+    authority_span_start_counts: dict[str, int] = {}
     window = windows[0].groupdict()
     elapsed_ns = int(parsed["elapsed_ns"])
     wall_window_ns = int(window["end"]) - int(window["start"])
@@ -591,22 +604,6 @@ def run_attempt(
         evidence_error = "reorg/shutdown latency observation is not positive"
     elif (observed["name"] == "reorg_in_flight") != (reorg_overlap_callbacks > 0):
         evidence_error = "reorg/callback overlap observation differs from the scenario"
-    elif spans.get("schema_version") != 2 or spans.get(
-        "measurement"
-    ) != "span_lifetimes_started_during_target_work":
-        evidence_error = "authority span observation uses an unsupported schema"
-    elif not required_lock_spans.issubset(authority_span_elapsed_nanos):
-        evidence_error = "authority lock span observation is incomplete"
-    elif any(
-        not isinstance(authority_span_start_counts.get(name), int)
-        or isinstance(authority_span_start_counts.get(name), bool)
-        or authority_span_start_counts[name] <= 0
-        or not isinstance(authority_span_elapsed_nanos.get(name), int)
-        or isinstance(authority_span_elapsed_nanos.get(name), bool)
-        or authority_span_elapsed_nanos[name] <= 0
-        for name in required_lock_spans
-    ):
-        evidence_error = "authority lock span observation is empty or invalid"
     elif clock_delta_ns < -clock_tolerance_ns:
         evidence_error = (
             f"target wall-clock window is shorter by {-clock_delta_ns}ns, exceeding "
@@ -658,6 +655,8 @@ def run_attempt(
         "clock_domain_delta_ns": clock_delta_ns,
         "clock_domain_tolerance_ns": clock_tolerance_ns,
         "profile_window_status": profile_window_status,
+        "build": build,
+        "span_observation": "NOT_COLLECTED_IN_PROFILING_DISABLED_FINAL_TIMING_BINARY",
         "throughput_tps": float(parsed["throughput"]),
         "accepted": accepted,
         "p99_latency_ns": p99_latency_ns,
