@@ -59,6 +59,7 @@ const SECP_ISSUE_CAPACITY: u64 = 10_000_000 * 100_000_000;
 const SECP_FEE: u64 = 1_000 * 100_000_000;
 type RelayOk = (Byte32, Option<PeerIndex>);
 type RelayOkSet = HashSet<RelayOk>;
+type RelayRejectSet = HashSet<Byte32>;
 
 struct CountingAllocator;
 
@@ -533,7 +534,8 @@ impl Completion {
 struct RelayCompletion {
     ok: Mutex<RelayOkSet>,
     duplicate_ok: AtomicUsize,
-    rejects: AtomicUsize,
+    rejects: Mutex<RelayRejectSet>,
+    duplicate_reject: AtomicUsize,
     unknown_parents: AtomicUsize,
     generation_resets: AtomicUsize,
     changed: Notify,
@@ -556,8 +558,15 @@ impl RelayCompletion {
                     self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            TxVerificationResult::Reject { .. } => {
-                self.rejects.fetch_add(1, Ordering::Relaxed);
+            TxVerificationResult::Reject { tx_hash } => {
+                if !self
+                    .rejects
+                    .lock()
+                    .expect("relay reject set poisoned")
+                    .insert(tx_hash)
+                {
+                    self.duplicate_reject.fetch_add(1, Ordering::Relaxed);
+                }
             }
             TxVerificationResult::UnknownParents { .. } => {
                 self.unknown_parents.fetch_add(1, Ordering::Relaxed);
@@ -582,8 +591,15 @@ impl RelayCompletion {
                     self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            TxVerificationResult::Reject { .. } => {
-                self.rejects.fetch_add(1, Ordering::Relaxed);
+            TxVerificationResult::Reject { tx_hash } => {
+                if !self
+                    .rejects
+                    .lock()
+                    .expect("relay reject set poisoned")
+                    .insert(tx_hash)
+                {
+                    self.duplicate_reject.fetch_add(1, Ordering::Relaxed);
+                }
             }
             TxVerificationResult::UnknownParents { .. } => {
                 self.unknown_parents.fetch_add(1, Ordering::Relaxed);
@@ -599,18 +615,33 @@ impl RelayCompletion {
         self.ok.lock().expect("relay result set poisoned").len()
     }
 
-    fn reserve(&self, count: usize) -> Result<(), Box<dyn Error>> {
+    fn reject_count(&self) -> usize {
+        self.rejects
+            .lock()
+            .expect("relay reject set poisoned")
+            .len()
+    }
+
+    fn reserve(&self, ok_count: usize, reject_count: usize) -> Result<(), Box<dyn Error>> {
         self.ok
             .lock()
             .expect("relay result set poisoned")
-            .try_reserve(count)?;
+            .try_reserve(ok_count)?;
+        self.rejects
+            .lock()
+            .expect("relay reject set poisoned")
+            .try_reserve(reject_count)?;
         Ok(())
     }
 
-    async fn wait_for_ok(&self, target: usize) -> Result<(), Box<dyn Error>> {
+    async fn wait_for_terminals(
+        &self,
+        expected_ok: usize,
+        expected_rejects: usize,
+    ) -> Result<(), Box<dyn Error>> {
         tokio::time::timeout(Duration::from_secs(120), async {
             loop {
-                if self.ok_count() >= target {
+                if self.ok_count() >= expected_ok && self.reject_count() >= expected_rejects {
                     break;
                 }
                 self.changed.notified().await;
@@ -619,9 +650,11 @@ impl RelayCompletion {
         .await
         .map_err(|_| {
             std::io::Error::other(format!(
-                "timed out after observing {}/{} relay Ok results",
+                "timed out after observing {}/{} relay Ok and {}/{} Reject results",
                 self.ok_count(),
-                target
+                expected_ok,
+                self.reject_count(),
+                expected_rejects
             ))
         })?;
         Ok(())
@@ -629,29 +662,39 @@ impl RelayCompletion {
 
     fn validate(
         &self,
-        expected: &RelayOkSet,
+        expected_ok: &RelayOkSet,
+        expected_rejects: &RelayRejectSet,
         allow_unknown_parents: bool,
     ) -> Result<(), Box<dyn Error>> {
         let ok = self.ok.lock().expect("relay result set poisoned");
-        if *ok != *expected {
+        if *ok != *expected_ok {
             return Err(std::io::Error::other(format!(
                 "relay Ok set differs: observed={}, expected={}",
                 ok.len(),
-                expected.len()
+                expected_ok.len()
             ))
             .into());
         }
-        let rejects = self.rejects.load(Ordering::Relaxed);
+        let rejects = self.rejects.lock().expect("relay reject set poisoned");
+        if *rejects != *expected_rejects {
+            return Err(std::io::Error::other(format!(
+                "relay Reject set differs: observed={}, expected={}",
+                rejects.len(),
+                expected_rejects.len()
+            ))
+            .into());
+        }
         let duplicate_ok = self.duplicate_ok.load(Ordering::Relaxed);
+        let duplicate_reject = self.duplicate_reject.load(Ordering::Relaxed);
         let unknown_parents = self.unknown_parents.load(Ordering::Relaxed);
         let generation_resets = self.generation_resets.load(Ordering::Relaxed);
-        if rejects != 0
-            || duplicate_ok != 0
+        if duplicate_ok != 0
+            || duplicate_reject != 0
             || generation_resets != 0
             || (!allow_unknown_parents && unknown_parents != 0)
         {
             return Err(std::io::Error::other(format!(
-                "relay terminal stream contains rejects={rejects} duplicate_ok={duplicate_ok} unknown_parents={unknown_parents} generation_resets={generation_resets}"
+                "relay terminal stream contains duplicate_ok={duplicate_ok} duplicate_reject={duplicate_reject} unknown_parents={unknown_parents} generation_resets={generation_resets}"
             ))
             .into());
         }
@@ -1490,6 +1533,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     {
         return Err(std::io::Error::other("warm and target relay terminals overlap").into());
     }
+    let warm_expected_rejects = RelayRejectSet::new();
+    let all_expected_rejects = if workload_scenario == "rbf_pairs"
+        && !cfg!(feature = "cross-version-legacy-bench-adapter")
+    {
+        warm.iter().map(TransactionView::hash).collect()
+    } else {
+        RelayRejectSet::new()
+    };
     let warm_expected_callbacks = warm
         .iter()
         .map(TransactionView::hash)
@@ -1499,7 +1550,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
     completion.prepare(transactions.len(), target_count)?;
-    relay_completion.reserve(transactions.len())?;
+    relay_completion.reserve(transactions.len(), all_expected_rejects.len())?;
     let reorg_snapshot = reorg_in_flight.then(|| {
         snapshot_with_proposed(
             &snapshot,
@@ -1527,8 +1578,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             warm_count,
         ))?;
     }
-    runtime.block_on(relay_completion.wait_for_ok(warm_expected_relay.len()))?;
-    relay_completion.validate(&warm_expected_relay, false)?;
+    runtime.block_on(
+        relay_completion.wait_for_terminals(warm_expected_relay.len(), warm_expected_rejects.len()),
+    )?;
+    relay_completion.validate(&warm_expected_relay, &warm_expected_rejects, false)?;
     completion.validate_seen(&warm_expected_callbacks, false)?;
     let profile_started_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let started = Instant::now();
@@ -1590,8 +1643,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         ))?;
         (0, 0)
     };
-    runtime.block_on(relay_completion.wait_for_ok(all_expected_relay.len()))?;
-    relay_completion.validate(&all_expected_relay, workload_scenario.ends_with("_reverse"))?;
+    runtime.block_on(
+        relay_completion.wait_for_terminals(all_expected_relay.len(), all_expected_rejects.len()),
+    )?;
+    relay_completion.validate(
+        &all_expected_relay,
+        &all_expected_rejects,
+        workload_scenario.ends_with("_reverse"),
+    )?;
     completion.validate_seen(&all_expected_callbacks, reorg_in_flight)?;
     let elapsed = started.elapsed();
     let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
@@ -1680,7 +1739,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "reorg_overlap_callbacks": reorg_overlap_callbacks,
         "relay_ok": relay_completion.ok_count(),
         "relay_duplicate_ok": relay_completion.duplicate_ok.load(Ordering::Relaxed),
-        "relay_rejects": relay_completion.rejects.load(Ordering::Relaxed),
+        "relay_rejects": relay_completion.reject_count(),
         "relay_unknown_parents": relay_completion.unknown_parents.load(Ordering::Relaxed),
         "relay_generation_resets": relay_completion.generation_resets.load(Ordering::Relaxed),
         "shutdown_latency_nanos": shutdown_latency_ns,
@@ -1699,7 +1758,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Relaxed);
     let relay_ok = relay_completion.ok_count();
     let relay_duplicate_ok = relay_completion.duplicate_ok.load(Ordering::Relaxed);
-    let relay_rejects = relay_completion.rejects.load(Ordering::Relaxed);
+    let relay_rejects = relay_completion.reject_count();
     let relay_unknown_parents = relay_completion.unknown_parents.load(Ordering::Relaxed);
     let relay_generation_resets = relay_completion.generation_resets.load(Ordering::Relaxed);
     println!(

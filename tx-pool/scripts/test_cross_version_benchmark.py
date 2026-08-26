@@ -46,6 +46,7 @@ class BuildProfileContractTest(unittest.TestCase):
             "relay_rejects": 0,
             "relay_unknown_parents": 0,
             "relay_generation_resets": 0,
+            "expected_relay_rejects": 0,
         }
         self.assertIsNone(BENCHMARK.terminal_observation_error(**valid))
         for field in (
@@ -62,6 +63,15 @@ class BuildProfileContractTest(unittest.TestCase):
         self.assertIsNone(BENCHMARK.terminal_observation_error(**reorg))
         reverse = dict(valid, scenario_name="dependent_forest_8_reverse", relay_unknown_parents=8)
         self.assertIsNone(BENCHMARK.terminal_observation_error(**reverse))
+        rbf = dict(
+            valid,
+            scenario_name="rbf_pairs",
+            relay_rejects=8,
+            expected_relay_rejects=8,
+        )
+        self.assertIsNone(BENCHMARK.terminal_observation_error(**rbf))
+        rbf_missing = dict(rbf, relay_rejects=7)
+        self.assertIsNotNone(BENCHMARK.terminal_observation_error(**rbf_missing))
 
     def test_legacy_adapter_uses_native_unbounded_relay_with_active_consumer(self) -> None:
         source = HARNESS.read_text()

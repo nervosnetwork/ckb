@@ -73,6 +73,7 @@ def terminal_observation_error(
     relay_rejects: int,
     relay_unknown_parents: int,
     relay_generation_resets: int,
+    expected_relay_rejects: int,
 ) -> str | None:
     if accepted != expected_accepted:
         return f"accepted {accepted}, expected {expected_accepted}"
@@ -82,8 +83,10 @@ def terminal_observation_error(
         return f"unexpected duplicate callbacks: {callback_duplicates}"
     if relay_duplicate_ok != 0:
         return f"unexpected duplicate relay Ok results: {relay_duplicate_ok}"
-    if relay_rejects != 0:
-        return f"unexpected relay rejects: {relay_rejects}"
+    if relay_rejects != expected_relay_rejects:
+        return (
+            f"relay rejects {relay_rejects}, expected {expected_relay_rejects}"
+        )
     if relay_generation_resets != 0:
         return f"unexpected relay generation resets: {relay_generation_resets}"
     if relay_unknown_parents != 0 and not scenario_name.endswith("_reverse"):
@@ -631,6 +634,12 @@ def run_attempt(
     if observed != scenario:
         evidence_error = f"scenario drift: {observed} != {scenario}"
     else:
+        expected_relay_rejects = (
+            int(scenario["warm"])
+            if observed["name"] == "rbf_pairs"
+            and build["adapter"] == "bounded_remote_batch"
+            else 0
+        )
         evidence_error = terminal_observation_error(
             scenario_name=observed["name"],
             expected_accepted=expected_accepted,
@@ -641,6 +650,7 @@ def run_attempt(
             relay_rejects=relay_rejects,
             relay_unknown_parents=relay_unknown_parents,
             relay_generation_resets=relay_generation_resets,
+            expected_relay_rejects=expected_relay_rejects,
         )
     if evidence_error is None and wall_window_ns <= 0:
         evidence_error = "target wall-clock window is not monotonic"
