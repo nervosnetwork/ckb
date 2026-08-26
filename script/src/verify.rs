@@ -26,16 +26,92 @@ use ckb_types::{
 use ckb_vm::machine::Pause as VMPause;
 use ckb_vm::{DefaultMachineRunner, Error as VMInternalError};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_family = "wasm"))]
 use std::time::Instant;
 #[cfg(not(target_family = "wasm"))]
-use tokio::sync::{
-    oneshot,
-    watch::{self, Receiver},
-};
+use tokio::sync::watch::{self, Receiver};
+#[cfg(not(target_family = "wasm"))]
+use tokio::task::{JoinError, JoinHandle};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+tokio::task_local! {
+    static VM_CHILD_TEST_PROBE: Arc<VmChildTestProbe>;
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct VmChildTestProbe {
+    active: AtomicBool,
+    paused: AtomicBool,
+}
+
+#[cfg(test)]
+struct ActiveVmChildGuard(Arc<VmChildTestProbe>);
+
+#[cfg(test)]
+impl ActiveVmChildGuard {
+    fn new(probe: Arc<VmChildTestProbe>) -> Self {
+        probe.active.store(true, Ordering::SeqCst);
+        Self(probe)
+    }
+}
+
+#[cfg(test)]
+impl Drop for ActiveVmChildGuard {
+    fn drop(&mut self) {
+        self.0.active.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+/// Owns a spawned VM task so cancelling its parent cannot detach VM work.
+struct VmChildTask<T> {
+    command: watch::Sender<ChunkCommand>,
+    handle: Option<JoinHandle<T>>,
+    pause: VMPause,
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<T> VmChildTask<T> {
+    fn new(pause: VMPause, command: watch::Sender<ChunkCommand>, handle: JoinHandle<T>) -> Self {
+        Self {
+            command,
+            handle: Some(handle),
+            pause,
+        }
+    }
+
+    fn send(&self, command: ChunkCommand) {
+        let _ = self.command.send(command);
+    }
+
+    async fn join(&mut self) -> Result<T, JoinError> {
+        match self.handle.as_mut() {
+            Some(handle) => {
+                let result = handle.await;
+                self.handle = None;
+                result
+            }
+            None => std::future::pending().await,
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl<T> Drop for VmChildTask<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            self.pause.interrupt();
+            let _ = self.command.send(ChunkCommand::Stop);
+            handle.abort();
+        }
+    }
+}
 
 /// Result of tx-pool-controlled resumable script verification with one fixed
 /// wall deadline. Deadline expiry is node-local execution policy, not a script
@@ -440,23 +516,27 @@ where
         }
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
-        let (finish_tx, mut finish_rx) =
-            oneshot::channel::<Result<TerminatedResult, ckb_vm::Error>>();
 
         // send initial `Resume` command to child
         // it's maybe useful to set initial command to `signal.borrow().to_owned()`
         // so that we can control the initial state of child, which is useful for testing purpose
         let (child_tx, mut child_rx) = watch::channel(ChunkCommand::Resume);
+        #[cfg(test)]
+        let test_probe = VM_CHILD_TEST_PROBE.try_with(Arc::clone).ok();
         let jh = tokio::spawn(async move {
+            #[cfg(test)]
+            let _active_vm_child = test_probe
+                .as_ref()
+                .map(|probe| ActiveVmChildGuard::new(Arc::clone(probe)));
             child_rx.mark_changed();
             loop {
                 let pause_cloned = child_pause.clone();
-                let _ = child_rx.changed().await;
+                if child_rx.changed().await.is_err() {
+                    return Err(ckb_vm::Error::External("command channel closed".into()));
+                }
                 match *child_rx.borrow() {
                     ChunkCommand::Stop => {
-                        let exit = Err(ckb_vm::Error::External("stopped".into()));
-                        let _ = finish_tx.send(exit);
-                        return;
+                        return Err(ckb_vm::Error::External("stopped".into()));
                     }
                     ChunkCommand::Suspend => {
                         continue;
@@ -466,10 +546,13 @@ where
                         let res = scheduler.run(RunMode::Pause(pause_cloned, max_cycles));
                         match res {
                             Ok(_) => {
-                                let _ = finish_tx.send(res);
-                                return;
+                                return res;
                             }
                             Err(VMInternalError::Pause) => {
+                                #[cfg(test)]
+                                if let Some(probe) = test_probe.as_ref() {
+                                    probe.paused.store(true, Ordering::SeqCst);
+                                }
                                 // continue to wait for
                                 debug_assert!(
                                     scheduler.consumed_cycles() <= max_cycles,
@@ -479,14 +562,14 @@ where
                                 );
                             }
                             _ => {
-                                let _ = finish_tx.send(res);
-                                return;
+                                return res;
                             }
                         }
                     }
                 }
             }
         });
+        let mut child = VmChildTask::new(pause.clone(), child_tx, jh);
 
         let deadline_wait = async move {
             match deadline {
@@ -500,11 +583,17 @@ where
         loop {
             tokio::select! {
                 biased;
-                Ok(res) = &mut finish_rx => {
-                    let _ = jh.await;
+                result = child.join() => {
                     if deadline_exceeded {
                         return Ok(ResumableVerificationOutcome::DeadlineExceeded);
                     }
+                    let res = match result {
+                        Ok(res) => res,
+                        Err(error) if error.is_panic() => {
+                            std::panic::resume_unwind(error.into_panic())
+                        }
+                        Err(_) => return Err(ScriptError::Interrupts),
+                    };
                     match res {
                         Ok(TerminatedResult {
                             exit_code: 0,
@@ -532,18 +621,18 @@ where
                         ChunkCommand::Stop => {
                             externally_stopped = true;
                             pause.interrupt();
-                            let _ = child_tx.send(command);
+                            child.send(command);
                         }
                         ChunkCommand::Resume => {
                             pause.free();
-                            let _ = child_tx.send(command);
+                            child.send(command);
                         }
                     }
                 }
                 _ = &mut deadline_wait, if !deadline_exceeded && !externally_stopped => {
                     deadline_exceeded = true;
                     pause.interrupt();
-                    let _ = child_tx.send(ChunkCommand::Stop);
+                    child.send(ChunkCommand::Stop);
                 }
                 else => { break Err(ScriptError::validation_failure(&script_group.script, 0)) }
             }
