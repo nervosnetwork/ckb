@@ -275,13 +275,53 @@ fn uak_batched_apply_clock_reservation_is_all_or_none_at_counter_boundaries() {
     };
     let bank = production_bank(before);
     assert!(
-        ApplyClockReservation::begin_replacements(
+        ApplyClockReservation::commit_owner_batch(
             Arc::clone(&bank),
+            production_clocks(before),
             NonZeroUsize::new(2).expect("the batch is nonempty"),
+            0,
         )
         .is_err()
     );
     assert_eq!(clock_snapshot(bank.snapshot()), before);
+
+    let available = ClockSnapshot {
+        next_version: 17,
+        next_arrival: 9,
+        next_sequence: 23,
+    };
+    let bank = production_bank(available);
+    let stale = ClockSnapshot {
+        next_version: 18,
+        ..available
+    };
+    assert!(
+        ApplyClockReservation::commit_owner_batch(
+            Arc::clone(&bank),
+            production_clocks(stale),
+            NonZeroUsize::new(2).expect("the batch is nonempty"),
+            1,
+        )
+        .is_err()
+    );
+    assert_eq!(clock_snapshot(bank.snapshot()), available);
+
+    let arrival_exhausted = ClockSnapshot {
+        next_version: 17,
+        next_arrival: u128::MAX,
+        next_sequence: 23,
+    };
+    let bank = production_bank(arrival_exhausted);
+    assert!(
+        ApplyClockReservation::commit_owner_batch(
+            Arc::clone(&bank),
+            production_clocks(arrival_exhausted),
+            NonZeroUsize::new(2).expect("the batch is nonempty"),
+            1,
+        )
+        .is_err()
+    );
+    assert_eq!(clock_snapshot(bank.snapshot()), arrival_exhausted);
 }
 
 #[test]

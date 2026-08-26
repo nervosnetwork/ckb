@@ -1395,6 +1395,20 @@ impl ReplacementHistoryEntry {
         self.record.arrival = arrival;
     }
 
+    /// Finalize the placeholder identity and observation stamp held only by a
+    /// prepared batch. Leaf-RBF cohort planning must decide optional history
+    /// before it knows how many owner identities the one atomic clock
+    /// reservation needs; no live owner can observe the placeholder.
+    pub(super) fn assign_planned_identity_and_dependency_cut(
+        &mut self,
+        version: EntryVersion,
+        arrival: Arrival,
+        dependency_cut: DependencyCut,
+    ) {
+        self.assign_reserved_identity(version, arrival);
+        self.observed.dependency_cut = dependency_cut;
+    }
+
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         self.observed.retained()
     }
@@ -1641,19 +1655,39 @@ impl AuthorityClockBank {
         Ok((first..next, *state))
     }
 
-    pub(super) fn reserve_apply_replacements(
+    /// Atomically reserve one Apply stamp plus the complete owner-identity
+    /// pattern for a bounded membership batch. Every member consumes one
+    /// replacement version; retained RBF histories additionally consume one
+    /// insertion version and arrival. The exact-base comparison binds the
+    /// caller's already-compiled preview and leaves the bank unchanged on an
+    /// OCC miss or counter exhaustion.
+    pub(super) fn reserve_apply_owner_batch(
         &self,
-        members: NonZeroUsize,
-    ) -> Result<(ApplySequence, std::ops::Range<u128>, AuthorityClocks), ()> {
-        let count = u128::try_from(members.get()).map_err(|_| ())?;
+        expected: AuthorityClocks,
+        owners: NonZeroUsize,
+        insertions: usize,
+    ) -> Result<(ApplySequence, AuthorityClocks), ()> {
+        let owner_count = u128::try_from(owners.get()).map_err(|_| ())?;
+        let insertion_count = u128::try_from(insertions).map_err(|_| ())?;
+        if insertion_count > owner_count {
+            return Err(());
+        }
         let mut state = self.state.lock();
+        if *state != expected {
+            return Err(());
+        }
         let sequence = state.next_sequence;
-        let first_version = state.next_version.0;
         let next_sequence = sequence.0.checked_add(1).map(ApplySequence).ok_or(())?;
-        let next_version = first_version.checked_add(count).ok_or(())?;
+        let next_version = state.next_version.0.checked_add(owner_count).ok_or(())?;
+        let next_arrival = state
+            .next_arrival
+            .0
+            .checked_add(insertion_count)
+            .ok_or(())?;
         state.next_sequence = next_sequence;
         state.next_version = EntryVersion(next_version);
-        Ok((sequence, first_version..next_version, *state))
+        state.next_arrival = Arrival(next_arrival);
+        Ok((sequence, *state))
     }
 
     pub(super) fn adopt_owner_progress(&self, clocks: AuthorityClocks) -> AuthorityClocks {

@@ -1851,4 +1851,104 @@ impl OrderedResourceProjection {
         }
         Ok(())
     }
+
+    /// Evaluate one ordered component as an atomic set transition.
+    ///
+    /// A leaf-RBF component replaces both the Ready candidate and its
+    /// Accepted victim. Removing either owner first can create a false
+    /// transient limit (Accepted in candidate-first order, replacement
+    /// history in victim-first order), although the canonical single-member
+    /// compiler removes both old charges before installing either new one.
+    /// This scratch fold preserves that exact rule for every strongest-first
+    /// component while the final authority transition remains owned by
+    /// [`ResourceLedger::plan_batch`]. An error leaves this projection
+    /// unchanged, so optional history can be terminalized and retried once.
+    pub(super) fn replace_set(
+        &mut self,
+        current: ResourceRead<'_>,
+        changes: &[(Option<ChargeRecord>, Option<ChargeRecord>)],
+    ) -> Result<(), ResourceError> {
+        let peer_capacity = changes
+            .len()
+            .checked_mul(2)
+            .ok_or(ResourceError::Arithmetic)?;
+        let mut peer_updates = HashMap::new();
+        peer_updates
+            .try_reserve(peer_capacity)
+            .map_err(|_| ResourceError::Allocation)?;
+        let mut totals = ResourceTotals {
+            preaccepted: self.preaccepted,
+            remote: self.remote,
+            replacement_history: self.replacement_history,
+        };
+        let mut accepted = self.accepted;
+
+        for (expected, after) in changes {
+            expected.map(ChargeRecord::validate).transpose()?;
+            after.map(ChargeRecord::validate).transpose()?;
+        }
+        for (expected, _) in changes {
+            let charge = ChargeProjection::from_validated(*expected)?;
+            totals = totals.checked_remove(charge)?;
+            accepted = checked_remove_accepted(accepted, charge.accepted)?;
+            if let Some((peer, resources)) = charge.peer {
+                let usage = peer_updates.entry(peer).or_insert_with(|| {
+                    self.peers
+                        .get(&peer)
+                        .copied()
+                        .unwrap_or_else(|| current.peer(peer))
+                });
+                *usage = usage
+                    .checked_sub(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+        }
+        for (_, after) in changes {
+            let charge = ChargeProjection::from_validated(*after)?;
+            totals = totals.checked_add(charge)?;
+            accepted = checked_add_accepted(accepted, charge.accepted)?;
+            if let Some((peer, resources)) = charge.peer {
+                let usage = peer_updates.entry(peer).or_insert_with(|| {
+                    self.peers
+                        .get(&peer)
+                        .copied()
+                        .unwrap_or_else(|| current.peer(peer))
+                });
+                *usage = usage
+                    .checked_add(resources)
+                    .ok_or(ResourceError::Arithmetic)?;
+            }
+        }
+        if !totals.preaccepted.fits(self.limits.preaccepted) {
+            return Err(ResourceError::PreAcceptedLimit);
+        }
+        if !totals.remote.fits(self.limits.remote) {
+            return Err(ResourceError::RemoteLimit);
+        }
+        if let Some(peer) = peer_updates
+            .iter()
+            .filter_map(|(peer, usage)| (!usage.fits(self.limits.per_peer)).then_some(*peer))
+            .min()
+        {
+            return Err(ResourceError::PeerLimit(peer));
+        }
+        if !totals
+            .replacement_history
+            .fits(self.limits.replacement_history)
+        {
+            return Err(ResourceError::ReplacementHistoryLimit);
+        }
+        if !accepted.fits(self.limits.accepted) {
+            return Err(ResourceError::AcceptedLimit);
+        }
+
+        self.preaccepted = totals.preaccepted;
+        self.remote = totals.remote;
+        self.replacement_history = totals.replacement_history;
+        self.accepted = accepted;
+        for (peer, usage) in peer_updates {
+            self.peers.insert(peer, usage);
+        }
+        Ok(())
+    }
 }

@@ -35,6 +35,7 @@ use super::super::work::{
 };
 use crate::{
     component::entry::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes},
+    constants::MAX_READY_BATCH,
     error::Reject,
 };
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
@@ -5771,6 +5772,563 @@ fn uak_isolated_rbf_preserves_exact_projection_and_effect_contract() {
             .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
             .expect("the isolated replacement effect batch settles"),
     );
+}
+
+fn leaf_rbf_cohort_limits() -> ResourceLimits {
+    ResourceLimits::new(
+        ResourceVector::new(16, 128 * 1024, 128, 16),
+        ResourceVector::new(16, 128 * 1024, 128, 16),
+        ResourceVector::new(2, 16 * 1024, 16, 2),
+        AcceptedResources::new(16, 128 * 1024, 128 * 1024, 128),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+    })
+    .expect("leaf-RBF cohort limits admit eight Ready owners and four histories")
+}
+
+fn add_leaf_rbf_pair(
+    authority: &mut TxPoolAuthority,
+    index: usize,
+    marker: u8,
+    dependencies: Vec<OutPoint>,
+    fee: u64,
+) -> (RawTxHash, RawTxHash) {
+    let input = OutPoint::new(Byte32::new([marker; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(10_000 + u32::from(marker))
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let victim = accept_remote_transaction_with_payload(
+        authority,
+        victim_tx.clone(),
+        10_000 + index,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            dependencies.clone(),
+            vec![input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let candidate_tx = TransactionBuilder::default()
+        .version(20_000 + u32::from(marker))
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    let candidate = verify_remote_transaction_with_payload(
+        authority,
+        candidate_tx.clone(),
+        20_000 + index,
+        resolved_payload_with_facts(
+            &candidate_tx,
+            dependencies,
+            vec![input],
+            Capacity::shannons(fee),
+        ),
+    );
+    (victim, candidate)
+}
+
+fn leaf_rbf_cohort_fixture(count: usize) -> (TxPoolAuthority, Vec<RawTxHash>, Vec<RawTxHash>) {
+    assert!((2..=MAX_READY_BATCH).contains(&count));
+    let mut authority =
+        TxPoolAuthority::with_replacement(leaf_rbf_cohort_limits(), FeeRate::from_u64(1_000));
+    // The production always-success workload shares one immutable chain
+    // cell-dep across every pair. Read sharing is not membership coupling;
+    // only an owner transition which can change that dependency is.
+    let shared_chain_dependency = OutPoint::new(Byte32::new([99; 32]), 0);
+    let mut candidates = Vec::with_capacity(count);
+    let mut victims = Vec::with_capacity(count);
+    for index in 0..count {
+        let marker = u8::try_from(index + 100).expect("bounded cohort marker fits u8");
+        let rank = u64::try_from(count - index).expect("bounded rank fits u64");
+        let (victim, candidate) = add_leaf_rbf_pair(
+            &mut authority,
+            index,
+            marker,
+            vec![shared_chain_dependency.clone()],
+            10_000u64
+                .checked_mul(rank)
+                .expect("bounded cohort fee fits u64"),
+        );
+        victims.push(victim);
+        candidates.push(candidate);
+    }
+    (authority, candidates, victims)
+}
+
+#[test]
+fn uak_leaf_rbf_cohort_matches_every_canonical_single_prefix() {
+    for count in 2..=MAX_READY_BATCH {
+        let (mut aggregate, candidates, victims) = leaf_rbf_cohort_fixture(count);
+        let before_clocks = aggregate.clocks();
+        let victim_by_candidate = candidates
+            .iter()
+            .cloned()
+            .zip(victims.iter().cloned())
+            .collect::<HashMap<_, _>>();
+        let batch = independent_batch(&aggregate, &candidates);
+        let SettlementPlan::IndependentRun(plan) = aggregate
+            .plan_settlement(&batch)
+            .expect("strict disjoint leaf replacements have one batch Plan")
+        else {
+            panic!("strict disjoint leaf replacements must use the composite batch")
+        };
+        let order = plan
+            .independent_order_for_foundation()
+            .expect("the batch seals strongest-first candidate order");
+        assert_eq!(order.len(), count);
+        let committed = apply_plan_for_delta(plan);
+        assert_eq!(committed.removals.len(), count);
+        assert_eq!(committed.retired_len(), count * 2);
+        for (removal, winner) in committed.removals.iter().zip(&order) {
+            assert_eq!(removal.cause, RemovalCause::Replacement);
+            assert_eq!(
+                Some(&removal.hash),
+                victim_by_candidate.get(winner),
+                "each candidate retires only its own victim"
+            );
+        }
+        let mut expected_version = before_clocks.next_version.0;
+        let mut expected_arrival = before_clocks.next_arrival.0;
+        for (index, winner) in order.iter().enumerate() {
+            assert_eq!(owner_version(&aggregate, winner).0, expected_version);
+            expected_version += 1;
+            let victim = victim_by_candidate
+                .get(winner)
+                .expect("every winner has one fixture victim");
+            if index < 4 {
+                let Some(OwnedTx::ReplacementHistory(history)) = aggregate.entry(victim) else {
+                    panic!("strongest four victims retain optional history")
+                };
+                assert_eq!(history.record().version.0, expected_version);
+                assert_eq!(history.record().arrival.0, expected_arrival);
+                expected_version += 1;
+                expected_arrival += 1;
+            } else {
+                assert!(
+                    aggregate.entry(victim).is_none(),
+                    "history pressure terminalizes only the weaker member"
+                );
+            }
+        }
+        assert_eq!(aggregate.clocks().next_version.0, expected_version);
+        assert_eq!(aggregate.clocks().next_arrival.0, expected_arrival);
+
+        let lease = aggregate
+            .effect_publication_receipt_for_foundation()
+            .expect("the composite publishes one resident effect batch");
+        assert_eq!(lease.effects().len(), count * 2);
+        for (effects, winner) in lease.effects().chunks_exact(2).zip(&order) {
+            let [
+                CommittedEffect::Accepted(CommittedAcceptance::Admission { entry, .. }),
+                CommittedEffect::Rejected(CommittedRejection::Replaced {
+                    entry: victim,
+                    winner: observed_winner,
+                }),
+            ] = effects
+            else {
+                panic!("every cohort member publishes Accepted then Replaced")
+            };
+            assert_eq!(RawTxHash(entry.tx.hash()), *winner);
+            assert_eq!(observed_winner, winner);
+            assert_eq!(
+                Some(&RawTxHash(victim.tx.hash())),
+                victim_by_candidate.get(winner)
+            );
+        }
+
+        let (mut reference, reference_candidates, reference_victims) =
+            leaf_rbf_cohort_fixture(count);
+        assert_eq!(reference_candidates, candidates);
+        assert_eq!(reference_victims, victims);
+        for winner in &order {
+            let version = owner_version(&reference, winner);
+            drop(apply_plan_for_delta(
+                reference
+                    .plan_accept_for_foundation(winner, version, AcceptedStatus::Pending)
+                    .expect("canonical strongest-first single replacement succeeds"),
+            ));
+        }
+        let canonical_next_sequence = ApplySequence(
+            before_clocks.next_sequence.0
+                + u128::try_from(count).expect("bounded cohort count fits u128"),
+        );
+        assert_eq!(
+            aggregate.clocks().next_sequence,
+            ApplySequence(before_clocks.next_sequence.0 + 1)
+        );
+        assert_eq!(reference.clocks().next_sequence, canonical_next_sequence);
+        assert!(
+            aggregate
+                .normalized_snapshot()
+                .equivalent_modulo_atomic_batch_stamp(
+                    &reference.normalized_snapshot(),
+                    before_clocks.next_sequence,
+                    canonical_next_sequence,
+                ),
+            "one leaf-RBF Apply must equal the canonical no-interleave fold"
+        );
+        assert_eq!(
+            aggregate
+                .read_view()
+                .capture_template()
+                .expect("composite template read is coherent")
+                .selected_len(),
+            count
+        );
+        assert_eq!(
+            aggregate
+                .read_view()
+                .capture_persistence()
+                .expect("history is excluded from persistence")
+                .selected_len(),
+            count
+        );
+        assert_resource_reference(&aggregate);
+        assert_membership_reference(&aggregate);
+        assert!(aggregate.primary_projection_consistent());
+    }
+}
+
+fn assert_leaf_rbf_cohort_falls_back(authority: &mut TxPoolAuthority, candidates: &[RawTxHash]) {
+    let batch = independent_batch(authority, candidates);
+    assert_coupled_and_drop(
+        authority
+            .plan_settlement(&batch)
+            .expect("a non-admitted leaf cohort still has one canonical strongest Plan"),
+    );
+    assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_leaf_rbf_cohort_rejects_every_logical_overlap_and_non_leaf_shape() {
+    // Two candidates name the same resident spender and exact input.
+    let mut shared_victim =
+        TxPoolAuthority::with_replacement(leaf_rbf_cohort_limits(), FeeRate::from_u64(1_000));
+    let shared_input = OutPoint::new(Byte32::new([140; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(30_140u32)
+        .input(CellInput::new(shared_input.clone(), 0))
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut shared_victim,
+        victim_tx.clone(),
+        30_140,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &victim_tx,
+            Vec::new(),
+            vec![shared_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let mut shared_candidates = Vec::new();
+    for (index, fee) in [30_000u64, 20_000].into_iter().enumerate() {
+        let candidate_tx = TransactionBuilder::default()
+            .version(31_140 + u32::try_from(index).expect("bounded index fits u32"))
+            .input(CellInput::new(shared_input.clone(), 0))
+            .build();
+        shared_candidates.push(verify_remote_transaction_with_payload(
+            &mut shared_victim,
+            candidate_tx.clone(),
+            31_140 + index,
+            resolved_payload_with_facts(
+                &candidate_tx,
+                Vec::new(),
+                vec![shared_input.clone()],
+                Capacity::shannons(fee),
+            ),
+        ));
+    }
+    assert_leaf_rbf_cohort_falls_back(&mut shared_victim, &shared_candidates);
+
+    // C2 reads an output whose Accepted owner V1 is lost by C1. Both
+    // before-cut evaluations can succeed, but their loss/dependency
+    // footprints forbid one composite Apply.
+    let mut dependency_loss =
+        TxPoolAuthority::with_replacement(leaf_rbf_cohort_limits(), FeeRate::from_u64(1_000));
+    let first_input = OutPoint::new(Byte32::new([150; 32]), 0);
+    let first_victim_tx = TransactionBuilder::default()
+        .version(30_150u32)
+        .input(CellInput::new(first_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut dependency_loss,
+        first_victim_tx.clone(),
+        30_150,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &first_victim_tx,
+            Vec::new(),
+            vec![first_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let first_candidate_tx = TransactionBuilder::default()
+        .version(31_150u32)
+        .input(CellInput::new(first_input.clone(), 0))
+        .build();
+    let first_candidate = verify_remote_transaction_with_payload(
+        &mut dependency_loss,
+        first_candidate_tx.clone(),
+        31_150,
+        resolved_payload_with_facts(
+            &first_candidate_tx,
+            Vec::new(),
+            vec![first_input],
+            Capacity::shannons(30_000),
+        ),
+    );
+    let second_input = OutPoint::new(Byte32::new([151; 32]), 0);
+    let second_victim_tx = TransactionBuilder::default()
+        .version(30_151u32)
+        .input(CellInput::new(second_input.clone(), 0))
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut dependency_loss,
+        second_victim_tx.clone(),
+        30_151,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &second_victim_tx,
+            Vec::new(),
+            vec![second_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let second_candidate_tx = TransactionBuilder::default()
+        .version(31_151u32)
+        .input(CellInput::new(second_input.clone(), 0))
+        .build();
+    let second_candidate = verify_remote_transaction_with_payload(
+        &mut dependency_loss,
+        second_candidate_tx.clone(),
+        31_151,
+        resolved_payload_with_facts(
+            &second_candidate_tx,
+            vec![OutPoint::new(first_victim_tx.hash(), 0)],
+            vec![second_input],
+            Capacity::shannons(20_000),
+        ),
+    );
+    assert_leaf_rbf_cohort_falls_back(&mut dependency_loss, &[first_candidate, second_candidate]);
+
+    // Each replacement fits against the before cut, but the second ordered
+    // prefix would exceed Accepted serialized bytes after the first winner.
+    let capacity_victim_probe = TransactionBuilder::default()
+        .version(30_154u32)
+        .input(CellInput::new(OutPoint::new(Byte32::new([154; 32]), 0), 0))
+        .build();
+    let capacity_candidate_probe = TransactionBuilder::default()
+        .version(31_154u32)
+        .input(CellInput::new(OutPoint::new(Byte32::new([155; 32]), 0), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::from(vec![0; 1024]).pack())
+        .build();
+    let one_prefix_bytes = capacity_victim_probe
+        .data()
+        .serialized_size_in_block()
+        .checked_add(capacity_candidate_probe.data().serialized_size_in_block())
+        .expect("two bounded serialized costs fit usize");
+    let capacity_limits = ResourceLimits::new(
+        ResourceVector::new(16, 128 * 1024, 128, 16),
+        ResourceVector::new(16, 128 * 1024, 128, 16),
+        ResourceVector::new(2, 16 * 1024, 16, 2),
+        AcceptedResources::new(8, one_prefix_bytes, 128 * 1024, 128),
+        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
+    )
+    .and_then(|limits| {
+        limits.with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
+    })
+    .expect("ordered capacity fixture has valid resource partitions");
+    let mut ordered_capacity =
+        TxPoolAuthority::with_replacement(capacity_limits, FeeRate::from_u64(1_000));
+    let mut capacity_candidates = Vec::new();
+    for index in 0..2u8 {
+        let input = OutPoint::new(Byte32::new([154 + index; 32]), 0);
+        let victim_tx = TransactionBuilder::default()
+            .version(30_154 + u32::from(index))
+            .input(CellInput::new(input.clone(), 0))
+            .build();
+        accept_remote_transaction_with_payload(
+            &mut ordered_capacity,
+            victim_tx.clone(),
+            30_154 + usize::from(index),
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(
+                &victim_tx,
+                Vec::new(),
+                vec![input.clone()],
+                Capacity::shannons(100),
+            ),
+        );
+        let candidate_tx = TransactionBuilder::default()
+            .version(31_154 + u32::from(index))
+            .input(CellInput::new(input.clone(), 0))
+            .output(CellOutput::default())
+            .output_data(Bytes::from(vec![index; 1024]).pack())
+            .build();
+        capacity_candidates.push(verify_remote_transaction_with_payload(
+            &mut ordered_capacity,
+            candidate_tx.clone(),
+            31_154 + usize::from(index),
+            resolved_payload_with_facts(
+                &candidate_tx,
+                Vec::new(),
+                vec![input],
+                Capacity::shannons(30_000 - u64::from(index) * 10_000),
+            ),
+        ));
+    }
+    assert_leaf_rbf_cohort_falls_back(&mut ordered_capacity, &capacity_candidates);
+
+    // Batch-slot amortization is allowed, but the immutable effect envelope
+    // is not. Four cohort effects exceed this hard bound of two, while the
+    // canonical strongest replacement still fits.
+    let effect_bytes = 128 * 1024;
+    let effect_limits = EffectLimits::partitioned(
+        EffectCapacity::new(4, effect_bytes),
+        EffectCapacity::new(1, effect_bytes),
+        EffectCapacity::new(1, effect_bytes),
+        EffectBatchBounds::new(
+            EffectBatchBound::new(2, effect_bytes),
+            EffectBatchBound::new(2, effect_bytes),
+            EffectBatchBound::new(2, effect_bytes),
+        ),
+    )
+    .expect("two-effect immutable batches are a valid hard envelope");
+    let mut effect_bound = TxPoolAuthority::with_replacement_and_effect_limits(
+        leaf_rbf_cohort_limits(),
+        FeeRate::from_u64(1_000),
+        effect_limits,
+    )
+    .expect("replacement fixture accepts the bounded effect log");
+    let (_, first) = add_leaf_rbf_pair(&mut effect_bound, 0, 152, Vec::new(), 30_000);
+    let (_, second) = add_leaf_rbf_pair(&mut effect_bound, 1, 153, Vec::new(), 20_000);
+    assert_leaf_rbf_cohort_falls_back(&mut effect_bound, &[first, second]);
+
+    // A victim with an Accepted child is not a leaf pair even when the other
+    // member is strictly disjoint.
+    let mut child =
+        TxPoolAuthority::with_replacement(leaf_rbf_cohort_limits(), FeeRate::from_u64(1_000));
+    let child_input = OutPoint::new(Byte32::new([144; 32]), 0);
+    let child_victim_tx = TransactionBuilder::default()
+        .version(30_144u32)
+        .input(CellInput::new(child_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut child,
+        child_victim_tx.clone(),
+        30_144,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &child_victim_tx,
+            Vec::new(),
+            vec![child_input.clone()],
+            Capacity::shannons(100),
+        ),
+    );
+    let descendant_tx = TransactionBuilder::default()
+        .version(30_145u32)
+        .input(CellInput::new(OutPoint::new(child_victim_tx.hash(), 0), 0))
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut child,
+        descendant_tx.clone(),
+        30_145,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &descendant_tx,
+            Vec::new(),
+            Vec::new(),
+            Capacity::shannons(100),
+        ),
+    );
+    let child_replacement_tx = TransactionBuilder::default()
+        .version(31_144u32)
+        .input(CellInput::new(child_input.clone(), 0))
+        .build();
+    let child_replacement = verify_remote_transaction_with_payload(
+        &mut child,
+        child_replacement_tx.clone(),
+        31_144,
+        resolved_payload_with_facts(
+            &child_replacement_tx,
+            Vec::new(),
+            vec![child_input],
+            Capacity::shannons(30_000),
+        ),
+    );
+    let (_, disjoint) = add_leaf_rbf_pair(&mut child, 1, 145, Vec::new(), 20_000);
+    assert_leaf_rbf_cohort_falls_back(&mut child, &[child_replacement, disjoint]);
+
+    // Distinct victims below one Accepted parent share an ancestor footprint
+    // and therefore remain coupled.
+    let mut ancestor =
+        TxPoolAuthority::with_replacement(leaf_rbf_cohort_limits(), FeeRate::from_u64(1_000));
+    let parent_input = OutPoint::new(Byte32::new([146; 32]), 0);
+    let parent_tx = TransactionBuilder::default()
+        .version(30_146u32)
+        .input(CellInput::new(parent_input.clone(), 0))
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    accept_remote_transaction_with_payload(
+        &mut ancestor,
+        parent_tx.clone(),
+        30_146,
+        AcceptedStatus::Pending,
+        resolved_payload_with_facts(
+            &parent_tx,
+            Vec::new(),
+            vec![parent_input],
+            Capacity::shannons(100),
+        ),
+    );
+    let mut ancestor_candidates = Vec::new();
+    for index in 0..2u32 {
+        let input = OutPoint::new(parent_tx.hash(), index);
+        let victim_tx = TransactionBuilder::default()
+            .version(30_147 + index)
+            .input(CellInput::new(input.clone(), 0))
+            .build();
+        accept_remote_transaction_with_payload(
+            &mut ancestor,
+            victim_tx.clone(),
+            30_147 + usize::try_from(index).expect("bounded index fits usize"),
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(
+                &victim_tx,
+                Vec::new(),
+                Vec::new(),
+                Capacity::shannons(100),
+            ),
+        );
+        let replacement_tx = TransactionBuilder::default()
+            .version(31_147 + index)
+            .input(CellInput::new(input, 0))
+            .build();
+        ancestor_candidates.push(verify_remote_transaction_with_payload(
+            &mut ancestor,
+            replacement_tx.clone(),
+            31_147 + usize::try_from(index).expect("bounded index fits usize"),
+            resolved_payload_with_facts(
+                &replacement_tx,
+                Vec::new(),
+                Vec::new(),
+                Capacity::shannons(30_000 - u64::from(index) * 10_000),
+            ),
+        ));
+    }
+    assert_leaf_rbf_cohort_falls_back(&mut ancestor, &ancestor_candidates);
 }
 
 #[test]

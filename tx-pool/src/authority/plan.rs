@@ -886,9 +886,12 @@ enum MembershipEffects {
 
 struct IndependentUpdate {
     key: RawTxHash,
-    after: OwnedTx,
+    after: Option<OwnedTx>,
 }
 
+/// One mechanically commuting membership batch. The ordinary disjoint
+/// admission run and the strictly proven leaf-RBF cohort share this exact
+/// delta and Apply; policy remains in the canonical membership evaluator.
 struct IndependentDelta {
     updates: Vec<IndependentUpdate>,
     owners: DerivedOwnerDelta,
@@ -899,6 +902,7 @@ struct IndependentDelta {
     effect: EffectDelta,
     clocks: AuthorityClocks,
     async_process_starts: Vec<AsyncProcessStart>,
+    removals: Vec<MembershipRemoval>,
     retired: RetiredOwners,
 }
 
@@ -1551,7 +1555,7 @@ impl PreparedApply<'_> {
         let updates = delta
             .updates
             .into_iter()
-            .map(|update| OwnerResourceUpdate::new(update.key, Some(update.after)));
+            .map(|update| OwnerResourceUpdate::new(update.key, update.after));
         let mut retired = delta.retired;
         let DerivedOwnerDelta { indexes, sources } = delta.owners;
         authority.commit_owner_resources_indexes_membership(
@@ -1573,7 +1577,7 @@ impl PreparedApply<'_> {
             } else {
                 AsyncProcessObservations::Batch(delta.async_process_starts)
             },
-            removals: Vec::new(),
+            removals: delta.removals,
             retired,
             retired_effect,
             retired_generation: None,
@@ -2052,20 +2056,19 @@ impl ApplyClockReservation {
         ClockPlanReservation::begin(bank).commit()
     }
 
-    pub(in crate::authority) fn begin_replacements(
+    pub(in crate::authority) fn commit_owner_batch(
         bank: Arc<AuthorityClockBank>,
-        members: NonZeroUsize,
-    ) -> Result<(impl Iterator<Item = EntryVersion> + use<>, Self), ClockReservationError> {
-        let (sequence, versions, clocks) = bank
-            .reserve_apply_replacements(members)
+        expected: AuthorityClocks,
+        owners: NonZeroUsize,
+        insertions: usize,
+    ) -> Result<Self, ClockReservationError> {
+        let (sequence, clocks) = bank
+            .reserve_apply_owner_batch(expected, owners, insertions)
             .map_err(|_| ClockReservationError)?;
-        Ok((
-            versions.map(EntryVersion),
-            Self {
-                sequence,
-                plan: ClockPlanReservation { bank, clocks },
-            },
-        ))
+        Ok(Self {
+            sequence,
+            plan: ClockPlanReservation { bank, clocks },
+        })
     }
 
     pub(in crate::authority) const fn sequence(&self) -> ApplySequence {
@@ -3607,6 +3610,27 @@ impl TxPoolAuthority {
         effects
             .try_reserve(effect_count)
             .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.append_admission_effects(&mut effects, accepted, removals, projection)?;
+        let publication = self
+            .effects
+            .build_publication(policy, effects)
+            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
+        self.effects_for_plan()
+            .plan_publication(&publication, sequence)
+            .map_err(PlanError::from)
+    }
+
+    /// Append one complete candidate terminal sequence to already reserved
+    /// batch scratch. Both the single-candidate compiler and the disjoint
+    /// leaf-RBF cohort therefore publish exactly `Accepted` followed by that
+    /// candidate's victim outcomes from this one effect policy implementation.
+    fn append_admission_effects(
+        &self,
+        effects: &mut Vec<CommittedEffect>,
+        accepted: &AcceptedEntry,
+        removals: &[MembershipRemoval],
+        projection: &ProjectionDelta,
+    ) -> Result<(), PlanError> {
         effects.push(CommittedEffect::Accepted(CommittedAcceptance::Admission {
             entry: self.committed_entry_after(accepted, projection)?,
             status: accepted.status(),
@@ -3639,13 +3663,7 @@ impl TxPoolAuthority {
             };
             effects.push(CommittedEffect::Rejected(rejection));
         }
-        let publication = self
-            .effects
-            .build_publication(policy, effects)
-            .map_err(|_| PlanError::Fault(AuthorityFault::EffectProjection))?;
-        self.effects_for_plan()
-            .plan_publication(&publication, sequence)
-            .map_err(PlanError::from)
+        Ok(())
     }
 
     fn committed_entry_before(

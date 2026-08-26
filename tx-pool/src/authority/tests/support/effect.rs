@@ -5,6 +5,7 @@ use super::*;
 pub(in crate::authority) struct EffectSnapshot {
     queued: VecDeque<QueuedEffectRecord>,
     latest_generation_reset: Option<EffectRecord>,
+    pending_recent_rejects: HashMap<RawTxHash, CommittedPublicReject>,
     usage: EffectRegionUsage,
     closed: bool,
 }
@@ -261,6 +262,7 @@ impl EffectSnapshot {
         flatten_queued(self.queued.clone()) == flatten_queued(other.queued.clone())
             && flatten_reset(self.latest_generation_reset.clone())
                 == flatten_reset(other.latest_generation_reset.clone())
+            && self.pending_recent_rejects == other.pending_recent_rejects
             && self.closed == other.closed
     }
 }
@@ -390,9 +392,24 @@ impl EffectLog {
     }
 
     pub(in crate::authority) fn snapshot(&self) -> EffectSnapshot {
+        let pending_recent_rejects = self
+            .pending_recent_rejects
+            .iter()
+            .map(|(hash, pending)| {
+                let rejection = pending
+                    .batch
+                    .effects()
+                    .get(pending.effect_index)
+                    .and_then(CommittedEffect::recordable_rejection)
+                    .expect("every pending-reject index names one resident rejection");
+                assert_eq!(rejection.raw_hash(), *hash);
+                (hash.clone(), rejection.public_reject())
+            })
+            .collect();
         EffectSnapshot {
             queued: self.queued.clone(),
             latest_generation_reset: self.latest_generation_reset.clone(),
+            pending_recent_rejects,
             usage: self.usage,
             closed: self.closed,
         }

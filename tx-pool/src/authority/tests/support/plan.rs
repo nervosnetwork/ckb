@@ -380,6 +380,7 @@ pub(in crate::authority) enum OwnerPhaseSnapshot {
     },
     ReplacementHistory {
         dependencies: KnownDependencies,
+        observed: Vec<DependencyKey>,
         observation: DependencyCut,
     },
 }
@@ -680,14 +681,17 @@ impl OwnerSnapshot {
                 (
                     OwnerPhaseSnapshot::ReplacementHistory {
                         dependencies,
+                        observed,
                         observation,
                     },
                     OwnerPhaseSnapshot::ReplacementHistory {
                         dependencies: other_dependencies,
+                        observed: other_observed,
                         observation: other_observation,
                     },
                 ) => {
                     dependencies == other_dependencies
+                        && observed == other_observed
                         && *observation
                             == compact_dependency_cut(*other_observation, batch, canonical_next)
                 }
@@ -799,6 +803,7 @@ impl PreparedApply<'_> {
             delta
                 .updates
                 .iter()
+                .filter(|update| matches!(update.after, Some(OwnedTx::Accepted(_))))
                 .map(|update| update.key.clone())
                 .collect(),
         )
@@ -879,6 +884,19 @@ impl TxPoolAuthority {
             MembershipConfig::testing_with_replacement(minimum_rate),
         );
         authority
+    }
+
+    pub(in crate::authority) fn with_replacement_and_effect_limits(
+        limits: ResourceLimits,
+        minimum_rate: ckb_types::core::FeeRate,
+        effect_limits: EffectLimits,
+    ) -> Result<Self, AuthorityConfigError> {
+        let mut authority = Self::new(limits, VerifyOrder::Arrival, effect_limits)?;
+        authority.replace_membership_config_for_test(
+            &AuthorityTestToken(()),
+            MembershipConfig::testing_with_replacement(minimum_rate),
+        );
+        Ok(authority)
     }
 
     pub(in crate::authority) fn with_max_ancestors_for_foundation(
@@ -1122,6 +1140,7 @@ impl TxPoolAuthority {
                     },
                     OwnedTx::ReplacementHistory(entry) => OwnerPhaseSnapshot::ReplacementHistory {
                         dependencies: entry.dependencies().clone(),
+                        observed: entry.observation().keys().cloned().collect(),
                         observation: entry.observation().dependency_cut(),
                     },
                 };

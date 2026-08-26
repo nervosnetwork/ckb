@@ -905,9 +905,17 @@ virtual final set before the authority owner map changes.
 
 Transactions whose inputs/dependencies are chain-backed and whose membership
 plans commute may be validated concurrently and accepted through one bounded
-`IndependentDelta`. Coupled transactions use the same authority and proof
-rules but compile an exact cohort. This extracts CKB cell-model parallelism
-without adding a sharded owner map or a second DAG authority.
+`IndependentDelta`. The same batch compiler admits a deliberately narrow
+leaf-RBF cohort: two to `MAX_READY_BATCH` strongest-first candidate/victim
+pairs, each with one chain input, no Accepted parent or child, one distinct
+leaf victim, disjoint owner footprints, and no cross-component intersection
+between a retained dependency and an emitted availability/loss key. Proven
+chain-backed read-only dependencies may be shared. Every member still runs the
+sole canonical RBF/CPFP/capacity evaluator. Any uncertain shape, prefix
+resource failure or immutable effect envelope overflow returns to the existing
+coupled strongest-head route before the exact-base batch clock commit. This
+extracts CKB cell-model parallelism without a second policy, delta-merge, owner
+map or DAG authority.
 
 ### 8.3 RBF
 
@@ -920,10 +928,12 @@ with its rejection effect and never creates candidate `ReplacementHistory`.
 
 A successful plan applies candidate insertion, all victim removals, descendant
 updates, charge changes, dependency levels, source versions and effects once.
-Only actually Accepted victims can become `ReplacementHistory`. If the history
-partition cannot retain the complete optional set, the set is terminalized and
-the winner is retried without history; partial history and winner failure are
-not legal saturation outcomes.
+Only actually Accepted victims can become `ReplacementHistory`. Within one
+coupled replacement component, history retention remains all-or-none. A proven
+disjoint leaf cohort evaluates those one-victim optional components in
+strongest-first order, so saturation may retain a stronger component's history
+and terminalize a weaker component's history without affecting either winner.
+Partial history inside one component and winner failure remain illegal.
 
 Replacement and administrative removal share one projected-final-owner law for
 released inputs. Their only distinct premise is the spender context: a
