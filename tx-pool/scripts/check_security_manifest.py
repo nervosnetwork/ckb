@@ -50,6 +50,34 @@ CLAIMS = [
     "NEW_COLD_JOINED_ACCEPTED_UNIVERSE",
 ]
 DECISIONS = [f"CKB-AUTH-{index:04d}" for index in range(1, 10)]
+CRITICAL_DECISION_INVARIANTS = {
+    "CKB-AUTH-0005": (
+        "TERMINAL_CORRECTNESS_LIVENESS_TCB_AND_CONCURRENCY_EVIDENCE_PRECEDE_FINAL_"
+        "FROZEN_INDEPENDENT_AND_CORRELATED_DEVELOP_PERFORMANCE_RANKING;_PRETERMINAL_"
+        "ARCHITECTURE_MINIMIZATION_MAY_USE_SOURCE_BOUND_CAUSAL_NONCLAIM_PERFORMANCE_GUARDS"
+    ),
+    "CKB-AUTH-0007": (
+        "CANONICAL_DELIVERY_IS_RESULT_BEFORE_FROZEN_FINITE_CANDIDATE_OPTIMALITY;_"
+        "OPEN_CLASS_G0_RESEARCH_REMAINS_OPEN_FROZEN"
+    ),
+    "CKB-AUTH-0008": (
+        "ORDINARY_TRUE_SHARD_MUTATIONS_HAVE_NO_GLOBAL_OUTER_OR_RENAMED_SERIAL_"
+        "FALLBACK_AND_REQUIRE_REAL_DISJOINT_PRODUCTION_APPLY_OVERLAP"
+    ),
+}
+ACTIVE_EXECUTION_CONTRACT = {
+    "architecture_scope": "CURRENT_TRUE_SHARD_INTERNAL_MINIMUM_NO_TEARDOWN",
+    "audit_round_ref": "AUDIT_PLAN.json#round",
+    "ordinary_disjoint_apply": (
+        "NO_GLOBAL_OUTER_RENAMED_OR_CANONICAL_WIDE_SERIAL_FALLBACK_AND_REAL_OVERLAP_REQUIRED"
+    ),
+    "performance_boundary": (
+        "SOURCE_BOUND_CAUSAL_GUARD_ONLY_NO_FINAL_DEVELOP_RANKING_OR_MEASURED_STRONGEST_CLAIM"
+    ),
+    "candidate_boundary": (
+        "A_CANONICAL_SINGLETON_WAVE_OR_B_ONLY_AFTER_FROZEN_CAUSAL_AMORTIZATION_TRIGGER"
+    ),
+}
 CONTRACT_FIELDS = {
     "schema_version",
     "method_id",
@@ -177,7 +205,14 @@ AUDIT_FIELDS = {
     "terminal_exit_status",
 }
 AUDIT_OBJECT_FIELDS = {
-    "round": {"frontier", "id", "status"},
+    "round": {
+        "current_work",
+        "frontier",
+        "id",
+        "resume_trigger",
+        "status",
+        "terminal_census",
+    },
     "known_integration_observation": {"classification", "forbidden", "identity", "result"},
     "round_gates": {
         "active_root_focused",
@@ -339,6 +374,16 @@ def validate_contract(contract, state, control, audit, findings, errors):
                 f"contract:decision:{decision.get('id')}:invariant",
                 errors,
             )
+        decision_by_id = {
+            object_value(item).get("id"): object_value(item).get("invariant")
+            for item in envelope
+        }
+        for decision_id, invariant in CRITICAL_DECISION_INVARIANTS.items():
+            need(
+                decision_by_id.get(decision_id) == invariant,
+                f"contract:decision:{decision_id}:critical_invariant",
+                errors,
+            )
 
     method = object_value(contract.get("method_boundary"))
     need(method.get("relations") == ["Q_H", "C", "I_D", "MU"], "contract:relations", errors)
@@ -377,7 +422,7 @@ def validate_contract(contract, state, control, audit, findings, errors):
     need(bool(release.get("residual_risk_policy")), "contract:residual_risk", errors)
 
     need(set(state) == STATE_FIELDS, "state:fields", errors)
-    need(state.get("schema") == "txpool-v8-live-state-v2", "state:schema", errors)
+    need(state.get("schema") == "txpool-v8-live-state-v3", "state:schema", errors)
     need(state.get("primary_role") == PRIMARY_ROLE, "state:primary_role", errors)
     need(
         object_value(state.get("goal")).get("canonical")
@@ -419,8 +464,81 @@ def validate_contract(contract, state, control, audit, findings, errors):
     need(set(audit) == AUDIT_FIELDS, "audit:fields", errors)
     for field, fields in AUDIT_OBJECT_FIELDS.items():
         exact_object(audit.get(field), fields, f"audit:{field}", errors)
-    need(audit.get("schema") == "txpool-v8-active-terminal-audit-v4", "audit:schema", errors)
+    need(audit.get("schema") == "txpool-v8-active-terminal-audit-v5", "audit:schema", errors)
     need(audit.get("state_ref") == "STATE.json", "audit:state_ref", errors)
+    audit_round = object_value(audit.get("round"))
+    need(
+        audit_round.get("status")
+        == "FROZEN_DEFERRED_FOR_PERFORMANCE_PRESERVING_STATIC_MINIMUM_INSIDE_THE_CURRENT_TRUE_SHARD_ARCHITECTURE",
+        "audit:round:frozen_status",
+        errors,
+    )
+    need(
+        audit_round.get("terminal_census") == "FROZEN_PRESERVED_NO_DISPOSITION",
+        "audit:round:terminal_census",
+        errors,
+    )
+    need(
+        audit_round.get("current_work")
+        == "CURRENT_TRUE_SHARD_PERFORMANCE_PRESERVING_MINIMUM",
+        "audit:round:current_work",
+        errors,
+    )
+    need(
+        audit_round.get("resume_trigger") == "NEW_SIMPLIFIED_SOURCE_IDENTITY",
+        "audit:round:resume_trigger",
+        errors,
+    )
+    frontier = str(audit_round.get("frontier", ""))
+    need(
+        all(
+            token in frontier
+            for token in (
+                "PRESERVE_EIGHT_CLUSTER_ELEVEN_CANDIDATE_EVIDENCE_WITH_NO_DISPOSITION",
+                "DECIDE_WHOLE_CANDIDATE_A_OR_EVIDENCE_TRIGGERED_B",
+                "FREEZE_NEW_SIMPLIFIED_IDENTITY",
+                "RESTART_TERMINAL_AUDIT_WITH_FRESH_EYES",
+            )
+        ),
+        "audit:round:frontier_contract",
+        errors,
+    )
+    round_gates = object_value(audit.get("round_gates"))
+    need(
+        str(round_gates.get("active_root_focused", "")).startswith("FROZEN;"),
+        "audit:round_gates:active_root_frozen",
+        errors,
+    )
+    need(
+        round_gates.get("blind_full_fresh_eyes")
+        == "RESTART_ON_THE_NEW_FROZEN_SIMPLIFIED_IDENTITY"
+        and round_gates.get("independent_delta_confirmation")
+        == "RESTART_ON_THE_NEW_FROZEN_SIMPLIFIED_IDENTITY",
+        "audit:round_gates:fresh_eyes_restart",
+        errors,
+    )
+    need(
+        "OBSERVATIONAL_INTEGRATION_RUN_REQUIRED_AFTER_CURRENT_ARCHITECTURE_MINIMUM_MIGRATION"
+        in str(
+            round_gates.get(
+                "fmt_check_clippy_integration_after_all_cluster_states_terminal", ""
+            )
+        ),
+        "audit:round_gates:observational_integration",
+        errors,
+    )
+    need(
+        "WHOLE_CANDIDATE_A_OR_EVIDENCE_TRIGGERED_B"
+        in str(round_gates.get("targeted_rbf_after_active_root", "")),
+        "audit:round_gates:candidate_boundary",
+        errors,
+    )
+    need(
+        round_gates.get("make_test_checker_diff_on_final_terminal_identity")
+        == "DEFERRED_UNTIL_THE_RESTARTED_TERMINAL_AUDIT_TERMINALIZES",
+        "audit:round_gates:final_identity_deferred",
+        errors,
+    )
 
     need(findings.get("subject_commit") == commit, "findings:subject_commit", errors)
     need(findings.get("subject_tree") == tree, "findings:subject_tree", errors)
@@ -452,6 +570,17 @@ def validate_contract(contract, state, control, audit, findings, errors):
     state_ids = [object_value(item).get("id") for item in states or []]
     need(set(state_ids) == set(clusters or []) and len(state_ids) == len(set(state_ids)), "audit:cluster_closure", errors)
     state_cut = object_value(state.get("next_atomic_action"))
+    execution_contract = exact_object(
+        state_cut.get("execution_contract"),
+        set(ACTIVE_EXECUTION_CONTRACT),
+        "active_cut:execution_contract",
+        errors,
+    )
+    need(
+        execution_contract == ACTIVE_EXECUTION_CONTRACT,
+        "active_cut:execution_contract_values",
+        errors,
+    )
     need(state_cut.get("cluster") in set(clusters or []), "active_cut:known_cluster", errors)
     cut_candidate_ids = state_cut.get("candidate_ids")
     candidate_by_id = {
@@ -590,6 +719,8 @@ def progress(value):
 
 def todo(state, audit):
     cut = state["next_atomic_action"]
+    execution = cut["execution_contract"]
+    audit_round = audit["round"]
     lines = [
         "# txpool-v8 全局进度",
         "",
@@ -600,6 +731,15 @@ def todo(state, audit):
         f"- [→] `{cut['id']}` / `{cut['cluster']}`",
         f"- 目标：{cut['objective']}",
         f"- 停止：{cut['stop']}",
+        "",
+        "## 执行契约",
+        "",
+        f"- 架构范围：`{execution['architecture_scope']}`",
+        f"- true-shard：`{execution['ordinary_disjoint_apply']}`",
+        f"- 性能边界：`{execution['performance_boundary']}`",
+        f"- 候选边界：`{execution['candidate_boundary']}`",
+        f"- 终审状态：`{audit_round['terminal_census']}`",
+        f"- 终审恢复触发：`{audit_round['resume_trigger']}`",
         "",
         "## 当前切片退出清单",
         "",
@@ -629,8 +769,8 @@ def todo(state, audit):
             f"- PR：{state['parallel_pr_track']['status']}",
             f"- 当前 phase：`{state['current_phase']}`",
             "- [ ] 仅当 live next action 明确命名时，root 后运行一次 observational integration；其结果只形成证据。",
-            "- [ ] 当前 census 闭合后仍须运行最终 identity 的完整 integration 和 fresh-eyes rounds。",
-            "- [ ] terminal exit 后才进入 hard/static；performance、final security、Acceptance 不提前。",
+            "- [ ] 新简化 identity 上重启 terminal audit 后，才闭合 preserved census 并运行最终 identity 的完整 integration 和 fresh-eyes rounds。",
+            "- [ ] terminal exit 后才进入 hard/static；最终 develop 性能排名、final security、Acceptance 不提前。",
             "",
             "## 非进度",
             "",
@@ -667,6 +807,10 @@ def self_test(contract, state, control, audit, findings):
     variants.append(("decision", changed_contract, state, audit, findings))
 
     changed_contract = copy.deepcopy(contract)
+    changed_contract["authority_decision_envelope"][4]["invariant"] = "mutated"
+    variants.append(("decision_0005_invariant", changed_contract, state, audit, findings))
+
+    changed_contract = copy.deepcopy(contract)
     changed_contract["authority_topology"]["current_root"] = "DUPLICATE_LIVE_FACT"
     variants.append(("contract_live_fact_injection", changed_contract, state, audit, findings))
 
@@ -683,6 +827,29 @@ def self_test(contract, state, control, audit, findings):
         "READY_HEAD_PEER_REVOCATION_RESERVATION"
     ]
     variants.append(("active_cut_candidate", contract, changed_state, audit, findings))
+
+    for field in ACTIVE_EXECUTION_CONTRACT:
+        changed_state = copy.deepcopy(state)
+        changed_state["next_atomic_action"]["execution_contract"][field] = "mutated"
+        variants.append(
+            (f"active_cut_execution_{field}", contract, changed_state, audit, findings)
+        )
+
+    for field in (
+        "status",
+        "frontier",
+        "terminal_census",
+        "current_work",
+        "resume_trigger",
+    ):
+        changed_audit = copy.deepcopy(audit)
+        changed_audit["round"][field] = "mutated"
+        variants.append((f"audit_round_{field}", contract, state, changed_audit, findings))
+
+    for field in audit["round_gates"]:
+        changed_audit = copy.deepcopy(audit)
+        changed_audit["round_gates"][field] = "mutated"
+        variants.append((f"audit_gate_{field}", contract, state, changed_audit, findings))
 
     changed_findings = copy.deepcopy(findings)
     changed_findings["cluster_census"] = changed_findings["cluster_census"][:-1]

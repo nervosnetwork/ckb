@@ -129,8 +129,9 @@ blind fresh-eyes lane 只看 frozen source、CKB 协议、硬约束和权威决�
 两次独立 clean round 是工程风险饱和规则，不是一般正确性证明。每个 frozen identity
 至多一个 blind full round，确认轮只审 delta 与新暴露 same-class surface。若连续修复
 后的轮次仍出现新 root class，说明方法或候选 generation 不收敛，应升级架构重规划，
-不能无限全仓扫描。performance、final security 和 Acceptance 仍按 stable phase order
-独立执行。
+不能无限全仓扫描。terminal 前只允许约束当前架构选择的 source-bound 因果性能护栏，
+不得形成 develop 排名或 `MEASURED_STRONGEST` claim；最终 performance、final security 和
+Acceptance 仍按 stable phase order 独立执行。
 
 ## 持久化与恢复
 

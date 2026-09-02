@@ -695,13 +695,13 @@ owner shard commit 完成后将其无失败激活。
 | `CKB-AUTH-0002` | `SUPERSEDED_FOR_CANONICAL_DELIVERY_BY_0007; OPEN_CLASS_RESEARCH_RETAINED` | 原开放生产架构类仍是研究账 `OPEN_FROZEN`；不得把有限候选结论写成开放类全局下界或达到。 |
 | `CKB-AUTH-0003` | `ABSORBED_FROZEN` | 未有冻结身份 profiling 将 `BTreeMap insert/remove/range` 锁竞争识别为主导瓶颈；不得重启 `scc/sdd/saa` 或扩大 unsafe/回收 TCB。 |
 | `CKB-AUTH-0004` | `ABSORBED_IMPLEMENTATION_PRESENT_FINAL_AUDIT_OPEN` | 验证时间是本地、可重试、不 ban、不共识化的 VM script-work 累计预算；包含 ELF 装载，排除排队和 VM 外空档；CKB-VM 语义不变。当前实现存在于同步主仓，但仍服从最终 correctness/security 审计。 |
-| `CKB-AUTH-0005` | `ABSORBED_ACCEPTANCE_PENDING` | true-shard 不能因未榨干的级联微退化轻易淘汰；必须先闭合 terminal correctness 与活性、收敛 TCB、补全并发 property/differential 证据，再冻结 binary/workload/environment/noise，在独立与关联负载完成最大工程优化后与 develop 比较。当前性能 Acceptance 未开始。 |
+| `CKB-AUTH-0005` | `ABSORBED_ACCEPTANCE_PENDING` | true-shard 不能因未榨干的级联微退化轻易淘汰。terminal correctness 闭合前允许用 source-bound、same-binary A/A 和当前 true-shard base-vs-candidate 的因果性能护栏约束架构最小化；这类结果只决定当前候选是否保留必要机制，不构成 develop 排名、`MEASURED_STRONGEST` 或性能 Acceptance。最终独立/关联负载的 develop 比较仍须在 terminal correctness、活性、TCB 与并发证据闭合后，绑定冻结 binary/workload/environment/router-layout/noise 执行。 |
 | `CKB-AUTH-0006` | `CLOSED_OUT_OF_TXPOOL_SCOPE` | 旧 `BlockExt` 数据库升级属于 chain/database 发布支持面；tx-pool 不增加版本、扫描、重验或 fallback。 |
 | `CKB-AUTH-0007` | `CANONICAL_DELIVERY_GOAL_ACTIVE_IDENTITY_REFRESH_PENDING` | canonical 交付目标是结果前冻结候选集合内最优；开放架构类 G0 保持研究账。完整 true-shard 终审修复后必须在看新结果前冻结新的精确候选 generation，旧 `d32b357a` 集合身份不再用于排名；最终选择还必须最小化 reviewer 理解门槛、change amplification 和后续维护成本。 |
 | `CKB-AUTH-0008` | `TRUE_SHARD_ROUTE_MIGRATION_SYNCED_TERMINAL_ACCEPTANCE_OPEN` | 当前原子架构基线 `51d282345` 已实现普通 mutation 零外层写锁回退；终审已发现 Ready、dependency、read-cut、chain/template/ordered-control 阻断候选，因此“迁移同步”不等于“正确性、最小性或 Acceptance 完成”。普通 mutation 禁止任何全局、outer 或换名串行兜底；必须用两个 disjoint production Apply 的 deterministic overlap canary 证明真实并发，并用 writer-intent C2 与可审计锁序证明活性；`parking_lot/deadlock_detection` 只能诊断。 |
 | `CKB-AUTH-0009` | `IMPLEMENTED_SCOPED_TERMINAL_COMPOSITION_OPEN` | 单一 `EffectLog` 的 staged record 与线性 activation/rollback 已落地；终审必须继续检查 Ready reservation、Drop fault visibility、反向完成、close/reorg 和 chain composition；禁止第二 journal 或长全局 effect 锁。 |
 
-终审轮次按用户新增的工程裁定执行：先闭合当前冻结 census，再以 `make integration` 观察外部行为；若失败，只增加 test-gated、事件驱动且不改变锁序的 causal observability。随后每个新冻结 identity 至少进行一个不预读旧 findings 的 fresh-eyes delta round，由 Primary 在独立输出后归并。只有连续两轮均无新 upheld terminal 根、无新 production-bound 失败 canary、无更小根或未付复杂度，且 terminal canary、integration 与 aggregate gates 保持通过，才认定达到边际审计价值边界并进入下一阶段。
+当前终审 census 可以完整冻结而不作 disposition，先在现有 true-shard 架构内完成由因果性能护栏约束的必要性最小化；不得把该护栏外推为最终 develop 排名。选中并完成一个纵向删除迁移后，以 `make integration` 观察外部行为；若失败，只增加 test-gated、事件驱动且不改变锁序的 causal observability。随后冻结新的简化 identity，重新开启 terminal audit，并至少进行一个不预读旧 findings 的 fresh-eyes round，由 Primary 在独立输出后归并。只有连续两轮均无新 upheld terminal 根、无新 production-bound 失败 canary、无更小根或未付复杂度，且 terminal canary、integration 与 aggregate gates 保持通过，才认定达到边际审计价值边界并进入下一阶段。
 
 长期工程角色由用户明确为：**对 G0 负责的 Primary 工程负责人**。Primary 必须把上述
 裁决内化为工作选择、证据裁决、源码集成、子 agent 纠偏、reviewer 成本和持续推进的

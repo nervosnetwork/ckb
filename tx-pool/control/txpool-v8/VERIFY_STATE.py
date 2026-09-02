@@ -276,11 +276,11 @@ def main() -> int:
     findings = load(CONTROL_ROOT / "FINDINGS_LEDGER.json")
     context = load(CONTROL_ROOT / "CONTEXT_LOAD_POLICY.json")
 
-    if state.get("schema") != "txpool-v8-live-state-v2":
+    if state.get("schema") != "txpool-v8-live-state-v3":
         fail("state schema mismatch")
     if control.get("schema") != "txpool-v8-primary-control-kernel-v2":
         fail("control schema mismatch")
-    if audit.get("schema") != "txpool-v8-active-terminal-audit-v4":
+    if audit.get("schema") != "txpool-v8-active-terminal-audit-v5":
         fail("audit schema mismatch")
     if state.get("primary_role") != "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER":
         fail("Primary role mismatch")
