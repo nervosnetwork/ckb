@@ -23,8 +23,8 @@ use ckb_types::{
     utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::cache::{
-    CachedScriptCycles, Completed, FetchedTxVerificationCache, TxVerificationCache,
-    TxVerificationCacheLookup, VerifyCacheKey,
+    Completed, ScriptVerificationProof, ScriptVerificationRules, TxVerificationCache,
+    TxVerificationCacheKey,
 };
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
@@ -33,7 +33,7 @@ use ckb_verification::{
 use ckb_verification::{BlockTransactionsError, EpochError, TxVerifyEnv};
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{RwLock, oneshot};
 
@@ -346,24 +346,23 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         }
     }
 
-    fn fetched_cache(&self, rtxs: &'a [Arc<ResolvedTransaction>]) -> FetchedTxVerificationCache {
+    fn fetched_cache(
+        &self,
+        rtxs: &'a [Arc<ResolvedTransaction>],
+        rules: ScriptVerificationRules,
+    ) -> HashMap<TxVerificationCacheKey, ScriptVerificationProof> {
         let (sender, receiver) = oneshot::channel();
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
-        let keys: Vec<VerifyCacheKey> = rtxs
+        let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
-            .map(|rtx| VerifyCacheKey::from(&rtx.transaction))
+            .map(|rtx| TxVerificationCacheKey::from_transaction(&rtx.transaction, rules))
             .collect();
         self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
             let ret = keys
                 .into_iter()
-                .filter_map(|key| {
-                    guard
-                        .get_by_wtx_hash(&key)
-                        .cloned()
-                        .map(|value| (key, value))
-                })
+                .filter_map(|key| guard.lookup(&key).map(|proof| (key, proof)))
                 .collect();
 
             if let Err(e) = sender.send(ret) {
@@ -375,12 +374,12 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .expect("fetched cache no exception")
     }
 
-    fn update_cache(&self, entries: Vec<(VerifyCacheKey, CachedScriptCycles)>) {
+    fn update_cache(&self, proofs: Vec<ScriptVerificationProof>) {
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         self.handle.spawn(async move {
             let mut guard = txs_verify_cache.write().await;
-            for (key, cached_cycles) in entries {
-                guard.put(key, cached_cycles);
+            for proof in proofs {
+                guard.insert(proof);
             }
         });
     }
@@ -390,46 +389,52 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         resolved: &'a [Arc<ResolvedTransaction>],
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
-        // Skip the cache entirely when scripts are not verified, and omit the
-        // cellbase transaction because its entry would never be reused.
-        let fetched_cache = if !skip_script_verify && resolved.len() > 1 {
-            self.fetched_cache(resolved)
-        } else {
-            FetchedTxVerificationCache::new()
-        };
-
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
+        let rules = ScriptVerificationRules::from_env(&self.context.consensus, &tx_env);
+        // We should skip updating tx_verify_cache about the cellbase tx,
+        // putting it in cache that will never be used until lru cache expires.
+        let fetched_cache = if !skip_script_verify && resolved.len() > 1 {
+            self.fetched_cache(resolved, rules)
+        } else {
+            HashMap::new()
+        };
 
         // make verifiers orthogonal
         let ret = resolved
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let key = VerifyCacheKey::from(&tx.transaction);
-                let cached_script_cycles = fetched_cache
-                    .get_by_wtx_hash(&key)
-                    .map(|entry| entry.cycles);
+                let cache_key = TxVerificationCacheKey::from_transaction(&tx.transaction, rules);
 
-                ContextualTransactionVerifier::new_with_cached_script_cycles(
+                let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(tx),
                     Arc::clone(&self.context.consensus),
                     self.context.store.as_data_loader(),
                     Arc::clone(&tx_env),
-                    cached_script_cycles,
-                )
-                .verify(
-                    self.context.consensus.max_block_cycles(),
-                    skip_script_verify,
-                )
-                .map_err(|error| {
-                    BlockTransactionsError {
-                        index: index as u32,
-                        error,
-                    }
-                    .into()
-                })
-                .map(|completed| (key, completed))
-                .and_then(|result| {
+                );
+                let verified = if skip_script_verify {
+                    verifier
+                        .verify_block_assume_valid()
+                        .map(|fee| (fee, 0, None))
+                } else {
+                    verifier
+                        .verify_block(
+                            self.context.consensus.max_block_cycles(),
+                            fetched_cache.get(&cache_key).copied(),
+                        )
+                        .map(|(outcome, fee)| {
+                            (fee, outcome.cycles(), outcome.executed_proof())
+                        })
+                };
+                verified
+                    .map_err(|error| {
+                        BlockTransactionsError {
+                            index: index as u32,
+                            error,
+                        }
+                        .into()
+                    })
+                    .and_then(|result| {
                     if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
                         DaoScriptSizeVerifier::new(
                             Arc::clone(tx),
@@ -441,28 +446,28 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                 })
             })
             .skip(1) // skip cellbase tx
-            .collect::<Result<Vec<(VerifyCacheKey, Completed)>, Error>>()?;
+            .collect::<Result<Vec<(Capacity, Cycle, Option<ScriptVerificationProof>)>, Error>>()?;
 
-        let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
-        let cache_entires = ret
+        let sum: Cycle = ret.iter().map(|(_, cycles, _)| *cycles).sum();
+        let completed = ret
             .iter()
-            .map(|(_, completed)| completed)
-            .cloned()
+            .map(|(fee, cycles, _)| Completed {
+                fee: *fee,
+                cycles: *cycles,
+            })
             .collect();
-        if !skip_script_verify && !ret.is_empty() {
-            self.update_cache(
-                ret.iter()
-                    .map(|(key, completed)| {
-                        (key.clone(), CachedScriptCycles::new(completed.cycles))
-                    })
-                    .collect(),
-            );
+        let proofs = ret
+            .into_iter()
+            .filter_map(|(_, _, proof)| proof)
+            .collect::<Vec<_>>();
+        if !proofs.is_empty() {
+            self.update_cache(proofs);
         }
 
         if sum > self.context.consensus.max_block_cycles() {
             Err(BlockErrorKind::ExceededMaximumCycles.into())
         } else {
-            Ok((sum, cache_entires))
+            Ok((sum, completed))
         }
     }
 }

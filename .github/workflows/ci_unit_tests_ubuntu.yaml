@@ -43,6 +43,8 @@ jobs:
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ci-${{ runner.os }}-cargo-
+      - name: Validate tx-pool security evidence
+        run: python3 tx-pool/scripts/check_all.py --light
       - name: Run unit tests
         run: make test
         shell: bash

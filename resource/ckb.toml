@@ -209,11 +209,32 @@ enable_deprecated_rpc = false # {{
 
 [tx_pool]
 max_tx_pool_size = 180_000_000 # 180mb
+# Conservative memory charge for accepted transactions, including resolved
+# input/cell-dep metadata and dep-group data. It is distinct from the RPC
+# `total_tx_size`, which remains serialized transaction bytes.
+# max_tx_pool_resident_size = 1_000_000_000 # 1gb
 min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units of shannons/KB
 # min_rbf_rate > min_fee_rate means RBF is enabled
 min_rbf_rate = 1_500 # Here fee_rate are calculated directly using size in units of shannons/KB
 max_tx_verify_cycles = 70_000_000
+# Node-local cumulative budget for actual CKB-VM script verification work.
+# Cycles select a precommitted budget but never change consensus validity;
+# queueing, resolution, contextual checks, suspend gaps, and post-VM checks do
+# not consume this budget. ELF preparation/loading and dynamic exec/spawn do.
+# min_tx_verify_time_ms = 250
+# tx_verify_cycles_per_ms = 10_000
+# Absolute cap on cumulative active VM verification work; default is one
+# minimum block interval (8 s).
+# max_tx_verify_time_ms = 8_000
+# Separate root-program mapped-byte envelope; loader time still counts above.
+# max_tx_verify_initial_load_bytes = 268_435_456
 max_ancestors_count = 25
+# Retained verification scheduling: `arrival_time` (FIFO) or `fee_rate`.
+# verify_ordering = "arrival_time"
+# Conservative total memory charge for every pre-pool pipeline state,
+# including raw, dependency-waiting, resolved, verifying, conflict-waiting,
+# and commit-ready transactions plus their indexes.
+# max_tx_pipeline_resident_size = 384_000_000 # 384mb
 
 [store]
 header_cache_size          = 4096

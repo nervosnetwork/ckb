@@ -8,12 +8,11 @@ use ckb_app_config::{
 use ckb_async_runtime::{Handle, new_background_runtime};
 use ckb_chain_spec::SpecError;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_channel::Receiver;
 use ckb_db::RocksDB;
 use ckb_db_schema::COLUMNS;
 use ckb_error::{Error, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
-use ckb_logger::{error, info};
+use ckb_logger::info;
 use ckb_migrate::migrate::Migrate;
 use ckb_notify::{NotifyController, NotifyService};
 use ckb_proposal_table::ProposalTable;
@@ -21,7 +20,7 @@ use ckb_proposal_table::ProposalView;
 use ckb_snapshot::{Snapshot, SnapshotMgr};
 use ckb_store::{ChainDB, ChainStore, Freezer};
 use ckb_tx_pool::{
-    TokioRwLock, TxEntry, TxPool, TxPoolServiceBuilder, service::TxVerificationResult,
+    TokioRwLock, TxEntrySnapshot, TxPoolServiceBuilder, service::TxVerificationResultReceiver,
 };
 use ckb_types::H256;
 use ckb_types::core::hardfork::HardForks;
@@ -34,7 +33,6 @@ use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;
 use dashmap::DashMap;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -269,29 +267,29 @@ impl SharedBuilder {
     fn init_proposal_table(
         store: &ChainDB,
         consensus: &Consensus,
-    ) -> (ProposalTable, ProposalView) {
+    ) -> Result<(ProposalTable, ProposalView), Error> {
         let proposal_window = consensus.tx_proposal_window();
         let tip_number = store.get_tip_header().expect("store inited").number();
-        let mut proposal_ids = ProposalTable::new(proposal_window);
+        let mut proposal_ids = ProposalTable::new(proposal_window)
+            .map_err(|error| InternalErrorKind::Config.other(error))?;
         let proposal_start = tip_number.saturating_sub(proposal_window.farthest());
         for bn in proposal_start..=tip_number {
             if let Some(hash) = store.get_block_hash(bn) {
-                let mut ids_set = HashSet::new();
-                if let Some(ids) = store.get_block_proposal_txs_ids(&hash) {
-                    ids_set.extend(ids)
-                }
-
-                if let Some(us) = store.get_block_uncles(&hash) {
-                    for u in us.data().into_iter() {
-                        ids_set.extend(u.proposals());
-                    }
-                }
-                proposal_ids.insert(bn, ids_set);
+                let block_ids = store
+                    .get_block_proposal_txs_ids(&hash)
+                    .into_iter()
+                    .flatten();
+                let uncle_ids = store
+                    .get_block_uncles(&hash)
+                    .into_iter()
+                    .flat_map(|uncles| uncles.data().into_iter())
+                    .flat_map(|uncle| uncle.proposals().into_iter());
+                proposal_ids.insert(bn, block_ids.chain(uncle_ids));
             }
         }
         let dummy_proposals = ProposalView::default();
-        let (_, proposals) = proposal_ids.finalize(&dummy_proposals, tip_number);
-        (proposal_ids, proposals)
+        let proposals = proposal_ids.finalize(&dummy_proposals, tip_number);
+        Ok((proposal_ids, proposals))
     }
 
     fn init_store(store: &ChainDB, consensus: &Consensus) -> Result<(HeaderView, EpochExt), Error> {
@@ -335,7 +333,7 @@ impl SharedBuilder {
             .get_block_ext(&tip_header.hash())
             .ok_or_else(|| InternalErrorKind::Database.other("failed to get tip's block_ext"))?
             .total_difficulty;
-        let (proposal_table, proposal_view) = Self::init_proposal_table(store, &consensus);
+        let (proposal_table, proposal_view) = Self::init_proposal_table(store, &consensus)?;
 
         let snapshot = Snapshot::new(
             tip_header,
@@ -401,8 +399,6 @@ impl SharedBuilder {
         let snapshot = Arc::new(snapshot);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
 
-        let (sender, receiver) = ckb_channel::unbounded();
-
         let fee_estimator_algo = fee_estimator_config
             .map(|config| config.algorithm)
             .unwrap_or(None);
@@ -414,15 +410,19 @@ impl SharedBuilder {
             None => FeeEstimator::new_dummy(),
         };
 
-        let (mut tx_pool_builder, tx_pool_controller) = TxPoolServiceBuilder::new(
-            tx_pool_config,
-            Arc::clone(&snapshot),
-            block_assembler_config,
-            Arc::clone(&txs_verify_cache),
-            &async_handle,
-            sender,
-            fee_estimator.clone(),
-        );
+        let (mut tx_pool_builder, tx_pool_controller, relay_tx_receiver) =
+            TxPoolServiceBuilder::new(
+                tx_pool_config,
+                Arc::clone(&snapshot),
+                block_assembler_config,
+                Arc::clone(&txs_verify_cache),
+                &async_handle,
+                fee_estimator.clone(),
+            )
+            .map_err(|error| {
+                eprintln!("build tx-pool service {error}");
+                ExitCode::Failure
+            })?;
 
         register_tx_pool_callback(
             &mut tx_pool_builder,
@@ -485,7 +485,7 @@ impl SharedBuilder {
         let pack = SharedPackage {
             chain_services_builder: Some(chain_services_builder),
             tx_pool_builder: Some(tx_pool_builder),
-            relay_tx_receiver: Some(receiver),
+            relay_tx_receiver: Some(relay_tx_receiver),
         };
 
         Ok((shared, pack))
@@ -497,7 +497,7 @@ impl SharedBuilder {
 pub struct SharedPackage {
     chain_services_builder: Option<ChainServicesBuilder>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
-    relay_tx_receiver: Option<Receiver<TxVerificationResult>>,
+    relay_tx_receiver: Option<TxVerificationResultReceiver>,
 }
 
 impl SharedPackage {
@@ -514,7 +514,7 @@ impl SharedPackage {
     }
 
     /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
-    pub fn take_relay_tx_receiver(&mut self) -> Receiver<TxVerificationResult> {
+    pub fn take_relay_tx_receiver(&mut self) -> TxVerificationResultReceiver {
         self.relay_tx_receiver
             .take()
             .expect("take relay_tx_receiver")
@@ -546,9 +546,8 @@ fn register_tx_pool_callback(
 ) {
     let notify_pending = notify.clone();
 
-    let tx_relay_sender = tx_pool_builder.tx_relay_sender();
-    let create_notify_entry = |entry: &TxEntry| PoolTransactionEntry {
-        transaction: entry.rtx.transaction.clone(),
+    let create_notify_entry = |entry: &TxEntrySnapshot| PoolTransactionEntry {
+        transaction: entry.transaction.clone(),
         cycles: entry.cycles,
         size: entry.size,
         fee: entry.fee,
@@ -556,7 +555,7 @@ fn register_tx_pool_callback(
     };
 
     let fee_estimator_clone = fee_estimator.clone();
-    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntry| {
+    tx_pool_builder.register_pending(Box::new(move |entry: &TxEntrySnapshot| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_pending.notify_new_transaction(notify_tx_entry);
@@ -566,38 +565,21 @@ fn register_tx_pool_callback(
     }));
 
     let notify_proposed = notify.clone();
-    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntry| {
+    tx_pool_builder.register_proposed(Box::new(move |entry: &TxEntrySnapshot| {
         // notify
         let notify_tx_entry = create_notify_entry(entry);
         notify_proposed.notify_proposed_transaction(notify_tx_entry);
     }));
 
     let notify_reject = notify;
-    tx_pool_builder.register_reject(Box::new(
-        move |tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject| {
-            let tx_hash = entry.transaction().hash();
-            // record recent reject
-            if reject.should_recorded()
-                && let Some(ref mut recent_reject) = tx_pool.recent_reject
-                && let Err(e) = recent_reject.put(&tx_hash, reject.clone())
-            {
-                error!("record recent_reject failed {} {} {}", tx_hash, reject, e);
-            }
+    tx_pool_builder.register_reject(Box::new(move |entry: &TxEntrySnapshot, reject: Reject| {
+        let tx_hash = entry.transaction().hash();
+        // Relayer and recent-reject publication are explicit tx-pool effects.
+        // This callback owns only application notification and fee accounting.
+        let notify_tx_entry = create_notify_entry(entry);
+        notify_reject.notify_reject_transaction(notify_tx_entry, reject);
 
-            if reject.is_allowed_relay()
-                && let Err(e) = tx_relay_sender.send(TxVerificationResult::Reject {
-                    tx_hash: tx_hash.clone(),
-                })
-            {
-                error!("tx-pool tx_relay_sender internal error {}", e);
-            }
-
-            // notify
-            let notify_tx_entry = create_notify_entry(entry);
-            notify_reject.notify_reject_transaction(notify_tx_entry, reject);
-
-            // fee estimator
-            fee_estimator.reject_tx(&tx_hash);
-        },
-    ));
+        // fee estimator
+        fee_estimator.reject_tx(&tx_hash);
+    }));
 }

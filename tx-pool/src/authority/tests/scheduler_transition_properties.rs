@@ -1,0 +1,880 @@
+//! Finite production refinement for scheduler set and owner-ring transitions.
+//!
+//! Every production fixture is created through admission, checkout and
+//! settlement constructors. The test then drives the real `FairFrontier`
+//! Plan/Apply API and compares only normalized scheduler observations with the
+//! independent reference relation.
+
+use super::{
+    claim_relations::{
+        SchedulerOwnerPopulation, SchedulerOwnerRing, SchedulerProjectionChange,
+        SchedulerRefinementCursors, SchedulerRefinementEntry, SchedulerRefinementOwner,
+        SchedulerRefinementSource, SchedulerRefinementStage, SchedulerRefinementVerifyClass,
+        SchedulerRefinementVerifyOrder, SchedulerSetProjection,
+    },
+    foundation::{
+        apply_plan, limits, owner_version, resolved_payload_with_facts, take_resolve_work, tx,
+    },
+    scheduler_properties::{Symbol, refinement_owner, refinement_projection_entry},
+};
+use crate::authority::{
+    plan::TxPoolAuthority,
+    scheduler::{
+        FairFrontier, SchedulerExchangeWave, StagedSchedulerBatch, VerifyOrder, WorkOwner,
+        test_support::{SchedulerSetMemberObservation, SchedulerSetStageObservation},
+    },
+    state::{
+        EntryVersion, OwnedTx, PoolGeneration, ValidatedAdmission, VerifyCapability,
+        VerifyCycleClass, WorkPermit,
+    },
+    work::CheckedOutWork,
+};
+use ckb_network::PeerIndex;
+use ckb_types::core::Capacity;
+use ckb_util::parking_lot::Mutex;
+use std::{collections::BTreeSet, sync::Arc};
+
+#[derive(Clone)]
+struct SchedulerVariants {
+    symbol: Symbol,
+    resolve: OwnedTx,
+    computing: OwnedTx,
+    verify: OwnedTx,
+    ready: OwnedTx,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ProjectionState {
+    Empty,
+    Resolve,
+    Computing,
+    Verify,
+    Ready,
+}
+
+const PROJECTION_STATES: [ProjectionState; 5] = [
+    ProjectionState::Empty,
+    ProjectionState::Resolve,
+    ProjectionState::Computing,
+    ProjectionState::Verify,
+    ProjectionState::Ready,
+];
+
+impl SchedulerVariants {
+    fn owner(&self, state: ProjectionState) -> Option<&OwnedTx> {
+        match state {
+            ProjectionState::Empty => None,
+            ProjectionState::Resolve => Some(&self.resolve),
+            ProjectionState::Computing => Some(&self.computing),
+            ProjectionState::Verify => Some(&self.verify),
+            ProjectionState::Ready => Some(&self.ready),
+        }
+    }
+}
+
+fn admission(
+    transaction: ckb_types::core::TransactionView,
+    source: SchedulerRefinementSource,
+) -> ValidatedAdmission {
+    match source {
+        SchedulerRefinementSource::Remote(peer) => {
+            ValidatedAdmission::remote(transaction, PeerIndex::from(usize::from(peer)))
+                .expect("the finite remote admission is valid")
+        }
+        SchedulerRefinementSource::Proposal => {
+            ValidatedAdmission::proposal(transaction).expect("the proposal admission is valid")
+        }
+        SchedulerRefinementSource::Recovery => {
+            ValidatedAdmission::recovery(transaction, PoolGeneration(0))
+                .expect("the recovery admission is valid")
+        }
+    }
+}
+
+fn build_variants(
+    nonce: u64,
+    transaction: u8,
+    source: SchedulerRefinementSource,
+    owner: SchedulerRefinementOwner,
+    class: VerifyCycleClass,
+) -> SchedulerVariants {
+    build_variants_with_version_seed(nonce, transaction, source, owner, class, 1)
+}
+
+fn build_variants_with_version_seed(
+    nonce: u64,
+    transaction: u8,
+    source: SchedulerRefinementSource,
+    owner: SchedulerRefinementOwner,
+    class: VerifyCycleClass,
+    version_seed: u128,
+) -> SchedulerVariants {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    authority.force_next_version(EntryVersion(version_seed));
+    let transaction_view = tx(nonce);
+    let admission = admission(transaction_view.clone(), source);
+    let hash = admission.identity.raw.clone();
+    apply_plan(
+        authority
+            .plan_admission(admission)
+            .expect("the producer-bank admission plans"),
+    );
+    let resolve = authority
+        .entries_for_reference()
+        .get(&hash)
+        .expect("the Resolve owner exists")
+        .clone();
+
+    let (_, resolve_work) = take_resolve_work(
+        authority
+            .plan_checkout_for_foundation(
+                &hash,
+                owner_version(&authority, &hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("the exact Resolve checkout plans")
+            .apply(),
+    );
+    let computing = authority
+        .entries_for_reference()
+        .get(&hash)
+        .expect("checkout publishes Computing")
+        .clone();
+    let payload = resolved_payload_with_facts(
+        &transaction_view,
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(u64::from(transaction) + 1),
+    );
+    let settlement = resolve_work
+        .yield_verify_as(payload, class)
+        .expect("the finite resolution receipt is valid");
+    apply_plan(
+        authority
+            .apply_settlement(settlement)
+            .expect("Resolve settlement publishes queued Verify"),
+    );
+    let verify = authority
+        .entries_for_reference()
+        .get(&hash)
+        .expect("the Verify owner exists")
+        .clone();
+
+    let checkout = authority
+        .plan_checkout_for_foundation(
+            &hash,
+            owner_version(&authority, &hash),
+            WorkPermit::VerifyOnly(VerifyCapability::Any),
+        )
+        .expect("the exact Verify checkout plans")
+        .apply()
+        .into_work();
+    let CheckedOutWork::Verify(verify_work) = checkout else {
+        panic!("the exact queued Verify owner yields Verify work");
+    };
+    apply_plan(
+        authority
+            .apply_settlement(verify_work.verified(0))
+            .expect("verification settlement publishes Ready"),
+    );
+    let ready = authority
+        .entries_for_reference()
+        .get(&hash)
+        .expect("the Ready owner exists")
+        .clone();
+    SchedulerVariants {
+        symbol: Symbol { transaction, owner },
+        resolve,
+        computing,
+        verify,
+        ready,
+    }
+}
+
+fn projection_state(index: usize) -> ProjectionState {
+    PROJECTION_STATES[index]
+}
+
+fn state_vectors() -> Vec<[ProjectionState; 3]> {
+    let mut states = Vec::with_capacity(PROJECTION_STATES.len().pow(3));
+    for encoded in 0..PROJECTION_STATES.len().pow(3) {
+        let mut value = encoded;
+        let first = projection_state(value % PROJECTION_STATES.len());
+        value /= PROJECTION_STATES.len();
+        let second = projection_state(value % PROJECTION_STATES.len());
+        value /= PROJECTION_STATES.len();
+        let third = projection_state(value % PROJECTION_STATES.len());
+        states.push([first, second, third]);
+    }
+    states
+}
+
+fn claim_entry(
+    variants: &SchedulerVariants,
+    state: ProjectionState,
+) -> Option<SchedulerRefinementEntry> {
+    variants
+        .owner(state)
+        .and_then(|owner| refinement_projection_entry(owner, variants.symbol))
+}
+
+fn frontier_from_states(
+    order: VerifyOrder,
+    variants: &[SchedulerVariants; 3],
+    states: [ProjectionState; 3],
+) -> FairFrontier {
+    let mut frontier = FairFrontier::new(order);
+    let plan = frontier
+        .plan_batch(
+            variants
+                .iter()
+                .zip(states)
+                .map(|(variants, state)| (None, variants.owner(state))),
+        )
+        .expect("the initial real-producer scheduler set plans");
+    frontier.apply_batch(plan);
+    frontier
+}
+
+fn expected_owner_map(
+    variants: &[SchedulerVariants; 3],
+    states: [ProjectionState; 3],
+) -> crate::authority::shard::ShardedOwnerMap {
+    crate::authority::shard::ShardedOwnerMap::from_iter_for_test(
+        variants.iter().zip(states).filter_map(|(variants, state)| {
+            variants
+                .owner(state)
+                .map(|owner| (owner.record().identity.raw.clone(), owner.clone()))
+        }),
+    )
+}
+
+fn expected_set_observation(
+    projection: &SchedulerSetProjection,
+    variants: &[SchedulerVariants; 3],
+) -> BTreeSet<SchedulerSetMemberObservation> {
+    projection
+        .entries()
+        .values()
+        .map(|entry| {
+            let variants = variants
+                .iter()
+                .find(|variants| variants.symbol.transaction == entry.transaction)
+                .expect("every claim transaction belongs to the producer bank");
+            let owner = production_owner(variants.symbol.owner);
+            let stage = match entry.stage {
+                SchedulerRefinementStage::Resolve => SchedulerSetStageObservation::Resolve(owner),
+                SchedulerRefinementStage::Verify(class) => {
+                    let class = match class {
+                        SchedulerRefinementVerifyClass::Small => VerifyCycleClass::Small,
+                        SchedulerRefinementVerifyClass::Large => VerifyCycleClass::Large,
+                    };
+                    SchedulerSetStageObservation::Verify(owner, class)
+                }
+                SchedulerRefinementStage::Ready => SchedulerSetStageObservation::Ready,
+            };
+            SchedulerSetMemberObservation {
+                hash: variants.resolve.record().identity.raw.clone(),
+                version: EntryVersion(u128::from(entry.version)),
+                stage,
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn uak_staged_scheduler_insertions_are_invisible_and_independently_rollbackable() {
+    let first = build_variants(
+        1_991,
+        91,
+        SchedulerRefinementSource::Remote(91),
+        SchedulerRefinementOwner::Remote(91),
+        VerifyCycleClass::Small,
+    );
+    let second = build_variants(
+        1_992,
+        92,
+        SchedulerRefinementSource::Remote(92),
+        SchedulerRefinementOwner::Remote(92),
+        VerifyCycleClass::Small,
+    );
+    let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+
+    let rollback = frontier
+        .lock()
+        .plan_batch([(None, Some(&first.resolve))])
+        .expect("one cursor-free insertion plans");
+    let rollback = StagedSchedulerBatch::stage_primary_insertions(&frontier, rollback)
+        .expect("the insertion allocates its invisible scheduler node");
+    assert_eq!(frontier.lock().wake_projection().resolve, None);
+    let wave = frontier
+        .lock()
+        .checkout_wave(1)
+        .expect("an invisible stage still permits a bounded empty checkout cut");
+    assert!(
+        frontier
+            .lock()
+            .next_queued_in_wave_for_reference(&wave, WorkPermit::ResolveOnly)
+            .is_none(),
+        "checkout cannot observe a staged scheduler node before owner commit"
+    );
+    drop(rollback);
+    assert_eq!(frontier.lock().wake_projection().resolve, None);
+
+    let first_delta = frontier
+        .lock()
+        .plan_batch([(None, Some(&first.resolve))])
+        .expect("the first insertion replans after rollback");
+    let second_delta = frontier
+        .lock()
+        .plan_batch([(None, Some(&second.resolve))])
+        .expect("the second insertion plans independently");
+    let first_stage = StagedSchedulerBatch::stage_primary_insertions(&frontier, first_delta)
+        .expect("the first insertion stages");
+    let second_stage = StagedSchedulerBatch::stage_primary_insertions(&frontier, second_delta)
+        .expect("the second insertion stages");
+    assert_eq!(frontier.lock().wake_projection().resolve, None);
+    drop(second_stage);
+    assert_eq!(
+        frontier.lock().wake_projection().resolve,
+        None,
+        "rolling back one stage cannot publish the other"
+    );
+    drop(first_stage);
+    assert_eq!(frontier.lock().wake_projection().resolve, None);
+}
+
+fn captured_resolve_wave(
+    frontier: &Arc<Mutex<FairFrontier>>,
+    expected: EntryVersion,
+) -> SchedulerExchangeWave {
+    let mut wave =
+        SchedulerExchangeWave::after(Arc::clone(frontier), std::iter::empty::<&OwnedTx>(), 1)
+            .expect("one committed Resolve slot yields a bounded exchange wave");
+    let ticket = wave
+        .next(WorkPermit::ResolveOnly)
+        .expect("the captured wave selects the Resolve slot");
+    assert_eq!(ticket.version(), expected);
+    wave.select(&ticket)
+        .expect("the exact captured slot advances the virtual cursor");
+    wave
+}
+
+#[test]
+fn uak_compute_exchange_revision_rejects_an_earlier_queue_insertion() {
+    let selected = build_variants_with_version_seed(
+        1_993,
+        93,
+        SchedulerRefinementSource::Remote(93),
+        SchedulerRefinementOwner::Remote(93),
+        VerifyCycleClass::Small,
+        10_000,
+    );
+    let earlier = build_variants_with_version_seed(
+        1_994,
+        94,
+        SchedulerRefinementSource::Proposal,
+        SchedulerRefinementOwner::Trusted,
+        VerifyCycleClass::Small,
+        20_000,
+    );
+    let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+    let initial = frontier
+        .lock()
+        .plan_batch([(None, Some(&selected.resolve))])
+        .expect("the initial Resolve slot plans");
+    frontier.lock().apply_batch(initial);
+
+    let sealed_wave = captured_resolve_wave(&frontier, selected.resolve.record().version);
+    let sealed = frontier
+        .lock()
+        .plan_exchange_batch(
+            [(Some(&selected.resolve), Some(&selected.computing))],
+            sealed_wave.into_cursor(),
+        )
+        .expect("the fresh wave seals its expected queue revision");
+    let probing_wave = captured_resolve_wave(&frontier, selected.resolve.record().version);
+
+    let insertion = frontier
+        .lock()
+        .plan_batch([(None, Some(&earlier.resolve))])
+        .expect("the higher-trust Resolve slot plans independently");
+    frontier.lock().apply_batch(insertion);
+    assert_eq!(
+        frontier.lock().wake_projection().resolve,
+        Some(earlier.resolve.record().version),
+        "the intervening slot is now the externally visible Resolve head"
+    );
+    assert!(
+        !sealed.prestate_is_fresh(&frontier.lock()),
+        "an insertion after planning must stale the sealed Apply prestate"
+    );
+
+    let stale = frontier.lock().plan_exchange_batch(
+        [(Some(&selected.resolve), Some(&selected.computing))],
+        probing_wave.into_cursor(),
+    );
+    assert!(
+        stale.is_err(),
+        "a queue insertion after wave capture must reject the stale compute checkout"
+    );
+}
+
+#[test]
+fn uak_compute_exchange_revision_ignores_ready_only_transitions() {
+    let selected = build_variants_with_version_seed(
+        1_995,
+        95,
+        SchedulerRefinementSource::Remote(95),
+        SchedulerRefinementOwner::Remote(95),
+        VerifyCycleClass::Small,
+        30_000,
+    );
+    let ready = build_variants_with_version_seed(
+        1_996,
+        96,
+        SchedulerRefinementSource::Remote(96),
+        SchedulerRefinementOwner::Remote(96),
+        VerifyCycleClass::Small,
+        40_000,
+    );
+    let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+    let initial = frontier
+        .lock()
+        .plan_batch([(None, Some(&selected.resolve))])
+        .expect("the initial Resolve slot plans");
+    frontier.lock().apply_batch(initial);
+
+    let sealed_wave = captured_resolve_wave(&frontier, selected.resolve.record().version);
+    let sealed = frontier
+        .lock()
+        .plan_exchange_batch(
+            [(Some(&selected.resolve), Some(&selected.computing))],
+            sealed_wave.into_cursor(),
+        )
+        .expect("the fresh wave seals its expected queue revision");
+    let probing_wave = captured_resolve_wave(&frontier, selected.resolve.record().version);
+
+    let ready_insertion = frontier
+        .lock()
+        .plan_batch([(None, Some(&ready.ready))])
+        .expect("the independent Ready slot plans");
+    frontier.lock().apply_batch(ready_insertion);
+    let probed = frontier
+        .lock()
+        .plan_exchange_batch(
+            [(Some(&selected.resolve), Some(&selected.computing))],
+            probing_wave.into_cursor(),
+        )
+        .expect("a wave captured before a Ready insertion still seals afterward");
+    let mut scheduler = frontier.lock();
+    assert!(
+        sealed.prestate_is_fresh(&scheduler),
+        "Ready-only scheduler changes must not invalidate compute checkout"
+    );
+    assert!(
+        probed.prestate_is_fresh(&scheduler),
+        "Ready-only scheduler changes must not invalidate exchange probing"
+    );
+    scheduler.apply_batch(sealed);
+    assert_eq!(
+        scheduler.wake_projection().ready,
+        Some(ready.ready.record().version),
+        "the independent Ready slot survives the compute checkout"
+    );
+}
+
+#[test]
+fn uak_scheduler_set_transition_refines_every_real_projection_state_and_order() {
+    let variants = [
+        build_variants(
+            2_001,
+            1,
+            SchedulerRefinementSource::Proposal,
+            SchedulerRefinementOwner::Trusted,
+            VerifyCycleClass::Small,
+        ),
+        build_variants(
+            2_002,
+            2,
+            SchedulerRefinementSource::Remote(1),
+            SchedulerRefinementOwner::Remote(1),
+            VerifyCycleClass::Small,
+        ),
+        build_variants(
+            2_003,
+            3,
+            SchedulerRefinementSource::Remote(2),
+            SchedulerRefinementOwner::Remote(2),
+            VerifyCycleClass::Large,
+        ),
+    ];
+    let states = state_vectors();
+    for (production_order, claim_order) in [
+        (
+            VerifyOrder::Arrival,
+            SchedulerRefinementVerifyOrder::Arrival,
+        ),
+        (
+            VerifyOrder::FeeRate,
+            SchedulerRefinementVerifyOrder::FeeRate,
+        ),
+    ] {
+        for initial in &states {
+            let claim = SchedulerSetProjection::new(
+                variants
+                    .iter()
+                    .zip(*initial)
+                    .filter_map(|(variants, state)| claim_entry(variants, state)),
+                claim_order,
+                SchedulerRefinementCursors::default(),
+            )
+            .expect("the real producer bank has unique nonzero scheduler entries");
+            for after in &states {
+                let changes = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(index, variants)| SchedulerProjectionChange {
+                        transaction: variants.symbol.transaction,
+                        expected: claim_entry(variants, initial[index]),
+                        after: claim_entry(variants, after[index]),
+                    })
+                    .collect::<Vec<_>>();
+                let expected = claim
+                    .plan_changes(&changes, SchedulerRefinementCursors::default())
+                    .expect("each finite owner transition is identity coherent");
+
+                let mut actual = frontier_from_states(production_order, &variants, *initial);
+                let plan = actual
+                    .plan_batch(variants.iter().enumerate().map(|(index, variants)| {
+                        (variants.owner(initial[index]), variants.owner(after[index]))
+                    }))
+                    .expect("the production set transition accepts the same legal input");
+                actual.apply_batch(plan);
+
+                let owner_map = expected_owner_map(&variants, *after);
+                assert!(actual.semantically_matches(&owner_map));
+                assert_eq!(
+                    actual.stored_set_observation(),
+                    expected_set_observation(&expected, &variants)
+                );
+                assert_eq!(actual.verify_order(), production_order);
+                assert_eq!(expected.verify_order(), claim_order);
+                assert_eq!(
+                    expected.entries().values().copied().collect::<Vec<_>>(),
+                    variants
+                        .iter()
+                        .zip(*after)
+                        .filter_map(|(variants, state)| claim_entry(variants, state))
+                        .collect::<Vec<_>>()
+                );
+
+                let mut reversed = frontier_from_states(production_order, &variants, *initial);
+                let reverse_plan = reversed
+                    .plan_batch(variants.iter().enumerate().rev().map(|(index, variants)| {
+                        (variants.owner(initial[index]), variants.owner(after[index]))
+                    }))
+                    .expect("caller order cannot change the scheduler set transition");
+                reversed.apply_batch(reverse_plan);
+                assert_eq!(actual.snapshot(), reversed.snapshot());
+            }
+        }
+    }
+}
+
+#[test]
+fn uak_scheduler_private_partial_orders_equal_total_cmp_for_real_keys() {
+    let variants = [
+        build_variants(
+            2_101,
+            1,
+            SchedulerRefinementSource::Proposal,
+            SchedulerRefinementOwner::Trusted,
+            VerifyCycleClass::Small,
+        ),
+        build_variants(
+            2_102,
+            2,
+            SchedulerRefinementSource::Remote(1),
+            SchedulerRefinementOwner::Remote(1),
+            VerifyCycleClass::Large,
+        ),
+        build_variants(
+            2_103,
+            3,
+            SchedulerRefinementSource::Recovery,
+            SchedulerRefinementOwner::Trusted,
+            VerifyCycleClass::Small,
+        ),
+    ];
+    let frontier = frontier_from_states(
+        VerifyOrder::FeeRate,
+        &variants,
+        [
+            ProjectionState::Resolve,
+            ProjectionState::Verify,
+            ProjectionState::Ready,
+        ],
+    );
+    let observation = frontier.partial_order_observation();
+    assert_eq!(observation.source_pairs, 9);
+    assert_eq!(observation.resolve_pairs, 1);
+    assert_eq!(observation.verify_pairs, 1);
+    assert_eq!(observation.queue_pairs, 4);
+    assert_eq!(observation.ready_pairs, 1);
+    assert_eq!(observation.slot_pairs, 9);
+    assert_eq!(observation.violations, 0);
+}
+
+#[derive(Clone)]
+struct ClassOwners {
+    small: OwnedTx,
+    large: OwnedTx,
+}
+
+impl ClassOwners {
+    fn selected(&self, small: bool) -> &OwnedTx {
+        if small { &self.small } else { &self.large }
+    }
+}
+
+#[derive(Clone)]
+struct RingOwnerFixtures {
+    owner: SchedulerRefinementOwner,
+    committed: ClassOwners,
+    overlay: ClassOwners,
+    seed: ClassOwners,
+}
+
+fn queued_verify_owner(
+    nonce: u64,
+    owner: SchedulerRefinementOwner,
+    class: VerifyCycleClass,
+) -> OwnedTx {
+    let source = match owner {
+        SchedulerRefinementOwner::Remote(peer) => SchedulerRefinementSource::Remote(peer),
+        SchedulerRefinementOwner::Trusted => SchedulerRefinementSource::Proposal,
+    };
+    build_variants(nonce, 1, source, owner, class).verify
+}
+
+fn ring_bank() -> [RingOwnerFixtures; 3] {
+    let mut nonce = 3_000u64;
+    let mut next_pair = |owner| {
+        nonce += 1;
+        let small = queued_verify_owner(nonce, owner, VerifyCycleClass::Small);
+        nonce += 1;
+        let large = queued_verify_owner(nonce, owner, VerifyCycleClass::Large);
+        ClassOwners { small, large }
+    };
+    [
+        SchedulerRefinementOwner::Remote(1),
+        SchedulerRefinementOwner::Remote(2),
+        SchedulerRefinementOwner::Trusted,
+    ]
+    .map(|owner| RingOwnerFixtures {
+        owner,
+        committed: next_pair(owner),
+        overlay: next_pair(owner),
+        seed: next_pair(owner),
+    })
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Population {
+    all: u8,
+    small: u8,
+}
+
+fn populations() -> Vec<Population> {
+    let mut populations = Vec::new();
+    for all in 0u8..8 {
+        for small in 0u8..8 {
+            if small & !all == 0 {
+                populations.push(Population { all, small });
+            }
+        }
+    }
+    populations
+}
+
+fn contains(mask: u8, index: usize) -> bool {
+    mask & (1 << index) != 0
+}
+
+fn claim_population(
+    bank: &[RingOwnerFixtures; 3],
+    population: Population,
+) -> SchedulerOwnerPopulation {
+    SchedulerOwnerPopulation::new(
+        bank.iter().enumerate().filter_map(|(index, fixture)| {
+            contains(population.all, index).then_some(fixture.owner)
+        }),
+        bank.iter().enumerate().filter_map(|(index, fixture)| {
+            contains(population.small, index).then_some(fixture.owner)
+        }),
+    )
+    .expect("the finite small population is a subset of all owners")
+}
+
+fn production_owner(owner: SchedulerRefinementOwner) -> WorkOwner {
+    match owner {
+        SchedulerRefinementOwner::Remote(peer) => {
+            WorkOwner::Remote(PeerIndex::from(usize::from(peer)))
+        }
+        SchedulerRefinementOwner::Trusted => WorkOwner::Trusted,
+    }
+}
+
+fn population_entries<'bank>(
+    bank: &'bank [RingOwnerFixtures; 3],
+    population: Population,
+    role: impl Fn(&'bank RingOwnerFixtures) -> &'bank ClassOwners,
+) -> Vec<&'bank OwnedTx> {
+    bank.iter()
+        .enumerate()
+        .filter(|(index, _)| contains(population.all, *index))
+        .map(|(index, fixture)| role(fixture).selected(contains(population.small, index)))
+        .collect()
+}
+
+fn frontier_with_population(
+    bank: &[RingOwnerFixtures; 3],
+    population: Population,
+    cursor: Option<SchedulerRefinementOwner>,
+) -> FairFrontier {
+    let committed = population_entries(bank, population, |fixture| &fixture.committed);
+    let seed = cursor.map(|cursor| {
+        bank.iter()
+            .find(|fixture| fixture.owner == cursor)
+            .expect("the cursor owner is in the finite universe")
+            .seed
+            .selected(true)
+    });
+    let mut frontier = FairFrontier::new(VerifyOrder::Arrival);
+    let initial = committed
+        .iter()
+        .copied()
+        .chain(seed)
+        .map(|owner| (None, Some(owner)));
+    let plan = frontier
+        .plan_batch(initial)
+        .expect("the committed owner population plans");
+    frontier.apply_batch(plan);
+
+    if let Some(seed) = seed {
+        let mut wave = frontier
+            .checkout_wave(1)
+            .expect("one cursor seed reserves one selected version");
+        let ticket = frontier
+            .ticket_for_foundation(
+                &seed.record().identity.raw,
+                seed.record().version,
+                WorkPermit::VerifyOnly(VerifyCapability::Any),
+            )
+            .expect("the cursor seed occupies an exact Verify slot");
+        wave.select(&ticket)
+            .expect("the exact seed advances the cursor once");
+        let plan = frontier
+            .plan_exchange_batch([(Some(seed), None)], wave)
+            .expect("cursor publication and seed removal are one scheduler Apply");
+        frontier.apply_batch(plan);
+    }
+    frontier
+}
+
+fn first_unblocked_owner(
+    wave: &crate::authority::scheduler::SchedulerExchangeWave,
+    permit: WorkPermit,
+    blocked: &BTreeSet<WorkOwner>,
+) -> (Option<WorkOwner>, usize) {
+    let bound = wave
+        .owner_count(permit)
+        .expect("the three-owner finite sum cannot overflow");
+    let mut cursor = None;
+    let mut probes = 0;
+    for _ in 0..bound {
+        let ticket = match cursor {
+            Some(owner) => wave.next_after(permit, owner),
+            None => wave.next(permit),
+        };
+        let Some(ticket) = ticket else {
+            return (None, probes);
+        };
+        probes += 1;
+        cursor = Some(ticket.owner());
+        if !blocked.contains(&ticket.owner()) {
+            return (Some(ticket.owner()), probes);
+        }
+    }
+    (None, probes)
+}
+
+#[test]
+fn uak_scheduler_owner_ring_refines_every_finite_union_cursor_and_blocked_set() {
+    let bank = ring_bank();
+    let populations = populations();
+    let cursors = [
+        None,
+        Some(SchedulerRefinementOwner::Remote(1)),
+        Some(SchedulerRefinementOwner::Remote(2)),
+        Some(SchedulerRefinementOwner::Trusted),
+    ];
+    for committed in &populations {
+        for cursor in cursors {
+            let frontier = std::sync::Arc::new(ckb_util::parking_lot::Mutex::new(
+                frontier_with_population(&bank, *committed, cursor),
+            ));
+            for overlay in &populations {
+                let overlay_entries =
+                    population_entries(&bank, *overlay, |fixture| &fixture.overlay);
+                for (small_only, permit) in [
+                    (false, WorkPermit::VerifyOnly(VerifyCapability::Any)),
+                    (
+                        true,
+                        WorkPermit::VerifyOnly(VerifyCapability::SmallCycleOnly),
+                    ),
+                ] {
+                    let ring = SchedulerOwnerRing::new(
+                        claim_population(&bank, *committed),
+                        claim_population(&bank, *overlay),
+                        cursor,
+                    );
+                    let expected_bound = ring
+                        .owner_bound(small_only)
+                        .expect("the finite owner sum cannot overflow");
+                    for blocked_mask in 0u8..8 {
+                        let blocked_claim = bank
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(index, fixture)| {
+                                contains(blocked_mask, index).then_some(fixture.owner)
+                            })
+                            .collect::<BTreeSet<_>>();
+                        let blocked_production = blocked_claim
+                            .iter()
+                            .copied()
+                            .map(production_owner)
+                            .collect::<BTreeSet<_>>();
+                        let wave = crate::authority::scheduler::SchedulerExchangeWave::after(
+                            std::sync::Arc::clone(&frontier),
+                            overlay_entries.iter().copied(),
+                            3,
+                        )
+                        .expect("the overlay population is unique by real owner slot");
+                        assert_eq!(
+                            wave.owner_count(permit)
+                                .expect("the finite production sum cannot overflow"),
+                            expected_bound
+                        );
+                        let (actual, probes) =
+                            first_unblocked_owner(&wave, permit, &blocked_production);
+                        let expected = ring.first_available(small_only, &blocked_claim);
+                        assert_eq!(actual.map(refinement_owner), expected);
+                        assert!(probes <= expected_bound);
+                    }
+                }
+            }
+        }
+    }
+}

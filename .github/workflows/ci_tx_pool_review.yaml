@@ -1,0 +1,38 @@
+name: ci_tx_pool_review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'tx-pool/**'
+      - 'chain/**'
+      - 'rpc/**'
+      - 'sync/**'
+      - 'test/**'
+      - 'util/**'
+      - 'verification/**'
+      - '.github/workflows/ci_tx_pool_review.yaml'
+  push:
+    branches: ['**']
+    paths:
+      - 'tx-pool/**'
+      - 'chain/**'
+      - 'rpc/**'
+      - 'sync/**'
+      - 'test/**'
+      - 'util/**'
+      - 'verification/**'
+      - '.github/workflows/ci_tx_pool_review.yaml'
+  merge_group: {}
+  workflow_dispatch: {}
+
+jobs:
+  tx_pool_review_contracts:
+    name: tx_pool_review_contracts
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate tx-pool documentation and scripts
+        run: python3 tx-pool/scripts/check_all.py --light

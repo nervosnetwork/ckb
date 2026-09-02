@@ -9,6 +9,7 @@ fn test_min_fee_and_weight_evict() {
             fee_rate: FeeRate::calculate(Capacity::shannons(fee), weight),
             timestamp,
             descendants_count: 0,
+            id: Default::default(),
         })
         .collect::<Vec<_>>();
     result.sort();
@@ -26,6 +27,7 @@ fn test_min_timestamp_evict() {
             fee_rate: FeeRate::calculate(Capacity::shannons(fee), weight),
             timestamp,
             descendants_count: 0,
+            id: Default::default(),
         })
         .collect::<Vec<_>>();
     result.sort();
@@ -43,6 +45,7 @@ fn test_min_weight_evict() {
             fee_rate: FeeRate::calculate(Capacity::shannons(fee), weight),
             timestamp,
             descendants_count: 0,
+            id: Default::default(),
         })
         .collect::<Vec<_>>();
     result.sort();

@@ -5,21 +5,69 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use url::Url;
 
+/// Ordering strategy for the verify queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifyOrdering {
+    /// FIFO — first-come first-served by arrival time (default).
+    ArrivalTime,
+    /// Highest fee rate is verified first; ties broken by arrival time.
+    FeeRate,
+}
+
+/// Default verify queue ordering: FIFO by arrival time.
+#[allow(dead_code)]
+pub fn default_verify_ordering() -> VerifyOrdering {
+    VerifyOrdering::ArrivalTime
+}
+
 // The default values are set in the legacy version.
 /// Transaction pool configuration
 #[derive(Clone, Debug, Serialize)]
 pub struct TxPoolConfig {
     /// Keep the transaction pool below <max_tx_pool_size> mb
     pub max_tx_pool_size: usize,
+    /// Maximum conservative resident-byte charge of accepted pool entries.
+    ///
+    /// Unlike `max_tx_pool_size`, this includes resolved input/cell-dep
+    /// metadata and eagerly loaded dep-group data. Keeping the limits
+    /// separate preserves the public serialized-size semantics while
+    /// bounding transactions whose dependency expansion is much larger than
+    /// their wire representation.
+    pub max_tx_pool_resident_size: usize,
     /// txs with lower fee rate than this will not be relayed or be mined
     #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,
     /// txs need to pay larger fee rate than this for RBF
     #[serde(with = "FeeRateDef")]
     pub min_rbf_rate: FeeRate,
-    /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
+    /// Historical configuration name retained for compatibility.
+    ///
+    /// This value is the Remote verification scheduling threshold: declared
+    /// work above it enters the large-cycle lane, while work at or below it
+    /// remains eligible for small-cycle workers. It is not an admission or VM
+    /// execution limit. A Remote request is bounded by its consensus-checked
+    /// declaration; Trusted work is bounded by the consensus block maximum.
     pub max_tx_verify_cycles: Cycle,
-    /// max tx verify workers, default is 3/4 of cpu cores
+    /// Minimum cumulative wall-time budget for actual CKB-VM script
+    /// verification work in one tx-pool attempt. Queueing, resolution,
+    /// contextual checks, suspend gaps, and post-VM checks do not consume it.
+    pub min_tx_verify_time_ms: u32,
+    /// Conservative local cycle signal rate used only to classify the active
+    /// VM-work budget. It is not consensus accounting or execution truth.
+    pub tx_verify_cycles_per_ms: u64,
+    /// Unconditional cap on cumulative actual CKB-VM script verification work
+    /// in one tx-pool attempt. The default is one consensus minimum
+    /// block-interval quantum (8 s).
+    pub max_tx_verify_time_ms: u32,
+    /// Maximum cumulative bytes mapped while loading one root program. This
+    /// deterministic envelope is separate from, and does not exclude loader
+    /// time from, the active VM-work budget.
+    pub max_tx_verify_initial_load_bytes: u64,
+    /// Maximum tx verification worker population, defaulting to 3/4 of CPU
+    /// cores. The production service may admit fewer simultaneous compute
+    /// executions when the selected Tokio runtime needs one worker reserved
+    /// for verification deadlines, pause/stop control, and settlement.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
     /// max ancestors size limit for a single tx
@@ -40,6 +88,33 @@ pub struct TxPoolConfig {
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
     pub expiry_hours: u8,
+    /// Verify queue ordering strategy: arrival_time (FIFO) or fee_rate.
+    #[serde(default = "default_verify_ordering")]
+    pub verify_ordering: VerifyOrdering,
+    /// Maximum conservative resident-byte charge of the complete pre-pool
+    /// pipeline.
+    ///
+    /// The unified coordinator owns raw, dependency-waiting, resolved,
+    /// verifying, conflict-waiting, and commit-ready entries under one global
+    /// budget. Charges include expanded resolved-cell data and lifecycle/index
+    /// metadata, not only serialized transaction bytes.
+    pub max_tx_pipeline_resident_size: usize,
+}
+
+impl TxPoolConfig {
+    /// Effective accepted-pool residency budget, clamped to the serialized
+    /// transaction budget so ordinary pool capacity is never configured
+    /// below `max_tx_pool_size` accidentally.
+    pub fn tx_pool_resident_size_budget(&self) -> usize {
+        self.max_tx_pool_resident_size.max(self.max_tx_pool_size)
+    }
+
+    /// Configured pre-pool residency budget. Runtime construction validates
+    /// that it can hold at least one conservatively charged entry instead of
+    /// silently turning zero into a different configuration.
+    pub fn tx_pipeline_resident_size_budget(&self) -> usize {
+        self.max_tx_pipeline_resident_size
+    }
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

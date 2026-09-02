@@ -61,6 +61,7 @@ lru.workspace = true
 
 
 [dev-dependencies]
+ckb-tx-pool = { workspace = true, features = ["internal"] }
 reqwest = { workspace = true, features = ["blocking", "json"] }
 serde = { workspace = true, features = ["derive"] }
 ckb-shared.workspace = true

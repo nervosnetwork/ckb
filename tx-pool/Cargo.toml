@@ -12,6 +12,7 @@ rust-version = "1.95.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ahash.workspace = true
 ckb-types.workspace = true
 ckb-logger.workspace = true
 ckb-verification.workspace = true
@@ -27,12 +28,13 @@ ckb-chain-spec.workspace = true
 ckb-snapshot.workspace = true
 ckb-metrics.workspace = true
 ckb-error.workspace = true
-tokio = { workspace = true, features = ["sync", "process"] }
+tokio = { workspace = true, features = ["sync", "process", "time", "rt-multi-thread"] }
 ckb-async-runtime.workspace = true
 ckb-stop-handler.workspace = true
 ckb-app-config.workspace = true
 ckb-network.workspace = true
 ckb-channel.workspace = true
+ckb-constant.workspace = true
 ckb-db.workspace = true
 ckb-script.workspace = true
 futures-util.workspace = true
@@ -47,15 +49,50 @@ slab.workspace = true
 rustc-hash.workspace = true
 tokio-util.workspace = true
 ckb-fee-estimator.workspace = true
+criterion = { workspace = true, optional = true }
+ckb-hash = { workspace = true, optional = true }
+ckb-crypto = { workspace = true, optional = true }
+ckb-system-scripts = { workspace = true, optional = true }
+ckb-test-chain-utils = { workspace = true, optional = true }
+ckb-dao-utils = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+libc.workspace = true
 ckb-hash.workspace = true
+ckb-dao-utils.workspace = true
+ckb-test-chain-utils.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
+ckb-system-scripts.workspace = true
+ckb-crypto.workspace = true
+ckb-proposal-table.workspace = true
+
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["internal"]
+
+[[bench]]
+name = "profile_one_shot"
+harness = false
 
 [features]
-default = []
-internal = []
+allocation-observation = []
+cross-version-legacy-bench-adapter = []
+internal = [
+    "criterion",
+    "ckb-hash",
+    "ckb-crypto",
+    "ckb-system-scripts",
+    "ckb-test-chain-utils",
+    "ckb-dao-utils",
+    "tempfile",
+]
+ci = []
+profiling = ["tracing", "tracing-subscriber"]
 with_sentry = ["sentry"]
 portable = ["ckb-db/portable", "ckb-store/portable", "ckb-snapshot/portable"]
 march-native = [

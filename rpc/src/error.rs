@@ -182,7 +182,7 @@ impl RPCError {
             Reject::ExceededMaximumAncestorsCount => {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
-            Reject::Full(_) => RPCError::PoolIsFull,
+            Reject::Full(_) | Reject::ExcessiveVerifyTime => RPCError::PoolIsFull,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
             Reject::Malformed(_, _) => RPCError::PoolRejectedMalformedTransaction,
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,
@@ -194,6 +194,7 @@ impl RPCError {
                 RPCError::PoolRejectedTransactionBySizeLimit
             }
             Reject::Expiry(_) => RPCError::TransactionExpired,
+            Reject::Internal(_) => RPCError::CKBInternalError,
         };
         RPCError::custom_with_error(code, reject)
     }

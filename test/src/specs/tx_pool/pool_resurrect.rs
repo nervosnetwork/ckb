@@ -1,4 +1,5 @@
 use crate::node::waiting_for_sync;
+use crate::specs::tx_pool::utils::wait_for_pending_count;
 use crate::{DEFAULT_TX_PROPOSAL_WINDOW, Node, Spec};
 use ckb_logger::info;
 
@@ -43,7 +44,7 @@ impl Spec for PoolResurrect {
         waiting_for_sync(nodes);
 
         info!("6 txs should be returned to node0 pending pool");
-        node0.assert_tx_pool_size(txs_hash.len() as u64, 0);
+        wait_for_pending_count(node0, txs_hash.len() as u64);
 
         info!("Generate 2 blocks on node0, 6 txs should be added to proposed pool");
         let proposed = node0.mine_with_blocking(|template| {

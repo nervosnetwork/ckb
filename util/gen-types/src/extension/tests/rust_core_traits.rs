@@ -107,6 +107,39 @@ fn test_outpoint_cmp() {
 }
 
 #[test]
+fn test_outpoint_borrowed_cmp_matches_the_previous_field_order() {
+    let hashes = [
+        [0u8; 32],
+        [1u8; 32],
+        [0xffu8; 32],
+        std::array::from_fn(|index| index as u8),
+        std::array::from_fn(|index| (31 - index) as u8),
+    ];
+    let indices = [0, 1, 255, 256, u32::MAX];
+    let out_points = hashes
+        .iter()
+        .flat_map(|hash| {
+            indices.iter().map(move |index| {
+                OutPoint::new_builder()
+                    .tx_hash(Byte32::new(*hash))
+                    .index(*index)
+                    .build()
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for left in &out_points {
+        for right in &out_points {
+            let previous = left
+                .tx_hash()
+                .cmp(&right.tx_hash())
+                .then_with(|| left.index().cmp(&right.index()));
+            assert_eq!(left.cmp(right), previous);
+        }
+    }
+}
+
+#[test]
 fn test_cellinput_cmp() {
     let a = CellInput::new_builder().since(1000u64).build();
     let b = CellInput::new_builder().since(2000u64).build();

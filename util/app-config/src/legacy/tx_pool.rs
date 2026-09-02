@@ -1,5 +1,5 @@
-use crate::configs::default_max_tx_verify_workers;
-use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
+use crate::configs::{VerifyOrdering, default_max_tx_verify_workers};
+use ckb_chain_spec::consensus::{MIN_BLOCK_INTERVAL, TWO_IN_TWO_OUT_CYCLES};
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::Deserialize;
@@ -12,12 +12,29 @@ const DEFAULT_MIN_FEE_RATE: FeeRate = FeeRate::from_u64(1000);
 const DEFAULT_MIN_RBF_RATE: FeeRate = FeeRate::from_u64(1500);
 // default max tx verify cycles
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
+const DEFAULT_MIN_TX_VERIFY_TIME_MS: u32 = 250;
+const DEFAULT_TX_VERIFY_CYCLES_PER_MS: u64 = 10_000;
+// A tx-pool attempt may execute at most one consensus minimum block-interval
+// quantum of cumulative active CKB-VM verification work. Queueing, suspension
+// and non-script checks are excluded. This is node-local admission policy
+// only; block verification remains governed exclusively by consensus cycles.
+const DEFAULT_MAX_TX_VERIFY_TIME_MS: u32 = MIN_BLOCK_INTERVAL as u32 * 1_000;
+const DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES: u64 = 256 * 1024 * 1024;
 // default max ancestors count
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 1_000;
 // Default expiration time for pool transactions in hours
 const DEFAULT_EXPIRY_HOURS: u8 = 12;
 // Default max_tx_pool_size 180mb
 const DEFAULT_MAX_TX_POOL_SIZE: usize = 180_000_000;
+// Default conservative accepted-pool residency budget. This is deliberately
+// larger than the serialized transaction limit so ordinary workloads retain
+// their historical pool capacity while dep-group expansion remains bounded.
+const DEFAULT_MAX_TX_POOL_RESIDENT_SIZE: usize = 1_000_000_000;
+// Default conservative resident-byte budget for the complete pre-pool
+// pipeline. This preserves the previous 64 MB pre-check + 64 MB ordered
+// resolve + 256 MB verify allocation under the unified coordinator.
+const DEFAULT_MAX_TX_PIPELINE_RESIDENT_SIZE: usize = 384_000_000;
+const LEGACY_PRE_VERIFY_PIPELINE_BYTES: usize = 128_000_000;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +42,8 @@ const DEFAULT_MAX_TX_POOL_SIZE: usize = 180_000_000;
 pub(crate) struct TxPoolConfig {
     #[serde(default = "default_max_tx_pool_size")]
     max_tx_pool_size: usize,
+    #[serde(default = "default_max_tx_pool_resident_size")]
+    max_tx_pool_resident_size: usize,
     max_mem_size: Option<usize>,
     max_cycles: Option<Cycle>,
     pub(crate) max_verify_cache_size: Option<usize>,
@@ -41,6 +60,14 @@ pub(crate) struct TxPoolConfig {
     #[serde(with = "FeeRateDef", default = "default_min_rbf_rate")]
     min_rbf_rate: FeeRate,
     max_tx_verify_cycles: Cycle,
+    #[serde(default = "default_min_tx_verify_time_ms")]
+    min_tx_verify_time_ms: u32,
+    #[serde(default = "default_tx_verify_cycles_per_ms")]
+    tx_verify_cycles_per_ms: u64,
+    #[serde(default = "default_max_tx_verify_time_ms")]
+    max_tx_verify_time_ms: u32,
+    #[serde(default = "default_max_tx_verify_initial_load_bytes")]
+    max_tx_verify_initial_load_bytes: u64,
     max_ancestors_count: usize,
     #[serde(default)]
     persisted_data: PathBuf,
@@ -48,6 +75,17 @@ pub(crate) struct TxPoolConfig {
     recent_reject: PathBuf,
     #[serde(default = "default_expiry_hours")]
     expiry_hours: u8,
+    #[serde(default = "default_verify_ordering")]
+    verify_ordering: VerifyOrdering,
+    /// New unified resident budget. `Option` preserves whether the user
+    /// explicitly configured it so the removed verify-only field can be
+    /// translated without silently shrinking the old aggregate capacity.
+    #[serde(default)]
+    max_tx_pipeline_resident_size: Option<usize>,
+    /// Backward-compatible input only. The old architecture also owned two
+    /// fixed 64 MB pre-verify queues, added during conversion below.
+    #[serde(default)]
+    max_verify_queue_tx_size: Option<usize>,
 }
 
 fn default_keep_rejected_tx_hashes_days() -> u8 {
@@ -62,12 +100,36 @@ fn default_expiry_hours() -> u8 {
     DEFAULT_EXPIRY_HOURS
 }
 
+fn default_verify_ordering() -> VerifyOrdering {
+    VerifyOrdering::ArrivalTime
+}
+
 fn default_max_tx_pool_size() -> usize {
     DEFAULT_MAX_TX_POOL_SIZE
 }
 
+fn default_max_tx_pool_resident_size() -> usize {
+    DEFAULT_MAX_TX_POOL_RESIDENT_SIZE
+}
+
 fn default_min_rbf_rate() -> FeeRate {
     DEFAULT_MIN_RBF_RATE
+}
+
+fn default_min_tx_verify_time_ms() -> u32 {
+    DEFAULT_MIN_TX_VERIFY_TIME_MS
+}
+
+fn default_tx_verify_cycles_per_ms() -> u64 {
+    DEFAULT_TX_VERIFY_CYCLES_PER_MS
+}
+
+fn default_max_tx_verify_time_ms() -> u32 {
+    DEFAULT_MAX_TX_VERIFY_TIME_MS
+}
+
+fn default_max_tx_verify_initial_load_bytes() -> u64 {
+    DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES
 }
 
 impl Default for crate::TxPoolConfig {
@@ -81,6 +143,7 @@ impl Default for TxPoolConfig {
         Self {
             max_mem_size: None,
             max_tx_pool_size: DEFAULT_MAX_TX_POOL_SIZE,
+            max_tx_pool_resident_size: DEFAULT_MAX_TX_POOL_RESIDENT_SIZE,
             max_cycles: None,
             max_verify_cache_size: None,
             max_conflict_cache_size: None,
@@ -91,10 +154,17 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             min_rbf_rate: DEFAULT_MIN_RBF_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
+            min_tx_verify_time_ms: DEFAULT_MIN_TX_VERIFY_TIME_MS,
+            tx_verify_cycles_per_ms: DEFAULT_TX_VERIFY_CYCLES_PER_MS,
+            max_tx_verify_time_ms: DEFAULT_MAX_TX_VERIFY_TIME_MS,
+            max_tx_verify_initial_load_bytes: DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES,
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
             persisted_data: Default::default(),
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
+            verify_ordering: VerifyOrdering::ArrivalTime,
+            max_tx_pipeline_resident_size: Some(DEFAULT_MAX_TX_PIPELINE_RESIDENT_SIZE),
+            max_verify_queue_tx_size: None,
         }
     }
 }
@@ -104,6 +174,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
         let TxPoolConfig {
             max_mem_size: _,
             max_tx_pool_size,
+            max_tx_pool_resident_size,
             max_cycles: _,
             max_verify_cache_size: _,
             max_conflict_cache_size: _,
@@ -114,17 +185,35 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            min_tx_verify_time_ms,
+            tx_verify_cycles_per_ms,
+            max_tx_verify_time_ms,
+            max_tx_verify_initial_load_bytes,
             max_ancestors_count,
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
+            max_tx_pipeline_resident_size,
+            max_verify_queue_tx_size,
         } = input;
+
+        let max_tx_pipeline_resident_size = max_tx_pipeline_resident_size.unwrap_or_else(|| {
+            max_verify_queue_tx_size
+                .map(|verify_bytes| verify_bytes.saturating_add(LEGACY_PRE_VERIFY_PIPELINE_BYTES))
+                .unwrap_or(DEFAULT_MAX_TX_PIPELINE_RESIDENT_SIZE)
+        });
 
         Self {
             max_tx_pool_size,
+            max_tx_pool_resident_size,
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            min_tx_verify_time_ms,
+            tx_verify_cycles_per_ms,
+            max_tx_verify_time_ms,
+            max_tx_verify_initial_load_bytes,
             max_tx_verify_workers,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
             keep_rejected_tx_hashes_days,
@@ -132,6 +221,83 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
+            max_tx_pipeline_resident_size,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REQUIRED_FIELDS: &str = r#"
+min_fee_rate = 1000
+max_tx_verify_cycles = 70_000_000
+max_ancestors_count = 25
+"#;
+
+    fn parse(extra: &str) -> crate::TxPoolConfig {
+        toml::from_str::<TxPoolConfig>(&format!("{REQUIRED_FIELDS}\n{extra}"))
+            .expect("parse legacy tx-pool config")
+            .into()
+    }
+
+    #[test]
+    fn legacy_verify_budget_preserves_the_old_aggregate_pipeline_capacity() {
+        let config = parse("max_verify_queue_tx_size = 256_000_000");
+        assert_eq!(config.max_tx_pipeline_resident_size, 384_000_000);
+    }
+
+    #[test]
+    fn explicit_unified_pipeline_budget_takes_precedence_over_legacy_input() {
+        let config = parse(
+            "max_verify_queue_tx_size = 256_000_000\n\
+             max_tx_pipeline_resident_size = 512_000_000",
+        );
+        assert_eq!(config.max_tx_pipeline_resident_size, 512_000_000);
+    }
+
+    #[test]
+    fn omitted_pipeline_budget_keeps_the_unified_default() {
+        let config = parse("");
+        assert_eq!(
+            config.max_tx_pool_resident_size,
+            DEFAULT_MAX_TX_POOL_RESIDENT_SIZE
+        );
+        assert_eq!(
+            config.max_tx_pipeline_resident_size,
+            DEFAULT_MAX_TX_PIPELINE_RESIDENT_SIZE
+        );
+        assert_eq!(config.min_tx_verify_time_ms, DEFAULT_MIN_TX_VERIFY_TIME_MS);
+        assert_eq!(
+            config.tx_verify_cycles_per_ms,
+            DEFAULT_TX_VERIFY_CYCLES_PER_MS
+        );
+        assert_eq!(config.max_tx_verify_time_ms, DEFAULT_MAX_TX_VERIFY_TIME_MS);
+        assert_eq!(
+            u64::from(config.max_tx_verify_time_ms),
+            MIN_BLOCK_INTERVAL * 1_000,
+            "the default local fallback cap is exactly one minimum block interval"
+        );
+        assert_eq!(
+            config.max_tx_verify_initial_load_bytes,
+            DEFAULT_MAX_TX_VERIFY_INITIAL_LOAD_BYTES
+        );
+        assert_eq!(config.verify_ordering, VerifyOrdering::ArrivalTime);
+    }
+
+    #[test]
+    fn explicit_verification_time_policy_survives_legacy_conversion_exactly() {
+        let config = parse(
+            "min_tx_verify_time_ms = 125\n\
+             tx_verify_cycles_per_ms = 5_000\n\
+             max_tx_verify_time_ms = 12_000\n\
+             max_tx_verify_initial_load_bytes = 134_217_728",
+        );
+        assert_eq!(config.min_tx_verify_time_ms, 125);
+        assert_eq!(config.tx_verify_cycles_per_ms, 5_000);
+        assert_eq!(config.max_tx_verify_time_ms, 12_000);
+        assert_eq!(config.max_tx_verify_initial_load_bytes, 134_217_728);
     }
 }

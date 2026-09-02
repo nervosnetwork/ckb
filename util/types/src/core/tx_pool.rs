@@ -45,6 +45,12 @@ pub enum Reject {
     #[error("Declared wrong cycles {0}, actual {1}")]
     DeclaredWrongCycles(Cycle, Cycle),
 
+    /// Verification exceeded this node's cumulative active CKB-VM work limit.
+    /// Queueing and non-script checks are excluded. This is a transient local
+    /// capacity outcome, not consensus invalidity.
+    #[error("Transaction verification exceeded the local tx-pool time limit")]
+    ExcessiveVerifyTime,
+
     /// Resolve failed
     #[error("Resolve failed {0}")]
     Resolve(OutPointError),
@@ -64,22 +70,21 @@ pub enum Reject {
     /// Invalidated by cell consuming Tx
     #[error("Invalidated: {0}")]
     Invalidated(String),
+
+    /// Internal error that should not occur during normal operation.
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {
     match error.kind() {
         ErrorKind::Transaction => error
             .downcast_ref::<TransactionError>()
-            .expect("error kind checked")
-            .is_malformed_tx(),
+            .is_some_and(TransactionError::is_malformed_tx),
         ErrorKind::Script => !format!("{}", error).contains(ARGV_TOO_LONG_TEXT),
-        ErrorKind::Internal => {
-            error
-                .downcast_ref::<InternalError>()
-                .expect("error kind checked")
-                .kind()
-                == InternalErrorKind::CapacityOverflow
-        }
+        ErrorKind::Internal => error
+            .downcast_ref::<InternalError>()
+            .is_some_and(|internal| internal.kind() == InternalErrorKind::CapacityOverflow),
         _ => false,
     }
 }
@@ -97,8 +102,25 @@ impl Reject {
     }
 
     /// Returns true if the reject should be recorded.
+    ///
+    /// `Full` is exempt: queue backpressure is a transient node-local
+    /// condition, not transaction invalidity. A recorded `Full` would
+    /// reject later legitimate resubmissions for the TTL even after the
+    /// queue has drained.
+    ///
+    /// `RBFRejected` is recordable *here* (terminal rejections: pool
+    /// RBF-rule failures, committed replacements, wait-deadline outcomes).
+    /// The *speculative* RBF paths — the in-flight register gate and the
+    /// superseded-at-submit hold — bypass recording at their call sites
+    /// instead: an unverified candidate must not poison a valid
+    /// transaction through this DB. Recording is DoS-neutral anyway: the
+    /// DB only feeds RPC status queries, a resubmission merely re-runs the
+    /// cheap RBF rule checks.
     pub fn should_recorded(&self) -> bool {
-        !matches!(self, Reject::Duplicated(..))
+        !matches!(
+            self,
+            Reject::Duplicated(..) | Reject::Full(..) | Reject::ExcessiveVerifyTime
+        )
     }
 
     /// Returns true if tx can be resubmitted, allowing relay
@@ -108,8 +130,10 @@ impl Reject {
     ///   or temporary limitations of the pool resources,
     ///   and expired clearing
     pub fn is_allowed_relay(&self) -> bool {
-        matches!(self, Reject::DeclaredWrongCycles(..))
-            || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
+        matches!(
+            self,
+            Reject::DeclaredWrongCycles(..) | Reject::ExcessiveVerifyTime
+        ) || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
     }
 }
 
@@ -428,4 +452,25 @@ pub struct PoolTransactionEntry {
     pub fee: Capacity,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transient_resource_outcomes_are_not_recorded_in_recent_reject() {
+        // Backpressure and duplicates are not invalidity and must not
+        // poison the recent-reject DB (see `should_recorded` docs).
+        // Terminal `RBFRejected` (pool-rule failure / committed
+        // replacement) IS recorded; only the speculative in-flight gates
+        // bypass recording, at their call sites.
+        assert!(Reject::RBFRejected("replaced".to_string()).should_recorded());
+        assert!(!Reject::Duplicated(Default::default()).should_recorded());
+        assert!(!Reject::Full("full".to_string()).should_recorded());
+        assert!(!Reject::ExcessiveVerifyTime.should_recorded());
+        assert!(!Reject::ExcessiveVerifyTime.is_malformed_tx());
+        assert!(Reject::ExcessiveVerifyTime.is_allowed_relay());
+        assert!(Reject::Malformed("pool".to_string(), "bad".to_string()).should_recorded());
+    }
 }

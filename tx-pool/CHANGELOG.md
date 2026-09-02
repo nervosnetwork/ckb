@@ -1,11 +1,52 @@
 # Changelog
 
+Current Unreleased work inherits the objective and hard constraints in
+[`architecture-contract.json`](architecture-contract.json). Live phase,
+source identity, open findings and next action are owned only by the
+manifest-bound [`docs/handoff/txpool-v8/`](docs/handoff/txpool-v8/) control
+state. The entries below are external change history; they neither redefine
+the objective nor prove that a synchronized implementation has passed terminal
+correctness, performance, security or Acceptance.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+
+- Add `max_tx_pool_resident_size` and `max_tx_pipeline_resident_size` as
+  conservative accepted-pool and retained-pipeline memory budgets.
+- Add `verify_ordering` with `arrival_time` and `fee_rate` policies; legacy
+  configuration is translated through the existing migration layer.
+
+### Changed
+
+- Complete the ordinary true-shard route migration so ordinary owner mutations
+  use the shared lifecycle barrier plus exact shard cuts with no outer-write
+  fallback. This synchronized implementation remains Unreleased and is under
+  terminal correctness/root-repair audit; it is not yet a performance,
+  security or Acceptance winner.
+- The complete public Rust API delta is an intentional SemVer-major migration.
+  The reconciled release must use a major version greater than the latest
+  published `ckb-tx-pool` baseline and include migration notes. No compatibility
+  facade may restore mutable transaction or policy authority; generated
+  workspace reverse dependencies migrate during the landing rehearsal.
+- Replace the fragmented pre-pool queues with one charged transaction
+  authority and atomic Plan/Apply transitions. In-flight retained transactions
+  are visible through `get_transaction` as `pending` rather than `unknown`.
+- Narrow `get_raw_tx_pool.conflicted` to successfully displaced accepted
+  victims retained as replacement history. Failed replacement candidates use
+  the recent-reject surface.
+- Write tx-pool persistence v2 while accepting legacy v1 files as migration
+  input. Every restored transaction re-enters validation. Node downgrade and
+  reverse persistence migration are not supported.
+- Legacy tx-pool configuration files remain accepted on forward node upgrades.
+  Missing resident-budget and verify-ordering fields use validated compatibility
+  defaults, while the legacy verify-queue budget is translated without shrinking
+  its former aggregate pipeline capacity.
 
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.2...ckb-tx-pool-v1.3.0) - 2026-07-28
 
