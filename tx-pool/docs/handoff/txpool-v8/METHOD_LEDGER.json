@@ -1,0 +1,157 @@
+{
+  "schema": "txpool-v8-engineering-method-ledger-v2",
+  "authority": "REPOSITORY_OWNED_PRIMARY_METHOD_MEMORY",
+  "language": "zh-CN",
+  "update_rule": "方法只有在实际执行并被证据验证后才能保留；每次修改必须同时删除、合并或替代失效方法，禁止补丁雪球",
+  "methods": [
+    {
+      "id": "SOURCE_AND_STATE_AUTHORITY",
+      "status": "ACTIVE",
+      "rules": [
+        "每个源码身份只认 commit/tree；先检查 AGENTS、分支、HEAD、index、worktree 和用户改动",
+        "同一源码身份只建立一次 Cargo 图、符号索引和关键 AST 查询集，后续复用精确切片",
+        "长期任务只有一个 current root；多个 checkpoint、mailbox 或文档不得并行自称当前事实",
+        "聊天、compact 摘要、时间戳、轮次和未哈希引用的旧状态不是执行事实",
+        "主仓内 handoff 是新会话调度事实；外部 checkpoint、bundle 和材料只作内容寻址证据"
+      ],
+      "tools": "Rust 结构关系优先 ast-grep；文件、字符串、日志、JSON、哈希和 AST 无法表达的关系用 rg；必要时用 rust-analyzer 或编译器证据",
+      "anti_patterns": [
+        "反复扫描整文件",
+        "多个当前指针",
+        "compact 后回读全部聊天",
+        "只在 /private/tmp 保存未冻结活 diff"
+      ]
+    },
+    {
+      "id": "ROOT_CAUSAL_ENGINEERING",
+      "status": "ACTIVE",
+      "rules": [
+        "先追输入事实、权威读、前提闭包、冲突分量、线性化点、最小原子切口、effect 和外部观察，再修改代码",
+        "同一根第二次结构失败或出现补偿状态、fallback、换皮重试时，立即退出局部并做高视角根因",
+        "优先比较三类根：删除重复状态、用线性或 sealed capability 使非法状态不可表示、重新选择原子分解",
+        "每个新类型必须拥有唯一不可合并的证明义务；仅转译同一事实的 wrapper/carrier 必须合并或删除",
+        "每个任务/通道必须拥有独立生命周期或真实并发必要性；否则并回唯一权威切口",
+        "不为工具、协议、package 或局部族创建长期研究主线"
+      ],
+      "anti_patterns": [
+        "finding-shaped patch",
+        "每个 route 新机制",
+        "用最终审计兜底阶段质量",
+        "在局部反复撞墙",
+        "把 Rust 编译器能力外的命题继续用 wrapper 或 typestate 假装闭合"
+      ],
+      "resume_condition": "选中的根覆盖同类反例、退休旧机制、缩小或明确 TCB，并且没有普通全局串行、第二引擎、扫描或运行时修复"
+    },
+    {
+      "id": "PROOF_MODALITY_AND_EVIDENCE_BOUNDARY",
+      "status": "ACTIVE",
+      "modalities": {
+        "RUST_STATIC": "所有权、可见性、线性 capability、穷举匹配、谁能进入 Apply",
+        "SOURCE_BOUND_FORMAL": "可信函数体是否消费语义分量、派生账本是否守恒、命名 slice 的量化性质",
+        "FINITE_EXECUTABLE": "当前生产 slice 的确定性反例、属性测试、mutant 和有限见证",
+        "OPEN_CLASS": "架构成员关系、一般下界、attainment、outsider 和全局最优",
+        "INDEPENDENT_EMPIRICAL": "冻结 binary/workload/environment/noise 下的性能比较"
+      },
+      "rules": [
+        "测试、模型、checker 必须命名它证明的 claim 和量词域",
+        "绿 VERIFY 只证明包身份和自洽，不证明科学闭合",
+        "有限测试杀死漏写 mutant 是检测上界，不是一般 C",
+        "翻译器能抽出源码不是证明；不透明引理或第二语义模型不得冒充生产绑定",
+        "经验矩阵不能填补静态下界；静态冻结时必须公开保持 OPEN"
+      ]
+    },
+    {
+      "id": "FINDINGS_FIRST_GLOBAL_AUDIT",
+      "status": "ACTIVE",
+      "rules": [
+        "审计开始前冻结对象、目标、required views、证据阶梯、成功和失败谓词",
+        "先收集全部候选，不边发现边补丁",
+        "每个候选同时做局部放大和全局贯穿：生产者、消费者、观察、失败、资源、恢复、同类面",
+        "按一个权威事实、一个线性化点、一个外部观察归并根簇",
+        "Primary 独立复现或反驳每个阻断候选，并记录最强 counterexplanation",
+        "先写确定性无 sleep canary，再选最小 Rust-native 根；随机、Loom、Shuttle 或形式化只在确定性证据不足时升级",
+        "并发 canary 必须在真实生产 seam 用 channel/barrier 决定次序；timeout 只守卫挂死，wall-clock sleep、parking_lot deadlock detection 和概率触发均不能裁决活性",
+        "锁活性证据同时记录 LockClass、shard、mode 和 acquisition edge，先观察真实 writer intent 再触发 nested read，并对全局锁序 DAG 做结构检查",
+        "true-shard 资格必须让两个 disjoint ordinary production Apply 在任一方释放前都进入 final exact-shard cut；local helper 或稀有 lifecycle barrier 不算",
+        "每个根切片完成 focused gate 后再继续，不能把所有集成债推给最终总审"
+      ],
+      "nonclaims": [
+        "agent 或外部评审不是门禁",
+        "未发现问题不等于一般正确性",
+        "一轮审计不替代性能、最终安全或 reviewer acceptance"
+      ]
+    },
+    {
+      "id": "TEST_FAILURE_AND_GATE_DISCIPLINE",
+      "status": "ACTIVE",
+      "rules": [
+        "测试失败先分类为生产反例、旧合同过时、夹具错误、环境运输或未证歧义",
+        "只有旧命题被根因裁决为不再属于合同才改测试，否则修生产实现",
+        "fmt/check/clippy 或 warning 一次收集完整失败集，按公共根归并后一次修复",
+        "focused gate 在切片内运行；fmt/check/clippy 在集成身份各一次；完整 make test 和 make integration 只在拥有边界运行",
+        "源码身份不变不重复 aggregate gate；终端句柄丢失先核验结果而不是盲跑",
+        "cargo fmt --all 写格式；make fmt/check/clippy；focused cargo nextest；完整聚合直接 make test；不得先 quick-test；不得直接 cargo test/clippy"
+      ],
+      "known_scope": "light-client 与 tx-pool 无关；其独立失败不得成为 tx-pool 工作"
+    },
+    {
+      "id": "HIGH_VALUE_PARALLELISM",
+      "status": "ACTIVE",
+      "dispatch_test": [
+        "结果可能改变架构裁决或下一根",
+        "提供 Primary 当前推理外的独立信息或 fresh-eyes 反解释",
+        "可并行缩短关键路径且不制造同文件合并债",
+        "交付可由 commit/tree/command/canary/hash 重现",
+        "预期信息增益显著高于上下文传递和验收成本"
+      ],
+      "roles": {
+        "PRIMARY": "唯一全局计划、共享事实、代码集成、独立复现、两轴裁决、claim 更新和主仓权威",
+        "EXTERNAL_PARTNER": "独立长链审查、严格更小根、架构 counterdesign、reviewer 说服力和全局机会成本；不能是 gate 或 implementer",
+        "SUBAGENT": "同一冻结根上的正交深任务，例如 Rust 类型/生命周期、竞态/锁/回滚矩阵、复杂度/TCB、或隔离可执行原型",
+        "USER_EXTERNAL_REPORT": "中性输入；Primary 必须复现和裁决"
+      },
+      "forbidden": [
+        "用 Partner 或子 agent 做 lint、格式、机械检索",
+        "投票决定正确性",
+        "让所有 agent 重复同一视角",
+        "等待外部交付而停止 Primary 关键路径",
+        "把 agent 终端当完成"
+      ]
+    },
+    {
+      "id": "SUBTRACTIVE_MAXIMUM_ENGINEERING_EFFORT",
+      "status": "ACTIVE",
+      "rules": [
+        "优化先按预期全局收益、正确性杠杆和删除复杂度排序，不先磨边界热点",
+        "每个性能根优先寻找同时删除状态、交接、切口和代码的方案",
+        "每次裁决记录吞吐、CPU、延迟、authority cuts、任务唤醒、生产 LoC 和 TCB 变化",
+        "每个根比较同时记录 reviewer 需要理解的事实、状态和切口数量，以及一次语义修改的 change amplification 和长期维护面",
+        "只接受保持硬约束并在性能—复杂度上 Pareto 前进的改动；小幅无代价全正向层可吸收",
+        "大炮一旦选中必须榨干根因和合理变体，不能因一两个噪声场景轻易淘汰；也不能把高风险低收益方向当大炮",
+        "profiling、benchmark、Tokio tracing/console 是维护的开发组件，不是临时脚本；结果绑定 binary/workload/environment/noise",
+        "profiling 找不到杠杆时改用逻辑压缩、任务/通道拓扑、锁/缓存/分配、静态成本、数据布局和 reviewer complexity 视角",
+        "正确性和 integration 先于最终 benchmark；develop 能完成的降压场景必须比较，不能完成的高压 case 记录为反例而非伪造数字"
+      ],
+      "anti_patterns": [
+        "先堆优化最后清理",
+        "只追热点不看逻辑和 TCB",
+        "武断 CPU 或 LoC 上限",
+        "见一次负数就淘汰高价值方向",
+        "为 1% 边界扩大语义核"
+      ]
+    },
+    {
+      "id": "COLD_CONTINUITY_AND_HANDOFF",
+      "status": "ACTIVE",
+      "rules": [
+        "物质根先形成 immutable commit/tree 和必要 bundle，再创建 checkpoint",
+        "checkpoint 只保存一个 current root、精确哈希、验证结果、阻塞和下一动作",
+        "compact 或重启首读受限文件并冷验证，禁止加载全历史",
+        "handoff 必须面向任意 AI：明确读取 AGENTS、构建控制面、命令合同、方法、claim、证据、下一步和复现方式",
+        "新会话使用仓库内 handoff；外部临时目录消失时只按内容寻址材料恢复",
+        "任何中断前检查 live agent/process；未收齐结果要明确记为未完成义务，不能凭记忆补写"
+      ],
+      "success": "新会话只读仓库 handoff 并运行 verifier 后，得到与交接时相同的单一源码身份、claims、阻塞、纪律和下一动作"
+    }
+  ]
+}

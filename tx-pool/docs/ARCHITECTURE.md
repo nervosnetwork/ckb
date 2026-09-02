@@ -5,8 +5,8 @@
 This document describes the architecture implemented by the synchronized
 true-shard source base:
 
-- commit `73f58c6049ff2c64022ac4c995ec7c97a492eccc`;
-- tree `ab20485a4a074ec83e404afcb4f47ff82506117f`.
+- commit `51d282345d1d83119c46cdde8f1115f14561b4ac`;
+- tree `1e19719c764c7349a178d7ac0b7bf4999542966f`.
 
 It is an architecture reference, not live execution state or proof. The
 manifest-bound [`handoff/txpool-v8/`](handoff/txpool-v8/) directory owns the

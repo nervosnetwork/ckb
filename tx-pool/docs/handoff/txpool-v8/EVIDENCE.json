@@ -1,0 +1,133 @@
+{
+  "schema": "txpool-v8-handoff-evidence-v1",
+  "source": {
+    "commit_before_handoff_artifacts": "51d282345d1d83119c46cdde8f1115f14561b4ac",
+    "tree_before_handoff_artifacts": "1e19719c764c7349a178d7ac0b7bf4999542966f",
+    "branch": "zhangsoledad/txpool-true-shard-authority",
+    "main_sync": "SEMANTIC_MERGE_WITH_ORIGIN_DEVELOP_17D7DB5BB_ADJUDICATED_THEN_COMPRESSED_TO_ONE_ATOMIC_ARCHITECTURE_COMMIT"
+  },
+  "durable_pre_handoff": {
+    "checkpoint": 404,
+    "checkpoint_path": "/Users/zhangdingwei/.codex/state/txpool-v8/checkpoints/00000000000000000404",
+    "checkpoint_manifest_sha256": "1cd3ab10fa1a664bd941ee2e0fc46a1be1846f450c4be8f43bf11399ce4b7df3",
+    "checkpoint_verification": "PASS",
+    "true_shard_bundle_path": "/Users/zhangdingwei/.codex/state/txpool-v8/materials/true-shard-complete-73f58c604.bundle",
+    "true_shard_bundle_sha256": "ee2796daa448ef1540580084b50be32016ef77b3839567673c5e9d9a62f5bde4"
+  },
+  "gates_on_true_shard_identity": {
+    "cargo_fmt_all": "PASS",
+    "make_fmt": "PASS",
+    "make_check": "PASS_ALL_TARGETS_AND_FEATURES",
+    "make_clippy": "PASS_ALL_TARGETS_AND_FEATURES_WARNINGS_DENIED",
+    "tx_pool_all_feature_nextest": {
+      "result": "849_OF_849_PASS_ZERO_SKIPPED",
+      "run_id": "4a6be30d-3f54-4666-89e8-96ad53151372"
+    },
+    "integration": {
+      "result": "177_OF_177_PASS",
+      "source_binding": "PRODUCTION_EQUIVALENT_9cba1ba47bd071e42bc9ee10eb510b6fc92fc2b0;_LATER_COMMITS_TOUCH_INTERNAL_BENCHMARK_TEST_AND_TEARDOWN",
+      "elapsed_seconds": 315.662029959
+    },
+    "make_test": {
+      "result": "1884_OF_1885_PASS",
+      "run_id": "b3f91f80-fb37-4e16-8309-3d3819735daa",
+      "only_failure": "ckb-light-client-protocol-server::get_transactions_proof_with_missing_txs",
+      "classification": "OUT_OF_SCOPE_LIGHT_CLIENT_CLOSED_CHANNEL_FAILURE_NO_TX_POOL_EFFECT"
+    },
+    "workspace_without_light_client": {
+      "result": "1875_OF_1875_PASS_PLUS_5_OF_5_PROFILING_DEBUG_PASS",
+      "workspace_run_id": "6656686c-bd92-4cb8-b9fb-3bd81d6a0544",
+      "profiling_debug_run_id": "66951490-9dc0-4a4b-b22f-ed5024e2c72e"
+    }
+  },
+  "named_upheld_canaries": [
+    "PRODUCTION_DIRECT_ACCEPTANCE_FENCES_GENERATION_REPLACEMENT_UNTIL_COMMIT",
+    "DIRECT_ALL_NEW_COMMITS_WHILE_OUTER_READER_IS_HELD",
+    "DIRECT_DUPLICATE_AND_REJECTION_HOLD_EXACT_READ_FENCE_THROUGH_EFFECT_ACTIVATION",
+    "DIRECT_OWNER_INTERPOSITION_ROLLS_BACK_WITHOUT_PUBLICATION",
+    "DIRECT_FAST_PATH_IGNORES_EMPTY_GLOBAL_SCHEDULER_DOMAIN",
+    "SAME_VERSION_SOURCE_PROMOTION_COMMUTES_WITH_DIRECT_FINAL_ACCEPTANCE",
+    "REPLACEMENT_HISTORY_MAINTENANCE_STRICTLY_DECREASES",
+    "REPEATED_IDLE_TO_BURST_WAKE_COMPLETES_32_DISJOINT_BURSTS",
+    "BENCHMARK_TEARDOWN_DRAINS_THE_SOLE_RELAY_ENDPOINT_WHILE_JOINING_THE_DISPATCHER"
+  ],
+  "audit_material": {
+    "repository_audit_plan": "tx-pool/docs/handoff/txpool-v8/AUDIT_PLAN.json",
+    "repository_findings": "tx-pool/docs/handoff/txpool-v8/FINDINGS_LEDGER.json",
+    "external_first_pass_plan_path": "/Users/zhangdingwei/.codex/state/txpool-v8/materials/true-shard-global-terminal-audit-r1-73f58c604/AUDIT_PLAN.json",
+    "external_first_pass_plan_sha256": "73c20f0fa69b7c6676ddb23ed68f0bc66e063eaaa3caac9ad76428037a196a25",
+    "external_candidate_findings_path": "/Users/zhangdingwei/.codex/state/txpool-v8/materials/true-shard-global-terminal-audit-r1-73f58c604/CANDIDATE_FINDINGS.json",
+    "external_candidate_findings_sha256": "3882e6f24c2aaa91f7445e9720099ed25e6449bb9f7bd42bed4c0ad53af131b1"
+  },
+  "documentation_reconciliation": {
+    "classification": "DOCUMENT_CONTROL_AND_COMMENT_ONLY_NO_PRODUCTION_BEHAVIOR_CHANGE",
+    "architecture": "REBUILT_AS_CURRENT_73F58C604_TRUE_SHARD_REFERENCE_WITH_NINE_OPEN_TERMINAL_CANDIDATES",
+    "organization": "LIVE_CONTROL_IN_HANDOFF;_STABLE_ARCHITECTURE_VALIDATION_AND_MEASUREMENT_IN_DOCS;_HISTORICAL_EXPERIMENTS_IN_OPTIMIZATION_EVIDENCE",
+    "method_inheritance": "METHOD_LEDGER_AUDIT_PLAN_CONTROL_KERNEL_AND_OPERATING_SYSTEM_ARE_ALL_MANIFEST_BOUND_AND_VERIFIER_CHECKED",
+    "markdown_relative_links": "49_OF_49_RESOLVE",
+    "review_guide_current_nextest_discovery": "849_DISCOVERED;_294_DOCUMENTED_TXPOOL_SELECTORS;_ZERO_MISSING",
+    "documented_source_paths": "111_OF_111_EXIST",
+    "documented_rust_symbol_references": "229_OF_229_EXIST",
+    "json_parse": "15_OF_15_PASS_BEFORE_FINAL_MANIFEST_ADDITION",
+    "benchmark_profile_cli_help": "PASS",
+    "benchmark_profile_python_tests": "20_OF_20_PASS",
+    "format": "CARGO_FMT_ALL_AND_MAKE_FMT_PASS",
+    "diff_check": "PASS",
+    "structural_negative_canaries": "PASS"
+  },
+  "post_takeover_evidence": {
+    "handoff_takeover_verification": {
+      "result": "PASS_ON_CLEAN_HEAD_BEFORE_POST_TAKEOVER_ARTIFACT_EDITS",
+      "head": "0d553de760aa71a3b42dbc8f81f27ddcc775be4c",
+      "manifest_sha256": "6aeb101f5ed60252f4ee808345b3c6094d9c78b8c5fc54682aefc0499665807a"
+    },
+    "neutral_user_report": "tx-pool/docs/handoff/txpool-v8/USER_REPORT_VALIDATION.json",
+    "external_effect_focused_test": {
+      "command": "cargo nextest run -p ckb-tx-pool --lib -E test(=authority::tests::topology::uak_topology_bounds_one_stuck_callback_without_forbidding_persistence)",
+      "run_id": "0e04f09b-be6f-43f8-bfc7-7654ec43d478",
+      "result": "1_OF_1_PASS_843_SKIPPED",
+      "meaning": "POSITIVE_EVIDENCE_THAT_A_BLOCKED_CALLBACK_REMAINS_ALIVE_AFTER_EFFECT_DRAIN_AND_PERSISTENCE_ELIGIBLE_TOPOLOGY_SHUTDOWN;_NOT_CLOSURE"
+    },
+    "integration_pre_merge_baseline": {
+      "command": "make integration",
+      "binary_identity": "0d553de760aa71a3b42dbc8f81f27ddcc775be4c_RELEASE_WITH_DEADLOCK_DETECTION",
+      "result": "FAIL_66_PASS_1_FAIL_110_NOT_STARTED",
+      "failure": "RbfConcurrency: first tx_pool_info observation after five concurrent replacement RPCs became unreachable at approximately sixty seconds",
+      "standalone_replay": "1_OF_1_PASS_IN_1_628_SECONDS",
+      "four_spec_pressure_replay": "RbfConcurrency_SyncTimeout_GetBlocksTimeout_TransactionRelayTimeout_4_OF_4_PASS;_RBF_2_SECONDS",
+      "classification": "OPEN_ROOT_CAUSE;_GREEN_REPLAYS_DO_NOT_REFUTE_THE_FULL_SUITE_FAILURE;_SOURCE_CHAIN_IS_CONSISTENT_WITH_HELD_READ_ALL_PLUS_ROUTED_READ_C2_BUT_NOT_YET_DETERMINISTICALLY_PROVED",
+      "forbidden_response": "NO_RETRY_UNTIL_GREEN_NO_SLEEP_OR_TIMEOUT_INCREASE_NO_PARKING_LOT_DEADLOCK_DETECTION_AS_PROOF"
+    },
+    "develop_merge_and_history_compression": {
+      "develop": "17d7db5bb423a1b2177e14a132a41d5a91a515f3",
+      "verified_merge": "96ba84ce0fc4d61efdb265fb0713f804bb8a260f",
+      "compressed_subject": "51d282345d1d83119c46cdde8f1115f14561b4ac",
+      "production_architecture_comparison": "TX_POOL_SRC_SYNC_SRC_AND_VERIFICATION_PRODUCTION_IMPLEMENTATION_UNCHANGED_FROM_PRE_MERGE_TRUE_SHARD_BRANCH",
+      "develop_independent_fixes": "WORKFLOW_ONION_JEMALLOC_LIGHT_CLIENT_ASSUME_VALID_AND_PACKAGING_MATCH_ORIGIN_DEVELOP",
+      "retired_routes": "NO_POOL_MAP_PROCESS_VERIFY_QUEUE_OR_UNBOUNDED_TX_VERIFICATION_RESULT_CHANNEL_RETURNED",
+      "tree_equivalence": "PASS_FOR_EVERY_PATH_OUTSIDE_THIS_HANDOFF_IDENTITY_REFRESH",
+      "focused": "VERIFICATION_7_OF_7_SYNC_9_OF_9_RELAY_20_OF_20_PASS",
+      "make_check": "PASS_ALL_TARGETS_AND_FEATURES",
+      "make_clippy": "PASS_ALL_TARGETS_AND_FEATURES_WARNINGS_DENIED",
+      "integration": "OPEN_CONDITIONAL_INSTANCE_OF_HELD_SHARD_CUT_C2_NOT_RERUN_AS_A_GREEN_RETRY"
+    },
+    "ast_grep": {
+      "version": "0.45.2",
+      "uses": [
+        "PRODUCTION_APPLY_INSERT_AND_GROWTH_SURFACE_CENSUS",
+        "READ_ALL_CALL_CENSUS",
+        "SPAWN_BLOCKING_OWNER_CENSUS",
+        "READY_SLOT_TRANSITION_CENSUS",
+        "RBF_RPC_TO_MEMBERSHIP_DEPENDENCY_CALL_CHAIN"
+      ]
+    }
+  },
+  "evidence_boundary": [
+    "GREEN_GATES_PROVE_ONLY_THEIR_DISCOVERED_UNIVERSE",
+    "NO_AUDIT_BLOCKING_CANARY_HAS_YET_BEEN_RUN",
+    "SOURCE_BOUND_FINDINGS_REQUIRE_PRIMARY_DETERMINISTIC_REPRODUCTION_BEFORE_FIX",
+    "PRE_HANDOFF_GATES_DO_NOT_APPLY_TO_FUTURE_AUDIT_FIXES",
+    "NO_PERFORMANCE_WINNER_OR_FINAL_ACCEPTANCE_FOLLOWS_FROM_THIS_EVIDENCE",
+    "DOCUMENT_RECONCILIATION_DOES_NOT_CLOSE_A_TERMINAL_FINDING_OR_APPLY_OLD_GATES_TO_A_FUTURE_REPAIR"
+  ]
+}
