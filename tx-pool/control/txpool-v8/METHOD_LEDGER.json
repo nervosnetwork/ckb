@@ -5,6 +5,21 @@
   "primary_steward": "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER",
   "language": "zh-CN",
   "update_rule": "方法只有在实际执行并被证据验证后才能保留；每次修改必须同时删除、合并或替代失效方法，禁止补丁雪球",
+  "evolution_cycle": {
+    "cadence": "每个 root slice 在 terminalize 前做一次轻量复盘；无可迁移增量时明确 NO_METHOD_DELTA，不为复盘而制造文档",
+    "questions": [
+      "哪项证据真正改变了根或 next action，哪项活动只有工具忙碌没有信息增益",
+      "哪条误路、重复扫描、重复编译或 observer effect 可以被机械消除",
+      "本切片学到的是一次性事实、same-class tactic，还是可跨根复用的 stable method",
+      "新规则是否替代、合并或删除已有规则，是否会增加 reviewer 与恢复成本"
+    ],
+    "dispositions": {
+      "ADOPT": "至少两个独立 stage 或一项强反设计加生产证据支持的可迁移新方法",
+      "MERGE_OR_REPLACE": "新经验校正已有规则时只保留更精确的单一版本",
+      "REJECT_OR_NO_METHOD_DELTA": "一次性事实、未复现建议、agent 投票、单个绿测试或没有信息增益的活动不进入方法账本"
+    },
+    "verification": "方法变化必须进入稳定 control kernel 或本账本的唯一所属层，机械重建 method identity/projections，运行 structural negative canaries，并且不得改写 live root、claim 或 next action"
+  },
   "methods": [
     {
       "id": "SOURCE_AND_STATE_AUTHORITY",
@@ -68,14 +83,24 @@
       "rules": [
         "审计开始前冻结对象、目标、required views、证据阶梯、成功和失败谓词",
         "先收集全部候选，不边发现边补丁",
-        "每个候选同时做局部放大和全局贯穿：生产者、消费者、观察、失败、资源、恢复、同类面",
+        "每个候选先钉局部生产者、消费者和外部观察，再从真实 production entrypoint 机械派生调用图，并枚举 route × cardinality 等价类 × stage × competing mutation；必须分离 production 与 cfg(test) 路径，任何未枚举轴都禁止宣称高视角或选择根",
         "按一个权威事实、一个线性化点、一个外部观察归并根簇",
         "Primary 独立复现或反驳每个阻断候选，并记录最强 counterexplanation",
-        "先写确定性无 sleep canary，再选最小 Rust-native 根；随机、Loom、Shuttle 或形式化只在确定性证据不足时升级",
+        "在修改生产代码前，把同根错误机械分类为 STRUCTURAL_CONTRADICTION、TYPED_PRESTATE_MISMATCH 或 SUBSYSTEM_STALE；只有 typed prestate mismatch 可由精确 sealed source receipt 重分类，稳定 receipt 下的矛盾必须保持 fault",
+        "先写确定性无 sleep parent-red canary；并发根的参数化 production-bound matrix 必须覆盖冻结的 route × cardinality × stage × competing mutation 等价类，并保留稳定矛盾 fault 负控与最终 Apply freshness/OCC 正交检查；随机、Loom、Shuttle 或形式化只在确定性证据不足时升级",
+        "重复失效、错误跨 subsystem 迁移或反例来自未枚举维度时，撤销当前根选择并做 frozen-source fresh-eyes counterdesign；比较最小 Rust-native root 与强替代后才实施，且强替代至少包含一个删除整个优化、route 或状态层的减法候选",
+        "同根机械修改合并为一个 coherent batch，每个 Cargo graph 身份只编译一次再跑 named matrix；禁止按第一个 surfaced error 逐项编译和补丁",
+        "根的退出条件在实现前固定为：全部冻结 stage、稳定 fault 负控、最终 freshness/OCC、same-class AST/符号扫描和 affected focused gate 均通过；达到条件立即 terminalize，不把该根扩展成无界复审",
         "并发 canary 必须在真实生产 seam 用 channel/barrier 决定次序；timeout 只守卫挂死，wall-clock sleep、parking_lot deadlock detection 和概率触发均不能裁决活性",
         "锁活性证据同时记录 LockClass、shard、mode 和 acquisition edge，先观察真实 writer intent 再触发 nested read，并对全局锁序 DAG 做结构检查",
         "true-shard 资格必须让两个 disjoint ordinary production Apply 在任一方释放前都进入 final exact-shard cut；local helper 或稀有 lifecycle barrier 不算",
         "每个根切片完成 focused gate 后再继续，不能把所有集成债推给最终总审"
+      ],
+      "validated_by": [
+        "C2 writer-first parent red run 64ca6d06-4da8-4643-8a2b-8926bce51168 exposed the first dependency-stage symptom after the lock cycle was removed",
+        "C2 typed receipt green run ffdcfbb7-71a8-4fbf-b459-675495ba4f5b and five-stage matrix run 4a780184-7f28-4652-9259-1b13684232f5",
+        "Independent frozen-source receipt-root review rejected broad fault-to-stale remapping and exact-cut-through-compile, and required stable-contradiction fault controls",
+        "Focused run c4c24da6-84f0-4836-a585-b5cb59b93012 passed singleton stages but failed multi-member leaf-RBF, proving that a stage-only matrix and implementation-local root view were insufficient"
       ],
       "nonclaims": [
         "agent 或外部评审不是门禁",
@@ -124,17 +149,26 @@
       "id": "SUBTRACTIVE_MAXIMUM_ENGINEERING_EFFORT",
       "status": "ACTIVE",
       "rules": [
-        "优化先按预期全局收益、正确性杠杆和删除复杂度排序，不先磨边界热点",
-        "每个性能根优先寻找同时删除状态、交接、切口和代码的方案",
+        "核心裁决词元是‘代价——必要？’：代价只有被 CKB 义务、已复现反例、true-shard overlap 或冻结经验收益证明时才可进入候选",
+        "先建立必要义务闭包，再比较能端到端覆盖闭包的完整 mechanism-cluster candidate；成本账本不能按文件或类型逐项找保留理由",
+        "显式计入 route 边界、adapter、事实转译、error remap、receipt merge、test-only 第二引擎和 reviewer cognition 的 composition tax，禁止先拆碎再拼装",
+        "develop 是成本基线而非正确性模板；比较必须区分 production、test、benchmark/profile 与 docs/control，并绑定 commit/tree",
+        "优化先按预期全局收益、正确性杠杆和删除复杂度排序；每个切片完整替换 entry→policy→plan→support→Apply→effects 纵向 route，不先磨边界热点",
+        "每个性能根优先寻找同时删除状态、交接、切口和代码的方案；optional optimization 必须支付可重复、可归因、超出冻结噪声包络的 performance rent",
         "每次裁决记录吞吐、CPU、延迟、authority cuts、任务唤醒、生产 LoC 和 TCB 变化",
         "每个根比较同时记录 reviewer 需要理解的事实、状态和切口数量，以及一次语义修改的 change amplification 和长期维护面",
         "只接受保持硬约束并在性能—复杂度上 Pareto 前进的改动；小幅无代价全正向层可吸收",
         "大炮一旦选中必须榨干根因和合理变体，不能因一两个噪声场景轻易淘汰；也不能把高风险低收益方向当大炮",
-        "profiling、benchmark、Tokio tracing/console 是维护的开发组件，不是临时脚本；结果绑定 binary/workload/environment/noise",
+        "先用成熟工具覆盖编译器外的命题：rust-analyzer/ast-grep、Kani/Miri、Loom/Shuttle/TSan、llvm-lines/bloat、llvm-cov、targeted mutants 与固定 binary A/B；只有 repo 独有回流约束才允许最小 checker，禁止自造通用分析框架",
+        "profiling、benchmark、Tokio tracing/console 是维护的开发组件，不是临时脚本；结果绑定 binary/workload/environment/router-layout/noise，并先用 same-binary A/A 冻结经验等价包络",
         "profiling 找不到杠杆时改用逻辑压缩、任务/通道拓扑、锁/缓存/分配、静态成本、数据布局和 reviewer complexity 视角",
         "正确性和 integration 先于最终 benchmark；develop 能完成的降压场景必须比较，不能完成的高压 case 记录为反例而非伪造数字"
       ],
       "anti_patterns": [
+        "逐文件或逐类型必要性投票",
+        "先删除零件最后拼系统",
+        "optional optimization 无冻结性能租金",
+        "已有成熟工具时自造分析框架",
         "先堆优化最后清理",
         "只追热点不看逻辑和 TCB",
         "武断 CPU 或 LoC 上限",

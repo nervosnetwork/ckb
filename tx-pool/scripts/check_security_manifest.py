@@ -198,6 +198,8 @@ AUTHORITIES = [
     "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json",
     "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md",
     "tx-pool/control/txpool-v8/CONTEXT_LOAD_POLICY.json",
+    "tx-pool/control/txpool-v8/METHOD_LEDGER.json",
+    "tx-pool/control/txpool-v8/OPERATING_SYSTEM.md",
     "tx-pool/control/txpool-v8/VERIFY_STATE.py",
     "tx-pool/scripts/check_security_manifest.py",
     "tx-pool/scripts/check_all.py",
@@ -599,9 +601,21 @@ def todo(state, audit):
         f"- 目标：{cut['objective']}",
         f"- 停止：{cut['stop']}",
         "",
-        "## 当前根簇",
+        "## 当前切片退出清单",
         "",
     ]
+    lines.extend(f"- [ ] `{output}`" for output in cut["required_output"])
+    lines.extend(
+        [
+            "",
+            "## 当前轮次边界",
+            "",
+            f"- 状态：`{audit['round']['status']}`",
+            f"- 路线：`{audit['round']['frontier']}`",
+            "",
+        ]
+    )
+    lines.extend(["## 当前根簇", ""])
     for cluster_state in audit["cluster_states"]:
         marker = "→" if cluster_state["id"] == cut["cluster"] else " "
         lines.append(
@@ -614,7 +628,8 @@ def todo(state, audit):
             "",
             f"- PR：{state['parallel_pr_track']['status']}",
             f"- 当前 phase：`{state['current_phase']}`",
-            "- [ ] 当前 census 闭合后才运行完整 integration 和 fresh-eyes rounds。",
+            "- [ ] 仅当 live next action 明确命名时，root 后运行一次 observational integration；其结果只形成证据。",
+            "- [ ] 当前 census 闭合后仍须运行最终 identity 的完整 integration 和 fresh-eyes rounds。",
             "- [ ] terminal exit 后才进入 hard/static；performance、final security、Acceptance 不提前。",
             "",
             "## 非进度",

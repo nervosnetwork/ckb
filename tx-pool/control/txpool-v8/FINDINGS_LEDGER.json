@@ -2,7 +2,7 @@
   "schema": "txpool-v8-global-terminal-findings-v1",
   "subject_commit": "51d282345d1d83119c46cdde8f1115f14561b4ac",
   "subject_tree": "1e19719c764c7349a178d7ac0b7bf4999542966f",
-  "discipline": "NEUTRAL_INPUTS_PRIMARY_REPRODUCES;_NO_PRODUCTION_PATCH_HAS_BEEN_MADE_FOR_THESE_FINDINGS",
+  "discipline": "NEUTRAL_INPUTS_PRIMARY_REPRODUCES;_TERMINAL_DISPOSITIONS_ARE_FROZEN;_THE_UNCOMMITTED_C2_EXPERIMENT_IS_NOT_A_FIX_OR_SOURCE_IDENTITY_AND_ITS_LOCAL_ROOT_HAS_BEEN_WITHDRAWN",
   "cluster_census": [
     "READY_HEAD_RESERVATION_CONSERVATION",
     "DEPENDENCY_ACTUAL_COMMIT_FRESHNESS",
@@ -25,6 +25,7 @@
       "READY_HEAD_PEER_REVOCATION_RESERVATION"
     ],
     "strongest_counterexplanation_recorded": [
+      "RECURSIVE_READ_UNDER_ALL_SHARD_CUT",
       "TEMPLATE_SOURCE_CHECK_ESCAPES_BEFORE_PUBLICATION",
       "FULL_POOL_QUERY_AND_PERSISTENCE_GUARD_POPULATION_WORK",
       "EXTERNAL_BLOCKING_EFFECT_ESCAPES_TOPOLOGY_LIFECYCLE",
@@ -33,7 +34,6 @@
     "strongest_counterexplanation_pending": [
       "READY_HEAD_PEER_REVOCATION_RESERVATION",
       "DEPENDENCY_SEQUENCE_IS_NOT_COMMITTED_PREFIX",
-      "RECURSIVE_READ_UNDER_ALL_SHARD_CUT",
       "EXCLUSIVE_POLICY_READER_UNDER_SHARED_BARRIER",
       "CHAIN_RECEIPT_NOT_STABLE_AGAINST_ORDINARY_COMMITS",
       "CLEAR_POOL_STALE_CALLER_SNAPSHOT",
@@ -79,7 +79,7 @@
     {
       "id": "RECURSIVE_READ_UNDER_ALL_SHARD_CUT",
       "cluster": "HELD_SHARD_CUT_AND_POLICY_READ_COHERENCE",
-      "status": "INDEPENDENT_SOURCE_CONFIRMED_PRIMARY_SOURCE_CONFIRMED_CANARY_PENDING",
+      "status": "UPHELD_PRIMARY_DETERMINISTIC_RED_CANARY;_LOCAL_RECEIPT_ROOT_WITHDRAWN;_PRESERVED_FOR_CURRENT_ARCHITECTURE_MINIMUM_AND_LATER_FRESH_TERMINAL_AUDIT",
       "claim": "Planning retains ShardedOwnerReadCut over all fair shard locks then calls routed dependency, spender or entry reads that reacquire the same locks; a queued writer can make the recursive read wait behind itself",
       "source": [
         "tx-pool/src/authority/shard.rs:2496-2505",
@@ -96,7 +96,7 @@
     {
       "id": "EXCLUSIVE_POLICY_READER_UNDER_SHARED_BARRIER",
       "cluster": "HELD_SHARD_CUT_AND_POLICY_READ_COHERENCE",
-      "status": "INDEPENDENT_SOURCE_CONFIRMED_PRIMARY_SOURCE_CONFIRMED_CANARY_PENDING",
+      "status": "PRIMARY_AND_INDEPENDENT_SOURCE_CONFIRMED_ACROSS_SINGLETON_MULTI_MEMBER_AND_PRODUCTION_READY_WAVE_ROUTES;_DETERMINISTIC_ORDINARY_INTERPOSITION_PENDING_IN_CURRENT_MINIMUM_ROOT",
       "claim": "PolicyContext ExclusiveMode performs separate point reads and returns a disabled witness while callers now hold only the shared outer barrier; concurrent removal can convert ordinary competition into MembershipProjection generation invalidity",
       "source": [
         "tx-pool/src/authority/plan/membership/policy.rs:52-83",
