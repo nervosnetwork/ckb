@@ -181,6 +181,8 @@
         ],
         "test_only_engine": "COMPOSITE_LEAF_RBF_APPLY_EXISTS_ONLY_THROUGH_CFG_TEST_EXCLUSIVE_PLAN",
         "withdrawn_uncommitted_experiment": {
+          "git_ref": "refs/codex/txpool-v8-withdrawn-c2-receipt-experiment",
+          "git_commit": "b47fb23f972028d6f61c53f60c6834cdcc96f698",
           "authority_diff_blob": "d1f387e0fa27ce3963c1e64f9b2644becc0716c8",
           "diffstat": "+1072_-280",
           "role": "CONTENT_ADDRESSED_EXPERIMENTAL_EVIDENCE_NOT_SOURCE_IDENTITY_OR_SELECTED_FIX"

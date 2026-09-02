@@ -99,6 +99,9 @@
     "pre_inheritance_ref": "refs/codex/txpool-v8-pre-inheritance",
     "pre_squash_verified_merge": "96ba84ce0fc4d61efdb265fb0713f804bb8a260f",
     "archive_head": "0d553de760aa71a3b42dbc8f81f27ddcc775be4c",
+    "withdrawn_c2_experiment_ref": "refs/codex/txpool-v8-withdrawn-c2-receipt-experiment",
+    "withdrawn_c2_experiment_commit": "b47fb23f972028d6f61c53f60c6834cdcc96f698",
+    "withdrawn_c2_authority_diff_blob": "d1f387e0fa27ce3963c1e64f9b2644becc0716c8",
     "rule": "GIT_COMMIT_TREE_AND_VERIFIER_ARE_THE_RECOVERY_CUT;_EXTERNAL_BUNDLES_ARE_EVIDENCE_ONLY"
   },
   "not_completed": [

@@ -81,12 +81,12 @@
       "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json": "0732a2073480d678877cb1b487e3cd8eef56df831b3f01b770ac121554a6bf43",
       "tx-pool/control/txpool-v8/METHOD_LEDGER.json": "21c09110d7b80600cb8ad62a998789a0cbf2209606843ee7132bb39124404993",
       "tx-pool/control/txpool-v8/OPERATING_SYSTEM.md": "90234434b27f0e2449cd86f775649211d1df2e58dab62a887f9035ba6dea3544",
-      "tx-pool/control/txpool-v8/STATE.json": "fced2e455f6aae6654c1e3cea8ea031578788cf572105b91820f0bd6244d59fe",
+      "tx-pool/control/txpool-v8/STATE.json": "118e77473ee6e7b71c64e5998cd29d93a9c3b2a567f828eef17d4c18bbb9ead0",
       "tx-pool/control/txpool-v8/VERIFY_STATE.py": "8747348769778fdf629b925adea3ef4efea8ef5ea870d231314c369b1d2da892",
       "tx-pool/scripts/check_all.py": "841b86fb65208f24f4765c29d62fd4514de50724078a9b82dee3c756e938f2a9",
       "tx-pool/scripts/check_security_manifest.py": "7283eb09d45e40323b4c26d4101b1ffcc11743a4b5d01ee35df28ca03b933928"
     },
-    "bundle_sha256": "aa2f921603f7356c5f82a8f1d2f9ee2d5a3c6cbde6749958225220d4951c2fe2",
+    "bundle_sha256": "1679f843781bc3b7f46b42e108370407761b88e6824055d347d8ddde4ec5d2dd",
     "contract_sha256": "3bcd6e6ba918f2f91d26ed7fff2b9b1e4c4b535172ab58c60639960b7ab01ad1",
     "method_id": "txpool-production-architecture-v5"
   },
