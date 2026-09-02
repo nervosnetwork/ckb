@@ -4,7 +4,7 @@ Profiling is a maintained, feature-gated development component. It attributes
 cost in one exact source, binary, workload and host identity. It does not prove
 correctness, a static lower bound, product dominance or the global goal.
 
-The manifest-bound `docs/handoff/txpool-v8/` state currently places the source
+The manifest-bound `control/txpool-v8/` state currently places the source
 in terminal correctness/root repair. Historical captures and the entry points
 below remain maintained, but no result is a current winner and no new final
 comparison may run before a repaired identity and result-before-frozen contract

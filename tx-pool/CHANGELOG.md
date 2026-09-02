@@ -3,7 +3,7 @@
 Current Unreleased work inherits the objective and hard constraints in
 [`architecture-contract.json`](architecture-contract.json). Live phase,
 source identity, open findings and next action are owned only by the
-manifest-bound [`docs/handoff/txpool-v8/`](docs/handoff/txpool-v8/) control
+manifest-bound [`control/txpool-v8/`](control/txpool-v8/) control
 state. The entries below are external change history; they neither redefine
 the objective nor prove that a synchronized implementation has passed terminal
 correctness, performance, security or Acceptance.

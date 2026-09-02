@@ -38,7 +38,7 @@
 
 ## 四、已裁决条目
 
-本节保留每项裁决形成时的源码身份、checkpoint 和“当前处理”快照，用于说明决策来源，不充当当前执行状态。当前主仓吸收情况统一以第九节为准；发生冲突时，第九节和仓库内 manifest-bound handoff 优先。
+本节保留每项裁决形成时的源码身份、checkpoint 和“当前处理”快照，用于说明决策来源，不充当当前执行状态。当前主仓吸收情况统一以第九节为准；发生冲突时，第九节和仓库内 `STATE.json` 优先。
 
 ### CKB-AUTH-0001：relay 邮箱溢出时，旧的精确结果是否必须丢弃
 
@@ -536,7 +536,7 @@ CKB-VM 的 cycles 是共识执行成本单位，但它不保证与节点实际�
 
 采用“完成真实 shard”，回退单锁不再是允许的后继：
 
-1. `TRUE_SHARD_APPLY_COMPLETION_R1` 是该裁决形成时的唯一工程根（历史快照；当前根见第九节与 handoff）。
+1. `TRUE_SHARD_APPLY_COMPLETION_R1` 是该裁决形成时的唯一工程根（历史快照；当前根见第九节与 `STATE.json`）。
 2. 外层 `AuthorityStoreLock` 最终只承担 ordinary commit 的 shared
    chain/generation barrier，以及 chain/generation replacement 的 exclusive
    barrier；不得继续串行普通独立 mutation。
@@ -566,7 +566,7 @@ CKB-VM 的 cycles 是共识执行成本单位，但它不保证与节点实际�
 | `status` | `VERIFIED_AND_ABSORBED` |
 | 所属子系统 | `CKB_TX_POOL_TRUE_SHARD_PRODUCTION_COMMIT_ARCHITECTURE` |
 | 影响面 | tx-pool 内部提交拓扑、静态独立性、性能与复杂度；不修改共识、VM、wire、公开 API 或持久化格式 |
-| 当时唯一根（历史快照） | `TRUE_SHARD_APPLY_COMPLETION_R1`；当前根见第九节与 handoff |
+| 当时唯一根（历史快照） | `TRUE_SHARD_APPLY_COMPLETION_R1`；当前根见第九节与 `STATE.json` |
 | 禁止后继 | 回退单锁、保留永久半迁移、第二语义引擎、用 test-only overlap 冒充生产迁移 |
 | 允许的迁移 | 重构现有唯一 Apply 根表示；引入有删除期限的必要中间结构；最终收缩过渡 TCB |
 | 当前生产基座 | `eb9b9d9180d3ec1cc8d46614edb819a258d49258` / tree `000a3cef8c9d92127f8b0dfb526402ef0d47da58` |
@@ -703,4 +703,12 @@ owner shard commit 完成后将其无失败激活。
 
 终审轮次按用户新增的工程裁定执行：先闭合当前冻结 census，再以 `make integration` 观察外部行为；若失败，只增加 test-gated、事件驱动且不改变锁序的 causal observability。随后每个新冻结 identity 至少进行一个不预读旧 findings 的 fresh-eyes delta round，由 Primary 在独立输出后归并。只有连续两轮均无新 upheld terminal 根、无新 production-bound 失败 canary、无更小根或未付复杂度，且 terminal canary、integration 与 aggregate gates 保持通过，才认定达到边际审计价值边界并进入下一阶段。
 
-当前精确状态、发现、方法和下一动作由同目录 `HANDOFF.json`、`CONTROL_KERNEL.json`、`FINDINGS_LEDGER.json` 与 `AUDIT_PLAN.json` 共同组成，并由 `MANIFEST.json` 绑定。账本只拥有用户/项目权威输入，不拥有源码事实或终审结论。
+长期工程角色由用户明确为：**对 G0 负责的 Primary 工程负责人**。Primary 必须把上述
+裁决内化为工作选择、证据裁决、源码集成、子 agent 纠偏、reviewer 成本和持续推进的
+责任；repository project state 只保存 cold recovery 所需的最小 live state，不能替代 Primary
+判断，也不能把恢复仪式升级成项目目标。控制面本身服从“一个事实一个权威、删除重复
+状态、只在物质边界持久化”的同一架构纪律。
+
+当前 identity、phase、root 与下一原子动作只由 `STATE.json` 拥有；当前 round 只由
+`AUDIT_PLAN.json` 拥有；候选细节由 `FINDINGS_LEDGER.json` 拥有；稳定执行纪律由
+`CONTROL_KERNEL.json` 拥有。账本只拥有用户/项目权威输入，不拥有源码事实或终审结论。

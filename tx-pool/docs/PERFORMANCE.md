@@ -3,7 +3,7 @@
 Stable objective and hard constraints come from
 [`architecture-contract.json`](../architecture-contract.json); current phase,
 source and blockers come only from the manifest-bound
-[`handoff/txpool-v8/`](handoff/txpool-v8/) state. This document owns maintained
+[`control/txpool-v8/`](../control/txpool-v8/) state. This document owns maintained
 performance definitions and historical evidence, not a current winner.
 Immutable binaries may compete only after terminal correctness and a new
 result-before-frozen candidate generation. Measurements cannot relax a hard
@@ -273,7 +273,7 @@ exchange** among the evaluated alternatives. The production implementation
 retained that mechanism where its source-bound obligations still apply. This
 section is historical design evidence, not a current normative selection or a
 claim that the present terminal blockers are closed; the architecture contract,
-manifest-bound handoff and current source take precedence.
+repository-owned project state and current source take precedence.
 
 For homogeneous independent work, the frozen pre-I2 baseline, the I2
 checkpoint and the implemented I3 static contract are:

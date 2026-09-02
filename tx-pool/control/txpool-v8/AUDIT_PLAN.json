@@ -1,0 +1,70 @@
+{
+  "schema": "txpool-v8-active-terminal-audit-v4",
+  "role": "SOLE_LIVE_CLUSTER_STATUS_AND_ROUND_GATE_PLAN;_STATE_OWNS_IDENTITY_PHASE_ROOT_CENSUS_AND_NEXT_ACTION",
+  "state_ref": "STATE.json",
+  "execution_kernel_ref": "CONTROL_KERNEL.json#execution_kernel",
+  "round": {
+    "id": "TERMINAL_R1_FROZEN_CENSUS",
+    "status": "EXECUTING_ONE_CLUSTER_AT_A_TIME",
+    "frontier": "COLLECTION_AND_CLUSTERING_COMPLETE;_PRIMARY_REPRODUCTION_AND_COUNTEREXPLANATIONS_PARTIAL;_NO_AUDIT_ROOT_REPAIR_IMPLEMENTED"
+  },
+  "cluster_states": [
+    {
+      "id": "HELD_SHARD_CUT_AND_POLICY_READ_COHERENCE",
+      "status": "ACTIVE_STATE_NEXT_ACTION;_POLICY_COHERENCE_CANARY_PENDING",
+      "next_evidence": "C2_RBF_CAUSAL_DISCRIMINATOR_R1"
+    },
+    {
+      "id": "COHERENT_QUERY_CAPTURE_WITHOUT_POPULATION_WORK_UNDER_AUTHORITY_GUARDS",
+      "status": "SOURCE_CONFIRMED_CANARY_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "REUSE_THE_ACTIVE_ROOT_LOCK_READ_RECEIPT_INFRASTRUCTURE_AFTER_IT_TERMINALIZES"
+    },
+    {
+      "id": "CHAIN_SOURCE_FENCE",
+      "status": "SOURCE_CONFIRMED_CANARIES_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "CHAIN_RECEIPT_INTERPOSITION_AND_TEMPLATE_PUBLICATION_SOURCE_FENCE"
+    },
+    {
+      "id": "ORDERED_CHAIN_CONTROL_DRAIN_AND_CLEAR_INTENT",
+      "status": "SOURCE_CONFIRMED_CANARIES_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "EXECUTION_TIME_CLEAR_INTENT_AND_SEAL_CLOSE_DRAIN_RECEIPT"
+    },
+    {
+      "id": "DEPENDENCY_ACTUAL_COMMIT_FRESHNESS",
+      "status": "SOURCE_CONFIRMED_CANARY_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "REVERSE_COMPLETION_ACTUAL_COMMIT_OBSERVATION"
+    },
+    {
+      "id": "READY_HEAD_RESERVATION_CONSERVATION",
+      "status": "PRIMARY_REPRODUCTION_COUNTEREXPLANATION_CANARY_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "MALFORMED_HEAD_STRONGER_READY_INTERPOSITION"
+    },
+    {
+      "id": "POST_OWNER_PROJECTION_ALLOCATION_AND_APPLY_INFALLIBILITY",
+      "status": "SOURCE_AND_SAME_CLASS_SURFACES_CONFIRMED_UNIFIED_CANARY_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "POST_FIRST_OWNER_WRITE_ALLOCATION_AND_DEALLOCATION_AUDIT"
+    },
+    {
+      "id": "EXTERNAL_EFFECT_OPERATION_LIFECYCLE_AND_TERMINAL_KNOWLEDGE",
+      "status": "SOURCE_AND_POSITIVE_DYNAMIC_EVIDENCE_CONFIRMED_DETERMINISTIC_CANARY_AND_ROOT_COMPARISON_PENDING",
+      "next_evidence": "BLOCKED_CALLBACK_LATE_SIDE_EFFECT_AFTER_TOPOLOGY_SHUTDOWN"
+    }
+  ],
+  "known_integration_observation": {
+    "identity": "0d553de760aa71a3b42dbc8f81f27ddcc775be4c",
+    "result": "FAIL_RBF_CONCURRENCY_AFTER_66_PASS_110_NOT_STARTED",
+    "classification": "OPEN_CONDITIONAL_INSTANCE_OF_HELD_SHARD_CUT_C2;_STANDALONE_AND_FOUR_SPEC_REPLAYS_PASS",
+    "forbidden": "NO_FLAKE_DISMISSAL_NO_RETRY_UNTIL_GREEN_NO_TIMEOUT_INCREASE_NO_DEADLOCK_DETECTOR_AS_PROOF"
+  },
+  "round_gates": {
+    "active_root_focused": "PENDING",
+    "targeted_rbf_after_active_root": "PENDING_IF_C2_IS_UPHELD_AND_REPAIRED",
+    "fmt_check_clippy_integration_after_all_cluster_states_terminal": "PENDING",
+    "blind_full_fresh_eyes": "NOT_STARTED",
+    "independent_delta_confirmation": "NOT_STARTED",
+    "make_test_checker_diff_on_final_terminal_identity": "NOT_STARTED"
+  },
+  "fresh_eyes_policy_ref": "CONTROL_KERNEL.json#fresh_eyes",
+  "terminal_exit_contract_ref": "tx-pool/architecture-contract.json#/phase_order",
+  "terminal_exit_status": "BLOCKED_BY_OPEN_CLUSTER_STATES_AND_ROUND_GATES"
+}

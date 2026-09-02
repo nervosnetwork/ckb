@@ -52,15 +52,15 @@
     "BENCHMARK_TEARDOWN_DRAINS_THE_SOLE_RELAY_ENDPOINT_WHILE_JOINING_THE_DISPATCHER"
   ],
   "audit_material": {
-    "repository_audit_plan": "tx-pool/docs/handoff/txpool-v8/AUDIT_PLAN.json",
-    "repository_findings": "tx-pool/docs/handoff/txpool-v8/FINDINGS_LEDGER.json",
+    "repository_audit_plan": "tx-pool/control/txpool-v8/AUDIT_PLAN.json",
+    "repository_findings": "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json",
     "external_first_pass_plan_path": "/Users/zhangdingwei/.codex/state/txpool-v8/materials/true-shard-global-terminal-audit-r1-73f58c604/AUDIT_PLAN.json",
     "external_first_pass_plan_sha256": "73c20f0fa69b7c6676ddb23ed68f0bc66e063eaaa3caac9ad76428037a196a25",
     "external_candidate_findings_path": "/Users/zhangdingwei/.codex/state/txpool-v8/materials/true-shard-global-terminal-audit-r1-73f58c604/CANDIDATE_FINDINGS.json",
     "external_candidate_findings_sha256": "3882e6f24c2aaa91f7445e9720099ed25e6449bb9f7bd42bed4c0ad53af131b1"
   },
   "documentation_reconciliation": {
-    "classification": "DOCUMENT_CONTROL_AND_COMMENT_ONLY_NO_PRODUCTION_BEHAVIOR_CHANGE",
+    "classification": "HISTORICAL_PRE_INHERITANCE_DOCUMENT_CONTROL_PASS_NO_PRODUCTION_BEHAVIOR_CHANGE",
     "architecture": "REBUILT_AS_CURRENT_73F58C604_TRUE_SHARD_REFERENCE_WITH_NINE_OPEN_TERMINAL_CANDIDATES",
     "organization": "LIVE_CONTROL_IN_HANDOFF;_STABLE_ARCHITECTURE_VALIDATION_AND_MEASUREMENT_IN_DOCS;_HISTORICAL_EXPERIMENTS_IN_OPTIMIZATION_EVIDENCE",
     "method_inheritance": "METHOD_LEDGER_AUDIT_PLAN_CONTROL_KERNEL_AND_OPERATING_SYSTEM_ARE_ALL_MANIFEST_BOUND_AND_VERIFIER_CHECKED",
@@ -81,7 +81,7 @@
       "head": "0d553de760aa71a3b42dbc8f81f27ddcc775be4c",
       "manifest_sha256": "6aeb101f5ed60252f4ee808345b3c6094d9c78b8c5fc54682aefc0499665807a"
     },
-    "neutral_user_report": "tx-pool/docs/handoff/txpool-v8/USER_REPORT_VALIDATION.json",
+    "neutral_user_report": "tx-pool/control/txpool-v8/USER_REPORT_VALIDATION.json",
     "external_effect_focused_test": {
       "command": "cargo nextest run -p ckb-tx-pool --lib -E test(=authority::tests::topology::uak_topology_bounds_one_stuck_callback_without_forbidding_persistence)",
       "run_id": "0e04f09b-be6f-43f8-bfc7-7654ec43d478",
@@ -110,6 +110,27 @@
       "make_check": "PASS_ALL_TARGETS_AND_FEATURES",
       "make_clippy": "PASS_ALL_TARGETS_AND_FEATURES_WARNINGS_DENIED",
       "integration": "OPEN_CONDITIONAL_INSTANCE_OF_HELD_SHARD_CUT_C2_NOT_RERUN_AS_A_GREEN_RETRY"
+    },
+    "primary_control_inheritance": {
+      "clean_cut": "33c7b1b26332d039914496ad3e0efef284e8c600",
+      "recovery_ref": "refs/codex/txpool-v8-pre-inheritance",
+      "primary_role": "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER",
+      "independent_reviews": [
+        "CONTROL_PLANE_MINIMALITY",
+        "EXECUTION_METHOD_EFFICIENCY",
+        "REVIEWER_AND_SAFETY_INHERITANCE"
+      ],
+      "confirmed_drift": [
+        "OPERATING_SYSTEM_SIX_CLUSTERS_VS_LIVE_EIGHT",
+        "DOCUMENT_AUDIT_73F_NINE_CANDIDATES_VS_CURRENT_51D_ELEVEN",
+        "STABLE_ARCHITECTURE_CONTRACT_CONTAINED_STALE_LIVE_STATE",
+        "VERIFIER_PASSED_THESE_SEMANTIC_CONTRADICTIONS",
+        "REVIEW_GUIDE_DIRECT_CARGO_CLIPPY_CONFLICTED_WITH_REPOSITORY_COMMAND_CONTRACT"
+      ],
+      "root_cause": "STABLE_CONTRACT_LIVE_STATE_HISTORICAL_EVIDENCE_AND_HUMAN_PROJECTIONS_SHARED_MANUALLY_DUPLICATED_FACTS",
+      "adjudication": "STABLE_LIVE_EVIDENCE_LAYERING;_PROJECT_STATE_AS_MINIMAL_RECOVERY_FACTS_NOT_DECISION_MAKER;_ONE_ACTIVE_CLUSTER_AND_NEXT_ATOMIC_ACTION;_PER_ROOT_FLOW;_CLAIM_SPECIFIC_CHECKERS;_MATERIAL_BOUNDARY_PERSISTENCE",
+      "source_scope": "CONTROL_DOCUMENT_AND_CHECKER_ONLY_NO_PRODUCTION_BEHAVIOR_CHANGE",
+      "next_atomic_action": "C2_RBF_CAUSAL_DISCRIMINATOR_R1"
     },
     "ast_grep": {
       "version": "0.45.2",

@@ -1,143 +1,90 @@
 {
-  "schema_version": 40,
-  "method_id": "txpool-production-architecture-v4",
+  "schema_version": 41,
+  "method_id": "txpool-production-architecture-v5",
+  "role": "STABLE_G0_HARD_CONSTRAINT_PHASE_AND_COMPATIBILITY_CONTRACT_NOT_LIVE_STATE",
   "final_goal": {
     "verbatim_zh": "从 CKB 原始协议与交易依赖/冲突语义出发，在一致性、安全、兼容与资源有界为硬约束下，求出可证明全局静态最优、实测性能最强且实现/证明复杂度最小的 tx-pool 架构；独立工作最大并行，耦合事实只在唯一权威的最小原子切口排序。",
     "canonical_delivery_goal": "G0_CURRENT_FROZEN_CANDIDATE_SET_NEXT_GENERATION",
     "open_architecture_class_research": "G0_OPEN_ARCHITECTURE_CLASS_RESEARCH_OPEN_FROZEN",
-    "authority_decision": "tx-pool/docs/handoff/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md#ckb-auth-0007"
+    "authority_decision": "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md#九当前主仓吸收状态"
   },
-  "authority": {
-    "current_state": "tx-pool/docs/handoff/txpool-v8/HANDOFF.json",
-    "control_kernel": "tx-pool/docs/handoff/txpool-v8/CONTROL_KERNEL.json",
-    "semantic_method": "tx-pool/docs/handoff/txpool-v8/METHOD_LEDGER.json",
-    "audit_plan": "tx-pool/docs/handoff/txpool-v8/AUDIT_PLAN.json",
-    "findings": "tx-pool/docs/handoff/txpool-v8/FINDINGS_LEDGER.json",
-    "document_authority": "tx-pool/docs/handoff/txpool-v8/DOCUMENT_AUTHORITY.json",
-    "document_audit": "tx-pool/docs/handoff/txpool-v8/DOCUMENT_AUDIT.json",
-    "authority_inputs": "tx-pool/docs/handoff/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md",
-    "architecture_contract_role": "STABLE_OBJECTIVE_HARD_CONSTRAINT_PHASE_AND_ACCEPTANCE_CONTRACT_NOT_LIVE_EXECUTION_STATE",
-    "projector": "tx-pool/scripts/check_security_manifest.py",
-    "entrypoint": "tx-pool/scripts/check_all.py",
-    "generated_manifest": "tx-pool/security-regression-manifest.json",
-    "generated_progress": "tx-pool/.release-progress",
-    "external_checkpoint_role": "durable_mirror_only",
-    "review_role": "advisory_independent_evidence_not_gate"
+  "authority_topology": {
+    "stable_contract": "tx-pool/architecture-contract.json",
+    "stable_control": "tx-pool/control/txpool-v8/CONTROL_KERNEL.json",
+    "live_state": "tx-pool/control/txpool-v8/STATE.json",
+    "active_audit": "tx-pool/control/txpool-v8/AUDIT_PLAN.json",
+    "finding_detail": "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json",
+    "authority_decisions": "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md#九当前主仓吸收状态",
+    "evidence_index": "tx-pool/control/txpool-v8/EVIDENCE.json",
+    "rule": "STABLE_CONTRACT_NEVER_OWNS_CURRENT_IDENTITY_ROOT_BLOCKERS_PROGRESS_OR_NEXT_ACTION"
   },
-  "method": {
+  "primary_role_boundary": {
+    "role": "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER",
+    "owns": [
+      "GLOBAL_WORK_SELECTION_AND_ONE_ACTIVE_ATOMIC_CUT",
+      "SOURCE_INTEGRATION_AND_ROOT_CAUSAL_IMPLEMENTATION",
+      "INDEPENDENT_REPRODUCTION_REFUTATION_AND_CLAIM_ADJUDICATION",
+      "SUBAGENT_SCOPING_CORRECTION_AND_EVIDENCE_ACCEPTANCE",
+      "PERSISTENCE_AT_MATERIAL_BOUNDARIES"
+    ],
+    "cannot_unilaterally_change": [
+      "G0_QUANTIFIER_OR_RESULT_BEFORE_FROZEN_CANDIDATE_RULE",
+      "CKB_CONSENSUS_VM_WIRE_PUBLIC_API_STORAGE_CONFIGURATION_OR_OWNED_COMPATIBILITY",
+      "USER_AUTHORITY_DECISIONS",
+      "FINAL_SECURITY_COLD_REVIEWER_OR_PRODUCT_ACCEPTANCE"
+    ],
+    "state_role": "PERSIST_EXACT_STATE_FOR_RECOVERY_NOT_REPLACE_PRIMARY_JUDGMENT"
+  },
+  "authority_decision_envelope": [
+    {
+      "id": "CKB-AUTH-0001",
+      "invariant": "RELAY_IS_ITEM_BYTE_WORK_AND_CLOSE_BOUNDED;_ORDERED_UNKNOWN_PARENTS_AND_GENERATION_RESET_REMAIN_BOUNDARIES;_EXTREME_PRESSURE_NEED_NOT_PRESERVE_EVERY_DETAIL"
+    },
+    {
+      "id": "CKB-AUTH-0002",
+      "invariant": "OPEN_CKB_PRODUCTION_REALIZABLE_ARCHITECTURE_CLASS_RESEARCH_REMAINS_OPEN_FROZEN_AND_IS_NOT_CLOSED_BY_A_FINITE_CANDIDATE_RESULT"
+    },
+    {
+      "id": "CKB-AUTH-0003",
+      "invariant": "NO_UNMEASURED_RETURN_TO_SCC_SDD_SAA_OR_EXPANSION_OF_UNSAFE_RECLAMATION_TCB"
+    },
+    {
+      "id": "CKB-AUTH-0004",
+      "invariant": "VM_VERIFICATION_TIME_IS_LOCAL_RETRYABLE_NON_BANNING_NON_CONSENSUS_SCRIPT_WORK_INCLUDING_ELF_LOAD_AND_EXCLUDING_QUEUE_TIME"
+    },
+    {
+      "id": "CKB-AUTH-0005",
+      "invariant": "TERMINAL_CORRECTNESS_LIVENESS_TCB_AND_CONCURRENCY_EVIDENCE_PRECEDE_FROZEN_INDEPENDENT_AND_CORRELATED_DEVELOP_PERFORMANCE_COMPARISON"
+    },
+    {
+      "id": "CKB-AUTH-0006",
+      "invariant": "LEGACY_BLOCK_EXT_DATABASE_UPGRADE_IS_OUTSIDE_TXPOOL_AND_MUST_NOT_CREATE_TXPOOL_VERSION_SCAN_REVERIFY_OR_FALLBACK"
+    },
+    {
+      "id": "CKB-AUTH-0007",
+      "invariant": "CANONICAL_DELIVERY_IS_RESULT_BEFORE_FROZEN_FINITE_CANDIDATE_OPTIMALITY;_OPEN_CLASS_G0_RESEARCH_REMAINS_OPEN_FROZEN"
+    },
+    {
+      "id": "CKB-AUTH-0008",
+      "invariant": "ORDINARY_TRUE_SHARD_MUTATIONS_HAVE_NO_GLOBAL_OUTER_OR_RENAMED_SERIAL_FALLBACK_AND_REQUIRE_REAL_DISJOINT_PRODUCTION_APPLY_OVERLAP"
+    },
+    {
+      "id": "CKB-AUTH-0009",
+      "invariant": "ONE_BOUNDED_EFFECT_LOG_OWNS_STAGED_LINEAR_ACTIVATION_AND_ROLLBACK;_NO_EARLY_PUBLICATION_BEST_EFFORT_POST_OWNER_EFFECT_OR_SECOND_JOURNAL"
+    }
+  ],
+  "method_boundary": {
     "relations": ["Q_H", "C", "I_D", "MU"],
     "production_bridge": "RHO",
-    "rule": "production_source_and_executable_counterexamples_own_facts;_models_reviews_hashes_and_green_tests_never_close_broader_claims"
+    "rule": "PRODUCTION_SOURCE_AND_EXECUTABLE_COUNTEREXAMPLES_OWN_FACTS;_MODELS_REVIEWS_HASHES_AND_GREEN_TESTS_NEVER_CLOSE_BROADER_CLAIMS"
   },
-  "current": {
-    "state": "terminal_audit_and_root_repair",
-    "phase": "terminal_correctness_and_root_repair",
-    "root": "B8_TRUE_SHARD_GLOBAL_TERMINAL_AUDIT_AND_ROOT_REPAIR_R1",
-    "implementation_base": {
-      "commit": "51d282345d1d83119c46cdde8f1115f14561b4ac",
-      "tree": "1e19719c764c7349a178d7ac0b7bf4999542966f",
-      "classification": "complete_ordinary_true_shard_routes_synced_to_main_terminal_correctness_not_accepted"
-    },
-    "closed_scoped": [
-      "all_ordinary_production_owner_mutations_have_zero_outer_write_fallback",
-      "true_shard_integration_177_of_177_pass_on_production_equivalent_identity",
-      "tx_pool_all_feature_universe_849_of_849_pass",
-      "single_canonical_membership_policy_and_typed_owner_resource_index_membership_dependency_scheduler_effect_lifecycle"
-    ],
-    "optimization_objective": {
-      "classification": "ENGINEERING_FEASIBLE_EXTREME_PARETO_OPTIMUM",
-      "hard_constraints": [
-        "consensus_and_data_integrity",
-        "hostile_input_security",
-        "static_ownership_determinism_and_serializability",
-        "declared_compatibility_and_recovery",
-        "bounded_memory_work_fanout_and_lifecycle"
-      ],
-      "maximize": [
-        "real_disjoint_commit_overlap",
-        "production_throughput_under_independent_and_correlated_workloads",
-        "useful_cpu_efficiency_and_bounded_latency"
-      ],
-      "minimize": [
-        "authority_and_linearization_cuts",
-        "lock_hold_time_and_contention",
-        "allocation_clone_destruction_tasks_wakes_and_replanning",
-        "duplicate_state_and_semantic_engines",
-        "production_complexity_and_trusted_semantic_kernel"
-      ],
-      "acceptance_rule": "retain_only_hard_constraint_preserving_changes_that_are_Pareto_positive_or_have_a_unique_non_mergeable_proof_obligation;_complete_migration_is_necessary_but_not_sufficient"
-    },
-    "confirmed_blockers": [
-      "ready_head_peer_revocation_drops_the_reserved_head_recheck_before_generic_cohort_commit",
-      "dependency_ApplySequence_reservation_order_is_not_an_actual_committed_prefix",
-      "read_all_then_routed_fair_shard_read_can_self_deadlock_behind_a_queued_writer",
-      "legacy_exclusive_policy_reader_has_no_coherence_witness_under_the_shared_outer_barrier",
-      "chain_receipt_validation_under_upgradable_read_does_not_exclude_new_ordinary_shard_commits",
-      "template_publication_releases_its_chain_source_guard_before_the_swap_and_notification",
-      "ClearPool_can_install_a_caller_snapshot_that_is_stale_at_ordered_execution",
-      "ordered_chain_shutdown_can_drop_an_admitted_Reconcile_and_still_report_persistence_eligible",
-      "full_pool_query_and_persistence_capture_retain_population_work_and_all_shard_read_guards",
-      "global_TCB_minimality_performance_final_security_and_reviewer_acceptance_are_open"
-    ],
-    "success": [
-      "two_real_disjoint_ordinary_admissions_overlap_their_production_Apply_without_AuthorityStoreLock_write",
-      "no_global_mutex_commit_token_epoch_gate_or_equivalent_serial_fallback_orders_disjoint_ordinary_commits",
-      "AuthorityStoreLock_is_only_a_shared_lifecycle_barrier_for_ordinary_commits_and_exclusive_only_for_semantically_global_chain_or_generation_replacement",
-      "each_move_owned_compiled_job_terminalizes_its_own_capacity_effect_wake_reply_and_generation_guard_before_reporting",
-      "template_source_identity_changes_at_actual_owner_shard_commit_linearization_without_a_global_commit_clock",
-      "one_bounded_ready_plan_captures_and_classifies_once_then_dispatches_at_most_one_strongest_policy_pairwise_compatible_wave_without_fixed_pair_singleton_recompilation",
-      "independent_ready_worker_slots_linearize_priority_with_exact_version_atomic_claims_and_commit_their_owner_cuts_without_reacquiring_the_fair_frontier_mutex",
-      "slot_claims_support_reversible_blocking_administrative_retirement_post_claim_poisoning_bounded_reaping_and_same_hash_new_version_ABA_safety",
-      "a_later_exclusive_effect_commits_as_one_bounded_suffix_in_the_existing_effect_log_when_an_earlier_staged_prefix_exists_and_never_overtakes_it",
-      "effect_append_and_settlement_usage_cannot_restore_capacity_released_by_a_concurrent_precommit_stage_rollback",
-      "shared_capacity_scheduler_effect_clock_and_chain_facts_use_named_minimal_reservation_or_linearization_cuts",
-      "queries_reorg_persistence_effects_shutdown_and_stale_paths_remain_serializable_and_bounded",
-      "all_ordinary_mutation_families_use_exact_shard_or_named_minimal_non_owner_cuts",
-      "transitional_global_write_fixed_pair_and_duplicate_migration_layers_are_deleted_in_the_same_complete_migration"
-    ],
-    "forbidden_shortcuts": [
-      "test_only_commit_helper_as_production_evidence",
-      "unsafe_or_MCAS",
-      "second_semantic_engine",
-      "unbounded_retry_or_runtime_repair_scan",
-      "rollback_to_the_single_lock_architecture",
-      "calling_the_partial_migration_a_candidate",
-      "global_mutex_or_renamed_global_serial_gate_for_ordinary_commit",
-      "exclusive_global_fallback_for_an_ordinary_mutation_family",
-      "driver_owned_pair_finalization_drop_repair_watchdog_or_retry"
-    ]
-  },
-  "claims": [
-    {
-      "id": "HARD_FEASIBILITY",
-      "phase": "terminal_correctness_and_root_repair",
-      "status": "open"
-    },
-    {
-      "id": "STATIC_GLOBAL_BOTTOM",
-      "phase": "hard_and_static_proof",
-      "status": "open"
-    },
-    {
-      "id": "MEASURED_STRONGEST",
-      "phase": "measured_performance",
-      "status": "open"
-    },
-    {
-      "id": "SEMANTIC_ZERO_AND_ENGINEERING_MINIMUM",
-      "phase": "complexity_minimum",
-      "status": "open"
-    },
-    {
-      "id": "FINAL_ADVERSARIAL_SECURITY",
-      "phase": "security",
-      "status": "open"
-    },
-    {
-      "id": "NEW_COLD_JOINED_ACCEPTED_UNIVERSE",
-      "phase": "acceptance",
-      "status": "open"
-    }
+  "claim_vocabulary": [
+    {"id": "HARD_FEASIBILITY", "phase": "terminal_correctness_and_root_repair"},
+    {"id": "STATIC_GLOBAL_BOTTOM", "phase": "hard_and_static_proof"},
+    {"id": "MEASURED_STRONGEST", "phase": "measured_performance"},
+    {"id": "SEMANTIC_ZERO_AND_ENGINEERING_MINIMUM", "phase": "complexity_minimum"},
+    {"id": "FINAL_ADVERSARIAL_SECURITY", "phase": "security"},
+    {"id": "NEW_COLD_JOINED_ACCEPTED_UNIVERSE", "phase": "acceptance"}
   ],
   "phase_order": [
     "terminal_correctness_and_root_repair",
@@ -147,13 +94,34 @@
     "security",
     "acceptance"
   ],
+  "optimization_contract": {
+    "hard_constraints": [
+      "consensus_and_data_integrity",
+      "hostile_input_security",
+      "static_ownership_determinism_and_serializability",
+      "declared_compatibility_and_recovery",
+      "bounded_memory_work_fanout_and_lifecycle"
+    ],
+    "maximize": [
+      "real_disjoint_commit_overlap",
+      "production_throughput_under_independent_and_correlated_workloads",
+      "useful_cpu_efficiency_and_bounded_latency"
+    ],
+    "minimize": [
+      "authority_and_linearization_cuts",
+      "lock_hold_time_and_contention",
+      "allocation_clone_destruction_tasks_wakes_and_replanning",
+      "duplicate_state_and_semantic_engines",
+      "production_and_proof_TCB_reviewer_cognition_and_change_amplification"
+    ],
+    "selection_order": "HARD_CONSTRAINT_FEASIBILITY_THEN_STATIC_COMPONENT_BOTTOM_THEN_MEASURED_STRONGEST_CLASS_THEN_SIMPLEST_MAINTAINABLE_ENGINEERING_ROOT"
+  },
   "continuous_gates": {
     "architecture": [
-      "no_partial_migration_can_be_called_a_candidate",
-      "every_independence_claim_has_a_real_production_overlap_canary",
-      "disjoint_ordinary_commits_have_no_global_mutual_exclusion_or_equivalent_serialization_point",
-      "every_required_order_edge_names_the_CKB_fact_that_requires_it",
-      "profile_the_architecture_not_only_hotspots_inside_the_current_topology"
+      "NO_PARTIAL_MIGRATION_CAN_BE_CALLED_A_CANDIDATE",
+      "EVERY_INDEPENDENCE_CLAIM_HAS_A_REAL_PRODUCTION_OVERLAP_CANARY",
+      "EVERY_REQUIRED_ORDER_EDGE_NAMES_THE_CKB_FACT_THAT_REQUIRES_IT",
+      "NO_SECOND_AUTHORITY_SEMANTIC_ENGINE_OR_ORDINARY_GLOBAL_SERIAL_FALLBACK"
     ],
     "complexity_measures": [
       "production_LoC",
@@ -163,42 +131,27 @@
       "tasks",
       "channels",
       "caches",
-      "trusted_semantic_kernel"
+      "trusted_semantic_kernel",
+      "reviewer_cognition",
+      "change_amplification"
     ],
-    "complexity_rule": "every_retained_layer_has_one_unique_non_mergeable_obligation_and_measured_or_static_benefit;_transitional_layers_are_deleted_in_the_same_migration",
-    "security_rule": "architecture_elimination_then_static_invariant_then_boundary_validation_then_bounded_recovery"
+    "security_rule": "ARCHITECTURE_ELIMINATION_THEN_STATIC_INVARIANT_THEN_BOUNDARY_VALIDATION_THEN_BOUNDED_RECOVERY"
   },
   "release_surface": {
-    "compatibility_policy": "preserve_consensus_wire_public_API_storage_configuration_recovery_and_declared_operational_behavior_unless_a_recorded_owner_decision_changes_it",
-    "residual_risk_policy": "every_unproved_process_external_IO_or_platform_assumption_remains_literal_open_until_acceptance"
+    "compatibility_policy": "PRESERVE_CONSENSUS_WIRE_PUBLIC_API_STORAGE_CONFIGURATION_RECOVERY_SHUTDOWN_AND_DECLARED_OPERATIONAL_BEHAVIOR_UNLESS_A_RECORDED_OWNER_DECISION_CHANGES_IT",
+    "residual_risk_policy": "EVERY_UNPROVED_PROCESS_EXTERNAL_IO_OR_PLATFORM_ASSUMPTION_REMAINS_LITERAL_OPEN_UNTIL_ACCEPTANCE"
   },
-  "historical_convergence": {
+  "candidate_generation_rule": {
     "historical_develop_baseline": "17d7db5bb423a1b2177e14a132a41d5a91a515f3",
-    "next_candidate_generation": "MUST_REFREEZE_TRUE_SHARD_FIX_IDENTITY_AND_DEVELOP_BASELINE_BEFORE_VIEWING_NEW_COMPARATIVE_RESULTS",
-    "rule": "freeze_each_experiment_but_reconcile_targeted_develop_correctness_compatibility_and_security_changes_before_acceptance",
-    "prior_external_checkpoints": "historical_evidence_only_when_their_claim_state_disagrees_with_this_contract"
+    "next_generation": "MUST_REFREEZE_THE_REPAIRED_TRUE_SHARD_IDENTITY_DEVELOP_BASELINE_WORKLOAD_ENVIRONMENT_AND_NOISE_BEFORE_VIEWING_RESULTS",
+    "rule": "TARGETED_DEVELOP_CORRECTNESS_COMPATIBILITY_AND_SECURITY_CHANGES_ARE_RECONCILED_BEFORE_ACCEPTANCE;_RESULTS_NEVER_RETROACTIVELY_CHANGE_THE_FROZEN_SET"
   },
-  "historical_evidence": {
-    "recovery_checkpoint": {
-      "ref": "refs/codex/checkpoints/txpool-proof-kernel-reset-recovery-20260814",
-      "commit": "bc3a2c65e604212a2493fc0e12db27313179816c",
-      "tree": "f54256aa52c071ffdaa9dfe1e4af7dc5424de592",
-      "role": "asset_archive_and_counterexample_not_current_proof_authority"
-    },
-    "retired_acceptance_universe": "d88f2fd7e3dba27513b515fc16db72db42f30f7118644ee756242bef0b79355f",
-    "neutral_reports": [],
-    "old_model_or_certificate_can_be_new_authority": false
-  },
-  "safety_guards": {
-    "preserve_durable_evidence": true,
-    "true_shard_completion_required": true,
-    "true_shard_requires_real_disjoint_commit_overlap_without_global_serial_fallback": true,
-    "rollback_to_single_lock_forbidden": true,
-    "unbounded_live_develop_follow_forbidden": true,
-    "targeted_pre_acceptance_develop_reconciliation_required": true,
-    "external_partner_is_not_a_gate": true,
-    "package_or_protocol_progress_is_not_product_progress": true,
-    "repository_handoff_is_the_only_live_current_state": true,
-    "stale_documents_cannot_override_source_or_manifest_bound_handoff": true
-  }
+  "safety_guards": [
+    "PRESERVE_DURABLE_EVIDENCE",
+    "TRUE_SHARD_COMPLETION_AND_REAL_DISJOINT_OVERLAP_REQUIRED",
+    "ROLLBACK_TO_SINGLE_LOCK_FORBIDDEN",
+    "UNBOUNDED_LIVE_DEVELOP_FOLLOW_FORBIDDEN",
+    "EXTERNAL_PARTNER_SUBAGENT_REPORT_PACKAGE_AND_PROTOCOL_ARE_NOT_GATES",
+    "STALE_DOCUMENTS_CANNOT_OVERRIDE_SOURCE_STABLE_CONTRACT_OR_LIVE_STATE"
+  ]
 }

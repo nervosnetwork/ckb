@@ -1,6 +1,5 @@
 {
   "checkout": {
-    "classification": "complete_ordinary_true_shard_routes_synced_to_main_terminal_correctness_not_accepted",
     "commit": "51d282345d1d83119c46cdde8f1115f14561b4ac",
     "tree": "1e19719c764c7349a178d7ac0b7bf4999542966f"
   },
@@ -37,109 +36,53 @@
     }
   ],
   "current": {
-    "closed_scoped": [
-      "all_ordinary_production_owner_mutations_have_zero_outer_write_fallback",
-      "true_shard_integration_177_of_177_pass_on_production_equivalent_identity",
-      "tx_pool_all_feature_universe_849_of_849_pass",
-      "single_canonical_membership_policy_and_typed_owner_resource_index_membership_dependency_scheduler_effect_lifecycle"
-    ],
-    "confirmed_blockers": [
-      "ready_head_peer_revocation_drops_the_reserved_head_recheck_before_generic_cohort_commit",
-      "dependency_ApplySequence_reservation_order_is_not_an_actual_committed_prefix",
-      "read_all_then_routed_fair_shard_read_can_self_deadlock_behind_a_queued_writer",
-      "legacy_exclusive_policy_reader_has_no_coherence_witness_under_the_shared_outer_barrier",
-      "chain_receipt_validation_under_upgradable_read_does_not_exclude_new_ordinary_shard_commits",
-      "template_publication_releases_its_chain_source_guard_before_the_swap_and_notification",
-      "ClearPool_can_install_a_caller_snapshot_that_is_stale_at_ordered_execution",
-      "ordered_chain_shutdown_can_drop_an_admitted_Reconcile_and_still_report_persistence_eligible",
-      "full_pool_query_and_persistence_capture_retain_population_work_and_all_shard_read_guards",
-      "global_TCB_minimality_performance_final_security_and_reviewer_acceptance_are_open"
-    ],
-    "forbidden_shortcuts": [
-      "test_only_commit_helper_as_production_evidence",
-      "unsafe_or_MCAS",
-      "second_semantic_engine",
-      "unbounded_retry_or_runtime_repair_scan",
-      "rollback_to_the_single_lock_architecture",
-      "calling_the_partial_migration_a_candidate",
-      "global_mutex_or_renamed_global_serial_gate_for_ordinary_commit",
-      "exclusive_global_fallback_for_an_ordinary_mutation_family",
-      "driver_owned_pair_finalization_drop_repair_watchdog_or_retry"
-    ],
-    "implementation_base": {
-      "classification": "complete_ordinary_true_shard_routes_synced_to_main_terminal_correctness_not_accepted",
-      "commit": "51d282345d1d83119c46cdde8f1115f14561b4ac",
-      "tree": "1e19719c764c7349a178d7ac0b7bf4999542966f"
+    "blocker_census": {
+      "candidates": 11,
+      "clusters": 8,
+      "detail": "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json",
+      "primary_reproduction": "PARTIAL;_SOURCE_CHAINS_ARE_MOSTLY_CONFIRMED_BUT_READY_PRIMARY_REPRODUCTION_AND_SEVEN_STRONGEST_COUNTEREXPLANATIONS_REMAIN_OPEN",
+      "status": "FROZEN_FOR_CURRENT_ROUND"
     },
-    "optimization_objective": {
-      "acceptance_rule": "retain_only_hard_constraint_preserving_changes_that_are_Pareto_positive_or_have_a_unique_non_mergeable_proof_obligation;_complete_migration_is_necessary_but_not_sufficient",
-      "classification": "ENGINEERING_FEASIBLE_EXTREME_PARETO_OPTIMUM",
-      "hard_constraints": [
-        "consensus_and_data_integrity",
-        "hostile_input_security",
-        "static_ownership_determinism_and_serializability",
-        "declared_compatibility_and_recovery",
-        "bounded_memory_work_fanout_and_lifecycle"
+    "next_atomic_action": {
+      "candidate_ids": [
+        "RECURSIVE_READ_UNDER_ALL_SHARD_CUT"
       ],
-      "maximize": [
-        "real_disjoint_commit_overlap",
-        "production_throughput_under_independent_and_correlated_workloads",
-        "useful_cpu_efficiency_and_bounded_latency"
+      "cluster": "HELD_SHARD_CUT_AND_POLICY_READ_COHERENCE",
+      "decision": "REPRODUCE_OR_REFUTE_THAT_THE_RBF_INTEGRATION_FAILURE_IS_CAUSED_BY_THE_HELD_CUT_C2_WAIT_CYCLE",
+      "forbidden": "NO_PRODUCTION_EDIT_BEFORE_THE_DISCRIMINATOR_NO_SLEEP_NO_GLOBAL_SERIAL_FALLBACK_NO_PARKING_LOT_DEADLOCK_DETECTION_AS_PROOF",
+      "id": "C2_RBF_CAUSAL_DISCRIMINATOR_R1",
+      "objective": "IN_THE_REAL_RBF_PLANNING_PATH_HOLD_THE_PRODUCTION_READ_ALL_CUT_OBSERVE_A_REAL_EXACT_SHARD_WRITER_INTENT_THEN_ATTEMPT_THE_PRODUCTION_NESTED_ROUTED_READ_WITHOUT_WALL_CLOCK_SLEEP",
+      "required_output": [
+        "SOURCE_BOUND_LOCK_CLASS_SHARD_MODE_AND_ACQUISITION_EDGE_TRACE",
+        "DETERMINISTIC_PARENT_RESULT_BOUND_TO_PRODUCTION_SUBJECT",
+        "STRONGEST_COUNTEREXPLANATION_AND_ITS_DISPOSITION",
+        "ROOT_COMPARISON_BETWEEN_REUSING_THE_HELD_CUT_AND_CAPTURING_BOUNDED_OWNED_FACTS_THEN_RELEASING_IT"
       ],
-      "minimize": [
-        "authority_and_linearization_cuts",
-        "lock_hold_time_and_contention",
-        "allocation_clone_destruction_tasks_wakes_and_replanning",
-        "duplicate_state_and_semantic_engines",
-        "production_complexity_and_trusted_semantic_kernel"
-      ]
+      "stop": "IF_THE_PARENT_DOES_NOT_FAIL_FOR_THE_NAMED_WAIT_CYCLE_OR_THE_REAL_WRITER_INTENT_CANNOT_BE_OBSERVED_STOP_AND_REPLAN;_DO_NOT_PATCH_OR_WIDEN_TIMEOUTS"
     },
     "phase": "terminal_correctness_and_root_repair",
     "root": "B8_TRUE_SHARD_GLOBAL_TERMINAL_AUDIT_AND_ROOT_REPAIR_R1",
-    "state": "terminal_audit_and_root_repair",
-    "success": [
-      "two_real_disjoint_ordinary_admissions_overlap_their_production_Apply_without_AuthorityStoreLock_write",
-      "no_global_mutex_commit_token_epoch_gate_or_equivalent_serial_fallback_orders_disjoint_ordinary_commits",
-      "AuthorityStoreLock_is_only_a_shared_lifecycle_barrier_for_ordinary_commits_and_exclusive_only_for_semantically_global_chain_or_generation_replacement",
-      "each_move_owned_compiled_job_terminalizes_its_own_capacity_effect_wake_reply_and_generation_guard_before_reporting",
-      "template_source_identity_changes_at_actual_owner_shard_commit_linearization_without_a_global_commit_clock",
-      "one_bounded_ready_plan_captures_and_classifies_once_then_dispatches_at_most_one_strongest_policy_pairwise_compatible_wave_without_fixed_pair_singleton_recompilation",
-      "independent_ready_worker_slots_linearize_priority_with_exact_version_atomic_claims_and_commit_their_owner_cuts_without_reacquiring_the_fair_frontier_mutex",
-      "slot_claims_support_reversible_blocking_administrative_retirement_post_claim_poisoning_bounded_reaping_and_same_hash_new_version_ABA_safety",
-      "a_later_exclusive_effect_commits_as_one_bounded_suffix_in_the_existing_effect_log_when_an_earlier_staged_prefix_exists_and_never_overtakes_it",
-      "effect_append_and_settlement_usage_cannot_restore_capacity_released_by_a_concurrent_precommit_stage_rollback",
-      "shared_capacity_scheduler_effect_clock_and_chain_facts_use_named_minimal_reservation_or_linearization_cuts",
-      "queries_reorg_persistence_effects_shutdown_and_stale_paths_remain_serializable_and_bounded",
-      "all_ordinary_mutation_families_use_exact_shard_or_named_minimal_non_owner_cuts",
-      "transitional_global_write_fixed_pair_and_duplicate_migration_layers_are_deleted_in_the_same_complete_migration"
-    ]
+    "status": "TERMINAL_CORRECTNESS_AND_ROOT_REPAIR_OPEN_NOT_ACCEPTED"
   },
-  "kind": "current_state_projection_not_proof",
+  "kind": "generated_live_state_projection_not_proof",
   "method_identity": {
     "authority_hashes": {
-      "AGENTS.md": "cc3f2dbc4dc7c4ffd35b4e5e0fc89bb985f9147d3a8ec84ba0c4b0005c34b299",
-      "tx-pool/AGENTS.md": "491ba1640b86b3ae8621e2843ccec7267c413355c060eb578463b77814563cc2",
-      "tx-pool/architecture-contract.json": "d18a3327e813118abe49004d32f51fdeca8fb3967a624f6755594c5a2c1efcbc",
-      "tx-pool/docs/handoff/txpool-v8/AUDIT_PLAN.json": "91b3bef6489ea8d345f6ee2e309111390a0e88cf78fa2e749e942d8275ba22b9",
-      "tx-pool/docs/handoff/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md": "722771f9b0c46f5620f5783494023845a14f9b5d58e4db1aa144c00991478ace",
-      "tx-pool/docs/handoff/txpool-v8/CONTEXT_LOAD_POLICY.json": "efef8d67c7f4528908b453fcef24ae0ed43c85c55e86fc697c156ce6927a7794",
-      "tx-pool/docs/handoff/txpool-v8/CONTROL_KERNEL.json": "6192334691d52824fd12541202e1298a7f711b0167549192444e1f262edcee63",
-      "tx-pool/docs/handoff/txpool-v8/DOCUMENT_AUDIT.json": "23580d41bfdbeda417fcfb1ffcb7e37053d21c83af144074e47d65da43b437b3",
-      "tx-pool/docs/handoff/txpool-v8/DOCUMENT_AUTHORITY.json": "bd625506e8b9dd413183d00abfee04572c9a8f600ac2b4fae27de801feb612b9",
-      "tx-pool/docs/handoff/txpool-v8/EVIDENCE.json": "8a9a6193cfeaaac090366966a6a631840110cbbb9d7e134f3c711989b04564d1",
-      "tx-pool/docs/handoff/txpool-v8/FINDINGS_LEDGER.json": "0f0423f768c3c5c5907e5f6ee5e7366bd018286035d48f521fc0d23518b1f291",
-      "tx-pool/docs/handoff/txpool-v8/HANDOFF.json": "70a8d15f410db4440b62649ade401e3ca98cfa42480ce94ff1fd922a813e978a",
-      "tx-pool/docs/handoff/txpool-v8/METHOD_LEDGER.json": "b98f0022a0da42c281cd3be2cce50eefc4916f9e3873596c21de6448be22be44",
-      "tx-pool/docs/handoff/txpool-v8/OPERATING_SYSTEM.md": "01ed462a7eec24d81d228ccd3e72ab4c4acf966f7878a001896fb4dd4aa7cae3",
-      "tx-pool/docs/handoff/txpool-v8/RESUME_PROMPT.md": "38c278a06fc48d1d70090eca4e9ae3bdbc3813a63ebb94a570163e0bd8b07f9b",
-      "tx-pool/docs/handoff/txpool-v8/SUBAGENT_RESULTS.json": "bf69f047b615f4ef91f6e4895ed420bddcc0ddfa285d9f362e58b832c84e9bee",
-      "tx-pool/docs/handoff/txpool-v8/VERIFY_HANDOFF.py": "804e11c2a4d812e763c3e97f6ad07618ea235e323278c4263c818d189fe3e746",
-      "tx-pool/scripts/check_all.py": "877d406839b37eed02a0704ac86dc08c15013a2661f2f79a70c5b76dd8ed15ae",
-      "tx-pool/scripts/check_security_manifest.py": "4aae5fe412d5c314049dbe1e2e75d9a5be4f80bcad5e4185a442253d0589abd5"
+      "AGENTS.md": "cd1e27f3eaa11422ba406eb77513d7fe534ed474e1ba8a1f76cbf02645d528f1",
+      "tx-pool/AGENTS.md": "6d663f119adf61cda9c752a9ccf689c1070a5d503bf963f0f94b0844e3939891",
+      "tx-pool/architecture-contract.json": "ad9fe3e10e6d4e67ae0cedc4060e334a7c9f434f5c41e3378ba7c9372eea98f5",
+      "tx-pool/control/txpool-v8/AUDIT_PLAN.json": "bec4be49519b7b217f434b638a7df91e6ba72e19ab268934c979268d784007b2",
+      "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md": "aa896d16555bcfff611c8dd51d569ca8f8aa6e0e07715a5da9234477d9a9759d",
+      "tx-pool/control/txpool-v8/CONTEXT_LOAD_POLICY.json": "5c4cac35fb1e9e5e92946fbb41958233dee0dcd809cb445dad4ff73b45e27f45",
+      "tx-pool/control/txpool-v8/CONTROL_KERNEL.json": "88f47af27e55e338cdaee7e69726f90479a0eb29a0bbd263af400c119f8d3c17",
+      "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json": "def7e86d18c569713f47831a8906428629fcfcd1f19e8b657d844284a2ca3841",
+      "tx-pool/control/txpool-v8/STATE.json": "e356378deacb22e46f4e10534067b41066ab80abb81a0116ce2e46b2f503657d",
+      "tx-pool/control/txpool-v8/VERIFY_STATE.py": "8747348769778fdf629b925adea3ef4efea8ef5ea870d231314c369b1d2da892",
+      "tx-pool/scripts/check_all.py": "841b86fb65208f24f4765c29d62fd4514de50724078a9b82dee3c756e938f2a9",
+      "tx-pool/scripts/check_security_manifest.py": "b9084f276c1427808d8c495165b01b676106812ade1c5eafc33d647432187835"
     },
-    "bundle_sha256": "fa4e752ed6c612b3548fbd336ea9f8fde5f3842af4bc66757cbef1e3e25466ad",
-    "contract_sha256": "4f4e0b818de96aaa5bf3cff892dfe7622d6b1c078c43bcbbd0eccd2e1bb8b338",
-    "method_id": "txpool-production-architecture-v4"
+    "bundle_sha256": "d727d979cdc4b6f72168926bec373c95288bfda1d91a726afbaf217ede932e36",
+    "contract_sha256": "3bcd6e6ba918f2f91d26ed7fff2b9b1e4c4b535172ab58c60639960b7ab01ad1",
+    "method_id": "txpool-production-architecture-v5"
   },
   "phase_order": [
     "terminal_correctness_and_root_repair",
@@ -149,10 +92,10 @@
     "security",
     "acceptance"
   ],
-  "schema_version": 2,
+  "schema_version": 3,
   "warnings": [
+    "generated projection is not live authority; read STATE.json",
     "all product claims remain open",
-    "the ordinary true-shard route migration is synchronized but terminal correctness has blocking findings",
-    "generated projection is not the live control plane; use the manifest-bound repository handoff"
+    "terminal correctness has a frozen eight-cluster eleven-candidate census"
   ]
 }

@@ -3,7 +3,7 @@
 Every review preserves the objective and hard constraints in
 [`architecture-contract.json`](../architecture-contract.json). Live phase,
 source identity, open findings and next action come only from the manifest-bound
-[`handoff/txpool-v8/`](handoff/txpool-v8/) state. In particular, the terminal
+[`control/txpool-v8/`](../control/txpool-v8/) state. In particular, the terminal
 blockers in `FINDINGS_LEDGER.json` take precedence over any row below that reads
 as already satisfied. An implementation, test, report or generated projection
 cannot redefine or close those claims.
@@ -151,13 +151,14 @@ a current semantic oracle, phase gate, implementation plan or landing input.
 Their executable counterexamples remain useful only after an independent
 current-production trace maps each observation to one current semantic grain,
 owner and falsifier. Current production evidence and any claim-specific
-relation then own the
-claim; the historical branch does not.
+relation then own the claim; the historical branch does not. The targeted
+develop reconciliation and history compression are complete on the current
+branch; any later develop update is a new identity-bound compatibility review,
+not a live-follow loop.
 
 Review the current theorem and its cost beside each retained negative witness.
 A locally correctable historical symptom cannot justify a larger topology, and
-an external implementation cannot authorize a change to this branch. Merge,
-rebase and pull-request reconciliation are a separate future project. Retiring
+an external implementation cannot authorize a change to this branch. Retiring
 such a route must remove its exclusive checker, command, phase and evidence
 references in the same change while preserving any independently owned current
 regression test.
@@ -169,14 +170,16 @@ For a focused change, run the generated commands in every selected row, then:
 ```text
 python3 tx-pool/scripts/check_all.py
 cargo nextest run -p ckb-tx-pool --features internal
-cargo clippy -p ckb-tx-pool --all-targets --features internal -- -D warnings
 ```
+
+At the owning repository boundary, run `cargo fmt --all`, `make fmt`,
+`make check` and `make clippy`; do not substitute direct `cargo clippy` for the
+repository lint contract.
 
 When tx-pool operational metrics change, also run:
 
 ```text
 cargo nextest run -p ckb-metrics
-cargo clippy -p ckb-metrics --all-targets -- -D warnings
 ```
 
 Metric labels must remain static and low-cardinality. Their values may only

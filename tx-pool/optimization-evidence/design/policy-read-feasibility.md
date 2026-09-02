@@ -3,7 +3,7 @@
 This file records one historical feasibility experiment. It is not current
 tx-pool architecture, control state or proof. Current status and the known
 `ExclusiveMode` shared-barrier blocker are in
-`tx-pool/docs/handoff/txpool-v8/`; source and the manifest-bound findings win on
+`tx-pool/control/txpool-v8/`; source and the manifest-bound findings win on
 conflict with the conclusions below.
 
 Base identity: `fbabfde74ac2acbba05c169002a6c1b34f251f5f`

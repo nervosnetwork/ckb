@@ -6,7 +6,7 @@ counterarguments examined at that time; they are not current tx-pool control
 state, a semantic authority, or a release gate.
 
 Current source identity, phase, blockers and next action are owned only by the
-manifest-bound [`docs/handoff/txpool-v8/`](../../docs/handoff/txpool-v8/)
+manifest-bound [`control/txpool-v8/`](../../control/txpool-v8/)
 handoff. A historical conclusion may be reused only after its exact claim is
 rebound to current production source and independently reproduced. In
 particular, references here to model-base retirement, Partner A, earlier

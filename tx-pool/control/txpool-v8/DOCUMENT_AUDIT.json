@@ -1,6 +1,17 @@
 {
   "schema": "txpool-v8-document-audit-v1",
-  "status": "PASS_RECONCILED_NO_SECOND_CURRENT_ROOT",
+  "status": "FROZEN_PRE_INHERITANCE_RECONCILIATION_HISTORY_NOT_A_LIVE_GATE",
+  "role": "HISTORICAL_EVIDENCE_OF_THE_PRE_INHERITANCE_DOCUMENT_PASS_WITH_KNOWN_SEMANTIC_DRIFT",
+  "inheritance_disposition": {
+    "clean_cut": "33c7b1b26332d039914496ad3e0efef284e8c600",
+    "known_drift": [
+      "OPERATING_SYSTEM_STILL_NAMED_SIX_CLUSTERS_AFTER_THE_LIVE_CENSUS_REACHED_EIGHT",
+      "THIS_AUDIT_STILL_NAMED_73F58C604_AND_NINE_CANDIDATES_AFTER_THE_CURRENT_SUBJECT_AND_CENSUS_CHANGED",
+      "THE_OLD_VERIFIER_PROVED_HASH_AND_SELECTED_STRING_CONSISTENCY_NOT_SEMANTIC_SINGLE_AUTHORITY"
+    ],
+    "current_roles": "tx-pool/control/txpool-v8/DOCUMENT_AUTHORITY.json",
+    "rule": "DO_NOT_UPDATE_THIS_HISTORICAL_RECEIPT_FOR_EVERY_ROOT_OR_USE_IT_AS_A_CURRENT_GATE"
+  },
   "subject": {
     "implementation_commit": "51d282345d1d83119c46cdde8f1115f14561b4ac",
     "implementation_tree": "1e19719c764c7349a178d7ac0b7bf4999542966f",
@@ -8,12 +19,12 @@
   },
   "scope": "EVERY_REPOSITORY_DOCUMENT_CONTROL_ARTIFACT_GENERATED_PROJECTION_AND_KNOWN_SOURCE_COMMENT_RELEVANT_TO_TXPOOL_V8_CURRENT_STATE_ARCHITECTURE_METHOD_VALIDATION_PERFORMANCE_OR_HANDOFF",
   "organization": {
-    "live_control": "tx-pool/docs/handoff/txpool-v8/",
+    "live_control": "tx-pool/control/txpool-v8/",
     "stable_machine_contract": "tx-pool/architecture-contract.json",
     "stable_human_architecture_validation_performance": "tx-pool/docs/ plus tx-pool/PROFILING.md",
     "historical_evidence": "tx-pool/optimization-evidence/",
     "generated_disposable_projection": "tx-pool/security-regression-manifest.json and tx-pool/.release-progress",
-    "single_human_operating_manual": "tx-pool/docs/handoff/txpool-v8/OPERATING_SYSTEM.md"
+    "single_human_operating_manual": "tx-pool/control/txpool-v8/OPERATING_SYSTEM.md"
   },
   "documents": [
     {
@@ -117,17 +128,17 @@
       "review": "CONTENT_PRESERVED;_DIRECTORY_README_DEMOTES_MODEL_BASE_PARTNER_AND_METHOD_PASS_LANGUAGE"
     },
     {
-      "path": "tx-pool/docs/handoff/txpool-v8/",
+      "path": "tx-pool/control/txpool-v8/",
       "role": "MANIFEST_BOUND_LIVE_HANDOFF",
       "review": "TARGET_SCOPE_METHOD_CONTROL_AUDIT_FINDINGS_EVIDENCE_AUTHORITY_DECISIONS_DOCUMENT_ROLES_CONTEXT_POLICY_VERIFIER_AND_COPYABLE_RESUME_PROMPT_COLOCATED"
     },
     {
-      "path": "tx-pool/docs/handoff/txpool-v8/TODO.md",
+      "path": "tx-pool/control/txpool-v8/TODO.md",
       "role": "MANIFEST_BOUND_HUMAN_PROGRESS_PROJECTION",
       "review": "ADDED_FOR_CODEX_CHECKLIST_VISIBILITY;_MACHINE_NEXT_ACTION_EXECUTION_ORDER_AND_PHASE_ORDER_REMAIN_AUTHORITATIVE"
     },
     {
-      "path": "tx-pool/docs/handoff/txpool-v8/USER_REPORT_VALIDATION.json",
+      "path": "tx-pool/control/txpool-v8/USER_REPORT_VALIDATION.json",
       "role": "MANIFEST_BOUND_PRIMARY_NEUTRAL_REPORT_DISPOSITION",
       "review": "SELF_CONTAINED_23_INSTANCE_RECEIPT;_TWO_NEW_BLOCKERS_TWO_EXISTING_INSTANCES_ONE_CONTROL_META_SIX_CONDITIONAL_SEVEN_DEFERRED_FIVE_REFUTED;_REPORT_PATCH_ADVICE_NOT_AUTO_ACCEPTED"
     },

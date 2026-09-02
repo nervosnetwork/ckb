@@ -3,7 +3,7 @@
 The objective and hard constraints are declared by
 [`architecture-contract.json`](../architecture-contract.json). Live phase,
 source identity, blockers and next action are owned only by the manifest-bound
-[`handoff/txpool-v8/`](handoff/txpool-v8/) state.
+[`control/txpool-v8/`](../control/txpool-v8/) state.
 Validation can reject an unsupported claim; it cannot turn a green package,
 test suite or finite quotient into `H_CLOSED`, `STATIC_ATTAIN`, product
 acceptance or G0.
@@ -13,10 +13,10 @@ acceptance or G0.
 | Path | Role | Authority boundary |
 |---|---|---|
 | [`architecture-contract.json`](../architecture-contract.json) | Stable objective vocabulary, hard constraints, phase and Acceptance contract | Not live execution state; does not prove its own coverage or optimality |
-| [`handoff/txpool-v8/`](handoff/txpool-v8/) | Manifest-bound live source, phase, claims, findings, method, evidence and next action | Open findings remain open until Primary reproduction and repaired-identity audit |
+| [`control/txpool-v8/`](../control/txpool-v8/) | Repository-owned project state: live identity/phase/next action plus active audit and on-demand evidence | Open findings remain open until Primary reproduction and repaired-identity audit |
 | [`scripts/check_security_manifest.py`](../scripts/check_security_manifest.py) | Read-only structural checker and disposable projection generator | Green means structure is self-consistent, not that an open scientific claim is closed |
 | [`scripts/check_all.py`](../scripts/check_all.py) | Sole CI entry point for the structural checker | Must not grow a hidden list of legacy validators |
-| [`security-regression-manifest.json`](../security-regression-manifest.json) | Generated disposable projection of the contract and handoff | Never hand-edit or cite as proof/current state |
+| [`security-regression-manifest.json`](../security-regression-manifest.json) | Generated disposable projection of the stable contract and project state | Never hand-edit or cite as proof/current state |
 | [`.release-progress`](../.release-progress) | Generated human-readable projection | Never a second state authority |
 
 The executable test universe is discovered from the current Cargo graph by

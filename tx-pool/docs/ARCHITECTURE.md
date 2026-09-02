@@ -9,9 +9,9 @@ true-shard source base:
 - tree `1e19719c764c7349a178d7ac0b7bf4999542966f`.
 
 It is an architecture reference, not live execution state or proof. The
-manifest-bound [`handoff/txpool-v8/`](handoff/txpool-v8/) directory owns the
+repository-owned [`control/txpool-v8/`](../control/txpool-v8/) directory owns the
 current phase, blockers, evidence boundary and next action. In particular,
-[`FINDINGS_LEDGER.json`](handoff/txpool-v8/FINDINGS_LEDGER.json) records open
+[`FINDINGS_LEDGER.json`](../control/txpool-v8/FINDINGS_LEDGER.json) records open
 terminal-audit candidates that override any required invariant below until the
 candidate has been reproduced, repaired and re-audited.
 
@@ -425,29 +425,17 @@ Evidence strength increases only as needed:
 Partner, sub-agent, external report, generated package and green test are
 neutral inputs. Primary independently reproduces and adjudicates them.
 
-## 14. Current terminal-audit root
+## 14. Terminal-audit boundary
 
-The sole current root is
-`B8_TRUE_SHARD_GLOBAL_TERMINAL_AUDIT_AND_ROOT_REPAIR_R1`. The exact source
-slices and canaries are in `FINDINGS_LEDGER.json`. The blocker clusters are:
-
-1. Ready-head reservation conservation;
-2. dependency actual-commit freshness;
-3. held shard-cut and policy-read coherence;
-4. chain-source fencing for reconciliation and template publication;
-5. ordered chain-control drain and execution-time clear intent;
-6. coherent full-query/persistence capture without population work under
-   authority guards.
+This architecture reference does not copy the live root, blocker census or
+next action. Those facts change during root repair and are owned only by
+`control/txpool-v8/STATE.json` and `AUDIT_PLAN.json`; exact candidate source
+slices are loaded on demand from `FINDINGS_LEDGER.json`.
 
 ```mermaid
 flowchart LR
-    R["Ready reservation"] --> Gate["terminal correctness gate"]
-    D["dependency actual-commit freshness"] --> Gate
-    C["held-cut / policy coherence"] --> Gate
-    S["chain + template source fence"] --> Gate
-    O["ordered control drain + clear intent"] --> Gate
-    Q["query + persistence guard work"] --> Gate
-
+    Source["frozen production source"] --> Gate["terminal correctness gate"]
+    Findings["live root dispositions + production-bound evidence"] --> Gate
     Gate -->|all reproduced, root-fixed and re-audited| Static["hard/static qualification"]
     Gate -.->|any survivor| Open["remain OPEN\nno performance or Acceptance"]
 
@@ -455,11 +443,11 @@ flowchart LR
     class Gate,Open blocked;
 ```
 
-The audit first collects and clusters all candidates. It does not patch as it
-discovers. Primary must reproduce or refute each cluster, write a deterministic
-canary for each upheld defect, compare the smallest Rust-native root against a
-strong alternative and implement one self-consistent root slice. Each slice
-retires its superseded code, tests, comments, checker row and document claim.
+Primary collects and clusters before editing, then flows one root at a time:
+reproduce or refute, use the weakest sufficient production-bound proof, compare
+the smallest Rust-native root against a strong alternative, implement one
+self-consistent root slice and run its focused gate. Each slice retires its
+superseded code, tests, comments, checker row and document claim.
 
 ## 15. Implementation map
 
@@ -494,7 +482,7 @@ Before adding a state, lock, task, queue, cache, version, effect or fallback:
 6. account for lock work, allocation, clone, destruction, task/wake and TCB;
 7. compare a smaller deletion/fusion/type root;
 8. add source-bound focused evidence and update code, tests, contract, review,
-   validation and handoff together.
+   validation and project state together.
 
 Terminal correctness precedes static finite-candidate qualification,
 profiling/performance, complexity/minimality, final security and reviewer
@@ -503,8 +491,8 @@ Acceptance. A future performance campaign freezes the repaired candidate,
 before observing results. Historical measurements cannot select the repaired
 identity.
 
-Completion requires one final source identity in the handoff, contract,
-generated projections and user-facing documents; all blocking terminal
+Completion requires one final source identity in `STATE.json`, source-bound
+architecture documentation and generated projections; all blocking terminal
 findings resolved; focused and aggregate gates run at their owning boundary;
 and no ordinary global/renamed serial fallback, second engine, population
 repair scan or unpaid transitional mechanism remains.

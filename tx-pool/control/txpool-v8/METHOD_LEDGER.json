@@ -1,6 +1,8 @@
 {
   "schema": "txpool-v8-engineering-method-ledger-v2",
   "authority": "REPOSITORY_OWNED_PRIMARY_METHOD_MEMORY",
+  "role": "VALIDATED_ENGINEERING_HERITAGE_LOADED_ON_DEMAND_NOT_A_LIVE_PLAN_OR_NEXT_ACTION",
+  "primary_steward": "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER",
   "language": "zh-CN",
   "update_rule": "方法只有在实际执行并被证据验证后才能保留；每次修改必须同时删除、合并或替代失效方法，禁止补丁雪球",
   "methods": [
@@ -12,7 +14,7 @@
         "同一源码身份只建立一次 Cargo 图、符号索引和关键 AST 查询集，后续复用精确切片",
         "长期任务只有一个 current root；多个 checkpoint、mailbox 或文档不得并行自称当前事实",
         "聊天、compact 摘要、时间戳、轮次和未哈希引用的旧状态不是执行事实",
-        "主仓内 handoff 是新会话调度事实；外部 checkpoint、bundle 和材料只作内容寻址证据"
+        "主仓内 project state 是新会话调度事实；外部 checkpoint、bundle 和材料只作内容寻址证据"
       ],
       "tools": "Rust 结构关系优先 ast-grep；文件、字符串、日志、JSON、哈希和 AST 无法表达的关系用 rg；必要时用 rust-analyzer 或编译器证据",
       "anti_patterns": [
@@ -141,17 +143,17 @@
       ]
     },
     {
-      "id": "COLD_CONTINUITY_AND_HANDOFF",
+      "id": "COLD_CONTINUITY_AND_STATE_RECOVERY",
       "status": "ACTIVE",
       "rules": [
         "物质根先形成 immutable commit/tree 和必要 bundle，再创建 checkpoint",
         "checkpoint 只保存一个 current root、精确哈希、验证结果、阻塞和下一动作",
         "compact 或重启首读受限文件并冷验证，禁止加载全历史",
-        "handoff 必须面向任意 AI：明确读取 AGENTS、构建控制面、命令合同、方法、claim、证据、下一步和复现方式",
-        "新会话使用仓库内 handoff；外部临时目录消失时只按内容寻址材料恢复",
+        "project state 必须面向任意 AI：明确读取 AGENTS、构建控制面、命令合同、方法、claim、证据、下一步和复现方式",
+        "新会话使用仓库内 project state；外部临时目录消失时只按内容寻址材料恢复",
         "任何中断前检查 live agent/process；未收齐结果要明确记为未完成义务，不能凭记忆补写"
       ],
-      "success": "新会话只读仓库 handoff 并运行 verifier 后，得到与交接时相同的单一源码身份、claims、阻塞、纪律和下一动作"
+      "success": "新会话只读仓库 project state 并运行 verifier 后，得到与冻结时相同的单一源码身份、claims、阻塞、纪律和下一动作"
     }
   ]
 }

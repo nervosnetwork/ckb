@@ -13,6 +13,10 @@ status in a closer `AGENTS.md` or their owning machine artifact.
   edits. For large Rust work, derive the Cargo graph and a symbol/reference
   index once per source identity, then inspect exact slices instead of repeatedly
   scanning whole files.
+- Keep one machine authority for each live fact. Derive progress views,
+  inventories and review projections mechanically, bind them to their source
+  identity, and negative-test the owning checker instead of synchronizing
+  duplicate prose by hand.
 - This file grants no permission to mutate external systems, publish, merge or
   release. Do not push unless the user explicitly asks.
 - A closer `AGENTS.md` adds subtree guidance. Use `AGENTS.override.md` only for
@@ -30,6 +34,12 @@ Green tests are evidence, not the objective. Reproduce failures and trace the
 owning producer, consumer and externally visible observation before changing
 production code. Fix the owning design once; do not add finding-shaped flags,
 retries, timers, scans, watchdogs, fallbacks or allowlists.
+
+Before a root repair, freeze the source, claim, discriminator, stop rule and
+observable result; independently reproduce or refute it, record the strongest
+counterexplanation, and cluster same-authority/same-linearization findings.
+Compare the smallest coherent root with one strong alternative, then implement
+one self-consistent slice that retires the superseded route.
 
 ## Rust design rules
 
@@ -70,8 +80,12 @@ retries, timers, scans, watchdogs, fallbacks or allowlists.
   commented-out, undiscovered or unstarted tests do not prove their universe.
   Performance evidence binds binary, workload, environment, runner, causal
   prediction and noise rule.
+- Concurrency evidence uses event-driven channels, barriers or explicit state
+  witnesses on production seams. Do not use wall-clock sleeps for ordering;
+  timeouts only bound a hang. Deadlock detectors, traces and stack dumps are
+  diagnostics unless tied to a named residual claim.
 
-## Change and handoff discipline
+## Change and continuity discipline
 
 - Retire a route in one bounded migration slice: remove its exclusive code,
   artifacts, evidence, checker/document references and live projections. If an
@@ -80,9 +94,13 @@ retries, timers, scans, watchdogs, fallbacks or allowlists.
 - Update architecture, behavior, validation and public/release surfaces together
   when the change affects them. Stage only intended files when staging is
   requested.
-- Before handoff or compaction, persist exact identities, verified results,
-  blockers and the next action in the owning project artifacts. Conversation,
-  timestamps and prose summaries are not execution state.
+- Delegate only bounded, orthogonal work whose result can change the root or
+  shorten the critical path. Bind it to an exact source; the primary owner must
+  correct, reproduce and integrate it rather than vote on agent conclusions.
+- Before an agent change, cold restart, handoff event or compaction, persist
+  exact identities, verified results, blockers and the next action in the
+  owning project artifacts. Conversation, timestamps and prose summaries are
+  not execution state.
 - Completion requires the requested implementation, relevant focused and
   aggregate gates, a clean diff check, preserved user changes, and precise
   disclosure of remaining blockers or unrun gates.

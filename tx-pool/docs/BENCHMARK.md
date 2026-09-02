@@ -3,7 +3,7 @@
 The benchmark is evidence, not objective or current-state authority. Stable
 hard constraints come from [`architecture-contract.json`](../architecture-contract.json);
 the live phase and exact source come from the manifest-bound
-[`handoff/txpool-v8/`](handoff/txpool-v8/) state. The current implementation is
+[`control/txpool-v8/`](../control/txpool-v8/) state. The current implementation is
 in terminal correctness/root repair, so these commands do not presently
 authorize ranking. A future comparison requires a new result-before-frozen
 candidate/develop identity, binary, workload, environment, metrics and noise
