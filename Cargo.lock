@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
@@ -1771,7 +1771,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-sync"
-version = "1.3.2"
+version = "1.3.3"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",

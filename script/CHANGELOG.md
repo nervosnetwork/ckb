@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-script-v1.2.0...ckb-script-v1.2.1) - 2026-09-04
+
+### Changed
+
+- depedencies updated in the workspace root Cargo.toml
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-script-v1.1.1...ckb-script-v1.2.0) - 2026-07-28
 
 ### Added
