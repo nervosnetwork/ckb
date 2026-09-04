@@ -1,0 +1,12 @@
+{
+  "files": {
+    "tx-pool/architecture-contract.json": "c4b246b8b9da4d7b2b36412165c5894e2dce5b5e4e240c7dab28169c14968bbf",
+    "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md": "fb2bca2bafa5341e55ede257e3921ef9d8333145e13bbe00c71fc55832445a84",
+    "tx-pool/control/txpool-v8/CONTROL_KERNEL.json": "8bb28217c858987b0fc17598c3f4d6df427fe54ddc7283d42fc3ff0436431887",
+    "tx-pool/control/txpool-v8/EVIDENCE.json": "3d68bdf166b5d2c8cd81b5b38609a7f8227e31af9772c84a9ed76ad1777fef3a",
+    "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json": "821dfa1a0f4118db1be58b077aba14a9bcdce13e2d6516cd44f035371fb034af",
+    "tx-pool/control/txpool-v8/STATE.json": "c95fc9fbe6308cfe632871a199beff2ff784baab0acd377f51a95973ece9ec12",
+    "tx-pool/control/txpool-v8/VERIFY_STATE.py": "75d85fb557da0876947c593399ed77e478711457711bda0948293edfbf0d3fa4"
+  },
+  "schema": "txpool-v8-project-state-manifest-v4"
+}

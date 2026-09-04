@@ -187,7 +187,8 @@ pub struct TxPoolEntries {
     pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
     pub proposed: HashMap<H256, TxPoolEntry>,
-    /// Conflicted tx hash vec
+    /// Successfully displaced accepted transaction hashes retained as replacement history.
+    /// Failed replacement candidates are reported through recent-reject status instead.
     pub conflicted: Vec<H256>,
 }
 
@@ -315,6 +316,9 @@ pub enum PoolTransactionReject {
     /// Declared wrong cycles
     DeclaredWrongCycles(String),
 
+    /// Verification exceeded this node's local tx-pool time limit
+    ExcessiveVerifyTime(String),
+
     /// Resolve failed
     Resolve(String),
 
@@ -329,6 +333,9 @@ pub enum PoolTransactionReject {
 
     /// Invalidated rejected
     Invalidated(String),
+
+    /// Internal error
+    Internal(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -345,11 +352,13 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
             Reject::Malformed(_, _) => Self::Malformed(format!("{reject}")),
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{reject}")),
+            Reject::ExcessiveVerifyTime => Self::ExcessiveVerifyTime(format!("{reject}")),
             Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
             Reject::RBFRejected(_) => Self::RBFRejected(format!("{reject}")),
             Reject::Invalidated(_) => Self::Invalidated(format!("{reject}")),
+            Reject::Internal(_) => Self::Internal(format!("{reject}")),
         }
     }
 }

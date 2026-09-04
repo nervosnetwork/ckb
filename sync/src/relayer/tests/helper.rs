@@ -133,7 +133,23 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
     .expect("Start network service failed")
 }
 
-pub(crate) fn build_chain(tip: BlockNumber) -> (ChainServiceScope, Relayer, OutPoint) {
+pub(crate) struct RelayerTestScope {
+    // Field order is the lifecycle proof: stop/join tx-pool while the relay
+    // receiver and database are live, then release the chain service.
+    _tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+    _sync_shared: Arc<SyncShared>,
+    chain: ChainServiceScope,
+}
+
+impl std::ops::Deref for RelayerTestScope {
+    type Target = ChainServiceScope;
+
+    fn deref(&self) -> &Self::Target {
+        &self.chain
+    }
+}
+
+pub(crate) fn build_chain(tip: BlockNumber) -> (RelayerTestScope, Relayer, OutPoint) {
     let (always_success_cell, always_success_cell_data, always_success_script) =
         always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -170,7 +186,14 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (ChainServiceScope, Relayer, OutP
     };
 
     let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    let mut tx_pool = ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network,
+        pack.take_relay_tx_receiver(),
+    );
+    let relay_results = tx_pool
+        .take_relay_results()
+        .expect("fresh blocking tx-pool scope owns the relay receiver");
 
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
@@ -222,13 +245,17 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (ChainServiceScope, Relayer, OutP
             .expect("processing block should be ok");
     }
 
-    let sync_shared = Arc::new(SyncShared::new(
-        shared,
-        Default::default(),
-        pack.take_relay_tx_receiver(),
-    ));
-    let relayer = Relayer::new(chain.chain_controller().clone(), sync_shared);
-    (chain, relayer, always_success_out_point)
+    let sync_shared = Arc::new(SyncShared::new(shared, Default::default(), relay_results));
+    let relayer = Relayer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
+    (
+        RelayerTestScope {
+            _tx_pool: tx_pool,
+            _sync_shared: sync_shared,
+            chain,
+        },
+        relayer,
+        always_success_out_point,
+    )
 }
 
 pub fn inherit_cellbase(snapshot: &Snapshot, parent_number: BlockNumber) -> TransactionView {
@@ -300,6 +327,8 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    full_relay_peers: RefCell<Vec<PeerIndex>>,
+    banned_peers: RefCell<Vec<(PeerIndex, String)>>,
 }
 
 // test mock context with single thread
@@ -312,7 +341,13 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            full_relay_peers: Default::default(),
+            banned_peers: Default::default(),
         }
+    }
+
+    pub(crate) fn set_full_relay_peers(&self, peers: Vec<PeerIndex>) {
+        *self.full_relay_peers.borrow_mut() = peers;
     }
 
     pub(crate) fn has_sent(
@@ -328,6 +363,10 @@ impl MockProtocolContext {
 
     pub(crate) fn sent_messages_len(&self) -> usize {
         self.sent_messages.borrow().len()
+    }
+
+    pub(crate) fn banned_peer_reasons(&self) -> Vec<(PeerIndex, String)> {
+        self.banned_peers.borrow().clone()
     }
 }
 
@@ -440,7 +479,12 @@ impl CKBProtocolContext for MockProtocolContext {
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         self.send_message_to(peer_index, data)
     }
-    fn quick_filter_broadcast(&self, _target: TargetSession, _data: P2pBytes) -> Result<(), Error> {
+    fn quick_filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
+        if let TargetSession::Single(peer) = target {
+            self.sent_messages
+                .borrow_mut()
+                .push((self.protocol_id(), peer, data));
+        }
         Ok(())
     }
     fn quick_filter_broadcast_with_proto(
@@ -490,13 +534,13 @@ impl CKBProtocolContext for MockProtocolContext {
         vec![]
     }
     fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
-        vec![]
+        self.full_relay_peers.borrow().clone()
     }
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();
     }
-    fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {
-        unimplemented!();
+    fn ban_peer(&self, peer_index: PeerIndex, _duration: Duration, reason: String) {
+        self.banned_peers.borrow_mut().push((peer_index, reason));
     }
     fn protocol_id(&self) -> ProtocolId {
         self.protocol.protocol_id()

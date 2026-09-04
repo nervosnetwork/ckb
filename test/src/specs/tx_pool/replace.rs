@@ -16,6 +16,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellDepBuilder, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
+use std::sync::{Arc, Barrier};
 
 pub struct RbfEnable;
 impl Spec for RbfEnable {
@@ -255,8 +256,10 @@ impl Spec for RbfSameInputwithLessFee {
             "Tx's current fee is 1000000000, expect it to >= 2000000363 to replace old txs"
         ));
 
-        // local submit tx RBF check failed, will be added into conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // A rejected candidate is terminal recent-reject evidence, not retained
+        // replacement history. Only successfully displaced Accepted victims
+        // appear on the legacy `conflicted` projection.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -319,8 +322,8 @@ impl Spec for RbfTooManyDescendants {
                 .contains("Tx conflict with too many txs")
         );
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // Component-limit rejection cannot create uncharged conflict history.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -395,8 +398,9 @@ impl Spec for RbfContainNewTx {
                 .contains("new Tx contains unconfirmed inputs")
         );
 
-        // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        // A failed candidate is rejected terminally rather than retained as a
+        // second owner waiting for the accepted chain to change.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -471,8 +475,20 @@ impl Spec for RbfContainInvalidInput {
                 .contains("new Tx contains inputs in descendants of to be replaced Tx")
         );
 
-        // local submit tx RBF check failed, will not in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![tx2.hash().into()]);
+        let rejected = node0.rpc_client().get_transaction(tx2.hash());
+        assert_eq!(rejected.tx_status.status, Status::Rejected);
+        for original in &txs[..max_count] {
+            assert_eq!(
+                node0
+                    .rpc_client()
+                    .get_transaction(original.hash())
+                    .tx_status
+                    .status,
+                Status::Pending,
+                "failed RBF must preserve every accepted owner"
+            );
+        }
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -550,8 +566,9 @@ impl Spec for RbfChildPayForParent {
             .to_string()
             .contains("RBF rejected: Tx's current fee is 3000000000, expect it to >= 5000000363 to replace old txs"));
 
-        // local submit tx RBF check failed, will be in conflicts pool
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
+        // The under-fee candidate is a terminal rejection, not optional
+        // replacement history.
+        assert!(get_tx_pool_conflicts(node0).is_empty());
 
         // let's try a new transaction with new higher fee
         let output2 = CellOutputBuilder::default()
@@ -577,7 +594,6 @@ impl Spec for RbfChildPayForParent {
             .iter()
             .map(|tx| tx.hash().into())
             .collect::<Vec<_>>();
-        expected.push(new_tx.hash().into());
         expected.sort_unstable();
         let conflicts = get_tx_pool_conflicts(node0);
         assert_eq!(conflicts, expected);
@@ -641,7 +657,12 @@ impl Spec for RbfContainInvalidCells {
 pub struct RbfRejectReplaceProposed;
 
 // RBF Rule #6
-// We removed rule #6, even tx in `Gap` and `Proposed` status can be replaced.
+// We removed rule #6, so even a tx in `Gap` or `Proposed` can be replaced.
+// The historical spec name is retained for compatibility with focused test
+// invocations. The current assembler contract refreshes both the removed
+// Proposed set and the replacement's Pending proposal set at the pool commit
+// linearization point; it must not deliberately mine the rejected victim from
+// a stale local template.
 impl Spec for RbfRejectReplaceProposed {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
@@ -715,33 +736,31 @@ impl Spec for RbfRejectReplaceProposed {
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
-        // since old tx is already in BlockAssembler,
-        // tx1 will be committed, even it is not in tx_pool and with `Rejected` status now
+
+        // The replacement gets a fresh proposal while the removed Proposed
+        // victim stays rejected. This distinguishes the current level-triggered
+        // assembler reconciliation from develop's best-effort partial update,
+        // which could leave the victim in the local cached template.
         let ret = wait_until(20, || {
-            let res = rpc_client0.get_transaction(txs[2].hash());
+            let res = rpc_client0.get_transaction(tx2.hash());
+            res.tx_status.status == Status::Proposed
+        });
+        assert!(ret, "replacement should be proposed");
+        let tx1_status = node0.rpc_client().get_transaction(txs[2].hash()).tx_status;
+        assert_eq!(tx1_status.status, Status::Rejected);
+
+        node0.mine(window_count);
+        let ret = wait_until(20, || {
+            let res = rpc_client0.get_transaction(tx2.hash());
             res.tx_status.status == Status::Committed
         });
-        assert!(ret, "tx1 should be committed");
-        let tx1_status = node0.rpc_client().get_transaction(txs[2].hash()).tx_status;
-        assert_eq!(tx1_status.status, Status::Committed);
+        assert!(ret, "replacement should be committed");
 
-        // tx2 will be marked as `Rejected` because callback of `remove_committed_txs` from tx1
-        let tx2_status = node0.rpc_client().get_transaction(tx2.hash()).tx_status;
-        assert_eq!(tx2_status.status, Status::Rejected);
-
-        // the same tx2 can not be sent again
+        // A committed replacement cannot be submitted again.
         let res = node0
             .rpc_client()
             .send_transaction_result(tx2.data().into());
         assert!(res.is_err(), "tx2 should be rejected");
-
-        // resolve tx2 failed with `unknown` when resolve inputs used by tx1
-        assert!(
-            res.err()
-                .unwrap()
-                .to_string()
-                .contains("TransactionFailedToResolve: Resolve failed Unknown")
-        );
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -856,8 +875,8 @@ impl Spec for RbfReplaceProposedSuccess {
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
-        // since old tx is already in BlockAssembler,
-        // tx1 will be committed, even it is not in tx_pool and with `Rejected` status now
+        // The level-triggered assembler must discard the displaced victim,
+        // freshly propose the replacement, and commit that replacement.
         let ret = wait_until(20, || {
             let res = rpc_client0.get_transaction(tx2.hash());
             res.tx_status.status == Status::Committed
@@ -906,37 +925,78 @@ impl Spec for RbfConcurrency {
             conflicts.push(tx2);
         }
 
-        // make 5 threads to set_transaction concurrently
-        let mut handles = vec![];
+        // Exercise the real race: all conflicting replacements enter through
+        // independent RPC handlers. A previous version serialized this loop
+        // with sleeps to avoid a recovery livelock, which made the integration
+        // test incapable of detecting regressions in the in-flight RBF gate.
+        let start = Arc::new(Barrier::new(conflicts.len()));
+        let mut handles = Vec::with_capacity(conflicts.len());
         for tx in &conflicts {
-            let cur_tx = tx.clone();
+            let tx = tx.clone();
             let rpc_address = node0.rpc_listen();
-            let handle = std::thread::spawn(move || {
+            let start = Arc::clone(&start);
+            handles.push(std::thread::spawn(move || {
                 let rpc_client = RpcClient::new(&rpc_address);
-                let _ = rpc_client.send_transaction_result(cur_tx.data().into());
-            });
-            handles.push(handle);
+                start.wait();
+                let _ = rpc_client.send_transaction_result(tx.data().into());
+            }));
         }
         for handle in handles {
-            let _ = handle.join();
+            handle.join().expect("RBF submitter must not panic");
         }
 
-        let status: Vec<_> = conflicts
+        // Wait for the pipeline to settle: pending count must stabilize.
+        let mut last_pending = usize::MAX;
+        let mut stable_count = 0;
+        let settle_start = std::time::Instant::now();
+        let settle_timeout = std::time::Duration::from_secs(60);
+        loop {
+            let info = node0.rpc_client().tx_pool_info();
+            let pending = info.pending.value() as usize;
+            if pending == last_pending {
+                stable_count += 1;
+                if stable_count >= 5 && pending >= 1 {
+                    break;
+                }
+            } else {
+                last_pending = pending;
+                stable_count = 0;
+            }
+            if settle_start.elapsed() > settle_timeout {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        let statuses: Vec<_> = conflicts
             .iter()
-            .map(|tx| {
-                let res = node0.rpc_client().get_transaction(tx.hash());
-                res.tx_status.status
-            })
+            .map(|tx| node0.rpc_client().get_transaction(tx.hash()).tx_status)
             .collect();
 
         // the last tx should be in Pending(with the highest fee), others should be in Rejected
-        assert_eq!(status[4], Status::Pending);
-        for s in status.iter().take(4) {
-            assert_eq!(*s, Status::Rejected);
+        assert_eq!(statuses[4].status, Status::Pending);
+        for status in statuses.iter().take(4) {
+            assert_eq!(status.status, Status::Rejected);
         }
 
-        let mut expected: Vec<ckb_types::H256> =
-            conflicts.iter().take(4).map(|x| x.hash().into()).collect();
+        // Concurrent arrival does not define how many lower-fee candidates
+        // become Accepted before the final winner. Only candidates actually
+        // displaced from Accepted carry the committed `replaced by tx` fact
+        // and enter charged replacement history; direct policy losers remain
+        // terminal recent rejects and must not recreate the old uncharged
+        // conflict-cache residency.
+        let mut expected: Vec<ckb_types::H256> = conflicts
+            .iter()
+            .zip(&statuses)
+            .take(4)
+            .filter(|(_, status)| {
+                status
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("replaced by tx"))
+            })
+            .map(|(tx, _)| tx.hash().into())
+            .collect();
         expected.sort_unstable();
         assert_eq!(get_tx_pool_conflicts(node0), expected);
     }
@@ -1007,7 +1067,7 @@ impl Spec for RbfCellDepsCheck {
                 .to_string()
                 .contains("new Tx contains cell deps from conflicts")
         );
-        assert_eq!(get_tx_pool_conflicts(node0), vec![new_tx.hash().into()]);
+        assert!(get_tx_pool_conflicts(node0).is_empty());
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -1207,13 +1267,16 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
         node1.get_tip_block_number() == node0.get_tip_block_number()
     });
 
-    let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
+    let rejected = wait_until(60, || {
+        node1.get_transaction(tx2.hash()).status == Status::Rejected
+    });
+    assert!(rejected, "node1 should publish the terminal rejection");
 
     let res = node1.get_transaction(tx2.hash());
     assert_eq!(res.status, Status::Rejected);
     let res = node1.get_transaction(tx1.hash());
     assert_eq!(res.status, Status::Pending);
-    assert_eq!(get_tx_pool_conflicts(node1), vec![tx2.hash().into()]);
+    assert!(get_tx_pool_conflicts(node1).is_empty());
 }
 
 pub struct SendConflictTxToRelay;

@@ -1,19 +1,69 @@
-use super::component::TxEntry;
+use super::component::entry::TxEntrySnapshot;
 use crate::error::Reject;
-use crate::pool::TxPool;
+use std::cell::Cell;
 
-/// Callback boxed fn pointer wrapper
-pub type PendingCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
-/// Proposed Callback boxed fn pointer wrapper
-pub type ProposedCallback = Box<dyn Fn(&TxEntry) + Sync + Send>;
-/// Reject Callback boxed fn pointer wrapper
-pub type RejectCallback = Box<dyn Fn(&mut TxPool, &TxEntry, Reject) + Sync + Send>;
+thread_local! {
+    /// A committed-effect endpoint invokes callbacks on a blocking boundary.
+    /// Mutating controller calls made directly by that callback can wait for
+    /// effects whose FIFO publisher is awaiting the callback, so they must
+    /// fail fast.
+    ///
+    /// This context is deliberately thread-local. A process-wide marker makes
+    /// unrelated chain/RPC threads look re-entrant and can reject an
+    /// authoritative reorg merely because a notification callback overlaps
+    /// it. Callback ancestry cannot safely be inferred across arbitrary
+    /// threads; callers that spawn helper threads must not synchronously join
+    /// helpers which re-enter a mutating controller operation.
+    static CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Execute one callback with re-entrant mutation detection scoped to the
+/// current stack. Tokio may reuse a blocking-pool thread for unrelated work,
+/// so the previous marker is restored even when callback code unwinds.
+pub(crate) fn with_callback_context<T>(operation: impl FnOnce() -> T) -> T {
+    struct CallbackContextGuard(bool);
+
+    impl Drop for CallbackContextGuard {
+        fn drop(&mut self) {
+            CALLBACK_THREAD.with(|marked| marked.set(self.0));
+        }
+    }
+
+    let previous = CALLBACK_THREAD.with(|marked| marked.replace(true));
+    let _guard = CallbackContextGuard(previous);
+    operation()
+}
+
+/// Read-only controller calls are safe from callbacks. Synchronous mutations
+/// are not: they can wait for the same publisher that is executing the
+/// callback, directly or through effect-journal backpressure.
+pub(crate) fn in_callback() -> bool {
+    CALLBACK_THREAD.with(Cell::get)
+}
+
+/// Callback boxed fn pointer wrapper.
+///
+/// Callbacks receive a stable accounting snapshot rather than the full
+/// resolved transaction, so deferred publication never pins resolved cell
+/// metadata after pool ownership ends.
+pub type PendingCallback = Box<dyn Fn(&TxEntrySnapshot) + Sync + Send>;
+/// Proposed callback boxed fn pointer wrapper.
+pub type ProposedCallback = Box<dyn Fn(&TxEntrySnapshot) + Sync + Send>;
+/// Reject callback boxed fn pointer wrapper.
+pub type RejectCallback = Box<dyn Fn(&TxEntrySnapshot, Reject) + Sync + Send>;
 
 /// Struct hold callbacks
 pub struct Callbacks {
     pub(crate) pending: Option<PendingCallback>,
     pub(crate) proposed: Option<ProposedCallback>,
     pub(crate) reject: Option<RejectCallback>,
+}
+
+#[derive(Clone)]
+pub(crate) enum CallbackEvent {
+    Pending(TxEntrySnapshot),
+    Proposed(TxEntrySnapshot),
+    Reject(TxEntrySnapshot, Reject),
 }
 
 impl Default for Callbacks {
@@ -47,24 +97,38 @@ impl Callbacks {
         self.reject = Some(callback);
     }
 
-    /// Call on after pending
-    pub fn call_pending(&self, entry: &TxEntry) {
+    /// Publish one already-journaled callback effect.
+    ///
+    /// The effect publisher is itself the stable-state barrier, so this path
+    /// deliberately bypasses any in-task deferral queue. It is the only
+    /// callback entry point used by the production effect journal.
+    pub(crate) fn publish(&self, event: &CallbackEvent) {
+        match event {
+            CallbackEvent::Pending(entry) => self.call_pending_now(entry),
+            CallbackEvent::Proposed(entry) => self.call_proposed_now(entry),
+            CallbackEvent::Reject(entry, reject) => self.call_reject_now(entry, reject.clone()),
+        }
+    }
+
+    fn call_pending_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.pending {
-            call(entry)
+            call(entry);
         }
     }
 
-    /// Call on after proposed
-    pub fn call_proposed(&self, entry: &TxEntry) {
+    fn call_proposed_now(&self, entry: &TxEntrySnapshot) {
         if let Some(call) = &self.proposed {
-            call(entry)
+            call(entry);
         }
     }
 
-    /// Call on after reject
-    pub fn call_reject(&self, tx_pool: &mut TxPool, entry: &TxEntry, reject: Reject) {
+    fn call_reject_now(&self, entry: &TxEntrySnapshot, reject: Reject) {
         if let Some(call) = &self.reject {
-            call(tx_pool, entry, reject)
+            call(entry, reject);
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/callback.rs"]
+mod tests;

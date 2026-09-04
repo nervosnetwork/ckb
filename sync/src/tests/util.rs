@@ -2,9 +2,10 @@ use crate::SyncShared;
 use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_dao::DaoCalculator;
 use ckb_reward_calculator::RewardCalculator;
-use ckb_shared::{Shared, SharedBuilder, Snapshot};
+use ckb_shared::{Shared, SharedBuilder, SharedPackage, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cellbase, always_success_consensus};
+use ckb_tx_pool::service::TxVerificationResultReceiver;
 use ckb_types::prelude::*;
 use ckb_types::{
     core::{BlockBuilder, BlockNumber, TransactionView, cell::resolve_transaction},
@@ -14,14 +15,30 @@ use ckb_verification_traits::Switch;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Select the explicit chain-only topology before the chain service starts.
+///
+/// An intact `TxPoolServiceBuilder` owns the receiving half of the reliable,
+/// capacity-one chain-transition channel. Leaving that dormant capability
+/// alive while producing multiple blocks would correctly backpressure the
+/// chain forever because no consumer can drain it. Chain-only tests must close
+/// that capability; production-like tests must start the tx-pool instead.
+pub fn disable_tx_pool_and_take_relay_receiver(
+    pack: &mut SharedPackage,
+) -> TxVerificationResultReceiver {
+    let relay_receiver = pack.take_relay_tx_receiver();
+    drop(pack.take_tx_pool_builder());
+    relay_receiver
+}
+
 pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainServiceScope) {
     let (shared, mut pack) = SharedBuilder::with_temp_db()
         .consensus(always_success_consensus())
         .build()
         .unwrap();
+    let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
     let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
     generate_blocks(&shared, chain_scope.chain_controller(), tip);
-    let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
+    let sync_shared = SyncShared::new(shared, Default::default(), relay_receiver);
     (sync_shared, chain_scope)
 }
 

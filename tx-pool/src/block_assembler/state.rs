@@ -1,0 +1,83 @@
+//! Block assembler state: cached template size and the current template snapshot.
+
+use crate::block_assembler::builder::BlockTemplate;
+use ckb_snapshot::Snapshot;
+use ckb_types::core::EpochExt;
+use std::sync::Arc;
+
+/// Version of the published template content. Partial updates compare this
+/// token before applying; full updates deliberately ignore it and overwrite a
+/// racing partial update.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct TemplateRevision(u64);
+
+impl TemplateRevision {
+    pub(crate) const INITIAL: Self = Self(0);
+
+    pub(crate) fn next(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
+}
+
+/// Generation of the latest published authoritative reset. A full rebuild may
+/// overwrite partial content, but it may not cross this boundary.
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub(crate) struct ResetEpoch(u64);
+
+impl ResetEpoch {
+    pub(crate) const INITIAL: Self = Self(0);
+    pub(crate) const MAX: Self = Self(u64::MAX);
+
+    pub(crate) fn next(self) -> Option<Self> {
+        if self == Self::MAX {
+            return None;
+        }
+        self.0.checked_add(1).map(Self)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct TemplateSize {
+    pub(crate) txs: usize,
+    pub(crate) proposals: usize,
+    pub(crate) uncles: usize,
+    pub(crate) total: usize,
+}
+
+impl TemplateSize {
+    pub(crate) fn calc_total_by_txs(&self, new_txs_size: usize) -> Option<usize> {
+        self.total.checked_sub(self.txs)?.checked_add(new_txs_size)
+    }
+}
+
+pub(crate) struct CurrentTemplate {
+    pub(crate) template: BlockTemplate,
+    pub(crate) size: TemplateSize,
+    pub(crate) snapshot: Arc<Snapshot>,
+    pub(crate) epoch: EpochExt,
+    /// Publication metadata is co-located with the state it versions. This
+    /// avoids an atomic/template split where a reader could pair a template
+    /// with a counter from another publication.
+    pub(crate) revision: TemplateRevision,
+    pub(crate) reset_epoch: ResetEpoch,
+}
+
+impl CurrentTemplate {
+    /// Build unpublished content for the same chain snapshot and reset
+    /// generation. Publication assigns the successor revision and rechecks
+    /// the appropriate OCC token.
+    ///
+    /// `CurrentTemplate` deliberately does not implement `Clone`: copying it
+    /// would also deep-clone every transaction, proposal, and uncle only for
+    /// callers to replace that template immediately.
+    pub(crate) fn with_content(&self, template: BlockTemplate, size: TemplateSize) -> Self {
+        Self {
+            template,
+            size,
+            snapshot: Arc::clone(&self.snapshot),
+            epoch: self.epoch.clone(),
+            revision: self.revision,
+            reset_epoch: self.reset_epoch,
+        }
+    }
+}

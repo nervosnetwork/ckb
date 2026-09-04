@@ -7,6 +7,7 @@ use ckb_types::{
         tx_pool::{TxEntryInfo, get_transaction_weight},
     },
     packed::{OutPoint, ProposalShortId},
+    prelude::Entity,
 };
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
@@ -41,6 +42,164 @@ pub struct TxEntry {
     pub descendants_count: usize,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
+}
+
+/// Conservative resident-byte charge for a resolved transaction.
+///
+/// This counts logical ownership, so shared `Bytes` are charged to each entry
+/// that can independently extend their lifetime. Saturation turns impossible
+/// arithmetic overflow into a value that every finite residency budget
+/// rejects, rather than wrapping into an undercharge. Before verification this
+/// includes complete dep expansion; accepted entries carry the compact
+/// verified representation produced by the authority residency boundary.
+pub(crate) fn resolved_transaction_charge_bytes(
+    tx_size: usize,
+    rtx: &ResolvedTransaction,
+) -> usize {
+    let mut bytes = std::mem::size_of::<TxEntry>()
+        .saturating_add(std::mem::size_of::<ResolvedTransaction>())
+        .saturating_add(tx_size)
+        // `TransactionView` retains raw and witness hashes outside the packed
+        // transaction backing bytes counted by `tx_size`.
+        .saturating_add(64);
+
+    for cells in [
+        &rtx.resolved_inputs,
+        &rtx.resolved_cell_deps,
+        &rtx.resolved_dep_groups,
+    ] {
+        bytes = bytes.saturating_add(
+            cells
+                .capacity()
+                .saturating_mul(std::mem::size_of::<ckb_types::core::cell::CellMeta>()),
+        );
+        for cell in cells {
+            bytes = bytes
+                .saturating_add(cell.cell_output.as_slice().len())
+                .saturating_add(cell.out_point.as_slice().len())
+                .saturating_add(cell.transaction_info.as_ref().map_or(0, |_| 32))
+                .saturating_add(cell.mem_cell_data.as_ref().map_or(0, |data| data.len()))
+                .saturating_add(cell.mem_cell_data_hash.as_ref().map_or(0, |_| 32));
+        }
+    }
+    bytes
+}
+
+// Accepted entries live in several allocator-backed indexes in addition to
+// retaining their `ResolvedTransaction`. These charges are deliberately
+// conservative accounting weights rather than allocator-specific byte-exact
+// measurements: each value covers the record, hash-table slack and the graph
+// membership(s) created by one logical item on 64-bit targets. Keeping the
+// weights explicit makes the admission budget independent of the current
+// `HashMap`/`multi_index_map` implementation and prevents a compact dep-group
+// from becoming an uncharged index-amplification vector.
+const ACCEPTED_ENTRY_INDEX_BASE_CHARGE: usize = 1_024;
+const ACCEPTED_INPUT_INDEX_CHARGE: usize = 256;
+const ACCEPTED_DEP_INDEX_CHARGE: usize = 384;
+const ACCEPTED_HEADER_INDEX_CHARGE: usize = 128;
+
+/// Conservative resident-byte charge after a transaction becomes accepted.
+///
+/// Besides the compact verified resolved payload, an accepted entry owns four
+/// `PoolEntry` indexes, an out-point index and a bidirectional dependency
+/// graph node. Every input can create one spend-index record and one graph
+/// relation; every expanded dep can create an out-point/set record and one
+/// graph relation; header deps are retained in their own index. Counts use the
+/// actual expanded resolved deps, so a tiny serialized dep-group reference is
+/// charged for the persistent fanout it creates.
+pub(crate) fn accepted_transaction_charge_bytes(
+    tx_size: usize,
+    rtx: &ResolvedTransaction,
+) -> usize {
+    let input_count = rtx.transaction.inputs().len();
+    let dep_count = rtx.related_dep_out_points().count();
+    let header_count = rtx.transaction.header_deps().len();
+
+    resolved_transaction_charge_bytes(tx_size, rtx)
+        .saturating_add(ACCEPTED_ENTRY_INDEX_BASE_CHARGE)
+        .saturating_add(input_count.saturating_mul(ACCEPTED_INPUT_INDEX_CHARGE))
+        .saturating_add(dep_count.saturating_mul(ACCEPTED_DEP_INDEX_CHARGE))
+        .saturating_add(header_count.saturating_mul(ACCEPTED_HEADER_INDEX_CHARGE))
+}
+
+/// Immutable callback payload detached from resolved-cell ownership.
+///
+/// A pool entry retains complete resolved inputs for DAO accounting and a
+/// compact liveness-only dep representation. Stable-state callbacks need
+/// neither; they only need the transaction and accounting snapshot.
+/// Keeping this compact type in the effect journal prevents a stalled callback
+/// from extending the lifetime of arbitrarily large resolved metadata after
+/// the authoritative pool entry has been removed.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct TxEntrySnapshot {
+    /// Transaction.
+    pub transaction: TransactionView,
+    /// Cycles.
+    pub cycles: Cycle,
+    /// Serialized transaction size.
+    pub size: usize,
+    /// Fee.
+    pub fee: Capacity,
+    /// Ancestor transaction size.
+    pub ancestors_size: usize,
+    /// Ancestor transaction fee.
+    pub ancestors_fee: Capacity,
+    /// Ancestor transaction cycles.
+    pub ancestors_cycles: Cycle,
+    /// Ancestor count.
+    pub ancestors_count: usize,
+    /// Descendant transaction fee.
+    pub descendants_fee: Capacity,
+    /// Descendant transaction size.
+    pub descendants_size: usize,
+    /// Descendant transaction cycles.
+    pub descendants_cycles: Cycle,
+    /// Descendant count.
+    pub descendants_count: usize,
+    /// Unix timestamp when the transaction entered the pool, in milliseconds.
+    pub timestamp: u64,
+}
+
+impl TxEntrySnapshot {
+    /// Return the immutable transaction view.
+    pub fn transaction(&self) -> &TransactionView {
+        &self.transaction
+    }
+
+    /// Convert the snapshot to the public entry-info representation.
+    pub fn to_info(&self) -> TxEntryInfo {
+        TxEntryInfo {
+            cycles: self.cycles,
+            size: self.size as u64,
+            fee: self.fee,
+            ancestors_size: self.ancestors_size as u64,
+            ancestors_cycles: self.ancestors_cycles,
+            descendants_size: self.descendants_size as u64,
+            descendants_cycles: self.descendants_cycles,
+            ancestors_count: self.ancestors_count as u64,
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+impl From<TxEntry> for TxEntrySnapshot {
+    fn from(entry: TxEntry) -> Self {
+        Self {
+            transaction: entry.rtx.transaction.clone(),
+            cycles: entry.cycles,
+            size: entry.size,
+            fee: entry.fee,
+            ancestors_size: entry.ancestors_size,
+            ancestors_fee: entry.ancestors_fee,
+            ancestors_cycles: entry.ancestors_cycles,
+            ancestors_count: entry.ancestors_count,
+            descendants_fee: entry.descendants_fee,
+            descendants_size: entry.descendants_size,
+            descendants_cycles: entry.descendants_cycles,
+            descendants_count: entry.descendants_count,
+            timestamp: entry.timestamp,
+        }
+    }
 }
 
 impl TxEntry {
@@ -115,54 +274,6 @@ impl TxEntry {
     pub fn fee_rate(&self) -> FeeRate {
         let weight = get_transaction_weight(self.size, self.cycles);
         FeeRate::calculate(self.fee, weight)
-    }
-
-    /// Update ancestor state for add an entry
-    pub fn add_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_add(1);
-        self.descendants_size = self.descendants_size.saturating_add(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_add(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for remove an entry
-    pub fn sub_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_sub(1);
-        self.descendants_size = self.descendants_size.saturating_sub(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_sub(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for add an entry
-    pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_add(1);
-        self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for remove an entry
-    pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_sub(1);
-        self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
     }
 
     /// Reset ancestor state by remove
@@ -243,6 +354,7 @@ impl From<&TxEntry> for EvictKey {
             fee_rate: descendants_feerate.max(feerate),
             timestamp: entry.timestamp,
             descendants_count: entry.descendants_count,
+            id: entry.proposal_short_id(),
         }
     }
 }

@@ -1,0 +1,739 @@
+use super::chain::{CellContentReceipt, CellLocationReceiptError, TimeContextReceipt};
+use super::rejection::{CommittedPublicReject, duplicate_inputs_reject};
+use super::resources::{AcceptedCost, ComputeGrant};
+use super::state::{
+    ActiveWork, AsyncProcessStart, CandidateMetrics, ChainViewId, DependencyCut, DependencyKey,
+    DependencySetError, EntryVersion, FootprintError, InputEvidenceDisposition, InputEvidenceError,
+    KnownDependencies, MissingDependencies, PayloadPolicy, PreAcceptedEntry, PreAcceptedPhase,
+    QueuedWork, RawTxHash, ResolvedFacts, ResolvedPayload, VerifiedFacts, VerifyCapability,
+    VerifyCycleClass, WorkPermit,
+};
+use crate::error::Reject;
+use ckb_types::core::TransactionView;
+use ckb_types::core::{Capacity, cell::ResolvedTransaction};
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub(super) struct SettlementToken {
+    pub(super) hash: RawTxHash,
+    pub(super) version: EntryVersion,
+}
+
+#[derive(Debug)]
+pub(super) struct LeaseToken {
+    pub(super) settlement: SettlementToken,
+    pub(super) chain_view: ChainViewId,
+    pub(super) dependency_cut: DependencyCut,
+    pub(super) grant: ComputeGrant,
+    pub(super) payload_policy: PayloadPolicy,
+}
+
+impl LeaseToken {
+    fn chain_view(&self) -> &ChainViewId {
+        &self.chain_view
+    }
+
+    fn settle(self, next: SettlementNext) -> ComputeSettlement {
+        ComputeSettlement {
+            token: self.settlement,
+            next,
+        }
+    }
+}
+
+/// Constructor capability for `ResolvedPayload`. Its field is private to this
+/// module, so no sibling can manufacture retained resolution evidence without
+/// consuming checked-out work.
+pub(super) struct ResolutionSeal(());
+
+/// Constructor capability binding post-script metrics to the exact resolved
+/// payload consumed by this module's move-only verify work.
+pub(super) struct VerificationSeal(());
+
+#[derive(Debug)]
+pub(super) struct ResolutionEvidence {
+    resolved: Arc<ResolvedTransaction>,
+    fee: Capacity,
+    resident_bytes: usize,
+    verify_class: VerifyCycleClass,
+}
+
+impl ResolutionEvidence {
+    pub(super) fn from_resolution(
+        _seal: super::resolver::ResolutionEvidenceSeal,
+        resolved: Arc<ResolvedTransaction>,
+        fee: Capacity,
+        resident_bytes: usize,
+        verify_class: VerifyCycleClass,
+    ) -> Self {
+        Self {
+            resolved,
+            fee,
+            resident_bytes,
+            verify_class,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct ResolveWork {
+    token: LeaseToken,
+    tx: Arc<TransactionView>,
+    declared_dependencies: KnownDependencies,
+}
+
+#[derive(Debug)]
+pub(super) struct ContinuousResolveWork {
+    token: LeaseToken,
+    tx: Arc<TransactionView>,
+    declared_dependencies: KnownDependencies,
+    capability: VerifyCapability,
+}
+
+#[derive(Debug)]
+pub(super) struct VerifyWork {
+    token: LeaseToken,
+    resolved: ResolvedFacts,
+}
+
+#[derive(Debug)]
+pub(super) struct ContinuousVerifyWork {
+    token: LeaseToken,
+    resolved: ResolvedFacts,
+}
+
+/// A verify capability whose retained resolution facts and checkout token are
+/// proven to name the same chain view. Only this type can consume a VM result.
+/// A queued old-view capability instead yields its exact retry settlement
+/// before any VM work starts.
+#[derive(Debug)]
+pub(super) struct SnapshotBoundVerifyWork {
+    token: LeaseToken,
+    resolved: ResolvedFacts,
+}
+
+#[derive(Debug)]
+#[must_use = "checked-out work owns the only live compute capability"]
+pub(super) enum CheckedOutWork {
+    Resolve(ResolveWork),
+    ContinuousResolve(ContinuousResolveWork),
+    Verify(VerifyWork),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WorkPermitMismatch {
+    Incompatible,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResolutionReceiptError {
+    TransactionMismatch,
+    InvalidEvidence(InputEvidenceError),
+    EmptyDependencies,
+}
+
+#[derive(Debug)]
+#[must_use = "a rejected compute receipt still owns the exact lease settlement"]
+pub(super) struct ReceiptFailure<E> {
+    error: E,
+    token: SettlementToken,
+}
+
+impl<E> ReceiptFailure<E> {
+    fn new(token: LeaseToken, error: E) -> Self {
+        Self {
+            error,
+            token: token.settlement,
+        }
+    }
+
+    pub(super) fn error(&self) -> &E {
+        &self.error
+    }
+
+    pub(super) fn into_settlement(self) -> ComputeSettlement {
+        ComputeSettlement {
+            token: self.token,
+            next: SettlementNext::Retry,
+        }
+    }
+}
+
+#[must_use = "continuous resolution must continue verification or settle its lease"]
+pub(super) enum ContinuousResolution {
+    Verify(ContinuousVerifyWork),
+    Settle(ComputeSettlement),
+}
+
+#[derive(Debug)]
+pub(super) enum SettlementNext {
+    QueuedVerify(ResolvedFacts),
+    Waiting(MissingResolution),
+    Ready(VerifiedFacts),
+    Rejected(SettlementRejection),
+    /// A negative script-verification result is valid only under both the
+    /// checked-out chain view and its sealed payload policy. Retaining the
+    /// resolved evidence lets Apply retry verification without repeating
+    /// resolution when a same-witness trusted promotion supersedes a peer's
+    /// cycle limit while work is active.
+    VerificationRejected {
+        rejection: CommittedPublicReject,
+        resolved: ResolvedFacts,
+    },
+    Retry,
+}
+
+/// Exact worker rejection plus the minimum validity domain needed when a
+/// settlement races a chain transition. The authority can never infer this
+/// distinction from an error string or from the caller that returned it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SettlementRejection {
+    /// Resolve/verify evidence is bound to the checked-out chain view.
+    ChainBound(CommittedPublicReject),
+    /// The sealed compute/residency envelope is independent of chain state.
+    ResourceBound(CommittedPublicReject),
+}
+
+impl SettlementRejection {
+    fn chain_bound(reason: impl Into<CommittedPublicReject>) -> Self {
+        Self::ChainBound(reason.into())
+    }
+
+    fn resource_bound(reason: impl Into<CommittedPublicReject>) -> Self {
+        Self::ResourceBound(reason.into())
+    }
+
+    pub(super) const fn remains_valid_after_chain_change(&self) -> bool {
+        matches!(self, Self::ResourceBound(_))
+    }
+
+    pub(super) const fn is_malformed(&self) -> bool {
+        match self {
+            Self::ChainBound(rejection) | Self::ResourceBound(rejection) => {
+                rejection.is_malformed()
+            }
+        }
+    }
+
+    pub(super) fn into_public(self) -> CommittedPublicReject {
+        match self {
+            Self::ChainBound(rejection) | Self::ResourceBound(rejection) => rejection,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct MissingResolution {
+    missing: MissingDependencies,
+    dependencies: KnownDependencies,
+    /// Canonical transaction origins of the complete missing Cell frontier.
+    ///
+    /// This projection is built outside the authority guard. It deliberately
+    /// excludes header dependencies: production resolution rejects an invalid
+    /// header directly, while the relayer can only request transactions.
+    parent_transactions: Arc<Vec<RawTxHash>>,
+}
+
+impl MissingResolution {
+    pub(super) fn missing(&self) -> &MissingDependencies {
+        &self.missing
+    }
+
+    pub(super) fn dependencies(&self) -> &KnownDependencies {
+        &self.dependencies
+    }
+
+    pub(super) fn parent_transactions(&self) -> &Arc<Vec<RawTxHash>> {
+        &self.parent_transactions
+    }
+}
+
+#[derive(Debug)]
+#[must_use = "a settlement must be planned and applied or explicitly discarded as stale"]
+pub(super) struct ComputeSettlement {
+    pub(super) token: SettlementToken,
+    pub(super) next: SettlementNext,
+}
+
+fn internal_failure(token: LeaseToken) -> ComputeSettlement {
+    token.settle(SettlementNext::Retry)
+}
+
+fn budget_denied(token: LeaseToken) -> ComputeSettlement {
+    token.settle(SettlementNext::Rejected(
+        SettlementRejection::resource_bound(Reject::Full(
+            "transaction exceeds the tx-pool compute residency envelope".to_owned(),
+        )),
+    ))
+}
+
+fn missing_settlement(
+    token: LeaseToken,
+    declared_dependencies: KnownDependencies,
+    keys: Vec<DependencyKey>,
+) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+    let missing = match MissingDependencies::new(keys, token.grant.max_edges()) {
+        Ok(missing) => missing,
+        Err(DependencySetError::TooMany) => {
+            return Ok(budget_denied(token));
+        }
+        Err(DependencySetError::Empty) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::EmptyDependencies,
+            ));
+        }
+        Err(DependencySetError::Arithmetic) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::InvalidEvidence(InputEvidenceError::DependencySet(
+                    DependencySetError::Arithmetic,
+                )),
+            ));
+        }
+    };
+    let dependencies = match declared_dependencies.with_missing(&missing, token.grant.max_edges()) {
+        Ok(dependencies) => dependencies,
+        Err(DependencySetError::TooMany) => {
+            return Ok(budget_denied(token));
+        }
+        Err(error @ (DependencySetError::Empty | DependencySetError::Arithmetic)) => {
+            return Err(ReceiptFailure::new(
+                token,
+                ResolutionReceiptError::InvalidEvidence(InputEvidenceError::DependencySet(error)),
+            ));
+        }
+    };
+    if token
+        .grant
+        .retained_base_charge(dependencies.len())
+        .is_none()
+    {
+        return Ok(budget_denied(token));
+    }
+    let parent_transactions = missing.parent_transactions();
+    Ok(token.settle(SettlementNext::Waiting(MissingResolution {
+        missing,
+        dependencies,
+        parent_transactions,
+    })))
+}
+
+enum ResolvedPayloadBuild {
+    Ready(ResolvedPayload, VerifyCycleClass),
+    ResourceDenied,
+    Rejected(CommittedPublicReject),
+}
+
+fn location_receipt_error(error: CellLocationReceiptError) -> ResolutionReceiptError {
+    match error {
+        CellLocationReceiptError::Arithmetic => ResolutionReceiptError::InvalidEvidence(
+            InputEvidenceError::Footprint(FootprintError::Arithmetic),
+        ),
+    }
+}
+
+fn build_resolved_payload(
+    token: &LeaseToken,
+    tx: &TransactionView,
+    evidence: ResolutionEvidence,
+) -> Result<ResolvedPayloadBuild, ResolutionReceiptError> {
+    let ResolutionEvidence {
+        resolved,
+        fee,
+        resident_bytes,
+        verify_class,
+    } = evidence;
+    if &resolved.transaction != tx {
+        return Err(ResolutionReceiptError::TransactionMismatch);
+    }
+    match ResolvedPayload::from_resolution(
+        ResolutionSeal(()),
+        resolved,
+        token.grant.max_edges(),
+        fee,
+        resident_bytes,
+    ) {
+        Ok(payload)
+            if token
+                .grant
+                .retained_charge(
+                    payload.resolved_resident_bytes(),
+                    payload.footprint.edge_count(),
+                )
+                .is_some() =>
+        {
+            Ok(ResolvedPayloadBuild::Ready(payload, verify_class))
+        }
+        Ok(_) => Ok(ResolvedPayloadBuild::ResourceDenied),
+        Err(error) => match error.disposition() {
+            InputEvidenceDisposition::MalformedTransaction => Ok(ResolvedPayloadBuild::Rejected(
+                CommittedPublicReject::new(duplicate_inputs_reject()),
+            )),
+            InputEvidenceDisposition::ResourceDenied => Ok(ResolvedPayloadBuild::ResourceDenied),
+            InputEvidenceDisposition::Structural => {
+                Err(ResolutionReceiptError::InvalidEvidence(error))
+            }
+        },
+    }
+}
+
+fn verified(
+    token: LeaseToken,
+    resolved: ResolvedFacts,
+    cycles: u64,
+    time: TimeContextReceipt,
+    async_process_start: AsyncProcessStart,
+) -> ComputeSettlement {
+    let serialized_bytes = resolved.payload().serialized_bytes();
+    if resolved.payload().footprint.edge_count() > token.grant.max_edges() {
+        return budget_denied(token);
+    }
+    let payload_policy = token.payload_policy;
+    // Cycle-claim validation is part of the only constructor for Ready
+    // evidence. A runner cannot accidentally bypass it; Apply later decides
+    // whether this sealed peer policy is still current or was superseded by a
+    // trusted same-witness promotion.
+    if let PayloadPolicy::RemoteDeclaredCycles(limit) = payload_policy
+        && limit.declared() != cycles
+    {
+        let declared = limit.declared();
+        return token.settle(SettlementNext::VerificationRejected {
+            rejection: CommittedPublicReject::new(Reject::DeclaredWrongCycles(declared, cycles)),
+            resolved,
+        });
+    }
+    let fee = resolved.payload().fee();
+    let (dependency_cut, content, context, verify_class) =
+        resolved.into_verification_parts(VerificationSeal(()), time);
+    let (payload, accepted_resident_bytes) =
+        ResolvedPayload::compact_after_verification(content.into_payload(), VerificationSeal(()));
+    if token
+        .grant
+        .retained_charge(accepted_resident_bytes, payload.footprint.edge_count())
+        .is_none()
+    {
+        return budget_denied(token);
+    }
+    let metrics = CandidateMetrics {
+        fee,
+        cost: AcceptedCost::new(serialized_bytes, accepted_resident_bytes, cycles),
+    };
+    token.settle(SettlementNext::Ready(VerifiedFacts::from_verification(
+        VerificationSeal(()),
+        dependency_cut,
+        CellContentReceipt::from_resolution(payload),
+        context,
+        verify_class,
+        metrics,
+        async_process_start,
+    )))
+}
+
+impl ResolveWork {
+    pub(super) fn transaction(&self) -> &TransactionView {
+        &self.tx
+    }
+
+    pub(super) fn missing(
+        self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        missing_settlement(self.token, self.declared_dependencies, keys)
+    }
+
+    pub(super) fn resolution_grant(&self) -> ComputeGrant {
+        self.token.grant
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
+    }
+
+    pub(super) fn resolved(
+        self,
+        evidence: ResolutionEvidence,
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        let next = match build_resolved_payload(&self.token, &self.tx, evidence) {
+            Err(error) => return Err(ReceiptFailure::new(self.token, error)),
+            Ok(ResolvedPayloadBuild::Ready(payload, verify_class)) => {
+                let resolved = match ResolvedFacts::from_resolution(
+                    ResolutionSeal(()),
+                    self.token.chain_view().clone(),
+                    self.token.dependency_cut,
+                    Arc::new(payload),
+                    verify_class,
+                ) {
+                    Ok(resolved) => resolved,
+                    Err(error) => {
+                        return Err(ReceiptFailure::new(
+                            self.token,
+                            location_receipt_error(error),
+                        ));
+                    }
+                };
+                SettlementNext::QueuedVerify(resolved)
+            }
+            Ok(ResolvedPayloadBuild::ResourceDenied) => {
+                return Ok(budget_denied(self.token));
+            }
+            Ok(ResolvedPayloadBuild::Rejected(rejection)) => {
+                return Ok(self.token.settle(SettlementNext::Rejected(
+                    SettlementRejection::chain_bound(rejection),
+                )));
+            }
+        };
+        Ok(self.token.settle(next))
+    }
+
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
+        self.token
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
+    }
+
+    pub(super) fn internal_failure(self) -> ComputeSettlement {
+        internal_failure(self.token)
+    }
+
+    pub(super) fn resource_denied(self) -> ComputeSettlement {
+        budget_denied(self.token)
+    }
+}
+
+impl ContinuousResolveWork {
+    pub(super) fn transaction(&self) -> &TransactionView {
+        &self.tx
+    }
+
+    pub(super) fn missing(
+        self,
+        keys: Vec<DependencyKey>,
+    ) -> Result<ComputeSettlement, ReceiptFailure<ResolutionReceiptError>> {
+        ResolveWork {
+            token: self.token,
+            tx: self.tx,
+            declared_dependencies: self.declared_dependencies,
+        }
+        .missing(keys)
+    }
+
+    pub(super) fn resolution_grant(&self) -> ComputeGrant {
+        self.token.grant
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
+    pub(super) fn chain_view(&self) -> &ChainViewId {
+        self.token.chain_view()
+    }
+
+    pub(super) fn resolved(
+        self,
+        evidence: ResolutionEvidence,
+    ) -> Result<ContinuousResolution, ReceiptFailure<ResolutionReceiptError>> {
+        let payload = match build_resolved_payload(&self.token, &self.tx, evidence) {
+            Ok(payload) => payload,
+            Err(error) => return Err(ReceiptFailure::new(self.token, error)),
+        };
+        let (payload, verify_class) = match payload {
+            ResolvedPayloadBuild::Ready(payload, verify_class) => (payload, verify_class),
+            ResolvedPayloadBuild::ResourceDenied => {
+                return Ok(ContinuousResolution::Settle(budget_denied(self.token)));
+            }
+            ResolvedPayloadBuild::Rejected(rejection) => {
+                return Ok(ContinuousResolution::Settle(self.token.settle(
+                    SettlementNext::Rejected(SettlementRejection::chain_bound(rejection)),
+                )));
+            }
+        };
+        let chain_view = self.token.chain_view().clone();
+        let resolved = match ResolvedFacts::from_resolution(
+            ResolutionSeal(()),
+            chain_view,
+            self.token.dependency_cut,
+            Arc::new(payload),
+            verify_class,
+        ) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                return Err(ReceiptFailure::new(
+                    self.token,
+                    location_receipt_error(error),
+                ));
+            }
+        };
+        if self.capability.permits(verify_class) {
+            Ok(ContinuousResolution::Verify(ContinuousVerifyWork {
+                token: self.token,
+                resolved,
+            }))
+        } else {
+            Ok(ContinuousResolution::Settle(
+                self.token.settle(SettlementNext::QueuedVerify(resolved)),
+            ))
+        }
+    }
+
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
+        self.token
+            .settle(SettlementNext::Rejected(SettlementRejection::chain_bound(
+                reason,
+            )))
+    }
+
+    pub(super) fn internal_failure(self) -> ComputeSettlement {
+        internal_failure(self.token)
+    }
+
+    pub(super) fn resource_denied(self) -> ComputeSettlement {
+        budget_denied(self.token)
+    }
+}
+
+impl VerifyWork {
+    #[expect(
+        clippy::result_large_err,
+        reason = "a stale snapshot returns the exact move-only settlement capability; boxing would allocate at the worker freshness boundary"
+    )]
+    pub(super) fn bind_current(
+        self,
+        snapshot_tip: &ckb_types::packed::Byte32,
+    ) -> Result<SnapshotBoundVerifyWork, ComputeSettlement> {
+        if snapshot_tip != &self.token.chain_view().tip().0
+            || self.resolved.chain_view() != self.token.chain_view()
+        {
+            return Err(internal_failure(self.token));
+        }
+        Ok(SnapshotBoundVerifyWork {
+            token: self.token,
+            resolved: self.resolved,
+        })
+    }
+}
+
+impl ContinuousVerifyWork {
+    pub(super) fn into_current(self) -> SnapshotBoundVerifyWork {
+        // Continuous verification consumes facts produced from the same
+        // snapshot-bound token without an intervening authority checkout.
+        SnapshotBoundVerifyWork {
+            token: self.token,
+            resolved: self.resolved,
+        }
+    }
+}
+
+impl SnapshotBoundVerifyWork {
+    pub(super) fn transaction(&self) -> &TransactionView {
+        &self.resolved.payload().resolved_transaction().transaction
+    }
+
+    pub(super) fn payload_policy(&self) -> PayloadPolicy {
+        self.token.payload_policy
+    }
+
+    pub(super) fn resolved_transaction(&self) -> &Arc<ResolvedTransaction> {
+        self.resolved.payload().resolved_transaction()
+    }
+
+    /// Seal post-script time/rules evidence into the exact resolved payload
+    /// owned by this current-view compute capability. Location and view cannot
+    /// be supplied independently by a runtime caller.
+    pub(super) fn verified_with_time_context(
+        self,
+        cycles: u64,
+        time: TimeContextReceipt,
+        async_process_start: AsyncProcessStart,
+    ) -> ComputeSettlement {
+        verified(self.token, self.resolved, cycles, time, async_process_start)
+    }
+
+    pub(super) fn internal_failure(self) -> ComputeSettlement {
+        internal_failure(self.token)
+    }
+
+    pub(super) fn rejected(self, reason: impl Into<CommittedPublicReject>) -> ComputeSettlement {
+        self.token.settle(SettlementNext::VerificationRejected {
+            rejection: reason.into(),
+            resolved: self.resolved,
+        })
+    }
+}
+
+impl CheckedOutWork {
+    /// Construct the unique worker capability and its authoritative Computing
+    /// phase from one owner cut. The caller cannot pair a token with a
+    /// separately assembled view, policy, dependency cut or payload.
+    pub(super) fn from_owner(
+        version: EntryVersion,
+        chain_view: ChainViewId,
+        resolve_dependency_cut: DependencyCut,
+        permit: WorkPermit,
+        grant: ComputeGrant,
+        preaccepted: &PreAcceptedEntry,
+    ) -> Result<(Self, ActiveWork), WorkPermitMismatch> {
+        let PreAcceptedPhase::Queued(queued) = &preaccepted.phase else {
+            return Err(WorkPermitMismatch::Incompatible);
+        };
+        let dependency_cut = match queued {
+            QueuedWork::Resolve => resolve_dependency_cut,
+            QueuedWork::Verify(resolved) => resolved.dependency_cut(),
+        };
+        let payload_policy = preaccepted.source.payload_policy();
+        let token = LeaseToken {
+            settlement: SettlementToken {
+                hash: preaccepted.record.identity.raw.clone(),
+                version,
+            },
+            chain_view: chain_view.clone(),
+            dependency_cut,
+            grant,
+            payload_policy,
+        };
+        let active = ActiveWork {
+            chain_view,
+            permit,
+            grant,
+            attribution: preaccepted.source.compute_attribution(),
+            payload_policy,
+            dependency_cut,
+            dependencies: preaccepted.dependencies().clone(),
+        };
+        let work = match (permit, queued) {
+            (WorkPermit::ResolveOnly, QueuedWork::Resolve) => Self::Resolve(ResolveWork {
+                token,
+                tx: Arc::clone(&preaccepted.record.tx),
+                declared_dependencies: preaccepted.basis.dependencies().clone(),
+            }),
+            (WorkPermit::ResolveThenVerify(capability), QueuedWork::Resolve) => {
+                Self::ContinuousResolve(ContinuousResolveWork {
+                    token,
+                    tx: Arc::clone(&preaccepted.record.tx),
+                    declared_dependencies: preaccepted.basis.dependencies().clone(),
+                    capability,
+                })
+            }
+            (WorkPermit::VerifyOnly(capability), QueuedWork::Verify(resolved))
+                if capability.permits(resolved.verify_class()) =>
+            {
+                Self::Verify(VerifyWork {
+                    token,
+                    resolved: resolved.clone(),
+                })
+            }
+            _ => return Err(WorkPermitMismatch::Incompatible),
+        };
+        Ok((work, active))
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/support/work.rs"]
+mod test_support;

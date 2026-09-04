@@ -25,6 +25,9 @@ ckb-build-info.workspace = true
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
 console-subscriber = { workspace = true, optional = true }
+humantime = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["net", "rt", "time"], optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
 winreg = "0.55"
@@ -120,6 +123,7 @@ members = [
 ignored = ["ckb-test"]
 
 [workspace.dependencies]
+ahash = { version = "0.8.12", default-features = false, features = ["std"] }
 tempfile = "3"
 itertools = "0.11.0"
 schemars = "1"
@@ -235,6 +239,7 @@ fs2 = "0.4.3"
 futures = "0.3"
 futures-util = "0.3.21"
 golomb-coded-set = "0.2.0"
+humantime = "2.3"
 governor = { version = "0.10", default-features = false, features = [
   "std",
   "jitter",
@@ -251,6 +256,7 @@ include_dir = "0.7"
 includedir = "0.6.0"
 includedir_codegen = "0.6.0"
 indicatif = { version = "0.18", features = ["rayon"] }
+imbl = "=7.0.1"
 ipnetwork = "0.20"
 is-terminal = "0.4.7"
 is_sorted = "0.1.1"
@@ -309,6 +315,8 @@ tiny-keccak = "2.0"
 tokio = "1.35.0"
 tokio-util = "0.7.8"
 toml = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 tower-http = "0.6"
 ubyte = "0.10"
 url = "2.2.2"
@@ -338,7 +346,11 @@ default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
-profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
+profiling = [
+  "tikv-jemallocator/profiling",
+  "ckb-bin/profiling",
+  "tracing-subscriber",
+]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
-tokio-trace = ["console-subscriber"]
+tokio-trace = ["console-subscriber", "humantime", "tokio", "tracing-subscriber"]

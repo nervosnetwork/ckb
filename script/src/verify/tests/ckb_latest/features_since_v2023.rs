@@ -2,9 +2,10 @@ use super::SCRIPT_VERSION;
 use crate::scheduler::{MAX_FDS, MAX_VMS_COUNT};
 use crate::syscalls::SOURCE_GROUP_FLAG;
 use crate::verify::{tests::utils::*, *};
+use ckb_chain_spec::consensus::TYPE_ID_CODE_HASH;
 use ckb_types::{
-    core::{Capacity, TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
-    packed::{CellInput, CellOutputBuilder, OutPoint, Script},
+    core::{Capacity, ScriptHashType, TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
+    packed::{Byte32, CellInput, CellOutputBuilder, OutPoint, Script},
     prelude::*,
 };
 use proptest::prelude::*;
@@ -37,6 +38,53 @@ fn simple_spawn_test(bin_path: &str, args: &[u8]) -> Result<Cycle, Error> {
     };
     let verifier = TransactionScriptsVerifierWithEnv::new();
     verifier.verify_without_limit(script_version, &rtx)
+}
+
+#[tokio::test]
+async fn check_zero_active_budget_allows_type_id_only_group() {
+    let type_id_script = Script::new_builder()
+        .args(Bytes::from(vec![0x11; 32]))
+        .code_hash(TYPE_ID_CODE_HASH)
+        .hash_type(ScriptHashType::Type)
+        .build();
+    let input = CellInput::new(OutPoint::new(Byte32::new([0x12; 32]), 0), 0);
+    let input_cell = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(1000))
+        .lock(type_id_script.clone())
+        .build();
+    let output_cell = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(990))
+        .lock(type_id_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(input.clone())
+        .output(output_cell)
+        .build();
+    let resolved_input = CellMetaBuilder::from_cell_output(input_cell, Bytes::new())
+        .out_point(input.previous_output())
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![],
+        resolved_inputs: vec![resolved_input],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let outcome = verifier
+        .verify_with_budget_async(
+            SCRIPT_VERSION,
+            &rtx,
+            &mut command_rx,
+            std::time::Duration::ZERO,
+        )
+        .await
+        .expect("TypeId-only verification does not enter a VM slice");
+    assert_eq!(
+        outcome,
+        ResumableVerificationOutcome::Completed(crate::type_id::TYPE_ID_CYCLES)
+    );
 }
 
 #[test]
@@ -510,6 +558,525 @@ async fn check_spawn_suspend_shutdown() {
 
     let reject = ckb_types::core::tx_pool::Reject::Verification(err);
     assert!(!reject.is_malformed_tx());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn check_txpool_active_budget_stops_and_joins_the_existing_vm_child() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let probe = std::sync::Arc::new(VmChildTestProbe::default());
+    let outcome = VM_CHILD_TEST_PROBE
+        .scope(std::sync::Arc::clone(&probe), async move {
+            verifier
+                .verify_with_budget_async(
+                    script_version,
+                    &rtx,
+                    &mut command_rx,
+                    std::time::Duration::from_millis(20),
+                )
+                .await
+        })
+        .await
+        .expect("budget exhaustion is a local typed outcome, not a script error");
+    assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
+    assert!(
+        probe
+            .root_load_started
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
+    assert!(
+        probe
+            .dynamic_load_started
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "the exec/spawn fixture must dynamically load its child program"
+    );
+    assert!(
+        !probe
+            .load_outside_slice
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "root preparation, root mapping, and dynamic loads stay inside Running"
+    );
+    assert!(
+        !probe.active.load(std::sync::atomic::Ordering::SeqCst),
+        "the typed timeout returns only after its owned VM child exits"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn check_txpool_active_budget_precedes_repeated_resume_commands() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let resume_flood = tokio::spawn(async move {
+        while command_tx.send(ChunkCommand::Resume).is_ok() {
+            tokio::task::yield_now().await;
+        }
+    });
+    let probe = std::sync::Arc::new(VmChildTestProbe::default());
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        VM_CHILD_TEST_PROBE.scope(std::sync::Arc::clone(&probe), async move {
+            verifier
+                .verify_with_budget_async(
+                    script_version,
+                    &rtx,
+                    &mut command_rx,
+                    std::time::Duration::from_millis(20),
+                )
+                .await
+        }),
+    )
+    .await
+    .expect("repeated Resume commands cannot starve the active VM timer")
+    .expect("budget exhaustion remains a typed local outcome");
+    assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
+    assert!(
+        !probe.active.load(std::sync::atomic::Ordering::SeqCst),
+        "timer exhaustion joins the VM child before returning"
+    );
+    resume_flood
+        .await
+        .expect("the Resume producer exits after the receiver closes");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_initial_suspend_defers_root_load_until_resume() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (command_tx, mut command_rx) = watch::channel(ChunkCommand::Suspend);
+    let probe = std::sync::Arc::new(VmChildTestProbe::default());
+    let parent_probe = std::sync::Arc::clone(&probe);
+    let parent = tokio::spawn(VM_CHILD_TEST_PROBE.scope(parent_probe, async move {
+        verifier
+            .verify_with_budget_async(
+                script_version,
+                &rtx,
+                &mut command_rx,
+                std::time::Duration::from_millis(20),
+            )
+            .await
+    }));
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !probe.active.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the suspended group must own its child without starting a slice");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(
+        !probe
+            .slice_started
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "an inherited Suspend must prevent root preparation and VM execution"
+    );
+    assert!(
+        !probe
+            .root_load_started
+            .load(std::sync::atomic::Ordering::SeqCst),
+        "the source-bound root data read must not begin while initially suspended"
+    );
+    assert!(
+        !parent.is_finished(),
+        "suspend idle time must neither complete nor exhaust the active budget"
+    );
+
+    command_tx
+        .send(ChunkCommand::Resume)
+        .expect("the suspended verifier still owns its outer receiver");
+    let outcome = parent
+        .await
+        .expect("the verification parent remains owned")
+        .expect("active budget exhaustion remains a typed local outcome");
+    assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
+    assert!(
+        probe
+            .slice_started
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
+    assert!(
+        probe
+            .root_load_started
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
+    assert!(
+        !probe
+            .load_outside_slice
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_aborting_parent_terminates_the_suspended_vm_child() {
+    assert_aborting_parent_terminates_vm_child(true, TxPoolVmExecutionMode::Inline).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_aborting_parent_terminates_the_running_vm_child() {
+    assert_aborting_parent_terminates_vm_child(false, TxPoolVmExecutionMode::Inline).await;
+}
+
+#[test]
+fn check_aborting_parent_terminates_the_yielding_vm_child() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .expect("the one-worker cancellation runtime must build");
+    runtime.block_on(assert_aborting_parent_terminates_vm_child(
+        false,
+        TxPoolVmExecutionMode::YieldRuntimeWorker,
+    ));
+}
+
+async fn assert_aborting_parent_terminates_vm_child(
+    suspend: bool,
+    execution_mode: TxPoolVmExecutionMode,
+) {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let probe = std::sync::Arc::new(VmChildTestProbe::default());
+    let parent_probe = std::sync::Arc::clone(&probe);
+    let parent = tokio::spawn(VM_CHILD_TEST_PROBE.scope(parent_probe, async move {
+        verifier
+            .verify_with_budget_mode_async(
+                script_version,
+                &rtx,
+                &mut command_rx,
+                std::time::Duration::from_secs(10),
+                execution_mode,
+            )
+            .await
+    }));
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !probe.active.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the verification must start its VM child");
+    if suspend {
+        command_tx
+            .send(ChunkCommand::Suspend)
+            .expect("the verification parent still owns its command receiver");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !probe.paused.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the VM child must reach its suspended state before parent abort");
+    }
+
+    parent.abort();
+    let _ = parent.await;
+    tokio::time::timeout(std::time::Duration::from_millis(200), async {
+        while probe.active.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("aborting the parent must terminate its suspended VM child");
+}
+
+#[test]
+fn check_txpool_yielding_vm_mode_preserves_single_worker_parent_progress() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (spawn_caller_cell, spawn_caller_data_hash) =
+        load_cell_from_path("testdata/spawn_caller_exec");
+    let (snapshot_cell, _) = load_cell_from_path("testdata/infinite_loop");
+    let spawn_caller_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(spawn_caller_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(spawn_caller_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![spawn_caller_cell, snapshot_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let probe = std::sync::Arc::new(VmChildTestProbe::default());
+    let interrupt_probe = std::sync::Arc::clone(&probe);
+    let external_interrupt_used = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let interrupt_used = std::sync::Arc::clone(&external_interrupt_used);
+    let (cancel_interrupt, interrupt_cancelled) = std::sync::mpsc::channel();
+    let interrupter = std::thread::spawn(move || {
+        let setup_wait_limit = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let pause = loop {
+            if interrupt_probe
+                .active
+                .load(std::sync::atomic::Ordering::SeqCst)
+                && let Some(pause) = interrupt_probe
+                    .pause
+                    .lock()
+                    .expect("the VM test probe is not poisoned")
+                    .clone()
+            {
+                break pause;
+            }
+            match interrupt_cancelled.try_recv() {
+                Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+            assert!(
+                std::time::Instant::now() < setup_wait_limit,
+                "the test must either start its VM child or finish its parent"
+            );
+            std::thread::yield_now();
+        };
+        if interrupt_cancelled
+            .recv_timeout(std::time::Duration::from_millis(250))
+            .is_err()
+        {
+            interrupt_used.store(true, std::sync::atomic::Ordering::SeqCst);
+            pause.interrupt();
+        }
+    });
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .expect("the one-worker discriminator runtime must build");
+    let parent_probe = std::sync::Arc::clone(&probe);
+    let outcome = runtime.block_on(async move {
+        tokio::spawn(VM_CHILD_TEST_PROBE.scope(parent_probe, async move {
+            let verifier = TransactionScriptsVerifierWithEnv::new();
+            let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+            verifier
+                .verify_with_budget_mode_async(
+                    script_version,
+                    &rtx,
+                    &mut command_rx,
+                    std::time::Duration::from_millis(20),
+                    TxPoolVmExecutionMode::YieldRuntimeWorker,
+                )
+                .await
+        }))
+        .await
+        .expect("the verification parent must remain owned")
+        .expect("budget exhaustion is a local typed outcome")
+    });
+    let _ = cancel_interrupt.send(());
+    interrupter
+        .join()
+        .expect("the external interrupter must join");
+    assert_eq!(outcome, ResumableVerificationOutcome::DeadlineExceeded);
+    assert!(
+        !external_interrupt_used.load(std::sync::atomic::Ordering::SeqCst),
+        "the VM run starved its parent until the external cleanup interrupt"
+    );
+}
+
+#[test]
+fn check_txpool_yielding_vm_mode_preserves_completed_cycles() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (program_cell, program_data_hash) = load_cell_from_path("testdata/always_success");
+    let program_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(program_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(program_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![program_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+    let expected_cycles = TransactionScriptsVerifierWithEnv::new()
+        .verify_without_limit(script_version, &rtx)
+        .expect("the synchronous consensus path must accept the fixture");
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .expect("the one-worker equivalence runtime must build");
+    let outcome = runtime.block_on(async move {
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+        verifier
+            .verify_with_budget_mode_async(
+                script_version,
+                &rtx,
+                &mut command_rx,
+                std::time::Duration::from_secs(2),
+                TxPoolVmExecutionMode::YieldRuntimeWorker,
+            )
+            .await
+            .expect("executor placement must not change the script result")
+    });
+    assert_eq!(
+        outcome,
+        ResumableVerificationOutcome::Completed(expected_cycles)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_txpool_initial_root_load_uses_the_existing_metadata_receipt() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let (program_cell, program_data_hash) = load_cell_from_path("testdata/always_success");
+    let program_script = Script::new_builder()
+        .hash_type(script_version.data_hash_type())
+        .code_hash(program_data_hash)
+        .build();
+    let output = CellOutputBuilder::default()
+        .capacity(capacity_bytes!(100))
+        .lock(program_script)
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .build();
+    let rtx = ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![program_cell],
+        resolved_inputs: vec![create_dummy_cell(output)],
+        resolved_dep_groups: vec![],
+    };
+
+    let verifier = TransactionScriptsVerifierWithEnv::new();
+    let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+    let outcome = verifier
+        .verify_with_budget_and_initial_load_limit_async(
+            script_version,
+            &rtx,
+            &mut command_rx,
+            std::time::Duration::from_secs(1),
+            crate::InitialProgramLoadLimit::new(1)
+                .expect("the rejecting test load limit is non-zero"),
+        )
+        .await
+        .expect("the load-work rejection is typed local policy, not a script error");
+    assert_eq!(outcome, ResumableVerificationOutcome::InitialLoadExceeded);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

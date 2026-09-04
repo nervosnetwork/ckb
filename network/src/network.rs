@@ -340,7 +340,7 @@ impl NetworkState {
     pub(crate) fn public_addrs(&self, count: usize) -> Vec<Multiaddr> {
         let public_addrs = self.public_addrs.read();
         if public_addrs.len() <= count {
-            return public_addrs.iter().cloned().collect();
+            public_addrs.iter().cloned().collect()
         } else {
             public_addrs
                 .iter()
@@ -524,7 +524,7 @@ impl NetworkState {
             .cloned()
             .collect::<HashSet<_>>();
         if observed_addrs.len() <= count {
-            return observed_addrs.into_iter().collect();
+            observed_addrs.into_iter().collect()
         } else {
             observed_addrs
                 .into_iter()

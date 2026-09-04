@@ -1,0 +1,554 @@
+use super::super::relay::{
+    RelayMailboxConfigError, RelayMailboxDisposition, authority_relay_mailbox,
+    production_authority_relay_mailbox,
+};
+use super::super::service::AuthorityRelayDrain;
+use super::super::{
+    exchange::ComputeWorkerSlot,
+    plan::TxPoolAuthority,
+    read::RelayParentRebuildError,
+    runtime::AuthorityRuntime,
+    shard::ConcurrentRemovalProbe,
+    state::{DependencyKey, RawTxHash, ValidatedAdmission, WorkPermit},
+};
+use super::foundation::{
+    admit_remote_until, apply_plan, genesis_snapshot, limits, owner_version, runtime_config,
+    take_resolve_work, tx,
+};
+use crate::service::TxVerificationResult;
+use ckb_network::PeerIndex;
+use ckb_types::packed::{Byte32, OutPoint};
+use std::time::Duration;
+use std::{collections::HashSet, mem::size_of, num::NonZeroUsize, ops::ControlFlow};
+
+const TEST_BYTES: usize = 16 * 1024;
+const TEST_MAX_PARENTS: usize = 64;
+
+fn wait_for_parents(
+    authority: &mut TxPoolAuthority,
+    hash: &RawTxHash,
+    parents: Vec<DependencyKey>,
+) {
+    let (_, work) = take_resolve_work(
+        authority
+            .checkout_for_foundation(
+                hash,
+                owner_version(authority, hash),
+                WorkPermit::ResolveOnly,
+            )
+            .expect("the remote fixture checks out for resolve"),
+    );
+    apply_plan(
+        authority
+            .apply_settlement(
+                work.missing(parents)
+                    .expect("the missing-parent fixture is nonempty and bounded"),
+            )
+            .expect("the missing-parent fixture enters one committed wait"),
+    );
+}
+
+fn runtime_with(authority: TxPoolAuthority) -> AuthorityRuntime {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    runtime.with_authority_for_foundation(|slot| *slot = authority);
+    runtime
+}
+
+#[tokio::test]
+async fn uak_relay_mailbox_coalesces_ordinary_wake_at_the_high_watermark() {
+    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([1; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), receiver.wait_for_drain())
+            .await
+            .is_err(),
+        "sparse ordinary results remain on the periodic batching path"
+    );
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([2; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("crossing the high watermark wakes the sole consumer");
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([3; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), receiver.wait_for_drain())
+            .await
+            .is_err(),
+        "one occupied high-water interval produces at most one wake"
+    );
+}
+
+#[tokio::test]
+async fn uak_relay_mailbox_wakes_promptly_for_order_barriers() {
+    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    assert_eq!(
+        sink.publish(TxVerificationResult::GenerationReset),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("a generation reset wakes the sole consumer immediately");
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(12),
+            parents: [Byte32::new([7; 32])].into_iter().collect(),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
+        .await
+        .expect("a missing-parent request wakes the sole consumer immediately");
+}
+
+#[test]
+fn uak_production_relay_mailbox_fits_reset_and_one_maximum_parent_frontier() {
+    let (sink, receiver) = production_authority_relay_mailbox(2, TEST_MAX_PARENTS)
+        .expect("the production formula reserves one indivisible frontier behind reset");
+    for byte in [1, 2] {
+        assert_eq!(
+            sink.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([byte; 32]),
+            }),
+            RelayMailboxDisposition::Exact
+        );
+    }
+    let parents = (0..TEST_MAX_PARENTS)
+        .map(|index| {
+            let mut hash = [0u8; 32];
+            hash[..size_of::<usize>()].copy_from_slice(&index.to_le_bytes());
+            Byte32::new(hash)
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(10),
+            parents,
+        }),
+        RelayMailboxDisposition::Reconciled
+    );
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::UnknownParents { parents, .. })
+            if parents.len() == TEST_MAX_PARENTS
+    ));
+}
+
+#[test]
+fn uak_relay_mailbox_bounds_oversized_parent_detail_without_blocking() {
+    assert!(matches!(
+        authority_relay_mailbox(2, 256, 32),
+        Err(RelayMailboxConfigError::ByteLimit)
+    ));
+    let (sink, receiver) =
+        authority_relay_mailbox(2, 256, 0).expect("the defensive fixture declares no parents");
+    let parents = (0u8..32)
+        .map(|byte| Byte32::new([byte; 32]))
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(9),
+            parents,
+        }),
+        RelayMailboxDisposition::Unavailable
+    );
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(receiver.try_recv().is_none());
+}
+
+#[test]
+fn uak_relay_mailbox_disconnect_is_a_stable_local_disposition() {
+    let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    drop(receiver);
+    assert_eq!(
+        sink.publish(TxVerificationResult::GenerationReset),
+        RelayMailboxDisposition::Disconnected
+    );
+}
+
+#[test]
+fn uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating() {
+    for corrupted_bytes in [0, usize::MAX] {
+        let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
+            .expect("the bounded relay mailbox fixture is valid");
+        assert_eq!(
+            sink.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([7; 32]),
+            }),
+            RelayMailboxDisposition::Exact
+        );
+        receiver.corrupt_bytes_for_test(corrupted_bytes);
+
+        assert!(matches!(
+            receiver.try_recv(),
+            Some(TxVerificationResult::GenerationReset)
+        ));
+        assert_eq!(receiver.observation(), (0, 0));
+    }
+}
+
+#[test]
+fn uak_relay_parent_rebuild_pages_the_authoritative_missing_level() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let _queued = admit_remote_until(&mut authority, 901, 41, 1);
+    let first_waiter = admit_remote_until(&mut authority, 902, 42, 2);
+    let second_waiter = admit_remote_until(&mut authority, 903, 43, 3);
+    let first_parent = Byte32::new([0x11; 32]);
+    let second_parent = Byte32::new([0x22; 32]);
+    wait_for_parents(
+        &mut authority,
+        &first_waiter,
+        vec![
+            DependencyKey::Cell(OutPoint::new(second_parent.clone(), 0)),
+            DependencyKey::Cell(OutPoint::new(first_parent.clone(), 1)),
+            DependencyKey::Cell(OutPoint::new(first_parent.clone(), 0)),
+        ],
+    );
+    wait_for_parents(
+        &mut authority,
+        &second_waiter,
+        vec![DependencyKey::Header(Byte32::new([0x33; 32]))],
+    );
+    let runtime = runtime_with(authority);
+    let reader = runtime.relay_parent_reader();
+    let scan_limit = NonZeroUsize::new(1).expect("the scan fixture is nonzero");
+    let mut cursor = None;
+    let mut requests = Vec::new();
+    let mut pages = 0usize;
+
+    let completed_cut = loop {
+        let page = reader
+            .page(cursor, scan_limit)
+            .expect("one unchanged authority cut pages deterministically");
+        let (cut, page_requests, next) = page.into_parts();
+        pages += 1;
+        requests.extend(page_requests);
+        if let Some(next) = next {
+            cursor = Some(next);
+        } else {
+            break cut;
+        }
+    };
+
+    assert_eq!(pages, 3, "queued owners still consume the bounded scan");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].peer(), PeerIndex::from(42));
+    assert_eq!(
+        requests[0].parents(),
+        &[RawTxHash(first_parent), RawTxHash(second_parent),]
+    );
+    assert!(reader.cut_is_current(&completed_cut));
+}
+
+#[test]
+fn uak_relay_parent_rebuild_ignores_unrelated_changes_but_restarts_after_level_change() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let first = admit_remote_until(&mut authority, 904, 44, 1);
+    let second = admit_remote_until(&mut authority, 905, 45, 2);
+    wait_for_parents(
+        &mut authority,
+        &first,
+        vec![DependencyKey::Cell(OutPoint::new(
+            Byte32::new([0x44; 32]),
+            0,
+        ))],
+    );
+    wait_for_parents(
+        &mut authority,
+        &second,
+        vec![DependencyKey::Cell(OutPoint::new(
+            Byte32::new([0x45; 32]),
+            0,
+        ))],
+    );
+    let runtime = runtime_with(authority);
+    let reader = runtime.relay_parent_reader();
+    let scan_limit = NonZeroUsize::new(1).expect("the scan fixture is nonzero");
+    let first_page = reader
+        .page(None, scan_limit)
+        .expect("the first page captures one coherent cut");
+    let (cut, _requests, cursor) = first_page.into_parts();
+    let cursor = cursor.expect("a second Remote owner requires a continuation");
+
+    runtime
+        .queue_generation_reset_for_foundation()
+        .expect("effect-only publication is independent of relay parent state");
+    assert!(reader.cut_is_current(&cut));
+
+    runtime.with_authority_for_foundation(|authority| {
+        apply_plan(
+            authority
+                .plan_admission(
+                    ValidatedAdmission::proposal(tx(907))
+                        .expect("the trusted proposal fixture is valid"),
+                )
+                .expect("an unrelated trusted owner commits"),
+        );
+    });
+    assert!(reader.cut_is_current(&cut));
+
+    let new_owner = runtime
+        .with_authority_for_foundation(|authority| admit_remote_until(authority, 906, 46, 3));
+    assert!(reader.cut_is_current(&cut));
+
+    runtime.with_authority_for_foundation(|authority| {
+        wait_for_parents(
+            authority,
+            &new_owner,
+            vec![DependencyKey::Cell(OutPoint::new(
+                Byte32::new([0x46; 32]),
+                0,
+            ))],
+        );
+    });
+
+    assert!(!reader.cut_is_current(&cut));
+    assert_eq!(
+        reader.page(Some(cursor), scan_limit).err(),
+        Some(RelayParentRebuildError::StaleCut)
+    );
+}
+
+#[test]
+fn uak_relay_parent_cursor_cannot_mix_new_waiting_owner_with_old_shard_source_cut() {
+    const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+    const BLOCKED_READER_WINDOW: Duration = Duration::from_millis(50);
+
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    runtime.with_authority_for_foundation(|authority| {
+        let first = admit_remote_until(authority, 908_001, 48, 1);
+        let second = admit_remote_until(authority, 908_002, 49, 2);
+        for (owner, marker) in [(&first, 0x51), (&second, 0x52)] {
+            wait_for_parents(
+                authority,
+                owner,
+                vec![DependencyKey::Cell(OutPoint::new(
+                    Byte32::new([marker; 32]),
+                    0,
+                ))],
+            );
+        }
+    });
+    let scan_limit = NonZeroUsize::new(1).expect("the scan fixture is nonzero");
+    let first_page = runtime
+        .relay_parent_reader()
+        .page(None, scan_limit)
+        .expect("the predecessor cut is coherent");
+    let (_cut, _requests, cursor) = first_page.into_parts();
+    let cursor = cursor.expect("two waiting owners require a continuation");
+
+    let admission = ValidatedAdmission::remote(tx(908_003), PeerIndex::from(50usize))
+        .expect("the third Remote fixture is valid");
+    runtime.admit(admission).expect("the third owner commits");
+    let ControlFlow::Continue(Some(job)) = runtime
+        .try_checkout_for_foundation(WorkPermit::ResolveOnly)
+        .expect("the third owner checks out")
+    else {
+        panic!("the third owner is ready for Resolve")
+    };
+    let (_, finished) = job
+        .missing_for_foundation(vec![DependencyKey::Cell(OutPoint::new(
+            Byte32::new([0x53; 32]),
+            0,
+        ))])
+        .into_exchange_completion_for_foundation(ComputeWorkerSlot::ordered_resolve())
+        .into_parts();
+    let (probe, entered, release) = ConcurrentRemovalProbe::new();
+    runtime.with_authority_read_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_shared_owner_commit_probe(Some(probe));
+    });
+
+    let settlement_runtime = runtime.clone();
+    let settlement = std::thread::spawn(move || settlement_runtime.settle_finished(finished));
+    entered
+        .recv_timeout(PROBE_TIMEOUT)
+        .expect("owner, deadline and relay source are mutated under one held shard cut");
+
+    let reader_runtime = runtime.clone();
+    let (page_tx, page_rx) = std::sync::mpsc::sync_channel(1);
+    let page = std::thread::spawn(move || {
+        page_tx
+            .send(
+                reader_runtime
+                    .relay_parent_reader()
+                    .page(Some(cursor), scan_limit),
+            )
+            .expect("the page observer remains connected");
+    });
+    assert!(
+        matches!(
+            page_rx.recv_timeout(BLOCKED_READER_WINDOW),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ),
+        "the reader cannot snapshot a source identity before acquiring the owner/deadline cut"
+    );
+    release
+        .send(())
+        .expect("the owner cut is released exactly once");
+    assert_eq!(
+        page_rx
+            .recv_timeout(PROBE_TIMEOUT)
+            .expect("the page reclassifies after the committed cut")
+            .err(),
+        Some(RelayParentRebuildError::StaleCut)
+    );
+    page.join().expect("the page worker remains healthy");
+    assert!(matches!(
+        settlement
+            .join()
+            .expect("the settlement worker remains healthy"),
+        ControlFlow::Continue(_)
+    ));
+    runtime.with_authority_read_for_foundation(|authority| {
+        authority
+            .entries_for_reference()
+            .set_shared_owner_commit_probe(None);
+    });
+}
+
+#[tokio::test]
+async fn uak_relay_parent_cursor_cannot_cross_equal_shard_vectors_from_two_generations() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let install_same_waiting_level = |authority: &mut TxPoolAuthority| {
+        let first = admit_remote_until(authority, 908_011, 51, 1);
+        let second = admit_remote_until(authority, 908_012, 52, 2);
+        for (owner, marker) in [(&first, 0x61), (&second, 0x62)] {
+            wait_for_parents(
+                authority,
+                owner,
+                vec![DependencyKey::Cell(OutPoint::new(
+                    Byte32::new([marker; 32]),
+                    0,
+                ))],
+            );
+        }
+    };
+    runtime.with_authority_for_foundation(install_same_waiting_level);
+    let reader = runtime.relay_parent_reader();
+    let scan_limit = NonZeroUsize::new(1).expect("the scan fixture is nonzero");
+    let (_old_cut, _requests, old_cursor) = reader
+        .page(None, scan_limit)
+        .expect("the old generation cut is coherent")
+        .into_parts();
+    let old_cursor = old_cursor.expect("two waiting owners require a continuation");
+
+    runtime
+        .clear_pool(std::sync::Arc::clone(&snapshot))
+        .await
+        .expect("the generation is replaced");
+    runtime.with_authority_for_foundation(install_same_waiting_level);
+
+    assert_eq!(
+        reader.page(Some(old_cursor), scan_limit).err(),
+        Some(RelayParentRebuildError::StaleCut),
+        "PoolGeneration prevents equal local counter vectors from ABA across replacement"
+    );
+}
+
+#[test]
+fn uak_relay_reset_rebuilds_every_still_live_missing_parent_request() {
+    let mut authority = TxPoolAuthority::for_foundation(limits());
+    let waiter = admit_remote_until(&mut authority, 908, 47, 10);
+    let missing_parent = Byte32::new([0x47; 32]);
+    wait_for_parents(
+        &mut authority,
+        &waiter,
+        vec![DependencyKey::Cell(OutPoint::new(
+            missing_parent.clone(),
+            0,
+        ))],
+    );
+    let runtime = runtime_with(authority);
+    let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
+        .expect("the bounded relay mailbox fixture is valid");
+    let scan_limit = NonZeroUsize::new(1).expect("the scan fixture is nonzero");
+    let drain = AuthorityRelayDrain::new(receiver, runtime.relay_parent_reader(), scan_limit);
+
+    let mut lost_parents = HashSet::new();
+    lost_parents.insert(missing_parent.clone());
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: PeerIndex::from(47),
+            parents: lost_parents,
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([0x81; 32]),
+        }),
+        RelayMailboxDisposition::Exact
+    );
+    let retained = Byte32::new([0x82; 32]);
+    assert_eq!(
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: retained.clone(),
+        }),
+        RelayMailboxDisposition::Reconciled
+    );
+
+    assert!(matches!(
+        drain.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(matches!(
+        drain.try_recv(),
+        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == retained
+    ));
+    assert!(matches!(
+        drain.try_recv(),
+        Some(TxVerificationResult::UnknownParents { peer, parents })
+            if peer == PeerIndex::from(47) && parents == HashSet::from([missing_parent])
+    ));
+    assert!(drain.try_recv().is_none());
+}

@@ -87,8 +87,9 @@ impl Spec for TxPoolLimitAncestorCount {
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
 
-        // Create 250 transactions cell dep on tx_a
-        // we can have more than config.max_ancestors_count number of txs using one cell ref
+        // Create 2,000 transactions that read tx_a's output as a cell dep. A
+        // reader is not a causal ancestor of a later spender, so this fanout
+        // must not consume the spender's ancestor budget.
         let mut cell_ref_txs = vec![];
         for i in 1..=2000 {
             let cur = always_success_transaction(node0, initial_inputs.get(i).unwrap());
@@ -100,29 +101,34 @@ impl Spec for TxPoolLimitAncestorCount {
             cell_ref_txs.push(cur.clone());
         }
 
-        // Create a new transaction consume the cell dep, it will be succeed in submit
+        // Create a new transaction that consumes the shared cell dep.
         let input = CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
         let last = always_success_transaction(node0, &input);
 
-        // now there are 2002 ancestors for the last tx in the pool:
-        // 2002 = 2000 ref cell + 1 parent + 1 for self
-        // to make sure this consuming cell dep transaction submitted,
-        // we need to evict 1002 = 2002 - 1000 cell ref transactions
+        // The spender has one genuine causal parent (tx_a). The 2,000 readers
+        // coexist and are ordered before the spender only if selected into
+        // the same block template.
+        let before = node0.get_tip_tx_pool_info();
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
-        assert!(res.is_ok());
-
-        // assert the first 127 in 250 transactions are evicated.
-        for (i, tx) in cell_ref_txs.iter().enumerate() {
-            let res = node0
+        assert!(
+            res.is_ok(),
+            "conditional readers are not ancestors: {res:?}"
+        );
+        let after = node0.get_tip_tx_pool_info();
+        assert_eq!(after.pending.value(), before.pending.value() + 1);
+        assert_eq!(before.proposed, after.proposed);
+        assert_eq!(before.orphan, after.orphan);
+        assert!(after.total_tx_size > before.total_tx_size);
+        assert!(after.total_tx_cycles > before.total_tx_cycles);
+        for tx in &cell_ref_txs {
+            let result = node0
                 .rpc_client()
                 .get_transaction_with_verbosity(tx.hash(), 2);
-            if i < 1002 {
-                assert!(matches!(res.tx_status.status, Status::Rejected));
-            }
+            assert!(matches!(result.tx_status.status, Status::Pending));
         }
 
         // create a transaction chain

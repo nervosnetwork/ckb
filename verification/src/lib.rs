@@ -20,6 +20,8 @@ pub use crate::error::{
 };
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
+#[cfg(not(target_family = "wasm"))]
+pub use crate::transaction_verifier::DeadlineVerificationOutcome;
 pub use crate::transaction_verifier::{
     CapacityVerifier, ContextualTransactionVerifier, DaoScriptSizeVerifier,
     NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,

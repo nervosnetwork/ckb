@@ -1,4 +1,5 @@
 use crate::util::cell::gen_spendable;
+use crate::util::check::is_transaction_committed;
 use crate::util::transaction::always_success_transactions;
 use crate::{Node, Spec};
 
@@ -82,7 +83,11 @@ impl Spec for RpcTruncate {
 
         info!("submit tx1 again");
         node.submit_transaction(tx1);
-        node.mine_until_transaction_confirm(&tx1.hash());
+        // The detached proposal may remain valid through an embedded uncle,
+        // so the resubmitted transaction can already be Proposed. Mine toward
+        // the observable terminal state instead of requiring a second
+        // top-level proposal that consensus does not need.
+        node.mine_until_bool(|| is_transaction_committed(node, tx1));
         let cell1 = node
             .rpc_client()
             .get_live_cell(tx1.inputs().get(0).unwrap().previous_output().into(), false);

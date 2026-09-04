@@ -41,6 +41,12 @@ fn test_submit_transaction_error() {
         RPCError::from_submit_transaction_reject(&reject).message
     );
 
+    let reject = Reject::ExcessiveVerifyTime;
+    assert_eq!(
+        "PoolIsFull: Transaction verification exceeded the local tx-pool time limit",
+        RPCError::from_submit_transaction_reject(&reject).message
+    );
+
     let reject = Reject::Duplicated(Byte32::new([0; 32]));
     assert_eq!(
         "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exists in transaction_pool",

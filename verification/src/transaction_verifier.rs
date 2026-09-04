@@ -1,4 +1,7 @@
-use crate::cache::Completed;
+use crate::cache::{
+    ScriptVerificationOutcome, ScriptVerificationProof, ScriptVerificationRules,
+    TxVerificationCacheKey,
+};
 use crate::error::TransactionErrorSource;
 use crate::{TransactionError, TxVerifyEnv};
 use ckb_chain_spec::consensus::Consensus;
@@ -7,7 +10,9 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::ChunkCommand;
+use ckb_script::{
+    ChunkCommand, InitialProgramLoadLimit, ResumableVerificationOutcome, TxPoolVmExecutionMode,
+};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -21,6 +26,21 @@ use ckb_types::{
 };
 use std::collections::HashSet;
 use std::sync::Arc;
+#[cfg(not(target_family = "wasm"))]
+use std::time::Duration;
+
+/// Tx-pool-only result of contextual verification under one active VM time
+/// budget. Budget exhaustion is not a transaction or consensus validity fact.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug)]
+pub enum DeadlineVerificationOutcome {
+    /// Ordinary contextual and script verification completed.
+    Verified(ScriptVerificationOutcome),
+    /// Ordinary scheduler slices exhausted the local active VM time budget.
+    DeadlineExceeded,
+    /// The root ELF exceeds this node's fixed tx-pool initial-load work bound.
+    InitialLoadExceeded,
+}
 
 /// The time-related TX verification
 ///
@@ -102,62 +122,6 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     }
 }
 
-/// Script verification that can reuse cycles from a prior successful verification.
-struct CachedScriptVerifier<DL>
-where
-    DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
-{
-    inner: ScriptVerifier<DL>,
-    cached_cycles: Option<Cycle>,
-}
-
-impl<DL> CachedScriptVerifier<DL>
-where
-    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
-{
-    fn new(
-        rtx: Arc<ResolvedTransaction>,
-        data_loader: DL,
-        consensus: Arc<Consensus>,
-        tx_env: Arc<TxVerifyEnv>,
-        cached_cycles: Option<Cycle>,
-    ) -> Self {
-        Self {
-            inner: TransactionScriptsVerifier::new(rtx, data_loader, consensus, tx_env),
-            cached_cycles,
-        }
-    }
-
-    fn verify(&self, max_cycles: Cycle) -> Result<Cycle, Error> {
-        match self.cached_cycles {
-            Some(cycles) if cycles <= max_cycles => Ok(cycles),
-            Some(_) => Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                .unknown_source()
-                .into()),
-            None => self.inner.verify(max_cycles),
-        }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    async fn resumable_verify_with_signal(
-        &self,
-        max_cycles: Cycle,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
-    ) -> Result<Cycle, Error> {
-        match self.cached_cycles {
-            Some(cycles) if cycles <= max_cycles => Ok(cycles),
-            Some(_) => Err(ScriptError::ExceededMaximumCycles(max_cycles)
-                .unknown_source()
-                .into()),
-            None => {
-                self.inner
-                    .resumable_verify_with_signal(max_cycles, command_rx)
-                    .await
-            }
-        }
-    }
-}
-
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
@@ -171,8 +135,9 @@ where
 {
     pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
     pub(crate) capacity: CapacityVerifier,
-    script: CachedScriptVerifier<DL>,
+    pub(crate) script: ScriptVerifier<DL>,
     pub(crate) fee_calculator: FeeCalculator<DL>,
+    cache_key: TxVerificationCacheKey,
 }
 
 impl<DL> ContextualTransactionVerifier<DL>
@@ -194,17 +159,8 @@ where
         data_loader: DL,
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
-        Self::new_with_cached_script_cycles(rtx, consensus, data_loader, tx_env, None)
-    }
-
-    /// Creates a new ContextualTransactionVerifier with optional cached script cycles.
-    pub fn new_with_cached_script_cycles(
-        rtx: Arc<ResolvedTransaction>,
-        consensus: Arc<Consensus>,
-        data_loader: DL,
-        tx_env: Arc<TxVerifyEnv>,
-        cached_script_cycles: Option<Cycle>,
-    ) -> Self {
+        let script_rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
+        let cache_key = TxVerificationCacheKey::from_transaction(&rtx.transaction, script_rules);
         ContextualTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),
@@ -212,31 +168,75 @@ where
                 data_loader.clone(),
                 Arc::clone(&tx_env),
             ),
-            script: CachedScriptVerifier::new(
+            script: TransactionScriptsVerifier::new(
                 Arc::clone(&rtx),
                 data_loader.clone(),
                 Arc::clone(&consensus),
                 Arc::clone(&tx_env),
-                cached_script_cycles,
             ),
             capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
             fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
+            cache_key,
         }
     }
 
-    /// Perform context-dependent verification.
-    ///
-    /// skip script verify will result in the return value cycle always is zero
-    pub fn verify(&self, max_cycles: Cycle, skip_script_verify: bool) -> Result<Completed, Error> {
+    fn verify_or_reuse_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<ScriptVerificationOutcome, Error> {
         self.time_relative.verify()?;
         self.capacity.verify()?;
-        let cycles = if skip_script_verify {
-            0
-        } else {
-            self.script.verify(max_cycles)?
+        if let Some(outcome) = self.reuse_script(max_cycles, cached)? {
+            return Ok(outcome);
+        }
+        let cycles = self.script.verify(max_cycles)?;
+        Ok(ScriptVerificationOutcome::Executed(
+            ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+        ))
+    }
+
+    fn reuse_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<Option<ScriptVerificationOutcome>, Error> {
+        let Some(proof) = cached.filter(|proof| proof.key() == self.cache_key) else {
+            return Ok(None);
         };
+        if proof.cycles() > max_cycles {
+            return Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .unknown_source()
+                .into());
+        }
+        Ok(Some(ScriptVerificationOutcome::Reused(proof)))
+    }
+
+    /// Verify time, capacity and scripts, substituting only an exact sealed proof.
+    pub fn verify_scripts(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<ScriptVerificationOutcome, Error> {
+        self.verify_or_reuse_script(max_cycles, cached)
+    }
+
+    /// Verify a normal block transaction and freshly calculate its fee.
+    pub fn verify_block(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<(ScriptVerificationOutcome, Capacity), Error> {
+        let outcome = self.verify_or_reuse_script(max_cycles, cached)?;
         let fee = self.fee_calculator.transaction_fee()?;
-        Ok(Completed { cycles, fee })
+        Ok((outcome, fee))
+    }
+
+    /// Verify the non-script block rules for an assume-valid block.
+    pub fn verify_block_assume_valid(&self) -> Result<Capacity, Error> {
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        Ok(self.fee_calculator.transaction_fee()?)
     }
 
     /// Perform context-dependent verification with command
@@ -245,16 +245,71 @@ where
     pub async fn verify_with_pause(
         &self,
         max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
-    ) -> Result<Completed, Error> {
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        let fee = self.fee_calculator.transaction_fee()?;
+    ) -> Result<ScriptVerificationOutcome, Error> {
+        if let Some(outcome) = self.prepare_resumable_script(max_cycles, cached)? {
+            return Ok(outcome);
+        }
         let cycles = self
             .script
             .resumable_verify_with_signal(max_cycles, command_rx)
             .await?;
-        Ok(Completed { cycles, fee })
+        Ok(ScriptVerificationOutcome::Executed(
+            ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+        ))
+    }
+
+    /// Perform tx-pool-only contextual verification under one shared active VM
+    /// time budget while reusing the existing pause/stop/join VM child.
+    #[cfg(not(target_family = "wasm"))]
+    pub async fn verify_with_pause_and_budget(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: Duration,
+        initial_load_limit: InitialProgramLoadLimit,
+        execution_mode: TxPoolVmExecutionMode,
+    ) -> Result<DeadlineVerificationOutcome, Error> {
+        let cached = self.prepare_resumable_script(max_cycles, cached)?;
+        if let Some(outcome) = cached {
+            return Ok(DeadlineVerificationOutcome::Verified(outcome));
+        }
+        match self
+            .script
+            .resumable_verify_with_signal_and_budget(
+                max_cycles,
+                command_rx,
+                active_time_limit,
+                initial_load_limit,
+                execution_mode,
+            )
+            .await?
+        {
+            ResumableVerificationOutcome::Completed(cycles) => Ok(
+                DeadlineVerificationOutcome::Verified(ScriptVerificationOutcome::Executed(
+                    ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
+                )),
+            ),
+            ResumableVerificationOutcome::DeadlineExceeded => {
+                Ok(DeadlineVerificationOutcome::DeadlineExceeded)
+            }
+            ResumableVerificationOutcome::InitialLoadExceeded => {
+                Ok(DeadlineVerificationOutcome::InitialLoadExceeded)
+            }
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn prepare_resumable_script(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<Option<ScriptVerificationOutcome>, Error> {
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        self.reuse_script(max_cycles, cached)
     }
 }
 
@@ -886,6 +941,27 @@ impl<DL: CellDataProvider> DaoScriptSizeVerifier<DL> {
 
     fn dao_type_hash(&self) -> Byte32 {
         self.consensus.dao_type_hash()
+    }
+
+    /// Return whether [`Self::verify`] may need cell data from the provider.
+    ///
+    /// Both data-loading branches require the input and output at the same
+    /// index to use the Nervos DAO type script. Keeping this conservative
+    /// execution-context decision beside the verifier prevents tx-pool callers
+    /// from copying DAO policy. A `false` result never replaces verification;
+    /// it only proves that running the complete verifier cannot block on the
+    /// data provider.
+    #[must_use]
+    pub fn may_load_cell_data(&self) -> bool {
+        let dao_type_hash = self.dao_type_hash();
+        self.resolved_transaction
+            .resolved_inputs
+            .iter()
+            .zip(self.resolved_transaction.transaction.outputs())
+            .any(|(input_meta, output)| {
+                cell_uses_dao_type_script(&input_meta.cell_output, &dao_type_hash)
+                    && cell_uses_dao_type_script(&output, &dao_type_hash)
+            })
     }
 
     /// Verifies that for all Nervos DAO transactions, withdrawing cells must use lock scripts

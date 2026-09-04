@@ -56,3 +56,4 @@ march-native = [
     "ckb-migrate/march-native",
 ]
 stats = []
+profiling = ["ckb-tx-pool/profiling"]

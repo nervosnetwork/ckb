@@ -1,4 +1,4 @@
-use crate::relayer::Relayer;
+use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, Relayer};
 use crate::{Status, StatusCode};
 use ckb_logger::warn_target;
 use ckb_types::{core, packed, prelude::*};
@@ -16,12 +16,6 @@ impl<'a> BlockProposalProcess<'a> {
     pub async fn execute(self) -> Status {
         let shared = self.relayer.shared();
         let sync_state = shared.state();
-        sync_state.clear_expired_inflight_proposals(
-            shared
-                .active_chain()
-                .tip_number()
-                .saturating_sub(shared.consensus().tx_proposal_window().farthest()),
-        );
         {
             let block_proposals = self.message;
             let limit = shared.consensus().max_block_proposals_limit()
@@ -34,7 +28,28 @@ impl<'a> BlockProposalProcess<'a> {
                     shared.consensus().max_uncles_num(),
                 ));
             }
+
+            let mut transaction_bytes = 0usize;
+            for transaction in block_proposals.transactions().iter() {
+                transaction_bytes = match transaction_bytes.checked_add(transaction.total_size()) {
+                    Some(bytes) if bytes <= MAX_RELAY_TXS_BYTES_PER_BATCH => bytes,
+                    _ => {
+                        return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                            "BlockProposal transactions exceed relay batch limit({MAX_RELAY_TXS_BYTES_PER_BATCH})"
+                        ));
+                    }
+                };
+            }
         }
+
+        // Hostile protocol input is fully validated before this message can
+        // mutate either maintenance or message-derived relay state.
+        sync_state.clear_expired_inflight_proposals(
+            shared
+                .active_chain()
+                .tip_number()
+                .saturating_sub(shared.consensus().tx_proposal_window().farthest()),
+        );
 
         let unknown_txs: Vec<core::TransactionView> = self
             .message
@@ -52,14 +67,18 @@ impl<'a> BlockProposalProcess<'a> {
             .iter()
             .map(|tx| packed::ProposalShortId::from_tx_hash(&tx.hash()))
             .collect();
+        // The in-flight row proves only that this network response was
+        // requested. Consume that request exactly once when its response
+        // arrives, but do not mark the raw transaction known before authority
+        // publishes Accepted. Controller failure therefore cannot suppress a
+        // later Remote supply, and replaying the same Proposal response cannot
+        // repeatedly enqueue validation work.
         let removes = sync_state.remove_inflight_proposals(&proposals);
-        let mut asked_txs = Vec::new();
-        for (previously_in, tx) in removes.into_iter().zip(unknown_txs) {
-            if previously_in {
-                sync_state.mark_as_known_tx(tx.hash());
-                asked_txs.push(tx);
-            }
-        }
+        let asked_txs: Vec<_> = removes
+            .into_iter()
+            .zip(unknown_txs)
+            .filter_map(|(requested, tx)| requested.then_some(tx))
+            .collect();
 
         if asked_txs.is_empty() {
             return Status::ignored();

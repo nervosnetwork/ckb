@@ -1,0 +1,748 @@
+use super::super::{
+    effect::{
+        CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
+        CommittedPeerCohortRevocation, CommittedRejection, CommittedRemoteIngressRelease,
+        EffectEndpoint, EffectPolicy, ParentTransactionRequest, RejectionAudience,
+    },
+    plan::MembershipReject,
+    publisher::{
+        AuthorityEffectEndpoints, RelayAction, RelayDisposition, compile_committed_effect,
+        test_support::run_authority_effect_publisher,
+    },
+    rejection::CommittedPublicReject,
+    relay::{AuthorityRelayReceiver, AuthorityRelaySink, authority_relay_mailbox},
+    runtime::AuthorityRuntime,
+    state::{AcceptedStatus, RawTxHash},
+};
+use super::foundation::{genesis_snapshot, runtime_config, tx};
+use crate::{
+    callback::{CallbackEvent, Callbacks},
+    component::entry::TxEntrySnapshot,
+    error::Reject,
+    network::DummyTxPoolNetwork,
+    service::TxVerificationResult,
+};
+use ckb_network::PeerIndex;
+use ckb_types::{
+    core::{Capacity, FeeRate},
+    packed::{Byte32, OutPoint},
+};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc, Condvar, Mutex as StdMutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+
+fn entry(nonce: u64) -> CommittedEntrySnapshot {
+    CommittedEntrySnapshot {
+        tx: Arc::new(tx(nonce)),
+        cycles: 11,
+        size: 12,
+        fee: Capacity::shannons(13),
+        ancestors_size: 14,
+        ancestors_fee: Capacity::shannons(15),
+        ancestors_cycles: 16,
+        ancestors_count: 17,
+        descendants_fee: Capacity::shannons(18),
+        descendants_size: 19,
+        descendants_cycles: 20,
+        descendants_count: 21,
+        timestamp: 22,
+    }
+}
+
+fn callback_snapshot(entry: &CommittedEntrySnapshot) -> TxEntrySnapshot {
+    TxEntrySnapshot {
+        transaction: entry.tx.as_ref().clone(),
+        cycles: entry.cycles,
+        size: entry.size,
+        fee: entry.fee,
+        ancestors_size: entry.ancestors_size,
+        ancestors_fee: entry.ancestors_fee,
+        ancestors_cycles: entry.ancestors_cycles,
+        ancestors_count: entry.ancestors_count,
+        descendants_fee: entry.descendants_fee,
+        descendants_size: entry.descendants_size,
+        descendants_cycles: entry.descendants_cycles,
+        descendants_count: entry.descendants_count,
+        timestamp: entry.timestamp,
+    }
+}
+
+fn endpoints(relay: AuthorityRelaySink, callbacks: Arc<Callbacks>) -> AuthorityEffectEndpoints {
+    AuthorityEffectEndpoints::new(Arc::new(DummyTxPoolNetwork), relay, callbacks, None)
+}
+
+fn relay_mailbox(max_items: usize) -> (AuthorityRelaySink, AuthorityRelayReceiver) {
+    authority_relay_mailbox(max_items, 1024 * 1024, 1_024)
+        .expect("the publisher relay mailbox fixture is valid")
+}
+
+#[test]
+fn uak_effect_compiler_preserves_acceptance_and_chain_endpoint_semantics() {
+    let ingress = PeerIndex::from(41);
+    let accepted = entry(4_001);
+    let expected_hash = accepted.tx.hash();
+    let admission =
+        compile_committed_effect(CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry: accepted.clone(),
+            status: AcceptedStatus::Gap,
+            ingress_peer: Some(ingress),
+        }));
+    let Some(CallbackEvent::Pending(snapshot)) = admission.callback else {
+        panic!("Gap admission must retain the existing Pending callback contract");
+    };
+    assert_eq!(snapshot, callback_snapshot(&accepted));
+    let Some(relay) = admission.relay else {
+        panic!("admission must settle the relayer projection");
+    };
+    match relay.result {
+        TxVerificationResult::Ok {
+            original_peer,
+            tx_hash,
+        } => {
+            assert_eq!(original_peer, Some(ingress));
+            assert_eq!(tx_hash, expected_hash);
+        }
+        other => panic!("unexpected admission relay result: {other:?}"),
+    }
+    assert!(admission.recent_reject.is_none());
+    assert!(admission.ban.is_none());
+
+    let status_change = compile_committed_effect(CommittedEffect::Accepted(
+        CommittedAcceptance::ChainStatusChange {
+            entry: accepted.clone(),
+            status: AcceptedStatus::Proposed,
+        },
+    ));
+    let Some(CallbackEvent::Proposed(snapshot)) = status_change.callback else {
+        panic!("chain proposal transition must publish Proposed");
+    };
+    assert_eq!(snapshot, callback_snapshot(&accepted));
+    assert!(status_change.relay.is_none());
+
+    let duplicate =
+        compile_committed_effect(CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
+            tx_hash: RawTxHash(expected_hash.clone()),
+            requesting_peer: None,
+        }));
+    assert!(duplicate.callback.is_none());
+    match duplicate.relay.map(|action| action.result) {
+        Some(TxVerificationResult::Ok {
+            original_peer,
+            tx_hash,
+        }) => {
+            assert_eq!(original_peer, None);
+            assert_eq!(tx_hash, expected_hash);
+        }
+        other => panic!("unexpected duplicate result: {other:?}"),
+    }
+
+    let committed = compile_committed_effect(CommittedEffect::ChainCommitted {
+        tx_hash: RawTxHash(expected_hash.clone()),
+        ingress_peer: ingress,
+    });
+    match committed.relay.map(|action| action.result) {
+        Some(TxVerificationResult::Ok {
+            original_peer,
+            tx_hash,
+        }) => {
+            assert_eq!(original_peer, Some(ingress));
+            assert_eq!(tx_hash, expected_hash);
+        }
+        other => panic!("unexpected chain-commit result: {other:?}"),
+    }
+    assert!(committed.callback.is_none());
+}
+
+#[test]
+fn uak_effect_compiler_keeps_rejection_owner_and_ingress_attribution_typed() {
+    let ingress = PeerIndex::from(51);
+    let candidate = Arc::new(tx(4_101));
+    let malformed = Reject::Malformed("script".to_owned(), "invalid encoding".to_owned());
+    let validation =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
+            tx: Arc::clone(&candidate),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
+            reason: CommittedPublicReject::new(malformed),
+        }));
+    assert_eq!(
+        validation
+            .recent_reject
+            .as_ref()
+            .map(|action| &action.tx_hash),
+        Some(&candidate.hash())
+    );
+    assert!(matches!(
+        validation
+            .recent_reject
+            .as_ref()
+            .map(|action| &action.reject),
+        Some(Reject::Malformed(_, _))
+    ));
+    assert!(
+        validation.ban.is_none(),
+        "a generic rejection compiler cannot invent an uncommitted peer ban"
+    );
+    assert!(validation.callback.is_none());
+    assert!(validation.relay.is_none());
+
+    let membership =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Membership {
+            tx: Arc::clone(&candidate),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
+            reason: MembershipReject::TooManyAncestors,
+        }));
+    assert!(membership.callback.is_none());
+    assert!(membership.ban.is_none());
+    assert!(matches!(
+        membership
+            .recent_reject
+            .as_ref()
+            .map(|action| &action.reject),
+        Some(Reject::ExceededMaximumAncestorsCount)
+    ));
+    assert!(matches!(
+        membership.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+
+    let duplicate =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
+            tx: Arc::clone(&candidate),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
+            reason: CommittedPublicReject::new(Reject::Duplicated(candidate.hash())),
+        }));
+    assert!(
+        duplicate.relay.is_none(),
+        "a misclassified duplicate must never poison the relayer filter"
+    );
+
+    let excessive_time =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Validation {
+            tx: Arc::clone(&candidate),
+            audience: RejectionAudience::from_ingress(Some(ingress)),
+            reason: CommittedPublicReject::new(Reject::ExcessiveVerifyTime),
+        }));
+    assert!(excessive_time.recent_reject.is_none());
+    assert!(excessive_time.ban.is_none());
+    assert!(excessive_time.callback.is_none());
+    assert!(matches!(
+        excessive_time.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+
+    let victim = entry(4_102);
+    let replacement =
+        compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Replaced {
+            entry: victim.clone(),
+            winner: RawTxHash(candidate.hash()),
+        }));
+    let Some(CallbackEvent::Reject(snapshot, Reject::RBFRejected(_))) = replacement.callback else {
+        panic!("an accepted RBF victim must retain a rejection callback snapshot");
+    };
+    assert_eq!(snapshot, callback_snapshot(&victim));
+    assert!(replacement.recent_reject.is_some());
+    assert!(matches!(
+        replacement.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+
+    let evicted = compile_committed_effect(CommittedEffect::Rejected(
+        CommittedRejection::CapacityEvicted {
+            entry: victim,
+            fee_rate: FeeRate::from_u64(42),
+        },
+    ));
+    assert!(matches!(
+        evicted.callback,
+        Some(CallbackEvent::Reject(_, Reject::Full(_)))
+    ));
+    assert!(evicted.recent_reject.is_none());
+    assert!(matches!(
+        evicted.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+
+    let expired = entry(4_103);
+    let expiry = compile_committed_effect(CommittedEffect::Rejected(CommittedRejection::Expired {
+        entry: expired.clone(),
+    }));
+    let Some(CallbackEvent::Reject(snapshot, Reject::Expiry(22))) = expiry.callback else {
+        panic!("accepted expiry must publish its exact admission timestamp");
+    };
+    assert_eq!(snapshot, callback_snapshot(&expired));
+    assert!(matches!(
+        expiry.recent_reject.as_ref().map(|action| &action.reject),
+        Some(Reject::Expiry(22))
+    ));
+    assert!(matches!(
+        expiry.relay.map(|action| action.result),
+        Some(TxVerificationResult::Reject { .. })
+    ));
+}
+
+#[test]
+fn uak_effect_compiler_exhausts_conflict_cleanup_and_required_detail_variants() {
+    let peer = PeerIndex::from(61);
+    let candidate = Arc::new(tx(4_201));
+    let accepted = entry(4_202);
+    let out_point = OutPoint::default();
+
+    let preaccepted = compile_committed_effect(CommittedEffect::Rejected(
+        CommittedRejection::ChainConflict {
+            owner: CommittedConflictOwner::PreAccepted {
+                tx: Arc::clone(&candidate),
+                audience: RejectionAudience::from_ingress(Some(peer)),
+            },
+            out_point: out_point.clone(),
+        },
+    ));
+    assert!(preaccepted.callback.is_none());
+    assert!(matches!(
+        preaccepted
+            .recent_reject
+            .as_ref()
+            .map(|action| &action.reject),
+        Some(Reject::Resolve(_))
+    ));
+
+    let accepted_conflict = compile_committed_effect(CommittedEffect::Rejected(
+        CommittedRejection::ChainConflict {
+            owner: CommittedConflictOwner::Accepted(accepted.clone()),
+            out_point,
+        },
+    ));
+    let Some(CallbackEvent::Reject(snapshot, Reject::Resolve(_))) = accepted_conflict.callback
+    else {
+        panic!("accepted chain conflict must publish its exact terminal snapshot");
+    };
+    assert_eq!(snapshot, callback_snapshot(&accepted));
+
+    let culprit_reason = CommittedPublicReject::new(Reject::Malformed(
+        "peer cohort fixture".to_owned(),
+        String::new(),
+    ));
+    let revocation = CommittedPeerCohortRevocation::malformed_for_foundation(
+        peer,
+        RawTxHash(candidate.hash()),
+        culprit_reason,
+    )
+    .expect("malformed evidence constructs peer-ban detail");
+    let cleanup = compile_committed_effect(CommittedEffect::PeerCohortRevoked(revocation));
+    assert!(cleanup.callback.is_none());
+    assert!(cleanup.recent_reject.is_some());
+    assert!(cleanup.ban.is_some_and(|ban| {
+        ban.peer() == peer
+            && ban
+                .remaining_duration_at(std::time::Instant::now())
+                .is_some()
+    }));
+    let relay = cleanup.relay.expect("cohort cleanup resets relay state");
+    assert!(matches!(
+        relay.result,
+        TxVerificationResult::GenerationReset
+    ));
+
+    let released_hash = RawTxHash(candidate.hash());
+    let released = compile_committed_effect(CommittedEffect::RemoteIngressReleased(
+        CommittedRemoteIngressRelease::unretained_remote_submission(released_hash.clone(), peer),
+    ));
+    assert!(released.callback.is_none());
+    assert!(released.recent_reject.is_none());
+    assert!(released.ban.is_none());
+    let released_relay = released
+        .relay
+        .expect("a released duplicate must leave the relayer known filter");
+    assert!(matches!(
+        released_relay.result,
+        TxVerificationResult::Reject { tx_hash } if tx_hash == released_hash.0
+    ));
+
+    let first_parent = RawTxHash(Byte32::new([1; 32]));
+    let second_parent = RawTxHash(Byte32::new([2; 32]));
+    let request = ParentTransactionRequest::new(
+        peer,
+        Arc::new(vec![first_parent.clone(), second_parent.clone()]),
+    )
+    .expect("a non-empty parent request is valid");
+    let parents = compile_committed_effect(CommittedEffect::ParentTransactionsRequested(request));
+    let Some(parent_relay) = parents.relay else {
+        panic!("missing-parent detail must reach the relayer");
+    };
+    match parent_relay.result {
+        TxVerificationResult::UnknownParents {
+            peer: actual_peer,
+            parents,
+        } => {
+            assert_eq!(actual_peer, peer);
+            assert_eq!(parents, HashSet::from([first_parent.0, second_parent.0]));
+        }
+        other => panic!("unexpected missing-parent result: {other:?}"),
+    }
+}
+
+#[test]
+fn uak_ordinary_relay_saturation_reconciles_and_retains_later_results() {
+    let (relay, relay_rx) = relay_mailbox(3);
+    for byte in [1, 2, 3] {
+        assert!(matches!(
+            relay.publish(TxVerificationResult::Reject {
+                tx_hash: Byte32::new([byte; 32]),
+            }),
+            super::super::relay::RelayMailboxDisposition::Exact
+        ));
+    }
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    let current = Byte32::new([7; 32]);
+    let later = Byte32::new([9; 32]);
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::Reject {
+            tx_hash: current.clone(),
+        })),
+        RelayDisposition::Reconciled
+    );
+    assert_eq!(
+        endpoints.publish_relay(RelayAction::new(TxVerificationResult::Reject {
+            tx_hash: later.clone(),
+        })),
+        RelayDisposition::Exact,
+        "reconciliation must not become a publisher-side skip flag"
+    );
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == current
+    ));
+    assert!(matches!(
+        relay_rx.try_recv(),
+        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == later
+    ));
+}
+
+#[tokio::test]
+async fn uak_publisher_preserves_fifo_across_resident_settlement_handoffs() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let first = RawTxHash(Byte32::new([21; 32]));
+    let second = RawTxHash(Byte32::new([22; 32]));
+    for tx_hash in [first.clone(), second.clone()] {
+        runtime
+            .queue_effect_for_foundation(
+                EffectPolicy::Remote,
+                CommittedEffect::RemoteExpired { tx_hash },
+            )
+            .expect("each bounded fixture effect commits before publication starts");
+    }
+    runtime
+        .close_effects()
+        .await
+        .expect("the fixture closes production after both FIFO heads commit");
+
+    let (relay, relay_rx) = relay_mailbox(4);
+    run_authority_effect_publisher(
+        runtime.clone(),
+        endpoints(relay, Arc::new(Callbacks::new())),
+    )
+    .await
+    .expect("the closed resident FIFO drains without a fault");
+
+    for expected in [first.0, second.0] {
+        assert!(matches!(
+            relay_rx.try_recv(),
+            Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == expected
+        ));
+    }
+    assert!(relay_rx.try_recv().is_none());
+    assert!(runtime.effects_closed_and_drained());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn uak_aborting_publisher_cannot_detach_an_in_flight_callback_or_release_its_cursor() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let victim = entry(4_300);
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
+                entry: victim,
+                fee_rate: FeeRate::from_u64(42),
+            }),
+        )
+        .expect("the bounded fixture effect commits");
+
+    let callback_entered = Arc::new(AtomicUsize::new(0));
+    let callback_completed = Arc::new(AtomicUsize::new(0));
+    let callback_gate = Arc::new((StdMutex::new(false), Condvar::new()));
+    let observed_entered = Arc::clone(&callback_entered);
+    let observed_completed = Arc::clone(&callback_completed);
+    let observed_gate = Arc::clone(&callback_gate);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_reject(Box::new(move |_, _| {
+        observed_entered.fetch_add(1, Ordering::Release);
+        let (released, ready) = &*observed_gate;
+        let mut released = released
+            .lock()
+            .expect("the callback cancellation fixture mutex remains healthy");
+        while !*released {
+            released = ready
+                .wait(released)
+                .expect("the callback cancellation fixture mutex remains healthy");
+        }
+        observed_completed.fetch_add(1, Ordering::Release);
+    }));
+    let callbacks = Arc::new(callbacks);
+    let (relay, _aborted_relay_rx) = relay_mailbox(2);
+    let publisher_endpoints = endpoints(relay, Arc::clone(&callbacks));
+    let publisher = tokio::spawn(run_authority_effect_publisher(
+        runtime.clone(),
+        publisher_endpoints,
+    ));
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while callback_entered.load(Ordering::Acquire) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the publisher checks out the committed head and enters its callback");
+    let borrowed_sequence = runtime
+        .effect_observation_for_foundation()
+        .queued
+        .first()
+        .copied()
+        .expect("the borrowed receipt remains at the FIFO head");
+
+    publisher.abort();
+    let publisher_finished_while_callback_blocked = publisher.is_finished();
+    let retained = runtime.effect_observation_for_foundation();
+    let callback_completed_while_blocked = callback_completed.load(Ordering::Acquire);
+    let escaped_claim = runtime.claim_effect_publisher();
+    let claim_available_while_callback_blocked = escaped_claim.is_some();
+    drop(escaped_claim);
+
+    {
+        let (released, ready) = &*callback_gate;
+        *released
+            .lock()
+            .expect("the callback cancellation fixture mutex remains healthy") = true;
+        ready.notify_all();
+    }
+    let abort = tokio::time::timeout(Duration::from_secs(1), publisher)
+        .await
+        .expect("the publisher joins after its owned callback returns");
+    assert!(
+        !publisher_finished_while_callback_blocked,
+        "aborting the publisher cannot detach its synchronous foreign call"
+    );
+    assert_eq!(retained.queued.first(), Some(&borrowed_sequence));
+    assert_eq!(retained.queued_processed_steps, vec![0]);
+    assert_eq!(callback_completed_while_blocked, 0);
+    assert!(!claim_available_while_callback_blocked);
+    assert!(abort.is_err_and(|error| error.is_cancelled()));
+    assert_eq!(callback_completed.load(Ordering::Acquire), 1);
+    let completed = runtime.effect_observation_for_foundation();
+    assert!(completed.queued.is_empty());
+    assert!(completed.queued_processed_steps.is_empty());
+
+    runtime
+        .close_effects()
+        .await
+        .expect("the producer side closes after the owned callback terminalizes");
+    assert!(runtime.effects_closed_and_drained());
+    assert!(runtime.claim_effect_publisher().is_some());
+}
+
+#[tokio::test]
+async fn uak_retained_batch_resumes_at_its_first_unprocessed_endpoint() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let first = RawTxHash(Byte32::new([10; 32]));
+    let second = RawTxHash(Byte32::new([11; 32]));
+    runtime
+        .queue_effects_for_foundation(
+            EffectPolicy::Remote,
+            vec![
+                CommittedEffect::RemoteExpired {
+                    tx_hash: first.clone(),
+                },
+                CommittedEffect::RemoteExpired {
+                    tx_hash: second.clone(),
+                },
+            ],
+        )
+        .expect("the bounded two-effect batch commits atomically");
+
+    let mut lease = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("the committed batch is available");
+    assert!(matches!(
+        lease.current(),
+        Some(work)
+            if matches!(work.effect, CommittedEffect::RemoteExpired { tx_hash, .. } if tx_hash == &first)
+    ));
+    let first_effect_index = lease
+        .current()
+        .expect("the first effect has an endpoint cursor")
+        .effect_index;
+    loop {
+        assert!(
+            !lease
+                .mark_current_processed()
+                .expect("the first effect endpoint advances the typed local cursor")
+        );
+        if lease
+            .current()
+            .is_some_and(|work| work.effect_index != first_effect_index)
+        {
+            break;
+        }
+    }
+    runtime
+        .settle_effect_for_foundation(lease)
+        .expect("Retain commits the processed prefix into the sole authority");
+
+    let mut retained = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("the unfinished batch remains charged");
+    assert!(matches!(
+        retained.current(),
+        Some(work)
+            if matches!(work.effect, CommittedEffect::RemoteExpired { tx_hash, .. } if tx_hash == &second)
+    ));
+    loop {
+        if retained
+            .mark_current_processed()
+            .expect("the suffix endpoint advances the typed local cursor")
+        {
+            break;
+        }
+    }
+    runtime
+        .settle_effect_for_foundation(retained)
+        .expect("publishing the suffix releases the whole batch charge");
+}
+
+#[tokio::test]
+async fn uak_retained_later_endpoint_does_not_replay_completed_callback_cursor() {
+    let snapshot = genesis_snapshot();
+    let runtime = AuthorityRuntime::new(
+        &runtime_config(),
+        snapshot.consensus(),
+        std::sync::Arc::clone(&snapshot),
+    )
+    .expect("the production runtime fixture is valid");
+    let victim = entry(4_303);
+    let expected_hash = victim.tx.hash();
+    runtime
+        .queue_effect_for_foundation(
+            EffectPolicy::Remote,
+            CommittedEffect::Rejected(CommittedRejection::CapacityEvicted {
+                entry: victim,
+                fee_rate: FeeRate::from_u64(42),
+            }),
+        )
+        .expect("the bounded rejection effect commits");
+
+    let callback_calls = Arc::new(AtomicUsize::new(0));
+    let observed_calls = Arc::clone(&callback_calls);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_reject(Box::new(move |_, _| {
+        observed_calls.fetch_add(1, Ordering::AcqRel);
+    }));
+    let callbacks = Arc::new(callbacks);
+
+    let mut lease = runtime
+        .wait_effect_publication_for_foundation()
+        .await
+        .expect("the committed rejection is available");
+    while lease
+        .current()
+        .is_some_and(|work| work.endpoint != EffectEndpoint::Relay)
+    {
+        assert!(
+            !lease
+                .mark_current_processed()
+                .expect("the completed endpoint advances the durable cursor")
+        );
+    }
+    assert!(matches!(
+        lease.current(),
+        Some(work)
+            if work.endpoint == EffectEndpoint::Relay
+                && matches!(work.effect, CommittedEffect::Rejected(_))
+    ));
+    runtime
+        .settle_effect_for_foundation(lease)
+        .expect("cancellation retains the first unprocessed endpoint");
+
+    let (relay, relay_rx) = relay_mailbox(2);
+    runtime
+        .close_effects()
+        .await
+        .expect("the producer side closes after cursor retention");
+    let replacement_endpoints = endpoints(relay, callbacks);
+    let replacement = tokio::spawn(run_authority_effect_publisher(
+        runtime.clone(),
+        replacement_endpoints,
+    ));
+    match tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(result) = relay_rx.try_recv() {
+                break result;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the publisher resumes at the retained relay endpoint")
+    {
+        TxVerificationResult::Reject { tx_hash } => assert_eq!(tx_hash, expected_hash),
+        other => panic!("unexpected retained publication: {other:?}"),
+    }
+    replacement
+        .await
+        .expect("the replacement publisher task remains healthy")
+        .expect("the closed authority drains without a fault");
+    assert_eq!(
+        callback_calls.load(Ordering::Acquire),
+        0,
+        "a completed endpoint must not replay after a later endpoint is cancelled"
+    );
+}
+
+#[test]
+fn uak_unregistered_callback_does_not_enter_the_blocking_boundary() {
+    let (relay, _relay_rx) = relay_mailbox(2);
+    let mut endpoints = endpoints(relay, Arc::new(Callbacks::new()));
+    let outcome =
+        compile_committed_effect(CommittedEffect::Accepted(CommittedAcceptance::Admission {
+            entry: entry(4_301),
+            status: AcceptedStatus::Pending,
+            ingress_peer: None,
+        }));
+    endpoints.publish(outcome);
+}
