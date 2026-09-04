@@ -31,9 +31,13 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
     pin::Pin,
-    sync::{Arc, atomic::Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
+use tokio::sync::Semaphore;
 
 use crate::{
     Status, StatusCode, SyncShared,
@@ -417,6 +421,23 @@ fn test_get_locator_response() {
 struct DummyNetworkContext {
     pub peers: HashMap<PeerIndex, Peer>,
     pub disconnected: Arc<Mutex<HashSet<PeerIndex>>>,
+    pending_sends: Option<Arc<PendingSends>>,
+}
+
+struct PendingSends {
+    active: AtomicUsize,
+    retained_bytes: AtomicUsize,
+    release: Semaphore,
+}
+
+impl Default for PendingSends {
+    fn default() -> Self {
+        Self {
+            active: AtomicUsize::new(0),
+            retained_bytes: AtomicUsize::new(0),
+            release: Semaphore::new(0),
+        }
+    }
 }
 
 fn mock_peer_info() -> Peer {
@@ -478,8 +499,19 @@ impl CKBProtocolContext for DummyNetworkContext {
         &self,
         _proto_id: ProtocolId,
         _peer_index: PeerIndex,
-        _data: Bytes,
+        data: Bytes,
     ) -> Result<(), ckb_network::Error> {
+        if let Some(pending) = &self.pending_sends {
+            pending.active.fetch_add(1, Ordering::SeqCst);
+            pending
+                .retained_bytes
+                .fetch_add(data.len(), Ordering::SeqCst);
+            let _permit = pending.release.acquire().await.unwrap();
+            pending.active.fetch_sub(1, Ordering::SeqCst);
+            pending
+                .retained_bytes
+                .fetch_sub(data.len(), Ordering::SeqCst);
+        }
         Ok(())
     }
     async fn async_send_message_to(
@@ -613,7 +645,15 @@ fn mock_network_context(peer_num: usize) -> DummyNetworkContext {
     DummyNetworkContext {
         peers,
         disconnected: Arc::new(Mutex::new(HashSet::default())),
+        pending_sends: None,
     }
+}
+
+fn backpressured_network_context(peer_num: usize) -> (DummyNetworkContext, Arc<PendingSends>) {
+    let mut context = mock_network_context(peer_num);
+    let pending = Arc::new(PendingSends::default());
+    context.pending_sends = Some(Arc::clone(&pending));
+    (context, pending)
 }
 
 #[test]
@@ -1268,6 +1308,109 @@ fn get_blocks_process() {
         process.execute(),
         StatusCode::RequestDuplicate.with_context("Request duplicate block")
     );
+}
+
+#[test]
+fn get_blocks_backpressure_respects_pending_response_budget() {
+    const REQUESTS: usize = 2_048;
+    const RESPONSE_BUDGET: usize = 4 * 1024;
+    const TASK_BUDGET: usize = 16;
+
+    let consensus = Consensus::default();
+    let (chain, shared, original_synchronizer) = start_chain(Some(consensus));
+    insert_block(chain.chain_controller(), &shared, 1, 1);
+    let synchronizer = Synchronizer::new_with_pending_response_limits(
+        chain.chain_controller().clone(),
+        Arc::clone(&original_synchronizer.shared),
+        RESPONSE_BUDGET,
+        TASK_BUDGET,
+    );
+
+    let hash = shared.snapshot().get_block_hash(1).unwrap();
+    let message = packed::GetBlocks::new_builder()
+        .block_hashes(vec![hash])
+        .build();
+    let (context, pending) = backpressured_network_context(1);
+    let nc = Arc::new(context) as Arc<dyn CKBProtocolContext + Sync + 'static>;
+    let peer: PeerIndex = 0.into();
+
+    let mut accepted = 0;
+    let mut rejected = 0;
+    for _ in 0..REQUESTS {
+        let status = GetBlocksProcess::new(message.as_reader(), &synchronizer, peer, &nc).execute();
+        if status.is_ok() {
+            accepted += 1;
+        } else {
+            assert_eq!(status.code(), StatusCode::TooManyRequests);
+            rejected += 1;
+        }
+    }
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while pending.active.load(Ordering::SeqCst) != accepted && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(pending.active.load(Ordering::SeqCst), accepted);
+    assert!(accepted > 0);
+    assert!(accepted <= TASK_BUDGET);
+    assert!(rejected > 0);
+    let retained_bytes = pending.retained_bytes.load(Ordering::SeqCst);
+    assert!(retained_bytes <= RESPONSE_BUDGET);
+    eprintln!(
+        "requests: {REQUESTS}, accepted: {accepted}, rejected: {rejected}, retained response bytes: {retained_bytes}"
+    );
+
+    pending.release.add_permits(accepted);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while pending.active.load(Ordering::SeqCst) != 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(pending.active.load(Ordering::SeqCst), 0);
+
+    assert_eq!(
+        GetBlocksProcess::new(message.as_reader(), &synchronizer, peer, &nc).execute(),
+        Status::ok(),
+        "completed sends must return their byte budget"
+    );
+    pending.release.add_permits(1);
+}
+
+#[test]
+fn get_blocks_backpressure_respects_pending_task_budget() {
+    const REQUESTS: usize = 32;
+    const TASK_BUDGET: usize = 4;
+
+    let (chain, shared, original_synchronizer) = start_chain(Some(Consensus::default()));
+    insert_block(chain.chain_controller(), &shared, 1, 1);
+    let synchronizer = Synchronizer::new_with_pending_response_limits(
+        chain.chain_controller().clone(),
+        Arc::clone(&original_synchronizer.shared),
+        1024 * 1024,
+        TASK_BUDGET,
+    );
+    let message = packed::GetBlocks::new_builder()
+        .block_hashes(vec![shared.snapshot().get_block_hash(1).unwrap()])
+        .build();
+    let (context, pending) = backpressured_network_context(1);
+    let nc = Arc::new(context) as Arc<dyn CKBProtocolContext + Sync + 'static>;
+    let peer: PeerIndex = 0.into();
+
+    let statuses: Vec<_> = (0..REQUESTS)
+        .map(|_| GetBlocksProcess::new(message.as_reader(), &synchronizer, peer, &nc).execute())
+        .collect();
+    assert_eq!(
+        statuses.iter().filter(|status| status.is_ok()).count(),
+        TASK_BUDGET
+    );
+    assert!(
+        statuses[TASK_BUDGET..]
+            .iter()
+            .all(|status| status.code() == StatusCode::TooManyRequests)
+    );
+
+    pending.release.add_permits(TASK_BUDGET);
 }
 
 #[test]
