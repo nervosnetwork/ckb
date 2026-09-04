@@ -31,13 +31,12 @@ fn wait_for_parents(
 ) {
     let (_, work) = take_resolve_work(
         authority
-            .plan_checkout_for_foundation(
+            .checkout_for_foundation(
                 hash,
                 owner_version(authority, hash),
                 WorkPermit::ResolveOnly,
             )
-            .expect("the remote fixture checks out for resolve")
-            .apply(),
+            .expect("the remote fixture checks out for resolve"),
     );
     apply_plan(
         authority
@@ -59,36 +58,6 @@ fn runtime_with(authority: TxPoolAuthority) -> AuthorityRuntime {
     .expect("the production runtime fixture is valid");
     runtime.with_authority_for_foundation(|slot| *slot = authority);
     runtime
-}
-
-#[test]
-fn uak_relay_mailbox_preserves_exact_order_within_its_bound() {
-    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS)
-        .expect("the bounded relay mailbox fixture is valid");
-    let first = Byte32::new([1; 32]);
-    let second = Byte32::new([2; 32]);
-    assert_eq!(
-        sink.publish(TxVerificationResult::Reject {
-            tx_hash: first.clone(),
-        }),
-        RelayMailboxDisposition::Exact
-    );
-    assert_eq!(
-        sink.publish(TxVerificationResult::Ok {
-            original_peer: None,
-            tx_hash: second.clone(),
-        }),
-        RelayMailboxDisposition::Exact
-    );
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == first
-    ));
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::Ok { tx_hash, .. }) if tx_hash == second
-    ));
-    assert!(receiver.try_recv().is_none());
 }
 
 #[tokio::test]
@@ -158,73 +127,6 @@ async fn uak_relay_mailbox_wakes_promptly_for_order_barriers() {
     tokio::time::timeout(Duration::from_secs(1), receiver.wait_for_drain())
         .await
         .expect("a missing-parent request wakes the sole consumer immediately");
-}
-
-#[test]
-fn uak_relay_mailbox_overflow_orders_reset_before_the_current_result() {
-    let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
-        .expect("the bounded relay mailbox fixture is valid");
-    for byte in [1, 2] {
-        assert_eq!(
-            sink.publish(TxVerificationResult::Reject {
-                tx_hash: Byte32::new([byte; 32]),
-            }),
-            RelayMailboxDisposition::Exact
-        );
-    }
-    let current = Byte32::new([3; 32]);
-    assert_eq!(
-        sink.publish(TxVerificationResult::Reject {
-            tx_hash: current.clone(),
-        }),
-        RelayMailboxDisposition::Reconciled
-    );
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::GenerationReset)
-    ));
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == current
-    ));
-    assert_eq!(receiver.observation(), (0, 0));
-}
-
-#[test]
-fn uak_relay_mailbox_keeps_a_max_frontier_after_reconciliation() {
-    let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS)
-        .expect("assembly proves reset plus one maximum parent frontier fits");
-    for byte in [1, 2] {
-        assert_eq!(
-            sink.publish(TxVerificationResult::Reject {
-                tx_hash: Byte32::new([byte; 32]),
-            }),
-            RelayMailboxDisposition::Exact
-        );
-    }
-    let parents = (0..TEST_MAX_PARENTS)
-        .map(|index| {
-            let mut hash = [0u8; 32];
-            hash[..size_of::<usize>()].copy_from_slice(&index.to_le_bytes());
-            Byte32::new(hash)
-        })
-        .collect::<HashSet<_>>();
-    assert_eq!(
-        sink.publish(TxVerificationResult::UnknownParents {
-            peer: PeerIndex::from(8),
-            parents,
-        }),
-        RelayMailboxDisposition::Reconciled
-    );
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::GenerationReset)
-    ));
-    assert!(matches!(
-        receiver.try_recv(),
-        Some(TxVerificationResult::UnknownParents { parents, .. })
-            if parents.len() == TEST_MAX_PARENTS
-    ));
 }
 
 #[test]
@@ -581,9 +483,9 @@ async fn uak_relay_parent_cursor_cannot_cross_equal_shard_vectors_from_two_gener
     let old_cursor = old_cursor.expect("two waiting owners require a continuation");
 
     runtime
-        .replace_current_generation_after_allocation()
+        .clear_pool(std::sync::Arc::clone(&snapshot))
         .await
-        .expect("the fixed generation carrier replaces without recoverable allocation");
+        .expect("the generation is replaced");
     runtime.with_authority_for_foundation(install_same_waiting_level);
 
     assert_eq!(

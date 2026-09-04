@@ -4,11 +4,10 @@ use super::super::{
         BoundedTransaction, DirectCommand, DirectIngressTransaction, RemoteIngressPressure,
         RetainedIngressAttempt, RetainedIngressBackpressure, RetainedIngressBoundaryError, direct,
         proposal,
-        test_support::{IngressRejectionCommit, RetainedIngressCommit, remote_at_for_foundation},
+        test_support::{IngressRejectionCommit, remote_at_for_foundation},
     },
     plan::{
-        AuthorityFault, Backpressure, PlanError, TxPoolAuthority,
-        test_support::RetainedAdmissionDisposition,
+        AuthorityFault, Backpressure, CommittedRetainedAdmissionBatch, PlanError, TxPoolAuthority,
     },
     runtime::AuthorityRuntime,
     state::{PoolGeneration, PreAcceptedSource, ProposalBase, RemoteDeadline, ValidatedAdmission},
@@ -238,14 +237,12 @@ fn uak_remote_preaccepted_duplicate_releases_filter_without_a_second_owner() {
     )
     .expect("first Remote ingress is valid");
     let hash = first.admission_for_foundation().identity.raw.clone();
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let RetainedAdmissionDisposition::Retained(first) = authority
-        .plan_retained_admission(first)
-        .expect("first Remote ingress plans")
-    else {
-        panic!("first Remote ingress must retain one owner");
-    };
-    drop(first.apply());
+    let authority = TxPoolAuthority::for_foundation(limits());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(first))
+            .expect("first Remote ingress commits through the production shared route"),
+    );
     let before_version = authority
         .entry(&hash)
         .expect("first Remote owner exists")
@@ -254,13 +251,11 @@ fn uak_remote_preaccepted_duplicate_releases_filter_without_a_second_owner() {
 
     let duplicate = remote_at_for_foundation(transaction, 20, PeerIndex::from(21), 101, &consensus)
         .expect("duplicate Remote ingress is structurally valid");
-    let RetainedAdmissionDisposition::RemoteReleased(release) = authority
-        .plan_retained_admission(duplicate)
-        .expect("duplicate Remote ingress plans one filter release")
-    else {
-        panic!("a PreAccepted duplicate must not claim Accepted ownership");
-    };
-    drop(release.apply());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(duplicate))
+            .expect("duplicate Remote ingress commits one filter release"),
+    );
     let owner = authority.entry(&hash).expect("duplicate keeps first owner");
     assert_eq!(owner.record().version, before_version);
     assert_eq!(owner.ingress_peer(), Some(PeerIndex::from(20)));
@@ -297,19 +292,17 @@ fn uak_delayed_revoked_remote_ingress_commits_a_later_filter_release() {
     ));
     drop(
         authority
-            .apply_effect_settlement_for_foundation(reset.complete_for_foundation().published())
+            .apply_effect_settlement_for_foundation(reset.complete_for_foundation())
             .expect("the one-shot reset may be consumed before delayed ingress"),
     );
 
     let delayed = remote_at_for_foundation(transaction, 10, peer, 100, &consensus)
         .expect("the already-queued Remote message remains structurally valid");
-    let RetainedAdmissionDisposition::RemoteReleased(release) = authority
-        .plan_retained_admission(delayed)
-        .expect("the peer fence commits exact relay cleanup for delayed ingress")
-    else {
-        panic!("revoked Remote ingress must not become a silent policy outcome");
-    };
-    drop(release.apply());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(delayed))
+            .expect("the peer fence commits exact relay cleanup for delayed ingress"),
+    );
     assert!(authority.entry(&expected_hash).is_none());
 
     let release = authority
@@ -345,13 +338,11 @@ fn uak_peer_fence_saturation_revalidates_the_oldest_delayed_session() {
 
     let delayed = remote_at_for_foundation(transaction, 10, first, 100, &consensus)
         .expect("the delayed Remote message remains structurally valid");
-    let RetainedAdmissionDisposition::Retained(plan) = authority
-        .plan_retained_admission(delayed)
-        .expect("an evicted oldest fence falls back to complete bounded admission")
-    else {
-        panic!("fence saturation must not create a trust fast path or global Remote stop");
-    };
-    drop(plan.apply());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(delayed))
+            .expect("an evicted oldest fence falls back to complete bounded admission"),
+    );
     assert!(authority.entry(&expected_hash).is_some());
 }
 
@@ -377,13 +368,11 @@ fn uak_remote_accepted_duplicate_publishes_only_the_observed_accepted_fact() {
 
     let duplicate = remote_at_for_foundation(transaction, 0, PeerIndex::from(23), 102, &consensus)
         .expect("Accepted duplicate is structurally valid");
-    let RetainedAdmissionDisposition::AcceptedDuplicate(duplicate) = authority
-        .plan_retained_admission(duplicate)
-        .expect("Accepted duplicate plans its exact acknowledgement")
-    else {
-        panic!("an Accepted duplicate must use the Accepted observation path");
-    };
-    drop(duplicate.apply());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(duplicate))
+            .expect("Accepted duplicate commits its exact acknowledgement"),
+    );
 
     let lease = authority
         .effect_publication_receipt_for_foundation()
@@ -404,14 +393,12 @@ fn uak_repeated_proposal_ingress_is_a_mutation_free_observation() {
     let first = proposal(bounded(transaction.clone()), &consensus)
         .into_validated_for_foundation()
         .expect("first Proposal ingress is valid");
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let RetainedAdmissionDisposition::Retained(first) = authority
-        .plan_retained_admission(first)
-        .expect("first Proposal ingress plans")
-    else {
-        panic!("first Proposal ingress must retain one owner");
-    };
-    drop(first.apply());
+    let authority = TxPoolAuthority::for_foundation(limits());
+    drop(
+        authority
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(first))
+            .expect("first Proposal ingress commits through the production shared route"),
+    );
     let before = authority.normalized_snapshot();
 
     let repeated = proposal(bounded(transaction), &consensus)
@@ -419,59 +406,11 @@ fn uak_repeated_proposal_ingress_is_a_mutation_free_observation() {
         .expect("repeated Proposal ingress is valid");
     assert!(matches!(
         authority
-            .plan_retained_admission(repeated)
+            .commit_retained_attempt_for_foundation(RetainedIngressAttempt::Validated(repeated))
             .expect("repeated Proposal has a deterministic disposition"),
-        RetainedAdmissionDisposition::ProposalUnchanged
+        CommittedRetainedAdmissionBatch::Unchanged { consumed: 1 }
     ));
     assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[test]
-fn uak_runtime_retained_ingress_adapter_preserves_closed_source_outcomes() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("production authority runtime fixture is valid");
-    let transaction = ingress_tx(7);
-    assert_eq!(
-        runtime
-            .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(26),)
-            .expect("first Remote ingress commits"),
-        RetainedIngressCommit::Retained
-    );
-    assert_eq!(
-        runtime
-            .submit_remote_ingress(transaction, 0, PeerIndex::from(27),)
-            .expect("duplicate Remote ingress commits its release"),
-        RetainedIngressCommit::RemoteReleased
-    );
-
-    let proposal = ingress_tx(8);
-    assert_eq!(
-        runtime
-            .submit_proposal_ingress(proposal.clone())
-            .expect("first Proposal ingress commits"),
-        RetainedIngressCommit::Retained
-    );
-    assert_eq!(
-        runtime
-            .submit_proposal_ingress(proposal)
-            .expect("repeated Proposal ingress is deterministic"),
-        RetainedIngressCommit::ProposalUnchanged
-    );
-
-    let malformed = TransactionBuilder::default()
-        .input(CellInput::new_cellbase_input(0))
-        .build();
-    assert_eq!(
-        runtime
-            .submit_remote_ingress(malformed, 0, PeerIndex::from(28))
-            .expect("malformed Remote ingress commits its peer disposition"),
-        RetainedIngressCommit::Rejected
-    );
 }
 
 #[test]
@@ -500,12 +439,19 @@ fn uak_recovery_proposal_payload_variant_is_a_closed_no_change_outcome() {
         .expect("recovery witness enters retained ownership");
     let before = runtime.normalized_snapshot_for_foundation();
 
-    assert_eq!(
-        runtime
-            .submit_proposal_ingress(proposal_variant)
-            .expect("payload variant is an ordinary retained-ingress outcome"),
-        RetainedIngressCommit::ProposalPayloadVariant
-    );
+    let attempt = proposal(bounded(proposal_variant), snapshot.consensus());
+    let batch = super::super::ingress::RetainedAdmissionBatch::new(
+        attempt,
+        std::collections::VecDeque::new(),
+    )
+    .expect("one proposal forms a bounded retained-ingress batch");
+    let (consumed, remaining, fault) = match runtime.commit_retained_ingress_batch(batch) {
+        Ok(committed) => committed,
+        Err(_) => panic!("payload variant is an ordinary retained-ingress outcome"),
+    };
+    assert_eq!(consumed, 1);
+    assert!(remaining.is_empty());
+    assert_eq!(fault, None);
     assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
 }
 

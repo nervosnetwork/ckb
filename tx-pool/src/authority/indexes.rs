@@ -5,8 +5,8 @@
 
 use super::{
     shard::{
-        AUTHORITY_SHARD_COUNT, PeerIngressRow, ShardReadSupport, ShardedOwnerMap,
-        ShardedOwnerWriteCut,
+        AUTHORITY_SHARD_COUNT, AuthorityShard, PeerIngressRow, ShardReadSupport, ShardWriteSupport,
+        ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerWriteCut,
     },
     state::{AcceptedAtMillis, EntryVersion, OwnedTx, ProposalId, RawTxHash, RemoteDeadline},
 };
@@ -194,6 +194,7 @@ impl AcceptedExpiryHead {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IndexError {
+    Stale,
     ProposalCollision,
     Projection,
     Arithmetic,
@@ -277,7 +278,7 @@ pub(super) struct IndexDelta {
     prestate: IndexPrestate,
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq, Eq)]
 struct IndexPrestate {
     proposals: Vec<(ProposalId, Option<RawTxHash>)>,
     peers: Vec<(PeerIndex, Option<PeerIngressRow>)>,
@@ -286,20 +287,82 @@ struct IndexPrestate {
     accepted_deadlines: Vec<(AcceptedDeadlineKey, bool)>,
 }
 
+pub(in crate::authority) struct RetainedIndexPremise(IndexPrestate);
+
+trait IndexReadCut {
+    fn index_shard(&self, shard: usize) -> &AuthorityShard;
+}
+
+impl IndexReadCut for ShardedOwnerReadCut<'_> {
+    fn index_shard(&self, shard: usize) -> &AuthorityShard {
+        self.projection_shard(shard)
+    }
+}
+
+impl IndexReadCut for ShardedOwnerWriteCut<'_> {
+    fn index_shard(&self, shard: usize) -> &AuthorityShard {
+        self.projection_shard(shard)
+    }
+}
+
 impl IndexPrestate {
-    fn capture(indexes: &AuthorityIndexes, delta: &IndexDelta) -> Result<Self, IndexError> {
+    fn capture_retained<'entry>(
+        indexes: &AuthorityIndexes,
+        changes: impl IntoIterator<
+            Item = (
+                &'entry RawTxHash,
+                Option<&'entry OwnedTx>,
+                Option<&'entry OwnedTx>,
+            ),
+        >,
+        cut: &impl IndexReadCut,
+    ) -> Result<RetainedIndexPremise, IndexError> {
+        let mut proposals = Vec::new();
+        let mut peers = Vec::new();
+        for (key, before, after) in changes {
+            for owner in [before, after].into_iter().flatten() {
+                let fact = IndexFact::from_owner(key, owner)?;
+                proposals.push(fact.proposal);
+                peers.extend(fact.preaccepted_peer);
+            }
+        }
+        proposals.sort_unstable();
+        proposals.dedup();
+        peers.sort_unstable();
+        peers.dedup();
+
+        let mut prestate = Self::default();
+        prestate.proposals.reserve_exact(proposals.len());
+        prestate
+            .proposals
+            .extend(proposals.into_iter().map(|proposal| {
+                let shard = indexes.proposal_shard(&proposal);
+                let owner = cut.index_shard(shard).proposals.get(&proposal).cloned();
+                (proposal, owner)
+            }));
+        prestate.peers.reserve_exact(peers.len());
+        prestate.peers.extend(peers.into_iter().map(|peer| {
+            let shard = indexes.peer_shard(&peer);
+            (peer, cut.index_shard(shard).peer_ingress_row(peer))
+        }));
+        Ok(RetainedIndexPremise(prestate))
+    }
+
+    fn capture_in_cut(
+        indexes: &AuthorityIndexes,
+        delta: &IndexDelta,
+        cut: &impl IndexReadCut,
+    ) -> Result<Self, IndexError> {
         let mut prestate = Self::default();
 
         let mut proposals = Vec::new();
-        proposals
-            .try_reserve_exact(
-                delta
-                    .proposal_removals
-                    .len()
-                    .checked_add(delta.proposal_insertions.len())
-                    .ok_or(IndexError::Arithmetic)?,
-            )
-            .map_err(|_| IndexError::Allocation)?;
+        proposals.reserve_exact(
+            delta
+                .proposal_removals
+                .len()
+                .checked_add(delta.proposal_insertions.len())
+                .ok_or(IndexError::Arithmetic)?,
+        );
         proposals.extend(
             delta
                 .proposal_removals
@@ -314,115 +377,103 @@ impl IndexPrestate {
         );
         proposals.sort_unstable();
         proposals.dedup();
+        prestate.proposals.reserve_exact(proposals.len());
         prestate
             .proposals
-            .try_reserve_exact(proposals.len())
-            .map_err(|_| IndexError::Allocation)?;
-        prestate.proposals.extend(
-            proposals
-                .into_iter()
-                .map(|proposal| (proposal.clone(), indexes.proposal_owner_ref(&proposal))),
-        );
+            .extend(proposals.into_iter().map(|proposal| {
+                let shard = indexes.proposal_shard(&proposal);
+                let owner = cut.index_shard(shard).proposals.get(&proposal).cloned();
+                (proposal, owner)
+            }));
 
         let mut peers = Vec::new();
-        peers
-            .try_reserve_exact(
-                delta
-                    .peer_removals
-                    .len()
-                    .checked_add(delta.peer_insertions.len())
-                    .and_then(|count| count.checked_add(delta.new_peer_rows.len()))
-                    .and_then(|count| count.checked_add(delta.touched_peers.len()))
-                    .ok_or(IndexError::Arithmetic)?,
-            )
-            .map_err(|_| IndexError::Allocation)?;
+        peers.reserve_exact(
+            delta
+                .peer_removals
+                .len()
+                .checked_add(delta.peer_insertions.len())
+                .and_then(|count| count.checked_add(delta.new_peer_rows.len()))
+                .and_then(|count| count.checked_add(delta.touched_peers.len()))
+                .ok_or(IndexError::Arithmetic)?,
+        );
         peers.extend(delta.peer_removals.iter().map(|(peer, _)| *peer));
         peers.extend(delta.peer_insertions.iter().map(|(peer, _)| *peer));
         peers.extend(delta.new_peer_rows.iter().map(|(peer, _)| *peer));
         peers.extend(delta.touched_peers.iter().copied());
         peers.sort_unstable();
         peers.dedup();
-        prestate
-            .peers
-            .try_reserve_exact(peers.len())
-            .map_err(|_| IndexError::Allocation)?;
-        prestate.peers.extend(
-            peers
-                .into_iter()
-                .map(|peer| (peer, indexes.entries.peer_ingress_row(peer))),
-        );
+        prestate.peers.reserve_exact(peers.len());
+        prestate.peers.extend(peers.into_iter().map(|peer| {
+            let shard = indexes.peer_shard(&peer);
+            (peer, cut.index_shard(shard).peer_ingress_row(peer))
+        }));
 
         let mut contexts = Vec::new();
-        contexts
-            .try_reserve_exact(
-                delta
-                    .context_removals
-                    .len()
-                    .checked_add(delta.context_insertions.len())
-                    .ok_or(IndexError::Arithmetic)?,
-            )
-            .map_err(|_| IndexError::Allocation)?;
+        contexts.reserve_exact(
+            delta
+                .context_removals
+                .len()
+                .checked_add(delta.context_insertions.len())
+                .ok_or(IndexError::Arithmetic)?,
+        );
         contexts.extend(delta.context_removals.iter().cloned());
         contexts.extend(delta.context_insertions.iter().cloned());
         contexts.sort_unstable();
         contexts.dedup();
-        prestate
-            .contexts
-            .try_reserve_exact(contexts.len())
-            .map_err(|_| IndexError::Allocation)?;
-        prestate.contexts.extend(
-            contexts
-                .into_iter()
-                .map(|key| (key.clone(), indexes.contains_context(&key))),
-        );
+        prestate.contexts.reserve_exact(contexts.len());
+        prestate.contexts.extend(contexts.into_iter().map(|key| {
+            let present = cut
+                .index_shard(indexes.context_shard(&key))
+                .context_sensitive_accepted
+                .contains(&key);
+            (key, present)
+        }));
 
         let mut deadlines = Vec::new();
-        deadlines
-            .try_reserve_exact(
-                delta
-                    .deadline_removals
-                    .len()
-                    .checked_add(delta.deadline_insertions.len())
-                    .ok_or(IndexError::Arithmetic)?,
-            )
-            .map_err(|_| IndexError::Allocation)?;
+        deadlines.reserve_exact(
+            delta
+                .deadline_removals
+                .len()
+                .checked_add(delta.deadline_insertions.len())
+                .ok_or(IndexError::Arithmetic)?,
+        );
         deadlines.extend(delta.deadline_removals.iter().cloned());
         deadlines.extend(delta.deadline_insertions.iter().cloned());
         deadlines.sort_unstable();
         deadlines.dedup();
-        prestate
-            .deadlines
-            .try_reserve_exact(deadlines.len())
-            .map_err(|_| IndexError::Allocation)?;
-        prestate.deadlines.extend(
-            deadlines
-                .into_iter()
-                .map(|key| (key.clone(), indexes.contains_deadline(&key))),
-        );
+        prestate.deadlines.reserve_exact(deadlines.len());
+        prestate.deadlines.extend(deadlines.into_iter().map(|key| {
+            let present = cut
+                .index_shard(indexes.deadline_shard(&key))
+                .deadlines
+                .contains(&key);
+            (key, present)
+        }));
 
         let mut accepted_deadlines = Vec::new();
-        accepted_deadlines
-            .try_reserve_exact(
-                delta
-                    .accepted_deadline_removals
-                    .len()
-                    .checked_add(delta.accepted_deadline_insertions.len())
-                    .ok_or(IndexError::Arithmetic)?,
-            )
-            .map_err(|_| IndexError::Allocation)?;
+        accepted_deadlines.reserve_exact(
+            delta
+                .accepted_deadline_removals
+                .len()
+                .checked_add(delta.accepted_deadline_insertions.len())
+                .ok_or(IndexError::Arithmetic)?,
+        );
         accepted_deadlines.extend(delta.accepted_deadline_removals.iter().cloned());
         accepted_deadlines.extend(delta.accepted_deadline_insertions.iter().cloned());
         accepted_deadlines.sort_unstable();
         accepted_deadlines.dedup();
         prestate
             .accepted_deadlines
-            .try_reserve_exact(accepted_deadlines.len())
-            .map_err(|_| IndexError::Allocation)?;
-        prestate.accepted_deadlines.extend(
-            accepted_deadlines
-                .into_iter()
-                .map(|key| (key.clone(), indexes.contains_accepted_deadline(&key))),
-        );
+            .reserve_exact(accepted_deadlines.len());
+        prestate
+            .accepted_deadlines
+            .extend(accepted_deadlines.into_iter().map(|key| {
+                let present = cut
+                    .index_shard(indexes.accepted_deadline_shard(&key))
+                    .accepted_deadlines
+                    .contains(&key);
+                (key, present)
+            }));
 
         Ok(prestate)
     }
@@ -430,12 +481,12 @@ impl IndexPrestate {
     fn is_fresh(
         &self,
         entries: &ShardedOwnerMap,
-        cut: &ShardedOwnerWriteCut<'_>,
+        cut: &impl IndexReadCut,
         allowed_hidden_peer: Option<(PeerIndex, u64)>,
     ) -> bool {
         self.proposals.iter().all(|(proposal, expected)| {
             let shard = entries.layout.router.shard(b"index/proposal", proposal);
-            cut.projection_shard(shard).proposals.get(proposal) == expected.as_ref()
+            cut.index_shard(shard).proposals.get(proposal) == expected.as_ref()
         }) && self.peers.iter().all(|(peer, expected)| {
             let shard = entries.layout.router.shard(b"index/peer", peer);
             let hidden_allowed = allowed_hidden_peer.is_some_and(|(allowed_peer, stage_id)| {
@@ -447,24 +498,40 @@ impl IndexPrestate {
                     .as_ref()
                     .is_some_and(PeerIngressRow::has_hidden_fence))
                 && cut
-                    .projection_shard(shard)
+                    .index_shard(shard)
                     .peer_ingress_row_matches(*peer, expected.as_ref())
         }) && self.contexts.iter().all(|(key, expected)| {
-            cut.projection_shard(entries.owner_shard(key))
+            cut.index_shard(entries.owner_shard(key))
                 .context_sensitive_accepted
                 .contains(key)
                 == *expected
         }) && self.deadlines.iter().all(|(key, expected)| {
-            cut.projection_shard(entries.owner_shard(&key.hash))
+            cut.index_shard(entries.owner_shard(&key.hash))
                 .deadlines
                 .contains(key)
                 == *expected
         }) && self.accepted_deadlines.iter().all(|(key, expected)| {
-            cut.projection_shard(entries.owner_shard(&key.hash))
+            cut.index_shard(entries.owner_shard(&key.hash))
                 .accepted_deadlines
                 .contains(key)
                 == *expected
         })
+    }
+}
+
+impl RetainedIndexPremise {
+    fn is_current(&self, indexes: &AuthorityIndexes) -> bool {
+        let mut reads = ShardReadSupport::default();
+        for (proposal, _) in &self.0.proposals {
+            reads.insert(indexes.proposal_shard(proposal));
+        }
+        for (peer, _) in &self.0.peers {
+            reads.insert(indexes.peer_shard(peer));
+        }
+        let cut = indexes
+            .entries
+            .mixed_cut(reads, super::shard::ShardWriteSupport::default());
+        self.0.is_fresh(&indexes.entries, &cut, None)
     }
 }
 
@@ -490,6 +557,38 @@ impl ContextSensitiveAcceptedReadCut<'_> {
     reason = "the sole shard router and fixed-array enumerations stay within the 64-shard layout"
 )]
 impl AuthorityIndexes {
+    pub(in crate::authority) fn capture_retained_premise<'entry>(
+        &self,
+        changes: impl IntoIterator<
+            Item = (
+                &'entry RawTxHash,
+                Option<&'entry OwnedTx>,
+                Option<&'entry OwnedTx>,
+            ),
+        >,
+        cut: &ShardedOwnerWriteCut<'_>,
+    ) -> Result<RetainedIndexPremise, IndexError> {
+        IndexPrestate::capture_retained(self, changes, cut)
+    }
+
+    pub(in crate::authority) fn plan_retained_replacements<'entry>(
+        &self,
+        changes: impl IntoIterator<
+            Item = (
+                &'entry RawTxHash,
+                Option<&'entry OwnedTx>,
+                Option<&'entry OwnedTx>,
+            ),
+        >,
+        premise: RetainedIndexPremise,
+    ) -> Result<IndexDelta, IndexError> {
+        match self.plan_replacements(changes) {
+            Ok(delta) => delta.bind_retained_premise(premise),
+            Err(_) if !premise.is_current(self) => Err(IndexError::Stale),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(super) fn for_entries(entries: &ShardedOwnerMap) -> Self {
         Self {
             entries: entries.clone(),
@@ -526,35 +625,6 @@ impl AuthorityIndexes {
             .get(proposal)
             .cloned()
     }
-
-    fn contains_context(&self, key: &RawTxHash) -> bool {
-        self.entries.layout.shards[self.context_shard(key)]
-            .read()
-            .context_sensitive_accepted
-            .contains(key)
-    }
-
-    fn contains_accepted_deadline(&self, key: &AcceptedDeadlineKey) -> bool {
-        self.entries.layout.shards[self.accepted_deadline_shard(key)]
-            .read()
-            .accepted_deadlines
-            .contains(key)
-    }
-
-    fn contains_deadline(&self, key: &DeadlineKey) -> bool {
-        self.entries.layout.shards[self.deadline_shard(key)]
-            .read()
-            .deadlines
-            .contains(key)
-    }
-
-    fn peer_contains(&self, peer: PeerIndex, key: &RawTxHash) -> bool {
-        self.entries.layout.shards[self.peer_shard(&peer)]
-            .read()
-            .peer_ingress_owners
-            .get(&peer)
-            .is_some_and(|owners| owners.contains(key))
-    }
 }
 
 #[expect(
@@ -562,31 +632,68 @@ impl AuthorityIndexes {
     reason = "the sole shard router and fixed-array enumerations stay within the 64-shard layout"
 )]
 impl AuthorityIndexes {
-    fn validate_present_fact(&self, key: &RawTxHash, fact: &IndexFact) -> Result<(), IndexError> {
-        if self.proposal_owner_ref(&fact.proposal).as_ref() != Some(key) {
+    fn validate_present_fact_in_cut(
+        &self,
+        key: &RawTxHash,
+        fact: &IndexFact,
+        cut: &impl IndexReadCut,
+    ) -> Result<(), IndexError> {
+        let proposal = cut
+            .index_shard(self.proposal_shard(&fact.proposal))
+            .proposals
+            .get(&fact.proposal);
+        if proposal != Some(key) {
             return Err(IndexError::Projection);
         }
         if let Some(peer) = fact.preaccepted_peer
-            && !self.peer_contains(peer, key)
+            && !cut
+                .index_shard(self.peer_shard(&peer))
+                .peer_ingress_owners
+                .get(&peer)
+                .is_some_and(|owners| owners.contains(key))
         {
             return Err(IndexError::Projection);
         }
-        if self.contains_context(key) != fact.context_sensitive_accepted {
-            return Err(IndexError::Projection);
-        }
-        if fact
-            .deadline_key(key)
-            .is_some_and(|deadline| !self.contains_deadline(&deadline))
+        if cut
+            .index_shard(self.context_shard(key))
+            .context_sensitive_accepted
+            .contains(key)
+            != fact.context_sensitive_accepted
         {
             return Err(IndexError::Projection);
         }
-        if fact
-            .accepted_deadline_key(key)
-            .is_some_and(|deadline| !self.contains_accepted_deadline(&deadline))
-        {
+        if fact.deadline_key(key).is_some_and(|deadline| {
+            !cut.index_shard(self.deadline_shard(&deadline))
+                .deadlines
+                .contains(&deadline)
+        }) {
+            return Err(IndexError::Projection);
+        }
+        if fact.accepted_deadline_key(key).is_some_and(|deadline| {
+            !cut.index_shard(self.accepted_deadline_shard(&deadline))
+                .accepted_deadlines
+                .contains(&deadline)
+        }) {
             return Err(IndexError::Projection);
         }
         Ok(())
+    }
+
+    fn replacement_write_support(&self, changes: &[IndexChange]) -> ShardWriteSupport {
+        let mut support = ShardWriteSupport::default();
+        for change in changes {
+            support.insert(self.context_shard(&change.key));
+            for fact in [change.before.as_ref(), change.after.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                support.insert(self.proposal_shard(&fact.proposal));
+                if let Some(peer) = fact.preaccepted_peer {
+                    support.insert(self.peer_shard(&peer));
+                }
+            }
+        }
+        support
     }
 
     pub(super) fn proposal_owner(&self, proposal: &ProposalId) -> Option<RawTxHash> {
@@ -613,10 +720,7 @@ impl AuthorityIndexes {
         cutoff: RemoteDeadline,
         limit: usize,
     ) -> Result<RemoteExpiryWitness, IndexError> {
-        let mut prefix = Vec::new();
-        prefix
-            .try_reserve_exact(limit)
-            .map_err(|_| IndexError::Allocation)?;
+        let mut prefix = Vec::with_capacity(limit);
         let mut reads = ShardReadSupport::default();
         for shard in 0..AUTHORITY_SHARD_COUNT {
             reads.insert(shard);
@@ -724,34 +828,39 @@ impl AuthorityIndexes {
         let after = after
             .map(|owner| IndexFact::from_owner(key, owner))
             .transpose()?;
+        let mut support = ShardWriteSupport::default();
+        support.insert(self.context_shard(key));
+        for fact in [before.as_ref(), after.as_ref()].into_iter().flatten() {
+            support.insert(self.proposal_shard(&fact.proposal));
+            if let Some(peer) = fact.preaccepted_peer {
+                support.insert(self.peer_shard(&peer));
+            }
+        }
+        let mut cut = self.entries.write_cut(support);
         if let Some(before) = &before {
-            self.validate_present_fact(key, before)?;
+            self.validate_present_fact_in_cut(key, before, &cut)?;
         }
 
         let mut delta = IndexDelta::default();
         if before.as_ref().map(|fact| &fact.proposal) != after.as_ref().map(|fact| &fact.proposal) {
             if let Some(before) = &before {
-                delta
-                    .proposal_removals
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
+                delta.proposal_removals.reserve(1);
                 delta
                     .proposal_removals
                     .push((before.proposal.clone(), key.clone()));
             }
             if let Some(after) = &after {
-                if self.proposal_owner_ref(&after.proposal).is_some() {
+                if cut
+                    .projection_shard(self.proposal_shard(&after.proposal))
+                    .proposals
+                    .contains_key(&after.proposal)
+                {
                     return Err(IndexError::ProposalCollision);
                 }
-                self.entries.layout.shards[self.proposal_shard(&after.proposal)]
-                    .write()
+                cut.projection_shard_mut(self.proposal_shard(&after.proposal))
                     .proposals
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
-                delta
-                    .proposal_insertions
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
+                    .reserve(1);
+                delta.proposal_insertions.reserve(1);
                 delta
                     .proposal_insertions
                     .push((after.proposal.clone(), key.clone()));
@@ -761,44 +870,33 @@ impl AuthorityIndexes {
         let before_peer = before.as_ref().and_then(|fact| fact.preaccepted_peer);
         let after_peer = after.as_ref().and_then(|fact| fact.preaccepted_peer);
         for peer in [before_peer, after_peer].into_iter().flatten() {
-            delta
-                .touched_peers
-                .try_reserve(1)
-                .map_err(|_| IndexError::Allocation)?;
+            delta.touched_peers.reserve(1);
             delta.touched_peers.push(peer);
         }
         if before_peer != after_peer {
             if let Some(peer) = before_peer {
-                delta
-                    .peer_removals
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
+                delta.peer_removals.reserve(1);
                 delta.peer_removals.push((peer, key.clone()));
             }
             if let Some(peer) = after_peer {
-                if self.peer_contains(peer, key) {
+                if cut
+                    .projection_shard(self.peer_shard(&peer))
+                    .peer_ingress_owners
+                    .get(&peer)
+                    .is_some_and(|owners| owners.contains(key))
+                {
                     return Err(IndexError::Projection);
                 }
-                let mut shard = self.entries.layout.shards[self.peer_shard(&peer)].write();
+                let shard = cut.projection_shard_mut(self.peer_shard(&peer));
                 if let Some(owners) = shard.peer_ingress_owners.get_mut(&peer) {
-                    owners.try_reserve(1).map_err(|_| IndexError::Allocation)?;
-                    delta
-                        .peer_insertions
-                        .try_reserve(1)
-                        .map_err(|_| IndexError::Allocation)?;
+                    owners.reserve(1);
+                    delta.peer_insertions.reserve(1);
                     delta.peer_insertions.push((peer, key.clone()));
                 } else {
-                    shard
-                        .peer_ingress_owners
-                        .try_reserve(1)
-                        .map_err(|_| IndexError::Allocation)?;
-                    let mut row = HashSet::new();
-                    row.try_reserve(1).map_err(|_| IndexError::Allocation)?;
+                    shard.peer_ingress_owners.reserve(1);
+                    let mut row = HashSet::with_capacity(1);
                     row.insert(key.clone());
-                    delta
-                        .new_peer_rows
-                        .try_reserve(1)
-                        .map_err(|_| IndexError::Allocation)?;
+                    delta.new_peer_rows.reserve(1);
                     delta.new_peer_rows.push((peer, row));
                 }
             }
@@ -813,25 +911,21 @@ impl AuthorityIndexes {
             .is_some_and(|fact| fact.context_sensitive_accepted);
         if before_context != after_context {
             if before_context {
-                delta
-                    .context_removals
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
+                delta.context_removals.reserve(1);
                 delta.context_removals.push(key.clone());
             }
             if after_context {
-                if self.contains_context(key) {
+                if cut
+                    .projection_shard(self.context_shard(key))
+                    .context_sensitive_accepted
+                    .contains(key)
+                {
                     return Err(IndexError::Projection);
                 }
-                self.entries.layout.shards[self.context_shard(key)]
-                    .write()
+                cut.projection_shard_mut(self.context_shard(key))
                     .context_sensitive_accepted
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
-                delta
-                    .context_insertions
-                    .try_reserve(1)
-                    .map_err(|_| IndexError::Allocation)?;
+                    .reserve(1);
+                delta.context_insertions.reserve(1);
                 delta.context_insertions.push(key.clone());
             }
         }
@@ -842,7 +936,11 @@ impl AuthorityIndexes {
                 delta.deadline_removals.push(deadline);
             }
             if let Some(deadline) = after_deadline {
-                if self.contains_deadline(&deadline) {
+                if cut
+                    .projection_shard(self.deadline_shard(&deadline))
+                    .deadlines
+                    .contains(&deadline)
+                {
                     return Err(IndexError::Projection);
                 }
                 delta.deadline_insertions.push(deadline);
@@ -859,12 +957,17 @@ impl AuthorityIndexes {
                 delta.accepted_deadline_removals.push(deadline);
             }
             if let Some(deadline) = after_accepted_deadline {
-                if self.contains_accepted_deadline(&deadline) {
+                if cut
+                    .projection_shard(self.accepted_deadline_shard(&deadline))
+                    .accepted_deadlines
+                    .contains(&deadline)
+                {
                     return Err(IndexError::Projection);
                 }
                 delta.accepted_deadline_insertions.push(deadline);
             }
         }
+        delta.prestate = IndexPrestate::capture_in_cut(self, &delta, &cut)?;
         Ok(delta)
     }
 
@@ -879,15 +982,10 @@ impl AuthorityIndexes {
         >,
     ) -> Result<IndexDelta, IndexError> {
         let mut input = changes.into_iter();
-        let mut changes = Vec::new();
-        if let Some(capacity) = input.size_hint().1 {
-            changes
-                .try_reserve_exact(capacity)
-                .map_err(|_| IndexError::Allocation)?;
-        }
+        let mut changes = Vec::with_capacity(input.size_hint().1.unwrap_or(0));
         for (key, before, after) in input.by_ref() {
             if changes.len() == changes.capacity() {
-                changes.try_reserve(1).map_err(|_| IndexError::Allocation)?;
+                changes.reserve(1);
             }
             changes.push(IndexChange {
                 key: key.clone(),
@@ -906,73 +1004,27 @@ impl AuthorityIndexes {
         {
             return Err(IndexError::Projection);
         }
+        let support = self.replacement_write_support(&changes);
+        let mut cut = self.entries.write_cut(support);
 
-        let mut proposal_removals = Vec::new();
-        let mut proposal_insertions = Vec::new();
-        let mut peer_removals = Vec::new();
-        let mut peer_insertions = Vec::new();
-        let mut context_removals = Vec::new();
-        let mut context_insertions = Vec::new();
-        let mut deadline_removals = Vec::new();
-        let mut deadline_insertions = Vec::new();
-        let mut accepted_deadline_removals = Vec::new();
-        let mut accepted_deadline_insertions = Vec::new();
-        proposal_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        proposal_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        peer_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        peer_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        context_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        context_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        deadline_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        deadline_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        accepted_deadline_removals
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
-        accepted_deadline_insertions
-            .try_reserve(changes.len())
-            .map_err(|_| IndexError::Allocation)?;
+        let mut proposal_removals = Vec::with_capacity(changes.len());
+        let mut proposal_insertions = Vec::with_capacity(changes.len());
+        let mut peer_removals = Vec::with_capacity(changes.len());
+        let mut peer_insertions = Vec::with_capacity(changes.len());
+        let mut context_removals = Vec::with_capacity(changes.len());
+        let mut context_insertions = Vec::with_capacity(changes.len());
+        let mut deadline_removals = Vec::with_capacity(changes.len());
+        let mut deadline_insertions = Vec::with_capacity(changes.len());
+        let mut accepted_deadline_removals = Vec::with_capacity(changes.len());
+        let mut accepted_deadline_insertions = Vec::with_capacity(changes.len());
         for change in &changes {
             if let Some(before) = &change.before {
-                if self.proposal_owner_ref(&before.proposal).as_ref() != Some(&change.key) {
-                    return Err(IndexError::Projection);
-                }
-                if let Some(peer) = before.preaccepted_peer
-                    && !self.peer_contains(peer, &change.key)
-                {
-                    return Err(IndexError::Projection);
-                }
-                if self.contains_context(&change.key) != before.context_sensitive_accepted {
-                    return Err(IndexError::Projection);
-                }
-                if before
-                    .deadline_key(&change.key)
-                    .is_some_and(|deadline| !self.contains_deadline(&deadline))
-                {
-                    return Err(IndexError::Projection);
-                }
-                if before
-                    .accepted_deadline_key(&change.key)
-                    .is_some_and(|deadline| !self.contains_accepted_deadline(&deadline))
-                {
-                    return Err(IndexError::Projection);
-                }
-            } else if self.contains_context(&change.key) {
+                self.validate_present_fact_in_cut(&change.key, before, &cut)?;
+            } else if cut
+                .projection_shard(self.context_shard(&change.key))
+                .context_sensitive_accepted
+                .contains(&change.key)
+            {
                 return Err(IndexError::Projection);
             }
             let before_proposal = change.before.as_ref().map(|fact| &fact.proposal);
@@ -1057,7 +1109,9 @@ impl AuthorityIndexes {
                 .array_windows::<2>()
                 .any(|[left, right]| left == right)
             || deadline_insertions.iter().any(|deadline| {
-                self.contains_deadline(deadline)
+                cut.projection_shard(self.deadline_shard(deadline))
+                    .deadlines
+                    .contains(deadline)
                     && deadline_removals.binary_search(deadline).is_err()
             })
         {
@@ -1073,7 +1127,9 @@ impl AuthorityIndexes {
                 .array_windows::<2>()
                 .any(|[left, right]| left == right)
             || accepted_deadline_insertions.iter().any(|deadline| {
-                self.contains_accepted_deadline(deadline)
+                cut.projection_shard(self.accepted_deadline_shard(deadline))
+                    .accepted_deadlines
+                    .contains(deadline)
                     && accepted_deadline_removals.binary_search(deadline).is_err()
             })
         {
@@ -1095,45 +1151,59 @@ impl AuthorityIndexes {
             return Err(IndexError::ProposalCollision);
         }
         for (proposal, _) in &proposal_insertions {
-            if let Some(current) = self.proposal_owner_ref(proposal)
+            let current = cut
+                .projection_shard(self.proposal_shard(proposal))
+                .proposals
+                .get(proposal);
+            if let Some(current) = current
                 && proposal_removals
                     .binary_search_by(|(removed, _)| removed.cmp(proposal))
                     .ok()
                     .and_then(|index| proposal_removals.get(index))
                     .map(|(_, hash)| hash)
-                    != Some(&current)
+                    != Some(current)
             {
                 return Err(IndexError::ProposalCollision);
             }
         }
         let new_proposals = proposal_insertions
             .iter()
-            .filter(|(proposal, _)| self.proposal_owner_ref(proposal).is_none())
+            .filter(|(proposal, _)| {
+                !cut.projection_shard(self.proposal_shard(proposal))
+                    .proposals
+                    .contains_key(proposal)
+            })
             .count();
         if new_proposals != 0 {
             let mut additions = [0usize; AUTHORITY_SHARD_COUNT];
             for (proposal, _) in &proposal_insertions {
-                if self.proposal_owner_ref(proposal).is_none() {
+                if !cut
+                    .projection_shard(self.proposal_shard(proposal))
+                    .proposals
+                    .contains_key(proposal)
+                {
                     let shard = self.proposal_shard(proposal);
                     additions[shard] = additions[shard]
                         .checked_add(1)
                         .ok_or(IndexError::Arithmetic)?;
                 }
             }
-            for (shard, additional) in self.entries.layout.shards.iter().zip(additions) {
+            for (shard, additional) in additions.into_iter().enumerate() {
                 if additional == 0 {
                     continue;
                 }
-                shard
-                    .write()
+                cut.projection_shard_mut(shard)
                     .proposals
-                    .try_reserve(additional)
-                    .map_err(|_| IndexError::Allocation)?;
+                    .reserve(additional);
             }
         }
 
         for key in &context_insertions {
-            if self.contains_context(key) {
+            if cut
+                .projection_shard(self.context_shard(key))
+                .context_sensitive_accepted
+                .contains(key)
+            {
                 return Err(IndexError::Projection);
             }
         }
@@ -1144,23 +1214,24 @@ impl AuthorityIndexes {
                 .checked_add(1)
                 .ok_or(IndexError::Arithmetic)?;
         }
-        for (shard, additional) in self.entries.layout.shards.iter().zip(context_additions) {
+        for (shard, additional) in context_additions.into_iter().enumerate() {
             if additional == 0 {
                 continue;
             }
-            shard
-                .write()
+            cut.projection_shard_mut(shard)
                 .context_sensitive_accepted
-                .try_reserve(additional)
-                .map_err(|_| IndexError::Allocation)?;
+                .reserve(additional);
         }
 
-        let mut additions_by_peer = HashMap::<PeerIndex, usize>::new();
-        additions_by_peer
-            .try_reserve(peer_insertions.len())
-            .map_err(|_| IndexError::Allocation)?;
+        let mut additions_by_peer =
+            HashMap::<PeerIndex, usize>::with_capacity(peer_insertions.len());
         for (peer, key) in &peer_insertions {
-            if self.peer_contains(*peer, key) {
+            if cut
+                .projection_shard(self.peer_shard(peer))
+                .peer_ingress_owners
+                .get(peer)
+                .is_some_and(|owners| owners.contains(key))
+            {
                 return Err(IndexError::Projection);
             }
             let count = additions_by_peer.entry(*peer).or_default();
@@ -1168,50 +1239,46 @@ impl AuthorityIndexes {
         }
         let new_peer_count = additions_by_peer
             .keys()
-            .filter(|peer| !self.entries.peer_ingress_owner_row_exists(**peer))
+            .filter(|peer| {
+                !cut.projection_shard(self.peer_shard(peer))
+                    .peer_ingress_owners
+                    .contains_key(peer)
+            })
             .count();
         let mut new_peers_by_shard = [0usize; AUTHORITY_SHARD_COUNT];
         for peer in additions_by_peer.keys() {
-            if !self.entries.peer_ingress_owner_row_exists(*peer) {
+            if !cut
+                .projection_shard(self.peer_shard(peer))
+                .peer_ingress_owners
+                .contains_key(peer)
+            {
                 let shard = self.peer_shard(peer);
                 new_peers_by_shard[shard] = new_peers_by_shard[shard]
                     .checked_add(1)
                     .ok_or(IndexError::Arithmetic)?;
             }
         }
-        for (shard, additional) in self.entries.layout.shards.iter().zip(new_peers_by_shard) {
+        for (shard, additional) in new_peers_by_shard.into_iter().enumerate() {
             if additional == 0 {
                 continue;
             }
-            shard
-                .write()
+            cut.projection_shard_mut(shard)
                 .peer_ingress_owners
-                .try_reserve(additional)
-                .map_err(|_| IndexError::Allocation)?;
+                .reserve(additional);
         }
 
-        let mut new_rows = HashMap::<PeerIndex, HashSet<RawTxHash>>::new();
-        new_rows
-            .try_reserve(new_peer_count)
-            .map_err(|_| IndexError::Allocation)?;
+        let mut new_rows = HashMap::<PeerIndex, HashSet<RawTxHash>>::with_capacity(new_peer_count);
         for (peer, additions) in additions_by_peer {
-            let mut shard = self.entries.layout.shards[self.peer_shard(&peer)].write();
+            let shard = cut.projection_shard_mut(self.peer_shard(&peer));
             if let Some(owners) = shard.peer_ingress_owners.get_mut(&peer) {
-                owners
-                    .try_reserve(additions)
-                    .map_err(|_| IndexError::Allocation)?;
+                owners.reserve(additions);
             } else {
-                let mut row = HashSet::new();
-                row.try_reserve(additions)
-                    .map_err(|_| IndexError::Allocation)?;
+                let row = HashSet::with_capacity(additions);
                 new_rows.insert(peer, row);
             }
         }
 
-        let mut retained_peer_insertions = Vec::new();
-        retained_peer_insertions
-            .try_reserve(peer_insertions.len())
-            .map_err(|_| IndexError::Allocation)?;
+        let mut retained_peer_insertions = Vec::with_capacity(peer_insertions.len());
         for (peer, key) in peer_insertions {
             if let Some(row) = new_rows.get_mut(&peer) {
                 if !row.insert(key) {
@@ -1222,10 +1289,8 @@ impl AuthorityIndexes {
             }
         }
 
-        let mut touched_peers = Vec::new();
-        touched_peers
-            .try_reserve(changes.len().checked_mul(2).ok_or(IndexError::Arithmetic)?)
-            .map_err(|_| IndexError::Allocation)?;
+        let mut touched_peers =
+            Vec::with_capacity(changes.len().checked_mul(2).ok_or(IndexError::Arithmetic)?);
         for change in &changes {
             touched_peers.extend(
                 [
@@ -1242,15 +1307,12 @@ impl AuthorityIndexes {
         touched_peers.sort_unstable();
         touched_peers.dedup();
 
-        let mut new_peer_rows = Vec::new();
-        new_peer_rows
-            .try_reserve_exact(new_rows.len())
-            .map_err(|_| IndexError::Allocation)?;
+        let mut new_peer_rows = Vec::with_capacity(new_rows.len());
         new_peer_rows.extend(new_rows);
         new_peer_rows.sort_unstable_by_key(|(peer, _)| *peer);
         peer_removals.sort_unstable();
         retained_peer_insertions.sort_unstable();
-        IndexDelta {
+        let mut delta = IndexDelta {
             proposal_removals,
             proposal_insertions,
             peer_removals,
@@ -1264,8 +1326,9 @@ impl AuthorityIndexes {
             accepted_deadline_removals,
             accepted_deadline_insertions,
             prestate: IndexPrestate::default(),
-        }
-        .seal_prestate(self)
+        };
+        delta.prestate = IndexPrestate::capture_in_cut(self, &delta, &cut)?;
+        Ok(delta)
     }
 
     pub(super) fn apply(&self, mut delta: IndexDelta) {
@@ -1276,8 +1339,49 @@ impl AuthorityIndexes {
 }
 
 impl IndexDelta {
-    fn seal_prestate(mut self, indexes: &AuthorityIndexes) -> Result<Self, IndexError> {
-        self.prestate = IndexPrestate::capture(indexes, &self)?;
+    fn bind_retained_premise(mut self, premise: RetainedIndexPremise) -> Result<Self, IndexError> {
+        for (proposal, expected) in premise.0.proposals {
+            match self
+                .prestate
+                .proposals
+                .binary_search_by(|(current, _)| current.cmp(&proposal))
+            {
+                Ok(index)
+                    if self
+                        .prestate
+                        .proposals
+                        .get(index)
+                        .is_some_and(|(_, current)| current == &expected) =>
+                {
+                    continue;
+                }
+                Ok(_) => return Err(IndexError::Stale),
+                Err(_) => self.prestate.proposals.push((proposal, expected)),
+            }
+        }
+        self.prestate
+            .proposals
+            .sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        for (peer, expected) in premise.0.peers {
+            match self
+                .prestate
+                .peers
+                .binary_search_by_key(&peer, |(current, _)| *current)
+            {
+                Ok(index)
+                    if self
+                        .prestate
+                        .peers
+                        .get(index)
+                        .is_some_and(|(_, current)| current == &expected) =>
+                {
+                    continue;
+                }
+                Ok(_) => return Err(IndexError::Stale),
+                Err(_) => self.prestate.peers.push((peer, expected)),
+            }
+        }
+        self.prestate.peers.sort_unstable_by_key(|(peer, _)| *peer);
         Ok(self)
     }
 
@@ -1335,6 +1439,29 @@ impl IndexDelta {
             .iter()
             .chain(&self.accepted_deadline_insertions)
         {
+            support.insert(entries.owner_shard(&deadline.hash));
+        }
+        support
+    }
+
+    pub(in crate::authority) fn sharded_read_support(
+        &self,
+        entries: &ShardedOwnerMap,
+    ) -> ShardReadSupport {
+        let mut support = ShardReadSupport::default();
+        for (proposal, _) in &self.prestate.proposals {
+            support.insert(entries.layout.router.shard(b"index/proposal", proposal));
+        }
+        for (peer, _) in &self.prestate.peers {
+            support.insert(entries.layout.router.shard(b"index/peer", peer));
+        }
+        for (key, _) in &self.prestate.contexts {
+            support.insert(entries.owner_shard(key));
+        }
+        for (deadline, _) in &self.prestate.deadlines {
+            support.insert(entries.owner_shard(&deadline.hash));
+        }
+        for (deadline, _) in &self.prestate.accepted_deadlines {
             support.insert(entries.owner_shard(&deadline.hash));
         }
         support
@@ -1422,49 +1549,6 @@ impl IndexDelta {
         }
     }
 }
-
-#[cfg(test)]
-impl IndexDelta {
-    pub(in crate::authority) fn extend_shard_support(
-        &self,
-        support: &mut super::shard_support::AuthorityShardSupport,
-    ) {
-        for (proposal, _) in self
-            .proposal_removals
-            .iter()
-            .chain(&self.proposal_insertions)
-        {
-            support.insert(b"index/proposal", proposal);
-        }
-        for (peer, _) in self.peer_removals.iter().chain(&self.peer_insertions) {
-            support.insert(b"index/peer", peer);
-        }
-        for (peer, _) in &self.new_peer_rows {
-            support.insert(b"index/peer", peer);
-        }
-        for peer in &self.touched_peers {
-            support.insert(b"index/peer", peer);
-        }
-        for key in self.context_removals.iter().chain(&self.context_insertions) {
-            support.insert(b"owner-resource/owner", key);
-        }
-        for key in self
-            .deadline_removals
-            .iter()
-            .chain(&self.deadline_insertions)
-        {
-            support.insert(b"owner-resource/owner", &key.hash);
-        }
-        for key in self
-            .accepted_deadline_removals
-            .iter()
-            .chain(&self.accepted_deadline_insertions)
-        {
-            support.insert(b"owner-resource/owner", &key.hash);
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "tests/support/indexes.rs"]
 pub(in crate::authority) mod test_support;

@@ -1,4 +1,4 @@
-use super::super::{AuthorityFault, Backpressure, PlanError};
+use super::super::{AuthorityFault, PlanError};
 use super::*;
 use std::collections::BTreeSet;
 
@@ -293,16 +293,8 @@ impl TxPoolAuthority {
         if !self.membership.contains_eviction_order(&previous_key) {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let mut eviction_removals = Vec::new();
-        eviction_removals
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        eviction_removals.push(previous_key);
-        let mut eviction_insertions = Vec::new();
-        eviction_insertions
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        eviction_insertions.push(EvictionOrderKey::new(after, aggregate));
+        let eviction_removals = vec![previous_key];
+        let eviction_insertions = vec![EvictionOrderKey::new(after, aggregate)];
         ProjectionDelta {
             spender_changes: Vec::new(),
             causal_changes: Vec::new(),

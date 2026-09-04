@@ -1,32 +1,33 @@
 use super::apply_seal::ApplyToken;
 use super::{
-    ApplyClockReservation, AuthorityFault, ClockPlanReservation, CompiledSharedAcceptedExpiry,
-    CompiledSharedLocalRemoval, CompiledSharedOwnerRemoval, CompiledSharedRemoteExpiry,
-    DerivedOwnerDelta, OwnerRemovalKeys, PlanError, PreparedSharedAcceptedExpiry,
-    PreparedSharedLocalRemoval, PreparedSharedOwnerRemoval, PreparedSharedRemoteExpiry,
-    TxPoolAuthority,
+    ApplyClockReservation, AuthorityFault, ClockPlanReservation, CompiledSharedOwnerRemoval,
+    ConcurrentIndependentError, DerivedOwnerDelta, IndependentDelta, IndependentOwnerAction,
+    IndependentOwnerCut, OwnerPrestate, OwnerRemovalKeys, PlanError, PreparedIndependentApply,
+    PreparedSharedOwnerRemoval, TxPoolAuthority,
 };
 use crate::authority::{
-    dependency::{
-        DependencyBatchDelta, DependencyFinalization, RowsActivatedDependencyBatch,
-        SchedulerSealedRetainedDependency, StagedDependencyBatch,
-    },
+    dependency::{DependencyApplyOutcome, DependencyBatchDelta, PreparedDependencyBatch},
     effect::{
         CommittedAcceptance, CommittedEffect, CommittedPeerCohortRevocation, CommittedRejection,
         CommittedRemoteIngressRelease, EffectBuildError, EffectDelta, EffectLog, EffectPolicy,
         OrderedEffectAppendError, OrderedEffectPublication, RejectionAudience, StagedEffect,
     },
+    indexes::RetainedIndexPremise,
     ingress::{
         RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngressAttempt, RetainedIngressKind,
     },
     rejection::CommittedPublicReject,
-    resources::{ChargeRecord, OrderedResourceProjection, ResourceBatchPlan, ResourceError},
-    scheduler::{SchedulerBatchDelta, StagedIngressVisibility, StagedSchedulerBatch},
-    shard::{OwnerShardRemovalRevision, ShardedOwnerWriteCut, StagedPeerIngressFence},
+    resources::{ChargeRecord, OrderedResourceEnvelope, OrderedResourceProjection, ResourceError},
+    scheduler::{SchedulerBatchDelta, StagedSchedulerBatch},
+    shard::{
+        DependencyGateCut, DependencyGateSupport, OwnerShardRemovalRevision,
+        ShardedDependencyRelationWriteCut, ShardedOwnerMap, ShardedOwnerWriteCut,
+        StagedPeerIngressFence,
+    },
     state::{
-        AdmissionBasis, ApplySequence, AuthorityClocks, ChainViewId, OwnedTx, PoolGeneration,
-        PreAcceptedEntry, PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalId,
-        QueuedWork, RawTxHash, TxRecord, ValidatedAdmission,
+        AdmissionBasis, ApplySequence, ChainViewId, OwnedTx, PoolGeneration, PreAcceptedEntry,
+        PreAcceptedPhase, PreAcceptedSource, ProposalBase, ProposalId, QueuedWork, RawTxHash,
+        TxRecord, ValidatedAdmission,
     },
     work::ComputeSettlement,
 };
@@ -34,43 +35,12 @@ use ckb_network::PeerIndex;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub(super) struct RetainedIngressUpdate {
-    pub(super) key: RawTxHash,
-    pub(super) before: Option<OwnedTx>,
-    pub(super) vacancy_revision: Option<OwnerShardRemovalRevision>,
-    pub(super) after: OwnedTx,
-}
-
-pub(super) struct RetainedIngressDelta {
-    updates: Vec<RetainedIngressUpdate>,
-    owners: DerivedOwnerDelta,
-    resources: ResourceBatchPlan,
-    scheduler: SchedulerBatchDelta,
-    dependency: DependencyBatchDelta,
-    effect: EffectDelta,
-    clocks: AuthorityClocks,
-    retired: super::RetiredOwners,
-}
-
-/// Linear owner for every hidden projection row in one shared retained-ingress
-/// prefix. The scheduler creates the sole batch visibility token; dependency
-/// rows borrow that same fact, so only this aggregate can publish the two
-/// domains after the owner cut has committed.
+/// Linear owner for the prepared dependency delta, scheduler batch and gates in
+/// one shared retained-ingress commit.
 pub(super) struct StagedRetainedIngress<'authority> {
-    dependency: StagedDependencyBatch,
+    dependency: PreparedDependencyBatch,
     scheduler: StagedSchedulerBatch<'authority>,
-}
-
-/// Admission-only projection carrier whose dependency half has proved the
-/// scheduler-sealed Other-insert/source-promotion shape.
-pub(super) struct StagedRetainedAdmissionIngress<'authority> {
-    dependency: RetainedAdmissionDependencyStage,
-    scheduler: StagedSchedulerBatch<'authority>,
-}
-
-enum RetainedAdmissionDependencyStage {
-    Exact(StagedDependencyBatch),
-    Sealed(SchedulerSealedRetainedDependency),
+    gates: DependencyGateCut<'authority>,
 }
 
 impl<'authority> StagedRetainedIngress<'authority> {
@@ -78,50 +48,39 @@ impl<'authority> StagedRetainedIngress<'authority> {
         authority: &'authority TxPoolAuthority,
         scheduler: SchedulerBatchDelta,
         dependency: DependencyBatchDelta,
+        gate_support: DependencyGateSupport,
     ) -> Result<Self, ConcurrentRetainedIngressError> {
-        // Stage the scheduler first so a dependency event has the shortest
-        // possible interval in which it can encounter a hidden consumer row.
+        // Stage the scheduler before acquiring dependency gates so scheduler
+        // allocation and lock work cannot lengthen the gate-held interval.
         let scheduler =
             StagedSchedulerBatch::stage_primary_replacements(&authority.scheduler, scheduler)
                 .map_err(|error| match error {
                     crate::authority::scheduler::SchedulerError::Stale => {
                         ConcurrentRetainedIngressError::Stale
                     }
-                    crate::authority::scheduler::SchedulerError::Allocation => {
-                        ConcurrentRetainedIngressError::Backpressure(
-                            super::Backpressure::Allocation,
-                        )
-                    }
                     crate::authority::scheduler::SchedulerError::Projection
                     | crate::authority::scheduler::SchedulerError::Arithmetic => {
                         ConcurrentRetainedIngressError::Fault(AuthorityFault::SchedulerProjection)
                     }
                 })?;
-        let visibility = scheduler.visibility();
-        let dependency = StagedDependencyBatch::stage_primary_replacements_with_visibility(
+        let gates = authority.entries.dependency_gate_cut(gate_support);
+        let dependency = PreparedDependencyBatch::prepare_with_gates(
             &authority.dependencies,
             dependency,
-            visibility,
+            &gates,
         )
         .map_err(|error| match error {
-            crate::authority::dependency::DependencyStageError::Stale => {
+            crate::authority::dependency::DependencyPrepareError::Stale => {
                 ConcurrentRetainedIngressError::Stale
             }
-            crate::authority::dependency::DependencyStageError::Projection => {
+            crate::authority::dependency::DependencyPrepareError::Projection => {
                 ConcurrentRetainedIngressError::Fault(AuthorityFault::DependencyProjection)
-            }
-            crate::authority::dependency::DependencyStageError::Capacity => {
-                ConcurrentRetainedIngressError::Backpressure(
-                    super::Backpressure::DependencyStageCapacity,
-                )
-            }
-            crate::authority::dependency::DependencyStageError::Allocation => {
-                ConcurrentRetainedIngressError::Backpressure(super::Backpressure::Allocation)
             }
         })?;
         Ok(Self {
             dependency,
             scheduler,
+            gates,
         })
     }
 
@@ -142,26 +101,45 @@ impl<'authority> StagedRetainedIngress<'authority> {
         self.dependency.extend_final_write_support(writes);
     }
 
-    pub(super) fn prestate_is_fresh(&self, owners: &ShardedOwnerWriteCut<'_>) -> bool {
-        self.scheduler.prestate_is_fresh() && self.dependency.prestate_is_fresh(owners)
+    pub(super) fn extend_final_relation_support(
+        &self,
+        reads: &mut crate::authority::shard::ShardReadSupport,
+        writes: &mut crate::authority::shard::ShardWriteSupport,
+    ) {
+        self.dependency.extend_final_relation_read_support(reads);
+        self.dependency.extend_final_relation_write_support(writes);
     }
 
-    pub(super) fn dependency_visibility(&self) -> &StagedIngressVisibility {
-        self.dependency.visibility()
+    pub(super) fn prestate_is_fresh(
+        &self,
+        relations: &ShardedDependencyRelationWriteCut<'_>,
+        owners: &ShardedOwnerWriteCut<'_>,
+    ) -> bool {
+        self.dependency.prestate_is_fresh(relations, owners)
+    }
+
+    pub(super) fn dependency_gates(&self) -> &DependencyGateCut<'_> {
+        &self.gates
     }
 
     pub(super) fn activate(
         self,
+        _entries: &ShardedOwnerMap,
         token: &ApplyToken,
+        mut relations: ShardedDependencyRelationWriteCut<'_>,
         mut owners: ShardedOwnerWriteCut<'_>,
-    ) -> DependencyFinalization {
+    ) -> DependencyApplyOutcome {
         let Self {
             dependency,
             scheduler,
+            gates: _gates,
         } = self;
-        let dependency = dependency.activate_in_cut(&mut owners);
-        let published = scheduler.activate(token, owners);
-        dependency.bind_published(published).finalize()
+        let outcome = dependency.apply_in_cut(&mut relations, &mut owners);
+        drop(relations);
+        #[cfg(test)]
+        _entries.enter_shared_owner_commit_probe();
+        scheduler.activate(token, owners);
+        outcome
     }
 
     pub(super) fn scheduler_wake_before(
@@ -173,163 +151,6 @@ impl<'authority> StagedRetainedIngress<'authority> {
             .ok_or(ConcurrentRetainedIngressError::Fault(
                 AuthorityFault::SchedulerProjection,
             ))
-    }
-}
-
-impl RetainedAdmissionDependencyStage {
-    fn visibility(&self) -> &StagedIngressVisibility {
-        match self {
-            Self::Exact(dependency) => dependency.visibility(),
-            Self::Sealed(dependency) => dependency.visibility(),
-        }
-    }
-
-    fn extend_final_support(
-        &self,
-        reads: &mut crate::authority::shard::ShardReadSupport,
-        writes: &mut crate::authority::shard::ShardWriteSupport,
-    ) {
-        if let Self::Exact(dependency) = self {
-            dependency.extend_final_read_support(reads);
-            dependency.extend_final_write_support(writes);
-        }
-    }
-
-    fn prestate_is_fresh(&self, owners: &ShardedOwnerWriteCut<'_>) -> bool {
-        match self {
-            Self::Exact(dependency) => dependency.prestate_is_fresh(owners),
-            Self::Sealed(dependency) => dependency.prestate_is_fresh(),
-        }
-    }
-
-    fn activate_in_cut(
-        self,
-        owners: &mut ShardedOwnerWriteCut<'_>,
-    ) -> RowsActivatedDependencyBatch {
-        match self {
-            Self::Exact(dependency) => dependency.activate_in_cut(owners),
-            Self::Sealed(dependency) => dependency.activate_in_cut(owners),
-        }
-    }
-}
-
-impl<'authority> StagedRetainedAdmissionIngress<'authority> {
-    pub(super) fn stage(
-        authority: &'authority TxPoolAuthority,
-        scheduler: SchedulerBatchDelta,
-        dependency: DependencyBatchDelta,
-    ) -> Result<Self, ConcurrentRetainedIngressError> {
-        let seal_dependency = dependency.is_scheduler_sealed_retained_shape();
-        let StagedRetainedIngress {
-            dependency,
-            scheduler,
-        } = StagedRetainedIngress::stage(authority, scheduler, dependency)?;
-        let dependency = if seal_dependency {
-            RetainedAdmissionDependencyStage::Sealed(dependency.seal_scheduler_retained().map_err(
-                |error| match error {
-                    crate::authority::dependency::DependencyStageError::Stale => {
-                        ConcurrentRetainedIngressError::Stale
-                    }
-                    crate::authority::dependency::DependencyStageError::Projection => {
-                        ConcurrentRetainedIngressError::Fault(AuthorityFault::DependencyProjection)
-                    }
-                    crate::authority::dependency::DependencyStageError::Capacity => {
-                        ConcurrentRetainedIngressError::Backpressure(
-                            super::Backpressure::DependencyStageCapacity,
-                        )
-                    }
-                    crate::authority::dependency::DependencyStageError::Allocation => {
-                        ConcurrentRetainedIngressError::Backpressure(
-                            super::Backpressure::Allocation,
-                        )
-                    }
-                },
-            )?)
-        } else {
-            RetainedAdmissionDependencyStage::Exact(dependency)
-        };
-        if !dependency.visibility().same_stage(&scheduler.visibility()) {
-            return Err(ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::DependencyProjection,
-            ));
-        }
-        Ok(Self {
-            dependency,
-            scheduler,
-        })
-    }
-
-    pub(super) fn extend_final_support(
-        &self,
-        reads: &mut crate::authority::shard::ShardReadSupport,
-        writes: &mut crate::authority::shard::ShardWriteSupport,
-    ) {
-        self.dependency.extend_final_support(reads, writes);
-    }
-
-    pub(super) fn prestate_is_fresh(&self, owners: &ShardedOwnerWriteCut<'_>) -> bool {
-        self.scheduler.prestate_is_fresh() && self.dependency.prestate_is_fresh(owners)
-    }
-
-    pub(super) fn activate(
-        self,
-        token: &ApplyToken,
-        mut owners: ShardedOwnerWriteCut<'_>,
-    ) -> DependencyFinalization {
-        let Self {
-            dependency,
-            scheduler,
-        } = self;
-        let dependency = dependency.activate_in_cut(&mut owners);
-        let published = scheduler.activate(token, owners);
-        dependency.bind_published(published).finalize()
-    }
-
-    pub(super) fn scheduler_wake_before(
-        &self,
-    ) -> Result<crate::authority::scheduler::SchedulerWakeProjection, ConcurrentRetainedIngressError>
-    {
-        self.scheduler
-            .wake_projection_before()
-            .ok_or(ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::SchedulerProjection,
-            ))
-    }
-}
-
-impl RetainedIngressDelta {
-    fn is_shared_retained_owner_only_shape(&self, consumed_items: usize) -> bool {
-        !self.updates.is_empty()
-            && self.updates.len() <= consumed_items
-            && self.updates.iter().all(|update| {
-                matches!(
-                    &update.after,
-                    OwnedTx::PreAccepted(entry)
-                        if matches!(
-                            &entry.source,
-                            PreAcceptedSource::Remote(_) | PreAcceptedSource::Proposal { .. }
-                        )
-                            && matches!(
-                                &entry.phase,
-                                PreAcceptedPhase::Queued(QueuedWork::Resolve)
-                            )
-                )
-            }) && self.updates.iter().all(|update| {
-            update.vacancy_revision.is_some()
-                && match &update.before {
-                    None => true,
-                    Some(before) => {
-                        let after = &update.after;
-                        before.record().version != after.record().version
-                            && matches!(
-                                after,
-                                OwnedTx::PreAccepted(entry)
-                                    if matches!(entry.source, PreAcceptedSource::Proposal { .. })
-                            )
-                    }
-                }
-        }) && self.owners.template_sources.counts().changed() == (false, false)
-            && self.effect.is_empty() && self.retired.is_empty()
     }
 }
 
@@ -337,14 +158,14 @@ impl RetainedIngressDelta {
 pub(in crate::authority) struct CompiledSharedRetainedAdmissionBatch {
     generation: PoolGeneration,
     chain_view: ChainViewId,
-    delta: RetainedIngressDelta,
+    delta: IndependentDelta,
     consumed: usize,
 }
 
 #[must_use = "a bound shared retained-ingress batch must be applied exactly once"]
 pub(in crate::authority) struct PreparedSharedRetainedAdmissionBatch<'authority> {
     authority: &'authority TxPoolAuthority,
-    delta: RetainedIngressDelta,
+    delta: IndependentDelta,
     consumed: usize,
 }
 
@@ -352,7 +173,6 @@ enum SharedRetainedEffectPlan {
     Unchanged,
     Publication {
         staged: super::super::effect::StagedEffect,
-        clocks: AuthorityClocks,
     },
 }
 
@@ -370,17 +190,22 @@ pub(in crate::authority) struct PreparedSharedPeerRevocation<'authority> {
     consumed: usize,
 }
 
-#[must_use = "a staged peer-cohort revocation core must commit or roll back every hidden capability"]
-pub(in crate::authority) struct PreparedSharedPeerRevocationCore<'authority> {
-    removal: PreparedSharedOwnerRemoval<'authority>,
-    peer_fence: StagedPeerIngressFence<'authority>,
-}
+pub(in crate::authority) type PreparedSharedPeerRevocationCore<'authority> =
+    PreparedSharedOwnerRemoval<'authority, StagedPeerIngressFence<'authority>>;
 
 #[derive(Debug)]
 pub(in crate::authority) enum ConcurrentRetainedIngressError {
     Stale,
     Fault(AuthorityFault),
-    Backpressure(super::Backpressure),
+}
+
+impl ConcurrentRetainedIngressError {
+    fn from_independent(error: ConcurrentIndependentError) -> Self {
+        match error {
+            ConcurrentIndependentError::ChangedCut(_) => Self::Stale,
+            ConcurrentIndependentError::Fault(fault) => Self::Fault(fault),
+        }
+    }
 }
 
 #[must_use = "a failed peer revocation returns the exact staged-effect capacity wake"]
@@ -412,7 +237,7 @@ pub(in crate::authority) enum CommittedRetainedAdmissionBatch {
         consumed: usize,
     },
     Applied {
-        retirement: super::CommittedSharedApply,
+        retirement: super::CommittedDelta,
         consumed: usize,
     },
 }
@@ -433,23 +258,22 @@ impl CompiledSharedRetainedAdmissionBatch {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn physical_write_support_for_foundation(
+    pub(in crate::authority) fn is_compatible_with_for_foundation(
         &self,
         authority: &TxPoolAuthority,
-    ) -> crate::authority::shard::ShardWriteSupport {
-        let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
-        let mut support = authority.entries.owner_resource_write_support(
-            self.delta.updates.iter().map(|update| &update.key),
-            &proposed_counts,
-            self.delta.resources.shard_plan(),
-        );
-        support.include(
-            self.delta
-                .owners
-                .indexes
-                .sharded_write_support(&authority.entries),
-        );
-        support
+        other: &Self,
+    ) -> bool {
+        self.delta
+            .physical_support(authority)
+            .is_compatible(other.delta.physical_support(authority))
+            && self
+                .delta
+                .dependency_gate_support_for_foundation(authority)
+                .is_compatible(
+                    other
+                        .delta
+                        .dependency_gate_support_for_foundation(authority),
+                )
     }
 }
 
@@ -457,13 +281,6 @@ impl PreparedSharedRetainedAdmissionBatch<'_> {
     pub(in crate::authority) fn apply(
         self,
     ) -> Result<CommittedRetainedAdmissionBatch, ConcurrentRetainedIngressError> {
-        super::apply_seal::commit_shared_retained_ingress(self)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn dependency_final_support_masks_for_foundation(
-        self,
-    ) -> Result<(u64, u64), ConcurrentRetainedIngressError> {
         let Self {
             authority,
             delta,
@@ -474,90 +291,15 @@ impl PreparedSharedRetainedAdmissionBatch<'_> {
                 AuthorityFault::MembershipProjection,
             ));
         }
-        let RetainedIngressDelta {
-            scheduler,
-            dependency,
-            ..
-        } = delta;
-        let staged = StagedRetainedAdmissionIngress::stage(authority, scheduler, dependency)?;
-        let mut reads = crate::authority::shard::ShardReadSupport::default();
-        let mut writes = crate::authority::shard::ShardWriteSupport::default();
-        staged.extend_final_support(&mut reads, &mut writes);
-        let masks = (reads.mask_for_foundation(), writes.mask_for_foundation());
-        drop(staged);
-        Ok(masks)
-    }
-
-    pub(super) fn apply_with(
-        self,
-        token: &ApplyToken,
-    ) -> Result<CommittedRetainedAdmissionBatch, ConcurrentRetainedIngressError> {
-        let Self {
+        let support = delta.physical_support(authority);
+        let retirement = PreparedIndependentApply::Shared {
             authority,
             delta,
-            consumed,
-        } = self;
-        if !delta.is_shared_retained_owner_only_shape(consumed) {
-            return Err(ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::MembershipProjection,
-            ));
+            support,
+            staged_effect: None,
         }
-        let RetainedIngressDelta {
-            updates,
-            owners,
-            resources,
-            scheduler,
-            dependency,
-            effect,
-            clocks,
-            retired,
-        } = delta;
-        let staged = StagedRetainedAdmissionIngress::stage(authority, scheduler, dependency)?;
-        #[cfg(test)]
-        authority.entries.enter_shared_ingress_probe(
-            crate::authority::shard::SharedIngressProbePhase::BothStagesBeforeOwner,
-        );
-        let before = authority.wake_projection_with_scheduler(staged.scheduler_wake_before()?);
-        let DerivedOwnerDelta {
-            indexes,
-            mut sources,
-            template_sources,
-        } = owners;
-        let owner_source_counts = template_sources.counts();
-        let template_source_changes = sources.take_template_selection();
-        if owner_source_counts.changed() != template_source_changes
-            || !sources.is_empty()
-            || template_source_changes != (false, false)
-        {
-            return Err(ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::MembershipProjection,
-            ));
-        }
-        drop(effect);
-        let (dependency, resource_health, retired) = authority
-            .commit_shared_retained_ingress_rows(
-                token,
-                updates,
-                resources,
-                indexes,
-                owner_source_counts,
-                staged,
-                clocks,
-                retired,
-            )?;
-        let retirement = super::ApplyRetirement {
-            async_process_observations: super::AsyncProcessObservations::None,
-            removals: Vec::new(),
-            retired,
-            retired_effect: None,
-            retired_generation: None,
-            dependency: Some(dependency),
-            template_source_changed: false,
-        };
-        let retirement = super::CommittedSharedApply::from_resource_health(
-            super::finish_apply(authority, before, false, false, retirement),
-            resource_health,
-        );
+        .apply()
+        .map_err(ConcurrentRetainedIngressError::from_independent)?;
         Ok(CommittedRetainedAdmissionBatch::Applied {
             retirement,
             consumed,
@@ -565,32 +307,38 @@ impl PreparedSharedRetainedAdmissionBatch<'_> {
     }
 }
 
-impl CompiledSharedOwnerRemoval {
+impl<C> CompiledSharedOwnerRemoval<C> {
     /// Bind every fallible live projection before the irreversible mixed owner
-    /// cut. Scheduler/dependency staging may allocate hidden rows; optional
-    /// effect planning and staging happen last, so a Bind failure never
-    /// abandons a charged effect record without its explicit owner.
-    fn bind(
+    /// cut. Scheduler staging and dependency preparation precede optional
+    /// effect staging, so a Bind failure never abandons a charged effect record
+    /// without its explicit owner.
+    pub(in crate::authority) fn bind(
         mut self,
         authority: &TxPoolAuthority,
-    ) -> Result<PreparedSharedOwnerRemoval<'_>, PlanError> {
+    ) -> Result<PreparedSharedOwnerRemoval<'_, C>, PlanError> {
+        if authority.generation != self.generation || authority.chain_view != self.chain_view {
+            return Err(PlanError::Stale(super::StalePlan::Version));
+        }
         if self.publication.is_none() {
             authority.effects.lock().ensure_open()?;
         }
         let scheduler = std::mem::take(&mut self.removal.scheduler);
         let dependency = std::mem::take(&mut self.removal.dependency);
+        let mut gate_support = dependency.dependency_gate_support(&authority.entries);
+        gate_support.include(
+            self.removal
+                .membership
+                .dependency_gate_support(&authority.entries),
+        );
         let projections =
-            StagedRetainedIngress::stage(authority, scheduler, dependency).map_err(|error| {
-                match error {
+            StagedRetainedIngress::stage(authority, scheduler, dependency, gate_support).map_err(
+                |error| match error {
                     ConcurrentRetainedIngressError::Stale => {
                         PlanError::Stale(super::StalePlan::Version)
                     }
                     ConcurrentRetainedIngressError::Fault(fault) => PlanError::Fault(fault),
-                    ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                        PlanError::Backpressure(pressure)
-                    }
-                }
-            })?;
+                },
+            )?;
         let staged_effect = self
             .publication
             .as_ref()
@@ -606,130 +354,15 @@ impl CompiledSharedOwnerRemoval {
             removal: self.removal,
             projections,
             staged_effect,
-            clocks: self.clocks,
-        })
-    }
-}
-
-impl CompiledSharedRemoteExpiry {
-    pub(in crate::authority) fn bind(
-        self,
-        authority: &TxPoolAuthority,
-    ) -> Result<PreparedSharedRemoteExpiry<'_>, PlanError> {
-        if authority.generation != self.generation || authority.chain_view != self.chain_view {
-            return Err(PlanError::Stale(super::StalePlan::Version));
-        }
-        Ok(PreparedSharedRemoteExpiry {
-            removal: self.removal.bind(authority)?,
-            witness: self.witness,
-        })
-    }
-}
-
-impl CompiledSharedAcceptedExpiry {
-    pub(in crate::authority) fn bind(
-        self,
-        authority: &TxPoolAuthority,
-    ) -> Result<PreparedSharedAcceptedExpiry<'_>, PlanError> {
-        if authority.generation != self.generation || authority.chain_view != self.chain_view {
-            return Err(PlanError::Stale(super::StalePlan::Version));
-        }
-        Ok(PreparedSharedAcceptedExpiry {
-            removal: self.removal.bind(authority)?,
             control: self.control,
         })
     }
 }
 
-impl CompiledSharedLocalRemoval {
-    pub(in crate::authority) fn bind(
-        self,
-        authority: &TxPoolAuthority,
-    ) -> Result<PreparedSharedLocalRemoval<'_>, PlanError> {
-        if authority.generation != self.generation || authority.chain_view != self.chain_view {
-            return Err(PlanError::Stale(super::StalePlan::Version));
-        }
-        Ok(PreparedSharedLocalRemoval {
-            removal: self.removal.bind(authority)?,
-            control: self.control,
-        })
-    }
-}
-
-impl PreparedSharedRemoteExpiry<'_> {
-    pub(in crate::authority) fn apply(
-        self,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        super::apply_seal::commit_shared_remote_expiry(self)
-    }
-
-    pub(super) fn apply_with(
-        self,
-        token: &ApplyToken,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        let Self { removal, witness } = self;
-        removal.apply_with_control(token, witness)
-    }
-}
-
-impl PreparedSharedAcceptedExpiry<'_> {
-    pub(in crate::authority) fn apply(
-        self,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        super::apply_seal::commit_shared_accepted_expiry(self)
-    }
-
-    pub(super) fn apply_with(
-        self,
-        token: &ApplyToken,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        let Self { removal, control } = self;
-        removal.apply_with_control(token, control)
-    }
-}
-
-impl PreparedSharedLocalRemoval<'_> {
-    #[cfg(test)]
-    pub(in crate::authority) fn administrative_removal_keys_for_claim(
-        &self,
-    ) -> Option<Vec<RawTxHash>> {
-        Some(self.removal.removal.hashes.clone())
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn dependency_fanout_absence_for_foundation(&self) -> (usize, bool) {
-        self.removal
-            .projections
-            .dependency
-            .fanout_absence_observation_for_foundation()
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn dependency_fanout_absence_details_for_foundation(
-        &self,
-    ) -> Vec<(
-        crate::authority::state::DependencyKey,
-        bool,
-        bool,
-        bool,
-        bool,
-    )> {
-        self.removal
-            .projections
-            .dependency
-            .fanout_absence_details_for_foundation()
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn dependency_final_support_masks_for_foundation(&self) -> (u64, u64) {
-        let mut reads = crate::authority::shard::ShardReadSupport::default();
-        let mut writes = crate::authority::shard::ShardWriteSupport::default();
-        self.removal
-            .projections
-            .extend_final_support(&mut reads, &mut writes);
-        (reads.mask_for_foundation(), writes.mask_for_foundation())
-    }
-
+impl<C> PreparedSharedOwnerRemoval<'_, C>
+where
+    C: super::apply_seal::SharedOwnerRemovalControl,
+{
     #[cfg(test)]
     pub(in crate::authority) fn apply_for_foundation(self) -> super::CommittedDelta {
         let (committed, post_commit_fault) = self
@@ -744,30 +377,24 @@ impl PreparedSharedLocalRemoval<'_> {
     pub(in crate::authority) fn physical_write_support_for_foundation(
         &self,
     ) -> crate::authority::shard::ShardWriteSupport {
-        use super::apply_seal::SharedOwnerRemovalControl;
-
-        let authority = self.removal.authority;
+        let authority = self.authority;
         let mut support = authority.entries.owner_resource_write_support(
-            self.removal.removal.hashes.iter(),
-            self.removal.removal.membership.proposed_count_plan(),
-            self.removal.removal.resources.shard_plan(),
+            self.removal.hashes.iter(),
+            self.removal.membership.proposed_count_plan(),
+            self.removal.resources.shard_plan(),
         );
         support.include(
             self.removal
-                .removal
                 .owners
                 .indexes
                 .sharded_write_support(&authority.entries),
         );
         support.include(
             self.removal
-                .removal
                 .membership
                 .sharded_write_support(&authority.entries),
         );
-        self.removal
-            .projections
-            .extend_final_write_support(&mut support);
+        self.projections.extend_final_write_support(&mut support);
         let mut reads = crate::authority::shard::ShardReadSupport::default();
         self.control
             .extend_final_support(&authority.entries, &mut reads, &mut support);
@@ -776,43 +403,29 @@ impl PreparedSharedLocalRemoval<'_> {
 
     pub(in crate::authority) fn apply(
         self,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        super::apply_seal::commit_shared_local_removal(self)
+    ) -> Result<super::CommittedDelta, ConcurrentOwnerRemovalFailure> {
+        super::apply_seal::commit_shared_owner_removal(self)
     }
 
     pub(super) fn apply_with(
         self,
         token: &ApplyToken,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure> {
-        let Self { removal, control } = self;
-        removal.apply_with_control(token, control)
-    }
-}
-
-impl PreparedSharedOwnerRemoval<'_> {
-    fn apply_with_control<C>(
-        self,
-        token: &ApplyToken,
-        control: C,
-    ) -> Result<super::CommittedSharedApply, ConcurrentOwnerRemovalFailure>
-    where
-        C: super::apply_seal::SharedOwnerRemovalControl,
-    {
+    ) -> Result<super::CommittedDelta, ConcurrentOwnerRemovalFailure> {
         let Self {
             authority,
             removal,
             projections,
             staged_effect,
-            clocks,
+            control,
         } = self;
         let compute_slot_released = removal.resources.releases_preaccepted_active_work();
         let before = match projections.scheduler_wake_before() {
-            Ok(scheduler) => authority.wake_projection_with_scheduler(scheduler),
+            Ok(scheduler) => authority.wake_projection_with_scheduler_without_effect(scheduler),
             Err(error) => return Err(Self::rollback_failure(staged_effect, error)),
         };
         let template_source_changed = removal.owners.template_sources.counts().changed();
         let (dependency, resource_health, retired) = match authority
-            .commit_shared_owner_removal_rows(token, removal, projections, control, clocks)
+            .commit_shared_owner_removal_rows(token, removal, projections, control)
         {
             Ok(committed) => committed,
             Err(error) => return Err(Self::rollback_failure(staged_effect, error)),
@@ -827,16 +440,20 @@ impl PreparedSharedOwnerRemoval<'_> {
             dependency: Some(dependency),
             template_source_changed: template_source_changed.0 || template_source_changed.1,
         };
-        let committed =
-            super::finish_apply(authority, before, compute_slot_released, false, retirement);
+        let after = authority.wake_projection_without_effect();
+        let committed = super::finish_apply_between(
+            authority,
+            before,
+            after,
+            compute_slot_released,
+            false,
+            retirement,
+        );
         let committed = match effect_wake {
             Some(effect_wake) => committed.with_effect_wake(effect_wake),
             None => committed,
         };
-        Ok(super::CommittedSharedApply::from_resource_health(
-            committed,
-            resource_health,
-        ))
+        Ok(committed.with_resource_health(resource_health))
     }
 
     fn rollback_failure(
@@ -866,16 +483,9 @@ impl PreparedSharedPeerRevocation<'_> {
     #[cfg(test)]
     pub(in crate::authority) fn peer_fence_stage_id_for_foundation(&self) -> u64 {
         self.core
-            .peer_fence
+            .control
             .stage_id()
             .expect("a prepared peer revocation owns its staged fence")
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn physical_write_support_for_foundation(
-        &self,
-    ) -> crate::authority::shard::ShardWriteSupport {
-        self.core.physical_write_support_for_foundation()
     }
 
     pub(in crate::authority) fn apply(
@@ -897,52 +507,13 @@ impl PreparedSharedPeerRevocation<'_> {
     }
 }
 
-impl PreparedSharedPeerRevocationCore<'_> {
-    #[cfg(test)]
-    fn physical_write_support_for_foundation(&self) -> crate::authority::shard::ShardWriteSupport {
-        let authority = self.removal.authority;
-        let mut support = authority.entries.owner_resource_write_support(
-            self.removal.removal.hashes.iter(),
-            self.removal.removal.membership.proposed_count_plan(),
-            self.removal.removal.resources.shard_plan(),
-        );
-        support.include(
-            self.removal
-                .removal
-                .owners
-                .indexes
-                .sharded_write_support(&authority.entries),
-        );
-        support.include(
-            self.removal
-                .removal
-                .membership
-                .sharded_write_support(&authority.entries),
-        );
-        self.removal
-            .projections
-            .extend_final_write_support(&mut support);
-        self.peer_fence.extend_final_write_support(&mut support);
-        support
-    }
-
-    pub(super) fn apply_with(
-        self,
-        token: &ApplyToken,
-    ) -> Result<super::CommittedSharedApply, ConcurrentPeerRevocationFailure> {
-        let Self {
-            removal,
-            peer_fence,
-        } = self;
-        removal.apply_with_control(token, peer_fence)
-    }
-
+impl PreparedSharedOwnerRemoval<'_, StagedPeerIngressFence<'_>> {
     pub(in crate::authority) fn apply_compute(
         self,
         recovery: ComputeSettlement,
     ) -> super::SharedComputeSettlementOutcome {
-        let authority = self.removal.authority;
-        match super::apply_seal::commit_shared_peer_revocation_core(self) {
+        let authority = self.authority;
+        match super::apply_seal::commit_shared_owner_removal(self) {
             Ok(committed) => super::SharedComputeSettlementOutcome::Committed(committed),
             Err(failure) => {
                 let (error, effect_wake) = failure.into_parts();
@@ -955,8 +526,6 @@ impl PreparedSharedPeerRevocationCore<'_> {
                     ConcurrentRetainedIngressError::Fault(fault) => {
                         authority.compute_settlement_failure(PlanError::Fault(fault), recovery)
                     }
-                    ConcurrentRetainedIngressError::Backpressure(pressure) => authority
-                        .compute_settlement_failure(PlanError::Backpressure(pressure), recovery),
                 };
                 super::SharedComputeSettlementOutcome::Failed {
                     failure,
@@ -970,7 +539,7 @@ impl PreparedSharedPeerRevocationCore<'_> {
 impl PreparedSharedRetainedEffectPrefix<'_> {
     pub(in crate::authority) fn apply(self) -> CommittedRetainedAdmissionBatch {
         let Self {
-            authority,
+            authority: _authority,
             plan,
             consumed,
             read_cut: _read_cut,
@@ -979,13 +548,12 @@ impl PreparedSharedRetainedEffectPrefix<'_> {
             SharedRetainedEffectPlan::Unchanged => {
                 CommittedRetainedAdmissionBatch::Unchanged { consumed }
             }
-            SharedRetainedEffectPlan::Publication { staged, clocks } => {
+            SharedRetainedEffectPlan::Publication { staged } => {
                 #[cfg(test)]
-                authority.entries.enter_shared_ingress_probe(
+                _authority.entries.enter_shared_ingress_probe(
                     crate::authority::shard::SharedIngressProbePhase::EffectReadCutBeforeActivation,
                 );
                 let effect_wake = staged.activate_with_wake();
-                let _reserved_clock_high_water = clocks;
                 let retirement = super::ApplyRetirement {
                     async_process_observations: super::AsyncProcessObservations::None,
                     removals: Vec::new(),
@@ -996,9 +564,7 @@ impl PreparedSharedRetainedEffectPrefix<'_> {
                     template_source_changed: false,
                 };
                 CommittedRetainedAdmissionBatch::Applied {
-                    retirement: super::CommittedSharedApply::clean(
-                        super::finish_effect_only_apply(authority, effect_wake, retirement),
-                    ),
+                    retirement: super::finish_effect_only_apply(effect_wake, retirement),
                     consumed,
                 }
             }
@@ -1026,29 +592,13 @@ struct OwnerOverlay {
 }
 
 impl OwnerOverlay {
-    fn new(maximum_items: usize) -> Result<Self, PlanError> {
-        let mut positions = HashMap::new();
-        positions
-            .try_reserve(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut observations = HashMap::new();
-        observations
-            .try_reserve(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut changes = Vec::new();
-        changes
-            .try_reserve(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut proposals = HashMap::new();
-        proposals
-            .try_reserve(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        Ok(Self {
-            positions,
-            observations,
-            changes,
-            proposals,
-        })
+    fn new(maximum_items: usize) -> Self {
+        Self {
+            positions: HashMap::with_capacity(maximum_items),
+            observations: HashMap::with_capacity(maximum_items),
+            changes: Vec::with_capacity(maximum_items),
+            proposals: HashMap::with_capacity(maximum_items),
+        }
     }
 
     fn observe<'authority>(
@@ -1207,13 +757,9 @@ impl TxPoolAuthority {
             RetainedIngressKind::Proposal => None,
         };
         let mut owners = Vec::new();
-        owners
-            .try_reserve_exact(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        owners.reserve_exact(maximum_items);
         let mut proposals = Vec::new();
-        proposals
-            .try_reserve_exact(maximum_items)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        proposals.reserve_exact(maximum_items);
         for attempt in batch.attempts().take(maximum_items) {
             let RetainedIngressAttempt::Validated(ingress) = attempt else {
                 continue;
@@ -1226,24 +772,21 @@ impl TxPoolAuthority {
             .retained_ingress_read_cut(&owners, &proposals, peer))
     }
 
-    fn compile_retained_ingress_delta(
+    fn compile_retained_independent_delta(
         &self,
         changes: Vec<OwnerChange>,
-        effect: EffectDelta,
         sequence: ApplySequence,
-        clocks: AuthorityClocks,
-        shared: bool,
-    ) -> Result<RetainedIngressDelta, PlanError> {
+        index_premise: RetainedIndexPremise,
+        resource_envelope: OrderedResourceEnvelope,
+    ) -> Result<IndependentDelta, PlanError> {
         self.reserve_primary_owner_insertions(
             changes
                 .iter()
                 .filter(|change| change.before.is_none())
                 .map(|change| &change.key),
-        )?;
+        );
         let mut resource_changes = Vec::new();
-        resource_changes
-            .try_reserve_exact(changes.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        resource_changes.reserve_exact(changes.len());
         resource_changes.extend(changes.iter().map(|change| {
             (
                 change.key.clone(),
@@ -1251,45 +794,27 @@ impl TxPoolAuthority {
                 Some(change.after.charge_record()),
             )
         }));
-        let resources = if shared {
-            #[cfg(test)]
-            if resource_changes
-                .iter()
-                .all(|(_, before, _)| before.is_none())
-            {
-                self.entries.enter_shared_ingress_probe(
-                    crate::authority::shard::SharedIngressProbePhase::BeforeInsertionResourceReceipt,
-                );
+        let resources = match self
+            .resources_for_plan()
+            .plan_ordered_batch(resource_changes, resource_envelope)
+        {
+            Ok(resources) => resources,
+            Err(error) if shared_resource_race(&error) => {
+                return Err(PlanError::Stale(super::StalePlan::Version));
             }
-            match self
-                .resources_for_plan()
-                .plan_shared_transition_batch(resource_changes)
-            {
-                Ok(resources) => resources,
-                Err(error) if shared_resource_race(&error) => {
-                    return Err(PlanError::Stale(super::StalePlan::Version));
-                }
-                Err(error) => return Err(error.into()),
-            }
-        } else {
-            let mut exclusive_changes = Vec::new();
-            exclusive_changes
-                .try_reserve_exact(resource_changes.len())
-                .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-            exclusive_changes.extend(resource_changes);
-            self.resources_for_plan().plan_batch(exclusive_changes)?
+            Err(error) => return Err(error.into()),
         };
-        let scheduler = self.scheduler.lock().plan_batch(
+        let scheduler = self.scheduler.lock().compile_batch(
             changes
                 .iter()
                 .map(|change| (change.before.as_ref(), Some(&change.after))),
         )?;
-        let dependency = self.dependencies.plan_primary_replacements(
+        let dependency = self.dependencies.compile_primary_replacements(
             changes
                 .iter()
                 .map(|change| (change.before.as_ref(), Some(&change.after))),
         )?;
-        let sources = self.source_versions.plan_replacements(
+        let sources = super::AuthoritySourceVersions::plan_template_selection_replacements(
             changes
                 .iter()
                 .map(|change| (change.before.as_ref(), Some(&change.after))),
@@ -1300,34 +825,40 @@ impl TxPoolAuthority {
                 .iter()
                 .map(|change| (&change.key, change.before.as_ref(), Some(&change.after))),
         )?;
-        let indexes = self.indexes_for_plan().plan_replacements(
+        let indexes = self.indexes_for_plan().plan_retained_replacements(
             changes
                 .iter()
                 .map(|change| (&change.key, change.before.as_ref(), Some(&change.after))),
+            index_premise,
         )?;
-        let retired = super::retired_buffer(changes.len())?;
-        let mut updates = Vec::new();
-        updates
-            .try_reserve_exact(changes.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        updates.extend(changes.into_iter().map(|change| RetainedIngressUpdate {
-            key: change.key,
-            before: change.before,
-            vacancy_revision: change.vacancy_revision,
-            after: change.after,
+        let retired = super::retired_buffer(changes.len());
+        let mut owner_cuts = Vec::new();
+        owner_cuts.reserve_exact(changes.len());
+        owner_cuts.extend(changes.into_iter().map(|change| {
+            IndependentOwnerCut {
+                key: change.key,
+                expected: change
+                    .before
+                    .as_ref()
+                    .map_or(OwnerPrestate::Vacant, OwnerPrestate::from_owner),
+                removal_revision: change.vacancy_revision,
+                action: IndependentOwnerAction::Replace(Some(change.after)),
+            }
         }));
-        Ok(RetainedIngressDelta {
-            updates,
+        Ok(IndependentDelta {
+            owner_cuts,
             owners: DerivedOwnerDelta {
                 indexes,
                 sources,
                 template_sources,
             },
-            resources,
+            resource: Some(resources),
+            projection: super::ProjectionDelta::empty(),
             scheduler,
             dependency,
-            effect,
-            clocks,
+            effect: EffectDelta::default(),
+            async_process_starts: Vec::new(),
+            removals: Vec::new(),
             retired,
         })
     }
@@ -1385,7 +916,7 @@ impl TxPoolAuthority {
         self.effects.lock().ensure_open()?;
         let kind = batch.kind();
         let mut scratch = BatchScratch {
-            owners: OwnerOverlay::new(1)?,
+            owners: OwnerOverlay::new(1),
             // One classified item can release at most one existing Remote
             // attribution. Reserve that map slot before the routed read cut.
             resources: self.resources.ordered_committed_projection(1)?,
@@ -1431,7 +962,7 @@ impl TxPoolAuthority {
             RetainedIngressKind::Proposal => item_count,
         };
         let mut scratch = BatchScratch {
-            owners: OwnerOverlay::new(item_count)?,
+            owners: OwnerOverlay::new(item_count),
             resources: self.resources.ordered_committed_projection(maximum_peers)?,
             clocks: ClockPlanReservation::begin(std::sync::Arc::clone(&self.clocks)),
             read_cut: None,
@@ -1453,6 +984,18 @@ impl TxPoolAuthority {
             return Ok(None);
         }
 
+        let index_premise = self.indexes_for_plan().capture_retained_premise(
+            scratch
+                .owners
+                .changes
+                .iter()
+                .map(|change| (&change.key, change.before.as_ref(), Some(&change.after))),
+            scratch
+                .read_cut
+                .as_ref()
+                .ok_or(PlanError::Fault(AuthorityFault::IndexProjection))?,
+        )?;
+
         let BatchScratch {
             owners,
             resources,
@@ -1460,16 +1003,19 @@ impl TxPoolAuthority {
             read_cut,
         } = scratch;
         drop(read_cut);
-        drop(resources);
+        #[cfg(test)]
+        self.entries.enter_shared_ingress_probe(
+            crate::authority::shard::SharedIngressProbePhase::AfterRetainedIngressSemanticCut,
+        );
+        let resource_envelope = resources.into_envelope();
         let clocks = clocks.commit()?;
         let sequence = clocks.sequence();
         let changes = owners.changes;
-        let delta = self.compile_retained_ingress_delta(
+        let delta = self.compile_retained_independent_delta(
             changes,
-            EffectDelta::default(),
             sequence,
-            clocks.finish(),
-            true,
+            index_premise,
+            resource_envelope,
         )?;
         if !delta.is_shared_retained_owner_only_shape(consumed) {
             return Ok(None);
@@ -1515,7 +1061,7 @@ impl TxPoolAuthority {
             .lock()
             .ordered_publication(policy, item_count)?;
         let mut preview = BatchScratch {
-            owners: OwnerOverlay::new(item_count)?,
+            owners: OwnerOverlay::new(item_count),
             resources: self
                 .resources
                 .ordered_committed_projection(preview_maximum_peers)?,
@@ -1542,7 +1088,7 @@ impl TxPoolAuthority {
         };
         let mut effects = self.effects.lock().ordered_publication(policy, tentative)?;
         let mut scratch = BatchScratch {
-            owners: OwnerOverlay::new(tentative)?,
+            owners: OwnerOverlay::new(tentative),
             resources: self.resources.ordered_committed_projection(maximum_peers)?,
             clocks: ClockPlanReservation::begin(std::sync::Arc::clone(&self.clocks)),
             read_cut: None,
@@ -1590,10 +1136,7 @@ impl TxPoolAuthority {
         let staged = super::super::effect::EffectLog::stage_publication(&self.effects, effect)?;
         Ok(Some(PreparedSharedRetainedEffectPrefix {
             authority: self,
-            plan: SharedRetainedEffectPlan::Publication {
-                staged,
-                clocks: clocks.finish(),
-            },
+            plan: SharedRetainedEffectPlan::Publication { staged },
             consumed,
             read_cut,
         }))
@@ -1653,9 +1196,7 @@ impl TxPoolAuthority {
             CommittedPeerCohortRevocation::malformed(slot.lease(), culprit_hash, reason)
                 .ok_or(PlanError::Fault(AuthorityFault::EffectProjection))?;
         let mut effects = Vec::new();
-        effects
-            .try_reserve_exact(1)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        effects.reserve_exact(1);
         effects.push(CommittedEffect::PeerCohortRevoked(revocation));
         let publication = self
             .effects
@@ -1676,23 +1217,13 @@ impl TxPoolAuthority {
             self.entries
                 .stage_peer_ingress_fence(slot)
                 .map_err(|error| match error {
-                    crate::authority::shard::PeerFenceStageError::Allocation => {
-                        PlanError::Backpressure(super::Backpressure::Allocation)
-                    }
                     crate::authority::shard::PeerFenceStageError::Stale => {
                         PlanError::Stale(super::StalePlan::Version)
                     }
                 })?;
-        #[cfg(test)]
-        self.entries.enter_shared_ingress_probe(
-            crate::authority::shard::SharedIngressProbePhase::PeerFenceHiddenBeforeCohort,
-        );
-
         let indexed = self.indexes.preaccepted_for_peer(peer).unwrap_or_default();
         let mut hashes = Vec::new();
-        hashes
-            .try_reserve_exact(indexed.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        hashes.reserve_exact(indexed.len());
         hashes.extend(indexed);
         hashes.sort_unstable();
         let removal = self.plan_preaccepted_peer_cohort_removal_batch(
@@ -1700,19 +1231,18 @@ impl TxPoolAuthority {
             peer,
             sequence,
         )?;
-        // Bind stages scheduler, dependency, and the sole effect record only
+        // Bind stages scheduler/effect rows and prepares dependency gates only
         // after every bounded cohort/delta allocation has succeeded.
         let removal = CompiledSharedOwnerRemoval {
+            generation: self.generation,
+            chain_view: self.chain_view.clone(),
             removal,
             publication: Some(publication),
             sequence,
-            clocks: clocks.finish(),
+            control: peer_fence,
         }
         .bind(self)?;
-        Ok(PreparedSharedPeerRevocationCore {
-            removal,
-            peer_fence,
-        })
+        Ok(removal)
     }
 
     fn plan_retained_batch_item(
@@ -1770,9 +1300,6 @@ impl TxPoolAuthority {
             .map_err(|error| match error {
                 crate::authority::shard::PeerFenceStageError::Stale => {
                     PlanError::Stale(super::StalePlan::Version)
-                }
-                crate::authority::shard::PeerFenceStageError::Allocation => {
-                    PlanError::Backpressure(super::Backpressure::Allocation)
                 }
             })?;
             if banned {
@@ -1868,7 +1395,7 @@ impl TxPoolAuthority {
         // consumes neither a version nor an arrival, while a subsequently
         // dropped nonempty Plan still leaves its already-issued identities as
         // non-reusable gaps.
-        let (version, arrival, clock_branch) = scratch.clocks.owner_branch().insertion()?;
+        let (version, arrival) = scratch.clocks.insertion()?;
         let after = OwnedTx::PreAccepted(PreAcceptedEntry {
             record: TxRecord {
                 tx: std::sync::Arc::clone(&admission.tx),
@@ -1892,7 +1419,6 @@ impl TxPoolAuthority {
             admission.identity.raw.clone(),
             after,
         )?;
-        clock_branch.adopt();
         Ok(ItemDecision::owner())
     }
 
@@ -2021,7 +1547,7 @@ impl TxPoolAuthority {
         if !materialize_owner {
             return Ok(ItemDecision::owner());
         }
-        let (version, clock_branch) = scratch.clocks.owner_branch().replacement()?;
+        let version = scratch.clocks.replacement()?;
         let OwnedTx::PreAccepted(entry) = &mut after else {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         };
@@ -2032,7 +1558,6 @@ impl TxPoolAuthority {
             admission.identity.raw.clone(),
             after,
         )?;
-        clock_branch.adopt();
         Ok(ItemDecision::owner())
     }
 
@@ -2047,7 +1572,6 @@ impl TxPoolAuthority {
             ResourceError::RemoteLimit => super::Backpressure::RemoteResources,
             ResourceError::PeerLimit(_) => super::Backpressure::PeerResources,
             ResourceError::ComputeEnvelope => super::Backpressure::ComputeResources,
-            ResourceError::Allocation => super::Backpressure::Allocation,
             ResourceError::ReplacementHistoryLimit
             | ResourceError::AcceptedLimit
             | ResourceError::Arithmetic
@@ -2071,9 +1595,7 @@ impl TxPoolAuthority {
                 | super::Backpressure::RemoteResources
                 | super::Backpressure::PeerResources
                 | super::Backpressure::ComputeResources
-                | super::Backpressure::ProposalCollision
-                | super::Backpressure::DependencyStageCapacity
-                | super::Backpressure::Allocation => Ok(ItemDecision::no_owner(None)),
+                | super::Backpressure::ProposalCollision => Ok(ItemDecision::no_owner(None)),
                 super::Backpressure::AcceptedResources
                 | super::Backpressure::GenerationReplacement
                 | super::Backpressure::EffectCapacity => {
@@ -2087,8 +1609,6 @@ impl TxPoolAuthority {
             super::Backpressure::PeerResources => RemoteIngressPressure::PeerResources,
             super::Backpressure::ComputeResources => RemoteIngressPressure::ComputeResources,
             super::Backpressure::ProposalCollision => RemoteIngressPressure::ProposalCollision,
-            super::Backpressure::DependencyStageCapacity => RemoteIngressPressure::Allocation,
-            super::Backpressure::Allocation => RemoteIngressPressure::Allocation,
             super::Backpressure::AcceptedResources
             | super::Backpressure::GenerationReplacement
             | super::Backpressure::EffectCapacity => {

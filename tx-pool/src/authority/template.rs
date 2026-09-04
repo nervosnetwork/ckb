@@ -35,7 +35,6 @@ const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TemplateReadError {
-    Allocation,
     Arithmetic,
     Projection,
     CausalCycle,
@@ -175,10 +174,7 @@ impl AuthorityTemplateReadReceipt {
         accepted_count: Option<usize>,
     ) -> Result<Self, TemplateReadError> {
         let accepted_count = accepted_count.ok_or(TemplateReadError::Arithmetic)?;
-        let mut captured = Vec::new();
-        captured
-            .try_reserve(accepted_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut captured = Vec::with_capacity(accepted_count);
         let mut dependency_edge_bound = 0usize;
         for order in entries.accepted_order().into_iter().rev() {
             let hash = order.hash();
@@ -206,10 +202,7 @@ impl AuthorityTemplateReadReceipt {
             dependency_edge_bound = dependency_edge_bound
                 .checked_add(entry.proof.payload().footprint().dependencies().len())
                 .ok_or(TemplateReadError::Arithmetic)?;
-            let mut parents = Vec::new();
-            parents
-                .try_reserve(parent_set.len())
-                .map_err(|_| TemplateReadError::Allocation)?;
+            let mut parents = Vec::with_capacity(parent_set.len());
             parents.extend(parent_set.iter().cloned());
             captured.push(CapturedAccepted {
                 hash: hash.clone(),
@@ -249,10 +242,7 @@ impl AuthorityTemplateReadReceipt {
         for entry in &mut self.captured {
             entry.parents.sort_unstable();
         }
-        let mut candidates = Vec::new();
-        candidates
-            .try_reserve(self.captured.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut candidates = Vec::with_capacity(self.captured.len());
         for entry in self.captured {
             candidates.push(TemplateCandidate {
                 hash: entry.hash,
@@ -294,10 +284,7 @@ impl TemplateSelectionReceipt {
             Ok(limit) => limit.min(ordered.len()),
             Err(_) => ordered.len(),
         };
-        let mut proposals = Vec::new();
-        proposals
-            .try_reserve(selected)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut proposals = Vec::with_capacity(selected);
         for index in ordered.into_iter().take(selected) {
             proposals.push(
                 self.candidates
@@ -311,10 +298,7 @@ impl TemplateSelectionReceipt {
     }
 
     pub(super) fn candidate_index(&self) -> Result<HashMap<RawTxHash, usize>, TemplateReadError> {
-        let mut by_hash = HashMap::new();
-        by_hash
-            .try_reserve(self.candidates.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut by_hash = HashMap::with_capacity(self.candidates.len());
         for (index, candidate) in self.candidates.iter().enumerate() {
             if by_hash.insert(candidate.hash.clone(), index).is_some() {
                 return Err(TemplateReadError::Projection);
@@ -330,10 +314,7 @@ impl TemplateSelectionReceipt {
         &self,
         by_hash: &HashMap<RawTxHash, usize>,
     ) -> Result<Vec<usize>, TemplateReadError> {
-        let mut eligible = Vec::new();
-        eligible
-            .try_reserve(self.candidates.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut eligible = Vec::with_capacity(self.candidates.len());
         eligible.resize(self.candidates.len(), false);
         let causal = causal_indices(&self.candidates, by_hash)?;
         for index in &causal {
@@ -362,10 +343,7 @@ impl TemplateSelectionReceipt {
                 candidate.status == AcceptedStatus::Proposed && parents_eligible;
         }
 
-        let mut selected = Vec::new();
-        selected
-            .try_reserve(causal.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut selected = Vec::with_capacity(causal.len());
         for index in causal {
             if eligible
                 .get(index)
@@ -395,14 +373,9 @@ impl TemplateSelectionReceipt {
             return Ok(selected);
         }
 
-        let mut rank = Vec::new();
-        rank.try_reserve(self.candidates.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut rank = Vec::with_capacity(self.candidates.len());
         rank.resize(self.candidates.len(), None);
-        let mut active = Vec::new();
-        active
-            .try_reserve(self.candidates.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut active = Vec::with_capacity(self.candidates.len());
         active.resize(self.candidates.len(), false);
         for (position, index) in selected.iter().copied().enumerate() {
             let slot = rank.get_mut(index).ok_or(TemplateReadError::Projection)?;
@@ -429,10 +402,7 @@ impl TemplateSelectionReceipt {
                 .checked_add(1)
                 .ok_or(TemplateReadError::Arithmetic)?;
             let bounded_fallback = cycle_round > MAX_CONDITIONAL_CYCLE_ROUNDS;
-            let mut roots = Vec::new();
-            roots
-                .try_reserve(active.len())
-                .map_err(|_| TemplateReadError::Allocation)?;
+            let mut roots = Vec::with_capacity(active.len());
             roots.resize(active.len(), false);
             for component in cyclic {
                 let chosen = self.cycle_representative(&component, bounded_fallback)?;
@@ -448,10 +418,7 @@ impl TemplateSelectionReceipt {
             }
             drop_causal_descendants(&mut active, roots, &graph.causal_children)?;
             if active.iter().filter(|is_active| **is_active).count() < 2 {
-                let mut retained = Vec::new();
-                retained
-                    .try_reserve(1)
-                    .map_err(|_| TemplateReadError::Allocation)?;
+                let mut retained = Vec::with_capacity(1);
                 retained.extend(
                     selected
                         .iter()
@@ -491,9 +458,7 @@ impl TemplateSelectionReceipt {
             for parent in &candidate.parents {
                 let parent = *by_hash.get(parent).ok_or(TemplateReadError::Projection)?;
                 if active.get(parent).is_some_and(|is_active| *is_active) {
-                    causal_edges
-                        .try_reserve(1)
-                        .map_err(|_| TemplateReadError::Allocation)?;
+                    causal_edges.reserve(1);
                     causal_edges.push((parent, child));
                 }
             }
@@ -505,16 +470,10 @@ impl TemplateSelectionReceipt {
             .len()
             .checked_add(dependency_count)
             .ok_or(TemplateReadError::Arithmetic)?;
-        let mut edges = HashSet::new();
-        edges
-            .try_reserve(edge_capacity)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut edges = HashSet::with_capacity(edge_capacity);
         edges.extend(causal_edges.iter().copied());
 
-        let mut spenders = HashMap::<OutPoint, usize>::new();
-        spenders
-            .try_reserve(input_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut spenders = HashMap::<OutPoint, usize>::with_capacity(input_count);
         for (index, candidate) in self.candidates.iter().enumerate() {
             if !active
                 .get(index)
@@ -581,10 +540,7 @@ impl TemplateSelectionReceipt {
         &self,
         statuses: [AcceptedStatus; N],
     ) -> Result<Vec<usize>, TemplateReadError> {
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(self.candidates.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut ordered = Vec::with_capacity(self.candidates.len());
         ordered.extend(
             self.candidates
                 .iter()
@@ -608,11 +564,7 @@ impl SelectedGraph {
         edges: HashSet<(usize, usize)>,
         causal_edges: Vec<(usize, usize)>,
     ) -> Result<Self, TemplateReadError> {
-        let mut child_counts = Vec::new();
-        child_counts
-            .try_reserve(len)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        child_counts.resize(len, 0usize);
+        let mut child_counts = vec![0usize; len];
         for (parent, child) in &edges {
             if parent == child || *parent >= len || *child >= len {
                 return Err(TemplateReadError::Projection);
@@ -622,11 +574,7 @@ impl SelectedGraph {
                 .ok_or(TemplateReadError::Projection)?;
             *count = count.checked_add(1).ok_or(TemplateReadError::Arithmetic)?;
         }
-        let mut causal_counts = Vec::new();
-        causal_counts
-            .try_reserve(len)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        causal_counts.resize(len, 0usize);
+        let mut causal_counts = vec![0usize; len];
         for (parent, child) in &causal_edges {
             if parent == child || *parent >= len || *child >= len {
                 return Err(TemplateReadError::Projection);
@@ -637,31 +585,20 @@ impl SelectedGraph {
             *count = count.checked_add(1).ok_or(TemplateReadError::Arithmetic)?;
         }
 
-        let mut children = Vec::new();
-        children
-            .try_reserve(len)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        let mut causal_children = Vec::new();
-        causal_children
-            .try_reserve(len)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut children = Vec::with_capacity(len);
+        let mut causal_children = Vec::with_capacity(len);
         for index in 0..len {
-            let mut next = Vec::new();
-            next.try_reserve(
+            let next = Vec::with_capacity(
                 *child_counts
                     .get(index)
                     .ok_or(TemplateReadError::Projection)?,
-            )
-            .map_err(|_| TemplateReadError::Allocation)?;
+            );
             children.push(next);
-            let mut causal_next = Vec::new();
-            causal_next
-                .try_reserve(
-                    *causal_counts
-                        .get(index)
-                        .ok_or(TemplateReadError::Projection)?,
-                )
-                .map_err(|_| TemplateReadError::Allocation)?;
+            let causal_next = Vec::with_capacity(
+                *causal_counts
+                    .get(index)
+                    .ok_or(TemplateReadError::Projection)?,
+            );
             causal_children.push(causal_next);
         }
         for (parent, child) in edges {
@@ -697,11 +634,7 @@ fn topological_active_order(
     if active.len() != rank.len() || active.len() != children.len() {
         return Err(TemplateReadError::Projection);
     }
-    let mut indegree = Vec::new();
-    indegree
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
-    indegree.resize(active.len(), 0usize);
+    let mut indegree = vec![0usize; active.len()];
     for (parent, next) in children.iter().enumerate() {
         if !active
             .get(parent)
@@ -737,10 +670,7 @@ fn topological_active_order(
             ready.insert((position, index));
         }
     }
-    let mut ordered = Vec::new();
-    ordered
-        .try_reserve(active.iter().filter(|is_active| **is_active).count())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut ordered = Vec::with_capacity(active.iter().filter(|is_active| **is_active).count());
     while let Some((_position, index)) = ready.pop_first() {
         ordered.push(index);
         for child in children.get(index).ok_or(TemplateReadError::Projection)? {
@@ -769,23 +699,14 @@ fn strongly_connected_active(
     if active.len() != children.len() {
         return Err(TemplateReadError::Projection);
     }
-    let mut visited = Vec::new();
-    visited
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut visited = Vec::with_capacity(active.len());
     visited.resize(active.len(), false);
-    let mut finish = Vec::new();
-    finish
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut finish = Vec::with_capacity(active.len());
     let stack_capacity = active
         .len()
         .checked_mul(2)
         .ok_or(TemplateReadError::Arithmetic)?;
-    let mut stack = Vec::new();
-    stack
-        .try_reserve(stack_capacity)
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut stack = Vec::with_capacity(stack_capacity);
     for start in 0..active.len() {
         if !active
             .get(start)
@@ -832,11 +753,7 @@ fn strongly_connected_active(
         }
     }
 
-    let mut parent_counts = Vec::new();
-    parent_counts
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
-    parent_counts.resize(active.len(), 0usize);
+    let mut parent_counts = vec![0usize; active.len()];
     for (parent, next) in children.iter().enumerate() {
         if !active
             .get(parent)
@@ -852,14 +769,9 @@ fn strongly_connected_active(
             *count = count.checked_add(1).ok_or(TemplateReadError::Arithmetic)?;
         }
     }
-    let mut parents = Vec::new();
-    parents
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut parents = Vec::with_capacity(active.len());
     for count in parent_counts {
-        let mut row = Vec::new();
-        row.try_reserve(count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let row = Vec::with_capacity(count);
         parents.push(row);
     }
     for (parent, next) in children.iter().enumerate() {
@@ -882,10 +794,7 @@ fn strongly_connected_active(
     }
 
     visited.fill(false);
-    let mut components = Vec::new();
-    components
-        .try_reserve(active.iter().filter(|is_active| **is_active).count())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut components = Vec::with_capacity(active.iter().filter(|is_active| **is_active).count());
     stack.clear();
     for start in finish.into_iter().rev() {
         if visited
@@ -901,9 +810,7 @@ fn strongly_connected_active(
         stack.push((start, false));
         let mut component = Vec::new();
         while let Some((index, _)) = stack.pop() {
-            component
-                .try_reserve(1)
-                .map_err(|_| TemplateReadError::Allocation)?;
+            component.reserve(1);
             component.push(index);
             for parent in parents
                 .get(index)
@@ -934,10 +841,7 @@ fn drop_causal_descendants(
     if active.len() != dropped.len() || active.len() != causal_children.len() {
         return Err(TemplateReadError::Projection);
     }
-    let mut stack = Vec::new();
-    stack
-        .try_reserve(active.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut stack = Vec::with_capacity(active.len());
     for (index, is_dropped) in dropped.iter().copied().enumerate() {
         if is_dropped {
             if !active
@@ -1564,10 +1468,7 @@ fn causal_indices(
     entries: &[TemplateCandidate],
     by_hash: &HashMap<RawTxHash, usize>,
 ) -> Result<Vec<usize>, TemplateReadError> {
-    let mut preference = Vec::new();
-    preference
-        .try_reserve(entries.len())
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut preference = Vec::with_capacity(entries.len());
     preference.extend(entries.iter().map(|entry| &entry.order));
     causal_order(
         entries.len(),
@@ -1585,28 +1486,15 @@ fn causal_order<'entry>(
     by_hash: &HashMap<RawTxHash, usize>,
     preference: Option<Vec<&'entry AcceptedOrderKey>>,
 ) -> Result<Vec<usize>, TemplateReadError> {
-    let mut captured_hashes = Vec::new();
-    captured_hashes
-        .try_reserve(len)
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut captured_hashes = Vec::with_capacity(len);
     captured_hashes.extend(hashes);
-    let mut captured_parents = Vec::new();
-    captured_parents
-        .try_reserve(len)
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut captured_parents = Vec::with_capacity(len);
     captured_parents.extend(parents);
     if captured_hashes.len() != len || captured_parents.len() != len {
         return Err(TemplateReadError::Projection);
     }
-    let mut indegree = Vec::new();
-    indegree
-        .try_reserve(len)
-        .map_err(|_| TemplateReadError::Allocation)?;
-    indegree.resize(len, 0usize);
-    let mut children = Vec::new();
-    children
-        .try_reserve(len)
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut indegree = vec![0usize; len];
+    let mut children = Vec::with_capacity(len);
     children.resize_with(len, Vec::new);
     for (child, parent_hashes) in captured_parents.iter().enumerate() {
         for parent in *parent_hashes {
@@ -1618,8 +1506,7 @@ fn causal_order<'entry>(
             let next = children
                 .get_mut(parent)
                 .ok_or(TemplateReadError::Projection)?;
-            next.try_reserve(1)
-                .map_err(|_| TemplateReadError::Allocation)?;
+            next.reserve(1);
             next.push(child);
         }
     }
@@ -1657,10 +1544,7 @@ fn causal_order<'entry>(
             ready.insert(ready_key(index)?);
         }
     }
-    let mut ordered = Vec::new();
-    ordered
-        .try_reserve(len)
-        .map_err(|_| TemplateReadError::Allocation)?;
+    let mut ordered = Vec::with_capacity(len);
     while let Some(next) = ready.pop_first() {
         ordered.push(next.index);
         for child in children

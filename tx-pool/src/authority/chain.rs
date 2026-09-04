@@ -19,6 +19,7 @@ use ckb_types::{
 };
 use ckb_verification::cache::ScriptVerificationRules;
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +58,6 @@ pub(super) struct CellLocationReceipt {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CellLocationReceiptError {
-    Allocation,
     Arithmetic,
 }
 
@@ -71,10 +71,7 @@ impl CellLocationReceipt {
         payload: &ResolvedPayload,
     ) -> Result<Self, CellLocationReceiptError> {
         let resolved = payload.resolved_transaction();
-        let mut chain_inputs = Vec::new();
-        chain_inputs
-            .try_reserve_exact(resolved.resolved_inputs.len())
-            .map_err(|_| CellLocationReceiptError::Allocation)?;
+        let mut chain_inputs = Vec::with_capacity(resolved.resolved_inputs.len());
         chain_inputs.extend(
             resolved
                 .resolved_inputs
@@ -89,10 +86,7 @@ impl CellLocationReceipt {
             .len()
             .checked_add(resolved.resolved_dep_groups.len())
             .ok_or(CellLocationReceiptError::Arithmetic)?;
-        let mut chain_dependencies = Vec::new();
-        chain_dependencies
-            .try_reserve_exact(dependency_count)
-            .map_err(|_| CellLocationReceiptError::Allocation)?;
+        let mut chain_dependencies = Vec::with_capacity(dependency_count);
         chain_dependencies.extend(
             resolved
                 .resolved_cell_deps
@@ -120,23 +114,17 @@ impl CellLocationReceipt {
         _seal: super::internal::InternalPlugSeal,
         view: ChainViewId,
         payload: &ResolvedPayload,
-    ) -> Result<Self, ()> {
+    ) -> Self {
         let footprint = &payload.footprint;
-        let mut chain_inputs = Vec::new();
-        chain_inputs
-            .try_reserve(footprint.inputs().len())
-            .map_err(|_| ())?;
+        let mut chain_inputs = Vec::with_capacity(footprint.inputs().len());
         chain_inputs.extend(footprint.inputs().iter().cloned());
-        let mut chain_dependencies = Vec::new();
-        chain_dependencies
-            .try_reserve(footprint.dependencies().len())
-            .map_err(|_| ())?;
+        let mut chain_dependencies = Vec::with_capacity(footprint.dependencies().len());
         chain_dependencies.extend(footprint.dependencies().iter().cloned());
-        Ok(Self {
+        Self {
             view,
             chain_inputs: Arc::new(chain_inputs),
             chain_dependencies: Arc::new(chain_dependencies),
-        })
+        }
     }
 
     pub(super) fn view(&self) -> &ChainViewId {
@@ -298,10 +286,6 @@ impl AcceptedProof {
         self.verified.chain_view()
     }
 
-    pub(super) fn chain_revision(&self) -> super::state::ChainRevision {
-        self.admission_view().revision()
-    }
-
     pub(super) fn is_chain_input(&self, input: &OutPoint) -> bool {
         self.verified.is_chain_input(input)
     }
@@ -429,15 +413,18 @@ impl FinalAdmissionWork {
         self.validation.payload()
     }
 
-    pub(super) fn key(&self) -> &RawTxHash {
+    #[cfg(test)]
+    pub(in crate::authority) fn key(&self) -> &RawTxHash {
         &self.key
     }
 
-    pub(super) fn expected(&self) -> EntryVersion {
+    #[cfg(test)]
+    pub(in crate::authority) fn expected(&self) -> EntryVersion {
         self.expected
     }
 
-    pub(super) fn view(&self) -> &ChainViewId {
+    #[cfg(test)]
+    pub(in crate::authority) fn view(&self) -> &ChainViewId {
         &self.validation.view
     }
 
@@ -576,7 +563,6 @@ impl MembershipReceipt {
 pub(super) struct FinalAdmissionReceipt {
     expected: EntryVersion,
     membership: MembershipReceipt,
-    payload_relation: ReadyPayloadRelation,
 }
 
 /// The immutable authority cut against which a lock-external final outcome
@@ -666,12 +652,10 @@ impl FinalAdmissionReceipt {
         _seal: super::validation::AdmissionValidationSeal,
         expected: EntryVersion,
         membership: MembershipReceipt,
-        payload_relation: ReadyPayloadRelation,
     ) -> Self {
         Self {
             expected,
             membership,
-            payload_relation,
         }
     }
 
@@ -689,10 +673,6 @@ impl FinalAdmissionReceipt {
 
     pub(super) fn proof(&self) -> &AcceptedProof {
         self.membership.proof()
-    }
-
-    pub(super) fn payload_relation(&self) -> ReadyPayloadRelation {
-        self.payload_relation
     }
 
     pub(super) fn into_membership_parts(
@@ -910,7 +890,6 @@ pub(super) fn proposal_context_receipt(
 pub(super) enum ChainFactsError {
     DuplicateTransaction,
     DuplicateHeader,
-    Allocation,
 }
 
 /// Exact proposal-position change between the paired old and new snapshots.
@@ -922,10 +901,7 @@ pub(super) struct ProposalTransitionFacts {
 }
 
 impl ProposalTransitionFacts {
-    pub(super) fn between(
-        old_snapshot: &Snapshot,
-        new_snapshot: &Snapshot,
-    ) -> Result<Self, ChainFactsError> {
+    pub(super) fn between(old_snapshot: &Snapshot, new_snapshot: &Snapshot) -> Self {
         let old = old_snapshot.proposals();
         let new = new_snapshot.proposals();
         let mut changed = Vec::new();
@@ -934,14 +910,13 @@ impl ProposalTransitionFacts {
         // merges both complete ordered id universes. Both paths yield every
         // and only externally visible position change in canonical id order.
         new.try_for_each_changed_from(old, |proposal| {
-            changed
-                .try_reserve(1)
-                .map_err(|_| ChainFactsError::Allocation)?;
+            changed.reserve(1);
             changed.push(ProposalId(proposal));
-            Ok(())
-        })?;
+            Ok::<(), Infallible>(())
+        })
+        .unwrap_or_else(|never| match never {});
 
-        Ok(Self { changed })
+        Self { changed }
     }
 }
 
@@ -992,20 +967,14 @@ impl CanonicalChainFacts {
             detached_headers,
         } = blocks;
         let attached = canonical_transactions(attached)?;
-        let mut attached_hashes = HashSet::new();
-        attached_hashes
-            .try_reserve(attached.len())
-            .map_err(|_| ChainFactsError::Allocation)?;
+        let mut attached_hashes = HashSet::with_capacity(attached.len());
         attached_hashes.extend(
             attached
                 .iter()
                 .map(|transaction| RawTxHash(transaction.hash())),
         );
         let mut detached = canonical_transactions(detached)?;
-        let mut relocated = Vec::new();
-        relocated
-            .try_reserve(detached.len().min(attached_hashes.len()))
-            .map_err(|_| ChainFactsError::Allocation)?;
+        let mut relocated = Vec::with_capacity(detached.len().min(attached_hashes.len()));
         relocated.extend(
             detached
                 .iter()
@@ -1014,10 +983,7 @@ impl CanonicalChainFacts {
         );
         detached.retain(|transaction| !attached_hashes.contains(&RawTxHash(transaction.hash())));
         let attached_headers = canonical_headers(attached_headers)?;
-        let mut attached_header_set = HashSet::new();
-        attached_header_set
-            .try_reserve(attached_headers.len())
-            .map_err(|_| ChainFactsError::Allocation)?;
+        let mut attached_header_set = HashSet::with_capacity(attached_headers.len());
         attached_header_set.extend(attached_headers.iter().cloned());
         let mut detached_headers = canonical_headers(detached_headers)?;
         detached_headers.retain(|header| !attached_header_set.contains(header));
@@ -1253,15 +1219,12 @@ impl ChainRecoveryReceipt {
 
 impl ChainValidationWork {
     pub(super) fn required_proposals(&self) -> Result<Vec<ProposalId>, ChainValidationError> {
-        let mut proposals = Vec::new();
-        proposals
-            .try_reserve(
-                self.status_subjects
-                    .len()
-                    .checked_add(self.proposal_subjects.len())
-                    .ok_or(ChainValidationError::Allocation)?,
-            )
-            .map_err(|_| ChainValidationError::Allocation)?;
+        let capacity = self
+            .status_subjects
+            .len()
+            .checked_add(self.proposal_subjects.len())
+            .ok_or(ChainValidationError::Allocation)?;
+        let mut proposals = Vec::with_capacity(capacity);
         proposals.extend(
             self.status_subjects
                 .iter()
@@ -1286,10 +1249,7 @@ impl ChainValidationWork {
             return Err(ChainValidationError::SnapshotMismatch);
         }
         let required = self.required_proposals()?;
-        let mut positions = Vec::new();
-        positions
-            .try_reserve(required.len())
-            .map_err(|_| ChainValidationError::Allocation)?;
+        let mut positions = Vec::with_capacity(required.len());
         positions.extend(required.into_iter().map(|proposal| {
             let position = proposal_window_position(snapshot, &proposal.0);
             (proposal, position)
@@ -1323,10 +1283,7 @@ impl ChainValidationWork {
             return Err(ChainValidationError::MissingProposalPosition);
         }
 
-        let mut statuses = Vec::new();
-        statuses
-            .try_reserve(self.status_subjects.len())
-            .map_err(|_| ChainValidationError::Allocation)?;
+        let mut statuses = Vec::with_capacity(self.status_subjects.len());
         for subject in self.status_subjects {
             let position = positions
                 .binary_search_by(|item| item.0.cmp(&subject.proposal))
@@ -1346,13 +1303,8 @@ impl ChainValidationWork {
         statuses.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
 
         let mut removals = self.removals;
-        removals
-            .try_reserve(self.proposal_subjects.len())
-            .map_err(|_| ChainValidationError::Allocation)?;
-        let mut proposal_demotions = Vec::new();
-        proposal_demotions
-            .try_reserve(self.proposal_subjects.len())
-            .map_err(|_| ChainValidationError::Allocation)?;
+        removals.reserve(self.proposal_subjects.len());
+        let mut proposal_demotions = Vec::with_capacity(self.proposal_subjects.len());
         for subject in self.proposal_subjects {
             let position = positions
                 .binary_search_by(|item| item.0.cmp(&subject.proposal))
@@ -1377,10 +1329,7 @@ impl ChainValidationWork {
         removals.sort_unstable_by(|left, right| left.hash().cmp(right.hash()));
         proposal_demotions.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
 
-        let mut recoveries = Vec::new();
-        recoveries
-            .try_reserve(self.recoveries.len())
-            .map_err(|_| ChainValidationError::Allocation)?;
+        let mut recoveries = Vec::with_capacity(self.recoveries.len());
         for recovery in self.recoveries {
             match recovery {
                 ChainRecoveryWork::Trusted {

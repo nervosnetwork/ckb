@@ -378,10 +378,6 @@ impl RetainedIngressBoundaryError {
             PlanError::Backpressure(Backpressure::ProposalCollision) => {
                 Self::Backpressure(RetainedIngressBackpressure::ProposalCollision)
             }
-            PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
-            PlanError::Backpressure(Backpressure::DependencyStageCapacity) => {
-                Self::ResourceUnavailable
-            }
             PlanError::EffectClosed => Self::LifecycleClosed,
             PlanError::Fault(fault) => Self::Fault(fault),
             PlanError::Backpressure(Backpressure::AcceptedResources) => {

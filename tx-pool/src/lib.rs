@@ -49,17 +49,6 @@
 //! generation; it does not catch, repair, or restart state.
 
 mod authority;
-#[cfg(feature = "internal")]
-#[allow(
-    clippy::arithmetic_side_effects,
-    clippy::await_holding_lock,
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    clippy::panic,
-    clippy::unreachable,
-    clippy::unwrap_used
-)]
-pub mod benchmark;
 pub mod block_assembler;
 mod callback;
 mod component;

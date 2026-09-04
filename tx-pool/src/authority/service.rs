@@ -25,8 +25,8 @@ use super::{
     },
     read::{RelayParentRebuildCursor, RelayParentRebuildError},
     relay::{
-        AuthorityRelayReceiver, RelayMailboxConfigError, RelayParentProjectionError,
-        production_authority_relay_mailbox, project_parent_request,
+        AuthorityRelayReceiver, RelayMailboxConfigError, production_authority_relay_mailbox,
+        project_parent_request,
     },
     resolver::{DirectComputationError, VerificationCacheUpdate},
     resources::ResourceCapacityWaitIdentity,
@@ -410,17 +410,11 @@ const RELAY_REBUILD_EMPTY_PAGE_BUDGET: usize = 4;
 /// missing waiters.
 const RELAY_REBUILD_SCAN_ITEMS: usize = 64;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AuthorityRelayRebuildFailure {
-    Page(RelayParentRebuildError),
-    Projection(RelayParentProjectionError),
-}
-
 struct AuthorityRelayRebuildState {
     active: bool,
     cursor: Option<RelayParentRebuildCursor>,
     pending: Vec<ParentTransactionRequest>,
-    reported_failure: Option<AuthorityRelayRebuildFailure>,
+    reported_failure: Option<RelayParentRebuildError>,
 }
 
 impl AuthorityRelayRebuildState {
@@ -440,7 +434,7 @@ impl AuthorityRelayRebuildState {
         self.reported_failure = None;
     }
 
-    fn report_once(&mut self, failure: AuthorityRelayRebuildFailure) {
+    fn report_once(&mut self, failure: RelayParentRebuildError) {
         if self.reported_failure != Some(failure) {
             ckb_logger::error!(
                 "tx-pool relay parent reconciliation is temporarily degraded: {failure:?}"
@@ -485,17 +479,9 @@ impl AuthorityRelayDrain {
         let mut rebuild = self.rebuild.lock();
         for _ in 0..RELAY_REBUILD_EMPTY_PAGE_BUDGET {
             if let Some(request) = rebuild.pending.pop() {
-                match project_parent_request(&request) {
-                    Ok(result) => {
-                        rebuild.reported_failure = None;
-                        return Some(result);
-                    }
-                    Err(error) => {
-                        rebuild.pending.push(request);
-                        rebuild.report_once(AuthorityRelayRebuildFailure::Projection(error));
-                        return None;
-                    }
-                }
+                let result = project_parent_request(&request);
+                rebuild.reported_failure = None;
+                return Some(result);
             }
             if !rebuild.active {
                 return None;
@@ -518,7 +504,7 @@ impl AuthorityRelayDrain {
                 Err(RelayParentRebuildError::StaleCut) => rebuild.restart(),
                 Err(error) => {
                     rebuild.cursor = cursor;
-                    rebuild.report_once(AuthorityRelayRebuildFailure::Page(error));
+                    rebuild.report_once(error);
                     return None;
                 }
             }
@@ -953,11 +939,7 @@ impl AuthorityService {
         declared_cycles: u64,
         peer: PeerIndex,
     ) -> Result<(), AuthorityServiceError> {
-        let mut submissions = Vec::new();
-        submissions
-            .try_reserve_exact(1)
-            .map_err(|_| AuthorityServiceError::ResourceUnavailable)?;
-        submissions.push((tx, declared_cycles));
+        let submissions = vec![(tx, declared_cycles)];
         let (completed, error) = self
             .submit_remote_batch(peer, submissions)
             .await
@@ -991,16 +973,8 @@ impl AuthorityService {
         let mut submissions = VecDeque::from(submissions);
         let mut completed_total = 0usize;
         loop {
-            let mut attempts = VecDeque::new();
-            if attempts
-                .try_reserve(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
-                .is_err()
-            {
-                return RemoteIngressBatchProgress::failed(
-                    completed_total,
-                    AuthorityServiceError::ResourceUnavailable,
-                );
-            }
+            let mut attempts =
+                VecDeque::with_capacity(crate::constants::MAX_POOL_MUTATION_CANDIDATES);
             for _ in 0..crate::constants::MAX_POOL_MUTATION_CANDIDATES {
                 let Some((tx, declared_cycles)) = submissions.pop_front() else {
                     break;
@@ -1049,10 +1023,8 @@ impl AuthorityService {
         let consensus = self.runtime.paired_consensus();
         let mut transactions = transactions.into_iter();
         loop {
-            let mut attempts = VecDeque::new();
-            attempts
-                .try_reserve(crate::constants::MAX_POOL_MUTATION_CANDIDATES)
-                .map_err(|_| AuthorityServiceError::ResourceUnavailable)?;
+            let mut attempts =
+                VecDeque::with_capacity(crate::constants::MAX_POOL_MUTATION_CANDIDATES);
             for _ in 0..crate::constants::MAX_POOL_MUTATION_CANDIDATES {
                 let Some(tx) = transactions.next() else {
                     break;
@@ -1691,19 +1663,9 @@ impl AuthorityService {
             .map_err(map_query_error)
             .map_err(AuthorityPersistenceError::Snapshot)?;
         let (accepted, recovery) = parent_first.into_transactions();
-        let mut accepted_transactions = Vec::new();
-        accepted_transactions
-            .try_reserve_exact(accepted.len())
-            .map_err(|_| {
-                AuthorityPersistenceError::Snapshot(AuthorityServiceError::ResourceUnavailable)
-            })?;
+        let mut accepted_transactions = Vec::with_capacity(accepted.len());
         accepted_transactions.extend(accepted.into_iter().map(Arc::unwrap_or_clone));
-        let mut recovery_transactions = Vec::new();
-        recovery_transactions
-            .try_reserve_exact(recovery.len())
-            .map_err(|_| {
-                AuthorityPersistenceError::Snapshot(AuthorityServiceError::ResourceUnavailable)
-            })?;
+        let mut recovery_transactions = Vec::with_capacity(recovery.len());
         recovery_transactions.extend(recovery.into_iter().map(Arc::unwrap_or_clone));
         let snapshot = crate::persisted::PersistenceSnapshot {
             accepted: accepted_transactions,
@@ -1890,7 +1852,7 @@ impl AuthorityService {
                 max_bytes,
                 input.snapshot().consensus().max_block_cycles(),
             ))
-            .and_then(|packed| packed.into_tx_entries())
+            .map(|packed| packed.into_tx_entries())
             .map_err(map_template_read_error)
     }
 }
@@ -1936,9 +1898,9 @@ fn internal_plug_reject(error: AuthorityInternalPlugError) -> Reject {
             "internal tx-pool fixture cannot displace an accepted owner".to_owned(),
         ),
         AuthorityInternalPlugError::Rejected(reason) => reason.into_public(),
-        AuthorityInternalPlugError::Capacity
-        | AuthorityInternalPlugError::ResourceUnavailable
-        | AuthorityInternalPlugError::ProposalCollision => direct_pressure_reject(),
+        AuthorityInternalPlugError::Capacity | AuthorityInternalPlugError::ProposalCollision => {
+            direct_pressure_reject()
+        }
         AuthorityInternalPlugError::LifecycleClosed => {
             Reject::Internal("tx-pool authority lifecycle is closed".to_owned())
         }
@@ -2013,8 +1975,7 @@ fn classify_direct_error(error: AuthorityDirectAdmissionError) -> DirectErrorDis
         AuthorityDirectAdmissionError::ResourceContended(wait) => {
             DirectErrorDisposition::WaitResource(wait)
         }
-        AuthorityDirectAdmissionError::ResourceUnavailable
-        | AuthorityDirectAdmissionError::ProposalCollision => {
+        AuthorityDirectAdmissionError::ProposalCollision => {
             DirectErrorDisposition::Reject(direct_pressure_reject())
         }
         AuthorityDirectAdmissionError::EffectCapacity => DirectErrorDisposition::WaitEffect,
@@ -2121,7 +2082,6 @@ where
 
 fn map_administration_error(error: AuthorityAdministrationError) -> AuthorityServiceError {
     match error {
-        AuthorityAdministrationError::Allocation => AuthorityServiceError::ResourceUnavailable,
         AuthorityAdministrationError::EffectCapacity => AuthorityServiceError::EffectCapacity,
         AuthorityAdministrationError::LifecycleClosed => AuthorityServiceError::LifecycleClosed,
         AuthorityAdministrationError::CompetingProgress => AuthorityServiceError::CompetingProgress,
@@ -2178,7 +2138,6 @@ fn map_query_error(error: AuthorityQueryError) -> AuthorityServiceError {
 #[cfg(any(test, feature = "internal"))]
 fn map_template_read_error(error: TemplateReadError) -> AuthorityServiceError {
     match error {
-        TemplateReadError::Allocation => AuthorityServiceError::ResourceUnavailable,
         TemplateReadError::Arithmetic => {
             AuthorityServiceError::from(AuthorityFault::ResourceProjection)
         }

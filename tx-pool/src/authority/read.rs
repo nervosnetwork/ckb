@@ -17,9 +17,9 @@ use super::{
     shard::{ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerReadGuard},
     source::AuthoritySourceVersions,
     state::{
-        AcceptedAtMillis, AcceptedStatus, Arrival, ChainViewId, DependencyKey, DependencySetError,
-        KnownDependencies, ObservedDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase,
-        PreAcceptedSource, ProposalId, QueuedWork, RawTxHash, WorkPermit,
+        AcceptedAtMillis, AcceptedStatus, Arrival, ChainViewId, DependencyKey, KnownDependencies,
+        ObservedDependencies, OwnedTx, PoolGeneration, PreAcceptedPhase, PreAcceptedSource,
+        ProposalId, QueuedWork, RawTxHash, WorkPermit,
     },
     validation::proposal_status,
 };
@@ -49,7 +49,6 @@ pub(super) struct RelayParentRebuildCursor {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RelayParentRebuildError {
     StaleCut,
-    Allocation,
     Projection,
 }
 
@@ -64,16 +63,11 @@ pub(super) struct RelayParentRebuildScratch {
 }
 
 impl RelayParentRebuildScratch {
-    pub(super) fn try_new(limit: NonZeroUsize) -> Result<Self, RelayParentRebuildError> {
-        let mut remote = Vec::new();
-        let mut missing = Vec::new();
-        remote
-            .try_reserve(limit.get())
-            .map_err(|_| RelayParentRebuildError::Allocation)?;
-        missing
-            .try_reserve(limit.get())
-            .map_err(|_| RelayParentRebuildError::Allocation)?;
-        Ok(Self { remote, missing })
+    pub(super) fn new(limit: NonZeroUsize) -> Self {
+        Self {
+            remote: Vec::with_capacity(limit.get()),
+            missing: Vec::with_capacity(limit.get()),
+        }
     }
 }
 
@@ -86,28 +80,25 @@ pub(super) struct PreparedRelayParentRebuildPage {
 }
 
 impl PreparedRelayParentRebuildPage {
-    pub(super) fn finish(self) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
+    pub(super) fn finish(self) -> RelayParentRebuildPage {
         let Self {
             cut,
             remote: _remote,
             missing,
             next,
         } = self;
-        let mut requests = Vec::new();
-        requests
-            .try_reserve(missing.len())
-            .map_err(|_| RelayParentRebuildError::Allocation)?;
+        let mut requests = Vec::with_capacity(missing.len());
         for capture in missing {
-            let parents = capture.observed.parent_transactions()?;
+            let parents = capture.observed.parent_transactions();
             if let Some(request) = ParentTransactionRequest::new(capture.peer, parents) {
                 requests.push(request);
             }
         }
-        Ok(RelayParentRebuildPage {
+        RelayParentRebuildPage {
             cut,
             requests,
             next,
-        })
+        }
     }
 }
 
@@ -133,21 +124,11 @@ impl RelayParentRebuildPage {
 impl From<IndexError> for RelayParentRebuildError {
     fn from(error: IndexError) -> Self {
         match error {
-            IndexError::Allocation => Self::Allocation,
-            IndexError::ProposalCollision | IndexError::Projection | IndexError::Arithmetic => {
-                Self::Projection
-            }
-        }
-    }
-}
-
-impl From<DependencySetError> for RelayParentRebuildError {
-    fn from(error: DependencySetError) -> Self {
-        match error {
-            DependencySetError::Allocation => Self::Allocation,
-            DependencySetError::Empty
-            | DependencySetError::TooMany
-            | DependencySetError::Arithmetic => Self::Projection,
+            IndexError::Stale => Self::Projection,
+            IndexError::ProposalCollision
+            | IndexError::Projection
+            | IndexError::Arithmetic
+            | IndexError::Allocation => Self::Projection,
         }
     }
 }
@@ -391,9 +372,9 @@ impl<'authority> AuthorityReadView<'authority> {
     /// cannot starve a bounded rebuild.
     ///
     /// Scratch capacity is acquired before the caller takes the authority
-    /// read guard. This method therefore performs no fallible allocation while
-    /// holding the guard; parent-list allocation happens in `finish` after the
-    /// guard is released.
+    /// read guard. This method therefore performs no allocation while holding
+    /// the guard; parent-list allocation happens in `finish` after the guard
+    /// is released.
     pub(super) fn capture_relay_parent_rebuild(
         &self,
         cursor: Option<RelayParentRebuildCursor>,
@@ -479,19 +460,16 @@ impl<'authority> AuthorityReadView<'authority> {
     }
 
     #[cfg(test)]
-    pub(super) fn replacement_history(&self) -> Result<Vec<RawTxHash>, AuthorityReadError> {
+    pub(super) fn replacement_history(&self) -> Vec<RawTxHash> {
         let owners = self.entries.read_all();
-        let mut history = Vec::new();
-        history
-            .try_reserve(owners.len())
-            .map_err(|_| AuthorityReadError::Allocation)?;
+        let mut history = Vec::with_capacity(owners.len());
         history.extend(
             owners
                 .iter()
                 .filter(|(_, owner)| matches!(owner, OwnedTx::ReplacementHistory(_)))
                 .map(|(hash, _)| hash.clone()),
         );
-        Ok(history)
+        history
     }
 
     pub(super) fn summary(&self) -> Result<AuthorityReadSummary, AuthorityReadError> {
@@ -567,11 +545,8 @@ impl<'authority> AuthorityReadView<'authority> {
     }
 
     pub(super) fn capture_persistence(&self) -> Result<PersistenceReadReceipt, AuthorityReadError> {
-        let mut selected = Vec::new();
         let owners = self.entries.read_all();
-        selected
-            .try_reserve(owners.len())
-            .map_err(|_| AuthorityReadError::Allocation)?;
+        let mut selected = Vec::with_capacity(owners.len());
         for (hash, owner) in &owners {
             if &owner.record().identity.raw != hash {
                 return Err(AuthorityReadError::Projection);
@@ -581,10 +556,7 @@ impl<'authority> AuthorityReadView<'authority> {
                     let parents = owners
                         .membership_parents(hash)
                         .ok_or(AuthorityReadError::Projection)?;
-                    let mut copied = Vec::new();
-                    copied
-                        .try_reserve(parents.len())
-                        .map_err(|_| AuthorityReadError::Allocation)?;
+                    let mut copied = Vec::with_capacity(parents.len());
                     copied.extend(parents.iter().cloned());
                     PersistenceParents::Accepted(copied)
                 }
@@ -786,14 +758,8 @@ impl PersistenceReadReceipt {
             .len()
             .checked_sub(accepted_count)
             .ok_or(AuthorityReadError::Arithmetic)?;
-        let mut accepted = Vec::new();
-        let mut recovery = Vec::new();
-        accepted
-            .try_reserve(accepted_count)
-            .map_err(|_| AuthorityReadError::Allocation)?;
-        recovery
-            .try_reserve(recovery_count)
-            .map_err(|_| AuthorityReadError::Allocation)?;
+        let mut accepted = Vec::with_capacity(accepted_count);
+        let mut recovery = Vec::with_capacity(recovery_count);
         for row in self.selected {
             match row.relation {
                 PersistenceParents::Accepted(_) => accepted.push(row),
@@ -842,25 +808,15 @@ fn parent_first_indices(
     rows: &[PersistenceRow],
     partition: PersistencePartition,
 ) -> Result<Vec<usize>, AuthorityReadError> {
-    let mut by_hash = HashMap::new();
-    by_hash
-        .try_reserve(rows.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
+    let mut by_hash = HashMap::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
         if by_hash.insert(row.hash.clone(), index).is_some() {
             return Err(AuthorityReadError::Projection);
         }
     }
 
-    let mut indegree = Vec::new();
-    indegree
-        .try_reserve(rows.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
-    indegree.resize(rows.len(), 0usize);
-    let mut children = Vec::new();
-    children
-        .try_reserve(rows.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
+    let mut indegree = vec![0usize; rows.len()];
+    let mut children = Vec::with_capacity(rows.len());
     children.resize_with(rows.len(), Vec::new);
 
     for (child, row) in rows.iter().enumerate() {
@@ -877,17 +833,12 @@ fn parent_first_indices(
             let outgoing = children
                 .get_mut(parent)
                 .ok_or(AuthorityReadError::Projection)?;
-            outgoing
-                .try_reserve(1)
-                .map_err(|_| AuthorityReadError::Allocation)?;
+            outgoing.reserve(1);
             outgoing.push(child);
         }
     }
 
-    let mut ready = BinaryHeap::new();
-    ready
-        .try_reserve(rows.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
+    let mut ready = BinaryHeap::with_capacity(rows.len());
     for (index, degree) in indegree.iter().copied().enumerate() {
         if degree == 0 {
             let row = rows.get(index).ok_or(AuthorityReadError::Projection)?;
@@ -899,10 +850,7 @@ fn parent_first_indices(
         }
     }
 
-    let mut order = Vec::new();
-    order
-        .try_reserve(rows.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
+    let mut order = Vec::with_capacity(rows.len());
     while let Some(Reverse(next)) = ready.pop() {
         order.push(next.index);
         let outgoing = children
@@ -941,20 +889,14 @@ fn relation_parent_indices(
 ) -> Result<Vec<usize>, AuthorityReadError> {
     match (&row.relation, partition) {
         (PersistenceParents::Accepted(parents), PersistencePartition::Accepted) => {
-            let mut indices = Vec::new();
-            indices
-                .try_reserve(parents.len())
-                .map_err(|_| AuthorityReadError::Allocation)?;
+            let mut indices = Vec::with_capacity(parents.len());
             for parent in parents {
                 indices.push(*by_hash.get(parent).ok_or(AuthorityReadError::Projection)?);
             }
             Ok(indices)
         }
         (PersistenceParents::Recovery(dependencies), PersistencePartition::Recovery) => {
-            let mut indices = Vec::new();
-            indices
-                .try_reserve(dependencies.len())
-                .map_err(|_| AuthorityReadError::Allocation)?;
+            let mut indices = Vec::with_capacity(dependencies.len());
             for dependency in dependencies.keys() {
                 if let DependencyKey::Cell(out_point) = dependency
                     && let Some(parent) = by_hash.get(&RawTxHash(out_point.tx_hash()))
@@ -975,10 +917,7 @@ fn ordered_transactions(
     rows: &[PersistenceRow],
     order: &[usize],
 ) -> Result<Vec<Arc<TransactionView>>, AuthorityReadError> {
-    let mut transactions = Vec::new();
-    transactions
-        .try_reserve(order.len())
-        .map_err(|_| AuthorityReadError::Allocation)?;
+    let mut transactions = Vec::with_capacity(order.len());
     for index in order {
         let row = rows.get(*index).ok_or(AuthorityReadError::Projection)?;
         transactions.push(Arc::clone(&row.transaction));

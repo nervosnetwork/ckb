@@ -1,58 +1,29 @@
 use super::{
-    AuthorityClocks, AuthorityFault, CheckoutEligibility, ClockPlanReservation,
-    ConcurrentIndependentError, DerivedOwnerDelta, IndependentDelta, IndependentOwnerAction,
-    IndependentOwnerCut, OwnerLocalSettlement, OwnerPrestate, PlanError, PreparedIndependentApply,
-    SettlementClassification, TxPoolAuthority, settlement_dependency_inputs,
+    AuthorityFault, CheckoutEligibility, ClockPlanReservation, ConcurrentIndependentError,
+    DerivedOwnerDelta, IndependentDelta, IndependentOwnerAction, IndependentOwnerCut,
+    OwnerPrestate, PlanError, PreparedIndependentApply, TxPoolAuthority,
 };
 use crate::authority::{
-    dependency::{DependencyBatchDelta, SettlementDependencyEvidence},
+    dependency::DependencyBatchDelta,
     exchange::{AuthorityComputeExecutionPermit, ComputeWorkerGrant, ComputeWorkerSlot},
     resources::{
-        ActiveWorkAvailability, ActiveWorkOperation, ChargeRecord, OrderedResourceProjection,
-        ResourceBatchPlan, ResourceError,
+        ActiveWorkAvailability, ActiveWorkOperation, ActiveWorkRevision, ChargeRecord,
+        OrderedResourceProjection, ResourceBatchPlan, ResourceCapacityObservation, ResourceError,
     },
-    runtime::{AuthorityComputeAftermath, AuthorityFinishedCompute},
+    runtime::AuthorityFinishedCompute,
     scheduler::{CheckoutTicket, SchedulerBatchDelta, SchedulerExchangeWave},
     state::{EntryVersion, OwnedTx, PreAcceptedPhase, RawTxHash, WorkPermit},
-    work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
+    work::CheckedOutWork,
 };
 use ckb_network::PeerIndex;
 use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
-/// One finished worker slot and the exact move-only settlement evidence it
-/// owns. The coordinator may submit the value to one exchange or retain it;
-/// it cannot separate slot availability from capability settlement.
+/// A stable worker slot paired with its only finished settlement capability.
 #[derive(Debug)]
-#[must_use = "a finished compute slot must be exchanged, settled, or discharged"]
+#[must_use = "a finished compute slot must be settled or discharged"]
 pub(in crate::authority) struct ComputeExchangeCompletion {
     slot: ComputeWorkerSlot,
     finished: AuthorityFinishedCompute,
-}
-
-/// Canonically ordered, duplicate-free linear compute capabilities bounded by
-/// the configured worker topology. Construction is the sole shape gate shared
-/// by the exclusive and true-shard exchange implementations.
-#[must_use = "validated compute capabilities must be exchanged or recovered exactly once"]
-pub(in crate::authority) struct ValidatedComputeExchangeInputs {
-    completions: Vec<ComputeExchangeCompletion>,
-    grants: Vec<ComputeWorkerGrant>,
-}
-
-impl ValidatedComputeExchangeInputs {
-    #[cfg(feature = "profiling")]
-    pub(in crate::authority) fn completion_len(&self) -> usize {
-        self.completions.len()
-    }
-
-    pub(in crate::authority) fn grant_len(&self) -> usize {
-        self.grants.len()
-    }
-
-    pub(in crate::authority) fn into_parts(
-        self,
-    ) -> (Vec<ComputeExchangeCompletion>, Vec<ComputeWorkerGrant>) {
-        (self.completions, self.grants)
-    }
 }
 
 impl ComputeExchangeCompletion {
@@ -71,73 +42,65 @@ impl ComputeExchangeCompletion {
         self.slot
     }
 
-    pub(in crate::authority) fn permits_immediate_refill(&self) -> bool {
-        self.finished.aftermath().permits_immediate_refill()
-    }
-
     pub(in crate::authority) fn into_parts(self) -> (ComputeWorkerSlot, AuthorityFinishedCompute) {
         (self.slot, self.finished)
     }
 }
 
+/// An effect-blocked malformed completion. The planner revalidates it against
+/// the current owner cut, so promotion, replacement, and obsolescence remove
+/// the peer exclusion without a second policy cache.
 #[derive(Debug)]
-#[must_use = "a settled worker slot must release its post-commit consequence"]
-pub(in crate::authority) struct ComputeExchangeSettled {
-    slot: ComputeWorkerSlot,
-    aftermath: AuthorityComputeAftermath,
+pub(in crate::authority) struct ComputePeerExclusion {
+    hash: RawTxHash,
+    version: EntryVersion,
+    peer: PeerIndex,
 }
 
-impl ComputeExchangeSettled {
-    pub(in crate::authority) fn into_parts(self) -> (ComputeWorkerSlot, AuthorityComputeAftermath) {
-        (self.slot, self.aftermath)
-    }
-}
-
-impl PartialEq<ComputeWorkerSlot> for ComputeExchangeSettled {
-    fn eq(&self, other: &ComputeWorkerSlot) -> bool {
-        self.slot == *other
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum ComputeExchangeDeferredRoute {
-    ExactSettlement,
-    ExchangeRetry,
-    ExchangeAfterEffect,
-}
-
-#[derive(Debug)]
-#[must_use = "a deferred completion must follow its sealed settlement route"]
-pub(in crate::authority) struct ComputeExchangeDeferred {
-    route: ComputeExchangeDeferredRoute,
-    completion: ComputeExchangeCompletion,
-}
-
-impl ComputeExchangeDeferred {
-    pub(in crate::authority) fn from_settlement(
-        route: ComputeExchangeDeferredRoute,
-        slot: ComputeWorkerSlot,
-        settlement: ComputeSettlement,
-        aftermath: AuthorityComputeAftermath,
+impl ComputePeerExclusion {
+    pub(in crate::authority) fn from_completion(
+        completion: &ComputeExchangeCompletion,
+        peer: PeerIndex,
     ) -> Self {
         Self {
-            route,
-            completion: ComputeExchangeCompletion::from_finished(
-                slot,
-                AuthorityFinishedCompute::from_parts(settlement, aftermath),
-            ),
+            hash: completion.finished.settlement().token.hash.clone(),
+            version: completion.version(),
+            peer,
         }
     }
 
-    pub(in crate::authority) fn into_parts(
-        self,
-    ) -> (ComputeExchangeDeferredRoute, ComputeExchangeCompletion) {
-        (self.route, self.completion)
+    fn current_peer(&self, authority: &TxPoolAuthority) -> Option<PeerIndex> {
+        let owner = authority.entries.get(&self.hash)?;
+        if owner.record().version != self.version {
+            return None;
+        }
+        let OwnedTx::PreAccepted(preaccepted) = &*owner else {
+            return None;
+        };
+        preaccepted
+            .source
+            .payload_blame_peer()
+            .filter(|peer| *peer == self.peer)
+    }
+}
+
+#[must_use = "validated worker grants must be checked out or returned"]
+pub(in crate::authority) struct ValidatedComputeExchangeInputs {
+    grants: Vec<ComputeWorkerGrant>,
+}
+
+impl ValidatedComputeExchangeInputs {
+    pub(in crate::authority) fn grant_len(&self) -> usize {
+        self.grants.len()
+    }
+
+    fn into_grants(self) -> Vec<ComputeWorkerGrant> {
+        self.grants
     }
 }
 
 #[derive(Debug)]
-#[must_use = "an exchange assignment owns checked-out work for one stable worker slot"]
+#[must_use = "an assignment owns checked-out work and one execution permit"]
 pub(in crate::authority) struct ComputeExchangeAssignment {
     grant: ComputeWorkerGrant,
     work: CheckedOutWork,
@@ -155,87 +118,16 @@ impl ComputeExchangeAssignment {
         (slot, execution, self.work)
     }
 
-    pub(in crate::authority) fn into_grant_before_commit(self) -> ComputeWorkerGrant {
+    fn into_grant_before_commit(self) -> ComputeWorkerGrant {
         let Self { grant, work } = self;
         drop(work);
         grant
     }
 }
 
-struct OwnerLocalPremise {
-    before: OwnedTx,
-    settlement: OwnerLocalSettlement,
-    dependency: SettlementDependencyEvidence,
-}
-
-#[expect(
-    clippy::large_enum_variant,
-    reason = "the bounded classifier owns the canonical settlement premise and exact recovery capability; boxing would add an untracked allocation failure"
-)]
-enum ClassifiedCompletion {
-    OwnerLocal {
-        slot: ComputeWorkerSlot,
-        token: SettlementToken,
-        ingress_peer: Option<PeerIndex>,
-        premise: Option<OwnerLocalPremise>,
-        aftermath: AuthorityComputeAftermath,
-    },
-    Deferred {
-        slot: ComputeWorkerSlot,
-        settlement: ComputeSettlement,
-        aftermath: AuthorityComputeAftermath,
-        route: ComputeExchangeDeferredRoute,
-    },
-    Obsolete {
-        slot: ComputeWorkerSlot,
-        /// Retained only until the shared classifier has proved that the
-        /// complete batch is owner-local. Exclusive Apply and ordinary
-        /// recovery need only the stable worker slot, while a non-local member
-        /// must return the exact validated cohort before mutation.
-        finished: Option<AuthorityFinishedCompute>,
-    },
-}
-
-impl ClassifiedCompletion {
-    fn recover_into<S: ComputeExchangeRecoverySink>(self, sink: &mut S) -> Result<(), S::Error> {
-        match self {
-            Self::OwnerLocal {
-                slot,
-                token,
-                aftermath,
-                ..
-            } => sink.recover_settlement(ComputeExchangeCompletion::from_finished(
-                slot,
-                AuthorityFinishedCompute::from_parts(
-                    ComputeSettlement {
-                        token,
-                        next: SettlementNext::Retry,
-                    },
-                    aftermath,
-                ),
-            )),
-            Self::Deferred {
-                slot,
-                settlement,
-                aftermath,
-                ..
-            } => sink.recover_settlement(ComputeExchangeCompletion::from_finished(
-                slot,
-                AuthorityFinishedCompute::from_parts(settlement, aftermath),
-            )),
-            Self::Obsolete { slot, finished } => {
-                drop(finished);
-                sink.recover_obsolete(slot)
-            }
-        }
-    }
-}
-
-#[must_use = "exchange planning failure still owns every submitted worker slot"]
+#[must_use = "a failed checkout plan still owns every worker grant"]
 pub(in crate::authority) struct ComputeExchangePlanFailure {
     error: PlanError,
-    classified: std::vec::IntoIter<ClassifiedCompletion>,
-    remaining: std::vec::IntoIter<ComputeExchangeCompletion>,
     grants: std::vec::IntoIter<ComputeWorkerGrant>,
 }
 
@@ -248,61 +140,15 @@ impl std::fmt::Debug for ComputeExchangePlanFailure {
     }
 }
 
-/// Linear failure router. It is deliberately a visitor rather than a large
-/// tagged recovery value: every capability moves directly to its owner without
-/// boxing or allocating in the allocator/effect-backpressure path.
-pub(in crate::authority) trait ComputeExchangeRecoverySink {
-    type Error;
-
-    fn recover_settlement(
-        &mut self,
-        completion: ComputeExchangeCompletion,
-    ) -> Result<(), Self::Error>;
-
-    fn recover_obsolete(&mut self, slot: ComputeWorkerSlot) -> Result<(), Self::Error>;
-
-    fn recover_grant(&mut self, grant: ComputeWorkerGrant) -> Result<(), Self::Error>;
-}
-
-#[must_use = "every failed exchange capability must be routed exactly once"]
-pub(in crate::authority) struct ComputeExchangeRecoveries {
-    classified: std::vec::IntoIter<ClassifiedCompletion>,
-    remaining: std::vec::IntoIter<ComputeExchangeCompletion>,
-    grants: std::vec::IntoIter<ComputeWorkerGrant>,
-}
-
-impl ComputeExchangeRecoveries {
-    pub(in crate::authority) fn recover_into<S: ComputeExchangeRecoverySink>(
-        self,
-        sink: &mut S,
-    ) -> Result<(), S::Error> {
-        for completion in self.classified {
-            completion.recover_into(sink)?;
-        }
-        for completion in self.remaining {
-            sink.recover_settlement(completion)?;
-        }
-        for grant in self.grants {
-            sink.recover_grant(grant)?;
-        }
-        Ok(())
-    }
-}
-
 impl ComputeExchangePlanFailure {
     pub(in crate::authority) fn error(&self) -> &PlanError {
         &self.error
     }
 
-    pub(in crate::authority) fn into_recovery(self) -> (PlanError, ComputeExchangeRecoveries) {
-        (
-            self.error,
-            ComputeExchangeRecoveries {
-                classified: self.classified,
-                remaining: self.remaining,
-                grants: self.grants,
-            },
-        )
+    pub(in crate::authority) fn into_parts(
+        self,
+    ) -> (PlanError, std::vec::IntoIter<ComputeWorkerGrant>) {
+        (self.error, self.grants)
     }
 }
 
@@ -312,7 +158,6 @@ pub(super) struct ComputeExchangeDelta {
     resources: ResourceBatchPlan,
     scheduler: SchedulerBatchDelta,
     dependency: DependencyBatchDelta,
-    clocks: AuthorityClocks,
     retired: super::RetiredOwners,
 }
 
@@ -326,7 +171,6 @@ impl ComputeExchangeDelta {
             scheduler: self.scheduler,
             dependency: self.dependency,
             effect: super::EffectDelta::default(),
-            clocks: self.clocks,
             async_process_starts: Vec::new(),
             removals: Vec::new(),
             retired: self.retired,
@@ -346,16 +190,11 @@ struct OwnerOverlay {
 }
 
 impl OwnerOverlay {
-    fn new(maximum_changes: usize) -> Result<Self, PlanError> {
-        let mut positions = HashMap::new();
-        positions
-            .try_reserve(maximum_changes)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut changes = Vec::new();
-        changes
-            .try_reserve(maximum_changes)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        Ok(Self { positions, changes })
+    fn new(maximum_changes: usize) -> Self {
+        Self {
+            positions: HashMap::with_capacity(maximum_changes),
+            changes: Vec::with_capacity(maximum_changes),
+        }
     }
 
     fn current(&self, authority: &TxPoolAuthority, key: &RawTxHash) -> Result<OwnedTx, PlanError> {
@@ -400,15 +239,6 @@ impl OwnerOverlay {
             change.after = after;
             return Ok(());
         }
-        self.replace_captured(key, before, after)
-    }
-
-    fn replace_captured(
-        &mut self,
-        key: RawTxHash,
-        before: OwnedTx,
-        after: OwnedTx,
-    ) -> Result<(), PlanError> {
         if before.record().identity.raw != key
             || self.positions.contains_key(&key)
             || after.record().identity.raw != key
@@ -434,6 +264,15 @@ struct PlannedAssignment {
     reservation: CheckoutReservation,
 }
 
+struct ComputeExchangeDraft {
+    owners: OwnerOverlay,
+    resources: OrderedResourceProjection,
+    active_work_revision: ActiveWorkRevision,
+    capacity_observation: ResourceCapacityObservation,
+    clock_plan: ClockPlanReservation,
+    wave: SchedulerExchangeWave,
+}
+
 enum CandidateUnavailable {
     SkipOwner,
     Stop,
@@ -452,66 +291,23 @@ struct ComputeExchangeCompileFailure {
     grants: Vec<ComputeWorkerGrant>,
 }
 
-struct ComputeExchangeOutcomeBuffers {
-    settled: Vec<ComputeExchangeSettled>,
-    obsolete: Vec<ComputeWorkerSlot>,
-    deferred: Vec<ComputeExchangeDeferred>,
-}
-
-struct PreparedSharedComputeExchangeOutputs {
-    classified: Vec<ClassifiedCompletion>,
-    assignments: Vec<ComputeExchangeAssignment>,
-    unused_grants: Vec<ComputeWorkerGrant>,
-    outcomes: ComputeExchangeOutcomeBuffers,
-}
-
-impl ComputeExchangeOutcomeBuffers {
-    fn new(maximum_completions: usize) -> Result<Self, PlanError> {
-        let mut settled = Vec::new();
-        settled
-            .try_reserve(maximum_completions)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut obsolete = Vec::new();
-        obsolete
-            .try_reserve(maximum_completions)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut deferred = Vec::new();
-        deferred
-            .try_reserve(maximum_completions)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        Ok(Self {
-            settled,
-            obsolete,
-            deferred,
-        })
-    }
-}
-
-#[must_use = "committed exchange consequences must leave the authority guard"]
+#[must_use = "committed checkout consequences must leave the authority guard"]
 pub(in crate::authority) struct CommittedComputeExchange {
     pub(in crate::authority) retirement: Option<super::CommittedDelta>,
-    pub(in crate::authority) settled: Vec<ComputeExchangeSettled>,
-    pub(in crate::authority) obsolete: Vec<ComputeWorkerSlot>,
-    pub(in crate::authority) deferred: Vec<ComputeExchangeDeferred>,
     pub(in crate::authority) assignments: Vec<ComputeExchangeAssignment>,
     pub(in crate::authority) unused_grants: Vec<ComputeWorkerGrant>,
 }
 
-/// Capabilities returned by a shared exact-shard Apply that proved stale or
-/// faulted before owner mutation. Owner-local completions are sealed to retry,
-/// exact deferrals retain their route, and every refill grant is returned.
-#[must_use = "a recovered compute exchange must route every completion and worker grant"]
+#[must_use = "a changed checkout cut must return every worker grant"]
 pub(in crate::authority) struct RecoveredComputeExchange {
-    pub(in crate::authority) obsolete: Vec<ComputeWorkerSlot>,
-    pub(in crate::authority) deferred: Vec<ComputeExchangeDeferred>,
     pub(in crate::authority) unused_grants: Vec<ComputeWorkerGrant>,
 }
 
+#[must_use = "a shared checkout terminal must be consumed"]
 #[expect(
     clippy::large_enum_variant,
-    reason = "the committed and recovered variants own bounded preallocated linear capabilities; boxing would allocate at the Apply terminal"
+    reason = "the committed arm owns preallocated retirement after irreversible owner mutation; boxing would add a fallible post-commit allocation"
 )]
-#[must_use = "a shared compute exchange terminal must be published or recovered"]
 pub(in crate::authority) enum SharedComputeExchangeOutcome {
     Committed {
         exchange: CommittedComputeExchange,
@@ -524,16 +320,17 @@ pub(in crate::authority) enum SharedComputeExchangeOutcome {
     },
 }
 
-#[must_use = "a prepared shared compute exchange must Apply or return every capability"]
+#[must_use = "a prepared checkout must Apply or return every grant"]
 pub(in crate::authority) struct PreparedSharedComputeExchange<'authority> {
     apply: SharedComputeApply<'authority>,
-    outputs: PreparedSharedComputeExchangeOutputs,
+    assignments: Vec<ComputeExchangeAssignment>,
+    unused_grants: Vec<ComputeWorkerGrant>,
     recovery_grants: Vec<ComputeWorkerGrant>,
 }
 
 #[expect(
     clippy::large_enum_variant,
-    reason = "the bounded shared terminal owns its already-prepared Apply; boxing would add an untracked allocation failure after planning"
+    reason = "the Apply arm owns one preallocated atomic delta and is consumed immediately; boxing would allocate on every compute checkout"
 )]
 enum SharedComputeApply<'authority> {
     CommitNoop,
@@ -541,122 +338,47 @@ enum SharedComputeApply<'authority> {
     RetryProbe,
 }
 
-impl PreparedSharedComputeExchangeOutputs {
-    fn commit(self, retirement: Option<super::CommittedDelta>) -> CommittedComputeExchange {
-        let ComputeExchangeOutcomeBuffers {
-            mut settled,
-            mut obsolete,
-            mut deferred,
-        } = self.outcomes;
-        for classified in self.classified {
-            match classified {
-                ClassifiedCompletion::OwnerLocal {
-                    slot, aftermath, ..
-                } => settled.push(ComputeExchangeSettled { slot, aftermath }),
-                ClassifiedCompletion::Deferred {
-                    slot,
-                    settlement,
-                    aftermath,
-                    route,
-                } => deferred.push(ComputeExchangeDeferred {
-                    route,
-                    completion: ComputeExchangeCompletion::from_finished(
-                        slot,
-                        AuthorityFinishedCompute::from_parts(settlement, aftermath),
-                    ),
-                }),
-                ClassifiedCompletion::Obsolete { slot, finished } => {
-                    drop(finished);
-                    obsolete.push(slot);
-                }
-            }
-        }
-        CommittedComputeExchange {
-            retirement,
-            settled,
-            obsolete,
-            deferred,
-            assignments: self.assignments,
-            unused_grants: self.unused_grants,
-        }
-    }
-
-    fn recover_before_owner_mutation(
-        self,
+impl PreparedSharedComputeExchange<'_> {
+    fn recover(
+        assignments: Vec<ComputeExchangeAssignment>,
+        unused_grants: Vec<ComputeWorkerGrant>,
         mut recovery_grants: Vec<ComputeWorkerGrant>,
     ) -> RecoveredComputeExchange {
-        let ComputeExchangeOutcomeBuffers {
-            settled,
-            mut obsolete,
-            mut deferred,
-        } = self.outcomes;
-        debug_assert!(
-            settled.is_empty(),
-            "shared owner-local compilation cannot pre-settle an exclusive completion"
-        );
-        drop(settled);
-        for classified in self.classified {
-            match classified {
-                ClassifiedCompletion::OwnerLocal {
-                    slot,
-                    token,
-                    aftermath,
-                    ..
-                } => deferred.push(ComputeExchangeDeferred::from_settlement(
-                    ComputeExchangeDeferredRoute::ExchangeRetry,
-                    slot,
-                    ComputeSettlement {
-                        token,
-                        next: SettlementNext::Retry,
-                    },
-                    aftermath,
-                )),
-                ClassifiedCompletion::Deferred {
-                    slot,
-                    settlement,
-                    aftermath,
-                    route,
-                } => deferred.push(ComputeExchangeDeferred::from_settlement(
-                    route, slot, settlement, aftermath,
-                )),
-                ClassifiedCompletion::Obsolete { slot, finished } => {
-                    drop(finished);
-                    obsolete.push(slot);
-                }
-            }
-        }
         recovery_grants.extend(
-            self.assignments
+            assignments
                 .into_iter()
                 .map(ComputeExchangeAssignment::into_grant_before_commit),
         );
-        recovery_grants.extend(self.unused_grants);
+        recovery_grants.extend(unused_grants);
         RecoveredComputeExchange {
-            obsolete,
-            deferred,
             unused_grants: recovery_grants,
         }
     }
-}
 
-impl PreparedSharedComputeExchange<'_> {
     pub(in crate::authority) fn apply(self) -> SharedComputeExchangeOutcome {
         let Self {
             apply,
-            outputs,
+            assignments,
+            unused_grants,
             recovery_grants,
         } = self;
         let plan = match apply {
             SharedComputeApply::CommitNoop => {
                 return SharedComputeExchangeOutcome::Committed {
-                    exchange: outputs.commit(None),
+                    exchange: CommittedComputeExchange {
+                        retirement: None,
+                        assignments,
+                        unused_grants,
+                    },
                     post_commit_fault: None,
                 };
             }
             SharedComputeApply::RetryProbe => {
-                return SharedComputeExchangeOutcome::RetryProbe(
-                    outputs.recover_before_owner_mutation(recovery_grants),
-                );
+                return SharedComputeExchangeOutcome::RetryProbe(Self::recover(
+                    assignments,
+                    unused_grants,
+                    recovery_grants,
+                ));
             }
             SharedComputeApply::Apply(plan) => plan,
         };
@@ -664,79 +386,27 @@ impl PreparedSharedComputeExchange<'_> {
             Ok(committed) => {
                 let (retirement, post_commit_fault) = committed.into_parts();
                 SharedComputeExchangeOutcome::Committed {
-                    exchange: outputs.commit(Some(retirement)),
+                    exchange: CommittedComputeExchange {
+                        retirement: Some(retirement),
+                        assignments,
+                        unused_grants,
+                    },
                     post_commit_fault,
                 }
             }
             Err(ConcurrentIndependentError::ChangedCut(_)) => {
-                SharedComputeExchangeOutcome::RetryProbe(
-                    outputs.recover_before_owner_mutation(recovery_grants),
-                )
+                SharedComputeExchangeOutcome::RetryProbe(Self::recover(
+                    assignments,
+                    unused_grants,
+                    recovery_grants,
+                ))
             }
             Err(ConcurrentIndependentError::Fault(fault)) => SharedComputeExchangeOutcome::Fault {
                 fault,
-                recovered: outputs.recover_before_owner_mutation(recovery_grants),
+                recovered: Self::recover(assignments, unused_grants, recovery_grants),
             },
         }
     }
-}
-
-fn deferred_next(nonlocal: super::NonLocalSettlement) -> SettlementNext {
-    match nonlocal {
-        super::NonLocalSettlement::Waiting(missing) => SettlementNext::Waiting(missing),
-        super::NonLocalSettlement::Rejected(rejection) => SettlementNext::Rejected(rejection),
-        super::NonLocalSettlement::VerificationRejected {
-            rejection,
-            resolved,
-        } => SettlementNext::VerificationRejected {
-            rejection,
-            resolved,
-        },
-    }
-}
-
-fn defer_owner_local(
-    member: &mut ClassifiedCompletion,
-    peer: Option<PeerIndex>,
-    route: ComputeExchangeDeferredRoute,
-) {
-    let should_defer = matches!(
-        member,
-        ClassifiedCompletion::OwnerLocal { ingress_peer, .. }
-            if peer.is_none() || *ingress_peer == peer
-    );
-    if !should_defer {
-        return;
-    }
-    let slot = match member {
-        ClassifiedCompletion::OwnerLocal { slot, .. } => *slot,
-        ClassifiedCompletion::Deferred { .. } | ClassifiedCompletion::Obsolete { .. } => return,
-    };
-    let previous = std::mem::replace(
-        member,
-        ClassifiedCompletion::Obsolete {
-            slot,
-            finished: None,
-        },
-    );
-    let ClassifiedCompletion::OwnerLocal {
-        slot,
-        token,
-        aftermath,
-        ..
-    } = previous
-    else {
-        return;
-    };
-    *member = ClassifiedCompletion::Deferred {
-        slot,
-        settlement: ComputeSettlement {
-            token,
-            next: SettlementNext::Retry,
-        },
-        aftermath,
-        route,
-    };
 }
 
 impl TxPoolAuthority {
@@ -769,18 +439,21 @@ impl TxPoolAuthority {
         }
     }
 
-    #[expect(
-        clippy::result_large_err,
-        reason = "the error is the linear recovery carrier for every bounded completion and worker grant"
-    )]
     #[cfg(test)]
     pub(in crate::authority) fn apply_compute_exchange(
-        &mut self,
-        completions: Vec<ComputeExchangeCompletion>,
+        &self,
         grants: Vec<ComputeWorkerGrant>,
+        exclusions: &[ComputePeerExclusion],
     ) -> Result<CommittedComputeExchange, ComputeExchangePlanFailure> {
-        let inputs = self.validate_compute_exchange_inputs(completions, grants)?;
-        let prepared = self.prepare_shared_compute_exchange(inputs)?;
+        let inputs = self.validate_compute_exchange_inputs(grants)?;
+        let prepared = self.prepare_shared_compute_exchange(inputs, exclusions)?;
+        Ok(Self::apply_compute_exchange_for_test(prepared))
+    }
+
+    #[cfg(test)]
+    fn apply_compute_exchange_for_test(
+        prepared: PreparedSharedComputeExchange<'_>,
+    ) -> CommittedComputeExchange {
         match prepared.apply() {
             SharedComputeExchangeOutcome::Committed {
                 exchange,
@@ -790,7 +463,7 @@ impl TxPoolAuthority {
                     post_commit_fault.is_none(),
                     "the no-interleave production-path oracle cannot hide a post-commit fault"
                 );
-                Ok(exchange)
+                exchange
             }
             SharedComputeExchangeOutcome::RetryProbe(recovered) => {
                 drop(recovered);
@@ -803,398 +476,141 @@ impl TxPoolAuthority {
         }
     }
 
-    #[expect(
-        clippy::result_large_err,
-        reason = "the error is the linear recovery carrier for every bounded completion and worker grant"
-    )]
-    pub(in crate::authority) fn validate_compute_exchange_inputs(
+    #[cfg(test)]
+    pub(in crate::authority) fn apply_compute_exchange_for_owner(
         &self,
-        mut completions: Vec<ComputeExchangeCompletion>,
-        grants: Vec<ComputeWorkerGrant>,
-    ) -> Result<ValidatedComputeExchangeInputs, ComputeExchangePlanFailure> {
-        // Completions and refill grants are distinct linear partitions. A
-        // finished slot may contribute one of each in the same settle/refill
-        // exchange, so their valid aggregate bound is `2 * P`, not the
-        // unrelated membership-component limit. Validate each partition
-        // directly against the configured `P` active-work slots.
-        let active_work_limit = self.resources.limits().active_work_limit();
-        if completions.len() > active_work_limit || grants.len() > active_work_limit {
+        grant: ComputeWorkerGrant,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        permit: WorkPermit,
+    ) -> Result<CommittedComputeExchange, ComputeExchangePlanFailure> {
+        let slot = grant.slot();
+        if slot.primary_permit() != permit && slot.fallback_permit() != Some(permit) {
             return Err(exchange_failure(
                 PlanError::Fault(AuthorityFault::SchedulerProjection),
-                Vec::new(),
-                completions,
+                vec![grant],
+            ));
+        }
+        let (delta, mut jobs) =
+            match self.compile_compute_exchange_owner_state(key, expected, permit) {
+                Ok(compiled) => compiled,
+                Err(error) => return Err(exchange_failure(error, vec![grant])),
+            };
+        let work = jobs
+            .pop()
+            .flatten()
+            .expect("an exact eligible checkout compiles one job");
+        let compiled = CompiledComputeExchange {
+            delta,
+            assignments: vec![ComputeExchangeAssignment { grant, work }],
+            unused_grants: Vec::new(),
+        };
+        let recovery_grants = Vec::with_capacity(1);
+        let prepared = self.prepare_compiled_compute_exchange(compiled, recovery_grants);
+        Ok(Self::apply_compute_exchange_for_test(prepared))
+    }
+
+    pub(in crate::authority) fn validate_compute_exchange_inputs(
+        &self,
+        grants: Vec<ComputeWorkerGrant>,
+    ) -> Result<ValidatedComputeExchangeInputs, ComputeExchangePlanFailure> {
+        if grants.len() > self.resources.limits().active_work_limit() {
+            return Err(exchange_failure(
+                PlanError::Fault(AuthorityFault::SchedulerProjection),
                 grants,
             ));
         }
-        completions.sort_unstable_by_key(ComputeExchangeCompletion::version);
-        if completions
+        let mut slots = grants
+            .iter()
+            .map(|grant| grant.slot().id())
+            .collect::<Vec<_>>();
+        slots.sort_unstable();
+        if slots
             .array_windows::<2>()
-            .any(|[left, right]| left.version() == right.version())
+            .any(|[left, right]| left == right)
         {
             return Err(exchange_failure(
                 PlanError::Fault(AuthorityFault::SchedulerProjection),
-                Vec::new(),
-                completions,
                 grants,
             ));
         }
-
-        let mut completion_slots = Vec::new();
-        if completion_slots.try_reserve(completions.len()).is_err() {
-            return Err(exchange_failure(
-                PlanError::Backpressure(super::Backpressure::Allocation),
-                Vec::new(),
-                completions,
-                grants,
-            ));
-        }
-        completion_slots.extend(completions.iter().map(|completion| completion.slot.id()));
-        completion_slots.sort_unstable();
-        let duplicate_completion = completion_slots
-            .array_windows::<2>()
-            .any(|[left, right]| left == right);
-        let mut grant_slots = Vec::new();
-        if grant_slots.try_reserve(grants.len()).is_err() {
-            return Err(exchange_failure(
-                PlanError::Backpressure(super::Backpressure::Allocation),
-                Vec::new(),
-                completions,
-                grants,
-            ));
-        }
-        grant_slots.extend(grants.iter().map(|grant| grant.slot().id()));
-        grant_slots.sort_unstable();
-        let duplicate_grant = grant_slots
-            .array_windows::<2>()
-            .any(|[left, right]| left == right);
-        if duplicate_completion || duplicate_grant {
-            return Err(exchange_failure(
-                PlanError::Fault(AuthorityFault::SchedulerProjection),
-                Vec::new(),
-                completions,
-                grants,
-            ));
-        }
-        Ok(ValidatedComputeExchangeInputs {
-            completions,
-            grants,
-        })
+        Ok(ValidatedComputeExchangeInputs { grants })
     }
 
-    #[expect(
-        clippy::result_large_err,
-        reason = "the error is the linear recovery carrier for every bounded completion and worker grant"
-    )]
     pub(in crate::authority) fn prepare_shared_compute_exchange(
         &self,
         inputs: ValidatedComputeExchangeInputs,
+        exclusions: &[ComputePeerExclusion],
     ) -> Result<PreparedSharedComputeExchange<'_>, ComputeExchangePlanFailure> {
-        Self::prepare_compute_exchange_with(self, inputs)
-    }
-
-    #[expect(
-        clippy::result_large_err,
-        reason = "the error is the linear recovery carrier for every bounded completion and worker grant"
-    )]
-    fn prepare_compute_exchange_with<'authority>(
-        authority: &'authority TxPoolAuthority,
-        inputs: ValidatedComputeExchangeInputs,
-    ) -> Result<PreparedSharedComputeExchange<'authority>, ComputeExchangePlanFailure> {
-        let (completions, grants) = inputs.into_parts();
-        if let Err(error) = authority.effects.lock().ensure_open() {
-            return Err(exchange_failure(
-                error.into(),
-                Vec::new(),
-                completions,
-                grants,
-            ));
-        }
-        let completion_count = completions.len();
-        let outcomes = match ComputeExchangeOutcomeBuffers::new(completions.len()) {
-            Ok(outcomes) => outcomes,
-            Err(error) => {
-                return Err(exchange_failure(error, Vec::new(), completions, grants));
-            }
-        };
-        let mut classified = Vec::new();
-        if classified.try_reserve(completions.len()).is_err() {
-            return Err(exchange_failure(
-                PlanError::Backpressure(super::Backpressure::Allocation),
-                classified,
-                completions,
-                grants,
-            ));
-        }
-        let mut recovery_grants = Vec::new();
-        if recovery_grants.try_reserve(grants.len()).is_err() {
-            return Err(exchange_failure(
-                PlanError::Backpressure(super::Backpressure::Allocation),
-                classified,
-                completions,
-                grants,
-            ));
-        }
-        let mut blocked_revocation_peers = Vec::new();
-        if blocked_revocation_peers
-            .try_reserve(completion_count)
-            .is_err()
+        let grants = inputs.into_grants();
+        let recovery_grants = Vec::with_capacity(grants.len());
+        let mut blocked_revocation_peers = Vec::with_capacity(exclusions.len());
+        for peer in exclusions
+            .iter()
+            .filter_map(|exclusion| exclusion.current_peer(self))
         {
-            return Err(exchange_failure(
-                PlanError::Backpressure(super::Backpressure::Allocation),
-                classified,
-                completions,
-                grants,
-            ));
-        }
-        let mut remaining = completions.into_iter();
-        while let Some(completion) = remaining.next() {
-            let ComputeExchangeCompletion { slot, finished } = completion;
-            let (settlement, aftermath) = finished.into_parts();
-            let ComputeSettlement { token, next } = settlement;
-            let existing = match authority.entries.get(&token.hash).as_deref().cloned() {
-                Some(existing) if existing.record().version == token.version => existing,
-                Some(_) | None => {
-                    classified.push(ClassifiedCompletion::Obsolete {
-                        slot,
-                        finished: Some(AuthorityFinishedCompute::from_parts(
-                            ComputeSettlement { token, next },
-                            aftermath,
-                        )),
-                    });
-                    continue;
-                }
-            };
-            let OwnedTx::PreAccepted(preaccepted) = &existing else {
-                classified.push(ClassifiedCompletion::Obsolete {
-                    slot,
-                    finished: Some(AuthorityFinishedCompute::from_parts(
-                        ComputeSettlement { token, next },
-                        aftermath,
-                    )),
-                });
-                continue;
-            };
-            let PreAcceptedPhase::Computing(active) = &preaccepted.phase else {
-                classified.push(ClassifiedCompletion::Obsolete {
-                    slot,
-                    finished: Some(AuthorityFinishedCompute::from_parts(
-                        ComputeSettlement { token, next },
-                        aftermath,
-                    )),
-                });
-                continue;
-            };
-            if preaccepted.charge.active_work != 1 {
-                classified.push(ClassifiedCompletion::Deferred {
-                    slot,
-                    settlement: ComputeSettlement {
-                        token,
-                        next: SettlementNext::Retry,
-                    },
-                    aftermath,
-                    route: ComputeExchangeDeferredRoute::ExchangeRetry,
-                });
-                return Err(exchange_failure_from_iter(
-                    PlanError::Fault(AuthorityFault::ResourceProjection),
-                    classified,
-                    remaining,
-                    grants,
-                ));
-            }
-            if preaccepted
-                .source
-                .ingress_peer()
-                .is_some_and(|peer| blocked_revocation_peers.contains(&peer))
-            {
-                classified.push(ClassifiedCompletion::Deferred {
-                    slot,
-                    settlement: ComputeSettlement { token, next },
-                    aftermath,
-                    route: ComputeExchangeDeferredRoute::ExchangeAfterEffect,
-                });
-                continue;
-            }
-            let (candidate_dependencies, missing_dependencies) =
-                settlement_dependency_inputs(&next);
-            let dependency = match authority.dependencies.capture_settlement_evidence(
-                &token.hash,
-                preaccepted.dependencies(),
-                candidate_dependencies,
-                missing_dependencies,
-            ) {
-                Ok(dependency) => dependency,
-                Err(error) => {
-                    classified.push(ClassifiedCompletion::Deferred {
-                        slot,
-                        settlement: ComputeSettlement {
-                            token,
-                            next: SettlementNext::Retry,
-                        },
-                        aftermath,
-                        route: ComputeExchangeDeferredRoute::ExchangeRetry,
-                    });
-                    return Err(exchange_failure_from_iter(
-                        error.into(),
-                        classified,
-                        remaining,
-                        grants,
-                    ));
-                }
-            };
-            match authority.classify_settlement(preaccepted, active, &dependency, next) {
-                Ok(SettlementClassification::OwnerLocal(settlement)) => {
-                    classified.push(ClassifiedCompletion::OwnerLocal {
-                        slot,
-                        token,
-                        ingress_peer: preaccepted.source.ingress_peer(),
-                        premise: Some(OwnerLocalPremise {
-                            before: existing,
-                            settlement,
-                            dependency,
-                        }),
-                        aftermath,
-                    });
-                }
-                Ok(SettlementClassification::NonLocal(nonlocal)) => {
-                    let revocation_peer = match &nonlocal {
-                        super::NonLocalSettlement::Rejected(rejection)
-                            if rejection.is_malformed() =>
-                        {
-                            preaccepted.source.payload_blame_peer()
-                        }
-                        super::NonLocalSettlement::VerificationRejected { rejection, .. }
-                            if rejection.is_malformed() =>
-                        {
-                            preaccepted.source.payload_blame_peer()
-                        }
-                        super::NonLocalSettlement::Waiting(_)
-                        | super::NonLocalSettlement::Rejected(_)
-                        | super::NonLocalSettlement::VerificationRejected { .. } => None,
-                    };
-                    if let Some(peer) = revocation_peer {
-                        if !blocked_revocation_peers.contains(&peer) {
-                            blocked_revocation_peers.push(peer);
-                        }
-                        for member in &mut classified {
-                            defer_owner_local(
-                                member,
-                                Some(peer),
-                                ComputeExchangeDeferredRoute::ExchangeAfterEffect,
-                            );
-                        }
-                    }
-                    classified.push(ClassifiedCompletion::Deferred {
-                        slot,
-                        settlement: ComputeSettlement {
-                            token,
-                            next: deferred_next(nonlocal),
-                        },
-                        aftermath,
-                        route: ComputeExchangeDeferredRoute::ExactSettlement,
-                    });
-                }
-                Err(error) => {
-                    classified.push(ClassifiedCompletion::Deferred {
-                        slot,
-                        settlement: ComputeSettlement {
-                            token,
-                            next: SettlementNext::Retry,
-                        },
-                        aftermath,
-                        route: ComputeExchangeDeferredRoute::ExchangeRetry,
-                    });
-                    return Err(exchange_failure_from_iter(
-                        error, classified, remaining, grants,
-                    ));
-                }
+            if !blocked_revocation_peers.contains(&peer) {
+                blocked_revocation_peers.push(peer);
             }
         }
-
-        match Self::compile_compute_exchange_inner(
-            authority,
-            &mut classified,
-            grants,
-            &blocked_revocation_peers,
-        ) {
-            Ok(CompiledComputeExchange {
-                delta,
-                assignments,
-                unused_grants,
-            }) => {
-                let outputs = PreparedSharedComputeExchangeOutputs {
-                    classified,
-                    assignments,
-                    unused_grants,
-                    outcomes,
-                };
-                let apply = delta.map_or(SharedComputeApply::CommitNoop, |delta| {
-                    let delta = delta.into_independent();
-                    let support = delta.physical_support(authority);
-                    SharedComputeApply::Apply(PreparedIndependentApply::Shared {
-                        authority,
-                        delta,
-                        support,
-                        staged_effect: None,
-                    })
-                });
-                Ok(PreparedSharedComputeExchange {
-                    apply,
-                    outputs,
-                    recovery_grants,
-                })
-            }
+        match self.compile_compute_exchange_inner(grants, &blocked_revocation_peers) {
+            Ok(compiled) => Ok(self.prepare_compiled_compute_exchange(compiled, recovery_grants)),
             Err(ComputeExchangeCompileFailure {
                 error: PlanError::Stale(_),
                 grants,
             }) => Ok(PreparedSharedComputeExchange {
                 apply: SharedComputeApply::RetryProbe,
-                outputs: PreparedSharedComputeExchangeOutputs {
-                    classified,
-                    assignments: Vec::new(),
-                    unused_grants: grants,
-                    outcomes,
-                },
+                assignments: Vec::new(),
+                unused_grants: grants,
                 recovery_grants,
             }),
             Err(ComputeExchangeCompileFailure { error, grants }) => {
-                Err(exchange_failure(error, classified, Vec::new(), grants))
+                Err(exchange_failure(error, grants))
             }
+        }
+    }
+
+    fn prepare_compiled_compute_exchange(
+        &self,
+        compiled: CompiledComputeExchange,
+        recovery_grants: Vec<ComputeWorkerGrant>,
+    ) -> PreparedSharedComputeExchange<'_> {
+        let CompiledComputeExchange {
+            delta,
+            assignments,
+            unused_grants,
+        } = compiled;
+        let apply = delta.map_or(SharedComputeApply::CommitNoop, |delta| {
+            let delta = delta.into_independent();
+            let support = delta.physical_support(self);
+            SharedComputeApply::Apply(PreparedIndependentApply::Shared {
+                authority: self,
+                delta,
+                support,
+                staged_effect: None,
+            })
+        });
+        PreparedSharedComputeExchange {
+            apply,
+            assignments,
+            unused_grants,
+            recovery_grants,
         }
     }
 
     fn compile_compute_exchange_inner(
         &self,
-        classified: &mut [ClassifiedCompletion],
         mut grants: Vec<ComputeWorkerGrant>,
         blocked_revocation_peers: &[PeerIndex],
     ) -> Result<CompiledComputeExchange, ComputeExchangeCompileFailure> {
         grants.sort_unstable_by_key(|grant| grant.slot().work_selection_key());
-        let mut slots = Vec::new();
-        if slots.try_reserve(grants.len()).is_err() {
-            return Err(ComputeExchangeCompileFailure {
-                error: PlanError::Backpressure(super::Backpressure::Allocation),
-                grants,
-            });
-        }
+        let mut slots = Vec::with_capacity(grants.len());
         slots.extend(grants.iter().map(ComputeWorkerGrant::slot));
-        let mut committed_assignments = Vec::new();
-        if committed_assignments.try_reserve(grants.len()).is_err() {
-            return Err(ComputeExchangeCompileFailure {
-                error: PlanError::Backpressure(super::Backpressure::Allocation),
-                grants,
-            });
-        }
-        let mut unused_grants = Vec::new();
-        if unused_grants.try_reserve(grants.len()).is_err() {
-            return Err(ComputeExchangeCompileFailure {
-                error: PlanError::Backpressure(super::Backpressure::Allocation),
-                grants,
-            });
-        }
+        let mut committed_assignments = Vec::with_capacity(grants.len());
+        let mut unused_grants = Vec::with_capacity(grants.len());
 
         let (delta, work) =
-            match self.compile_compute_exchange_state(classified, &slots, blocked_revocation_peers)
-            {
+            match self.compile_compute_exchange_state(&slots, blocked_revocation_peers) {
                 Ok(result) => result,
                 Err(error) => return Err(ComputeExchangeCompileFailure { error, grants }),
             };
@@ -1213,189 +629,11 @@ impl TxPoolAuthority {
 
     fn compile_compute_exchange_state(
         &self,
-        classified: &mut [ClassifiedCompletion],
         grant_slots: &[ComputeWorkerSlot],
         blocked_revocation_peers: &[PeerIndex],
     ) -> Result<(Option<ComputeExchangeDelta>, Vec<Option<CheckedOutWork>>), PlanError> {
-        let owner_local_bound = classified
-            .iter()
-            .filter(|member| matches!(member, ClassifiedCompletion::OwnerLocal { .. }))
-            .count();
-        let transition_bound = owner_local_bound
-            .checked_add(classified.len())
-            .and_then(|count| count.checked_add(grant_slots.len()))
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let mut owners = OwnerOverlay::new(transition_bound)?;
-        let mut resources = self
-            .resources
-            .ordered_projection(&self.entries, transition_bound)?;
-        let active_work_revision = resources.active_work_revision();
-        let capacity_observation = resources.capacity_observation();
-        let mut clock_plan = ClockPlanReservation::begin(std::sync::Arc::clone(&self.clocks));
-        #[cfg(test)]
-        self.entries.enter_compute_exchange_probe(
-            crate::authority::shard::ComputeExchangeProbePhase::AfterClassification,
-        );
-        let mut settlement_evidence = Vec::new();
-        settlement_evidence
-            .try_reserve(owner_local_bound)
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-
-        let mut local_count = 0usize;
-        for member in classified.iter_mut() {
-            let (token, ingress_peer, premise) = match member {
-                ClassifiedCompletion::OwnerLocal {
-                    token,
-                    ingress_peer,
-                    premise: Some(premise),
-                    ..
-                } => (token, *ingress_peer, premise),
-                ClassifiedCompletion::OwnerLocal { .. } => {
-                    return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                }
-                ClassifiedCompletion::Deferred { .. } | ClassifiedCompletion::Obsolete { .. } => {
-                    continue;
-                }
-            };
-            if premise.before.record().version != token.version
-                || premise.before.record().identity.raw != token.hash
-            {
-                return Err(PlanError::Stale(super::StalePlan::Version));
-            }
-            let current = self
-                .entries
-                .get(&token.hash)
-                .ok_or(PlanError::Stale(super::StalePlan::Missing))?;
-            if current.record().version != token.version {
-                return Err(PlanError::Stale(super::StalePlan::Version));
-            }
-            let OwnedTx::PreAccepted(preaccepted) = &premise.before else {
-                return Err(PlanError::Stale(super::StalePlan::Phase));
-            };
-            if !matches!(&preaccepted.phase, PreAcceptedPhase::Computing(_)) {
-                return Err(PlanError::Stale(super::StalePlan::Phase));
-            }
-            if preaccepted.charge.active_work != 1 {
-                return Err(PlanError::Fault(AuthorityFault::ResourceProjection));
-            }
-            drop(current);
-            let desired_charge = ChargeRecord::PreAccepted {
-                resources: premise.settlement.charge,
-                residency_peer: ingress_peer,
-                compute_peer: None,
-            };
-            let resource_result = resources.replace(
-                self.resources.read(&self.entries),
-                Some(premise.before.charge_record()),
-                Some(desired_charge),
-            );
-            if self
-                .entries
-                .get(&token.hash)
-                .is_none_or(|owner| owner.record().version != token.version)
-            {
-                return Err(PlanError::Stale(super::StalePlan::Version));
-            }
-            match resource_result {
-                Ok(()) => {}
-                Err(
-                    ResourceError::PreAcceptedLimit
-                    | ResourceError::RemoteLimit
-                    | ResourceError::PeerLimit(_),
-                ) => {
-                    let slot = match member {
-                        ClassifiedCompletion::OwnerLocal { slot, .. } => *slot,
-                        ClassifiedCompletion::Deferred { .. }
-                        | ClassifiedCompletion::Obsolete { .. } => {
-                            return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                        }
-                    };
-                    let previous = std::mem::replace(
-                        member,
-                        ClassifiedCompletion::Obsolete {
-                            slot,
-                            finished: None,
-                        },
-                    );
-                    let ClassifiedCompletion::OwnerLocal {
-                        slot,
-                        token,
-                        premise: Some(premise),
-                        aftermath,
-                        ..
-                    } = previous
-                    else {
-                        return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
-                    };
-                    *member = ClassifiedCompletion::Deferred {
-                        slot,
-                        settlement: ComputeSettlement {
-                            token,
-                            next: premise.settlement.into_exact_next(),
-                        },
-                        aftermath,
-                        route: ComputeExchangeDeferredRoute::ExactSettlement,
-                    };
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            }
-            local_count = local_count
-                .checked_add(1)
-                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        }
-
-        if let Some(local_count) = NonZeroUsize::new(local_count) {
-            let (mut versions, reserved) = clock_plan.replacements(local_count)?;
-            clock_plan = reserved;
-            for member in classified.iter_mut() {
-                let ClassifiedCompletion::OwnerLocal { token, premise, .. } = member else {
-                    continue;
-                };
-                let premise = premise
-                    .take()
-                    .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-                let version = versions
-                    .next()
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-                let OwnerLocalPremise {
-                    before,
-                    settlement,
-                    dependency,
-                } = premise;
-                let after = before
-                    .with_preaccepted_phase(
-                        settlement.phase.into_preaccepted(),
-                        version,
-                        settlement.charge,
-                    )
-                    .map_err(PlanError::Stale)?;
-                owners.replace_captured(token.hash.clone(), before, after)?;
-                settlement_evidence.push(dependency);
-            }
-            debug_assert!(versions.next().is_none());
-        }
-
-        let mut wave = SchedulerExchangeWave::after(
-            Arc::clone(&self.scheduler),
-            owners.changes.iter().map(|change| &change.after),
-            grant_slots.len(),
-        )
-        .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
-        let mut blocked_slots = Vec::new();
-        blocked_slots
-            .try_reserve(classified.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-        for member in classified.iter() {
-            if let ClassifiedCompletion::Deferred { slot, .. } = member {
-                blocked_slots.push(slot.id());
-            }
-        }
-        blocked_slots.sort_unstable();
-        let mut assignments = Vec::new();
-        assignments
-            .try_reserve(grant_slots.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut draft = self.begin_compute_exchange_state(grant_slots.len())?;
+        let mut assignments = Vec::with_capacity(grant_slots.len());
         assignments.resize_with(grant_slots.len(), || None);
 
         // Give every verifier primary lane one complete resource-aware pass
@@ -1403,21 +641,21 @@ impl TxPoolAuthority {
         // preserves the Small-only lane and prevents a fallback from blocking
         // an already-runnable Large Verify owned by another verifier.
         for (assignment, slot) in assignments.iter_mut().zip(grant_slots.iter().copied()) {
-            if slot.fallback_permit().is_none() || blocked_slots.binary_search(&slot.id()).is_ok() {
+            if slot.fallback_permit().is_none() {
                 continue;
             }
             *assignment = self
                 .search_exchange_permit(
-                    &owners,
-                    &mut resources,
-                    &mut wave,
+                    &draft.owners,
+                    &mut draft.resources,
+                    &mut draft.wave,
                     slot.primary_permit(),
                     blocked_revocation_peers,
                 )
-                .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
+                .map_err(|error| self.compute_exchange_derived_error(&draft.owners, error))?;
         }
         for (assignment, slot) in assignments.iter_mut().zip(grant_slots.iter().copied()) {
-            if assignment.is_some() || blocked_slots.binary_search(&slot.id()).is_ok() {
+            if assignment.is_some() {
                 continue;
             }
             let Some(fallback) = slot.fallback_permit() else {
@@ -1425,62 +663,99 @@ impl TxPoolAuthority {
             };
             *assignment = self
                 .search_exchange_permit(
-                    &owners,
-                    &mut resources,
-                    &mut wave,
+                    &draft.owners,
+                    &mut draft.resources,
+                    &mut draft.wave,
                     fallback,
                     blocked_revocation_peers,
                 )
-                .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
+                .map_err(|error| self.compute_exchange_derived_error(&draft.owners, error))?;
         }
         for (assignment, slot) in assignments.iter_mut().zip(grant_slots.iter().copied()) {
-            if slot.fallback_permit().is_some() || blocked_slots.binary_search(&slot.id()).is_ok() {
+            if slot.fallback_permit().is_some() {
                 continue;
             }
             *assignment = self
                 .search_exchange_permit(
-                    &owners,
-                    &mut resources,
-                    &mut wave,
+                    &draft.owners,
+                    &mut draft.resources,
+                    &mut draft.wave,
                     slot.primary_permit(),
                     blocked_revocation_peers,
                 )
-                .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
+                .map_err(|error| self.compute_exchange_derived_error(&draft.owners, error))?;
         }
+
+        self.finish_compute_exchange_state(draft, assignments)
+    }
+
+    fn begin_compute_exchange_state(
+        &self,
+        transition_bound: usize,
+    ) -> Result<ComputeExchangeDraft, PlanError> {
+        let owners = OwnerOverlay::new(transition_bound);
+        let resources = self
+            .resources
+            .ordered_projection(&self.entries, transition_bound)?;
+        let active_work_revision = resources.active_work_revision();
+        let capacity_observation = resources.capacity_observation();
+        let clock_plan = ClockPlanReservation::begin(std::sync::Arc::clone(&self.clocks));
+        let wave = SchedulerExchangeWave::after(
+            Arc::clone(&self.scheduler),
+            owners.changes.iter().map(|change| &change.after),
+            transition_bound,
+        )
+        .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
+        Ok(ComputeExchangeDraft {
+            owners,
+            resources,
+            active_work_revision,
+            capacity_observation,
+            clock_plan,
+            wave,
+        })
+    }
+
+    fn finish_compute_exchange_state(
+        &self,
+        draft: ComputeExchangeDraft,
+        assignments: Vec<Option<PlannedAssignment>>,
+    ) -> Result<(Option<ComputeExchangeDelta>, Vec<Option<CheckedOutWork>>), PlanError> {
+        let grant_count = assignments.len();
+        let ComputeExchangeDraft {
+            mut owners,
+            resources: _,
+            active_work_revision,
+            capacity_observation,
+            clock_plan,
+            wave,
+        } = draft;
 
         #[cfg(test)]
         self.entries.enter_compute_exchange_probe(
             crate::authority::shard::ComputeExchangeProbePhase::AfterSchedulerWave,
         );
 
-        let transition_count = local_count
-            .checked_add(
-                assignments
-                    .iter()
-                    .filter(|assignment| assignment.is_some())
-                    .count(),
-            )
-            .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
+        let transition_count = assignments
+            .iter()
+            .filter(|assignment| assignment.is_some())
+            .count();
         if transition_count == 0 {
-            let mut jobs = Vec::new();
-            jobs.try_reserve(grant_slots.len())
-                .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
-            jobs.resize_with(grant_slots.len(), || None);
+            let mut jobs = Vec::with_capacity(grant_count);
+            jobs.resize_with(grant_count, || None);
             return Ok((None, jobs));
         }
-        let mut jobs = Vec::new();
-        jobs.try_reserve(grant_slots.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut jobs = Vec::with_capacity(grant_count);
         let assignment_count = assignments
             .iter()
             .filter(|assignment| assignment.is_some())
             .count();
-        let (mut assignment_versions, clock_plan) =
+        let mut clock_plan = clock_plan;
+        let mut assignment_versions =
             if let Some(assignment_count) = NonZeroUsize::new(assignment_count) {
-                let (versions, clock_plan) = clock_plan.replacements(assignment_count)?;
-                (Some(versions), clock_plan)
+                Some(clock_plan.replacements(assignment_count)?)
             } else {
-                (None, clock_plan)
+                None
             };
         let clocks = clock_plan.commit()?;
         let sequence = clocks.sequence();
@@ -1527,12 +802,8 @@ impl TxPoolAuthority {
                 .as_mut()
                 .is_none_or(|versions| versions.next().is_none())
         );
-        let clocks = clocks.finish();
 
-        let mut resource_changes = Vec::new();
-        resource_changes
-            .try_reserve(owners.changes.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut resource_changes = Vec::with_capacity(owners.changes.len());
         for change in &owners.changes {
             resource_changes.push((
                 change.key.clone(),
@@ -1630,18 +901,16 @@ impl TxPoolAuthority {
                     .changes
                     .iter()
                     .map(|change| (Some(&change.before), Some(&change.after))),
-                settlement_evidence,
+                Vec::new(),
             )
             .map_err(|error| self.compute_exchange_derived_error(&owners, error))?;
-        let retired = super::retired_buffer(owners.changes.len())?;
-        let mut owner_cuts = Vec::new();
-        owner_cuts
-            .try_reserve(owners.changes.len())
-            .map_err(|_| PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let retired = super::retired_buffer(owners.changes.len());
+        let mut owner_cuts = Vec::with_capacity(owners.changes.len());
         for change in owners.changes {
             owner_cuts.push(IndependentOwnerCut {
                 key: change.key,
                 expected: OwnerPrestate::from_owner(&change.before),
+                removal_revision: None,
                 action: IndependentOwnerAction::Replace(Some(change.after)),
             });
         }
@@ -1656,11 +925,49 @@ impl TxPoolAuthority {
                 resources: resource_plan,
                 scheduler,
                 dependency,
-                clocks,
                 retired,
             }),
             jobs,
         ))
+    }
+
+    #[cfg(test)]
+    fn compile_compute_exchange_owner_state(
+        &self,
+        key: &RawTxHash,
+        expected: EntryVersion,
+        permit: WorkPermit,
+    ) -> Result<(Option<ComputeExchangeDelta>, Vec<Option<CheckedOutWork>>), PlanError> {
+        let mut draft = self.begin_compute_exchange_state(1)?;
+        let ticket = self
+            .scheduler
+            .lock()
+            .ticket_for_foundation(key, expected, permit)
+            .ok_or(PlanError::Stale(super::StalePlan::Phase))?;
+        let reservation = match self.exchange_checkout_resource(
+            &draft.owners,
+            &mut draft.resources,
+            &ticket,
+            permit,
+            &[],
+        )? {
+            Ok(reservation) => reservation,
+            Err(CandidateUnavailable::SkipOwner) => {
+                return Err(PlanError::Stale(super::StalePlan::Dependency));
+            }
+            Err(CandidateUnavailable::Stop) => {
+                return Err(PlanError::Backpressure(
+                    super::Backpressure::ComputeResources,
+                ));
+            }
+        };
+        draft.wave.select(&ticket)?;
+        let assignment = PlannedAssignment {
+            permit,
+            ticket,
+            reservation,
+        };
+        self.finish_compute_exchange_state(draft, vec![Some(assignment)])
     }
 
     fn search_exchange_permit(
@@ -1772,32 +1079,10 @@ impl TxPoolAuthority {
 
 fn exchange_failure(
     error: PlanError,
-    classified: Vec<ClassifiedCompletion>,
-    remaining: Vec<ComputeExchangeCompletion>,
     grants: Vec<ComputeWorkerGrant>,
 ) -> ComputeExchangePlanFailure {
     ComputeExchangePlanFailure {
         error,
-        classified: classified.into_iter(),
-        remaining: remaining.into_iter(),
         grants: grants.into_iter(),
     }
 }
-
-fn exchange_failure_from_iter(
-    error: PlanError,
-    classified: Vec<ClassifiedCompletion>,
-    remaining: std::vec::IntoIter<ComputeExchangeCompletion>,
-    grants: Vec<ComputeWorkerGrant>,
-) -> ComputeExchangePlanFailure {
-    ComputeExchangePlanFailure {
-        error,
-        classified: classified.into_iter(),
-        remaining,
-        grants: grants.into_iter(),
-    }
-}
-
-#[cfg(test)]
-#[path = "../tests/support/compute_exchange.rs"]
-pub(super) mod test_support;

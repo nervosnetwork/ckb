@@ -1079,28 +1079,25 @@ struct StagedEffectRecord {
 pub(super) struct StagedEffect {
     log: Arc<Mutex<EffectLog>>,
     batch: Arc<EffectBatch>,
-    sequence: ApplySequence,
     class: EffectClass,
     charge_bytes: usize,
     finalized: bool,
+    #[cfg(test)]
+    activation_probe: Option<Arc<super::shard::ConcurrentRemovalProbe>>,
 }
 
 impl StagedEffect {
-    /// Publishability activation is allocation-free and has no ordinary
-    /// failure arm. A later sequence may become ready first, but the log moves
-    /// only the committed leading prefix into its existing FIFO.
+    /// Publishability activation is one batch-local release store. A later
+    /// sequence may commit first, but journal observers move only the committed
+    /// leading prefix into the existing FIFO.
     pub(super) fn activate_with_wake(mut self) -> EffectWakeTransition {
-        let transition = {
-            let mut log = self.log.lock();
-            let before = log.wake_projection();
-            log.activate_staged(self.sequence, &self.batch);
-            EffectWakeTransition {
-                before,
-                after: log.wake_projection(),
-            }
-        };
+        #[cfg(test)]
+        if let Some(probe) = self.activation_probe.take() {
+            probe.enter();
+        }
+        self.batch.commit_stage();
         self.finalized = true;
-        transition
+        EffectWakeTransition::may_publish()
     }
 
     #[cfg(test)]
@@ -1118,12 +1115,20 @@ impl StagedEffect {
             log.release_staged_charge(self.class, self.charge_bytes)?;
             self.batch.cancel_stage();
             log.flush_staged_prefix();
-            EffectWakeTransition {
-                before,
-                after: log.wake_projection(),
-            }
+            EffectWakeTransition::between(before, log.wake_projection())
         };
         self.finalized = true;
+        #[cfg(test)]
+        {
+            let probe = self.log.lock().staged_rollback_terminal_probe.take();
+            if let Some(probe) = probe {
+                // The effect is already terminal and its journal lock is not
+                // held, while the caller still owns every outer capability.
+                // This one-shot seam lets tests prove the release order
+                // without making time an ordering witness.
+                probe.enter();
+            }
+        }
         Ok(wake)
     }
 
@@ -1152,7 +1157,6 @@ impl Drop for StagedEffect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum EffectError {
     Full,
-    Allocation,
     Closed,
     SequenceOvertaken,
     Projection,
@@ -1168,14 +1172,9 @@ pub(super) enum GenerationResetPlanError {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EffectSettlementPlanError {
+pub(super) enum EffectSettlementError {
     StaleLease,
     Projection,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EffectClosePlanError {
-    AlreadyClosed,
 }
 
 enum AppendPlan {
@@ -1221,13 +1220,6 @@ impl PendingRecentReject {
         }
         Ok(rejection.public_reject())
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EffectDisposition {
-    Published,
-    CircuitDisposed,
-    Retain,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1341,99 +1333,17 @@ impl EffectReceipt {
         Ok(complete)
     }
 
-    pub(super) fn retain(self) -> EffectSettlement {
-        EffectSettlement {
-            token: self.token,
-            batch: self.batch,
-            processed: self.processed,
-            disposition: EffectDisposition::Retain,
-        }
+    pub(super) fn is_complete(&self) -> bool {
+        self.processed.is_complete(&self.batch)
     }
 
-    pub(super) fn into_complete(
-        self,
-    ) -> Result<CompletedEffectReceipt, EffectReceiptCompletionFailure> {
-        if self.processed.is_complete(&self.batch) {
-            Ok(CompletedEffectReceipt {
-                token: self.token,
-                batch: self.batch,
-            })
-        } else {
-            Err(EffectReceiptCompletionFailure {
-                error: EffectProgressError::Incomplete,
-                receipt: self,
-            })
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EffectProgressError {
-    Complete,
-    Incomplete,
-    Arithmetic,
-}
-
-#[derive(Debug)]
-#[must_use = "an incomplete effect receipt still requires settlement"]
-pub(super) struct EffectReceiptCompletionFailure {
-    error: EffectProgressError,
-    receipt: EffectReceipt,
-}
-
-impl EffectReceiptCompletionFailure {
-    pub(super) fn into_parts(self) -> (EffectProgressError, EffectReceipt) {
-        (self.error, self.receipt)
-    }
-}
-
-#[derive(Debug)]
-#[must_use = "a completed effect receipt must settle the authority charge"]
-pub(super) struct CompletedEffectReceipt {
-    token: EffectToken,
-    batch: Arc<EffectBatch>,
-}
-
-impl CompletedEffectReceipt {
-    pub(super) fn published(self) -> EffectSettlement {
-        let processed = EffectProgress(self.batch.publication_steps());
-        EffectSettlement {
-            token: self.token,
-            batch: self.batch,
-            processed,
-            disposition: EffectDisposition::Published,
-        }
-    }
-
-    pub(super) fn circuit_disposed(self) -> EffectSettlement {
-        let processed = EffectProgress(self.batch.publication_steps());
-        EffectSettlement {
-            token: self.token,
-            batch: self.batch,
-            processed,
-            disposition: EffectDisposition::CircuitDisposed,
-        }
-    }
-}
-
-#[derive(Debug)]
-#[must_use = "effect settlement must be applied or discarded as stale"]
-pub(super) struct EffectSettlement {
-    token: EffectToken,
-    batch: Arc<EffectBatch>,
-    processed: EffectProgress,
-    disposition: EffectDisposition,
-}
-
-impl EffectSettlement {
     /// Terminal rejection counters derived from the immutable committed batch.
-    /// An incomplete retained lease contributes nothing; a complete retained
-    /// lease is terminal because `plan_settlement` normalizes it to Published.
-    /// The runtime publishes this copy only after the settlement Apply
-    /// succeeds, so cancellation and lease replay cannot double-count it.
+    /// An incomplete lease contributes nothing. The runtime publishes this
+    /// copy only after settlement succeeds, so cancellation and lease replay
+    /// cannot double-count it.
     pub(super) fn rejection_metrics(&self) -> crate::metrics::RejectionMetrics {
         let mut metrics = crate::metrics::RejectionMetrics::default();
-        if !self.processed.is_complete(&self.batch) {
+        if !self.is_complete() {
             return metrics;
         }
         for effect in self.batch.effects() {
@@ -1458,21 +1368,11 @@ impl EffectSettlement {
     }
 }
 
-struct SettlementMutation {
-    disposition: EffectDisposition,
-    processed: EffectProgress,
-}
-
-enum SettlementTarget {
-    Queued(SettlementMutation),
-    GenerationReset(SettlementMutation),
-}
-
-pub(in crate::authority) struct EffectSettlementMutation(SettlementTarget);
-
-pub(super) enum EffectSettlementPlan {
-    Apply(EffectSettlementMutation),
-    Superseded,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectProgressError {
+    Complete,
+    Incomplete,
+    Arithmetic,
 }
 
 struct ResetPlan {
@@ -1485,7 +1385,6 @@ enum EffectMutation {
     None,
     Append(AppendPlan),
     Reset(ResetPlan),
-    Close,
 }
 
 #[derive(Default)]
@@ -1494,30 +1393,6 @@ pub(super) struct EffectDelta(EffectMutation);
 impl EffectDelta {
     pub(super) fn is_empty(&self) -> bool {
         matches!(self.0, EffectMutation::None)
-    }
-
-    /// Explicitly cancel the only effect-plan shape that has already changed
-    /// the sole journal. Direct append, reset, close and no-op plans remain
-    /// owned values with no live journal mutation.
-    pub(super) fn rollback_staged_with_wake(
-        self,
-    ) -> Result<Option<EffectWakeTransition>, EffectError> {
-        match self.0 {
-            EffectMutation::Append(AppendPlan::BehindStagedPrefix(staged)) => {
-                staged.rollback_with_wake().map(Some)
-            }
-            EffectMutation::None
-            | EffectMutation::Append(AppendPlan::Direct { .. })
-            | EffectMutation::Reset(_)
-            | EffectMutation::Close => Ok(None),
-        }
-    }
-}
-
-#[cfg(test)]
-impl EffectDelta {
-    pub(in crate::authority) fn has_exclusive_write(&self) -> bool {
-        !matches!(self.0, EffectMutation::None)
     }
 }
 
@@ -1539,27 +1414,38 @@ pub(super) struct EffectWakeProjection {
     usage: EffectRegionUsage,
 }
 
-/// Immediate journal edge returned by one job's explicit precommit rollback.
+/// Immediate journal edge returned by one batch-local activation or explicit
+/// precommit rollback.
 /// It carries no policy or authority and is consumed only as a lossy wake
 /// prompt after the job has released every owner/generation guard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[must_use = "the runtime must publish the exact staged-effect rollback edge"]
 pub(in crate::authority) struct EffectWakeTransition {
-    before: EffectWakeProjection,
-    after: EffectWakeProjection,
+    publisher_advanced: bool,
+    capacity_released: bool,
 }
 
 impl EffectWakeTransition {
-    pub(super) const fn projections(self) -> (EffectWakeProjection, EffectWakeProjection) {
-        (self.before, self.after)
+    fn may_publish() -> Self {
+        Self {
+            publisher_advanced: true,
+            capacity_released: false,
+        }
+    }
+
+    pub(super) fn between(before: EffectWakeProjection, after: EffectWakeProjection) -> Self {
+        Self {
+            publisher_advanced: after.publisher_advanced_from(before),
+            capacity_released: after.capacity_released_from(before),
+        }
     }
 
     pub(super) fn publisher_advanced(self) -> bool {
-        self.after.publisher_advanced_from(self.before)
+        self.publisher_advanced
     }
 
     pub(super) fn capacity_released(self) -> bool {
-        self.after.capacity_released_from(self.before)
+        self.capacity_released
     }
 }
 
@@ -1594,6 +1480,10 @@ pub(super) struct EffectLog {
     usage: EffectRegionUsage,
     closed: bool,
     generation_reset_batch: Arc<EffectBatch>,
+    #[cfg(test)]
+    staged_rollback_terminal_probe: Option<Arc<super::shard::ConcurrentRemovalProbe>>,
+    #[cfg(test)]
+    next_staged_activation_probe: Option<Arc<super::shard::ConcurrentRemovalProbe>>,
 }
 
 impl EffectLog {
@@ -1615,6 +1505,10 @@ impl EffectLog {
             usage: EffectRegionUsage::default(),
             closed: false,
             generation_reset_batch: EffectBatch::reset()?,
+            #[cfg(test)]
+            staged_rollback_terminal_probe: None,
+            #[cfg(test)]
+            next_staged_activation_probe: None,
         })
     }
 
@@ -1642,19 +1536,14 @@ impl EffectLog {
         EffectPublication::new(policy, effects, self.limits)
     }
 
-    /// Build the common one-effect publication without an infallible
-    /// single-item `Vec` allocation. Shape failures are projection defects;
-    /// allocation remains the ordinary resource outcome owned by `EffectError`.
+    /// Build the common one-effect publication in its fixed one-item carrier.
+    /// Shape failures remain projection defects.
     pub(super) fn build_single_publication(
         &self,
         policy: EffectPolicy,
         effect: CommittedEffect,
     ) -> Result<EffectPublication, EffectError> {
-        let mut effects = Vec::new();
-        effects
-            .try_reserve_exact(1)
-            .map_err(|_| EffectError::Allocation)?;
-        effects.push(effect);
+        let effects = vec![effect];
         EffectPublication::new(policy, effects, self.limits).map_err(|_| EffectError::Projection)
     }
 
@@ -1664,10 +1553,9 @@ impl EffectLog {
         maximum_effects: usize,
     ) -> Result<OrderedEffectPublication, EffectError> {
         self.ensure_open()?;
-        let mut effects = Vec::new();
-        effects
-            .try_reserve(maximum_effects.min(self.limits.batch_bound(policy.class()).max_effects))
-            .map_err(|_| EffectError::Allocation)?;
+        let effects = Vec::with_capacity(
+            maximum_effects.min(self.limits.batch_bound(policy.class()).max_effects),
+        );
         Ok(OrderedEffectPublication {
             policy,
             effects,
@@ -1729,7 +1617,8 @@ impl EffectLog {
         }
     }
 
-    pub(super) fn wake_projection(&self) -> EffectWakeProjection {
+    pub(super) fn wake_projection(&mut self) -> EffectWakeProjection {
+        self.flush_staged_prefix();
         EffectWakeProjection {
             publisher: self.publication_level(),
             usage: self.usage,
@@ -1742,6 +1631,7 @@ impl EffectLog {
         publication: &EffectPublication,
         sequence: ApplySequence,
     ) -> Result<EffectDelta, EffectError> {
+        self.flush_staged_prefix();
         self.preflight_publication(publication)?;
         self.validate_new_sequence(sequence)?;
         let class = publication.policy.class();
@@ -1761,17 +1651,7 @@ impl EffectLog {
                 class,
             };
             if self.staged.is_empty() {
-                if self
-                    .pending_recent_rejects
-                    .try_reserve(pending_rejects)
-                    .is_err()
-                {
-                    return if publication.policy.can_reset() {
-                        Ok(self.reset_delta(sequence))
-                    } else {
-                        Err(EffectError::Allocation)
-                    };
-                }
+                self.pending_recent_rejects.reserve(pending_rejects);
                 return Ok(EffectDelta(EffectMutation::Append(AppendPlan::Direct {
                     record,
                     usage,
@@ -1793,17 +1673,7 @@ impl EffectLog {
                 })
                 .and_then(|count| count.checked_add(pending_rejects))
                 .ok_or(EffectError::Projection)?;
-            if self
-                .pending_recent_rejects
-                .try_reserve(deferred_rejects)
-                .is_err()
-            {
-                return if publication.policy.can_reset() {
-                    Ok(self.reset_delta(sequence))
-                } else {
-                    Err(EffectError::Allocation)
-                };
-            }
+            self.pending_recent_rejects.reserve(deferred_rejects);
             // A later exclusive owner result cannot enter `queued` while an
             // earlier shared owner result is still pending. Reserve its exact
             // suffix slot and charge now, before any owner mutation; Apply
@@ -1819,10 +1689,11 @@ impl EffectLog {
                 AppendPlan::BehindStagedPrefix(StagedEffect {
                     log: Arc::clone(log),
                     batch: Arc::clone(&publication.batch),
-                    sequence,
                     class,
                     charge_bytes: bytes,
                     finalized: false,
+                    #[cfg(test)]
+                    activation_probe: self.next_staged_activation_probe.take(),
                 }),
             )));
         }
@@ -1853,6 +1724,7 @@ impl EffectLog {
             AppendPlan::Direct { record, .. } => record,
         };
         let mut effects = log.lock();
+        effects.flush_staged_prefix();
         effects.ensure_open()?;
         effects.validate_staged_sequence(record.record.sequence)?;
         if effects.staged.len() == MAX_STAGED_EFFECTS {
@@ -1875,10 +1747,7 @@ impl EffectLog {
             })
             .and_then(|count| count.checked_add(record.record.batch.pending_recent_reject_count()))
             .ok_or(EffectError::Projection)?;
-        effects
-            .pending_recent_rejects
-            .try_reserve(pending_rejects)
-            .map_err(|_| EffectError::Allocation)?;
+        effects.pending_recent_rejects.reserve(pending_rejects);
         effects.usage = effects
             .usage
             .checked_charge(class, charge_bytes)
@@ -1889,6 +1758,8 @@ impl EffectLog {
         }
         let batch = Arc::clone(&record.record.batch);
         let sequence = record.record.sequence;
+        #[cfg(test)]
+        let activation_probe = effects.next_staged_activation_probe.take();
         let position = effects
             .staged
             .binary_search_by_key(&sequence, |staged| staged.record.record.sequence)
@@ -1899,11 +1770,20 @@ impl EffectLog {
         Ok(StagedEffect {
             log: Arc::clone(log),
             batch,
-            sequence,
             class,
             charge_bytes,
             finalized: false,
+            #[cfg(test)]
+            activation_probe,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_next_staged_activation_probe(
+        log: &Arc<Mutex<Self>>,
+        probe: Option<Arc<super::shard::ConcurrentRemovalProbe>>,
+    ) {
+        log.lock().next_staged_activation_probe = probe;
     }
 
     fn release_staged_charge(
@@ -1934,13 +1814,14 @@ impl EffectLog {
         }
     }
 
-    fn activate_staged(&mut self, sequence: ApplySequence, batch: &Arc<EffectBatch>) {
-        // The move-only token was created only after this exact sequence and
-        // batch acquired a preallocated staged slot and capacity charge.
-        debug_assert!(self.staged.iter().any(|staged| {
-            staged.record.record.sequence == sequence
-                && Arc::ptr_eq(&staged.record.record.batch, batch)
-        }));
+    fn activate_staged(&mut self, batch: &Arc<EffectBatch>) {
+        // The move-only token was created only after this exact batch acquired
+        // one preallocated staged slot and capacity charge.
+        debug_assert!(
+            self.staged
+                .iter()
+                .any(|staged| Arc::ptr_eq(&staged.record.record.batch, batch))
+        );
         batch.commit_stage();
         self.flush_staged_prefix();
     }
@@ -2063,7 +1944,7 @@ impl EffectLog {
     fn publication_level(&self) -> EffectPublisherLevel {
         if self.publication_record().is_some() {
             EffectPublisherLevel::Available
-        } else if self.is_closed_and_drained() {
+        } else if self.is_closed_and_drained_state() {
             EffectPublisherLevel::ClosedAndDrained
         } else {
             EffectPublisherLevel::Idle
@@ -2074,9 +1955,10 @@ impl EffectLog {
     /// head ordering and terminal drain. Only the Receipt arm clones the
     /// immutable batch pointer, and this method is not used by Apply wake
     /// projection.
-    pub(super) fn publication_observation(&self) -> EffectPublicationObservation {
+    pub(super) fn publication_observation(&mut self) -> EffectPublicationObservation {
+        self.flush_staged_prefix();
         let Some((source, record)) = self.publication_record() else {
-            return if self.is_closed_and_drained() {
+            return if self.is_closed_and_drained_state() {
                 EffectPublicationObservation::ClosedAndDrained
             } else {
                 EffectPublicationObservation::Idle
@@ -2093,155 +1975,35 @@ impl EffectLog {
         })
     }
 
-    pub(super) fn plan_settlement(
-        &self,
-        settlement: &EffectSettlement,
-    ) -> Result<EffectSettlementPlan, EffectSettlementPlanError> {
-        match settlement.token.source {
+    pub(super) fn settle(
+        &mut self,
+        receipt: &EffectReceipt,
+    ) -> Result<Option<Arc<EffectBatch>>, EffectSettlementError> {
+        self.flush_staged_prefix();
+        match receipt.token.source {
             EffectLeaseSource::Queued => {
                 let queued = self
                     .queued
                     .front()
-                    .ok_or(EffectSettlementPlanError::StaleLease)?;
-                Self::validate_exact_record(&queued.record, settlement)?;
-                let disposition = Self::validated_disposition(settlement)?;
-                match disposition {
-                    EffectDisposition::Published | EffectDisposition::CircuitDisposed => self
-                        .usage
-                        .checked_release(queued.class, queued.record.batch.charge_bytes()),
-                    EffectDisposition::Retain => Some(self.usage),
+                    .ok_or(EffectSettlementError::StaleLease)?;
+                Self::validate_exact_record(&queued.record, receipt)?;
+                Self::validate_progress(receipt)?;
+                if !receipt.is_complete() {
+                    self.queued
+                        .front_mut()
+                        .ok_or(EffectSettlementError::StaleLease)?
+                        .record
+                        .processed = receipt.processed;
+                    return Ok(None);
                 }
-                .ok_or(EffectSettlementPlanError::Projection)?;
-                Ok(EffectSettlementPlan::Apply(EffectSettlementMutation(
-                    SettlementTarget::Queued(SettlementMutation {
-                        disposition,
-                        processed: settlement.processed,
-                    }),
-                )))
-            }
-            EffectLeaseSource::GenerationReset => {
-                if !Arc::ptr_eq(&settlement.batch, &self.generation_reset_batch) {
-                    return Err(EffectSettlementPlanError::StaleLease);
-                }
-                let reset = self
-                    .latest_generation_reset
-                    .as_ref()
-                    .ok_or(EffectSettlementPlanError::StaleLease)?;
-                if reset.sequence > settlement.token.sequence {
-                    Self::validated_disposition(settlement)?;
-                    return Ok(EffectSettlementPlan::Superseded);
-                }
-                Self::validate_exact_record(reset, settlement)?;
-                let disposition = Self::validated_disposition(settlement)?;
-                Ok(EffectSettlementPlan::Apply(EffectSettlementMutation(
-                    SettlementTarget::GenerationReset(SettlementMutation {
-                        disposition,
-                        processed: settlement.processed,
-                    }),
-                )))
-            }
-        }
-    }
-
-    fn validate_exact_record(
-        record: &EffectRecord,
-        settlement: &EffectSettlement,
-    ) -> Result<(), EffectSettlementPlanError> {
-        if record.sequence != settlement.token.sequence
-            || !Arc::ptr_eq(&record.batch, &settlement.batch)
-            || record.processed != settlement.token.processed
-        {
-            return Err(EffectSettlementPlanError::StaleLease);
-        }
-        Ok(())
-    }
-
-    fn validated_disposition(
-        settlement: &EffectSettlement,
-    ) -> Result<EffectDisposition, EffectSettlementPlanError> {
-        if settlement.processed < settlement.token.processed
-            || settlement.processed.0 > settlement.batch.publication_steps()
-        {
-            return Err(EffectSettlementPlanError::Projection);
-        }
-        match settlement.disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed
-                if !settlement.processed.is_complete(&settlement.batch) =>
-            {
-                Err(EffectSettlementPlanError::Projection)
-            }
-            EffectDisposition::Retain if settlement.processed.is_complete(&settlement.batch) => {
-                Ok(EffectDisposition::Published)
-            }
-            disposition => Ok(disposition),
-        }
-    }
-
-    pub(super) fn plan_close(&self) -> Result<EffectDelta, EffectClosePlanError> {
-        if self.closed {
-            return Err(EffectClosePlanError::AlreadyClosed);
-        }
-        Ok(EffectDelta(EffectMutation::Close))
-    }
-
-    pub(super) fn apply(&mut self, delta: EffectDelta) -> Option<Arc<EffectBatch>> {
-        match delta.0 {
-            EffectMutation::None => None,
-            EffectMutation::Append(plan) => {
-                match plan {
-                    AppendPlan::Direct { record, usage } => {
-                        self.usage = usage;
-                        self.queue_record(record);
-                    }
-                    AppendPlan::BehindStagedPrefix(mut staged) => {
-                        self.activate_staged(staged.sequence, &staged.batch);
-                        staged.finalized = true;
-                    }
-                }
-                None
-            }
-            EffectMutation::Reset(plan) => self
-                .latest_generation_reset
-                .replace(plan.record)
-                .map(|record| record.batch),
-            EffectMutation::Close => {
-                self.closed = true;
-                None
-            }
-        }
-    }
-
-    pub(in crate::authority) fn apply_settlement(
-        &mut self,
-        mutation: EffectSettlementMutation,
-    ) -> Result<Option<Arc<EffectBatch>>, EffectSettlementPlanError> {
-        match mutation.0 {
-            SettlementTarget::Queued(plan) => self.apply_queued_settlement(plan),
-            SettlementTarget::GenerationReset(plan) => self.apply_reset_settlement(plan),
-        }
-    }
-
-    fn apply_queued_settlement(
-        &mut self,
-        plan: SettlementMutation,
-    ) -> Result<Option<Arc<EffectBatch>>, EffectSettlementPlanError> {
-        let queued = self
-            .queued
-            .front()
-            .ok_or(EffectSettlementPlanError::StaleLease)?;
-        let after_usage = match plan.disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed => self
-                .usage
-                .checked_release(queued.class, queued.record.batch.charge_bytes())
-                .ok_or(EffectSettlementPlanError::Projection)?,
-            EffectDisposition::Retain => self.usage,
-        };
-        let mut queued = self
-            .queued
-            .pop_front()
-            .ok_or(EffectSettlementPlanError::StaleLease)?;
-        match plan.disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
+                let after_usage = self
+                    .usage
+                    .checked_release(queued.class, queued.record.batch.charge_bytes())
+                    .ok_or(EffectSettlementError::Projection)?;
+                let queued = self
+                    .queued
+                    .pop_front()
+                    .ok_or(EffectSettlementError::StaleLease)?;
                 self.usage = after_usage;
                 for (effect_index, rejection) in queued.record.batch.pending_recent_rejects() {
                     let hash = rejection.raw_hash();
@@ -2259,35 +2021,95 @@ impl EffectLog {
                 }
                 Ok(Some(queued.record.batch))
             }
-            EffectDisposition::Retain => {
-                queued.record.processed = plan.processed;
-                self.queued.push_front(queued);
-                Ok(None)
+            EffectLeaseSource::GenerationReset => {
+                if !Arc::ptr_eq(&receipt.batch, &self.generation_reset_batch) {
+                    return Err(EffectSettlementError::StaleLease);
+                }
+                let reset = self
+                    .latest_generation_reset
+                    .as_ref()
+                    .ok_or(EffectSettlementError::StaleLease)?;
+                if reset.sequence > receipt.token.sequence {
+                    Self::validate_progress(receipt)?;
+                    return Ok(None);
+                }
+                Self::validate_exact_record(reset, receipt)?;
+                Self::validate_progress(receipt)?;
+                if receipt.is_complete() {
+                    Ok(self
+                        .latest_generation_reset
+                        .take()
+                        .map(|record| record.batch))
+                } else {
+                    self.latest_generation_reset
+                        .as_mut()
+                        .ok_or(EffectSettlementError::StaleLease)?
+                        .processed = receipt.processed;
+                    Ok(None)
+                }
             }
         }
     }
 
-    fn apply_reset_settlement(
-        &mut self,
-        plan: SettlementMutation,
-    ) -> Result<Option<Arc<EffectBatch>>, EffectSettlementPlanError> {
-        let mut reset = self
-            .latest_generation_reset
-            .take()
-            .ok_or(EffectSettlementPlanError::StaleLease)?;
-        match plan.disposition {
-            EffectDisposition::Published | EffectDisposition::CircuitDisposed => {
-                Ok(Some(reset.batch))
+    fn validate_exact_record(
+        record: &EffectRecord,
+        receipt: &EffectReceipt,
+    ) -> Result<(), EffectSettlementError> {
+        if record.sequence != receipt.token.sequence
+            || !Arc::ptr_eq(&record.batch, &receipt.batch)
+            || record.processed != receipt.token.processed
+        {
+            return Err(EffectSettlementError::StaleLease);
+        }
+        Ok(())
+    }
+
+    fn validate_progress(receipt: &EffectReceipt) -> Result<(), EffectSettlementError> {
+        if receipt.processed < receipt.token.processed
+            || receipt.processed.0 > receipt.batch.publication_steps()
+        {
+            return Err(EffectSettlementError::Projection);
+        }
+        Ok(())
+    }
+
+    pub(super) fn close(&mut self) -> bool {
+        if self.closed {
+            return false;
+        }
+        self.closed = true;
+        true
+    }
+
+    pub(super) fn apply(&mut self, delta: EffectDelta) -> Option<Arc<EffectBatch>> {
+        match delta.0 {
+            EffectMutation::None => None,
+            EffectMutation::Append(plan) => {
+                match plan {
+                    AppendPlan::Direct { record, usage } => {
+                        self.usage = usage;
+                        self.queue_record(record);
+                    }
+                    AppendPlan::BehindStagedPrefix(mut staged) => {
+                        self.activate_staged(&staged.batch);
+                        staged.finalized = true;
+                    }
+                }
+                None
             }
-            EffectDisposition::Retain => {
-                reset.processed = plan.processed;
-                self.latest_generation_reset = Some(reset);
-                Ok(None)
-            }
+            EffectMutation::Reset(plan) => self
+                .latest_generation_reset
+                .replace(plan.record)
+                .map(|record| record.batch),
         }
     }
 
-    pub(super) fn is_closed_and_drained(&self) -> bool {
+    pub(super) fn is_closed_and_drained(&mut self) -> bool {
+        self.flush_staged_prefix();
+        self.is_closed_and_drained_state()
+    }
+
+    fn is_closed_and_drained_state(&self) -> bool {
         self.closed
             && self.queued.is_empty()
             && self.staged.is_empty()
@@ -2296,7 +2118,11 @@ impl EffectLog {
             && self.usage == EffectRegionUsage::default()
     }
 
-    pub(super) fn pending_recent_reject(&self, hash: &RawTxHash) -> Option<PendingRecentReject> {
+    pub(super) fn pending_recent_reject(
+        &mut self,
+        hash: &RawTxHash,
+    ) -> Option<PendingRecentReject> {
+        self.flush_staged_prefix();
         let pending = self.pending_recent_rejects.get(hash)?;
         Some(PendingRecentReject {
             expected_hash: hash.clone(),
@@ -2504,30 +2330,14 @@ mod staged_record_tests {
     }
 
     fn settle_head(log: &Arc<Mutex<EffectLog>>) {
-        let receipt = match log.lock().publication_observation() {
+        let mut receipt = match log.lock().publication_observation() {
             EffectPublicationObservation::Receipt(receipt) => receipt,
             EffectPublicationObservation::Idle | EffectPublicationObservation::ClosedAndDrained => {
                 panic!("the fixture head is publishable")
             }
         };
-        let settlement = CompletedEffectReceipt {
-            token: receipt.token,
-            batch: receipt.batch,
-        }
-        .published();
-        let delta = match log
-            .lock()
-            .plan_settlement(&settlement)
-            .expect("the exact head settlement plans")
-        {
-            EffectSettlementPlan::Apply(delta) => delta,
-            EffectSettlementPlan::Superseded => panic!("the exact head is not superseded"),
-        };
-        drop(
-            log.lock()
-                .apply_settlement(delta)
-                .expect("the exact planned settlement remains applicable"),
-        );
+        receipt.processed = EffectProgress(receipt.batch.publication_steps());
+        drop(log.lock().settle(&receipt).expect("the exact head settles"));
     }
 
     #[test]
@@ -2556,7 +2366,7 @@ mod staged_record_tests {
         let publication = rejection_publication(&log, Arc::clone(&transaction), "staged");
         let staged = stage(&log, &publication, 61);
         {
-            let effects = log.lock();
+            let mut effects = log.lock();
             assert_eq!(effects.staged.len(), 1);
             assert!(effects.pending_recent_rejects.is_empty());
             assert!(matches!(
@@ -2566,11 +2376,12 @@ mod staged_record_tests {
         }
 
         staged.activate();
-        let effects = log.lock();
+        let mut effects = log.lock();
+        let observation = effects.publication_observation();
         assert!(effects.staged.is_empty());
         assert_eq!(effects.pending_recent_rejects.len(), 1);
         assert!(matches!(
-            effects.publication_observation(),
+            observation,
             EffectPublicationObservation::Receipt(ref receipt)
                 if receipt.token.sequence == ApplySequence(61)
         ));
@@ -2586,7 +2397,7 @@ mod staged_record_tests {
             .rollback()
             .expect("precommit rejection rollback returns its exact charge");
 
-        let effects = log.lock();
+        let mut effects = log.lock();
         assert_eq!(effects.usage, EffectRegionUsage::default());
         assert!(effects.staged.is_empty());
         assert!(effects.pending_recent_rejects.is_empty());
@@ -2746,49 +2557,6 @@ mod staged_record_tests {
     }
 
     #[test]
-    fn staged_rollback_between_settlement_plan_and_apply_cannot_resurrect_usage() {
-        let log = log(2);
-        let queued_publication = publication(&log, 47);
-        let queued = delta(&log, &queued_publication, 130);
-        drop(log.lock().apply(queued));
-        let staged_publication = publication(&log, 48);
-        let staged = stage(&log, &staged_publication, 131);
-        let receipt = match log.lock().publication_observation() {
-            EffectPublicationObservation::Receipt(receipt) => receipt,
-            EffectPublicationObservation::Idle | EffectPublicationObservation::ClosedAndDrained => {
-                panic!("the older queued record is publishable")
-            }
-        };
-        let settlement = CompletedEffectReceipt {
-            token: receipt.token,
-            batch: receipt.batch,
-        }
-        .published();
-        let planned = match log
-            .lock()
-            .plan_settlement(&settlement)
-            .expect("the exact queued settlement plans")
-        {
-            EffectSettlementPlan::Apply(delta) => delta,
-            EffectSettlementPlan::Superseded => panic!("the queued head is not superseded"),
-        };
-
-        staged
-            .rollback()
-            .expect("the later owner never committed and returns its exact charge");
-        drop(
-            log.lock()
-                .apply_settlement(planned)
-                .expect("the exact planned settlement remains applicable"),
-        );
-        assert_eq!(
-            log.lock().usage,
-            EffectRegionUsage::default(),
-            "settling the queued record must not restore the rolled-back stage charge"
-        );
-    }
-
-    #[test]
     fn committed_suffix_reset_and_close_drain_in_sequence() {
         let log = log(2);
         let first_publication = publication(&log, 49);
@@ -2801,11 +2569,7 @@ mod staged_record_tests {
             .plan_generation_reset(ApplySequence(142))
             .expect("the later reset plans behind the staged suffix");
         drop(log.lock().apply(reset));
-        let close = log
-            .lock()
-            .plan_close()
-            .expect("close preserves every resident record");
-        drop(log.lock().apply(close));
+        assert!(log.lock().close());
 
         assert_eq!(observation_sequence(&log), None);
         assert!(!log.lock().is_closed_and_drained());
@@ -2973,11 +2737,7 @@ mod staged_record_tests {
         let closed_log = log(1);
         let closed_publication = publication(&closed_log, 7);
         let staged = stage(&closed_log, &closed_publication, 40);
-        let close = closed_log
-            .lock()
-            .plan_close()
-            .expect("close records after the already reserved stage");
-        drop(closed_log.lock().apply(close));
+        assert!(closed_log.lock().close());
         assert!(!closed_log.lock().is_closed_and_drained());
         staged.activate();
         assert_eq!(observation_sequence(&closed_log), Some(ApplySequence(40)));

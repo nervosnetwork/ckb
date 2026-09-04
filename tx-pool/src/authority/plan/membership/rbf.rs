@@ -21,9 +21,7 @@ where
     for input in footprint.inputs() {
         if let Some(spender) = reader.observe_spender(input)? {
             if direct.is_empty() {
-                direct
-                    .try_reserve_exact(footprint.inputs().len())
-                    .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+                direct.reserve_exact(footprint.inputs().len());
             }
             direct.push(spender.clone());
             first_conflict.get_or_insert_with(|| input.clone());
@@ -56,12 +54,7 @@ where
             reader
                 .observe_parents(root)?
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            let mut removals = Vec::new();
-            removals
-                .try_reserve_exact(1)
-                .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
-            removals.push(root.clone());
-            removals
+            vec![root.clone()]
         } else {
             super::TxPoolAuthority::bounded_descendant_postorder_with_reader(
                 &direct,
@@ -82,10 +75,7 @@ where
         )?
         .ordered
     };
-    let mut removal_set = HashSet::new();
-    removal_set
-        .try_reserve(removals.len())
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+    let mut removal_set = HashSet::with_capacity(removals.len());
     removal_set.extend(removals.iter().cloned());
     validate_descendant_overlap(candidate, &direct, &removal_set, reader)?;
     validate_no_victim_dependencies(candidate, &removal_set)?;
@@ -114,9 +104,7 @@ where
             )
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))
     })?;
-    replaced_inputs
-        .try_reserve(input_capacity)
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+    replaced_inputs.reserve(input_capacity);
     for hash in direct {
         let entry = accepted_entry(hash, reader)?;
         replaced_inputs.extend(entry.proof.payload().footprint.inputs().iter().cloned());
@@ -143,10 +131,7 @@ where
     if removal_set.len() == direct.len() && direct.iter().all(|hash| removal_set.contains(hash)) {
         return Ok(());
     }
-    let mut descendants = HashSet::new();
-    descendants
-        .try_reserve(removal_set.len())
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+    let mut descendants = HashSet::with_capacity(removal_set.len());
     descendants.extend(
         removal_set
             .iter()
@@ -161,10 +146,7 @@ where
         }
     }
 
-    let mut parents = HashSet::new();
-    parents
-        .try_reserve(candidate.proof.payload().footprint.inputs().len())
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+    let mut parents = HashSet::with_capacity(candidate.proof.payload().footprint.inputs().len());
     for input in candidate.proof.payload().footprint.inputs() {
         let parent = RawTxHash(input.tx_hash());
         if reader
@@ -198,14 +180,8 @@ where
         .len()
         .checked_mul(reader.config().max_ancestors)
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-    let mut ancestors = HashSet::new();
-    ancestors
-        .try_reserve(limit)
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
-    let mut frontier = Vec::new();
-    frontier
-        .try_reserve(limit)
-        .map_err(|_| PlanError::Backpressure(super::super::Backpressure::Allocation))?;
+    let mut ancestors = HashSet::with_capacity(limit);
+    let mut frontier = Vec::with_capacity(limit);
     for parent in parents {
         if ancestors.insert(parent.clone()) {
             frontier.push(parent.clone());

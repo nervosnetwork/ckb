@@ -1,11 +1,12 @@
 //! Lock-external validation for resolved tx-pool candidates.
 //!
-//! The authority guard captures only a transaction-bounded projection of
-//! Accepted producers. Snapshot reads, location refresh, time/DAO validation,
-//! and payload destruction happen after the guard is released. Accepted
-//! spenders are intentionally absent: current conflict and RBF policy remain
-//! decisions of the single membership Plan, not a duplicated validation
-//! authority.
+//! Ready validation captures a generation-bound persistent shard layout under
+//! the authority guard, then fills its transaction-bounded projection of
+//! Accepted producers after the guard is released. Snapshot reads, location
+//! refresh, time/DAO validation, and payload destruction are likewise
+//! lock-external. Accepted spenders are intentionally absent: current conflict
+//! and RBF policy remain decisions of the single membership Plan, not a
+//! duplicated validation authority.
 
 use super::{
     chain::{
@@ -20,7 +21,10 @@ use super::{
     rejection::CommittedPublicReject,
     resolver::AcceptedOverlay,
     runtime::AuthorityStoreCaptureSeal,
-    state::{AcceptedAtMillis, AcceptedStatus, RawTxHash, ResolvedPayload},
+    shard::ShardedOwnerMap,
+    state::{
+        AcceptedAtMillis, AcceptedStatus, ChainViewId, PoolGeneration, RawTxHash, ResolvedPayload,
+    },
 };
 use crate::{
     constants::GAP_PROPOSAL_INDEX,
@@ -71,7 +75,6 @@ pub(super) enum DirectAdmissionValidationOutcome {
 #[derive(Debug)]
 pub(super) enum FinalAdmissionValidationError {
     StaleView,
-    Allocation,
     Arithmetic,
     MissingChainLocation(
         #[expect(
@@ -106,10 +109,8 @@ impl From<FinalAdmissionValidationError> for CandidateValidationError {
 fn prepare_accepted_overlay(
     payload: &ResolvedPayload,
 ) -> Result<AcceptedOverlay, FinalAdmissionValidationError> {
-    AcceptedOverlay::prepare_resolved(payload).map_err(|error| match error {
-        CellLocationReceiptError::Allocation => FinalAdmissionValidationError::Allocation,
-        CellLocationReceiptError::Arithmetic => FinalAdmissionValidationError::Arithmetic,
-    })
+    AcceptedOverlay::prepare_resolved(payload)
+        .map_err(|CellLocationReceiptError::Arithmetic| FinalAdmissionValidationError::Arithmetic)
 }
 
 /// A complete lock-external final-admission validation job.
@@ -147,6 +148,21 @@ pub(super) struct PreparedFinalAdmissionValidation {
     min_fee_rate: FeeRate,
 }
 
+/// Move-owned Ready population source captured with the paired snapshot.
+///
+/// The sharded map clone retains only the persistent layout identity. Its
+/// rows may continue changing through ordinary exact-shard Apply; the second
+/// Ready cut and the final dependency proof reject observations that lost
+/// freshness. Generation plus the full chain view prevent a replacement or a
+/// same-tip chain transition from validating an overlay populated from the
+/// wrong lifecycle cut.
+#[must_use = "a Ready population cut must be populated and rechecked"]
+pub(super) struct ReadyPopulationCut {
+    generation: PoolGeneration,
+    view: ChainViewId,
+    entries: ShardedOwnerMap,
+}
+
 /// Preallocated direct-validation capture. The resolved transaction defines
 /// the bounded overlay size outside the authority guard; completion fills the
 /// bits from one coherent authority/snapshot cut.
@@ -161,7 +177,6 @@ pub(super) struct PreparedDirectAdmissionValidation {
 enum MembershipValidationOutcome {
     Candidate {
         membership: MembershipReceipt,
-        payload_relation: ReadyPayloadRelation,
     },
     Rejected {
         reason: CommittedPublicReject,
@@ -179,15 +194,30 @@ impl PreparedFinalAdmissionValidation {
         self.expected
     }
 
-    pub(super) fn complete(
-        self,
-        _seal: AuthorityStoreCaptureSeal,
-        authority: &TxPoolAuthority,
-        work: FinalAdmissionWork,
-    ) -> Result<FinalAdmissionValidation, FinalAdmissionValidationError> {
-        self.complete_inner(authority, work)
+    /// Fill the preallocated ProducerOnly overlay without the generation
+    /// barrier. The cut is rechecked before this value can be completed.
+    pub(super) fn populate_ready(&mut self, cut: &mut ReadyPopulationCut) {
+        cut.populate(&mut self.overlay);
     }
 
+    /// Complete the sealed Ready capture after the owning store has checked
+    /// the population cut and recaptured this exact key/version. Those checks
+    /// make this production transition infallible; the fallible foundation
+    /// helper below remains the adversarial mixed-cut test surface.
+    pub(super) fn complete_ready(
+        self,
+        _seal: AuthorityStoreCaptureSeal,
+        work: FinalAdmissionWork,
+    ) -> FinalAdmissionValidation {
+        FinalAdmissionValidation {
+            work,
+            snapshot: self.snapshot,
+            overlay: self.overlay,
+            min_fee_rate: self.min_fee_rate,
+        }
+    }
+
+    #[cfg(test)]
     fn complete_inner(
         mut self,
         authority: &TxPoolAuthority,
@@ -207,6 +237,32 @@ impl PreparedFinalAdmissionValidation {
             overlay: self.overlay,
             min_fee_rate: self.min_fee_rate,
         })
+    }
+}
+
+impl ReadyPopulationCut {
+    pub(in crate::authority) fn new(
+        generation: PoolGeneration,
+        view: ChainViewId,
+        entries: ShardedOwnerMap,
+    ) -> Self {
+        Self {
+            generation,
+            view,
+            entries,
+        }
+    }
+
+    pub(in crate::authority) fn matches(
+        &self,
+        generation: PoolGeneration,
+        view: &ChainViewId,
+    ) -> bool {
+        self.generation == generation && &self.view == view
+    }
+
+    fn populate(&mut self, overlay: &mut AcceptedOverlay) {
+        overlay.populate_resolved_producers(&self.entries);
     }
 }
 
@@ -275,17 +331,11 @@ impl FinalAdmissionValidation {
         let seal = AdmissionValidationSeal(());
         let subject = FinalAdmissionSubject::new(seal, key, expected, view, dependency_cut);
         match validate_membership(validation, snapshot, overlay, min_fee_rate, seal)? {
-            MembershipValidationOutcome::Candidate {
-                membership,
-                payload_relation,
-            } => Ok(FinalAdmissionValidationOutcome::Candidate(
-                FinalAdmissionReceipt::from_validation(
-                    seal,
-                    expected,
-                    membership,
-                    payload_relation,
-                ),
-            )),
+            MembershipValidationOutcome::Candidate { membership } => {
+                Ok(FinalAdmissionValidationOutcome::Candidate(
+                    FinalAdmissionReceipt::from_validation(seal, expected, membership),
+                ))
+            }
             MembershipValidationOutcome::Rejected {
                 reason,
                 accepted_reads,
@@ -430,13 +480,9 @@ fn validate_membership(
         });
     }
 
-    let location =
-        super::chain::CellLocationReceipt::from_resolution(view, &payload).map_err(|error| {
-            match error {
-                CellLocationReceiptError::Allocation => FinalAdmissionValidationError::Allocation,
-                CellLocationReceiptError::Arithmetic => FinalAdmissionValidationError::Arithmetic,
-            }
-        })?;
+    let location = super::chain::CellLocationReceipt::from_resolution(view, &payload).map_err(
+        |CellLocationReceiptError::Arithmetic| FinalAdmissionValidationError::Arithmetic,
+    )?;
     let context = VerificationContextReceipt::from_validation(
         location,
         TimeContextReceipt::from_validation(rules),
@@ -452,10 +498,7 @@ fn validate_membership(
         proposal,
         AcceptedAtMillis(ckb_systemtime::unix_time_as_millis()),
     );
-    Ok(MembershipValidationOutcome::Candidate {
-        membership,
-        payload_relation,
-    })
+    Ok(MembershipValidationOutcome::Candidate { membership })
 }
 
 fn validate_header_dependencies(
@@ -553,9 +596,7 @@ fn refresh_locations(
             let current = current_location(cell, role, pool_origin, same_chain_state, snapshot)?;
             if current != cell.transaction_info {
                 if changes.is_empty() {
-                    changes
-                        .try_reserve(total_cells)
-                        .map_err(|_| FinalAdmissionValidationError::Allocation)?;
+                    changes.reserve(total_cells);
                 }
                 changes.push(LocationChange {
                     role,
@@ -570,8 +611,7 @@ fn refresh_locations(
         return Ok((Arc::clone(payload), ReadyPayloadRelation::Shared));
     }
 
-    let mut refreshed = super::residency::try_clone_for_location_refresh(resolved)
-        .map_err(|_| FinalAdmissionValidationError::Allocation)?;
+    let mut refreshed = super::residency::clone_for_location_refresh(resolved);
     for change in changes {
         let cell = match change.role {
             ResolvedCellRole::Input => refreshed.resolved_inputs.get_mut(change.index),

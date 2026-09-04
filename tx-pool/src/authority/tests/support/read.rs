@@ -49,7 +49,7 @@ impl AuthorityReadView<'_> {
         history
             .try_reserve(self.owner_count())
             .map_err(|_| AuthorityReadError::Allocation)?;
-        history.extend(self.replacement_history()?);
+        history.extend(self.replacement_history());
         history.sort_unstable();
         Ok(history)
     }

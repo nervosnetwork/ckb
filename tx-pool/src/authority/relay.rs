@@ -37,11 +37,6 @@ pub(super) enum RelayMailboxDisposition {
     Disconnected,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RelayParentProjectionError {
-    Allocation,
-}
-
 struct RelayEnvelope {
     result: TxVerificationResult,
     bytes: usize,
@@ -283,26 +278,19 @@ impl AuthorityRelayReceiver {
 #[path = "tests/support/relay.rs"]
 mod test_support;
 
-/// Compile one authority-owned parent request into the sync projection without
-/// an infallible collection allocation. The caller can publish a reset or
-/// retain the request for retry if memory pressure prevents materialization.
-pub(super) fn project_parent_request(
-    request: &ParentTransactionRequest,
-) -> Result<TxVerificationResult, RelayParentProjectionError> {
-    let mut parents = HashSet::new();
-    parents
-        .try_reserve(request.parents().len())
-        .map_err(|_| RelayParentProjectionError::Allocation)?;
+/// Compile one bounded authority-owned parent request into the sync projection.
+pub(super) fn project_parent_request(request: &ParentTransactionRequest) -> TxVerificationResult {
+    let mut parents = HashSet::with_capacity(request.parents().len());
     parents.extend(
         request
             .parents()
             .iter()
             .map(|parent| compact_packed(&parent.0)),
     );
-    Ok(TxVerificationResult::UnknownParents {
+    TxVerificationResult::UnknownParents {
         peer: request.peer(),
         parents,
-    })
+    }
 }
 
 impl Drop for AuthorityRelayReceiver {

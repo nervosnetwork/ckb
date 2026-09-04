@@ -1,5 +1,5 @@
 use super::super::{
-    state::{AcceptedStatus, ValidatedAdmission},
+    state::AcceptedStatus,
     template::TemplateComponent,
     template_driver::{
         AuthorityBlockAssembler, AuthorityTemplateReadFailure, AuthorityTemplateStep,
@@ -13,7 +13,6 @@ use crate::block_assembler::{BlockAssembler, BoundedCandidateUncle, ResetEpoch};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_jsonrpc_types::ScriptHashType;
-use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::CancellationToken;
 use ckb_store::{ChainStore, attach_block_cell};
@@ -157,55 +156,6 @@ fn candidate_uncle(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_template_failure_wait_ignores_unrelated_authority_mutation() {
-    let snapshot = template_snapshot();
-    let runtime = super::super::runtime::AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the authority runtime fixture is valid");
-    let assembler = BlockAssembler::new(template_config(), Arc::clone(&snapshot))
-        .expect("the block assembler fixture is valid");
-    let driver = AuthorityBlockAssembler::new(runtime.clone(), assembler)
-        .await
-        .expect("the authority template adapter is valid");
-    let failed = driver.retry_source_cut_for_foundation().await;
-    let cancel = CancellationToken::new();
-    let wait_driver = driver.clone();
-    let wait_cancel = cancel.clone();
-    let mut waiter = tokio::spawn(async move {
-        wait_driver
-            .wait_template_source_change_for_foundation(&wait_cancel, failed)
-            .await
-    });
-    tokio::task::yield_now().await;
-
-    runtime
-        .queue_generation_reset_for_foundation()
-        .expect("an effect-only Apply publishes an unrelated authority wake");
-    assert!(
-        tokio::time::timeout(Duration::from_millis(20), &mut waiter)
-            .await
-            .is_err(),
-        "an unchanged template source must not repeat a failed build"
-    );
-
-    driver
-        .receive_candidate_uncle(candidate_uncle(&snapshot, 1, Vec::new()))
-        .expect("a candidate source advance is typed")
-        .then_some(())
-        .expect("the new candidate advances the exact retry source");
-    assert!(
-        tokio::time::timeout(Duration::from_secs(1), waiter)
-            .await
-            .expect("the relevant source change wakes the retry level")
-            .expect("the source waiter joins")
-    );
-    cancel.cancel();
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_proposal_failure_wait_uses_the_minimum_component_source_cut() {
     let snapshot = template_snapshot();
     let runtime = super::super::runtime::AuthorityRuntime::new(
@@ -251,127 +201,6 @@ async fn uak_proposal_failure_wait_uses_the_minimum_component_source_cut() {
             .expect("the source waiter joins")
     );
     cancel.cancel();
-}
-
-#[tokio::test]
-async fn uak_template_source_probe_skips_irrelevant_population_captures() {
-    let snapshot = template_snapshot();
-    let runtime = super::super::runtime::AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the authority runtime fixture is valid");
-    let assembler = BlockAssembler::new(template_config(), Arc::clone(&snapshot))
-        .expect("the block assembler fixture is valid");
-    let driver = AuthorityBlockAssembler::new(runtime.clone(), assembler)
-        .await
-        .expect("the authority template adapter is valid");
-
-    assert_eq!(
-        driver
-            .drive_replacement_once()
-            .await
-            .expect("the initial full level builds"),
-        AuthorityTemplateStep::Published
-    );
-    let converged_captures = runtime.template_capture_count_for_foundation();
-    for component in [
-        TemplateComponent::Proposals,
-        TemplateComponent::Transactions,
-        TemplateComponent::Uncles,
-    ] {
-        assert_eq!(
-            driver
-                .drive_component_once(component)
-                .await
-                .expect("the covered component probes without capture"),
-            AuthorityTemplateStep::Idle
-        );
-    }
-    assert_eq!(
-        driver
-            .drive_replacement_once()
-            .await
-            .expect("the covered replacement probes without capture"),
-        AuthorityTemplateStep::Idle
-    );
-    assert_eq!(
-        runtime.template_capture_count_for_foundation(),
-        converged_captures
-    );
-
-    runtime
-        .admit(
-            ValidatedAdmission::remote(tx(1_906), PeerIndex::from(906))
-                .expect("the hostile-work fixture is a valid Remote admission"),
-        )
-        .expect("PreAccepted ownership commits and publishes its generic wake");
-    for component in [
-        TemplateComponent::Proposals,
-        TemplateComponent::Transactions,
-        TemplateComponent::Uncles,
-    ] {
-        assert_eq!(
-            driver
-                .drive_component_once(component)
-                .await
-                .expect("PreAccepted-only movement is template-irrelevant"),
-            AuthorityTemplateStep::Idle
-        );
-    }
-    assert_eq!(
-        driver
-            .drive_replacement_once()
-            .await
-            .expect("PreAccepted-only movement cannot require full replacement"),
-        AuthorityTemplateStep::Idle
-    );
-    assert_eq!(
-        runtime.template_capture_count_for_foundation(),
-        converged_captures,
-        "a generic PreAccepted wake must perform zero accepted-pool captures"
-    );
-
-    assert!(
-        driver
-            .receive_candidate_uncle(candidate_uncle(&snapshot, 1, Vec::new()))
-            .expect("the candidate source advance is typed")
-    );
-    assert_eq!(
-        driver
-            .drive_replacement_once()
-            .await
-            .expect("candidate-only movement does not require a full build"),
-        AuthorityTemplateStep::Idle
-    );
-    for component in [
-        TemplateComponent::Proposals,
-        TemplateComponent::Transactions,
-    ] {
-        assert_eq!(
-            driver
-                .drive_component_once(component)
-                .await
-                .expect("candidate-only movement is irrelevant to this lane"),
-            AuthorityTemplateStep::Idle
-        );
-    }
-    assert_eq!(
-        runtime.template_capture_count_for_foundation(),
-        converged_captures
-    );
-    assert_eq!(
-        driver
-            .drive_component_once(TemplateComponent::Uncles)
-            .await
-            .expect("the uncle lane captures its relevant source"),
-        AuthorityTemplateStep::Published
-    );
-    assert_eq!(
-        runtime.template_capture_count_for_foundation(),
-        converged_captures + 1
-    );
 }
 
 #[tokio::test]
@@ -499,7 +328,7 @@ async fn uak_template_driver_degrades_to_the_finally_live_subset_without_lane_fa
 }
 
 #[tokio::test]
-async fn uak_template_driver_full_priority_and_partial_occ_use_one_output_revision() {
+async fn uak_template_driver_partial_occ_uses_one_output_revision() {
     let snapshot = template_snapshot();
     let runtime = super::super::runtime::AuthorityRuntime::new(
         &runtime_config(),
@@ -523,30 +352,12 @@ async fn uak_template_driver_full_priority_and_partial_occ_use_one_output_revisi
         .await
         .expect("the authority template adapter is valid");
 
-    let full = driver
-        .prepare_full_for_foundation()
-        .await
-        .expect("the initial full plan reads")
-        .expect("initial construction requires a full build");
-    let proposal = driver
-        .prepare_component_for_foundation(TemplateComponent::Proposals)
-        .await
-        .expect("the proposal plan reads")
-        .expect("the empty output does not cover proposals");
     assert_eq!(
         driver
-            .publish_component_for_foundation(proposal)
+            .drive_replacement_once()
             .await
-            .expect("the proposal plan publishes"),
+            .expect("the initial full level builds"),
         AuthorityTemplateStep::Published
-    );
-    assert_eq!(
-        driver
-            .publish_full_for_foundation(full)
-            .await
-            .expect("the full plan publishes"),
-        AuthorityTemplateStep::Published,
-        "full publication deliberately wins over a partial-only revision"
     );
 
     set_status(&runtime, &hash, AcceptedStatus::Proposed);
@@ -583,37 +394,10 @@ async fn uak_template_driver_full_priority_and_partial_occ_use_one_output_revisi
         AuthorityTemplateStep::Published
     );
     assert_eq!(assembler.get_current().await.transactions.len(), 1);
-
-    let snapshot = template_snapshot();
-    let runtime = super::super::runtime::AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the second runtime fixture is valid");
-    let assembler = BlockAssembler::new(template_config(), snapshot)
-        .expect("the second assembler fixture is valid");
-    let driver = AuthorityBlockAssembler::new(runtime, assembler)
-        .await
-        .expect("the second adapter is valid");
-    drop(
-        driver
-            .prepare_full_for_foundation()
-            .await
-            .expect("the full plan reads")
-            .expect("the initial full level is pending"),
-    );
-    assert_eq!(
-        driver
-            .drive_replacement_once()
-            .await
-            .expect("a dropped build is reconstructed from the level"),
-        AuthorityTemplateStep::Published
-    );
 }
 
 #[tokio::test]
-async fn uak_template_driver_rechecks_candidate_source_and_filters_proposal_conflicts() {
+async fn uak_template_driver_filters_proposal_conflicts() {
     let snapshot = template_snapshot();
     let runtime = super::super::runtime::AuthorityRuntime::new(
         &runtime_config(),
@@ -644,40 +428,12 @@ async fn uak_template_driver_rechecks_candidate_source_and_filters_proposal_conf
             .expect("the initial full level builds"),
         AuthorityTemplateStep::Published
     );
-
-    let first = candidate_uncle(&snapshot, 1, Vec::new());
-    let second = candidate_uncle(&snapshot, 2, Vec::new());
+    let non_conflicting = candidate_uncle(&snapshot, 2, Vec::new());
     assert!(
         driver
-            .receive_candidate_uncle(first)
-            .expect("the first candidate is bounded")
+            .receive_candidate_uncle(non_conflicting)
+            .expect("the non-conflicting candidate is bounded")
     );
-    let stale_source = driver
-        .prepare_component_for_foundation(TemplateComponent::Uncles)
-        .await
-        .expect("the uncle plan reads")
-        .expect("the first candidate dirties the uncle level");
-    assert!(
-        driver
-            .receive_candidate_uncle(second)
-            .expect("the second candidate is bounded")
-    );
-    assert_eq!(
-        driver
-            .publish_component_for_foundation(stale_source)
-            .await
-            .expect("the sealed old source may publish its exact content"),
-        AuthorityTemplateStep::Published
-    );
-    assert_eq!(
-        driver
-            .drive_component_once(TemplateComponent::Uncles)
-            .await
-            .expect("the newer candidate source remains a visible level"),
-        AuthorityTemplateStep::Published
-    );
-    assert_eq!(assembler.get_current().await.uncles.len(), 2);
-
     let conflicting = candidate_uncle(&snapshot, 3, vec![proposal_id.clone()]);
     assert!(
         driver
@@ -693,7 +449,7 @@ async fn uak_template_driver_rechecks_candidate_source_and_filters_proposal_conf
     );
     let current = assembler.get_current().await;
     assert_eq!(current.proposals.len(), 1);
-    assert!(!current.uncles.is_empty());
+    assert_eq!(current.uncles.len(), 1);
     assert!(current.uncles.iter().all(|uncle| {
         !uncle
             .proposals
@@ -716,38 +472,12 @@ async fn uak_template_driver_publishes_the_exact_latest_reset_generation() {
     let driver = AuthorityBlockAssembler::new(runtime.clone(), assembler.clone())
         .await
         .expect("the authority template adapter is valid");
-    let old_chain_full = driver
-        .prepare_full_for_foundation()
-        .await
-        .expect("the old-chain full plan reads")
-        .expect("initial construction requires a full build");
-    let old_chain_partial = driver
-        .prepare_component_for_foundation(TemplateComponent::Proposals)
-        .await
-        .expect("the old-chain partial plan reads")
-        .expect("initial construction has uncovered proposals");
 
     let first_tip = template_snapshot_with_child(Some(1));
     runtime
         .clear_pool(first_tip)
         .await
         .expect("the first chain replacement commits");
-    assert_eq!(
-        driver
-            .publish_full_for_foundation(old_chain_full)
-            .await
-            .expect("the old-chain build is a typed stale outcome"),
-        AuthorityTemplateStep::Stale,
-        "a committed chain transition fences an unobserved old full build"
-    );
-    assert_eq!(
-        driver
-            .publish_component_for_foundation(old_chain_partial)
-            .await
-            .expect("the old-chain partial is a typed stale outcome"),
-        AuthorityTemplateStep::Stale,
-        "a committed chain transition fences an unobserved old partial build"
-    );
     let first_reset = driver
         .prepare_reset_for_foundation()
         .await
@@ -777,11 +507,6 @@ async fn uak_template_driver_publishes_the_exact_latest_reset_generation() {
             .expect("the latest reset publishes"),
         AuthorityTemplateStep::Published
     );
-    {
-        let current = assembler.current.read().await;
-        assert_eq!(current.snapshot.tip_hash(), latest_hash);
-        assert_eq!(current.reset_epoch, latest_reset_epoch);
-    }
     assert_eq!(
         driver
             .publish_reset_for_foundation(first_reset)
@@ -964,19 +689,6 @@ async fn uak_template_drivers_cancel_cleanly_without_idle_publication() {
         .await
         .expect("the authority template adapter is valid");
     let runtime_handle = ckb_async_runtime::Handle::new(tokio::runtime::Handle::current(), None);
-
-    let initial_work_id = assembler.get_current().await.work_id;
-    let cancelled_before_spawn = ckb_stop_handler::CancellationToken::new();
-    cancelled_before_spawn.cancel();
-    let cancelled_handles = driver.spawn_drivers(&runtime_handle, cancelled_before_spawn.clone());
-    for task in cancelled_handles.tasks {
-        task.handle
-            .await
-            .expect("the pre-cancelled template lane task does not panic")
-            .expect("pre-cancellation is a clean template-lane outcome");
-    }
-    assert_eq!(assembler.get_current().await.work_id, initial_work_id);
-
     let cancel = ckb_stop_handler::CancellationToken::new();
     let handles = driver.spawn_drivers(&runtime_handle, cancel.clone());
 

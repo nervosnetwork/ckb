@@ -11,6 +11,19 @@ pub(in crate::authority) struct IndexSnapshot {
 }
 
 impl AuthorityIndexes {
+    pub(in crate::authority) fn replace_proposal_owner_for_test(
+        &self,
+        proposal: &ProposalId,
+        owner: Option<RawTxHash>,
+    ) -> Option<RawTxHash> {
+        let shard = self.proposal_shard(proposal);
+        let proposals = &mut self.entries.layout.shards[shard].write().proposals;
+        match owner {
+            Some(owner) => proposals.insert(proposal.clone(), owner),
+            None => proposals.remove(proposal),
+        }
+    }
+
     pub(in crate::authority) fn peer_ban_snapshot(
         &self,
     ) -> HashMap<PeerIndex, crate::authority::ban::PeerBanDeadline> {

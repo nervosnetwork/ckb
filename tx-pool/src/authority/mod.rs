@@ -41,7 +41,4 @@ mod work;
 mod worker;
 
 #[cfg(test)]
-#[path = "tests/support/shard_support.rs"]
-mod shard_support;
-#[cfg(test)]
 mod tests;

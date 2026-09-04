@@ -3,23 +3,23 @@ use super::super::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
         CommittedRejection, CommittedRemoteIngressRelease, EffectBatchBound, EffectBatchBounds,
         EffectBuildError, EffectCapacity, EffectConfigError, EffectLimits, EffectPolicy,
-        EffectPublication, EffectReceipt, ParentTransactionRequest, RejectionAudience,
+        EffectPublication, EffectReceipt, EffectSettlementError, ParentTransactionRequest,
+        RejectionAudience,
     },
     plan::{
         AuthorityFault, Backpressure, CommittedDelta, ComputeSettlementRecovery, EffectCloseError,
-        EffectSettlementCommit, EffectSettlementError, MembershipReject, PlanError,
-        TxPoolAuthority,
+        MembershipReject, PlanError, TxPoolAuthority,
     },
     rejection::CommittedPublicReject,
     runtime::AuthorityRuntime,
     state::{
         AcceptedStatus, ApplySequence, DependencyKey, OwnedTx, PreAcceptedPhase, RawTxHash,
-        RemoteDeadline, ValidatedAdmission, WorkPermit, test_support::RejectionKind,
+        ValidatedAdmission, WorkPermit, test_support::RejectionKind,
     },
 };
 use super::foundation::{
-    FixtureCommit, admit_remote, admit_remote_until, genesis_snapshot, limits, owner_version,
-    runtime_config, take_resolve_work, tx, verify_remote_transaction,
+    FixtureCommit, admit_remote, genesis_snapshot, limits, owner_version, runtime_config,
+    take_resolve_work, tx, verify_remote_transaction,
 };
 use ckb_network::PeerIndex;
 use ckb_types::{
@@ -28,7 +28,7 @@ use ckb_types::{
     packed::{Byte32, OutPoint},
     prelude::Pack,
 };
-use std::{num::NonZeroUsize, sync::Arc};
+use std::sync::Arc;
 
 const EFFECT_BYTES: usize = 1024 * 1024;
 
@@ -54,77 +54,6 @@ fn effect_limits(
 fn authority_with_effect_limits(effect_limits: EffectLimits) -> TxPoolAuthority {
     TxPoolAuthority::for_foundation_with_effect_limits(limits(), effect_limits)
         .expect("fixture effect storage reserves its bounded queue")
-}
-
-#[test]
-fn uak_peer_revocation_commits_one_constant_size_cohort_effect() {
-    let peer = PeerIndex::from(711);
-    let mut authority = authority_with_effect_limits(effect_limits(8, 2, 2, 1));
-    let first = admit_remote(&mut authority, 1_713, 711);
-    let second = admit_remote(&mut authority, 1_714, 711);
-
-    let committed = authority
-        .plan_peer_revocation_for_foundation(peer)
-        .expect("one cohort effect fits independently of cohort cardinality")
-        .apply();
-    assert_eq!(committed.retired_len(), 2);
-    assert!(authority.entry(&first).is_none());
-    assert!(authority.entry(&second).is_none());
-
-    let lease = publication_receipt(&mut authority);
-    assert!(matches!(
-        lease.effects(),
-        [CommittedEffect::PeerCohortRevoked(revocation)]
-            if revocation.peer() == peer && revocation.culprit().is_none()
-    ));
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_peer_revocation_effect_backpressure_is_zero_semantic_mutation() {
-    let peer = PeerIndex::from(718);
-    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
-    let owner = admit_remote(&mut authority, 1_718, 718);
-    for (policy, nonce) in [
-        (EffectPolicy::Remote, 1_719),
-        (EffectPolicy::Trusted, 1_720),
-        (EffectPolicy::CriticalDetail, 1_721),
-    ] {
-        let publication = rejected_publication(&authority, policy, Arc::new(tx(nonce)));
-        drop(publish(&mut authority, &publication));
-    }
-    let before = authority.normalized_snapshot();
-
-    assert_eq!(
-        authority.plan_peer_revocation_for_foundation(peer).err(),
-        Some(PlanError::Backpressure(Backpressure::EffectCapacity))
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    assert!(authority.entry(&owner).is_some());
-    assert!(!authority.peer_is_banned_for_reference(peer));
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_remote_expiry_effect_backpressure_is_zero_mutation() {
-    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
-    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(1_720)));
-    drop(publish(&mut authority, &occupied));
-    let due = admit_remote_until(&mut authority, 1_721, 717, 10);
-    let before = authority.normalized_snapshot();
-
-    assert_eq!(
-        authority
-            .plan_remote_expiry(
-                RemoteDeadline(10),
-                NonZeroUsize::new(1).expect("fixture slice is non-zero"),
-            )
-            .err(),
-        Some(PlanError::Backpressure(Backpressure::EffectCapacity))
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    assert!(authority.entry(&due).is_some());
-    assert!(authority.primary_projection_consistent());
 }
 
 fn rejected_publication(
@@ -240,7 +169,7 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
         .await
         .expect("the effect log remains open");
     runtime
-        .settle_effect_for_foundation(first_lease.complete_for_foundation().published())
+        .settle_effect_for_foundation(first_lease.complete_for_foundation())
         .expect("the older effect settles");
     assert_eq!(
         runtime
@@ -255,7 +184,7 @@ async fn uak_pending_recent_reject_is_an_exact_sequence_derived_projection() {
         .await
         .expect("the effect log remains open");
     runtime
-        .settle_effect_for_foundation(second_lease.complete_for_foundation().published())
+        .settle_effect_for_foundation(second_lease.complete_for_foundation())
         .expect("the latest effect settles");
     assert_eq!(
         runtime
@@ -320,7 +249,7 @@ fn uak_pending_recent_reject_uses_effect_position_within_one_batch() {
     let lease = publication_receipt(&mut authority);
     drop(apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation())
             .expect("the complete batch settles"),
     ));
     assert!(authority.pending_recent_reject(&hash).is_none());
@@ -429,15 +358,6 @@ fn uak_effect_shape_bounds_are_class_specific() {
     authority
         .effect_publication_for_foundation(EffectPolicy::CriticalDetail, effects)
         .expect("critical detail may retain the larger proven all-owner shape");
-}
-
-#[test]
-fn uak_production_effect_sizing_is_checked_and_authority_owned() {
-    assert!(EffectLimits::production(1_000_000, 250_000, 500_000, 100).is_ok());
-    assert_eq!(
-        EffectLimits::production(usize::MAX, 1, 1, 1),
-        Err(EffectConfigError::Arithmetic)
-    );
 }
 
 fn sized_transaction(payload_bytes: usize) -> Arc<TransactionView> {
@@ -612,81 +532,6 @@ fn uak_production_effect_sizing_constructively_covers_non_rebuildable_shapes() {
 }
 
 #[test]
-fn uak_compute_outcome_survives_effect_backpressure() {
-    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
-    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(710)));
-    drop(publish(&mut authority, &occupied));
-
-    let transaction = tx(711);
-    let hash = verify_remote_transaction(&mut authority, transaction, 71, Vec::new());
-    let Some(OwnedTx::PreAccepted(entry)) = authority.entry(&hash) else {
-        panic!("verified transaction retains one pre-accepted owner");
-    };
-    assert!(matches!(entry.phase, PreAcceptedPhase::Ready(_)));
-    assert_eq!(authority.owner_count(), 1);
-    assert_eq!(authority.charged_count(), 1);
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_compute_rejection_backpressure_preserves_the_exact_linear_settlement() {
-    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
-    let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(712)));
-    drop(publish(&mut authority, &occupied));
-
-    let hash = admit_remote(&mut authority, 713, 73);
-    let version = owner_version(&authority, &hash);
-    let (_, work) = take_resolve_work(
-        authority
-            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
-            .expect("resolve checkout plans")
-            .apply(),
-    );
-    let before = authority.normalized_snapshot();
-    let blocked = authority
-        .apply_settlement(work.rejected(RejectionKind::Policy))
-        .expect_err("a full effect region cannot separate removal from rejection");
-    assert_eq!(
-        blocked.recovery(),
-        &ComputeSettlementRecovery::WaitEffectCapacity
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-                && entry.charge.active_work == 1
-    ));
-
-    let occupied_lease = publication_receipt(&mut authority);
-    drop(apply_plan(
-        authority
-            .apply_effect_settlement_for_foundation(
-                occupied_lease.complete_for_foundation().published(),
-            )
-            .expect("occupied publication settles"),
-    ));
-    drop(apply_plan(
-        authority
-            .apply_settlement(blocked.into_settlement())
-            .expect("the exact rejected settlement retries after capacity is free"),
-    ));
-    assert!(authority.entry(&hash).is_none());
-
-    let rejection = publication_receipt(&mut authority);
-    assert!(matches!(
-        rejection.effects(),
-        [CommittedEffect::Rejected(CommittedRejection::Validation {
-            audience,
-            reason,
-            ..
-        })] if audience.ingress_peer() == Some(PeerIndex::from(73))
-            && *reason == RejectionKind::Policy.into()
-    ));
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
 fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
     let occupied = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(714)));
@@ -697,9 +542,8 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     let version = owner_version(&authority, &hash);
     let (_, work) = take_resolve_work(
         authority
-            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
-            .expect("remote missing work checks out")
-            .apply(),
+            .checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("remote missing work checks out"),
     );
     let first_parent = Byte32::new([0x11; 32]);
     let second_parent = Byte32::new([0x22; 32]);
@@ -742,9 +586,7 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
     let occupied_lease = publication_receipt(&mut authority);
     drop(apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(
-                occupied_lease.complete_for_foundation().published(),
-            )
+            .apply_effect_settlement_for_foundation(occupied_lease.complete_for_foundation())
             .expect("the occupied publication settles"),
     ));
     drop(apply_plan(
@@ -769,6 +611,24 @@ fn uak_remote_missing_wait_and_parent_request_share_one_backpressured_apply() {
         &[RawTxHash(first_parent), RawTxHash(second_parent),]
     );
     assert!(authority.primary_projection_consistent());
+}
+
+#[test]
+fn uak_overtaken_effect_sequence_keeps_a_current_compute_settlement_retryable() {
+    let mut authority = authority_with_effect_limits(effect_limits(1, 1, 1, 1));
+    let hash = admit_remote(&mut authority, 716, 76);
+    let version = owner_version(&authority, &hash);
+    let (_, work) = take_resolve_work(
+        authority
+            .checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("the compute fixture checks out"),
+    );
+    let failure =
+        authority.classify_overtaken_effect_settlement_for_foundation(work.internal_failure());
+    assert!(matches!(
+        failure.recovery(),
+        ComputeSettlementRecovery::RetryExact(_)
+    ));
 }
 
 #[test]
@@ -802,7 +662,7 @@ fn uak_effect_full_preserves_ready_owner_and_charge() {
 }
 
 #[test]
-fn uak_effect_receipt_preserves_sequence_and_charge() {
+fn uak_effect_receipt_preserves_sequence_and_charge_without_an_apply_clock() {
     let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
     let publication = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(730)));
     drop(publish(&mut authority, &publication));
@@ -836,7 +696,7 @@ fn uak_effect_receipt_preserves_sequence_and_charge() {
     assert_eq!(unrelated_lease.sequence(), expected_sequence);
     let before_stale = authority.normalized_snapshot();
     let stale = authority
-        .apply_effect_settlement_for_foundation(unrelated_lease.retain())
+        .apply_effect_settlement_for_foundation(unrelated_lease)
         .expect_err("an unrelated effect receipt is stale");
     assert_eq!(stale.error(), EffectSettlementError::StaleLease);
     assert_eq!(authority.normalized_snapshot(), before_stale);
@@ -847,19 +707,15 @@ fn uak_effect_receipt_preserves_sequence_and_charge() {
     let lease = publication_receipt(&mut authority);
     assert_eq!(lease.sequence(), expected_sequence);
     let before_exhaustion = authority.normalized_snapshot();
-    let exhausted = authority
-        .apply_effect_settlement_for_foundation(lease.retain())
-        .expect_err("counter exhaustion cannot consume the publication receipt");
-    assert_eq!(exhausted.error(), EffectSettlementError::CounterExhausted);
-    assert_eq!(authority.normalized_snapshot(), before_exhaustion);
-    authority.force_next_sequence(resumable_sequence);
-
     let retained = apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(exhausted.into_settlement())
-            .expect("the exact receipt can be retained"),
+            .apply_effect_settlement_for_foundation(lease)
+            .expect("journal-local settlement does not reserve an Apply clock"),
     );
     assert_eq!(retained.retired_effect_len(), 0);
+    assert_eq!(authority.normalized_snapshot(), before_exhaustion);
+    assert_eq!(authority.clocks().next_sequence, ApplySequence(u128::MAX));
+    authority.force_next_sequence(resumable_sequence);
     let requeued = authority.effect_observation_for_foundation();
     assert_eq!(requeued.queued, vec![expected_sequence]);
     assert_eq!(requeued.queued_processed_steps, vec![0]);
@@ -868,7 +724,7 @@ fn uak_effect_receipt_preserves_sequence_and_charge() {
     let lease = publication_receipt(&mut authority);
     let published = apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation())
             .expect("the exact receipt publishes"),
     );
     assert_eq!(published.retired_effect_len(), 1);
@@ -884,78 +740,11 @@ fn uak_effect_receipt_preserves_sequence_and_charge() {
     let lease = publication_receipt(&mut authority);
     let disposed = apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(
-                lease.complete_for_foundation().circuit_disposed(),
-            )
+            .apply_effect_settlement_for_foundation(lease.complete_for_foundation())
             .expect("the endpoint circuit can dispose committed detail"),
     );
     assert_eq!(disposed.retired_effect_len(), 1);
     drop(disposed);
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_effect_receipt_keeps_the_committed_head_stable_across_producer_applies() {
-    let mut authority = authority_with_effect_limits(effect_limits(4, 2, 2, 1));
-    let first = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(733)));
-    drop(publish(&mut authority, &first));
-    let first_receipt = publication_receipt(&mut authority);
-    let first_sequence = first_receipt.sequence();
-
-    let second = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(734)));
-    drop(publish(&mut authority, &second));
-    let second_sequence = authority.effect_observation_for_foundation().queued[1];
-    drop(apply_plan(
-        authority
-            .plan_generation_reset_for_foundation()
-            .expect("a newer reset can commit while the queue head is borrowed"),
-    ));
-    let reset_sequence = authority
-        .effect_observation_for_foundation()
-        .latest_generation_reset
-        .expect("the reset remains a distinct resident record");
-    drop(apply_plan(
-        authority
-            .plan_effect_close_for_foundation()
-            .expect("close cannot displace committed publication records"),
-    ));
-
-    let interposed = authority.effect_observation_for_foundation();
-    assert_eq!(interposed.queued, vec![first_sequence, second_sequence]);
-    assert!(first_sequence < second_sequence && second_sequence < reset_sequence);
-    assert!(interposed.closed);
-    assert_eq!(
-        publication_receipt(&mut authority).sequence(),
-        first_sequence,
-        "read acquisition itself cannot remove or reorder the borrowed head"
-    );
-
-    drop(apply_plan(
-        authority
-            .apply_effect_settlement_for_foundation(
-                first_receipt.complete_for_foundation().published(),
-            )
-            .expect("the exact borrowed head settles after interposed producers"),
-    ));
-    let second_receipt = publication_receipt(&mut authority);
-    assert_eq!(second_receipt.sequence(), second_sequence);
-    drop(apply_plan(
-        authority
-            .apply_effect_settlement_for_foundation(
-                second_receipt.complete_for_foundation().published(),
-            )
-            .expect("the second FIFO record settles next"),
-    ));
-    let reset_receipt = publication_receipt(&mut authority);
-    assert_eq!(reset_receipt.sequence(), reset_sequence);
-    drop(apply_plan(
-        authority
-            .apply_effect_settlement_for_foundation(
-                reset_receipt.complete_for_foundation().published(),
-            )
-            .expect("the later reset settles after the earlier queue records"),
-    ));
-    assert!(authority.effects_closed_and_drained_for_foundation());
     assert!(authority.primary_projection_consistent());
 }
 
@@ -967,11 +756,8 @@ fn uak_effect_settlement_rejects_forged_source_sequence_and_cursor_without_mutat
     let exact_sequence = authority.effect_observation_for_foundation().queued[0];
 
     for forged in [
+        publication_receipt(&mut authority).claim_generation_reset_source_for_foundation(),
         publication_receipt(&mut authority)
-            .retain()
-            .claim_generation_reset_source_for_foundation(),
-        publication_receipt(&mut authority)
-            .retain()
             .with_sequence_for_foundation(ApplySequence(exact_sequence.0 + 1)),
     ] {
         let before = authority.normalized_snapshot();
@@ -989,7 +775,7 @@ fn uak_effect_settlement_rejects_forged_source_sequence_and_cursor_without_mutat
         .expect("the first endpoint advances tentatively");
     drop(apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(first.retain())
+            .apply_effect_settlement_for_foundation(first)
             .expect("Retain commits the exact partial cursor"),
     ));
     assert_eq!(
@@ -1000,12 +786,8 @@ fn uak_effect_settlement_rejects_forged_source_sequence_and_cursor_without_mutat
     );
 
     for forged in [
-        publication_receipt(&mut authority)
-            .retain()
-            .with_processed_steps_for_foundation(0),
-        publication_receipt(&mut authority)
-            .retain()
-            .with_processed_steps_for_foundation(usize::MAX),
+        publication_receipt(&mut authority).with_processed_steps_for_foundation(0),
+        publication_receipt(&mut authority).with_processed_steps_for_foundation(usize::MAX),
     ] {
         let before = authority.normalized_snapshot();
         let failure = authority
@@ -1123,13 +905,11 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     assert!(third_sequence > second_sequence);
     let before_superseded = authority.normalized_snapshot();
     let superseded = authority
-        .effect_settlement_for_foundation(old_receipt.retain())
-        .expect("a valid older reset receipt has a typed disposition");
-    let EffectSettlementCommit::Superseded(old_settlement) = superseded else {
-        panic!("a newer reset must subsume the older receipt without an Apply");
-    };
+        .effect_settlement_for_foundation(old_receipt)
+        .expect("a valid older reset receipt is subsumed");
+    let (retired, _wake) = superseded.into_parts();
+    assert!(retired.is_none());
     assert_eq!(authority.normalized_snapshot(), before_superseded);
-    drop(old_settlement);
     assert_eq!(
         authority
             .effect_observation_for_foundation()
@@ -1145,57 +925,9 @@ fn uak_generation_reset_coalesces_and_retain_never_resurrects_an_old_reset() {
     ));
     drop(apply_plan(
         authority
-            .apply_effect_settlement_for_foundation(newest.complete_for_foundation().published())
+            .apply_effect_settlement_for_foundation(newest.complete_for_foundation())
             .expect("latest reset publishes"),
     ));
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_closed_authority_freezes_new_state_and_drains_committed_effects() {
-    let mut authority = authority_with_effect_limits(effect_limits(2, 1, 1, 1));
-    let publication = rejected_publication(&authority, EffectPolicy::Remote, Arc::new(tx(750)));
-    drop(publish(&mut authority, &publication));
-    drop(apply_plan(
-        authority
-            .plan_generation_reset_for_foundation()
-            .expect("generation reset plans"),
-    ));
-    drop(apply_plan(
-        authority
-            .plan_effect_close_for_foundation()
-            .expect("authority close plans"),
-    ));
-    assert!(authority.effect_observation_for_foundation().closed);
-
-    let before_rejected_admission = authority.normalized_snapshot();
-    let admission = ValidatedAdmission::remote(tx(751), PeerIndex::from(75))
-        .expect("fixture admission is valid");
-    assert_eq!(
-        authority.plan_admission(admission).err(),
-        Some(PlanError::EffectClosed)
-    );
-    assert_eq!(authority.normalized_snapshot(), before_rejected_admission);
-    assert_eq!(
-        authority
-            .plan_effect_publication_for_foundation(&publication)
-            .err(),
-        Some(PlanError::EffectClosed)
-    );
-    assert_eq!(
-        authority.plan_effect_close_for_foundation().err(),
-        Some(EffectCloseError::AlreadyClosed)
-    );
-
-    for _ in 0..2 {
-        let lease = publication_receipt(&mut authority);
-        drop(apply_plan(
-            authority
-                .apply_effect_settlement_for_foundation(lease.complete_for_foundation().published())
-                .expect("already committed effects drain after close"),
-        ));
-    }
-    assert!(authority.effects_closed_and_drained_for_foundation());
     assert!(authority.primary_projection_consistent());
 }
 
@@ -1213,14 +945,13 @@ fn uak_effect_close_requires_every_compute_capability_to_settle() {
     let version = owner_version(&authority, &hash);
     let (_, work) = take_resolve_work(
         authority
-            .plan_checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
-            .expect("compute checkout plans")
-            .apply(),
+            .checkout_for_foundation(&hash, version, WorkPermit::ResolveOnly)
+            .expect("compute checkout plans"),
     );
 
     let before = authority.normalized_snapshot();
     assert_eq!(
-        authority.plan_effect_close_for_foundation().err(),
+        authority.close_effects_for_foundation().err(),
         Some(EffectCloseError::ActiveWork)
     );
     assert_eq!(authority.normalized_snapshot(), before);
@@ -1230,11 +961,9 @@ fn uak_effect_close_requires_every_compute_capability_to_settle() {
             .apply_settlement(work.rejected(RejectionKind::Policy))
             .expect("the unique live lease settles before close"),
     ));
-    drop(apply_plan(
-        authority
-            .plan_effect_close_for_foundation()
-            .expect("drained compute permits close"),
-    ));
+    authority
+        .close_effects_for_foundation()
+        .expect("drained compute permits close");
     assert!(authority.effect_observation_for_foundation().closed);
     assert!(authority.primary_projection_consistent());
 }

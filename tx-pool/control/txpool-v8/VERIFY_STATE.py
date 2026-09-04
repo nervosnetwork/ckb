@@ -1,417 +1,284 @@
 #!/usr/bin/env python3
-"""Verify the repository-owned txpool-v8 project state and frozen source cut."""
+"""Verify the single cold-recovery cut for the txpool-v8 G0 project."""
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
-import copy
 from pathlib import Path
 import stat
 import subprocess
 import sys
+import tempfile
 
 
-CONTROL_ROOT = Path(__file__).resolve().parent
-REPOSITORY = CONTROL_ROOT.parents[2]
-MANIFEST_FILES = {
-    "STATE.json",
-    "CONTROL_KERNEL.json",
-    "AUDIT_PLAN.json",
-    "FINDINGS_LEDGER.json",
-    "CKB_AUTHORITY_INPUT_LEDGER.md",
-    "CONTEXT_LOAD_POLICY.json",
-    "VERIFY_STATE.py",
-}
-ALLOWED_AFTER_SUBJECT = {
-    ".gitignore",
-    "AGENTS.md",
-    "tx-pool/AGENTS.md",
-    "tx-pool/.release-progress",
-    "tx-pool/CHANGELOG.md",
-    "tx-pool/PROFILING.md",
-    "tx-pool/README.md",
-    "tx-pool/architecture-contract.json",
-    "tx-pool/security-regression-manifest.json",
-    "tx-pool/scripts/check_all.py",
-    "tx-pool/scripts/check_security_manifest.py",
-    "tx-pool/docs/ARCHITECTURE.md",
-    "tx-pool/docs/REVIEW_GUIDE.md",
-}
-ALLOWED_AFTER_SUBJECT_PREFIXES = (
-    "tx-pool/control/txpool-v8/",
-    "tx-pool/docs/",
-    "tx-pool/optimization-evidence/",
+ROOT = Path(__file__).resolve().parents[3]
+CONTROL = ROOT / "tx-pool/control/txpool-v8"
+OWNER_PATHS = (
+    ROOT / "tx-pool/architecture-contract.json",
+    CONTROL / "CONTROL_KERNEL.json",
+    CONTROL / "STATE.json",
+    CONTROL / "EVIDENCE.json",
+    CONTROL / "FINDINGS_LEDGER.json",
+    CONTROL / "CKB_AUTHORITY_INPUT_LEDGER.md",
+    CONTROL / "VERIFY_STATE.py",
 )
-RETIRED_CURRENT_POINTERS = (
-    "tx-pool/docs/handoff/txpool-v8",
-    "tx-pool/control/txpool-v8/HANDOFF.json",
-    "tx-pool/control/txpool-v8/VERIFY_HANDOFF.py",
-)
-GENESIS_MATERIAL_STATE = {
-    "production_subject": "51d282345d1d83119c46cdde8f1115f14561b4ac",
-    "production_tree": "1e19719c764c7349a178d7ac0b7bf4999542966f",
-    "phase": "terminal_correctness_and_root_repair",
-    "root": "B8_TRUE_SHARD_GLOBAL_TERMINAL_AUDIT_AND_ROOT_REPAIR_R1",
+MANIFEST = CONTROL / "MANIFEST.json"
+LIVE_EXCLUSIONS = {
+    "tx-pool/control/txpool-v8/STATE.json",
+    "tx-pool/control/txpool-v8/MANIFEST.json",
 }
-PHASE_ORDER = [
-    "terminal_correctness_and_root_repair",
-    "hard_and_static_proof",
-    "measured_performance",
-    "complexity_minimum",
-    "security",
-    "acceptance",
-]
-DANGEROUS_GIT_ENVIRONMENT = {
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_COMMON_DIR",
-    "GIT_NAMESPACE",
-    "GIT_REPLACE_REF_BASE",
+CLAIMS = {
+    "HARD_FEASIBILITY",
+    "STATIC_GLOBAL_BOTTOM",
+    "MEASURED_STRONGEST",
+    "SEMANTIC_ZERO_AND_ENGINEERING_MINIMUM",
+    "FINAL_ADVERSARIAL_SECURITY",
+    "NEW_COLD_JOINED_ACCEPTED_UNIVERSE",
 }
 
 
 def fail(message: str) -> None:
-    raise SystemExit(f"INVALID TXPOOL-V8 PROJECT STATE: {message}")
+    raise SystemExit(f"txpool-v8 state invalid: {message}")
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def load(path: Path) -> dict:
     try:
+        if stat.S_ISLNK(path.lstat().st_mode) or not path.is_file():
+            fail(f"owner is not a regular file: {path.relative_to(ROOT)}")
         value = json.loads(path.read_text())
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        fail(f"cannot load {path}: {error}")
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot load {path.relative_to(ROOT)}: {error}")
     if not isinstance(value, dict):
-        fail(f"top level is not object: {path}")
+        fail(f"owner is not an object: {path.relative_to(ROOT)}")
     return value
 
 
-def command(*args: str) -> str:
+def git(*arguments: str) -> bytes:
     environment = {
         "PATH": os.environ.get("PATH", ""),
-        "GIT_NO_REPLACE_OBJECTS": "1",
         "LC_ALL": "C",
-    }
-    result = subprocess.run(
-        args,
-        cwd=REPOSITORY,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        fail(f"command failed ({' '.join(args)}): {result.stderr.strip()}")
-    return result.stdout.strip()
-
-
-def git_success(*args: str) -> bool:
-    environment = {
-        "PATH": os.environ.get("PATH", ""),
         "GIT_NO_REPLACE_OBJECTS": "1",
-        "LC_ALL": "C",
     }
-    return (
-        subprocess.run(
-            ("git", *args),
-            cwd=REPOSITORY,
-            env=environment,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ).returncode
-        == 0
+    completed = subprocess.run(
+        ("git", *arguments), cwd=ROOT, env=environment, capture_output=True, check=False
     )
+    if completed.returncode:
+        fail(
+            f"git {' '.join(arguments)} failed: "
+            + completed.stderr.decode(errors="replace").strip()
+        )
+    return completed.stdout
 
 
-def require_regular_control_file(path: Path) -> None:
+def git_text(*arguments: str) -> str:
+    return git(*arguments).decode().strip()
+
+
+def resolve(reference: str, evidence: dict):
+    prefix = "EVIDENCE.json#/"
+    if not reference.startswith(prefix):
+        fail(f"noncanonical evidence reference: {reference}")
+    value = evidence
+    for component in reference[len(prefix) :].split("/"):
+        if not isinstance(value, dict) or component not in value:
+            fail(f"missing evidence reference: {reference}")
+        value = value[component]
+    return value
+
+
+def within(path: str, scopes: list[str]) -> bool:
+    return any(path == scope or path.startswith(scope.rstrip("/") + "/") for scope in scopes)
+
+
+def nested_keys(value) -> set[str]:
+    if isinstance(value, dict):
+        return set(value).union(*(nested_keys(item) for item in value.values()))
+    if isinstance(value, list):
+        return set().union(*(nested_keys(item) for item in value))
+    return set()
+
+
+def validate_contract(contract: dict, control: dict, ledger: str) -> None:
+    decisions = contract.get("authority_decision_envelope")
+    expected = [f"CKB-AUTH-{index:04d}" for index in range(1, 10)]
+    if not isinstance(decisions, list) or [item.get("id") for item in decisions] != expected:
+        fail("architecture contract must contain the nine ordered authority decisions")
+    by_id = {item["id"]: item.get("invariant", "") for item in decisions}
+    if "READ_ONLY_CELL_DEP" not in by_id["CKB-AUTH-0008"]:
+        fail("shared read-only cell-dep independence disappeared")
+    if "EFFECTS_BECOME_DURABLE" not in by_id["CKB-AUTH-0009"]:
+        fail("atomic effect durability obligation disappeared")
+    hard = " ".join(control.get("hard_invariants", []))
+    if "READ_ONLY_CELL_DEP" not in hard or "NO_GLOBAL" not in hard:
+        fail("control kernel weakened true-shard independence")
+    if "external_partner" in control.get("collaboration", {}):
+        fail("external collaboration must remain retired")
+    for decision in expected:
+        if decision not in ledger:
+            fail(f"authority ledger is missing {decision}")
+
+
+def validate_shapes(state: dict, control: dict, evidence: dict, contract: dict) -> None:
+    if state.get("schema") != "txpool-v8-live-state-v6":
+        fail("unknown live-state schema")
+    if evidence.get("schema") != "txpool-v8-evidence-v2":
+        fail("unknown evidence schema")
+    source = state.get("current_source")
+    action = state.get("next_atomic_action")
+    if not isinstance(source, dict) or not isinstance(action, dict):
+        fail("source or next action is absent")
+    if action.get("id") != state.get("single_current_root"):
+        fail("the action and single root disagree")
+    if set(state.get("claim_status", {})) != CLAIMS:
+        fail("claim vocabulary drifted")
+    if action.get("continuation_refs") != []:
+        fail("external receipts cannot gate continuation")
+    refs = action.get("input_evidence_refs")
+    if not isinstance(refs, list) or not refs:
+        fail("the action has no evidence root")
+    for reference in refs:
+        resolve(reference, evidence)
+    scopes = action.get("write_scope")
+    if not isinstance(scopes, list) or not scopes:
+        fail("the action has no write scope")
+    if any(not within(scope, [source.get("owned_scope", "")]) for scope in scopes):
+        fail("action write scope escapes the owned tree")
+    forbidden = {
+        "current_source",
+        "current_phase",
+        "single_current_root",
+        "next_atomic_action",
+        "claim_status",
+    }
+    for name, owner in (("control", control), ("evidence", evidence), ("contract", contract)):
+        overlap = forbidden & nested_keys(owner)
+        if overlap:
+            fail(f"{name} duplicates live state keys: {sorted(overlap)}")
+
+
+def recovery_packet(state: dict) -> dict:
+    source = state["current_source"]
+    reference = source["checkpoint_ref"]
+    commit = source["checkpoint_commit"]
+    if git_text("rev-parse", reference) != commit:
+        fail("checkpoint ref and commit disagree")
+    if git_text("rev-parse", f"{commit}^{{tree}}") != source["checkpoint_tree"]:
+        fail("checkpoint tree disagrees")
+    if git_text("rev-parse", f"{commit}^") != source["base_head"]:
+        fail("checkpoint parent disagrees")
+    if git_text("rev-parse", "HEAD") != source["base_head"]:
+        fail("workspace HEAD moved beyond the frozen base")
+    if git_text("symbolic-ref", "--short", "HEAD") != source["branch"]:
+        fail("workspace branch disagrees")
+    changed = set(
+        line
+        for line in git_text("diff", "--name-only", commit, "--", source["owned_scope"]).splitlines()
+        if line
+    )
+    changed.update(
+        line
+        for line in git_text(
+            "ls-files", "--others", "--exclude-standard", "--", source["owned_scope"]
+        ).splitlines()
+        if line
+    )
+    changed -= LIVE_EXCLUSIONS
+    scopes = state["next_atomic_action"]["write_scope"]
+    foreign = sorted(path for path in changed if not within(path, scopes))
+    if foreign:
+        fail("workspace changes escape the active action: " + ", ".join(foreign))
+    patch = git("diff", "--binary", commit, "--", source["owned_scope"])
+    return {
+        "status": "ACTION_DIRTY" if changed else "VALID",
+        "checkpoint_commit": commit,
+        "checkpoint_tree": source["checkpoint_tree"],
+        "changed_paths": sorted(changed),
+        "workspace_patch_sha256": sha256(patch),
+        "root": state["single_current_root"],
+        "next_action": state["next_atomic_action"]["id"],
+    }
+
+
+def manifest_payload() -> dict:
+    return {
+        "schema": "txpool-v8-project-state-manifest-v4",
+        "files": {
+            path.relative_to(ROOT).as_posix(): sha256(path.read_bytes()) for path in OWNER_PATHS
+        },
+    }
+
+
+def write_manifest() -> None:
+    payload = json.dumps(manifest_payload(), indent=2, sort_keys=True) + "\n"
+    with tempfile.NamedTemporaryFile("w", dir=CONTROL, delete=False) as output:
+        output.write(payload)
+        temporary = Path(output.name)
+    os.replace(temporary, MANIFEST)
+
+
+def validate_manifest() -> None:
+    actual = load(MANIFEST)
+    if actual != manifest_payload():
+        fail("manifest hashes or owner set drifted; run --write-manifest")
+
+
+def self_test(state: dict, control: dict, evidence: dict, contract: dict) -> None:
+    changed = copy.deepcopy(state)
+    changed["next_atomic_action"]["input_evidence_refs"] = ["EVIDENCE.json#/missing"]
     try:
-        mode = path.lstat().st_mode
-    except OSError as error:
-        fail(f"cannot stat state file {path}: {error}")
-    if not stat.S_ISREG(mode) or path.is_symlink():
-        fail(f"state file is not a regular non-symlink file: {path.name}")
-    if path.resolve().parent != CONTROL_ROOT.resolve():
-        fail(f"state file escapes canonical control directory: {path.name}")
-
-
-def validate_material_transition_chain(state: dict) -> None:
-    current = dict(GENESIS_MATERIAL_STATE)
-    chain = state.get("material_transition_chain")
-    if not isinstance(chain, list):
-        fail("material transition chain missing")
-    for index, transition in enumerate(chain):
-        if not isinstance(transition, dict) or set(transition) != {
-            "from",
-            "to",
-            "kind",
-            "evidence",
-        }:
-            fail(f"material transition {index} shape mismatch")
-        if transition["from"] != current:
-            fail(f"material transition {index} does not continue the anchored chain")
-        target = transition["to"]
-        if not isinstance(target, dict) or set(target) != set(GENESIS_MATERIAL_STATE):
-            fail(f"material transition {index} target shape mismatch")
-        if transition["kind"] not in {"ROOT_REPAIR", "ROOT_REPLAN", "PHASE_ADVANCE"}:
-            fail(f"material transition {index} kind is not allowed")
-        evidence = transition["evidence"]
-        if not isinstance(evidence, list) or not evidence or not all(
-            isinstance(item, str) and item for item in evidence
-        ):
-            fail(f"material transition {index} has no evidence")
-        command("git", "cat-file", "-e", f"{target['production_subject']}^{{commit}}")
-        if command("git", "rev-parse", f"{target['production_subject']}^{{tree}}") != target[
-            "production_tree"
-        ]:
-            fail(f"material transition {index} target tree mismatch")
-        if not git_success(
-            "merge-base",
-            "--is-ancestor",
-            current["production_subject"],
-            target["production_subject"],
-        ):
-            fail(f"material transition {index} source does not descend from prior source")
-        try:
-            old_phase = PHASE_ORDER.index(current["phase"])
-            new_phase = PHASE_ORDER.index(target["phase"])
-        except ValueError:
-            fail(f"material transition {index} phase is unknown")
-        if transition["kind"] == "PHASE_ADVANCE":
-            if new_phase != old_phase + 1:
-                fail(f"material transition {index} skips or reverses phase order")
-        elif new_phase != old_phase:
-            fail(f"material transition {index} changes phase without PHASE_ADVANCE")
-        if not isinstance(target["root"], str) or not target["root"]:
-            fail(f"material transition {index} root missing")
-        current = dict(target)
-
-    source = state.get("current_source", {})
-    declared = {
-        "production_subject": source.get("production_subject"),
-        "production_tree": source.get("production_tree"),
-        "phase": state.get("current_phase"),
-        "root": state.get("single_current_root"),
-    }
-    if current != declared:
-        fail("STATE material facts do not equal the anchored transition-chain tip")
-
-
-def run_negative_self_test(state: dict) -> None:
-    variants = []
+        validate_shapes(changed, control, evidence, contract)
+    except SystemExit:
+        pass
+    else:
+        fail("self-test accepted missing evidence")
     changed = copy.deepcopy(state)
-    changed["current_source"]["production_subject"] = "0" * 40
-    variants.append(("unanchored_subject", changed))
+    changed["next_atomic_action"]["continuation_refs"] = ["OBSOLETE_GATE"]
+    try:
+        validate_shapes(changed, control, evidence, contract)
+    except SystemExit:
+        pass
+    else:
+        fail("self-test accepted an obsolete continuation gate")
     changed = copy.deepcopy(state)
-    changed["current_phase"] = "acceptance"
-    variants.append(("unanchored_phase", changed))
-    changed = copy.deepcopy(state)
-    changed["single_current_root"] = "UNANCHORED_ROOT"
-    variants.append(("unanchored_root", changed))
-    changed = copy.deepcopy(state)
-    changed["material_transition_chain"] = [{}]
-    variants.append(("malformed_transition", changed))
-    for label, variant in variants:
-        try:
-            validate_material_transition_chain(variant)
-        except SystemExit:
-            continue
-        fail(f"negative self-test escaped: {label}")
-    if allowed_after_subject("tx-pool/src/authority/runtime.rs"):
-        fail("negative self-test escaped: production path allowlist")
-    if not allowed_after_subject("tx-pool/control/txpool-v8/STATE.json"):
-        fail("negative self-test failed: canonical control path rejected")
-    if not allowed_after_subject("AGENTS.md"):
-        fail("negative self-test failed: repository instruction path rejected")
-
-
-def allowed_after_subject(path: str) -> bool:
-    return path in ALLOWED_AFTER_SUBJECT or path.startswith(ALLOWED_AFTER_SUBJECT_PREFIXES)
+    changed["next_atomic_action"]["write_scope"] = ["outside-tx-pool"]
+    try:
+        validate_shapes(changed, control, evidence, contract)
+    except SystemExit:
+        pass
+    else:
+        fail("self-test accepted a scope escape")
 
 
 def main() -> int:
-    self_test = sys.argv[1:] == ["--self-test"]
-    if sys.argv[1:] and not self_test:
+    arguments = sys.argv[1:]
+    allowed = {(), ("--self-test",), ("--recover-json",), ("--recover-self-test",), ("--write-manifest",)}
+    if tuple(arguments) not in allowed:
         fail("unsupported arguments")
-    if CONTROL_ROOT.name != "txpool-v8" or CONTROL_ROOT.parent.name != "control":
-        fail("noncanonical control directory")
-    dangerous = sorted(
-        key
-        for key in os.environ
-        if key in DANGEROUS_GIT_ENVIRONMENT or key.startswith("GIT_CONFIG_")
-    )
-    if dangerous:
-        fail("dangerous Git environment overrides are set: " + ", ".join(dangerous))
-    for retired in RETIRED_CURRENT_POINTERS:
-        if (REPOSITORY / retired).exists():
-            fail(f"retired current pointer returned: {retired}")
-
-    require_regular_control_file(CONTROL_ROOT / "MANIFEST.json")
-    manifest = load(CONTROL_ROOT / "MANIFEST.json")
-    if manifest.get("schema") != "txpool-v8-project-state-manifest-v2":
-        fail("manifest schema mismatch")
-    files = manifest.get("files")
-    if not isinstance(files, dict) or set(files) != MANIFEST_FILES:
-        fail("manifest file set mismatch")
-    for name, expected in files.items():
-        path = CONTROL_ROOT / name
-        require_regular_control_file(path)
-        if sha256(path) != expected:
-            fail(f"state file hash mismatch: {name}")
-
-    state = load(CONTROL_ROOT / "STATE.json")
-    control = load(CONTROL_ROOT / "CONTROL_KERNEL.json")
-    audit = load(CONTROL_ROOT / "AUDIT_PLAN.json")
-    findings = load(CONTROL_ROOT / "FINDINGS_LEDGER.json")
-    context = load(CONTROL_ROOT / "CONTEXT_LOAD_POLICY.json")
-
-    if state.get("schema") != "txpool-v8-live-state-v3":
-        fail("state schema mismatch")
-    if control.get("schema") != "txpool-v8-primary-control-kernel-v2":
-        fail("control schema mismatch")
-    if audit.get("schema") != "txpool-v8-active-terminal-audit-v5":
-        fail("audit schema mismatch")
-    if state.get("primary_role") != "G0_ACCOUNTABLE_PRIMARY_ENGINEERING_OWNER":
-        fail("Primary role mismatch")
-    if control.get("primary", {}).get("role") != state.get("primary_role"):
-        fail("Primary role is not single-source consistent")
-    validate_material_transition_chain(state)
-    if self_test:
-        run_negative_self_test(state)
-
-    source = state.get("current_source", {})
-    subject = source.get("production_subject")
-    subject_tree = source.get("production_tree")
-    if not isinstance(subject, str) or not isinstance(subject_tree, str):
-        fail("production subject identity missing")
-    command("git", "cat-file", "-e", f"{subject}^{{commit}}")
-    if command("git", "rev-parse", f"{subject}^{{tree}}") != subject_tree:
-        fail("production subject tree mismatch")
-    if not git_success("merge-base", "--is-ancestor", subject, "HEAD"):
-        fail("current HEAD does not contain the frozen production subject")
-    branch = command("git", "branch", "--show-current")
-    if branch != source.get("branch"):
-        fail(f"branch mismatch: state={source.get('branch')} checkout={branch}")
-
-    if command("git", "for-each-ref", "--format=%(refname)", "refs/replace"):
-        fail("Git replace refs are forbidden for state verification")
-    exceptional_index = [
-        line
-        for line in command("git", "ls-files", "-v").splitlines()
-        if line and line[0] != "H"
-    ]
-    if exceptional_index:
-        fail("assume-unchanged, skip-worktree or exceptional index entries are forbidden")
-    if not git_success("diff", "--quiet", "HEAD", "--"):
-        fail("tracked worktree differs from HEAD")
-    if not git_success("diff", "--cached", "--quiet"):
-        fail("index differs from HEAD")
-    if command("git", "ls-files", "--others", "--exclude-standard"):
-        fail("untracked files are present")
-    if command("git", "status", "--porcelain", "--untracked-files=normal"):
-        fail("repository is not clean")
-
-    changed_after_subject = command("git", "diff", "--name-only", f"{subject}..HEAD")
-    unexpected = [
-        path
-        for path in changed_after_subject.splitlines()
-        if path and not allowed_after_subject(path)
-    ]
-    if unexpected:
-        fail(
-            "production source changed after the frozen subject outside declared control/doc paths: "
-            + ", ".join(unexpected)
-        )
-
-    if findings.get("subject_commit") != subject or findings.get("subject_tree") != subject_tree:
-        fail("findings subject mismatch")
-    state_cut = state.get("next_atomic_action", {})
-
-    clusters = findings.get("cluster_census")
-    candidates = findings.get("blocking_candidates")
-    states = audit.get("cluster_states")
-    if not isinstance(clusters, list) or not isinstance(candidates, list) or not isinstance(states, list):
-        fail("blocker census shape mismatch")
-    state_ids = [item.get("id") for item in states if isinstance(item, dict)]
-    if len(state_ids) != len(states) or set(state_ids) != set(clusters):
-        fail("audit cluster closure mismatch")
-    census = state.get("blocker_census", {})
-    if census.get("clusters") != len(clusters) or census.get("candidates") != len(candidates):
-        fail("live blocker census mismatch")
-    queue = state.get("cluster_queue_after_active")
-    if [state_cut.get("cluster"), *(queue if isinstance(queue, list) else [])] != state_ids:
-        fail("cluster queue is not a total single-WIP order")
-    active_state = states[0] if states and isinstance(states[0], dict) else {}
-    if (
-        active_state.get("id") != state_cut.get("cluster")
-        or active_state.get("next_evidence") != state_cut.get("id")
-        or not str(active_state.get("status", "")).startswith("ACTIVE_STATE_NEXT_ACTION")
-    ):
-        fail("audit does not reference the sole STATE next atomic action")
-
-    ledger = (CONTROL_ROOT / "CKB_AUTHORITY_INPUT_LEDGER.md").read_text()
-    section_nine = ledger.split("## 九、当前主仓吸收状态", 1)
-    if len(section_nine) != 2:
-        fail("authority ledger Section 9 missing")
-    for index in range(1, 10):
-        if f"CKB-AUTH-{index:04d}" not in section_nine[1]:
-            fail(f"authority decision missing from Section 9: CKB-AUTH-{index:04d}")
-    if "对 G0 负责的 Primary 工程负责人" not in section_nine[1]:
-        fail("Primary stewardship decision missing from Section 9")
-
-    first_read = context.get("primary_first_read_after_verification")
-    if first_read != [
-        "STATE.json",
-        "CONTROL_KERNEL.json",
-        "CKB_AUTHORITY_INPUT_LEDGER.md_SECTION_9_ONLY",
-    ]:
-        fail("cold-load policy is not the minimal Primary state set")
-
-    checker = subprocess.run(
-        (sys.executable, "-B", "tx-pool/scripts/check_security_manifest.py"),
-        cwd=REPOSITORY,
-        env={
-            "PATH": os.environ.get("PATH", ""),
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "LC_ALL": "C",
-        },
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if checker.returncode != 0:
-        fail(f"project control checker failed: {checker.stderr.strip() or checker.stdout.strip()}")
-
-    print(
-        json.dumps(
-            {
-                "valid": True,
-                "head": command("git", "rev-parse", "HEAD^{commit}"),
-                "production_subject": subject,
-                "production_tree": subject_tree,
-                "phase": state.get("current_phase"),
-                "root": state.get("single_current_root"),
-                "next_atomic_action": state_cut.get("id"),
-                "clusters": len(clusters),
-                "candidates": len(candidates),
-                "manifest_sha256": sha256(CONTROL_ROOT / "MANIFEST.json"),
-                "negative_self_test": "PASS" if self_test else "NOT_REQUESTED",
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-    )
+    state = load(CONTROL / "STATE.json")
+    control = load(CONTROL / "CONTROL_KERNEL.json")
+    evidence = load(CONTROL / "EVIDENCE.json")
+    contract = load(ROOT / "tx-pool/architecture-contract.json")
+    ledger = (CONTROL / "CKB_AUTHORITY_INPUT_LEDGER.md").read_text()
+    validate_shapes(state, control, evidence, contract)
+    validate_contract(contract, control, ledger)
+    packet = recovery_packet(state)
+    if arguments == ["--write-manifest"]:
+        write_manifest()
+    else:
+        validate_manifest()
+    if arguments in (["--self-test"], ["--recover-self-test"]):
+        self_test(state, control, evidence, contract)
+        packet["negative_self_test"] = "PASS"
+    if arguments == ["--recover-self-test"]:
+        packet["recovery_self_test"] = "PASS"
+    print(json.dumps(packet, ensure_ascii=False, sort_keys=True))
     return 0
 
 

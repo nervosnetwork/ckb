@@ -220,7 +220,28 @@ fn abandoning_a_begun_slot_faults_the_bank_closed() {
     drop(permit);
     assert!(matches!(
         registry.plan_record(PeerIndex::from(41), Instant::now()),
-        Err(PeerBanError::Contention)
+        Err(PeerBanError::Faulted)
+    ));
+    assert!(!registry.semantically_consistent());
+}
+
+#[test]
+fn faulted_bank_rejects_a_preexisting_unbegun_reservation() {
+    let registry = PeerBanSlotBank::with_limit_for_test(2);
+    let abandoned = registry
+        .plan_record(PeerIndex::from(42), Instant::now())
+        .expect("the first slot reserves")
+        .begin()
+        .expect("the first reservation begins");
+    let pending = registry
+        .plan_record(PeerIndex::from(43), Instant::now())
+        .expect("a disjoint slot reserves before the bank faults");
+
+    drop(abandoned);
+    assert!(matches!(pending.begin(), Err(PeerBanError::Faulted)));
+    assert!(matches!(
+        registry.plan_record(PeerIndex::from(44), Instant::now()),
+        Err(PeerBanError::Faulted)
     ));
     assert!(!registry.semantically_consistent());
 }

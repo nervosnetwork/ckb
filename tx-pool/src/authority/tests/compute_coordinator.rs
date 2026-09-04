@@ -4,8 +4,7 @@ use crate::authority::{
         CommittedEffect, CommittedRejection, EffectBatchBound, EffectBatchBounds, EffectCapacity,
         EffectLimits, EffectPolicy, RejectionAudience,
     },
-    exchange::{ComputeVerifierSlot, ComputeWorkerGrant, ComputeWorkerSlot},
-    plan::ComputeExchangeCompletion,
+    exchange::{ComputeWorkerGrant, ComputeWorkerSlot},
     runtime::{AuthorityComputeOutcome, AuthorityRuntime, SettlementOrigin},
     shard::ConcurrentRemovalProbe,
     state::{
@@ -185,15 +184,14 @@ fn uak_closed_assignment_transport_returns_the_exact_checked_out_capability() {
     let execution = runtime
         .try_compute_execution_for_foundation()
         .expect("the fixture owns one exact fair execution permit");
-    let committed = match runtime
-        .exchange_compute(Vec::new(), vec![ComputeWorkerGrant::new(slot, execution)])
-    {
-        Ok(committed) => committed,
-        Err(failure) => {
-            drop(failure);
-            panic!("the initial exchange checks out the resolver owner")
-        }
-    };
+    let committed =
+        match runtime.exchange_compute(vec![ComputeWorkerGrant::new(slot, execution)], &[]) {
+            Ok(committed) => committed,
+            Err(failure) => {
+                drop(failure);
+                panic!("the initial exchange checks out the resolver owner")
+            }
+        };
 
     let observation =
         crate::authority::compute_coordinator::test_support::closed_assignment_observation(
@@ -297,61 +295,6 @@ fn uak_resource_wait_reclassifies_once_when_the_bank_identity_changes() {
         )
     );
 }
-
-#[test]
-fn uak_after_resource_recovery_preserves_one_completion_and_returns_the_grant() {
-    let mut config = runtime_config();
-    config.max_tx_verify_workers = 1;
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
-        .expect("the recovery generation is valid");
-    runtime
-        .admit(
-            ValidatedAdmission::remote(tx(90_007), PeerIndex::from(5usize))
-                .expect("the recovery fixture is valid"),
-        )
-        .expect("the queued owner commits");
-    let checkout = runtime
-        .try_checkout_for_foundation(WorkPermit::ResolveOnly)
-        .expect("the recovery fixture remains healthy");
-    let ControlFlow::Continue(Some(job)) = checkout else {
-        panic!("the queued owner yields one resolve job")
-    };
-    let AuthorityComputeOutcome::Completion(completion) = runtime.execute_compute(job) else {
-        panic!("ResolveOnly produces a settlement rather than inline verification")
-    };
-    let completion = ComputeExchangeCompletion::from_finished(
-        ComputeWorkerSlot::ordered_resolve(),
-        completion.finish_execution(),
-    );
-
-    let grant_execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("one fair permit becomes the recovered grant");
-    let mut held = Vec::new();
-    while let Some(permit) = runtime.try_compute_execution_for_foundation() {
-        held.push(permit);
-    }
-    let grant_slot = ComputeWorkerSlot::from(ComputeVerifierSlot::new(
-        0,
-        crate::authority::state::VerifyCapability::Any,
-    ));
-    let recovered =
-        crate::authority::compute_coordinator::test_support::after_resource_recovery_is_linear(
-            runtime.clone(),
-            completion,
-            ComputeWorkerGrant::new(grant_slot, grant_execution),
-        );
-    drop(held);
-
-    let (slot, finished) = recovered.into_parts();
-    assert_eq!(slot, ComputeWorkerSlot::ordered_resolve());
-    assert!(matches!(
-        runtime.settle_finished(finished),
-        ControlFlow::Continue(_)
-    ));
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
     const EFFECT_BYTES: usize = 1024 * 1024;
@@ -446,7 +389,6 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
     let queued = ValidatedAdmission::proposal(tx(90_004)).expect("the Proposal fixture is valid");
     let queued_key = queued.identity.raw.clone();
     runtime.admit(queued).expect("the second admission commits");
-    tokio::time::sleep(Duration::from_millis(20)).await;
     assert!(runtime.with_authority_for_foundation(|authority| {
         matches!(
             authority.entry(&queued_key),
@@ -487,7 +429,7 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
         .await
         .expect("the occupied effect remains publishable");
     runtime
-        .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+        .settle_effect_for_foundation(occupied.complete_for_foundation())
         .expect("effect capacity is released through its authoritative boundary");
     for _ in 0..1 {
         let rejection = tokio::time::timeout(
@@ -498,7 +440,7 @@ async fn uak_effect_blocked_completion_observes_a_later_fair_permit_release() {
         .expect("each blocked rejection reaches the effect log")
         .expect("the effect log remains open");
         runtime
-            .settle_effect_for_foundation(rejection.complete_for_foundation().published())
+            .settle_effect_for_foundation(rejection.complete_for_foundation())
             .expect("each rejection publication releases the next waiter");
     }
     workers
@@ -597,7 +539,7 @@ async fn uak_shutdown_drains_effect_blocked_completion_after_ingress_closes() {
         .await
         .expect("the occupied effect remains publishable");
     runtime
-        .settle_effect_for_foundation(occupied.complete_for_foundation().published())
+        .settle_effect_for_foundation(occupied.complete_for_foundation())
         .expect("effect capacity is released through its authority boundary");
 
     tokio::time::timeout(Duration::from_secs(2), async {

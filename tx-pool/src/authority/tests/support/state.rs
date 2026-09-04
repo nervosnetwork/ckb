@@ -13,7 +13,6 @@ impl PayloadPolicy {
 
 pub(in crate::authority) struct FoundationResolution {
     payload: ResolvedPayload,
-    location: CellLocationReceipt,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,14 +32,6 @@ impl FoundationResolution {
     pub(in crate::authority) fn into_payload(self) -> ResolvedPayload {
         self.payload
     }
-
-    pub(in crate::authority) fn is_chain_input(&self, input: &OutPoint) -> bool {
-        self.location.is_chain_input(input)
-    }
-
-    pub(in crate::authority) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
-        self.location.is_chain_dependency(dependency)
-    }
 }
 
 impl std::ops::Deref for FoundationResolution {
@@ -55,11 +46,6 @@ impl std::ops::Deref for FoundationResolution {
 pub(in crate::authority) enum RejectionKind {
     Verification,
     Policy,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::authority) enum DependencyObservationError {
-    Empty,
 }
 
 impl ChainViewId {
@@ -147,9 +133,7 @@ impl ResolvedPayload {
         }
         let payload =
             Self::from_resolved_parts(Arc::new(resolved), max_edges, fee, resolved_resident_bytes)?;
-        let location = CellLocationReceipt::from_resolution(ChainViewId::initial(), &payload)
-            .expect("foundation location scratch is available");
-        Ok(FoundationResolution { payload, location })
+        Ok(FoundationResolution { payload })
     }
 }
 
@@ -159,89 +143,7 @@ impl ReplacementHistoryEntry {
     }
 }
 
-impl OwnedTx {
-    pub(in crate::authority) fn preaccepted_charge(&self) -> Option<ResourceVector> {
-        match self {
-            Self::PreAccepted(entry) => Some(entry.charge),
-            Self::Accepted(_) | Self::ReplacementHistory(_) => None,
-        }
-    }
-}
-
-impl ResolvedFacts {
-    pub(in crate::authority) fn for_foundation(
-        chain_revision: ChainRevision,
-        dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
-        verify_class: VerifyCycleClass,
-    ) -> Self {
-        Self::for_foundation_view(
-            ChainViewId::new(chain_revision, Byte32::zero()),
-            dependency_cut,
-            payload,
-            verify_class,
-        )
-    }
-
-    pub(in crate::authority) fn for_foundation_view(
-        chain_view: ChainViewId,
-        dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
-        verify_class: VerifyCycleClass,
-    ) -> Self {
-        let location = CellLocationReceipt::empty_for_foundation(&chain_view);
-        Self {
-            dependency_cut,
-            content: CellContentReceipt::from_resolution(payload),
-            location,
-            verify_class,
-        }
-    }
-
-    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
-            && self.content == other.content
-            && self.location == other.location
-            && self.verify_class == other.verify_class
-    }
-}
-
 impl VerifiedFacts {
-    pub(in crate::authority) fn for_foundation(
-        chain_revision: ChainRevision,
-        dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
-        metrics: CandidateMetrics,
-    ) -> Self {
-        Self::for_foundation_view(
-            ChainViewId::new(chain_revision, Byte32::zero()),
-            dependency_cut,
-            payload,
-            metrics,
-        )
-    }
-
-    pub(in crate::authority) fn for_foundation_view(
-        chain_view: ChainViewId,
-        dependency_cut: DependencyCut,
-        payload: Arc<ResolvedPayload>,
-        metrics: CandidateMetrics,
-    ) -> Self {
-        Self::for_foundation_view_with_cells(
-            chain_view,
-            dependency_cut,
-            payload,
-            Vec::new(),
-            Vec::new(),
-            metrics,
-        )
-    }
-
     pub(in crate::authority) fn for_foundation_view_with_cells(
         chain_view: ChainViewId,
         dependency_cut: DependencyCut,
@@ -277,110 +179,11 @@ impl VerifiedFacts {
         }
         Some(Self { context, ..self })
     }
-
-    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
-            && self.content == other.content
-            && self.context == other.context
-            && self.script == other.script
-            && self.verify_class == other.verify_class
-            && self.metrics == other.metrics
-            && self.async_process_start == other.async_process_start
-    }
 }
 
 impl ObservedDependencies {
-    pub(in crate::authority) fn for_foundation(
-        dependencies: Vec<DependencyKey>,
-        dependency_cut: DependencyCut,
-    ) -> Result<Self, DependencyObservationError> {
-        let max = dependencies.len();
-        let dependencies = KnownDependencies::canonicalize_nonempty(dependencies, max)
-            .map_err(|_| DependencyObservationError::Empty)?;
-        Ok(Self {
-            dependency_cut,
-            observed: dependencies.clone(),
-            retained: dependencies,
-        })
-    }
-
     pub(in crate::authority) fn len(&self) -> usize {
         self.observed.len()
-    }
-
-    fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        self.dependency_cut == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
-            && self.observed == other.observed
-            && self.retained == other.retained
-    }
-}
-
-impl ActiveWork {
-    fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        self.chain_view == other.chain_view
-            && self.permit == other.permit
-            && self.grant == other.grant
-            && self.attribution == other.attribution
-            && self.payload_policy == other.payload_policy
-            && self.dependency_cut
-                == compact_dependency_cut(other.dependency_cut, batch, canonical_next)
-            && self.dependencies == other.dependencies
-    }
-}
-
-impl PreAcceptedPhase {
-    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        match (self, other) {
-            (Self::Queued(QueuedWork::Resolve), Self::Queued(QueuedWork::Resolve)) => true,
-            (Self::Queued(QueuedWork::Verify(left)), Self::Queued(QueuedWork::Verify(right))) => {
-                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
-            }
-            (Self::Computing(left), Self::Computing(right)) => {
-                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
-            }
-            (Self::Waiting(left), Self::Waiting(right)) => {
-                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
-            }
-            (Self::Ready(left), Self::Ready(right)) => {
-                left.equivalent_after_atomic_stamp_compaction(right, batch, canonical_next)
-            }
-            (
-                Self::Queued(_) | Self::Computing(_) | Self::Waiting(_) | Self::Ready(_),
-                Self::Queued(_) | Self::Computing(_) | Self::Waiting(_) | Self::Ready(_),
-            ) => false,
-        }
-    }
-}
-
-fn compact_dependency_cut(
-    cut: DependencyCut,
-    batch: ApplySequence,
-    canonical_next: ApplySequence,
-) -> DependencyCut {
-    if cut.0 >= batch && cut.0 < canonical_next {
-        DependencyCut(batch)
-    } else {
-        cut
     }
 }
 
@@ -441,22 +244,5 @@ impl ValidatedAdmission {
             },
         )
         .map_err(|_| RecoveryAdmissionError::ResourceUnavailable)
-    }
-}
-impl KnownDependencies {
-    pub(in crate::authority) fn from_keys_for_foundation(
-        keys: Vec<DependencyKey>,
-    ) -> Result<Self, DependencySetError> {
-        let max = keys.len();
-        Self::canonicalize(keys, max)
-    }
-}
-
-impl MissingDependencies {
-    pub(in crate::authority) fn from_keys_for_foundation(
-        keys: Vec<DependencyKey>,
-    ) -> Result<Self, DependencySetError> {
-        let max = keys.len();
-        Self::new(keys, max)
     }
 }

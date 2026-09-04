@@ -75,18 +75,6 @@ impl TemplateSelectionSource {
     fn advance_barrier(&mut self, sequence: ApplySequence) {
         self.barrier = self.barrier.max(sequence);
     }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn compact_barrier_for_foundation(
-        mut self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> Self {
-        if self.barrier >= batch && self.barrier < canonical_next {
-            self.barrier = batch;
-        }
-        self
-    }
 }
 
 /// Source cut captured with accepted payloads for block-template work.
@@ -132,13 +120,6 @@ impl AuthoritySourceVersions {
                 template: PoolTemplateVersions::initial(),
             }),
         }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn lock_for_foundation(
-        &self,
-    ) -> ckb_util::parking_lot::MutexGuard<'_, AuthoritySourceVersionSnapshot> {
-        self.state.lock()
     }
 
     pub(super) fn template(&self) -> PoolTemplateVersions {
@@ -279,11 +260,6 @@ impl AuthoritySourceVersions {
 }
 
 impl AuthoritySourceVersionSnapshot {
-    #[cfg(test)]
-    pub(in crate::authority) fn template(self) -> PoolTemplateVersions {
-        self.template
-    }
-
     fn with_impact(self, impact: SourceImpact, sequence: ApplySequence) -> Self {
         match impact {
             SourceImpact::None => self,
@@ -485,7 +461,3 @@ impl SourceImpact {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests/support/source.rs"]
-pub(super) mod test_support;

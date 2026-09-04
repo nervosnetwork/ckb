@@ -1,5 +1,4 @@
 use super::*;
-use crate::authority::state::ApplySequence;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AdmissionEvidenceError {
@@ -9,57 +8,9 @@ pub(in crate::authority) enum AdmissionEvidenceError {
 pub(in crate::authority) type FinalAdmissionError = AdmissionEvidenceError;
 type DirectAdmissionError = AdmissionEvidenceError;
 
-impl CellLocationReceipt {
-    pub(in crate::authority) fn is_chain_input(&self, input: &OutPoint) -> bool {
-        self.chain_inputs.binary_search(input).is_ok()
-    }
-
-    pub(in crate::authority) fn is_chain_dependency(&self, dependency: &OutPoint) -> bool {
-        self.chain_dependencies.binary_search(dependency).is_ok()
-    }
-}
-
 impl FinalAdmissionRejection {
     pub(in crate::authority) fn reason(&self) -> &CommittedPublicReject {
         &self.reason
-    }
-}
-
-impl FinalAdmissionSubject {
-    pub(in crate::authority) fn for_foundation(
-        key: RawTxHash,
-        expected: EntryVersion,
-        view: ChainViewId,
-        dependency_cut: DependencyCut,
-    ) -> Self {
-        Self {
-            key,
-            expected,
-            view,
-            dependency_cut,
-        }
-    }
-}
-
-impl DirectAdmissionReceipt {
-    pub(in crate::authority) fn transaction(&self) -> &Arc<TransactionView> {
-        &self.tx
-    }
-}
-
-impl DirectAdmissionRejection {
-    pub(in crate::authority) fn reason(&self) -> &CommittedPublicReject {
-        &self.reason
-    }
-}
-
-impl CellLocationReceipt {
-    pub(in crate::authority) fn empty_for_foundation(view: &ChainViewId) -> Self {
-        Self {
-            view: view.clone(),
-            chain_inputs: Arc::new(Vec::new()),
-            chain_dependencies: Arc::new(Vec::new()),
-        }
     }
 }
 
@@ -89,29 +40,6 @@ impl VerificationContextReceipt {
             chain_dependencies: Arc::clone(&self.chain_dependencies),
             time: TimeContextReceipt::from_validation(rules),
         }
-    }
-}
-
-impl AcceptedProof {
-    pub(in crate::authority) fn for_foundation(verified: VerifiedFacts) -> Self {
-        Self {
-            verified,
-            sensitivity: AcceptedChainSensitivity::Stable,
-        }
-    }
-
-    pub(in crate::authority) fn equivalent_after_atomic_stamp_compaction(
-        &self,
-        other: &Self,
-        batch: ApplySequence,
-        canonical_next: ApplySequence,
-    ) -> bool {
-        self.sensitivity == other.sensitivity
-            && self.verified.equivalent_after_atomic_stamp_compaction(
-                &other.verified,
-                batch,
-                canonical_next,
-            )
     }
 }
 
@@ -180,7 +108,6 @@ impl FinalAdmissionWork {
                 AcceptedChainSensitivity::Stable,
                 accepted_at,
             )?,
-            payload_relation: ReadyPayloadRelation::Shared,
         })
     }
 
@@ -207,7 +134,6 @@ impl FinalAdmissionWork {
             membership: self
                 .validation
                 .validate_for_foundation(status, rules, sensitivity)?,
-            payload_relation: ReadyPayloadRelation::Shared,
         })
     }
 }

@@ -22,7 +22,7 @@ use super::{
     },
     effect::{
         EffectConfigError, EffectLimits, EffectProgressError, EffectPublicationObservation,
-        EffectReceipt, EffectSettlement, EffectWakeTransition, EffectWork,
+        EffectReceipt, EffectWakeTransition, EffectWork,
     },
     exchange::{AuthorityComputeExecutionPermit, ComputeWorkerGrant, ComputeWorkerSlot},
     ingress::{
@@ -32,16 +32,14 @@ use super::{
     plan::{
         AuthorityConfigError, AuthorityFault, AuthorityPostCommit, AuthorityWakeTransition,
         Backpressure, CommittedComputeExchange, CommittedDelta, ComputeExchangeAssignment,
-        ComputeExchangeCompletion, ComputeExchangeDeferred, ComputeExchangePlanFailure,
-        ComputeExchangeSettled, ComputeSettlementFailure, ConcurrentIndependentError,
-        ConcurrentRetainedIngressError, CoupledSettlementContinuation, DirectAdmissionEvaluation,
-        EffectCloseError, EffectSettlementCommit, EffectSettlementFailure,
-        GenerationReplacementPlanError, IndependentCandidate, MembershipConfig, MembershipReject,
-        PlanError, ReadyHeadCommitOutcome, ReadyJobCommitOutcome, RecoveredComputeExchange,
-        SettlementBatch, SharedComputeExchangeOutcome, SharedComputeSettlementOutcome,
+        ComputeExchangeCompletion, ComputeExchangePlanFailure, ComputePeerExclusion,
+        ComputeSettlementFailure, ConcurrentIndependentError, ConcurrentRetainedIngressError,
+        DirectAdmissionEvaluation, EffectCloseError, EffectSettlementFailure,
+        GenerationReplacementPlanError, MembershipConfig, MembershipReject, PlanError,
+        ReadyHeadCommitOutcome, ReadyJobCommitOutcome, RecoveredComputeExchange, SettlementBatch,
+        SharedComputeExchangeOutcome, SharedComputeSettlementOutcome,
         SharedDirectAdmissionCommitOutcome, SharedDirectRejectionTerminalOutcome,
-        SharedIndependentSettlementCompilation, SharedReadyWaveCompilation,
-        SharedRetainedIngressHead, TxPoolAuthority,
+        SharedReadyWaveCompilation, SharedRetainedIngressHead, TxPoolAuthority,
     },
     query::{
         AcceptedTransactionsWithCycles, AuthorityPoolSummary, AuthorityQueryError,
@@ -74,7 +72,7 @@ use super::{
     validation::{
         DirectAdmissionValidation, DirectAdmissionValidationOutcome, FinalAdmissionValidation,
         FinalAdmissionValidationError, FinalAdmissionValidationOutcome,
-        PreparedFinalAdmissionValidation, verification_environment,
+        PreparedFinalAdmissionValidation, ReadyPopulationCut, verification_environment,
     },
     work::{CheckedOutWork, ComputeSettlement},
 };
@@ -85,7 +83,7 @@ use super::{
 };
 #[cfg(any(test, feature = "internal"))]
 use crate::component::entry::TxEntry;
-use crate::{constants::MAX_READY_BATCH, util::TxPoolVerificationBudget};
+use crate::util::TxPoolVerificationBudget;
 use ckb_app_config::{TxPoolConfig, VerifyOrdering};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_logger::{error, warn};
@@ -746,6 +744,81 @@ impl AuthorityStoreLock {
         store_release::with_read(self, capture)
     }
 
+    /// Second Ready OCC read. Population has already happened outside the
+    /// generation barrier; this cut only checks lifecycle identity, the
+    /// strict scheduler prefix and each exact Ready owner version. The lock
+    /// owner releases its guard explicitly on every error so reservation and
+    /// overlay retirement cannot extend the global barrier.
+    fn complete_ready_batch(
+        &self,
+        batch: PreparedReadyValidationBatch,
+    ) -> Result<ReadyRecheckOutcome, FinalAdmissionCaptureError> {
+        let store = self.read();
+        if !store
+            .authority
+            .ready_population_cut_is_current(&batch.population_cut)
+        {
+            drop(store);
+            return Ok(ReadyRecheckOutcome::HeadChanged(batch));
+        }
+        let prefix_len = store.authority.reserved_ready_common_prefix_len(
+            &batch.reservation,
+            std::iter::once((batch.head.key(), batch.head.expected())).chain(
+                batch
+                    .tail
+                    .iter()
+                    .map(|prepared| (prepared.key(), prepared.expected())),
+            ),
+        );
+        if prefix_len == 0 {
+            drop(store);
+            return Ok(ReadyRecheckOutcome::HeadChanged(batch));
+        }
+        let PreparedReadyValidationBatch {
+            reservation,
+            population_cut,
+            head,
+            tail,
+            mut completed_tail,
+        } = batch;
+        let head_work = match store
+            .authority
+            .final_admission_work(head.key(), head.expected())
+        {
+            Ok(work) => work,
+            Err(error) => {
+                drop(store);
+                return Err(FinalAdmissionCaptureError::Plan(error));
+            }
+        };
+        let head = head.complete_ready(AuthorityStoreCaptureSeal(()), head_work);
+        let mut tail = tail.into_iter();
+        for prepared in tail.by_ref().take(prefix_len.saturating_sub(1)) {
+            let work = match store
+                .authority
+                .final_admission_work(prepared.key(), prepared.expected())
+            {
+                Ok(work) => work,
+                Err(error) => {
+                    drop(store);
+                    return Err(FinalAdmissionCaptureError::Plan(error));
+                }
+            };
+            completed_tail.push(prepared.complete_ready(AuthorityStoreCaptureSeal(()), work));
+        }
+        let outcome = ReadyRecheckOutcome::UnchangedPrefix {
+            batch: ReadyValidationBatch {
+                reservation,
+                head,
+                tail: completed_tail,
+            },
+            discarded_tail: tail,
+        };
+        drop(store);
+        drop(population_cut);
+        Ok(outcome)
+    }
+
     #[inline]
     fn write(&self) -> AuthorityStoreGuard<RwLockWriteGuard<'_, AuthorityStore>> {
         #[cfg(not(feature = "profiling"))]
@@ -1000,7 +1073,7 @@ impl AuthoritySignals {
         }
     }
 
-    #[must_use = "dependency poison must be forwarded after publishing the committed wake"]
+    #[must_use = "post-commit faults must be forwarded after publishing the committed wake"]
     fn publish_post_commit(&self, post_commit: AuthorityPostCommit) -> Option<AuthorityFault> {
         let (wake, post_commit_fault) = post_commit.publish_metrics_and_take_wake();
         self.publish_wake(wake);
@@ -1084,12 +1157,6 @@ pub(in crate::authority) enum AuthorityEffectPublicationFault {
     ),
 }
 
-#[derive(Clone, Copy)]
-enum EffectTerminalDisposition {
-    Published,
-    CircuitDisposed,
-}
-
 impl AuthorityEffectPublicationLease<'_, '_> {
     pub(in crate::authority) fn current(&self) -> Option<EffectWork<'_>> {
         self.receipt.as_ref().and_then(EffectReceipt::current)
@@ -1107,39 +1174,24 @@ impl AuthorityEffectPublicationLease<'_, '_> {
     pub(in crate::authority) fn publish(
         self,
     ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
-        self.settle(EffectTerminalDisposition::Published)
+        self.settle()
     }
 
-    pub(in crate::authority) fn circuit_dispose(
-        self,
-    ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
-        self.settle(EffectTerminalDisposition::CircuitDisposed)
-    }
-
-    fn settle(
-        mut self,
-        disposition: EffectTerminalDisposition,
-    ) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
+    fn settle(mut self) -> Result<EffectPublicationObservation, AuthorityEffectPublicationFault> {
         let receipt = self
             .receipt
             .take()
             .ok_or(AuthorityEffectPublicationFault::Progress(
                 EffectProgressError::Incomplete,
             ))?;
-        let completed = match receipt.into_complete() {
-            Ok(completed) => completed,
-            Err(failure) => {
-                let (error, receipt) = failure.into_parts();
-                self.receipt = Some(receipt);
-                return Err(AuthorityEffectPublicationFault::Progress(error));
-            }
-        };
-        let settlement = match disposition {
-            EffectTerminalDisposition::Published => completed.published(),
-            EffectTerminalDisposition::CircuitDisposed => completed.circuit_disposed(),
-        };
+        if !receipt.is_complete() {
+            self.receipt = Some(receipt);
+            return Err(AuthorityEffectPublicationFault::Progress(
+                EffectProgressError::Incomplete,
+            ));
+        }
         self.runtime
-            .settle_effect(settlement)
+            .settle_effect(receipt)
             .map_err(AuthorityEffectPublicationFault::Settlement)
     }
 }
@@ -1149,7 +1201,7 @@ impl Drop for AuthorityEffectPublicationLease<'_, '_> {
         let Some(receipt) = self.receipt.take() else {
             return;
         };
-        if let Err(failure) = self.runtime.settle_effect(receipt.retain()) {
+        if let Err(failure) = self.runtime.settle_effect(receipt) {
             error!(
                 "failed to retain cancelled tx-pool effect publication: {:?}",
                 failure.error()
@@ -1185,8 +1237,6 @@ pub(crate) struct AuthorityRuntime {
     full_query: AuthorityQueryScratch,
     #[cfg(test)]
     template_captures: Arc<std::sync::atomic::AtomicUsize>,
-    #[cfg(test)]
-    ready_commit_probes: Arc<[Mutex<Option<Arc<super::shard::ConcurrentRemovalProbe>>>; 2]>,
 }
 
 /// Private count-only execution gate. No close operation is exposed: service
@@ -1257,16 +1307,12 @@ pub(super) enum AuthorityMaintenanceOutcome {
 /// Closed progress contract shared by authority-owned background drivers.
 ///
 /// A driver may retry only after an observed stale cut or effect-capacity
-/// publication. Allocation has no authority-owned monotonic releaser and is
-/// consumed by the no-retry generation terminal before a worker reports
-/// progress. Its prepared carrier exposes no recoverable allocation edge and
-/// Apply performs only a fixed 64-shard payload swap. Every other producer outcome is translated at the authority
+/// publication. Every other producer outcome is translated at the authority
 /// boundary into a structural fault, so adding a broad `PlanError` variant
 /// cannot silently create a retry loop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AuthorityDriverError {
     Stale,
-    Allocation,
     EffectCapacity,
     LifecycleClosed,
     Fault(AuthorityFault),
@@ -1275,11 +1321,9 @@ pub(in crate::authority) enum AuthorityDriverError {
 /// Closed result for synchronous administrative commands. Exclusive commands
 /// still classify stale plans as structural; public local removal carries an
 /// exact shared OCC cut and reports a lost cut as `CompetingProgress` without
-/// retry. Allocator pressure is an ordinary returned service outcome, while
-/// only effect-capacity pressure may wait on its named publisher releaser.
+/// retry. Only effect-capacity pressure may wait on its named publisher releaser.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityAdministrationError {
-    Allocation,
     EffectCapacity,
     LifecycleClosed,
     CompetingProgress,
@@ -1309,10 +1353,6 @@ impl AuthorityGenerationReplacementError {
 impl AuthorityAdministrationError {
     fn from_plan(error: PlanError) -> Self {
         match error {
-            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
-            PlanError::Backpressure(Backpressure::DependencyStageCapacity) => {
-                Self::CompetingProgress
-            }
             PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
             PlanError::EffectClosed => Self::LifecycleClosed,
             PlanError::Fault(fault) => Self::Fault(fault),
@@ -1347,15 +1387,6 @@ impl AuthorityAdministrationError {
         match error {
             ConcurrentRetainedIngressError::Stale => Self::CompetingProgress,
             ConcurrentRetainedIngressError::Fault(fault) => Self::Fault(fault),
-            ConcurrentRetainedIngressError::Backpressure(Backpressure::Allocation) => {
-                Self::Allocation
-            }
-            ConcurrentRetainedIngressError::Backpressure(Backpressure::EffectCapacity) => {
-                Self::EffectCapacity
-            }
-            ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                Self::from_plan(PlanError::Backpressure(pressure))
-            }
         }
     }
 }
@@ -1366,8 +1397,6 @@ impl AuthorityDriverError {
     fn from_ready_plan(error: PlanError) -> Self {
         match error {
             PlanError::Stale(_) => Self::Stale,
-            PlanError::Backpressure(Backpressure::DependencyStageCapacity) => Self::Stale,
-            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
             PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
             PlanError::EffectClosed => Self::LifecycleClosed,
             PlanError::Fault(fault) => Self::Fault(fault),
@@ -1403,7 +1432,6 @@ impl AuthorityDriverError {
             FinalAdmissionValidationError::StaleView => {
                 Self::Fault(AuthorityFault::MembershipProjection)
             }
-            FinalAdmissionValidationError::Allocation => Self::Allocation,
             FinalAdmissionValidationError::Arithmetic => {
                 Self::Fault(AuthorityFault::ResourceProjection)
             }
@@ -1415,17 +1443,13 @@ impl AuthorityDriverError {
         }
     }
 
-    /// The scheduler selection and first Ready capture share one immutable
-    /// authority read cut. Stale ownership at this boundary is therefore a
-    /// scheduler projection defect, not lock-external OCC progress.
+    /// Scheduler selection and owner capture use separate locks. A shared
+    /// owner Apply may therefore make the selected Ready owner stale.
     fn from_initial_ready_capture(error: FinalAdmissionCaptureError) -> Self {
         match error {
-            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => {
-                Self::Fault(AuthorityFault::SchedulerProjection)
-            }
+            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => Self::Stale,
             FinalAdmissionCaptureError::Plan(error) => Self::from_ready_plan(error),
             FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
-            FinalAdmissionCaptureError::Allocation => Self::Allocation,
         }
     }
 
@@ -1434,7 +1458,6 @@ impl AuthorityDriverError {
     fn from_ready_preparation(error: FinalAdmissionCaptureError) -> Self {
         match error {
             FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
-            FinalAdmissionCaptureError::Allocation => Self::Allocation,
             FinalAdmissionCaptureError::Plan(_) => Self::Fault(AuthorityFault::SchedulerProjection),
         }
     }
@@ -1443,22 +1466,12 @@ impl AuthorityDriverError {
     /// window, so exact owner/view staleness is an ordinary OCC miss here.
     fn from_ready_recheck(error: FinalAdmissionCaptureError) -> Self {
         match error {
-            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => {
-                Self::Fault(AuthorityFault::SchedulerProjection)
-            }
+            FinalAdmissionCaptureError::Plan(PlanError::Stale(_)) => Self::Stale,
             FinalAdmissionCaptureError::Plan(error) => Self::from_ready_plan(error),
             FinalAdmissionCaptureError::Validation(FinalAdmissionValidationError::StaleView) => {
                 Self::Stale
             }
             FinalAdmissionCaptureError::Validation(error) => Self::from_validation_defect(error),
-            FinalAdmissionCaptureError::Allocation => Self::Allocation,
-        }
-    }
-
-    fn from_ready_validation(error: ReadyValidationError) -> Self {
-        match error {
-            ReadyValidationError::Candidate(error) => Self::from_validation_defect(error),
-            ReadyValidationError::Allocation => Self::Allocation,
         }
     }
 }
@@ -1538,7 +1551,6 @@ impl AuthorityComputeSettlementCommit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum AuthorityComputeAftermathDisposition {
     Progress,
-    ReplaceGeneration,
     Fault(AuthorityFault),
 }
 
@@ -1587,14 +1599,6 @@ impl AuthorityFinishedCompute {
     pub(in crate::authority) fn settlement(&self) -> &ComputeSettlement {
         &self.settlement
     }
-
-    pub(in crate::authority) fn aftermath(&self) -> &AuthorityComputeAftermath {
-        &self.aftermath
-    }
-
-    pub(in crate::authority) fn into_parts(self) -> (ComputeSettlement, AuthorityComputeAftermath) {
-        (self.settlement, self.aftermath)
-    }
 }
 
 impl AuthorityComputeAftermath {
@@ -1603,10 +1607,6 @@ impl AuthorityComputeAftermath {
             origin: SettlementOrigin::Completion,
             cache_update: None,
         }
-    }
-
-    pub(in crate::authority) fn permits_immediate_refill(&self) -> bool {
-        self.disposition() == AuthorityComputeAftermathDisposition::Progress
     }
 
     pub(in crate::authority) fn disposition(&self) -> AuthorityComputeAftermathDisposition {
@@ -1618,10 +1618,6 @@ impl AuthorityComputeAftermath {
             | SettlementOrigin::Resolution(
                 ResolutionExecutionKind::StaleView | ResolutionExecutionKind::ComputeBudget,
             ) => AuthorityComputeAftermathDisposition::Progress,
-            SettlementOrigin::Capture(ResolutionExecutionKind::ResourceUnavailable)
-            | SettlementOrigin::Resolution(ResolutionExecutionKind::ResourceUnavailable) => {
-                AuthorityComputeAftermathDisposition::ReplaceGeneration
-            }
             SettlementOrigin::Capture(ResolutionExecutionKind::InvalidReceipt(error))
             | SettlementOrigin::Resolution(ResolutionExecutionKind::InvalidReceipt(error)) => {
                 AuthorityComputeAftermathDisposition::Fault(match error {
@@ -1722,12 +1718,6 @@ impl AuthorityPendingSettlement {
     ) -> (ComputeSettlementFailure, AuthorityComputeAftermath) {
         (self.failure, self.aftermath)
     }
-}
-
-#[derive(Debug)]
-pub(in crate::authority) enum ReadyValidationError {
-    Candidate(FinalAdmissionValidationError),
-    Allocation,
 }
 
 #[derive(Debug)]
@@ -1833,7 +1823,6 @@ pub(super) enum AuthorityInternalPlugError {
     WouldDisplace,
     Rejected(MembershipReject),
     Capacity,
-    ResourceUnavailable,
     ProposalCollision,
     LifecycleClosed,
     Fault(AuthorityFault),
@@ -1845,13 +1834,11 @@ impl AuthorityInternalPlugError {
         match error {
             InternalPlugBuildError::Evidence(error) => match error.disposition() {
                 InputEvidenceDisposition::ResourceDenied => Self::Capacity,
-                InputEvidenceDisposition::ResourceUnavailable => Self::ResourceUnavailable,
                 InputEvidenceDisposition::MalformedTransaction
                 | InputEvidenceDisposition::Structural => {
                     Self::Fault(AuthorityFault::MembershipProjection)
                 }
             },
-            InternalPlugBuildError::Allocation => Self::ResourceUnavailable,
         }
     }
 
@@ -1861,10 +1848,6 @@ impl AuthorityInternalPlugError {
             InternalPlugPlanError::Plan(error) => match error {
                 PlanError::Stale(_) => Self::Stale,
                 PlanError::Membership(reason) => Self::Rejected(reason),
-                PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
-                PlanError::Backpressure(Backpressure::DependencyStageCapacity) => {
-                    Self::ResourceUnavailable
-                }
                 PlanError::Backpressure(
                     Backpressure::TotalResources | Backpressure::AcceptedResources,
                 ) => Self::Capacity,
@@ -1892,7 +1875,6 @@ impl AuthorityInternalPlugError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum AuthorityDirectAdmissionError {
     Stale,
-    ResourceUnavailable,
     ResourceContended(ResourceCapacityWaitIdentity),
     EffectCapacity,
     ProposalCollision,
@@ -1904,7 +1886,6 @@ impl AuthorityDirectAdmissionError {
     fn from_validation(error: FinalAdmissionValidationError) -> Self {
         match error {
             FinalAdmissionValidationError::StaleView => Self::Stale,
-            FinalAdmissionValidationError::Allocation => Self::ResourceUnavailable,
             FinalAdmissionValidationError::Arithmetic => {
                 Self::Fault(AuthorityFault::ResourceProjection)
             }
@@ -1919,10 +1900,6 @@ impl AuthorityDirectAdmissionError {
     fn from_plan(error: PlanError) -> Self {
         match error {
             PlanError::Stale(_) => Self::Stale,
-            PlanError::Backpressure(Backpressure::DependencyStageCapacity) => {
-                Self::ResourceUnavailable
-            }
-            PlanError::Backpressure(Backpressure::Allocation) => Self::ResourceUnavailable,
             PlanError::Backpressure(Backpressure::EffectCapacity) => Self::EffectCapacity,
             PlanError::Backpressure(Backpressure::ProposalCollision) => Self::ProposalCollision,
             PlanError::EffectClosed => Self::LifecycleClosed,
@@ -1991,23 +1968,8 @@ pub(in crate::authority) enum AuthorityReadyOutcome {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ReadyPlanInput {
-    Initial(SettlementBatch),
-    Coupled(CoupledSettlementContinuation),
-}
-
-impl ReadyPlanInput {
-    fn batch(&self) -> &SettlementBatch {
-        match self {
-            Self::Initial(batch) => batch,
-            Self::Coupled(continuation) => continuation.batch(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
 struct ReservedReadyPlanInput {
-    input: ReadyPlanInput,
+    batch: SettlementBatch,
     reservation: ReadyReservation,
 }
 
@@ -2051,29 +2013,17 @@ pub(in crate::authority) enum AuthorityReadyCommitTerminal {
 #[must_use = "every bounded Ready-wave assignment must reach one commit worker"]
 pub(in crate::authority) struct AuthorityReadyWave {
     assignments: Vec<AuthorityReadyCommitAssignment>,
-    wave_ends: Vec<usize>,
 }
 
 impl AuthorityReadyWave {
-    pub(in crate::authority) fn into_parts(
-        self,
-    ) -> (Vec<AuthorityReadyCommitAssignment>, Vec<usize>) {
-        (self.assignments, self.wave_ends)
+    pub(in crate::authority) fn into_assignments(self) -> Vec<AuthorityReadyCommitAssignment> {
+        self.assignments
     }
 }
 
 pub(in crate::authority) enum AuthorityReadyDispatch {
     Outcome(AuthorityReadyOutcome),
     Wave(AuthorityReadyWave),
-}
-
-enum ReadyWaveCompilation {
-    Wave(AuthorityReadyWave),
-    Fallback(ReadyReservation),
-    Error {
-        reservation: ReadyReservation,
-        error: PlanError,
-    },
 }
 
 /// Owned terminal for the shared Ready read cut. Every variant contains only
@@ -2085,50 +2035,21 @@ enum ReadyWaveCompilation {
     reason = "the committed arm owns already-applied retirement storage; boxing after irreversible Apply would add an unplanned fallible allocation to the publication boundary"
 )]
 enum SharedReadyReadTerminal {
-    Wave(AuthorityReadyWave),
-    Committed {
-        committed: CommittedDelta,
-        post_commit_fault: Option<AuthorityFault>,
+    Wave {
+        wave: AuthorityReadyWave,
+        boundary: Option<super::plan::CompiledSharedIndependent>,
+        remainder: Option<ReadyReservation>,
     },
     ReleaseApplied {
         before: super::plan::AuthorityWakeProjection,
-    },
-    ReleaseFault {
-        before: super::plan::AuthorityWakeProjection,
-        fault: AuthorityFault,
-    },
-    RequiresCanonical {
         reservation: ReadyReservation,
-        continuation: Option<CoupledSettlementContinuation>,
-    },
-    ClockContended {
-        reservation: ReadyReservation,
-        effect_wake: Option<EffectWakeTransition>,
     },
     EffectCapacity(ReadyReservation),
     Error {
         reservation: ReadyReservation,
+        compiled: Vec<super::plan::CompiledSharedIndependent>,
         error: AuthorityDriverError,
     },
-}
-
-enum SharedReadyReadDisposition {
-    Terminal(Result<AuthorityReadyDispatch, AuthorityDriverError>),
-    RequiresCanonical(ReservedReadyPlanInput),
-}
-
-enum SharedCanonicalReadyOutcome {
-    Complete,
-    Progress,
-    Error(PlanError),
-}
-
-struct SharedCanonicalReadyTerminal {
-    committed: Vec<CommittedDelta>,
-    post_commit_fault: Option<AuthorityFault>,
-    effect_wake: Option<EffectWakeTransition>,
-    effect_capacity: Option<ReservedReadyPlanInput>,
-    outcome: SharedCanonicalReadyOutcome,
 }
 
 impl std::fmt::Debug for AuthorityReadyDispatch {
@@ -2148,7 +2069,6 @@ impl std::fmt::Debug for AuthorityReadyDispatch {
 pub(in crate::authority) struct AuthorityReadyContinuation {
     runtime: AuthorityRuntime,
     input: Option<Box<ReservedReadyPlanInput>>,
-    armed: bool,
 }
 
 impl std::fmt::Debug for AuthorityReadyContinuation {
@@ -2173,12 +2093,10 @@ impl AuthorityReadyContinuation {
         Self {
             runtime: runtime.clone(),
             input: Some(Box::new(input)),
-            armed: true,
         }
     }
 
     fn take_input(mut self) -> Result<ReservedReadyPlanInput, AuthorityDriverError> {
-        self.armed = false;
         self.input
             .take()
             .map(|input| *input)
@@ -2190,13 +2108,12 @@ impl AuthorityReadyContinuation {
 
 impl Drop for AuthorityReadyContinuation {
     fn drop(&mut self) {
-        if !self.armed {
+        if self.input.is_none() {
             return;
         }
         let before = self.runtime.store.read().authority.wake_projection();
         drop(self.input.take());
         self.runtime.publish_authority_release(before);
-        self.armed = false;
     }
 }
 
@@ -2247,9 +2164,6 @@ impl AuthorityComputeAssignment {
 
 #[must_use = "a committed compute exchange must route every returned linear capability"]
 pub(in crate::authority) struct AuthorityCommittedComputeExchange {
-    pub(in crate::authority) settled: Vec<ComputeExchangeSettled>,
-    pub(in crate::authority) obsolete: Vec<ComputeWorkerSlot>,
-    pub(in crate::authority) deferred: Vec<ComputeExchangeDeferred>,
     pub(in crate::authority) capture_failures: Vec<AuthorityComputeCaptureCompletion>,
     pub(in crate::authority) assignments: Vec<AuthorityComputeAssignment>,
     pub(in crate::authority) unused_grants: Vec<ComputeWorkerGrant>,
@@ -2265,10 +2179,6 @@ pub(in crate::authority) enum AuthorityComputeExchangeFollowUp {
 
 #[must_use = "a failed compute exchange still owns every submitted capability"]
 pub(in crate::authority) enum AuthorityComputeExchangeFailure {
-    Allocation {
-        completions: Vec<ComputeExchangeCompletion>,
-        grants: Vec<ComputeWorkerGrant>,
-    },
     Plan(ComputeExchangePlanFailure),
 }
 
@@ -2283,6 +2193,7 @@ struct ReadyValidationBatch {
 struct ReadyWorkBatch {
     reservation: ReadyReservation,
     snapshot: Arc<Snapshot>,
+    population_cut: ReadyPopulationCut,
     head: FinalAdmissionPreparation,
     tail: Vec<FinalAdmissionPreparation>,
 }
@@ -2290,6 +2201,7 @@ struct ReadyWorkBatch {
 #[must_use = "prepared Ready work must complete its OCC capture"]
 struct PreparedReadyValidationBatch {
     reservation: ReadyReservation,
+    population_cut: ReadyPopulationCut,
     head: PreparedFinalAdmissionValidation,
     tail: Vec<PreparedFinalAdmissionValidation>,
     completed_tail: Vec<FinalAdmissionValidation>,
@@ -2327,10 +2239,7 @@ impl ReadyRecheckOutcome {
 }
 
 enum ReadyDisposition {
-    Candidates {
-        batch: SettlementBatch,
-        reservation: ReadyReservation,
-    },
+    Candidates(ReservedReadyPlanInput),
     Head {
         outcome: FinalAdmissionValidationOutcome,
         reservation: ReadyReservation,
@@ -2343,8 +2252,7 @@ enum ReadyDisposition {
 /// decides whether any waiter must be prompted.
 struct ReadyReleaseWake<'runtime> {
     runtime: &'runtime AuthorityRuntime,
-    before: super::plan::AuthorityWakeProjection,
-    armed: bool,
+    before: Option<super::plan::AuthorityWakeProjection>,
 }
 
 impl<'runtime> ReadyReleaseWake<'runtime> {
@@ -2352,20 +2260,19 @@ impl<'runtime> ReadyReleaseWake<'runtime> {
         let before = runtime.store.read().authority.wake_projection();
         Self {
             runtime,
-            before,
-            armed: true,
+            before: Some(before),
         }
     }
 
     fn disarm(&mut self) {
-        self.armed = false;
+        self.before.take();
     }
 }
 
 impl Drop for ReadyReleaseWake<'_> {
     fn drop(&mut self) {
-        if self.armed {
-            self.runtime.publish_authority_release(self.before);
+        if let Some(before) = self.before.take() {
+            self.runtime.publish_authority_release(before);
         }
     }
 }
@@ -2412,8 +2319,6 @@ impl AuthorityRuntime {
             full_query,
             #[cfg(test)]
             template_captures: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            #[cfg(test)]
-            ready_commit_probes: Arc::new(std::array::from_fn(|_| Mutex::new(None))),
         })
     }
 
@@ -2660,8 +2565,6 @@ impl AuthorityRuntime {
             else {
                 return Ok(false);
             };
-            #[cfg(test)]
-            store.authority.enter_concurrent_removal_plan_probe();
             let prepared = compiled
                 .bind(&store.authority)
                 .map_err(AuthorityAdministrationError::from_local_plan)?;
@@ -2727,16 +2630,6 @@ impl AuthorityRuntime {
             })
     }
 
-    /// Terminate allocation pressure owned by the current authority generation.
-    /// The replacement observes the current paired snapshot under the same
-    /// write cut, so it cannot reinstall an older chain view after a concurrent
-    /// ordered transition.
-    pub(in crate::authority) async fn replace_current_generation_after_allocation(
-        &self,
-    ) -> Result<(), AuthorityGenerationReplacementError> {
-        self.replace_generation(None).await
-    }
-
     /// Install an empty generation at either the current snapshot (`None`) or
     /// one exact ordered-chain snapshot (`Some`). `plan_clear_pool` constructs
     /// only empty containers and clones the prebuilt GenerationReset batch.
@@ -2793,24 +2686,7 @@ impl AuthorityRuntime {
             Arc::clone(&store.snapshot)
         };
         let proposal_transition =
-            match ProposalTransitionFacts::between(&old_snapshot, &command.snapshot) {
-                Ok(transition) => transition,
-                Err(super::chain::ChainFactsError::Allocation) => {
-                    return Err(ChainUpdateFailure::new(
-                        ChainBoundaryError::Allocation,
-                        command,
-                    ));
-                }
-                Err(
-                    super::chain::ChainFactsError::DuplicateTransaction
-                    | super::chain::ChainFactsError::DuplicateHeader,
-                ) => {
-                    return Err(ChainUpdateFailure::new(
-                        ChainBoundaryError::InvalidFacts,
-                        command,
-                    ));
-                }
-            };
+            ProposalTransitionFacts::between(&old_snapshot, &command.snapshot);
         let _lifecycle = self.lifecycle_fence.acquire_writer().await;
         let store = self.store.upgradable_read();
         if !Arc::ptr_eq(&store.snapshot, &old_snapshot) {
@@ -2982,8 +2858,6 @@ impl AuthorityRuntime {
             let Some(compiled) = compiled else {
                 return Ok(AuthorityMaintenanceOutcome::Idle);
             };
-            #[cfg(test)]
-            store.authority.enter_concurrent_removal_plan_probe();
             let prepared = compiled
                 .bind(&store.authority)
                 .map_err(AuthorityDriverError::from_concurrent_maintenance_plan)?;
@@ -2999,11 +2873,6 @@ impl AuthorityRuntime {
                         ConcurrentRetainedIngressError::Stale => AuthorityDriverError::Stale,
                         ConcurrentRetainedIngressError::Fault(fault) => {
                             AuthorityDriverError::Fault(fault)
-                        }
-                        ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                            AuthorityDriverError::from_concurrent_maintenance_plan(
-                                PlanError::Backpressure(pressure),
-                            )
                         }
                     });
                 }
@@ -3040,8 +2909,6 @@ impl AuthorityRuntime {
             let Some(compiled) = compiled else {
                 return Ok(AuthorityMaintenanceOutcome::Idle);
             };
-            #[cfg(test)]
-            store.authority.enter_concurrent_removal_plan_probe();
             let prepared = compiled
                 .bind(&store.authority)
                 .map_err(AuthorityDriverError::from_concurrent_maintenance_plan)?;
@@ -3057,11 +2924,6 @@ impl AuthorityRuntime {
                         ConcurrentRetainedIngressError::Stale => AuthorityDriverError::Stale,
                         ConcurrentRetainedIngressError::Fault(fault) => {
                             AuthorityDriverError::Fault(fault)
-                        }
-                        ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                            AuthorityDriverError::from_concurrent_maintenance_plan(
-                                PlanError::Backpressure(pressure),
-                            )
                         }
                     });
                 }
@@ -3139,7 +3001,7 @@ impl AuthorityRuntime {
         })
     }
 
-    #[must_use = "dependency poison must be forwarded after publishing the committed delta"]
+    #[must_use = "post-commit faults must be forwarded after publishing the committed delta"]
     fn publish_committed(&self, committed: CommittedDelta) -> Option<AuthorityFault> {
         self.signals
             .publish_post_commit(committed.into_post_commit())
@@ -3153,15 +3015,20 @@ impl AuthorityRuntime {
     /// returns a terminal to the driver.
     pub(in crate::authority) fn commit_ready_assignment(
         &self,
-        lane: AuthorityReadyCommitLane,
         assignment: AuthorityReadyCommitAssignment,
     ) -> AuthorityReadyCommitTerminal {
-        #[cfg(test)]
-        self.enter_ready_commit_probe(lane);
-        #[cfg(not(test))]
-        let _ = lane;
         let outcome = {
             let store = self.store.read();
+            if !assignment
+                .compiled
+                .authority_cut_is_current(&store.authority)
+            {
+                drop(store);
+                return match self.cancel_ready_assignment(assignment) {
+                    Ok(()) => AuthorityReadyCommitTerminal::Stale,
+                    Err(fault) => AuthorityReadyCommitTerminal::Fault(fault),
+                };
+            }
             assignment
                 .compiled
                 .commit_ready_job(&store.authority, assignment.reservation)
@@ -3217,34 +3084,6 @@ impl AuthorityRuntime {
         fault.map_or(Ok(()), |fault| Err(PlanError::Fault(fault)))
     }
 
-    #[cfg(test)]
-    pub(in crate::authority) fn set_ready_commit_probe_for_foundation(
-        &self,
-        lane: AuthorityReadyCommitLane,
-        probe: Option<Arc<super::shard::ConcurrentRemovalProbe>>,
-    ) {
-        let [first, second] = self.ready_commit_probes.as_ref();
-        let slot = match lane {
-            AuthorityReadyCommitLane::First => first,
-            AuthorityReadyCommitLane::Second => second,
-            AuthorityReadyCommitLane::Other(_) => return,
-        };
-        *slot.lock() = probe;
-    }
-
-    #[cfg(test)]
-    fn enter_ready_commit_probe(&self, lane: AuthorityReadyCommitLane) {
-        let [first, second] = self.ready_commit_probes.as_ref();
-        let slot = match lane {
-            AuthorityReadyCommitLane::First => first,
-            AuthorityReadyCommitLane::Second => second,
-            AuthorityReadyCommitLane::Other(_) => return,
-        };
-        if let Some(probe) = slot.lock().clone() {
-            probe.enter();
-        }
-    }
-
     fn publish_authority_release(&self, before: super::plan::AuthorityWakeProjection) {
         let after = self.store.read().authority.wake_projection();
         self.signals
@@ -3269,11 +3108,6 @@ impl AuthorityRuntime {
 
     pub(super) fn effect_capacity_signal(&self) -> &Notify {
         &self.signals.effect_capacity
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn post_commit_signal_for_foundation(&self) -> &Notify {
-        &self.signals.post_commit
     }
 
     pub(in crate::authority) fn template_signal(&self) -> &Notify {
@@ -3481,7 +3315,7 @@ impl AuthorityRuntime {
         completed: EntryCompleted,
         retry: Arc<TransactionView>,
     ) -> Result<AuthorityLocalAdmissionOutcome, PlanError> {
-        let publish = |committed: super::plan::CommittedSharedApply| {
+        let publish = |committed: super::plan::CommittedDelta| {
             let (committed, post_commit_fault) = committed.into_parts();
             self.publish_committed(committed)
                 .or(post_commit_fault)
@@ -3819,27 +3653,22 @@ impl AuthorityRuntime {
 
     fn settle_effect(
         &self,
-        settlement: EffectSettlement,
+        receipt: EffectReceipt,
     ) -> Result<EffectPublicationObservation, EffectSettlementFailure> {
-        let rejection_metrics = settlement.rejection_metrics();
-        let (commit, next) = {
+        let rejection_metrics = receipt.rejection_metrics();
+        let (applied, next) = {
             let store = self.store.read();
-            store.authority.apply_effect_settlement(settlement)?
+            store.authority.apply_effect_settlement(receipt)?
         };
-        let _dependency_free = match commit {
-            EffectSettlementCommit::Applied(retirement) => self.publish_committed(retirement),
-            EffectSettlementCommit::Superseded(settlement) => {
-                drop(settlement);
-                None
-            }
-        };
+        let (retired_effect, wake) = applied.into_parts();
+        drop(retired_effect);
+        self.signals.publish_effect_wake(wake);
         rejection_metrics.publish();
         Ok(next)
     }
 
-    /// Publish a coalesced operational projection without creating another
-    /// state owner. The complete copy is captured under one authority read
-    /// guard; metric calls happen only after the guard is released.
+    /// Publish operational counters without creating another state owner.
+    /// Metric calls happen only after the authority guard is released.
     pub(in crate::authority) fn publish_operational_metrics(&self) {
         let metrics = {
             let store = self.store.read();
@@ -3853,13 +3682,11 @@ impl AuthorityRuntime {
     /// publishable until `effects_closed_and_drained` becomes true.
     pub(in crate::authority) async fn close_effects(&self) -> Result<(), EffectCloseError> {
         let _lifecycle = self.lifecycle_fence.acquire_writer().await;
-        let retirement = {
+        let wake = {
             let mut store = self.store.write();
-            store.authority.plan_effect_close()?.apply()
+            store.authority.close_effects()?
         };
-        // Effect-only Apply cannot stage a dependency row; its retirement
-        // carries `dependency: None` by construction.
-        let _dependency_free = self.publish_committed(retirement);
+        self.signals.publish_effect_wake(wake);
         Ok(())
     }
 
@@ -3932,9 +3759,6 @@ impl AuthorityRuntime {
                             PlanError::Stale(super::plan::StalePlan::Version)
                         }
                         ConcurrentRetainedIngressError::Fault(fault) => PlanError::Fault(fault),
-                        ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                            PlanError::Backpressure(pressure)
-                        }
                     })
             }
             SharedRetainedIngressHead::EffectOrNoop => {
@@ -4031,12 +3855,6 @@ impl AuthorityRuntime {
                         super::plan::ConcurrentRetainedIngressError::Fault(fault) => Err(
                             RetainedIngressBatchFailure::plan(PlanError::Fault(fault), batch),
                         ),
-                        super::plan::ConcurrentRetainedIngressError::Backpressure(pressure) => {
-                            Err(RetainedIngressBatchFailure::plan(
-                                PlanError::Backpressure(pressure),
-                                batch,
-                            ))
-                        }
                     };
                 }
             }
@@ -4062,10 +3880,6 @@ impl AuthorityRuntime {
         Ok((consumed, remaining, post_commit_fault))
     }
 
-    #[expect(
-        clippy::result_large_err,
-        reason = "failure returns the exact bounded completion and fair-grant capabilities without allocation or rollback"
-    )]
     #[cfg_attr(
         feature = "profiling",
         tracing::instrument(
@@ -4077,74 +3891,23 @@ impl AuthorityRuntime {
     )]
     pub(in crate::authority) fn exchange_compute(
         &self,
-        completions: Vec<ComputeExchangeCompletion>,
         grants: Vec<ComputeWorkerGrant>,
+        exclusions: &[ComputePeerExclusion],
     ) -> Result<AuthorityCommittedComputeExchange, AuthorityComputeExchangeFailure> {
         let inputs = {
             let store = self.store.read();
-            store
-                .authority
-                .validate_compute_exchange_inputs(completions, grants)
+            store.authority.validate_compute_exchange_inputs(grants)
         }
         .map_err(AuthorityComputeExchangeFailure::Plan)?;
-        #[cfg(feature = "profiling")]
-        let completion_count = inputs.completion_len();
         let grant_count = inputs.grant_len();
-        #[cfg(feature = "profiling")]
-        {
-            let shape = match (completion_count == 0, grant_count == 0) {
-                (false, false) => Some(tracing::trace_span!(
-                    target: "ckb_tx_pool_profile",
-                    "tx_pool.stage.compute_exchange_both"
-                )),
-                (false, true) => Some(tracing::trace_span!(
-                    target: "ckb_tx_pool_profile",
-                    "tx_pool.stage.compute_exchange_completion_only"
-                )),
-                (true, false) => Some(tracing::trace_span!(
-                    target: "ckb_tx_pool_profile",
-                    "tx_pool.stage.compute_exchange_grant_only"
-                )),
-                (true, true) => None,
-            };
-            let _shape = shape.as_ref().map(tracing::Span::enter);
-            for _ in 0..completion_count {
-                let _completion = tracing::trace_span!(
-                    target: "ckb_tx_pool_profile",
-                    "tx_pool.stage.compute_exchange_completion"
-                )
-                .entered();
-            }
-            for _ in 0..grant_count {
-                let _grant = tracing::trace_span!(
-                    target: "ckb_tx_pool_profile",
-                    "tx_pool.stage.compute_exchange_grant"
-                )
-                .entered();
-            }
-        }
-        let mut assignments = Vec::new();
-        if assignments.try_reserve(grant_count).is_err() {
-            let (completions, grants) = inputs.into_parts();
-            return Err(AuthorityComputeExchangeFailure::Allocation {
-                completions,
-                grants,
-            });
-        }
-        let mut capture_failures = Vec::new();
-        if capture_failures.try_reserve(grant_count).is_err() {
-            let (completions, grants) = inputs.into_parts();
-            return Err(AuthorityComputeExchangeFailure::Allocation {
-                completions,
-                grants,
-            });
-        }
+        let mut assignments = Vec::with_capacity(grant_count);
+        let mut capture_failures = Vec::with_capacity(grant_count);
 
         {
             let store = self.store.read();
             let prepared = store
                 .authority
-                .prepare_shared_compute_exchange(inputs)
+                .prepare_shared_compute_exchange(inputs, exclusions)
                 .map_err(AuthorityComputeExchangeFailure::Plan)?;
             let outcome = prepared.apply();
             let (exchange, follow_up) = match outcome {
@@ -4159,16 +3922,9 @@ impl AuthorityRuntime {
                     (exchange, follow_up)
                 }
                 SharedComputeExchangeOutcome::RetryProbe(recovered) => {
-                    let RecoveredComputeExchange {
-                        obsolete,
-                        deferred,
-                        unused_grants,
-                    } = recovered;
+                    let RecoveredComputeExchange { unused_grants } = recovered;
                     drop(store);
                     return Ok(AuthorityCommittedComputeExchange {
-                        settled: Vec::new(),
-                        obsolete,
-                        deferred,
                         capture_failures,
                         assignments,
                         unused_grants,
@@ -4176,16 +3932,9 @@ impl AuthorityRuntime {
                     });
                 }
                 SharedComputeExchangeOutcome::Fault { fault, recovered } => {
-                    let RecoveredComputeExchange {
-                        obsolete,
-                        deferred,
-                        unused_grants,
-                    } = recovered;
+                    let RecoveredComputeExchange { unused_grants } = recovered;
                     drop(store);
                     return Ok(AuthorityCommittedComputeExchange {
-                        settled: Vec::new(),
-                        obsolete,
-                        deferred,
                         capture_failures,
                         assignments,
                         unused_grants,
@@ -4195,9 +3944,6 @@ impl AuthorityRuntime {
             };
             let CommittedComputeExchange {
                 retirement,
-                settled,
-                obsolete,
-                deferred,
                 assignments: planned_assignments,
                 unused_grants,
             } = exchange;
@@ -4215,15 +3961,12 @@ impl AuthorityRuntime {
                 retirement.and_then(|retirement| self.publish_committed(retirement));
             let follow_up =
                 dependency_fault.map_or(follow_up, AuthorityComputeExchangeFollowUp::Fault);
-            return Ok(AuthorityCommittedComputeExchange {
-                settled,
-                obsolete,
-                deferred,
+            Ok(AuthorityCommittedComputeExchange {
                 capture_failures,
                 assignments,
                 unused_grants,
                 follow_up,
-            });
+            })
         }
     }
 
@@ -4472,10 +4215,10 @@ impl AuthorityRuntime {
         )
     }
 
-    /// Capture, validate and commit one bounded strongest-first Ready slice.
-    /// Common independent candidates share one membership Apply. If any
-    /// member has a special validation outcome, only the strongest owner is
-    /// disposed and the next iteration captures a fresh coherent cut.
+    /// Capture, validate and route one bounded strongest-first Ready slice.
+    /// Candidate heads use the sole canonical singleton compiler and form one
+    /// physically compatible wave. A validation disposition that is not a
+    /// candidate remains a single exact head transition.
     #[cfg_attr(
         feature = "profiling",
         tracing::instrument(
@@ -4505,11 +4248,10 @@ impl AuthorityRuntime {
         let prepared = work
             .prepare(self.resolution_policy.min_fee_rate)
             .map_err(AuthorityDriverError::from_ready_preparation)?;
-        let rechecked = {
-            let store = self.store.read();
-            store.complete_ready_batch(prepared)
-        }
-        .map_err(AuthorityDriverError::from_ready_recheck)?;
+        let rechecked = self
+            .store
+            .complete_ready_batch(prepared)
+            .map_err(AuthorityDriverError::from_ready_recheck)?;
         let Some(batch) = rechecked.finish() else {
             return Err(AuthorityDriverError::Stale);
         };
@@ -4517,14 +4259,11 @@ impl AuthorityRuntime {
         let mut release_wake = ReadyReleaseWake::new(self);
         let disposition = batch
             .validate()
-            .map_err(AuthorityDriverError::from_ready_validation)?;
+            .map_err(AuthorityDriverError::from_validation_defect)?;
         let (outcome, reservation) = match disposition {
-            ReadyDisposition::Candidates { batch, reservation } => {
+            ReadyDisposition::Candidates(input) => {
                 release_wake.disarm();
-                return self.apply_ready_input(ReservedReadyPlanInput {
-                    input: ReadyPlanInput::Initial(batch),
-                    reservation,
-                });
+                return self.apply_ready_input(input);
             }
             ReadyDisposition::Head {
                 outcome,
@@ -4532,21 +4271,45 @@ impl AuthorityRuntime {
             } => (outcome, reservation),
         };
 
+        let (mut head_reservations, remainder) = match reservation.try_split_prefix(1) {
+            Ok(split) => split,
+            Err(reservation) => {
+                drop(reservation);
+                return Err(AuthorityDriverError::Fault(
+                    AuthorityFault::SchedulerProjection,
+                ));
+            }
+        };
+        let Some(head_reservation) = head_reservations.pop() else {
+            drop(remainder);
+            return Err(AuthorityDriverError::Fault(
+                AuthorityFault::SchedulerProjection,
+            ));
+        };
+        if !head_reservations.is_empty() {
+            drop(head_reservations);
+            drop(remainder);
+            return Err(AuthorityDriverError::Fault(
+                AuthorityFault::SchedulerProjection,
+            ));
+        }
+
         let terminal = self.store.with_read_released(|store| {
             store
                 .authority
                 .prepare_shared_ready_head_disposition(outcome)
-                .map(|prepared| prepared.commit(reservation))
+                .map(|prepared| prepared.commit(head_reservation))
         });
+        // The head action has activated or rolled back every staged effect at
+        // this point. Only now may weaker Ready slots become visible again.
+        drop(remainder);
         self.finish_released_ready_head(terminal)
     }
 
-    /// Commit one validated Ready batch. Pure independent members compile
-    /// under one coherent outer read cut, release it, then bind and commit
-    /// under a shared generation barrier plus exact owner-version shard OCC.
-    /// Coupled members retain the exclusive canonical planner. Retired owners and
-    /// effects stay move-owned until every authority guard is released and
-    /// are then published in commit order.
+    /// Resume one effect-capacity-blocked Ready batch through the same
+    /// canonical singleton-wave route. Every member commits under a shared
+    /// generation barrier plus its exact owner/projection shard OCC; the route
+    /// never falls back to a global or alternate planner.
     pub(in crate::authority) fn resume_ready(
         &self,
         continuation: AuthorityReadyContinuation,
@@ -4554,91 +4317,56 @@ impl AuthorityRuntime {
         self.apply_ready_input(continuation.take_input()?)
     }
 
-    /// Compile one strongest-first bounded Ready cohort into exactly one
-    /// mechanically compatible wave. Any physical collision, coupling or
-    /// capacity failure explicitly cancels every precompiled job and returns
-    /// the untouched reservation to the existing canonical aggregate planner.
-    /// A later conflict wave cannot be preplanned from this cut because its
-    /// aggregate prestate depends on the first wave's actual terminal result.
-    fn try_compile_ready_wave(
+    /// Compile the strongest contiguous canonical-singleton prefix into one
+    /// mechanically compatible wave. The compiler never crosses the first
+    /// physical collision; the returned reservation suffix becomes visible
+    /// only after this prefix reaches a real terminal and Ready is recaptured.
+    fn compile_ready_read_terminal(
         &self,
         authority: &TxPoolAuthority,
         batch: &SettlementBatch,
         reservation: ReadyReservation,
-    ) -> ReadyWaveCompilation {
-        if batch.len() < 2 {
-            return ReadyWaveCompilation::Fallback(reservation);
-        }
-        let compiled = match authority.compile_shared_ready_wave(batch) {
-            SharedReadyWaveCompilation::Complete(compiled) => compiled,
-            SharedReadyWaveCompilation::Fallback(compiled) => {
-                if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                    return ReadyWaveCompilation::Error { reservation, error };
-                }
-                return ReadyWaveCompilation::Fallback(reservation);
+        before: super::plan::AuthorityWakeProjection,
+    ) -> SharedReadyReadTerminal {
+        let (compiled, boundary) = match authority.compile_shared_ready_wave(batch) {
+            SharedReadyWaveCompilation::Complete(compiled) => (compiled, None),
+            SharedReadyWaveCompilation::Prefix(prefix) => {
+                let (compiled, boundary) = prefix.into_parts();
+                (compiled, Some(boundary))
             }
-            SharedReadyWaveCompilation::ClockContended {
-                compiled,
-                contention,
-            } => {
-                if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                    return ReadyWaveCompilation::Error { reservation, error };
-                }
-                if let Some(wake) = contention.into_effect_wake() {
-                    self.signals.publish_effect_wake(wake);
-                }
-                return ReadyWaveCompilation::Error {
+            SharedReadyWaveCompilation::Retry => {
+                return SharedReadyReadTerminal::ReleaseApplied {
+                    before,
                     reservation,
-                    error: PlanError::Stale(super::plan::StalePlan::ClockBase),
                 };
             }
+            SharedReadyWaveCompilation::EffectCapacity => {
+                return SharedReadyReadTerminal::EffectCapacity(reservation);
+            }
             SharedReadyWaveCompilation::Error { compiled, error } => {
-                if let Err(cancel_error) = self.cancel_unassigned_ready_jobs(compiled) {
-                    return ReadyWaveCompilation::Error {
-                        reservation,
-                        error: cancel_error,
-                    };
-                }
-                return ReadyWaveCompilation::Error { reservation, error };
+                return SharedReadyReadTerminal::Error {
+                    reservation,
+                    compiled,
+                    error: AuthorityDriverError::from_ready_plan(error),
+                };
             }
         };
-        let mut wave_ends = Vec::new();
-        if wave_ends.try_reserve_exact(1).is_err() {
-            if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                return ReadyWaveCompilation::Error { reservation, error };
-            }
-            return ReadyWaveCompilation::Fallback(reservation);
-        }
-        let compatible = compiled.iter().enumerate().all(|(index, candidate)| {
-            compiled
-                .iter()
-                .take(index)
-                .all(|prior| prior.is_compatible_with(candidate))
-        });
-        if !compatible {
-            if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                return ReadyWaveCompilation::Error { reservation, error };
-            }
-            return ReadyWaveCompilation::Fallback(reservation);
-        }
         if compiled.is_empty() {
-            return ReadyWaveCompilation::Fallback(reservation);
+            return SharedReadyReadTerminal::Error {
+                reservation,
+                compiled,
+                error: AuthorityDriverError::Fault(AuthorityFault::SchedulerProjection),
+            };
         }
-        wave_ends.push(compiled.len());
-        let mut assignments = Vec::new();
-        if assignments.try_reserve_exact(compiled.len()).is_err() {
-            if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                return ReadyWaveCompilation::Error { reservation, error };
-            }
-            return ReadyWaveCompilation::Fallback(reservation);
-        }
+        let mut assignments = Vec::with_capacity(compiled.len());
         let (reservations, remainder) = match reservation.try_split_prefix(compiled.len()) {
             Ok(split) => split,
             Err(reservation) => {
-                if let Err(error) = self.cancel_unassigned_ready_jobs(compiled) {
-                    return ReadyWaveCompilation::Error { reservation, error };
-                }
-                return ReadyWaveCompilation::Fallback(reservation);
+                return SharedReadyReadTerminal::Error {
+                    reservation,
+                    compiled,
+                    error: AuthorityDriverError::Fault(AuthorityFault::SchedulerProjection),
+                };
             }
         };
         assignments.extend(compiled.into_iter().zip(reservations).map(
@@ -4647,83 +4375,78 @@ impl AuthorityRuntime {
                 reservation,
             },
         ));
-        drop(remainder);
-        ReadyWaveCompilation::Wave(AuthorityReadyWave {
-            assignments,
-            wave_ends,
-        })
+        SharedReadyReadTerminal::Wave {
+            wave: AuthorityReadyWave { assignments },
+            boundary,
+            remainder,
+        }
     }
 
-    /// Publish or route one shared Ready terminal only after the read guard
-    /// that produced it has been consumed. This is the only shared aggregate
-    /// terminal allowed to call the committed or release-wake publishers.
+    /// Terminalize one Ready planning cut only after its authority read guard
+    /// has been consumed. Reservation returns, sealed-job cancellation and
+    /// their wake publication are all confined to this released boundary.
     fn finish_released_ready_read(
         &self,
         terminal: Released<SharedReadyReadTerminal>,
-        input: ReadyPlanInput,
+        batch: SettlementBatch,
         release_wake: &mut ReadyReleaseWake<'_>,
-    ) -> SharedReadyReadDisposition {
+    ) -> Result<AuthorityReadyDispatch, AuthorityDriverError> {
         match terminal.into_inner() {
-            SharedReadyReadTerminal::Wave(wave) => {
-                release_wake.disarm();
-                SharedReadyReadDisposition::Terminal(Ok(AuthorityReadyDispatch::Wave(wave)))
-            }
-            SharedReadyReadTerminal::Committed {
-                committed,
-                post_commit_fault,
+            SharedReadyReadTerminal::Wave {
+                wave,
+                boundary,
+                remainder,
             } => {
+                if let Some(boundary) = boundary {
+                    match boundary.cancel_unassigned_ready_job() {
+                        Ok(wake) => self.signals.publish_effect_wake(wake),
+                        Err(boundary_fault) => {
+                            let mut cancellation_fault = None;
+                            for assignment in wave.into_assignments() {
+                                if let Err(error) = self.cancel_ready_assignment(assignment) {
+                                    cancellation_fault.get_or_insert(error);
+                                }
+                            }
+                            drop(remainder);
+                            return Err(AuthorityDriverError::Fault(
+                                cancellation_fault.unwrap_or(boundary_fault),
+                            ));
+                        }
+                    }
+                }
+                drop(remainder);
                 release_wake.disarm();
-                let post_commit_fault = self.publish_committed(committed).or(post_commit_fault);
-                SharedReadyReadDisposition::Terminal(post_commit_fault.map_or_else(
-                    || {
-                        Ok(AuthorityReadyDispatch::Outcome(
-                            AuthorityReadyOutcome::Applied,
-                        ))
-                    },
-                    |fault| Err(AuthorityDriverError::Fault(fault)),
-                ))
+                Ok(AuthorityReadyDispatch::Wave(wave))
             }
-            SharedReadyReadTerminal::ReleaseApplied { before } => {
-                release_wake.disarm();
-                self.publish_authority_release(before);
-                SharedReadyReadDisposition::Terminal(Ok(AuthorityReadyDispatch::Outcome(
-                    AuthorityReadyOutcome::Applied,
-                )))
-            }
-            SharedReadyReadTerminal::ReleaseFault { before, fault } => {
-                release_wake.disarm();
-                self.publish_authority_release(before);
-                SharedReadyReadDisposition::Terminal(Err(AuthorityDriverError::Fault(fault)))
-            }
-            SharedReadyReadTerminal::RequiresCanonical {
+            SharedReadyReadTerminal::ReleaseApplied {
+                before,
                 reservation,
-                continuation,
-            } => SharedReadyReadDisposition::RequiresCanonical(ReservedReadyPlanInput {
-                input: continuation.map_or(input, ReadyPlanInput::Coupled),
-                reservation,
-            }),
-            SharedReadyReadTerminal::ClockContended {
-                reservation,
-                effect_wake,
             } => {
                 drop(reservation);
-                if let Some(wake) = effect_wake {
-                    self.signals.publish_effect_wake(wake);
-                }
-                SharedReadyReadDisposition::Terminal(Err(AuthorityDriverError::Stale))
+                release_wake.disarm();
+                self.publish_authority_release(before);
+                Ok(AuthorityReadyDispatch::Outcome(
+                    AuthorityReadyOutcome::Applied,
+                ))
             }
             SharedReadyReadTerminal::EffectCapacity(reservation) => {
                 release_wake.disarm();
-                SharedReadyReadDisposition::Terminal(Ok(AuthorityReadyDispatch::Outcome(
+                Ok(AuthorityReadyDispatch::Outcome(
                     AuthorityReadyOutcome::EffectCapacity(AuthorityReadyContinuation::new(
                         self,
-                        ReservedReadyPlanInput { input, reservation },
+                        ReservedReadyPlanInput { batch, reservation },
                     )),
-                )))
+                ))
             }
-            SharedReadyReadTerminal::Error { reservation, error } => {
+            SharedReadyReadTerminal::Error {
+                reservation,
+                compiled,
+                error,
+            } => {
+                let cancellation = self.cancel_unassigned_ready_jobs(compiled);
                 drop(reservation);
-                SharedReadyReadDisposition::Terminal(Err(error))
+                cancellation.map_err(AuthorityDriverError::from_ready_plan)?;
+                Err(error)
             }
         }
     }
@@ -4756,17 +4479,6 @@ impl AuthorityRuntime {
                 }
                 Err(AuthorityDriverError::Stale)
             }
-            Ok(ReadyHeadCommitOutcome::Backpressure {
-                pressure,
-                effect_wake,
-            }) => {
-                if let Some(effect_wake) = effect_wake {
-                    self.signals.publish_effect_wake(effect_wake);
-                }
-                Err(AuthorityDriverError::from_ready_plan(
-                    PlanError::Backpressure(pressure),
-                ))
-            }
             Ok(ReadyHeadCommitOutcome::Fault { fault, effect_wake }) => {
                 if let Some(effect_wake) = effect_wake {
                     self.signals.publish_effect_wake(effect_wake);
@@ -4776,348 +4488,17 @@ impl AuthorityRuntime {
         }
     }
 
-    /// Apply the canonical strongest-first Ready tail without the outer
-    /// authority writer.  Each component binds one exact scheduler claim and
-    /// one exact routed owner/projection cut; the still-captured tail remains
-    /// unplanned until the preceding component has actually committed.
-    fn apply_shared_canonical_ready_loop(
-        &self,
-        authority: &TxPoolAuthority,
-        mut input: ReadyPlanInput,
-        mut reservation: ReadyReservation,
-        mut committed: Vec<CommittedDelta>,
-    ) -> SharedCanonicalReadyTerminal {
-        debug_assert!(committed.capacity() >= MAX_READY_BATCH);
-        let mut post_commit_fault = None;
-        for _ in 0..MAX_READY_BATCH {
-            let head = match authority.compile_shared_canonical_ready_head(input.batch()) {
-                Ok(head) => head,
-                Err(PlanError::Backpressure(Backpressure::EffectCapacity)) => {
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: Some(ReservedReadyPlanInput { input, reservation }),
-                        outcome: SharedCanonicalReadyOutcome::Complete,
-                    };
-                }
-                Err(error) => {
-                    drop(reservation);
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(error),
-                    };
-                }
-            };
-            let (compiled, continuation) = head.into_parts();
-            if !authority.shared_ready_head_is_current(&reservation, input.batch()) {
-                drop(reservation);
-                return match compiled.cancel_unassigned_ready_job() {
-                    Ok(effect_wake) => SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: Some(effect_wake),
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Progress,
-                    },
-                    Err(fault) => SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(fault)),
-                    },
-                };
-            }
-            let (mut slots, remainder) = match reservation.try_split_prefix(1) {
-                Ok(split) => split,
-                Err(reservation) => {
-                    let cancelled = compiled.cancel_unassigned_ready_job();
-                    return match cancelled {
-                        Ok(effect_wake) => SharedCanonicalReadyTerminal {
-                            committed,
-                            post_commit_fault,
-                            effect_wake: Some(effect_wake),
-                            effect_capacity: None,
-                            outcome: if authority
-                                .shared_ready_head_is_current(&reservation, input.batch())
-                            {
-                                SharedCanonicalReadyOutcome::Error(PlanError::Backpressure(
-                                    Backpressure::Allocation,
-                                ))
-                            } else {
-                                SharedCanonicalReadyOutcome::Progress
-                            },
-                        },
-                        Err(fault) => SharedCanonicalReadyTerminal {
-                            committed,
-                            post_commit_fault,
-                            effect_wake: None,
-                            effect_capacity: None,
-                            outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(fault)),
-                        },
-                    };
-                }
-            };
-            let Some(slot) = slots.pop() else {
-                drop(remainder);
-                let cancelled = compiled.cancel_unassigned_ready_job();
-                return match cancelled {
-                    Ok(effect_wake) => SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: Some(effect_wake),
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(
-                            AuthorityFault::SchedulerProjection,
-                        )),
-                    },
-                    Err(fault) => SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(fault)),
-                    },
-                };
-            };
-            match compiled.commit_ready_job(authority, slot) {
-                ReadyJobCommitOutcome::Committed(shared) => {
-                    let (committed_delta, fault) = shared.into_parts();
-                    committed.push(committed_delta);
-                    if let Some(fault) = fault {
-                        post_commit_fault = Some(fault);
-                        drop(remainder);
-                        return SharedCanonicalReadyTerminal {
-                            committed,
-                            post_commit_fault,
-                            effect_wake: None,
-                            effect_capacity: None,
-                            outcome: SharedCanonicalReadyOutcome::Complete,
-                        };
-                    }
-                }
-                ReadyJobCommitOutcome::Stale(effect_wake) => {
-                    drop(remainder);
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: Some(effect_wake),
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Progress,
-                    };
-                }
-                ReadyJobCommitOutcome::Fault { fault, effect_wake } => {
-                    drop(remainder);
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(fault)),
-                    };
-                }
-            }
-            match (continuation, remainder) {
-                (Some(continuation), Some(next_reservation)) => {
-                    input = ReadyPlanInput::Coupled(continuation);
-                    reservation = next_reservation;
-                }
-                (None, remainder) => {
-                    drop(remainder);
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Complete,
-                    };
-                }
-                (Some(_), None) => {
-                    return SharedCanonicalReadyTerminal {
-                        committed,
-                        post_commit_fault,
-                        effect_wake: None,
-                        effect_capacity: None,
-                        outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(
-                            AuthorityFault::SchedulerProjection,
-                        )),
-                    };
-                }
-            }
-        }
-        drop(reservation);
-        SharedCanonicalReadyTerminal {
-            committed,
-            post_commit_fault,
-            effect_wake: None,
-            effect_capacity: None,
-            outcome: SharedCanonicalReadyOutcome::Error(PlanError::Fault(
-                AuthorityFault::SchedulerProjection,
-            )),
-        }
-    }
-
-    fn finish_released_canonical_ready(
-        &self,
-        terminal: Released<SharedCanonicalReadyTerminal>,
-        release_wake: &mut ReadyReleaseWake<'_>,
-    ) -> Result<AuthorityReadyDispatch, AuthorityDriverError> {
-        let SharedCanonicalReadyTerminal {
-            committed,
-            mut post_commit_fault,
-            effect_wake,
-            effect_capacity,
-            outcome,
-        } = terminal.into_inner();
-        let applied = !committed.is_empty();
-        for committed in committed {
-            post_commit_fault = self.publish_committed(committed).or(post_commit_fault);
-        }
-        if let Some(effect_wake) = effect_wake {
-            self.signals.publish_effect_wake(effect_wake);
-        }
-        // An effect-capacity continuation still owns its exact scheduler
-        // reservation. Every other canonical terminal may have returned a
-        // current or unselected suffix; leave the before/after release bridge
-        // armed so that work cannot become visible without a Ready wake.
-        if effect_capacity.is_some() {
-            release_wake.disarm();
-        }
-        if let Some(fault) = post_commit_fault {
-            return Err(AuthorityDriverError::Fault(fault));
-        }
-        if let Some(reserved) = effect_capacity {
-            return Ok(AuthorityReadyDispatch::Outcome(
-                AuthorityReadyOutcome::EffectCapacity(AuthorityReadyContinuation::new(
-                    self, reserved,
-                )),
-            ));
-        }
-        match outcome {
-            SharedCanonicalReadyOutcome::Complete => {
-                Ok(AuthorityReadyDispatch::Outcome(if applied {
-                    AuthorityReadyOutcome::Applied
-                } else {
-                    AuthorityReadyOutcome::Idle
-                }))
-            }
-            SharedCanonicalReadyOutcome::Progress => Ok(AuthorityReadyDispatch::Outcome(
-                AuthorityReadyOutcome::Applied,
-            )),
-            SharedCanonicalReadyOutcome::Error(error)
-                if applied && matches!(error, PlanError::Stale(_)) =>
-            {
-                Ok(AuthorityReadyDispatch::Outcome(
-                    AuthorityReadyOutcome::Applied,
-                ))
-            }
-            SharedCanonicalReadyOutcome::Error(error) => {
-                Err(AuthorityDriverError::from_ready_plan(error))
-            }
-        }
-    }
-
     fn apply_ready_input(
         &self,
         reserved: ReservedReadyPlanInput,
     ) -> Result<AuthorityReadyDispatch, AuthorityDriverError> {
         let mut release_wake = ReadyReleaseWake::new(self);
-        let ReservedReadyPlanInput {
-            mut input,
-            mut reservation,
-        } = reserved;
-        if let ReadyPlanInput::Initial(batch) = &input {
-            let terminal = self.store.with_read_released(|store| {
-                let mut reservation = reservation;
-                match self.try_compile_ready_wave(&store.authority, batch, reservation) {
-                    ReadyWaveCompilation::Wave(wave) => {
-                        return SharedReadyReadTerminal::Wave(wave);
-                    }
-                    ReadyWaveCompilation::Fallback(returned) => reservation = returned,
-                    ReadyWaveCompilation::Error { reservation, error } => {
-                        return SharedReadyReadTerminal::Error {
-                            reservation,
-                            error: AuthorityDriverError::from_ready_plan(error),
-                        };
-                    }
-                }
-                match store.authority.compile_shared_independent_settlement(batch) {
-                    Ok(SharedIndependentSettlementCompilation::Compiled(compiled)) => {
-                        let staged_before = store.authority.wake_projection();
-                        match compiled
-                            .bind(&store.authority)
-                            .and_then(|plan| plan.apply_reserved(reservation))
-                        {
-                            Ok(committed) => {
-                                let (committed, post_commit_fault) = committed.into_parts();
-                                SharedReadyReadTerminal::Committed {
-                                    committed,
-                                    post_commit_fault,
-                                }
-                            }
-                            Err(ConcurrentIndependentError::ChangedCut(_)) => {
-                                // Exact generation or owner-version OCC lost to
-                                // a competing committed cut. That competing cut
-                                // is progress; Ready is recaptured on a later
-                                // turn. The released terminal makes the later
-                                // store reread structurally lock-external.
-                                SharedReadyReadTerminal::ReleaseApplied {
-                                    before: staged_before,
-                                }
-                            }
-                            Err(ConcurrentIndependentError::Fault(fault)) => {
-                                SharedReadyReadTerminal::ReleaseFault {
-                                    before: staged_before,
-                                    fault,
-                                }
-                            }
-                        }
-                    }
-                    Ok(SharedIndependentSettlementCompilation::RequiresCanonical(continuation)) => {
-                        SharedReadyReadTerminal::RequiresCanonical {
-                            reservation,
-                            continuation,
-                        }
-                    }
-                    Ok(SharedIndependentSettlementCompilation::ClockContended(contention)) => {
-                        SharedReadyReadTerminal::ClockContended {
-                            reservation,
-                            effect_wake: contention.into_effect_wake(),
-                        }
-                    }
-                    Err(PlanError::Backpressure(Backpressure::EffectCapacity)) => {
-                        SharedReadyReadTerminal::EffectCapacity(reservation)
-                    }
-                    Err(error) => SharedReadyReadTerminal::Error {
-                        reservation,
-                        error: AuthorityDriverError::from_ready_plan(error),
-                    },
-                }
-            });
-            match self.finish_released_ready_read(terminal, input, &mut release_wake) {
-                SharedReadyReadDisposition::Terminal(result) => return result,
-                SharedReadyReadDisposition::RequiresCanonical(reserved) => {
-                    let ReservedReadyPlanInput {
-                        input: returned_input,
-                        reservation: returned_reservation,
-                    } = reserved;
-                    input = returned_input;
-                    reservation = returned_reservation;
-                }
-            }
-        }
-        let mut committed = Vec::new();
-        committed.try_reserve_exact(MAX_READY_BATCH).map_err(|_| {
-            AuthorityDriverError::from_ready_plan(PlanError::Backpressure(Backpressure::Allocation))
-        })?;
+        let ReservedReadyPlanInput { batch, reservation } = reserved;
         let terminal = self.store.with_read_released(|store| {
-            self.apply_shared_canonical_ready_loop(&store.authority, input, reservation, committed)
+            let before = store.authority.wake_projection();
+            self.compile_ready_read_terminal(&store.authority, &batch, reservation, before)
         });
-        self.finish_released_canonical_ready(terminal, &mut release_wake)
+        self.finish_released_ready_read(terminal, batch, &mut release_wake)
     }
 }
 
@@ -5129,26 +4510,27 @@ impl ReadyWorkBatch {
         let Self {
             reservation,
             snapshot,
+            mut population_cut,
             head,
             tail: work_tail,
         } = self;
-        let head = FinalAdmissionValidation::prepare(Arc::clone(&snapshot), head, min_fee_rate)
+        let mut head = FinalAdmissionValidation::prepare(Arc::clone(&snapshot), head, min_fee_rate)
             .map_err(FinalAdmissionCaptureError::Validation)?;
-        let mut tail = Vec::new();
-        tail.try_reserve(work_tail.len())
-            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
-        let mut completed_tail = Vec::new();
-        completed_tail
-            .try_reserve(work_tail.len())
-            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
+        let mut tail = Vec::with_capacity(work_tail.len());
+        let completed_tail = Vec::with_capacity(work_tail.len());
         for work in work_tail {
             tail.push(
                 FinalAdmissionValidation::prepare(Arc::clone(&snapshot), work, min_fee_rate)
                     .map_err(FinalAdmissionCaptureError::Validation)?,
             );
         }
+        head.populate_ready(&mut population_cut);
+        for validation in &mut tail {
+            validation.populate_ready(&mut population_cut);
+        }
         Ok(PreparedReadyValidationBatch {
             reservation,
+            population_cut,
             head,
             tail,
             completed_tail,
@@ -5157,23 +4539,31 @@ impl ReadyWorkBatch {
 }
 
 impl ReadyValidationBatch {
-    fn validate(self) -> Result<ReadyDisposition, ReadyValidationError> {
+    fn validate(self) -> Result<ReadyDisposition, FinalAdmissionValidationError> {
         let Self {
             reservation,
             head,
             tail: validations,
         } = self;
-        let head = head.validate().map_err(ReadyValidationError::Candidate)?;
-        let mut outcomes = Vec::new();
-        outcomes
-            .try_reserve(validations.len())
-            .map_err(|_| ReadyValidationError::Allocation)?;
+        let head = head.validate()?;
+        let mut all_candidates = matches!(&head, FinalAdmissionValidationOutcome::Candidate(_));
+        let mut candidate_tail = if all_candidates {
+            Vec::with_capacity(validations.len())
+        } else {
+            Vec::new()
+        };
         for validation in validations {
-            outcomes.push(
-                validation
-                    .validate()
-                    .map_err(ReadyValidationError::Candidate)?,
-            );
+            match validation.validate()? {
+                FinalAdmissionValidationOutcome::Candidate(candidate) if all_candidates => {
+                    candidate_tail.push(candidate);
+                }
+                FinalAdmissionValidationOutcome::Candidate(_) => {}
+                FinalAdmissionValidationOutcome::Rejected(_)
+                | FinalAdmissionValidationOutcome::Reresolve(_) => {
+                    all_candidates = false;
+                    candidate_tail.clear();
+                }
+            }
         }
 
         let head = match head {
@@ -5186,31 +4576,19 @@ impl ReadyValidationBatch {
                 });
             }
         };
-        let head = IndependentCandidate::new(head);
-        let mut tail = Vec::new();
-        tail.try_reserve(outcomes.len())
-            .map_err(|_| ReadyValidationError::Allocation)?;
-        for outcome in outcomes {
-            match outcome {
-                FinalAdmissionValidationOutcome::Candidate(candidate) => {
-                    tail.push(IndependentCandidate::new(candidate));
-                }
-                FinalAdmissionValidationOutcome::Rejected(_)
-                | FinalAdmissionValidationOutcome::Reresolve(_) => {
-                    // The strongest Ready owner remains the only admissible
-                    // action from this cut. Drop weaker receipts and re-read
-                    // after its disposition commits.
-                    return Ok(ReadyDisposition::Head {
-                        outcome: FinalAdmissionValidationOutcome::Candidate(head.into_receipt()),
-                        reservation,
-                    });
-                }
-            }
+        if !all_candidates {
+            // The strongest Ready owner remains the only admissible action
+            // from this cut. We still validated the complete tail above so a
+            // weaker structural fault cannot be hidden by this disposition.
+            return Ok(ReadyDisposition::Head {
+                outcome: FinalAdmissionValidationOutcome::Candidate(head),
+                reservation,
+            });
         }
-        Ok(ReadyDisposition::Candidates {
-            batch: SettlementBatch::from_validated_ready(head, tail),
+        Ok(ReadyDisposition::Candidates(ReservedReadyPlanInput {
+            batch: SettlementBatch::from_validated_ready(head, candidate_tail),
             reservation,
-        })
+        }))
     }
 }
 
@@ -5218,7 +4596,6 @@ impl ReadyValidationBatch {
 pub(in crate::authority) enum FinalAdmissionCaptureError {
     Plan(PlanError),
     Validation(FinalAdmissionValidationError),
-    Allocation,
 }
 
 impl AuthorityRelayParentReader {
@@ -5230,7 +4607,7 @@ impl AuthorityRelayParentReader {
         cursor: Option<RelayParentRebuildCursor>,
         scan_limit: NonZeroUsize,
     ) -> Result<RelayParentRebuildPage, RelayParentRebuildError> {
-        let scratch = RelayParentRebuildScratch::try_new(scan_limit)?;
+        let scratch = RelayParentRebuildScratch::new(scan_limit);
         let prepared = {
             let store = self.store.read();
             store
@@ -5238,7 +4615,7 @@ impl AuthorityRelayParentReader {
                 .read_view()
                 .capture_relay_parent_rebuild(cursor, scan_limit, scratch)?
         };
-        prepared.finish()
+        Ok(prepared.finish())
     }
 
     /// False is ordinary OCC staleness. The derived relayer projection must
@@ -5303,9 +4680,7 @@ impl AuthorityStore {
             .authority
             .final_admission_preparation(head_key, head_expected)
             .map_err(FinalAdmissionCaptureError::Plan)?;
-        let mut tail = Vec::new();
-        tail.try_reserve(candidates.len())
-            .map_err(|_| FinalAdmissionCaptureError::Allocation)?;
+        let mut tail = Vec::with_capacity(candidates.len());
         for (key, expected) in candidates {
             tail.push(
                 self.authority
@@ -5316,63 +4691,10 @@ impl AuthorityStore {
         Ok(Some(ReadyWorkBatch {
             reservation,
             snapshot: Arc::clone(&self.snapshot),
+            population_cut: self.authority.ready_population_cut(),
             head,
             tail,
         }))
-    }
-
-    /// Second OCC read: recheck each exact Ready version and fill only the
-    /// preallocated Accepted-origin bits. Any intervening mutation makes the
-    /// capture stale rather than mixing two store snapshots.
-    fn complete_ready_batch(
-        &self,
-        batch: PreparedReadyValidationBatch,
-    ) -> Result<ReadyRecheckOutcome, FinalAdmissionCaptureError> {
-        let prefix_len = self.authority.reserved_ready_common_prefix_len(
-            &batch.reservation,
-            std::iter::once((batch.head.key(), batch.head.expected())).chain(
-                batch
-                    .tail
-                    .iter()
-                    .map(|prepared| (prepared.key(), prepared.expected())),
-            ),
-        );
-        if prefix_len == 0 {
-            return Ok(ReadyRecheckOutcome::HeadChanged(batch));
-        }
-        let PreparedReadyValidationBatch {
-            reservation,
-            head,
-            tail,
-            mut completed_tail,
-        } = batch;
-        let head_work = self
-            .authority
-            .final_admission_work(head.key(), head.expected())
-            .map_err(FinalAdmissionCaptureError::Plan)?;
-        let head = head
-            .complete(AuthorityStoreCaptureSeal(()), &self.authority, head_work)
-            .map_err(FinalAdmissionCaptureError::Validation)?;
-        let mut tail = tail.into_iter();
-        for prepared in tail.by_ref().take(prefix_len.saturating_sub(1)) {
-            let work = self
-                .authority
-                .final_admission_work(prepared.key(), prepared.expected())
-                .map_err(FinalAdmissionCaptureError::Plan)?;
-            completed_tail.push(
-                prepared
-                    .complete(AuthorityStoreCaptureSeal(()), &self.authority, work)
-                    .map_err(FinalAdmissionCaptureError::Validation)?,
-            );
-        }
-        Ok(ReadyRecheckOutcome::UnchangedPrefix {
-            batch: ReadyValidationBatch {
-                reservation,
-                head,
-                tail: completed_tail,
-            },
-            discarded_tail: tail,
-        })
     }
 }
 

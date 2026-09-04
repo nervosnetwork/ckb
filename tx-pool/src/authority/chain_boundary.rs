@@ -42,7 +42,6 @@ pub(super) enum ChainBoundaryError {
 impl From<PlanError> for ChainBoundaryError {
     fn from(error: PlanError) -> Self {
         match error {
-            PlanError::Backpressure(Backpressure::Allocation) => Self::Allocation,
             // Chain publication is rebuildable and its effect compiler
             // collapses journal pressure to GenerationReset. Observing raw
             // effect-capacity pressure here therefore proves compiler drift.
@@ -65,9 +64,6 @@ impl From<PlanError> for ChainBoundaryError {
             PlanError::Backpressure(
                 Backpressure::ComputeResources | Backpressure::GenerationReplacement,
             ) => Self::Fault(AuthorityFault::SchedulerProjection),
-            PlanError::Backpressure(Backpressure::DependencyStageCapacity) => {
-                Self::Fault(AuthorityFault::DependencyProjection)
-            }
             PlanError::Duplicate
             | PlanError::PayloadVariant
             | PlanError::Membership(_)
@@ -299,7 +295,6 @@ impl std::fmt::Debug for ChainUpdateFailure {
 
 fn map_chain_facts_error(error: ChainFactsError) -> ChainBoundaryError {
     match error {
-        ChainFactsError::Allocation => ChainBoundaryError::Allocation,
         ChainFactsError::DuplicateTransaction | ChainFactsError::DuplicateHeader => {
             ChainBoundaryError::InvalidFacts
         }

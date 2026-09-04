@@ -30,8 +30,7 @@ use tokio::{runtime::Handle, sync::watch, task::block_in_place};
 /// payload has gone away. Persistent indexes must compact packed keys at
 /// their ownership boundary so their resident charge matches what they keep.
 /// Closed compile-time set of Molecule entities whose encoded length is
-/// independent of hostile input. Variable-sized entities must use
-/// `try_compact_packed` so allocation remains a typed outcome.
+/// independent of hostile input.
 pub(crate) trait FixedSizePackedEntity: Entity {}
 
 impl FixedSizePackedEntity for Byte32 {}
@@ -44,28 +43,6 @@ pub(crate) fn compact_packed<T: FixedSizePackedEntity>(value: &T) -> T {
     // `new_unchecked` because it also accepts arbitrary bytes; this wrapper's
     // typed input makes arbitrary bytes unrepresentable at every call site.
     T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
-}
-
-/// Fallibly copy a packed entity into an allocation containing only that
-/// entity. Use this at hostile collection boundaries where infallible backing
-/// compaction would bypass the subsystem's typed allocation algebra.
-pub(crate) fn try_compact_packed<T: Entity>(
-    value: &T,
-) -> Result<T, std::collections::TryReserveError> {
-    let mut owned = Vec::new();
-    owned.try_reserve_exact(value.as_slice().len())?;
-    owned.extend_from_slice(value.as_slice());
-    Ok(T::new_unchecked(ckb_types::bytes::Bytes::from(owned)))
-}
-
-/// Fallibly detach a byte view from a potentially much larger hostile backing
-/// allocation. The successful allocation is exact; failure creates no
-/// long-lived owner and is handled by the caller's allocation terminal.
-pub(crate) fn try_compact_bytes(value: &Bytes) -> Result<Bytes, std::collections::TryReserveError> {
-    let mut owned = Vec::new();
-    owned.try_reserve_exact(value.len())?;
-    owned.extend_from_slice(value);
-    Ok(Bytes::from(owned))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

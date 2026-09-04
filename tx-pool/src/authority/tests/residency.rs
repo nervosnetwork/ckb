@@ -49,7 +49,7 @@ fn resolved_authority_residency_detaches_cell_views_and_data_slices() {
         resolved_dep_groups: Vec::new(),
     };
 
-    let compact = compact_after_resolution(resolved).expect("resident views can be detached");
+    let compact = compact_after_resolution(resolved);
     let compact_input = &compact.resolved_inputs[0];
     assert!(!slice_is_within(
         compact_input.cell_output.as_slice(),

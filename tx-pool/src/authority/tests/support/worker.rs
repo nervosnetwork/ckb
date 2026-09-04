@@ -136,6 +136,22 @@ impl AuthorityTestWorkerOwner {
         attempts: Arc<AtomicUsize>,
         closed_lane: Option<AuthorityReadyCommitLane>,
     ) -> Result<Self, AuthorityWorkerSpawnError> {
+        Self::spawn_ready_with_observer(
+            runtime,
+            handle,
+            move || {
+                attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            },
+            closed_lane,
+        )
+    }
+
+    fn spawn_ready_with_observer(
+        runtime: AuthorityRuntime,
+        handle: &Handle,
+        observe_attempt: impl FnMut() + Send + 'static,
+        closed_lane: Option<AuthorityReadyCommitLane>,
+    ) -> Result<Self, AuthorityWorkerSpawnError> {
         let mut tasks = Vec::new();
         tasks
             .try_reserve(MAX_READY_BATCH.saturating_add(1))
@@ -161,7 +177,7 @@ impl AuthorityTestWorkerOwner {
         let task = AuthorityWorkerTask {
             role: AuthorityWorkerRole::Ready,
             handle: handle.spawn(async move {
-                run_ready_driver_for_foundation(runtime, ready_waves, task_cancel, attempts).await
+                run_ready_driver_loop(runtime, ready_waves, task_cancel, observe_attempt).await
             }),
         };
         tasks.push(task);
@@ -170,10 +186,6 @@ impl AuthorityTestWorkerOwner {
             cancel,
             tasks,
         })
-    }
-
-    pub(in crate::authority) fn cancellation_for_foundation(&self) -> CancellationToken {
-        self.cancel.clone()
     }
 
     pub(in crate::authority) fn send(
@@ -189,13 +201,6 @@ impl AuthorityTestWorkerOwner {
 
     pub(in crate::authority) fn role_count(&self, role: AuthorityWorkerRole) -> usize {
         self.tasks.iter().filter(|task| task.role == role).count()
-    }
-
-    pub(in crate::authority) fn verifier_count(&self) -> usize {
-        self.tasks
-            .iter()
-            .filter(|task| matches!(task.role, AuthorityWorkerRole::Verifier(_)))
-            .count()
     }
 
     pub(in crate::authority) fn abort_handles(
@@ -275,18 +280,6 @@ pub(in crate::authority) async fn run_maintenance_driver_for_foundation(
 ) -> Result<(), AuthorityWorkerFault> {
     run_maintenance_driver_loop(runtime, cancel, move || {
         rounds.fetch_add(1, AtomicOrdering::Relaxed);
-    })
-    .await
-}
-
-async fn run_ready_driver_for_foundation(
-    runtime: AuthorityRuntime,
-    ready_waves: ReadyWaveExecutor,
-    cancel: CancellationToken,
-    attempts: Arc<AtomicUsize>,
-) -> Result<(), AuthorityWorkerFault> {
-    run_ready_driver_loop(runtime, ready_waves, cancel, move || {
-        attempts.fetch_add(1, AtomicOrdering::Relaxed);
     })
     .await
 }

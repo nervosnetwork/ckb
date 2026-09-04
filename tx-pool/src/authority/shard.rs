@@ -7,17 +7,14 @@
 use super::ban::PeerBanDelta;
 use super::{
     ban::{PeerBanCommitPermit, PeerBanLease, StagedPeerBanSlot},
-    dependency::{DependencyLevel, UnindexedDependencyLevel},
+    dependency::{DependencyLevel, DependencyRelationSet, UnindexedDependencyLevel},
     indexes::{AcceptedDeadlineKey, DeadlineKey, DueRemote},
     plan::{AcceptedOrderKey, AncestorAggregate, DescendantAggregate, EvictionOrderKey},
     resources::{
         AcceptedResources, ChargeProjection, ResourceError, ResourceTotals, ResourceVector,
     },
     source::{AuthoritySourceVersions, PoolTemplateVersions},
-    state::{
-        AcceptedEntry, AcceptedStatus, DependencyKey, DependencyOrigin, OwnedTx, ProposalId,
-        RawTxHash,
-    },
+    state::{AcceptedEntry, AcceptedStatus, DependencyKey, OwnedTx, ProposalId, RawTxHash},
 };
 use ahash::RandomState;
 use ckb_network::PeerIndex;
@@ -28,7 +25,7 @@ use ckb_util::parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLo
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, hash_map},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map},
     fmt,
     hash::{BuildHasher, Hash, Hasher},
     ops::{Deref, DerefMut},
@@ -51,14 +48,14 @@ impl AuthorityShardRouter {
             // cuts from this layout; per-test random seeding would make the
             // existence of those witnesses probabilistic rather than make
             // the implementation more thoroughly covered.
-            return Self {
+            Self {
                 state: RandomState::with_seeds(
                     0x434b_422d_5458_504f,
                     0x4f4c_2d53_4841_5244,
                     0x2d52_4f55_5445_522d,
                     0x5445_5354_2d52_3101,
                 ),
-            };
+            }
         }
         #[cfg(not(test))]
         {
@@ -103,26 +100,18 @@ pub(in crate::authority) struct ShardedOwnerMap {
 pub(in crate::authority) struct AuthorityShardLayout {
     pub(in crate::authority) router: AuthorityShardRouter,
     pub(in crate::authority) shards: Box<[RwLock<AuthorityShard>; AUTHORITY_SHARD_COUNT]>,
+    dependency_relations: Box<[RwLock<DependencyRelationShard>; AUTHORITY_SHARD_COUNT]>,
+    dependency_gates: Box<[RwLock<()>; AUTHORITY_SHARD_COUNT]>,
     #[cfg(test)]
     concurrent_removal_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
     #[cfg(test)]
-    concurrent_removal_plan_probe: Mutex<Option<Arc<std::sync::Barrier>>>,
-    #[cfg(test)]
-    concurrent_removal_plan_pause: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
-    #[cfg(test)]
-    accepted_expiry_mid_compile_pause: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
-    #[cfg(test)]
     dependency_maintenance_plan_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
     #[cfg(test)]
-    membership_parent_read_probe: Mutex<Option<(RawTxHash, Arc<ConcurrentRemovalProbe>)>>,
-    #[cfg(test)]
-    membership_secondary_read_probe: Mutex<Option<(RawTxHash, Arc<ConcurrentRemovalProbe>)>>,
+    membership_dependency_plan_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
     #[cfg(test)]
     shared_ingress_probe: Mutex<Option<(SharedIngressProbePhase, Arc<ConcurrentRemovalProbe>)>>,
     #[cfg(test)]
     shared_owner_commit_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
-    #[cfg(test)]
-    ready_clock_commit_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
     #[cfg(test)]
     compute_settlement_commit_probe: Mutex<Option<Arc<ConcurrentRemovalProbe>>>,
     #[cfg(test)]
@@ -132,6 +121,7 @@ pub(in crate::authority) struct AuthorityShardLayout {
 }
 
 #[cfg(test)]
+#[derive(Debug)]
 pub(in crate::authority) struct ConcurrentRemovalProbe {
     entered: std::sync::mpsc::Sender<()>,
     release: Mutex<std::sync::mpsc::Receiver<()>>,
@@ -140,14 +130,13 @@ pub(in crate::authority) struct ConcurrentRemovalProbe {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum SharedIngressProbePhase {
-    DependencyStageBeforeRows,
-    BothStagesBeforeOwner,
+    ProjectionPreparedBeforeOwnerCut,
     AfterRetainedIngressHeadClassification,
-    PeerFenceHiddenBeforeCohort,
-    BeforeInsertionResourceReceipt,
+    AfterRetainedIngressSemanticCut,
     EffectReadCutBeforeActivation,
     FinalCutBeforeActivation,
     DirectMembershipPreparedBeforeFinalCut,
+    DirectMembershipBeforeResourcePlan,
     DirectRejectionEffectStagedBeforeReadCut,
     DirectRejectionReadCutBeforeActivation,
 }
@@ -155,7 +144,6 @@ pub(in crate::authority) enum SharedIngressProbePhase {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum ComputeExchangeProbePhase {
-    AfterClassification,
     AfterSchedulerWave,
 }
 
@@ -280,7 +268,6 @@ impl PeerIngressFence {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::authority) enum PeerFenceStageError {
-    Allocation,
     Stale,
 }
 
@@ -313,7 +300,7 @@ pub(in crate::authority) struct AuthorityShardGeneration {
     owner_removal_revision: OwnerShardRemovalRevision,
     pub(in crate::authority) membership_order_revision: MembershipOrderRevision,
     proposed_count: usize,
-    resources: ShardResourceAggregate,
+    resources: ResourceTotals,
     peer_resources: HashMap<PeerIndex, ResourceVector>,
     pub(in crate::authority) proposals: HashMap<ProposalId, RawTxHash>,
     pub(in crate::authority) peer_ingress_owners: HashMap<PeerIndex, HashSet<RawTxHash>>,
@@ -331,21 +318,23 @@ pub(in crate::authority) struct AuthorityShardGeneration {
     pub(in crate::authority) descendant_aggregates: HashMap<RawTxHash, DescendantAggregate>,
     pub(in crate::authority) accepted_order: BTreeSet<AcceptedOrderKey>,
     pub(in crate::authority) eviction_order: BTreeSet<EvictionOrderKey>,
-    pub(in crate::authority) dependency_relations:
-        std::collections::BTreeMap<DependencyOrigin, super::dependency::DependencyOriginRow>,
-    pub(in crate::authority) dependency_levels: std::collections::BTreeMap<
-        DependencyKey,
-        super::dependency::DependencyControlCell<DependencyLevel>,
-    >,
-    pub(in crate::authority) dependency_dirty: std::collections::BTreeMap<
-        DependencyKey,
-        super::dependency::DependencyControlCell<super::dependency::DirtyDependency>,
-    >,
-    pub(in crate::authority) dependency_dirty_staged: usize,
+    pub(in crate::authority) dependency_levels:
+        std::collections::BTreeMap<DependencyKey, DependencyLevel>,
+    pub(in crate::authority) dependency_dirty:
+        std::collections::BTreeMap<DependencyKey, super::dependency::DirtyDependency>,
     pub(in crate::authority) dependency_unindexed: UnindexedDependencyLevel,
     relay_parent_source: u64,
     template_proposals_source: u64,
     template_transactions_source: u64,
+}
+
+/// One consumer-owner-routed relation partition. Relations are generation
+/// payload, but their locks are independent from owner locks so publishing one
+/// owner's final row cannot serialize an unrelated owner on a paused owner
+/// cut.
+#[derive(Debug, Default)]
+pub(in crate::authority) struct DependencyRelationShard {
+    pub(in crate::authority) rows: BTreeMap<DependencyKey, DependencyRelationSet>,
 }
 
 /// One fixed routed lock owns both the current generation payload and the
@@ -501,6 +490,14 @@ pub(in crate::authority) struct ShardedOwnerReadCut<'map> {
     shards: [RwLockReadGuard<'map, AuthorityShard>; AUTHORITY_SHARD_COUNT],
 }
 
+/// One coherent full relation-bank read cut. Key-wide folds take this cut
+/// only in test snapshots; production key-wide folds must release each bank
+/// shard before taking the next so they never become a global writer barrier.
+#[cfg(test)]
+pub(in crate::authority) struct ShardedDependencyRelationReadCut<'map> {
+    shards: [RwLockReadGuard<'map, DependencyRelationShard>; AUTHORITY_SHARD_COUNT],
+}
+
 #[derive(Clone, Copy, Default)]
 pub(in crate::authority) struct ShardWriteSupport(u64);
 
@@ -514,6 +511,53 @@ pub(in crate::authority) struct ShardReadSupport(u64);
 pub(in crate::authority) struct ShardApplySupport {
     reads: ShardReadSupport,
     writes: ShardWriteSupport,
+}
+
+/// Fixed dependency conflict classes acquired before owner shards. Ordinary
+/// relation insertions take shared gates; exact-key folds, removals, and waiter
+/// changes take write gates. The fixed bank avoids a second relation directory
+/// and its lifecycle.
+#[derive(Clone, Copy, Default)]
+pub(in crate::authority) struct DependencyGateSupport {
+    reads: u64,
+    writes: u64,
+}
+
+/// Proof that the complete, mode-coalesced dependency gate set was acquired in
+/// canonical order before any owner shard. The guards are intentionally opaque.
+pub(in crate::authority) struct DependencyGateCut<'map> {
+    _reads: [Option<RwLockReadGuard<'map, ()>>; AUTHORITY_SHARD_COUNT],
+    _writes: [Option<RwLockWriteGuard<'map, ()>>; AUTHORITY_SHARD_COUNT],
+}
+
+impl DependencyGateSupport {
+    pub(in crate::authority) fn read(&mut self, shard: usize) {
+        self.reads |= 1u64 << shard;
+    }
+
+    pub(in crate::authority) fn write(&mut self, shard: usize) {
+        self.writes |= 1u64 << shard;
+        self.reads &= !(1u64 << shard);
+    }
+
+    pub(in crate::authority) fn include(&mut self, other: Self) {
+        self.writes |= other.writes;
+        self.reads = (self.reads | other.reads) & !self.writes;
+    }
+
+    #[cfg(test)]
+    pub(in crate::authority) fn is_compatible(self, other: Self) -> bool {
+        self.writes & (other.reads | other.writes) == 0
+            && other.writes & (self.reads | self.writes) == 0
+    }
+
+    fn reads(self, shard: usize) -> bool {
+        self.reads & (1u64 << shard) != 0
+    }
+
+    fn writes(self, shard: usize) -> bool {
+        self.writes & (1u64 << shard) != 0
+    }
 }
 
 /// Exact, allocation-free per-shard source targets prepared before owner
@@ -614,11 +658,6 @@ impl ShardApplySupport {
     pub(in crate::authority) fn is_compatible(self, other: Self) -> bool {
         self.writes.0 & (other.writes.0 | other.reads.0) == 0 && other.writes.0 & self.reads.0 == 0
     }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn touches_for_foundation(self, shard: usize) -> bool {
-        self.reads.contains(shard) || self.writes.contains(shard)
-    }
 }
 
 impl ShardReadSupport {
@@ -675,6 +714,49 @@ impl ShardWriteSupport {
 pub(in crate::authority) struct ShardedOwnerWriteCut<'map> {
     reads: [Option<RwLockReadGuard<'map, AuthorityShard>>; AUTHORITY_SHARD_COUNT],
     writes: [Option<RwLockWriteGuard<'map, AuthorityShard>>; AUTHORITY_SHARD_COUNT],
+}
+
+/// Sorted relation-bank cut acquired after dependency gates and before owner
+/// shards. Read and write support use the same fixed routing mask as owner
+/// cuts, but guard an independent physical bank.
+pub(in crate::authority) struct ShardedDependencyRelationWriteCut<'map> {
+    reads: [Option<RwLockReadGuard<'map, DependencyRelationShard>>; AUTHORITY_SHARD_COUNT],
+    writes: [Option<RwLockWriteGuard<'map, DependencyRelationShard>>; AUTHORITY_SHARD_COUNT],
+}
+
+impl ShardedDependencyRelationWriteCut<'_> {
+    #[expect(
+        clippy::expect_used,
+        reason = "support is folded from the same dependency witness consumed by this sealed relation cut"
+    )]
+    pub(in crate::authority) fn projection_shard(&self, shard: usize) -> &DependencyRelationShard {
+        self.writes
+            .get(shard)
+            .and_then(Option::as_deref)
+            .or_else(|| self.reads.get(shard).and_then(Option::as_deref))
+            .expect("relation support contains every shard consumed by the prepared witness")
+    }
+
+    #[expect(
+        clippy::expect_used,
+        reason = "write support is folded from the same dependency delta consumed by this sealed relation cut"
+    )]
+    pub(in crate::authority) fn projection_shard_mut(
+        &mut self,
+        shard: usize,
+    ) -> &mut DependencyRelationShard {
+        self.writes
+            .get_mut(shard)
+            .and_then(Option::as_deref_mut)
+            .expect("relation write support contains every shard changed by the prepared delta")
+    }
+}
+
+#[cfg(test)]
+impl ShardedDependencyRelationReadCut<'_> {
+    pub(in crate::authority) fn shards(&self) -> impl Iterator<Item = &DependencyRelationShard> {
+        self.shards.iter().map(Deref::deref)
+    }
 }
 
 impl ShardedOwnerWriteCut<'_> {
@@ -1061,57 +1143,8 @@ impl ShardedOwnerWriteCut<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ShardResourceAggregate {
-    totals: ResourceTotals,
-    accepted: AcceptedResources,
-}
-
-impl ShardResourceAggregate {
-    fn checked_sub_aggregate(self, removed: Self) -> Option<Self> {
-        Some(Self {
-            totals: ResourceTotals {
-                preaccepted: self
-                    .totals
-                    .preaccepted
-                    .checked_sub(removed.totals.preaccepted)?,
-                remote: self.totals.remote.checked_sub(removed.totals.remote)?,
-                replacement_history: self
-                    .totals
-                    .replacement_history
-                    .checked_sub(removed.totals.replacement_history)?,
-            },
-            accepted: self.accepted.checked_sub(removed.accepted)?,
-        })
-    }
-
-    fn checked_remove(self, charge: ChargeProjection) -> Result<Self, ResourceError> {
-        Ok(Self {
-            totals: self.totals.checked_remove(charge)?,
-            accepted: charge
-                .accepted
-                .map_or(Some(self.accepted), |resources| {
-                    self.accepted.checked_sub(resources)
-                })
-                .ok_or(ResourceError::Arithmetic)?,
-        })
-    }
-
-    fn checked_add(self, charge: ChargeProjection) -> Result<Self, ResourceError> {
-        Ok(Self {
-            totals: self.totals.checked_add(charge)?,
-            accepted: charge
-                .accepted
-                .map_or(Some(self.accepted), |resources| {
-                    self.accepted.checked_add(resources)
-                })
-                .ok_or(ResourceError::Arithmetic)?,
-        })
-    }
-}
-
 pub(in crate::authority) struct ShardResourcePlan {
-    aggregates: Vec<(u8, ShardResourceAggregate, ShardResourceAggregate)>,
+    aggregates: Vec<(u8, ResourceTotals, ResourceTotals)>,
     peers: Vec<(u8, PeerIndex, ResourceVector, ResourceVector)>,
 }
 
@@ -1138,19 +1171,6 @@ impl ShardResourcePlan {
         Ok(())
     }
 }
-
-#[cfg(test)]
-impl ShardResourcePlan {
-    pub(in crate::authority) fn extend_shard_support(
-        &self,
-        support: &mut super::shard_support::AuthorityShardSupport,
-    ) {
-        for (_, peer, _, _) in &self.peers {
-            support.insert(b"owner-resource/peer", peer);
-        }
-    }
-}
-
 impl fmt::Debug for ShardedOwnerMap {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -1233,7 +1253,7 @@ impl<'authority> StagedPeerIngressFence<'authority> {
         cut: &mut ShardedOwnerWriteCut<'_>,
     ) -> Result<BegunPeerIngressFence<'authority>, crate::authority::ban::PeerBanError> {
         let Some(slot) = self.slot.as_mut() else {
-            return Err(crate::authority::ban::PeerBanError::Contention);
+            return Err(crate::authority::ban::PeerBanError::Faulted);
         };
         let permit = match slot.begin_in_place() {
             Ok(permit) => permit,
@@ -1348,26 +1368,20 @@ impl ShardedOwnerMap {
                 shards: Box::new(std::array::from_fn(|_| {
                     RwLock::new(AuthorityShard::default())
                 })),
+                dependency_relations: Box::new(std::array::from_fn(|_| {
+                    RwLock::new(DependencyRelationShard::default())
+                })),
+                dependency_gates: Box::new(std::array::from_fn(|_| RwLock::new(()))),
                 #[cfg(test)]
                 concurrent_removal_probe: Mutex::new(None),
                 #[cfg(test)]
-                concurrent_removal_plan_probe: Mutex::new(None),
-                #[cfg(test)]
-                concurrent_removal_plan_pause: Mutex::new(None),
-                #[cfg(test)]
-                accepted_expiry_mid_compile_pause: Mutex::new(None),
-                #[cfg(test)]
                 dependency_maintenance_plan_probe: Mutex::new(None),
                 #[cfg(test)]
-                membership_parent_read_probe: Mutex::new(None),
-                #[cfg(test)]
-                membership_secondary_read_probe: Mutex::new(None),
+                membership_dependency_plan_probe: Mutex::new(None),
                 #[cfg(test)]
                 shared_ingress_probe: Mutex::new(None),
                 #[cfg(test)]
                 shared_owner_commit_probe: Mutex::new(None),
-                #[cfg(test)]
-                ready_clock_commit_probe: Mutex::new(None),
                 #[cfg(test)]
                 compute_settlement_commit_probe: Mutex::new(None),
                 #[cfg(test)]
@@ -1391,10 +1405,7 @@ impl ShardedOwnerMap {
             .ok_or(PeerFenceStageError::Stale)?
             .write();
         if !shard.peer_fences.contains_key(&peer) {
-            shard
-                .peer_fences
-                .try_reserve(1)
-                .map_err(|_| PeerFenceStageError::Allocation)?;
+            shard.peer_fences.reserve(1);
         }
         let current = shard.peer_fences.get(&peer);
         if current.and_then(PeerIngressFence::hidden_stage).is_some()
@@ -1420,31 +1431,6 @@ impl ShardedOwnerMap {
             entries: self,
             slot: Some(slot),
         })
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn reserve_exclusive_peer_fence(
-        &self,
-        delta: PeerBanDelta,
-    ) -> Result<(), PeerFenceStageError> {
-        if !delta.records_new() {
-            return Ok(());
-        }
-        let peer = delta.lease().peer();
-        let shard = self.layout.router.shard(b"index/peer", &peer);
-        let mut shard = self
-            .layout
-            .shards
-            .get(shard)
-            .ok_or(PeerFenceStageError::Stale)?
-            .write();
-        if !shard.peer_fences.contains_key(&peer) {
-            shard
-                .peer_fences
-                .try_reserve(1)
-                .map_err(|_| PeerFenceStageError::Allocation)?;
-        }
-        Ok(())
     }
 
     #[cfg(test)]
@@ -1481,6 +1467,7 @@ impl ShardedOwnerMap {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::authority) fn peer_ingress_row(&self, peer: PeerIndex) -> Option<PeerIngressRow> {
         let shard = self.layout.router.shard(b"index/peer", &peer);
         self.layout.shards.get(shard)?.read().peer_ingress_row(peer)
@@ -1515,6 +1502,16 @@ impl ShardedOwnerMap {
         reason = "from_fn enumerates exactly the two fixed 64-shard arrays before any payload swap"
     )]
     pub(in crate::authority) fn swap_generation_payload_with(&self, carrier: &ShardedOwnerMap) {
+        // Relations are always acquired before owners. The outer generation
+        // writer has already excluded ordinary shared operations; preserving
+        // the production lock order here keeps that proof true for any future
+        // caller as well.
+        let mut live_relations: [RwLockWriteGuard<'_, DependencyRelationShard>;
+            AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| self.layout.dependency_relations[shard].write());
+        let mut carrier_relations: [RwLockWriteGuard<'_, DependencyRelationShard>;
+            AUTHORITY_SHARD_COUNT] =
+            std::array::from_fn(|shard| carrier.layout.dependency_relations[shard].write());
         let mut live: [RwLockWriteGuard<'_, AuthorityShard>; AUTHORITY_SHARD_COUNT] =
             std::array::from_fn(|shard| self.layout.shards[shard].write());
         // The carrier is private to FreshGeneration and cannot be observed or
@@ -1523,6 +1520,9 @@ impl ShardedOwnerMap {
         // half-old/half-new generation.
         let mut carrier: [RwLockWriteGuard<'_, AuthorityShard>; AUTHORITY_SHARD_COUNT] =
             std::array::from_fn(|shard| carrier.layout.shards[shard].write());
+        for (live, carrier) in live_relations.iter_mut().zip(&mut carrier_relations) {
+            std::mem::swap(&mut live.rows, &mut carrier.rows);
+        }
         for (live, carrier) in live.iter_mut().zip(&mut carrier) {
             std::mem::swap(&mut live.generation, &mut carrier.generation);
             #[cfg(test)]
@@ -1530,36 +1530,6 @@ impl ShardedOwnerMap {
                 .generation_payload_swaps
                 .fetch_add(1, Ordering::Relaxed);
         }
-    }
-
-    pub(in crate::authority) fn peer_ingress_owner_row_exists(&self, peer: PeerIndex) -> bool {
-        let shard = self.layout.router.shard(b"index/peer", &peer);
-        self.layout
-            .shards
-            .get(shard)
-            .is_some_and(|shard| shard.read().peer_ingress_owners.contains_key(&peer))
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn from_iter_for_test(
-        entries: impl IntoIterator<Item = (RawTxHash, OwnedTx)>,
-    ) -> Self {
-        let mut result = Self::new(AuthorityShardRouter::new());
-        for (key, owner) in entries {
-            let after = ChargeProjection::from_validated(Some(owner.charge_record()))
-                .expect("fixture owner contains a valid production charge");
-            let plan = result
-                .plan_resource_transitions(std::iter::once((
-                    &key,
-                    ChargeProjection::from_validated(None)
-                        .expect("an absent owner has an empty resource projection"),
-                    after,
-                )))
-                .expect("fixture resource aggregates remain representable");
-            result.insert(key, owner);
-            result.apply_resource_plan(plan);
-        }
-        result
     }
 
     #[cfg(test)]
@@ -1610,50 +1580,6 @@ impl ShardedOwnerMap {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn set_concurrent_removal_plan_probe(
-        &self,
-        probe: Option<Arc<std::sync::Barrier>>,
-    ) {
-        *self.layout.concurrent_removal_plan_probe.lock() = probe;
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn set_concurrent_removal_plan_pause(
-        &self,
-        probe: Option<Arc<ConcurrentRemovalProbe>>,
-    ) {
-        *self.layout.concurrent_removal_plan_pause.lock() = probe;
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn enter_concurrent_removal_plan_probe(&self) {
-        let probe = self.layout.concurrent_removal_plan_probe.lock().clone();
-        if let Some(probe) = probe {
-            probe.wait();
-        }
-        let pause = self.layout.concurrent_removal_plan_pause.lock().clone();
-        if let Some(pause) = pause {
-            pause.enter();
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn set_accepted_expiry_mid_compile_pause(
-        &self,
-        probe: Option<Arc<ConcurrentRemovalProbe>>,
-    ) {
-        *self.layout.accepted_expiry_mid_compile_pause.lock() = probe;
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn enter_accepted_expiry_mid_compile_pause(&self) {
-        let pause = self.layout.accepted_expiry_mid_compile_pause.lock().clone();
-        if let Some(pause) = pause {
-            pause.enter();
-        }
-    }
-
-    #[cfg(test)]
     pub(in crate::authority) fn set_dependency_maintenance_plan_probe(
         &self,
         probe: Option<Arc<ConcurrentRemovalProbe>>,
@@ -1670,50 +1596,16 @@ impl ShardedOwnerMap {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn set_membership_parent_read_probe(
+    pub(in crate::authority) fn set_membership_dependency_plan_probe(
         &self,
-        hash: RawTxHash,
-        probe: Arc<ConcurrentRemovalProbe>,
+        probe: Option<Arc<ConcurrentRemovalProbe>>,
     ) {
-        *self.layout.membership_parent_read_probe.lock() = Some((hash, probe));
+        *self.layout.membership_dependency_plan_probe.lock() = probe;
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn enter_membership_parent_read_probe(&self, hash: &RawTxHash) {
-        let probe = {
-            let mut configured = self.layout.membership_parent_read_probe.lock();
-            match configured.as_ref() {
-                Some((expected, _)) if expected == hash => {
-                    configured.take().map(|(_, probe)| probe)
-                }
-                Some(_) | None => None,
-            }
-        };
-        if let Some(probe) = probe {
-            probe.enter();
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn set_membership_secondary_read_probe(
-        &self,
-        hash: RawTxHash,
-        probe: Arc<ConcurrentRemovalProbe>,
-    ) {
-        *self.layout.membership_secondary_read_probe.lock() = Some((hash, probe));
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn enter_membership_secondary_read_probe(&self, hash: &RawTxHash) {
-        let probe = {
-            let mut configured = self.layout.membership_secondary_read_probe.lock();
-            match configured.as_ref() {
-                Some((expected, _)) if expected == hash => {
-                    configured.take().map(|(_, probe)| probe)
-                }
-                Some(_) | None => None,
-            }
-        };
+    pub(in crate::authority) fn enter_membership_dependency_plan_probe(&self) {
+        let probe = self.layout.membership_dependency_plan_probe.lock().clone();
         if let Some(probe) = probe {
             probe.enter();
         }
@@ -1756,22 +1648,6 @@ impl ShardedOwnerMap {
             let configured = self.layout.shared_owner_commit_probe.lock();
             configured.clone()
         };
-        if let Some(probe) = probe {
-            probe.enter();
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn set_ready_clock_commit_probe(
-        &self,
-        probe: Option<Arc<ConcurrentRemovalProbe>>,
-    ) {
-        *self.layout.ready_clock_commit_probe.lock() = probe;
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn enter_ready_clock_commit_probe(&self) {
-        let probe = self.layout.ready_clock_commit_probe.lock().clone();
         if let Some(probe) = probe {
             probe.enter();
         }
@@ -1841,6 +1717,64 @@ impl ShardedOwnerMap {
         support
     }
 
+    /// Acquire dependency conflict classes before any owner shard. A write
+    /// request dominates a read request for the same fixed class, preventing
+    /// self-upgrade while the ascending walk gives every mixed operation one
+    /// lock order.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the loop is bounded by the fixed dependency-gate array"
+    )]
+    pub(in crate::authority) fn dependency_gate_cut(
+        &self,
+        support: DependencyGateSupport,
+    ) -> DependencyGateCut<'_> {
+        let mut reads = std::array::from_fn(|_| None);
+        let mut writes = std::array::from_fn(|_| None);
+        for shard in 0..AUTHORITY_SHARD_COUNT {
+            if support.writes(shard) {
+                writes[shard] = Some(self.layout.dependency_gates[shard].write());
+            } else if support.reads(shard) {
+                reads[shard] = Some(self.layout.dependency_gates[shard].read());
+            }
+        }
+        DependencyGateCut {
+            _reads: reads,
+            _writes: writes,
+        }
+    }
+
+    #[cfg(test)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the loop is bounded by the fixed dependency-gate array"
+    )]
+    pub(in crate::authority) fn try_dependency_gate_cut(
+        &self,
+        support: DependencyGateSupport,
+    ) -> Option<DependencyGateCut<'_>> {
+        let mut unavailable = false;
+        let mut reads = std::array::from_fn(|_| None);
+        let mut writes = std::array::from_fn(|_| None);
+        for shard in 0..AUTHORITY_SHARD_COUNT {
+            if support.writes(shard) {
+                match self.layout.dependency_gates[shard].try_write() {
+                    Some(guard) => writes[shard] = Some(guard),
+                    None => unavailable = true,
+                }
+            } else if support.reads(shard) {
+                match self.layout.dependency_gates[shard].try_read() {
+                    Some(guard) => reads[shard] = Some(guard),
+                    None => unavailable = true,
+                }
+            }
+        }
+        (!unavailable).then_some(DependencyGateCut {
+            _reads: reads,
+            _writes: writes,
+        })
+    }
+
     #[cfg(test)]
     pub(in crate::authority) fn owner_write_support<'key>(
         &self,
@@ -1906,6 +1840,7 @@ impl ShardedOwnerMap {
                     OwnedTx::Accepted(_) | OwnedTx::ReplacementHistory(_) => None,
                 }) {
                     expanded.insert(self.layout.router.peer_resource(&peer));
+                    expanded.insert(self.layout.router.shard(b"index/peer", &peer));
                 }
             }
             if expanded.0 == reads.0 {
@@ -1946,6 +1881,45 @@ impl ShardedOwnerMap {
         }
     }
 
+    /// Acquire one relation support in canonical shard order. Callers acquire
+    /// dependency gates first and owner cuts only after this returns.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the loop is bounded by the same fixed 64-shard relation bank"
+    )]
+    pub(in crate::authority) fn dependency_relation_mixed_cut(
+        &self,
+        reads: ShardReadSupport,
+        writes: ShardWriteSupport,
+    ) -> ShardedDependencyRelationWriteCut<'_> {
+        let mut read_guards = std::array::from_fn(|_| None);
+        let mut write_guards = std::array::from_fn(|_| None);
+        for shard in 0..AUTHORITY_SHARD_COUNT {
+            if writes.contains(shard) {
+                write_guards[shard] = Some(self.layout.dependency_relations[shard].write());
+            } else if reads.contains(shard) {
+                read_guards[shard] = Some(self.layout.dependency_relations[shard].read());
+            }
+        }
+        ShardedDependencyRelationWriteCut {
+            reads: read_guards,
+            writes: write_guards,
+        }
+    }
+
+    /// Read one relation partition. Key-wide callers must hold the exact-key
+    /// gate and drop this guard before advancing to the next shard.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the caller iterates or routes within the fixed 64-shard relation bank"
+    )]
+    pub(in crate::authority) fn dependency_relation_shard_read(
+        &self,
+        shard: usize,
+    ) -> RwLockReadGuard<'_, DependencyRelationShard> {
+        self.layout.dependency_relations[shard].read()
+    }
+
     #[cfg(test)]
     pub(in crate::authority) fn try_write_cut(
         &self,
@@ -1972,52 +1946,6 @@ impl ShardedOwnerMap {
 
     pub(in crate::authority) fn owner_shard(&self, key: &RawTxHash) -> usize {
         self.layout.router.owner(key)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn exhaust_owner_vacancy_revision_for_foundation(
-        &self,
-        key: &RawTxHash,
-    ) {
-        let shard = self.layout.router.owner(key);
-        self.layout.shards[shard].write().owner_removal_revision =
-            OwnerShardRemovalRevision::Exhausted;
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn advance_membership_order_revision_for_foundation(
-        &self,
-        shard: usize,
-    ) {
-        if let Some(row) = self.layout.shards.get(shard) {
-            row.write().membership_order_revision.advance();
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn cycle_absent_owner_for_foundation(
-        &self,
-        key: &RawTxHash,
-        owner: OwnedTx,
-    ) {
-        let shard = self.layout.router.owner(key);
-        let mut row = self.layout.shards[shard].write();
-        assert!(row.owners.insert(key.clone(), owner).is_none());
-        assert!(row.owners.remove(key).is_some());
-        row.owner_removal_revision.advance();
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn replace_membership_parents_for_foundation(
-        &self,
-        hash: &RawTxHash,
-        parents: HashSet<RawTxHash>,
-    ) {
-        let shard = self.layout.router.owner(hash);
-        self.layout.shards[shard]
-            .write()
-            .parents
-            .insert(hash.clone(), parents);
     }
 
     /// Capture the complete owner prestate and the same bounded removal
@@ -2218,15 +2146,6 @@ impl ShardedOwnerMap {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn capacity(&self) -> usize {
-        self.layout
-            .shards
-            .iter()
-            .map(|shard| shard.read().owners.capacity())
-            .sum()
-    }
-
-    #[cfg(test)]
     pub(in crate::authority) fn snapshot_for_test(&self) -> Vec<(RawTxHash, OwnedTx)> {
         let owners = self.read_all();
         owners
@@ -2239,10 +2158,10 @@ impl ShardedOwnerMap {
         clippy::indexing_slicing,
         reason = "owner() masks to the fixed 64-entry array range"
     )]
-    pub(in crate::authority) fn try_reserve_keys<'key>(
+    pub(in crate::authority) fn reserve_keys<'key>(
         &self,
         keys: impl IntoIterator<Item = &'key RawTxHash>,
-    ) -> Result<(), std::collections::TryReserveError> {
+    ) {
         let mut additional = [0usize; AUTHORITY_SHARD_COUNT];
         for key in keys {
             let shard = self.layout.router.owner(key);
@@ -2250,10 +2169,9 @@ impl ShardedOwnerMap {
         }
         for (shard, additional) in self.layout.shards.iter().zip(additional) {
             if additional != 0 {
-                shard.write().owners.try_reserve(additional)?;
+                shard.write().owners.reserve(additional);
             }
         }
-        Ok(())
     }
 
     #[cfg(test)]
@@ -2263,27 +2181,13 @@ impl ShardedOwnerMap {
         (owners.proposed_count()? == counts.proposed).then_some(counts)
     }
 
-    pub(in crate::authority) fn resource_totals(
-        &self,
-    ) -> Option<(ResourceTotals, AcceptedResources)> {
-        self.layout.shards.iter().try_fold(
-            (ResourceTotals::default(), AcceptedResources::default()),
-            |(totals, accepted), shard| {
-                let shard = shard.read();
-                Some((
-                    ResourceTotals {
-                        preaccepted: totals
-                            .preaccepted
-                            .checked_add(shard.resources.totals.preaccepted)?,
-                        remote: totals.remote.checked_add(shard.resources.totals.remote)?,
-                        replacement_history: totals
-                            .replacement_history
-                            .checked_add(shard.resources.totals.replacement_history)?,
-                    },
-                    accepted.checked_add(shard.resources.accepted)?,
-                ))
-            },
-        )
+    pub(in crate::authority) fn resource_totals(&self) -> Option<ResourceTotals> {
+        self.layout
+            .shards
+            .iter()
+            .try_fold(ResourceTotals::default(), |totals, shard| {
+                totals.checked_add_aggregate(shard.read().resources)
+            })
     }
 
     #[expect(
@@ -2374,24 +2278,14 @@ impl ShardedOwnerMap {
             if additional == 0 {
                 continue;
             }
-            shard
-                .write()
-                .peer_resources
-                .try_reserve(additional)
-                .map_err(|_| ResourceError::Allocation)?;
+            shard.write().peer_resources.reserve(additional);
         }
 
-        let mut aggregates = Vec::new();
-        aggregates
-            .try_reserve(AUTHORITY_SHARD_COUNT)
-            .map_err(|_| ResourceError::Allocation)?;
+        let mut aggregates = Vec::with_capacity(AUTHORITY_SHARD_COUNT);
         aggregates.extend(aggregate_targets.into_iter().enumerate().filter_map(
             |(shard, target)| target.map(|(expected, target)| (shard as u8, expected, target)),
         ));
-        let mut peers = Vec::new();
-        peers
-            .try_reserve(peer_targets.len())
-            .map_err(|_| ResourceError::Allocation)?;
+        let mut peers = Vec::with_capacity(peer_targets.len());
         peers.extend(peer_targets.into_iter().map(|(peer, (expected, target))| {
             (
                 self.layout.router.peer_resource(&peer) as u8,
@@ -2476,10 +2370,7 @@ impl ShardedOwnerMap {
                 (false, false) | (true, true) => {}
             }
         }
-        let mut planned = Vec::new();
-        planned
-            .try_reserve(changed_shards)
-            .map_err(|_| ShardProposedCountPlanError::Allocation)?;
+        let mut planned = Vec::with_capacity(changed_shards);
         planned.extend(
             targets
                 .into_iter()
@@ -2504,6 +2395,22 @@ impl ShardedOwnerMap {
         }
     }
 
+    /// Acquire the complete relation bank before any owner cut for a coherent
+    /// test-only snapshot. Ordinary production folds never use this global
+    /// cut.
+    #[cfg(test)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "array::from_fn supplies only indices in the fixed 64-shard relation bank"
+    )]
+    pub(in crate::authority) fn dependency_relations_read_all(
+        &self,
+    ) -> ShardedDependencyRelationReadCut<'_> {
+        ShardedDependencyRelationReadCut {
+            shards: std::array::from_fn(|shard| self.layout.dependency_relations[shard].read()),
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::authority) fn try_read_all(&self) -> Option<ShardedOwnerReadCut<'_>> {
         let guards = self
@@ -2523,10 +2430,28 @@ impl ShardedOwnerMap {
 impl ShardedOwnerReadCut<'_> {
     #[expect(
         clippy::indexing_slicing,
+        reason = "the caller routes through the fixed 64-shard authority layout"
+    )]
+    pub(in crate::authority) fn projection_shard(&self, shard: usize) -> &AuthorityShard {
+        &self.shards[shard]
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
         reason = "owner() masks to the fixed 64-entry array range"
     )]
     pub(in crate::authority) fn get(&self, key: &RawTxHash) -> Option<&OwnedTx> {
         self.shards[self.router.owner(key)].owners.get(key)
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the sole shard router masks every domain/key result to the fixed 64-shard array"
+    )]
+    pub(in crate::authority) fn membership_spender(&self, input: &OutPoint) -> Option<&RawTxHash> {
+        self.shards[self.router.shard(b"membership/spender", input)]
+            .spenders
+            .get(input)
     }
 
     pub(in crate::authority) fn len(&self) -> usize {
@@ -2618,28 +2543,6 @@ impl ShardedOwnerReadCut<'_> {
             page.push(DueRemote { expires_at, hash });
         }
         Ok(heads.iter().any(Option::is_some))
-    }
-
-    pub(in crate::authority) fn resource_totals(
-        &self,
-    ) -> Option<(ResourceTotals, AcceptedResources)> {
-        self.shards.iter().try_fold(
-            (ResourceTotals::default(), AcceptedResources::default()),
-            |(totals, accepted), shard| {
-                Some((
-                    ResourceTotals {
-                        preaccepted: totals
-                            .preaccepted
-                            .checked_add(shard.resources.totals.preaccepted)?,
-                        remote: totals.remote.checked_add(shard.resources.totals.remote)?,
-                        replacement_history: totals
-                            .replacement_history
-                            .checked_add(shard.resources.totals.replacement_history)?,
-                    },
-                    accepted.checked_add(shard.resources.accepted)?,
-                ))
-            },
-        )
     }
 
     pub(in crate::authority) fn template_sources(
@@ -2791,29 +2694,10 @@ impl ExactSizeIterator for ShardedOwnerIter<'_> {
 pub(in crate::authority) enum ShardProposedCountPlanError {
     Projection,
     Arithmetic,
-    Allocation,
 }
 
 #[derive(Debug, Default)]
 pub(in crate::authority) struct ShardProposedCountPlan(Vec<(u8, usize, usize)>);
-
-#[cfg(test)]
-impl ShardProposedCountPlan {
-    pub(in crate::authority) fn erase_first_removal_for_foundation(&mut self) -> bool {
-        let Some((_shard, expected, target)) = self.0.first_mut() else {
-            return false;
-        };
-        *target = *expected;
-        true
-    }
-}
-
-#[cfg(test)]
-impl ShardProposedCountPlan {
-    pub(in crate::authority) fn len(&self) -> usize {
-        self.0.len()
-    }
-}
 
 #[cfg(test)]
 mod owner_removal_revision_tests {

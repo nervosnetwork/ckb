@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused build-profile contract tests for ``cross_version_benchmark.py``."""
+"""Core evidence and resume canaries for ``cross_version_benchmark.py``."""
 
 from __future__ import annotations
 
@@ -20,20 +20,6 @@ SPEC.loader.exec_module(BENCHMARK)
 
 
 class BuildProfileContractTest(unittest.TestCase):
-    def test_power_mode_parser_accepts_legacy_and_current_pmset_fields(self) -> None:
-        for field in ("lowpowermode", "powermode"):
-            with self.subTest(field=field):
-                settings = (
-                    f"Battery Power:\n {field} 1\n"
-                    f"AC Power:\n {field} 0\n standby 1\n"
-                )
-                self.assertTrue(BENCHMARK.ac_power_mode_disabled(settings))
-
-        self.assertFalse(
-            BENCHMARK.ac_power_mode_disabled("AC Power:\n powermode 1\n")
-        )
-        self.assertFalse(BENCHMARK.ac_power_mode_disabled("Battery Power:\n powermode 0\n"))
-
     def test_result_record_requires_exact_callback_and_relay_terminal_fields(self) -> None:
         output = (
             "BENCH_RESULT scenario=always_success target=8 warm=1 workers=2 peers=2 "
@@ -184,14 +170,10 @@ class BuildProfileContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid scenario"):
             BENCHMARK.parse_scenario("rbf_pairs,32769,32768,13,18")
 
-    def test_fixed_binary_requires_explicit_prod_profile(self) -> None:
-        self.assertEqual(BENCHMARK.require_final_build_profile("prod"), "prod")
-        for invalid in (None, "bench", "release"):
-            with self.subTest(invalid=invalid):
-                with self.assertRaisesRegex(ValueError, "explicit prod"):
-                    BENCHMARK.require_final_build_profile(invalid)
-
     def test_runner_builds_and_records_prod_profile(self) -> None:
+        self.assertEqual(BENCHMARK.require_final_build_profile("prod"), "prod")
+        with self.assertRaisesRegex(ValueError, "explicit prod"):
+            BENCHMARK.require_final_build_profile("bench")
         with tempfile.TemporaryDirectory(prefix="txpool-cross-build-profile-") as raw:
             temporary = Path(raw)
             root = temporary / "source"
@@ -216,6 +198,54 @@ class BuildProfileContractTest(unittest.TestCase):
             self.assertEqual(command[command.index("--profile") + 1], "prod")
             self.assertEqual(build["profile"], "prod")
             self.assertEqual(binary["sha256"], BENCHMARK.sha256(executable))
+
+    def test_checkpoint_round_trip_and_attempt_ids_are_resume_authority(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="txpool-cross-checkpoint-") as raw:
+            path = Path(raw) / "result.json"
+            record = {"attempts": [{"id": "scenario/pilot/baseline"}]}
+            BENCHMARK.write_checkpoint(path, record)
+            self.assertEqual(BENCHMARK.read_checkpoint(path), record)
+            self.assertEqual(
+                list(BENCHMARK.attempt_index(record)), ["scenario/pilot/baseline"]
+            )
+            record["attempts"].append({"id": "scenario/pilot/baseline"})
+            with self.assertRaisesRegex(RuntimeError, "duplicate attempt"):
+                BENCHMARK.attempt_index(record)
+
+    def test_resume_reuses_a_completed_attempt_id(self) -> None:
+        scenario = BENCHMARK.parse_scenario("always_success,8,0,2,2")
+        cached = {
+            "id": "case/pilot/baseline",
+            "outcome": "success",
+            "side": "baseline",
+            "scenario": scenario,
+        }
+        record = {"attempts": [cached]}
+        with mock.patch.object(BENCHMARK, "run_attempt") as run:
+            result = BENCHMARK.obtain_attempt(
+                record,
+                BENCHMARK.attempt_index(record),
+                Path("unused"),
+                {},
+                scenario,
+                "baseline",
+                cached["id"],
+                mock.Mock(),
+            )
+        self.assertIs(result, cached)
+        run.assert_not_called()
+
+    def test_metric_summary_derives_median_and_mad_from_pairs(self) -> None:
+        samples = [
+            {
+                "baseline": {"metrics": {"elapsed_ns": 10}},
+                "candidate": {"metrics": {"elapsed_ns": value}},
+            }
+            for value in (10, 20, 30)
+        ]
+        summary = BENCHMARK.metric_summary(samples, "elapsed_ns")
+        self.assertEqual(summary["median_candidate_over_baseline"], 2.0)
+        self.assertEqual(summary["ratio_relative_mad_percent"], 50.0)
 
 
 if __name__ == "__main__":

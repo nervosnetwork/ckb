@@ -61,7 +61,12 @@ impl PeerBanLease {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PeerBanError {
+    /// A live staged slot conflicts with this request and may complete or roll
+    /// back without rebuilding the authority generation.
     Contention,
+    /// The slot bank observed a structural contradiction and is permanently
+    /// fail-closed for this authority generation.
+    Faulted,
     CounterExhausted,
 }
 
@@ -185,12 +190,12 @@ impl Default for PeerBanSlotBank {
 
 impl PeerBanSlotBank {
     fn select_slot(
-        state: &PeerBanSlotState,
+        state: &mut PeerBanSlotState,
         peer: PeerIndex,
         observed_at: Instant,
     ) -> Result<(usize, Option<ActivePeerBanSlot>, PeerBanLease, bool), PeerBanError> {
         if state.faulted {
-            return Err(PeerBanError::Contention);
+            return Err(PeerBanError::Faulted);
         }
         if state.slots.iter().any(|slot| {
             matches!(
@@ -282,7 +287,7 @@ impl PeerBanSlotBank {
         }) {
             return Err(PeerBanError::Contention);
         }
-        let oldest = state
+        let Some(oldest) = state
             .slots
             .iter()
             .enumerate()
@@ -293,7 +298,10 @@ impl PeerBanSlotBank {
                 | PeerBanSlot::Committing { .. } => None,
             })
             .min_by_key(|(_, active)| active.order_ticket)
-            .ok_or(PeerBanError::Contention)?;
+        else {
+            state.faulted = true;
+            return Err(PeerBanError::Faulted);
+        };
         Ok((
             oldest.0,
             Some(oldest.1),
@@ -334,6 +342,9 @@ impl PeerBanSlotBank {
         observed_at: Instant,
     ) -> Result<PeerBanDelta, PeerBanError> {
         let mut state = self.state.lock();
+        if state.faulted {
+            return Err(PeerBanError::Faulted);
+        }
         if state.slots.iter().any(|slot| {
             matches!(
                 slot,
@@ -342,7 +353,7 @@ impl PeerBanSlotBank {
         }) {
             return Err(PeerBanError::Contention);
         }
-        let (slot, previous, lease, record) = Self::select_slot(&state, peer, observed_at)?;
+        let (slot, previous, lease, record) = Self::select_slot(&mut state, peer, observed_at)?;
         let (stage_id, mut order_ticket) = Self::next_identities(&mut state, record)?;
         if !record {
             order_ticket = previous.map_or(0, |previous| previous.order_ticket);
@@ -368,14 +379,14 @@ impl PeerBanSlotBank {
         observed_at: Instant,
     ) -> Result<StagedPeerBanSlot<'_>, PeerBanError> {
         let mut state = self.state.lock();
-        let (slot, previous, lease, record) = Self::select_slot(&state, peer, observed_at)?;
+        let (slot, previous, lease, record) = Self::select_slot(&mut state, peer, observed_at)?;
         let (stage_id, mut order_ticket) = Self::next_identities(&mut state, record)?;
         if !record {
             order_ticket = previous.map_or(0, |previous| previous.order_ticket);
         }
         let Some(selected) = state.slots.get_mut(slot) else {
             state.faulted = true;
-            return Err(PeerBanError::Contention);
+            return Err(PeerBanError::Faulted);
         };
         *selected = PeerBanSlot::Reserved {
             stage_id,
@@ -468,6 +479,9 @@ impl<'registry> StagedPeerBanSlot<'registry> {
         &mut self,
     ) -> Result<PeerBanCommitPermit<'registry>, PeerBanError> {
         let mut state = self.registry.state.lock();
+        if state.faulted {
+            return Err(PeerBanError::Faulted);
+        }
         let previous = match state.slots.get(self.slot).copied() {
             Some(PeerBanSlot::Reserved {
                 stage_id,
@@ -491,12 +505,12 @@ impl<'registry> StagedPeerBanSlot<'registry> {
                 | PeerBanSlot::Committing { .. },
             ) => {
                 state.faulted = true;
-                return Err(PeerBanError::Contention);
+                return Err(PeerBanError::Faulted);
             }
         };
         let Some(slot) = state.slots.get_mut(self.slot) else {
             state.faulted = true;
-            return Err(PeerBanError::Contention);
+            return Err(PeerBanError::Faulted);
         };
         *slot = PeerBanSlot::Committing {
             stage_id: self.stage_id,

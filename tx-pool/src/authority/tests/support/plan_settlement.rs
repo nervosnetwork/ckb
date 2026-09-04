@@ -10,7 +10,7 @@ pub(in crate::authority) enum CandidateBatchError {
 
 impl SettlementBatch {
     pub(in crate::authority) fn new(
-        candidates: Vec<IndependentCandidate>,
+        candidates: Vec<FinalAdmissionReceipt>,
     ) -> Result<Self, CandidateBatchError> {
         if candidates.is_empty() {
             return Err(CandidateBatchError::Empty);
@@ -24,11 +24,9 @@ impl SettlementBatch {
             if candidates
                 .iter()
                 .skip(index.saturating_add(1))
-                .any(|other| other.receipt.key() == candidate.receipt.key())
+                .any(|other| other.key() == candidate.key())
             {
-                return Err(CandidateBatchError::Duplicate(
-                    candidate.receipt.key().clone(),
-                ));
+                return Err(CandidateBatchError::Duplicate(candidate.key().clone()));
             }
         }
         let mut candidates = candidates.into_iter();

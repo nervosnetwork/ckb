@@ -1,25 +1,18 @@
 mod eviction;
-mod independent;
 mod policy;
 mod rbf;
 
 use policy::{PolicyContext, PolicyMode};
-
-pub(in crate::authority::plan) use independent::{
-    IndependentMembershipChange, IndependentMembershipOutcome, PreparedIndependentMembership,
-    has_membership_relation_coupling, prepare_classified_ordinary_membership,
-    prepare_independent_membership,
-};
 
 use super::TxPoolAuthority;
 use crate::authority::{
     dependency::{ObservedAcceptedConsumers, ObservedDependencyConsumerRead},
     rejection::{ComponentLimitKind, MembershipReject},
     resources::AcceptedCost,
-    scheduler::StagedIngressVisibility,
     shard::{
-        AUTHORITY_SHARD_COUNT, OwnerEntryKind, OwnerShardRemovalRevision, ShardReadSupport,
-        ShardWriteSupport, ShardedAcceptedReadGuard, ShardedOwnerMap, ShardedOwnerWriteCut,
+        AUTHORITY_SHARD_COUNT, DependencyGateCut, DependencyGateSupport, OwnerEntryKind,
+        OwnerShardRemovalRevision, ShardReadSupport, ShardWriteSupport, ShardedAcceptedReadGuard,
+        ShardedOwnerMap, ShardedOwnerWriteCut,
     },
     state::{
         AcceptedEntry, AcceptedStatus, Arrival, DependencyKey, EntryVersion, OwnedTx,
@@ -390,14 +383,14 @@ pub(in crate::authority) enum RemovalCause {
     Capacity,
 }
 
-struct SelectedRemoval {
+struct RemovalSelection {
     hash: RawTxHash,
     cause: RemovalCause,
 }
 
 #[derive(Debug)]
 pub(in crate::authority) struct MembershipRemoval {
-    pub(in crate::authority) hash: RawTxHash,
+    before: OwnedTx,
     pub(in crate::authority) cause: RemovalCause,
     /// Continuation after removal from Accepted membership. The constructor
     /// surface admits only replacement history, so capacity eviction cannot
@@ -406,12 +399,20 @@ pub(in crate::authority) struct MembershipRemoval {
 }
 
 impl MembershipRemoval {
-    fn terminal(hash: RawTxHash, cause: RemovalCause) -> Self {
+    fn terminal(before: AcceptedEntry, cause: RemovalCause) -> Self {
         Self {
-            hash,
+            before: OwnedTx::Accepted(before),
             cause,
             after: None,
         }
+    }
+
+    pub(in crate::authority) fn hash(&self) -> &RawTxHash {
+        &self.before.record().identity.raw
+    }
+
+    pub(super) fn before(&self) -> &OwnedTx {
+        &self.before
     }
 
     pub(super) fn retain_replacement_history(
@@ -494,10 +495,7 @@ fn causal_change_log(
         .ok_or(super::PlanError::Fault(
             super::AuthorityFault::CounterExhausted,
         ))?;
-    let mut changes = Vec::new();
-    changes
-        .try_reserve(capacity)
-        .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+    let mut changes = Vec::with_capacity(capacity);
     changes.extend(removals.into_iter().map(CausalRelationChange::RemoveEdge));
     changes.extend(
         node_insertions
@@ -593,6 +591,13 @@ pub(super) struct MembershipPolicyWitness {
     accepted_entry_captures: usize,
 }
 
+/// One coherent policy fence. Field order releases owner shards before the
+/// broader dependency gates, preserving the global gate -> owner lock order.
+pub(in crate::authority::plan) struct BoundMembershipPolicyWitness<'authority> {
+    _owners: ShardedOwnerWriteCut<'authority>,
+    _gates: DependencyGateCut<'authority>,
+}
+
 impl Default for MembershipPolicyWitness {
     fn default() -> Self {
         Self {
@@ -628,26 +633,27 @@ impl MembershipPolicyWitness {
         let mut witness = Self::bounded_for_shared(dependency_consumer_bound);
         witness
             .owners
-            .try_reserve_exact(edge_count.checked_add(1).ok_or(super::PlanError::Fault(
+            .reserve_exact(edge_count.checked_add(1).ok_or(super::PlanError::Fault(
                 super::AuthorityFault::CounterExhausted,
-            ))?)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            ))?);
         witness
             .spenders
-            .try_reserve_exact(
+            .reserve_exact(
                 edge_count
                     .checked_add(outputs)
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::CounterExhausted,
                     ))?,
-            )
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        witness
-            .dependency_consumers
-            .try_reserve_exact(footprint.inputs().len().checked_add(outputs).ok_or(
-                super::PlanError::Fault(super::AuthorityFault::CounterExhausted),
-            )?)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            );
+        witness.dependency_consumers.reserve_exact(
+            footprint
+                .inputs()
+                .len()
+                .checked_add(outputs)
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?,
+        );
         Ok(witness)
     }
 
@@ -676,7 +682,7 @@ impl MembershipPolicyWitness {
         }
         let (observed, vacancy_revision) = authority.entries.owner_fact_and_vacancy_revision(hash);
         let fact = observed.map(|(version, kind)| OwnerReadFact { version, kind });
-        self.record_owner_fact(hash, fact, vacancy_revision)?;
+        self.record_owner_fact(hash, fact, vacancy_revision);
         Ok(fact)
     }
 
@@ -696,7 +702,7 @@ impl MembershipPolicyWitness {
         if matches!(observed, Some(OwnedTx::Accepted(_))) {
             self.accepted_entry_captures = self.accepted_entry_captures.saturating_add(1);
         }
-        self.record_owner_fact(hash, fact, vacancy_revision)?;
+        self.record_owner_fact(hash, fact, vacancy_revision);
         Ok(observed)
     }
 
@@ -705,19 +711,16 @@ impl MembershipPolicyWitness {
         hash: &RawTxHash,
         fact: Option<OwnerReadFact>,
         vacancy_revision: Option<OwnerShardRemovalRevision>,
-    ) -> Result<(), super::PlanError> {
+    ) {
+        self.owners.reserve(1);
         if fact.is_none() && vacancy_revision.is_none() {
             self.vacant_owner_witness_complete = false;
         }
-        self.owners
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
         self.owners.push(ObservedOwnerRead {
             hash: hash.clone(),
             fact,
             vacancy_revision,
         });
-        Ok(())
     }
 
     fn owner_fact(owner: &OwnedTx) -> OwnerReadFact {
@@ -758,9 +761,7 @@ impl MembershipPolicyWitness {
         if !self.is_exact() {
             return Ok(spender);
         }
-        self.spenders
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.spenders.reserve(1);
         self.spenders.push(ObservedSpenderRead {
             out_point: out_point.clone(),
             spender: spender.clone(),
@@ -805,16 +806,12 @@ impl MembershipPolicyWitness {
                 .observe_accepted_consumers_bounded_or_over_limit(key, dependency_consumer_bound);
             match observed {
                 Ok(ObservedAcceptedConsumers::Within { visible, receipt }) => {
-                    self.dependency_consumers.try_reserve(1).map_err(|_| {
-                        super::PlanError::Backpressure(super::Backpressure::Allocation)
-                    })?;
+                    self.dependency_consumers.reserve(1);
                     self.dependency_consumers.push(receipt);
                     return Ok(visible);
                 }
                 Ok(ObservedAcceptedConsumers::OverLimit(receipt)) => {
-                    self.dependency_consumers.try_reserve(1).map_err(|_| {
-                        super::PlanError::Backpressure(super::Backpressure::Allocation)
-                    })?;
+                    self.dependency_consumers.reserve(1);
                     self.dependency_consumers.push(receipt);
                     if let MembershipPolicyWitnessMode::Exact {
                         dependency_consumer_bound_exceeded,
@@ -857,9 +854,7 @@ impl MembershipPolicyWitness {
             }
             Err(error) => return Err(super::PlanError::from(error)),
         };
-        self.dependency_consumers
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.dependency_consumers.reserve(1);
         self.dependency_consumers.push(receipt);
         Ok(visible)
     }
@@ -871,9 +866,7 @@ impl MembershipPolicyWitness {
     ) -> Result<Option<HashSet<RawTxHash>>, super::PlanError> {
         let parents = authority.membership.parents(hash);
         if self.is_exact() {
-            self.record_causal(hash, Some(parents.clone()), None)?;
-            #[cfg(test)]
-            authority.entries.enter_membership_parent_read_probe(hash);
+            self.record_causal(hash, Some(parents.clone()), None);
         }
         Ok(parents)
     }
@@ -885,7 +878,7 @@ impl MembershipPolicyWitness {
     ) -> Result<Option<HashSet<RawTxHash>>, super::PlanError> {
         let children = authority.membership.children(hash);
         if self.is_exact() {
-            self.record_causal(hash, None, Some(children.clone()))?;
+            self.record_causal(hash, None, Some(children.clone()));
         }
         Ok(children)
     }
@@ -895,19 +888,16 @@ impl MembershipPolicyWitness {
         hash: &RawTxHash,
         parents: Option<Option<HashSet<RawTxHash>>>,
         children: Option<Option<HashSet<RawTxHash>>>,
-    ) -> Result<(), super::PlanError> {
+    ) {
         if !self.is_exact() {
-            return Ok(());
+            return;
         }
-        self.causal
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.causal.reserve(1);
         self.causal.push(ObservedCausalRead {
             hash: hash.clone(),
             parents,
             children,
         });
-        Ok(())
     }
 
     fn observe_ancestor(
@@ -917,7 +907,7 @@ impl MembershipPolicyWitness {
     ) -> Result<Option<AncestorAggregate>, super::PlanError> {
         let value = authority.membership.ancestor_aggregate(hash);
         if self.is_exact() {
-            self.record_aggregate(hash, Some(value), None)?;
+            self.record_aggregate(hash, Some(value), None);
         }
         Ok(value)
     }
@@ -929,7 +919,7 @@ impl MembershipPolicyWitness {
     ) -> Result<Option<DescendantAggregate>, super::PlanError> {
         let value = authority.membership.descendant_aggregate(hash);
         if self.is_exact() {
-            self.record_aggregate(hash, None, Some(value))?;
+            self.record_aggregate(hash, None, Some(value));
         }
         Ok(value)
     }
@@ -939,19 +929,16 @@ impl MembershipPolicyWitness {
         hash: &RawTxHash,
         ancestor: Option<Option<AncestorAggregate>>,
         descendant: Option<Option<DescendantAggregate>>,
-    ) -> Result<(), super::PlanError> {
+    ) {
         if !self.is_exact() {
-            return Ok(());
+            return;
         }
-        self.aggregates
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.aggregates.reserve(1);
         self.aggregates.push(ObservedAggregateRead {
             hash: hash.clone(),
             ancestor,
             descendant,
         });
-        Ok(())
     }
 
     fn observe_accepted_order(
@@ -963,9 +950,7 @@ impl MembershipPolicyWitness {
         if !self.is_exact() {
             return Ok(present);
         }
-        self.accepted_order
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.accepted_order.reserve(1);
         self.accepted_order.push((key.clone(), present));
         Ok(present)
     }
@@ -979,9 +964,7 @@ impl MembershipPolicyWitness {
         if !self.is_exact() {
             return Ok(present);
         }
-        self.eviction_order
-            .try_reserve(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        self.eviction_order.reserve(1);
         self.eviction_order.push((key.clone(), present));
         Ok(present)
     }
@@ -1005,10 +988,7 @@ impl MembershipPolicyWitness {
             )),
             Some(_) => Ok(order),
             slot @ None => {
-                let mut captured = Vec::new();
-                captured
-                    .try_reserve_exact(AUTHORITY_SHARD_COUNT)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                let mut captured = Vec::with_capacity(AUTHORITY_SHARD_COUNT);
                 captured.extend(revisions);
                 *slot = Some(captured);
                 Ok(order)
@@ -1060,9 +1040,6 @@ impl MembershipPolicyWitness {
                     .shard(b"membership/spender", &spender.out_point),
             );
         }
-        for consumers in &self.dependency_consumers {
-            consumers.extend_read_support(entries, &mut support);
-        }
         for causal in &self.causal {
             support.insert(entries.owner_shard(&causal.hash));
         }
@@ -1078,12 +1055,28 @@ impl MembershipPolicyWitness {
         support
     }
 
-    fn values_are_fresh_with_dependency_stage(
+    pub(in crate::authority) fn dependency_gate_support(
         &self,
         entries: &ShardedOwnerMap,
-        cut: &ShardedOwnerWriteCut<'_>,
-        dependency_stage: Option<&StagedIngressVisibility>,
+    ) -> DependencyGateSupport {
+        let mut support = DependencyGateSupport::default();
+        for consumers in &self.dependency_consumers {
+            support.include(consumers.dependency_gate_support(entries));
+        }
+        support
+    }
+
+    fn dependency_aggregate_is_fresh(
+        &self,
+        entries: &ShardedOwnerMap,
+        gates: &DependencyGateCut<'_>,
     ) -> bool {
+        self.dependency_consumers
+            .iter()
+            .all(|expected| expected.is_fresh_under_gate(entries, gates))
+    }
+
+    fn values_are_fresh(&self, entries: &ShardedOwnerMap, cut: &ShardedOwnerWriteCut<'_>) -> bool {
         self.owners.iter().all(|expected| {
             let shard = entries.owner_shard(&expected.hash);
             let current = cut
@@ -1114,11 +1107,6 @@ impl MembershipPolicyWitness {
                 .spenders
                 .get(&expected.out_point)
                 == expected.spender.as_ref()
-        }) && self.dependency_consumers.iter().all(|expected| {
-            dependency_stage.map_or_else(
-                || expected.is_fresh(entries, cut),
-                |visibility| expected.is_fresh_before_stage(entries, cut, visibility),
-            )
         }) && self.causal.iter().all(|expected| {
             let row = cut.projection_shard(entries.owner_shard(&expected.hash));
             expected
@@ -1164,31 +1152,22 @@ impl MembershipPolicyWitness {
         }
     }
 
-    fn values_are_fresh(&self, entries: &ShardedOwnerMap, cut: &ShardedOwnerWriteCut<'_>) -> bool {
-        self.values_are_fresh_with_dependency_stage(entries, cut, None)
-    }
-
     fn is_fresh(&self, entries: &ShardedOwnerMap, cut: &ShardedOwnerWriteCut<'_>) -> bool {
         !self.is_exact()
             || (self.vacant_owner_witness_complete && self.values_are_fresh(entries, cut))
     }
 
-    fn is_fresh_before_dependency_stage(
-        &self,
-        entries: &ShardedOwnerMap,
-        cut: &ShardedOwnerWriteCut<'_>,
-        visibility: &StagedIngressVisibility,
-    ) -> bool {
-        !self.is_exact()
-            || (self.vacant_owner_witness_complete
-                && self.values_are_fresh_with_dependency_stage(entries, cut, Some(visibility)))
-    }
-
     pub(in crate::authority::plan) fn bind<'authority>(
         &self,
         authority: &'authority TxPoolAuthority,
-    ) -> Result<ShardedOwnerWriteCut<'authority>, super::StalePlan> {
+    ) -> Result<BoundMembershipPolicyWitness<'authority>, super::StalePlan> {
         if !self.is_exact() {
+            return Err(super::StalePlan::AcceptedObservation);
+        }
+        let gates = authority
+            .entries
+            .dependency_gate_cut(self.dependency_gate_support(&authority.entries));
+        if !self.dependency_aggregate_is_fresh(&authority.entries, &gates) {
             return Err(super::StalePlan::AcceptedObservation);
         }
         let cut = authority.entries.mixed_cut(
@@ -1196,29 +1175,15 @@ impl MembershipPolicyWitness {
             ShardWriteSupport::default(),
         );
         self.is_fresh(&authority.entries, &cut)
-            .then_some(cut)
+            .then_some(BoundMembershipPolicyWitness {
+                _owners: cut,
+                _gates: gates,
+            })
             .ok_or(super::StalePlan::AcceptedObservation)
     }
 
     fn prove_coherent(&self, authority: &TxPoolAuthority) -> bool {
         !self.is_exact() || self.bind(authority).is_ok()
-    }
-
-    #[cfg(test)]
-    fn recorded_row_count(&self) -> usize {
-        self.owners
-            .len()
-            .saturating_add(self.spenders.len())
-            .saturating_add(self.dependency_consumers.len())
-            .saturating_add(self.causal.len())
-            .saturating_add(self.aggregates.len())
-            .saturating_add(self.accepted_order.len())
-            .saturating_add(self.eviction_order.len())
-    }
-
-    #[cfg(test)]
-    fn accepted_entry_capture_count(&self) -> usize {
-        self.accepted_entry_captures
     }
 
     fn expected_version(&self, hash: &RawTxHash, kind: OwnerEntryKind) -> Option<EntryVersion> {
@@ -1251,10 +1216,8 @@ struct ProjectionPrestate {
     eviction_order: Vec<(EvictionOrderKey, bool)>,
 }
 
-fn reserve_witness<T>(values: &mut Vec<T>, additional: usize) -> Result<(), super::PlanError> {
-    values
-        .try_reserve_exact(additional)
-        .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+fn reserve_witness<T>(values: &mut Vec<T>, additional: usize) {
+    values.reserve_exact(additional);
 }
 
 impl ProjectionPrestate {
@@ -1264,7 +1227,7 @@ impl ProjectionPrestate {
     ) -> Result<Self, super::PlanError> {
         let mut witness = Self::default();
 
-        reserve_witness(&mut witness.spenders, delta.spender_changes.len())?;
+        reserve_witness(&mut witness.spenders, delta.spender_changes.len());
         witness.spenders.extend(
             delta
                 .spender_changes
@@ -1276,7 +1239,7 @@ impl ProjectionPrestate {
         reserve_witness(
             &mut causal_keys,
             delta.causal_changes.len().saturating_mul(2),
-        )?;
+        );
         for change in &delta.causal_changes {
             match change {
                 CausalRelationChange::RemoveEdge(edge) | CausalRelationChange::InsertEdge(edge) => {
@@ -1289,8 +1252,8 @@ impl ProjectionPrestate {
         }
         causal_keys.sort_unstable();
         causal_keys.dedup();
-        reserve_witness(&mut witness.parents, causal_keys.len())?;
-        reserve_witness(&mut witness.children, causal_keys.len())?;
+        reserve_witness(&mut witness.parents, causal_keys.len());
+        reserve_witness(&mut witness.children, causal_keys.len());
         for hash in causal_keys {
             witness
                 .parents
@@ -1300,14 +1263,14 @@ impl ProjectionPrestate {
                 .push((hash.clone(), membership.children(&hash)));
         }
 
-        reserve_witness(&mut witness.ancestors, delta.ancestor_changes.len())?;
+        reserve_witness(&mut witness.ancestors, delta.ancestor_changes.len());
         witness.ancestors.extend(
             delta
                 .ancestor_changes
                 .iter()
                 .map(|(hash, _)| (hash.clone(), membership.ancestor_aggregate(hash))),
         );
-        reserve_witness(&mut witness.descendants, delta.aggregate_changes.len())?;
+        reserve_witness(&mut witness.descendants, delta.aggregate_changes.len());
         witness.descendants.extend(
             delta
                 .aggregate_changes
@@ -1322,12 +1285,12 @@ impl ProjectionPrestate {
                 .accepted_order_removals
                 .len()
                 .saturating_add(delta.accepted_order_insertions.len()),
-        )?;
+        );
         accepted_keys.extend(delta.accepted_order_removals.iter().cloned());
         accepted_keys.extend(delta.accepted_order_insertions.iter().cloned());
         accepted_keys.sort_unstable();
         accepted_keys.dedup();
-        reserve_witness(&mut witness.accepted_order, accepted_keys.len())?;
+        reserve_witness(&mut witness.accepted_order, accepted_keys.len());
         witness
             .accepted_order
             .extend(accepted_keys.into_iter().map(|key| {
@@ -1342,12 +1305,12 @@ impl ProjectionPrestate {
                 .eviction_removals
                 .len()
                 .saturating_add(delta.eviction_insertions.len()),
-        )?;
+        );
         eviction_keys.extend(delta.eviction_removals.iter().cloned());
         eviction_keys.extend(delta.eviction_insertions.iter().cloned());
         eviction_keys.sort_unstable();
         eviction_keys.dedup();
-        reserve_witness(&mut witness.eviction_order, eviction_keys.len())?;
+        reserve_witness(&mut witness.eviction_order, eviction_keys.len());
         witness
             .eviction_order
             .extend(eviction_keys.into_iter().map(|key| {
@@ -1423,25 +1386,30 @@ impl ProjectionDelta {
         Ok(self)
     }
 
-    #[cfg(test)]
-    pub(in crate::authority) fn prestate_is_fresh(
+    pub(in crate::authority) fn dependency_gate_support(
+        &self,
+        entries: &ShardedOwnerMap,
+    ) -> DependencyGateSupport {
+        self.read_witness.dependency_gate_support(entries)
+    }
+
+    pub(in crate::authority) fn dependency_aggregate_is_fresh(
+        &self,
+        entries: &ShardedOwnerMap,
+        gates: &DependencyGateCut<'_>,
+    ) -> bool {
+        !self.read_witness.is_exact()
+            || self
+                .read_witness
+                .dependency_aggregate_is_fresh(entries, gates)
+    }
+
+    pub(in crate::authority) fn point_prestate_is_fresh(
         &self,
         entries: &ShardedOwnerMap,
         cut: &ShardedOwnerWriteCut<'_>,
     ) -> bool {
         self.prestate.is_fresh(entries, cut) && self.read_witness.is_fresh(entries, cut)
-    }
-
-    pub(in crate::authority) fn prestate_is_fresh_before_dependency_stage(
-        &self,
-        entries: &ShardedOwnerMap,
-        cut: &ShardedOwnerWriteCut<'_>,
-        visibility: &StagedIngressVisibility,
-    ) -> bool {
-        self.prestate.is_fresh(entries, cut)
-            && self
-                .read_witness
-                .is_fresh_before_dependency_stage(entries, cut, visibility)
     }
 
     pub(in crate::authority) fn sharded_read_support(
@@ -1462,14 +1430,6 @@ impl ProjectionDelta {
 
     pub(super) fn has_capacity_frontier_policy_witness(&self) -> bool {
         self.read_witness.has_capacity_frontier()
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn policy_witness_activity_for_foundation(&self) -> (usize, usize) {
-        (
-            self.read_witness.recorded_row_count(),
-            self.read_witness.accepted_entry_capture_count(),
-        )
     }
 
     pub(super) fn expected_preaccepted_version(&self, hash: &RawTxHash) -> Option<EntryVersion> {
@@ -1500,11 +1460,6 @@ impl ProjectionDelta {
 
     pub(super) fn take_proposed_counts(&mut self) -> super::super::shard::ShardProposedCountPlan {
         std::mem::take(&mut self.proposed_counts)
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn erase_first_proposed_removal_for_foundation(&mut self) -> bool {
-        self.proposed_counts.erase_first_removal_for_foundation()
     }
 
     /// Read the post-Apply spender from this change log and the authoritative
@@ -1576,7 +1531,7 @@ struct AncestorDelta {
 }
 
 pub(super) struct MembershipEvaluation {
-    removals: Vec<SelectedRemoval>,
+    removals: Vec<MembershipRemoval>,
     candidate_parents: HashSet<RawTxHash>,
     candidate_children: HashSet<RawTxHash>,
     aggregate: AggregateDelta,
@@ -1694,10 +1649,7 @@ impl MembershipProjection {
                         super::AuthorityFault::CounterExhausted,
                     ))?;
         }
-        let mut order = Vec::new();
-        order
-            .try_reserve_exact(count)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut order = Vec::with_capacity(count);
         for (shard, expected_revision) in self.entries.layout.shards.iter().zip(expected_revisions)
         {
             let shard = shard.read();
@@ -1794,26 +1746,11 @@ impl MembershipProjection {
                 continue;
             }
             let mut shard = shard.write();
-            shard
-                .spenders
-                .try_reserve(inputs)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-            shard
-                .parents
-                .try_reserve(owners)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-            shard
-                .children
-                .try_reserve(owners)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-            shard
-                .ancestor_aggregates
-                .try_reserve(owners)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-            shard
-                .descendant_aggregates
-                .try_reserve(owners)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            shard.spenders.reserve(inputs);
+            shard.parents.reserve(owners);
+            shard.children.reserve(owners);
+            shard.ancestor_aggregates.reserve(owners);
+            shard.descendant_aggregates.reserve(owners);
         }
         Ok(())
     }
@@ -1830,8 +1767,8 @@ impl MembershipProjection {
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
             ))?
-            .try_reserve(additional)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+            .reserve(additional);
+        Ok(())
     }
 
     pub(super) fn reserve_parent_row(
@@ -1846,8 +1783,8 @@ impl MembershipProjection {
             .ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
             ))?
-            .try_reserve(additional)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))
+            .reserve(additional);
+        Ok(())
     }
 
     pub(super) fn apply(&self, delta: ProjectionDelta) {
@@ -2096,13 +2033,12 @@ impl TxPoolAuthority {
         hash: &RawTxHash,
         before: &PreAcceptedEntry,
         candidate: &AcceptedEntry,
-        bounded_dependency_consumers: bool,
     ) -> Result<MembershipPolicyOutcome, super::PlanError> {
         Self::validate_preaccepted_membership_subject(hash, before, candidate)?;
-        self.evaluate_membership_policy_with_dependency_bound(
+        Self::evaluate_membership_policy_with_reader(
             hash,
             candidate,
-            bounded_dependency_consumers.then_some(self.membership_config.max_component),
+            PolicyContext::optimistic(self, self.membership_config.max_component),
         )
     }
 
@@ -2274,25 +2210,6 @@ impl TxPoolAuthority {
             PolicyContext::optimistic_with_witness(self, witness),
         )
     }
-    #[cfg(test)]
-    pub(in crate::authority) fn direct_absent_matches_canonical_for_foundation(
-        &self,
-        hash: &RawTxHash,
-        candidate: &AcceptedEntry,
-    ) -> Result<bool, super::PlanError> {
-        let canonical = self.evaluate_membership_candidate(hash, candidate)?;
-        let expected = eviction::pure_leaf_evaluation(hash, candidate)?;
-        Ok(canonical.removals.is_empty()
-            && canonical.candidate_parents.is_empty()
-            && canonical.candidate_children.is_empty()
-            && canonical.aggregate.changes == expected.aggregate.changes
-            && canonical.aggregate.ancestor_changes == expected.aggregate.ancestor_changes
-            && canonical.aggregate.accepted_order_removals.is_empty()
-            && canonical.aggregate.accepted_order_insertions
-                == expected.aggregate.accepted_order_insertions
-            && canonical.aggregate.eviction_removals.is_empty()
-            && canonical.aggregate.eviction_insertions == expected.aggregate.eviction_insertions)
-    }
     fn compile_membership_evaluation(
         &self,
         hash: &RawTxHash,
@@ -2314,17 +2231,8 @@ impl TxPoolAuthority {
             candidate_children,
             aggregate,
         )?;
-        let mut removals = Vec::new();
-        removals
-            .try_reserve(selected_removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        removals.extend(
-            selected_removals
-                .into_iter()
-                .map(|selected| MembershipRemoval::terminal(selected.hash, selected.cause)),
-        );
         Ok(PreparedMembership {
-            removals,
+            removals: selected_removals,
             projection: projection.with_read_witness(policy_witness),
         })
     }
@@ -2344,10 +2252,7 @@ impl TxPoolAuthority {
                 super::AuthorityFault::MembershipProjection,
             ));
         }
-        let mut removed = HashSet::new();
-        removed
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut removed = HashSet::with_capacity(removals.len());
         removed.extend(removals.iter().cloned());
         if removed.len() != removals.len() {
             return Err(super::PlanError::Fault(
@@ -2356,12 +2261,10 @@ impl TxPoolAuthority {
         }
         let ancestor = self.prepare_chain_ancestor_delta(removals, &removed)?;
 
-        let mut status_count_changes = Vec::new();
-        status_count_changes
-            .try_reserve(removals.len().checked_add(status_changes.len()).ok_or(
+        let mut status_count_changes =
+            Vec::with_capacity(removals.len().checked_add(status_changes.len()).ok_or(
                 super::PlanError::Fault(super::AuthorityFault::CounterExhausted),
-            )?)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            )?);
         let mut relation_capacity = 0usize;
         let mut input_capacity = 0usize;
         for hash in removals.iter() {
@@ -2409,24 +2312,15 @@ impl TxPoolAuthority {
                 .map(|(hash, before, after)| (hash, *before, *after)),
         )?;
 
-        let mut spender_changes = Vec::new();
-        spender_changes
-            .try_reserve(input_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut causal_removals = Vec::new();
-        causal_removals
-            .try_reserve(relation_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut spender_changes = Vec::with_capacity(input_capacity);
+        let mut causal_removals = Vec::with_capacity(relation_capacity);
         let aggregate_capacity = removals
             .len()
             .checked_mul(self.membership_config.max_ancestors)
             .map_or(self.membership_config.max_component, |capacity| {
                 capacity.min(self.membership_config.max_component)
             });
-        let mut projected_aggregates = HashMap::new();
-        projected_aggregates
-            .try_reserve(aggregate_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut projected_aggregates = HashMap::with_capacity(aggregate_capacity);
 
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
@@ -2506,10 +2400,7 @@ impl TxPoolAuthority {
         spender_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         causal_removals.sort_unstable();
         causal_removals.dedup();
-        let mut causal_node_removals = Vec::new();
-        causal_node_removals
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut causal_node_removals = Vec::with_capacity(removals.len());
         causal_node_removals.extend(removals.iter().cloned());
         let causal_changes = causal_change_log(
             causal_removals,
@@ -2527,19 +2418,15 @@ impl TxPoolAuthority {
             ))?;
         let mut eviction_removals = Vec::new();
         let mut eviction_insertions = Vec::new();
-        eviction_removals
-            .try_reserve(eviction_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        eviction_insertions
-            .try_reserve(
-                projected_aggregates
-                    .len()
-                    .checked_add(status_changes.len())
-                    .ok_or(super::PlanError::Fault(
-                        super::AuthorityFault::CounterExhausted,
-                    ))?,
-            )
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        eviction_removals.reserve(eviction_capacity);
+        eviction_insertions.reserve(
+            projected_aggregates
+                .len()
+                .checked_add(status_changes.len())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?,
+        );
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
             let aggregate =
@@ -2557,17 +2444,14 @@ impl TxPoolAuthority {
             eviction_removals.push(key);
         }
 
-        let mut aggregate_changes = Vec::new();
-        aggregate_changes
-            .try_reserve(
-                removals
-                    .len()
-                    .checked_add(projected_aggregates.len())
-                    .ok_or(super::PlanError::Fault(
-                        super::AuthorityFault::CounterExhausted,
-                    ))?,
-            )
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut aggregate_changes = Vec::with_capacity(
+            removals
+                .len()
+                .checked_add(projected_aggregates.len())
+                .ok_or(super::PlanError::Fault(
+                    super::AuthorityFault::CounterExhausted,
+                ))?,
+        );
         aggregate_changes.extend(removals.iter().cloned().map(|hash| (hash, None)));
         for (hash, after) in status_changes {
             if projected_aggregates.contains_key(hash) {
@@ -2589,10 +2473,7 @@ impl TxPoolAuthority {
             eviction_removals.push(before_key);
             eviction_insertions.push(EvictionOrderKey::new(after, aggregate));
         }
-        let mut ordered_aggregates = Vec::new();
-        ordered_aggregates
-            .try_reserve(projected_aggregates.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut ordered_aggregates = Vec::with_capacity(projected_aggregates.len());
         ordered_aggregates.extend(projected_aggregates);
         ordered_aggregates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         for (hash, after_aggregate) in ordered_aggregates {
@@ -2649,23 +2530,15 @@ impl TxPoolAuthority {
         removals: &AcceptedRemovalSet,
         removed: &HashSet<RawTxHash>,
     ) -> Result<AncestorDelta, super::PlanError> {
-        let mut visited = HashSet::new();
-        visited
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut visited = HashSet::with_capacity(removals.len());
         let mut affected = HashSet::new();
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut frontier = VecDeque::with_capacity(removals.len());
         frontier.extend(removals.iter().cloned());
         while let Some(hash) = frontier.pop_front() {
             if visited.contains(&hash) {
                 continue;
             }
-            visited
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            visited.reserve(1);
             visited.insert(hash.clone());
             let children = self
                 .membership
@@ -2673,15 +2546,11 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
                 ))?;
-            frontier
-                .try_reserve(children.len())
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            frontier.reserve(children.len());
             for child in children {
                 frontier.push_back(child.clone());
                 if !removals.contains(&child) && !affected.contains(&child) {
-                    affected.try_reserve(1).map_err(|_| {
-                        super::PlanError::Backpressure(super::Backpressure::Allocation)
-                    })?;
+                    affected.reserve(1);
                     affected.insert(child.clone());
                 }
             }
@@ -2694,18 +2563,9 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
-        let mut changes = Vec::new();
-        changes
-            .try_reserve(change_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut order_removals = Vec::new();
-        order_removals
-            .try_reserve(change_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut order_insertions = Vec::new();
-        order_insertions
-            .try_reserve(affected.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut changes = Vec::with_capacity(change_capacity);
+        let mut order_removals = Vec::with_capacity(change_capacity);
+        let mut order_insertions = Vec::with_capacity(affected.len());
 
         for hash in removals.iter() {
             let entry = self.accepted_entry(hash)?;
@@ -2725,10 +2585,7 @@ impl TxPoolAuthority {
             order_removals.push(key);
         }
 
-        let mut ordered_affected = Vec::new();
-        ordered_affected
-            .try_reserve(affected.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut ordered_affected = Vec::with_capacity(affected.len());
         ordered_affected.extend(affected);
         ordered_affected.sort_unstable();
         for hash in ordered_affected {
@@ -2777,30 +2634,23 @@ impl TxPoolAuthority {
         &self,
         hash: &RawTxHash,
         candidate: &AcceptedEntry,
-        removals: &[SelectedRemoval],
+        removals: &[MembershipRemoval],
         parents: HashSet<RawTxHash>,
         children: HashSet<RawTxHash>,
         aggregate: AggregateDelta,
     ) -> Result<ProjectionDelta, super::PlanError> {
-        let mut removed = HashSet::new();
-        removed
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        removed.extend(removals.iter().map(|removal| removal.hash.clone()));
-        let mut status_count_changes = Vec::new();
-        status_count_changes
-            .try_reserve(
-                removals
-                    .len()
-                    .checked_add(1)
-                    .ok_or(super::PlanError::Fault(
-                        super::AuthorityFault::CounterExhausted,
-                    ))?,
-            )
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut removed = HashSet::with_capacity(removals.len());
+        removed.extend(removals.iter().map(|removal| removal.hash().clone()));
+        let mut status_count_changes = Vec::with_capacity(removals.len().checked_add(1).ok_or(
+            super::PlanError::Fault(super::AuthorityFault::CounterExhausted),
+        )?);
         for planned in removals {
-            let removal = &planned.hash;
-            let entry = self.accepted_entry(removal)?;
+            let removal = planned.hash();
+            let OwnedTx::Accepted(entry) = planned.before() else {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            };
             status_count_changes.push((removal.clone(), Some(entry.status()), None));
         }
         status_count_changes.push((hash.clone(), None, Some(candidate.status())));
@@ -2814,7 +2664,11 @@ impl TxPoolAuthority {
         let mut removal_inputs = 0usize;
         let mut removal_causal_edges = 0usize;
         for planned in removals {
-            let entry = self.accepted_entry(&planned.hash)?;
+            let OwnedTx::Accepted(entry) = planned.before() else {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            };
             removal_inputs = removal_inputs
                 .checked_add(entry.proof.payload().footprint.inputs().len())
                 .ok_or(super::PlanError::Fault(
@@ -2822,13 +2676,13 @@ impl TxPoolAuthority {
                 ))?;
             let removal_parents =
                 self.membership
-                    .parents(&planned.hash)
+                    .parents(planned.hash())
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ))?;
             let removal_children =
                 self.membership
-                    .children(&planned.hash)
+                    .children(planned.hash())
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ))?;
@@ -2845,14 +2699,8 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
-        let mut spender_changes = Vec::new();
-        spender_changes
-            .try_reserve(spender_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut causal_edge_removals = Vec::new();
-        causal_edge_removals
-            .try_reserve(removal_causal_edges)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut spender_changes = Vec::with_capacity(spender_capacity);
+        let mut causal_edge_removals = Vec::with_capacity(removal_causal_edges);
         let causal_insertion_capacity =
             parents
                 .len()
@@ -2860,14 +2708,15 @@ impl TxPoolAuthority {
                 .ok_or(super::PlanError::Fault(
                     super::AuthorityFault::CounterExhausted,
                 ))?;
-        let mut causal_edge_insertions = Vec::new();
-        causal_edge_insertions
-            .try_reserve(causal_insertion_capacity)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut causal_edge_insertions = Vec::with_capacity(causal_insertion_capacity);
 
         for planned in removals {
-            let removal = &planned.hash;
-            let entry = self.accepted_entry(removal)?;
+            let removal = planned.hash();
+            let OwnedTx::Accepted(entry) = planned.before() else {
+                return Err(super::PlanError::Fault(
+                    super::AuthorityFault::MembershipProjection,
+                ));
+            };
             for input in entry.proof.payload().footprint.inputs() {
                 if self.membership.spender(input) != Some(removal.clone()) {
                     return Err(super::PlanError::Fault(
@@ -2977,11 +2826,8 @@ impl TxPoolAuthority {
         });
         spender_changes.dedup_by(|later, earlier| later.0 == earlier.0);
 
-        let mut causal_node_removals = Vec::new();
-        causal_node_removals
-            .try_reserve(removals.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        causal_node_removals.extend(removals.iter().map(|removal| removal.hash.clone()));
+        let mut causal_node_removals = Vec::with_capacity(removals.len());
+        causal_node_removals.extend(removals.iter().map(|removal| removal.hash().clone()));
         causal_node_removals.sort_unstable();
         let causal_changes = causal_change_log(
             causal_edge_removals,
@@ -3048,23 +2894,13 @@ impl TxPoolAuthority {
                 self.reserve_membership_parent_row(&edge.child, 1)?;
             }
         }
-        let mut prepared_parents = HashSet::new();
-        prepared_parents
-            .try_reserve(parents.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut prepared_children = HashSet::new();
-        prepared_children
-            .try_reserve(children.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut prepared = Vec::new();
-        prepared
-            .try_reserve_exact(1)
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        prepared.push(PreparedCausalNode {
+        let prepared_parents = HashSet::with_capacity(parents.len());
+        let prepared_children = HashSet::with_capacity(children.len());
+        let prepared = vec![PreparedCausalNode {
             hash: hash.clone(),
             parents: prepared_parents,
             children: prepared_children,
-        });
+        }];
         Ok(prepared)
     }
 
@@ -3096,10 +2932,7 @@ impl TxPoolAuthority {
         // order is irrelevant; the fallibly reserved minimum heap below fixes
         // removal order.
         let mut closure = HashSet::new();
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(roots.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut frontier = VecDeque::with_capacity(roots.len());
         for root in roots {
             if excluded.contains(root) || closure.contains(root) {
                 continue;
@@ -3112,9 +2945,7 @@ impl TxPoolAuthority {
                     },
                 ));
             }
-            closure
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            closure.reserve(1);
             closure.insert(root.clone());
             frontier.push_back(root.clone());
         }
@@ -3137,18 +2968,12 @@ impl TxPoolAuthority {
                         },
                     ));
                 }
-                closure
-                    .try_reserve(1)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-                frontier
-                    .try_reserve(1)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                closure.reserve(1);
+                frontier.reserve(1);
                 closure.insert(child.clone());
                 frontier.push_back(child.clone());
             }
-            observed_children
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            observed_children.reserve(1);
             if observed_children.insert(hash, children).is_some() {
                 return Err(super::PlanError::Fault(
                     super::AuthorityFault::MembershipProjection,
@@ -3156,14 +2981,8 @@ impl TxPoolAuthority {
             }
         }
 
-        let mut remaining_children = HashMap::new();
-        remaining_children
-            .try_reserve(closure.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
-        let mut leaves = BinaryHeap::new();
-        leaves
-            .try_reserve(closure.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut remaining_children = HashMap::with_capacity(closure.len());
+        let mut leaves = BinaryHeap::with_capacity(closure.len());
         for hash in &closure {
             let children = observed_children.get(hash).ok_or(super::PlanError::Fault(
                 super::AuthorityFault::MembershipProjection,
@@ -3177,10 +2996,7 @@ impl TxPoolAuthority {
                 leaves.push(Reverse(hash.clone()));
             }
         }
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(closure.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut ordered = Vec::with_capacity(closure.len());
         while let Some(Reverse(hash)) = leaves.pop() {
             ordered.push(hash.clone());
             let parents = reader
@@ -3210,10 +3026,7 @@ impl TxPoolAuthority {
                 super::AuthorityFault::MembershipProjection,
             ));
         }
-        let mut child_rows = Vec::new();
-        child_rows
-            .try_reserve_exact(observed_children.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut child_rows = Vec::with_capacity(observed_children.len());
         child_rows.extend(observed_children);
         child_rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
         Ok(BoundedDescendantPostorder {
@@ -3231,10 +3044,7 @@ impl TxPoolAuthority {
         Mode: PolicyMode,
     {
         let footprint = &candidate.proof.payload().footprint;
-        let mut parents = HashSet::new();
-        parents
-            .try_reserve(footprint.edge_count())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut parents = HashSet::with_capacity(footprint.edge_count());
         for out_point in footprint.inputs().iter().chain(footprint.dependencies()) {
             if let Some(parent) = Self::surviving_pool_parent(out_point, removed, reader)? {
                 parents.insert(parent);
@@ -3352,9 +3162,7 @@ impl TxPoolAuthority {
                 ));
             }
             reader.observe_accepted_owner(&child)?;
-            children
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            children.reserve(1);
             children.insert(child.clone());
         }
         Ok(children)
@@ -3368,10 +3176,7 @@ impl TxPoolAuthority {
         Mode: PolicyMode,
     {
         let outputs = candidate.record.tx.output_pts();
-        let mut children = Vec::new();
-        children
-            .try_reserve(outputs.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut children = Vec::with_capacity(outputs.len());
         for output in outputs {
             if let Some(spender) = reader.observe_spender(&output)? {
                 children.push(spender);
@@ -3404,10 +3209,7 @@ impl TxPoolAuthority {
         let consumers = reader
             .observe_dependency_consumers(key.clone())?
             .unwrap_or_default();
-        let mut accepted = HashSet::new();
-        accepted
-            .try_reserve(consumers.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut accepted = HashSet::with_capacity(consumers.len());
         for hash in consumers {
             let (has_dependency, is_accepted) = reader.observe_dependency_owner(&hash, &key)?;
             if !has_dependency {
@@ -3441,18 +3243,13 @@ impl TxPoolAuthority {
     {
         let max_ancestors = reader.config().max_ancestors;
         let mut ancestors = HashSet::new();
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(parents.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut frontier = VecDeque::with_capacity(parents.len());
         frontier.extend(parents.iter().cloned());
         while let Some(ancestor) = frontier.pop_front() {
             if removed.contains(&ancestor) || ancestors.contains(&ancestor) {
                 continue;
             }
-            ancestors
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            ancestors.reserve(1);
             ancestors.insert(ancestor.clone());
             if ancestors.len() >= max_ancestors {
                 return Err(super::PlanError::Fault(
@@ -3502,15 +3299,10 @@ impl TxPoolAuthority {
             ))?;
         let mut ancestors = HashSet::new();
         let mut visited = HashSet::new();
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(parents.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut frontier = VecDeque::with_capacity(parents.len());
         frontier.extend(parents.iter().cloned());
         while let Some(ancestor) = frontier.pop_front() {
-            visited
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            visited.reserve(1);
             if !visited.insert(ancestor.clone()) {
                 continue;
             }
@@ -3520,9 +3312,7 @@ impl TxPoolAuthority {
                 ));
             }
             if !removed.contains(&ancestor) {
-                ancestors
-                    .try_reserve(1)
-                    .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+                ancestors.reserve(1);
                 ancestors.insert(ancestor.clone());
             }
             let grandparents =
@@ -3531,9 +3321,7 @@ impl TxPoolAuthority {
                     .ok_or(super::PlanError::Fault(
                         super::AuthorityFault::MembershipProjection,
                     ))?;
-            frontier
-                .try_reserve(grandparents.len())
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            frontier.reserve(grandparents.len());
             frontier.extend(grandparents.iter().cloned());
         }
         Ok(ancestors)
@@ -3549,18 +3337,13 @@ impl TxPoolAuthority {
     {
         let max_ancestors = reader.config().max_ancestors;
         let mut ancestors = HashSet::new();
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(parents.len())
-            .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+        let mut frontier = VecDeque::with_capacity(parents.len());
         frontier.extend(parents.iter().cloned());
         while let Some(parent) = frontier.pop_front() {
             if removed.contains(&parent) || ancestors.contains(&parent) {
                 continue;
             }
-            ancestors
-                .try_reserve(1)
-                .map_err(|_| super::PlanError::Backpressure(super::Backpressure::Allocation))?;
+            ancestors.reserve(1);
             ancestors.insert(parent.clone());
             // The candidate itself consumes one configured ancestor slot.
             if ancestors.len() >= max_ancestors {

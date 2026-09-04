@@ -7,8 +7,7 @@
 use super::{
     exchange::{ComputeVerifierSlot, ComputeWorkerGrant, ComputeWorkerSlot},
     plan::{
-        AuthorityFault, Backpressure, ComputeExchangeCompletion, ComputeExchangeDeferredRoute,
-        ComputeExchangeRecoveries, ComputeExchangeRecoverySink, ComputeSettlementRecovery,
+        AuthorityFault, ComputeExchangeCompletion, ComputePeerExclusion, ComputeSettlementRecovery,
         PlanError,
     },
     resolver::VerificationCacheUpdate,
@@ -17,8 +16,7 @@ use super::{
         AuthorityCommittedComputeExchange, AuthorityComputeAftermath,
         AuthorityComputeAftermathDisposition, AuthorityComputeAssignment,
         AuthorityComputeExchangeFailure, AuthorityComputeExchangeFollowUp, AuthorityComputeJob,
-        AuthorityComputeOutcome, AuthorityGenerationReplacementError, AuthorityPendingSettlement,
-        AuthorityRuntime,
+        AuthorityComputeOutcome, AuthorityPendingSettlement, AuthorityRuntime,
     },
     state::VerifyCapability,
     worker::{
@@ -27,6 +25,7 @@ use super::{
 };
 use crate::constants::MAX_READY_BATCH;
 use ckb_async_runtime::Handle;
+use ckb_network::PeerIndex;
 use ckb_script::{ChunkCommand, ChunkCommand::Resume};
 use ckb_stop_handler::CancellationToken;
 use ckb_verification::cache::TxVerificationCache;
@@ -40,18 +39,26 @@ enum SlotPhase {
     Finished,
 }
 
-#[derive(Clone, Copy)]
-enum RecoveryRoute {
-    Exact,
-    AfterEffect,
-    AfterResource,
-}
-
 struct CoordinatorLane {
     slot: ComputeWorkerSlot,
     sender: Option<mpsc::Sender<AuthorityComputeJob>>,
     phase: SlotPhase,
     probe_suppressed: bool,
+}
+
+#[derive(Debug)]
+struct PendingSettlement {
+    completion: ComputeExchangeCompletion,
+    blame_peer: Option<PeerIndex>,
+}
+
+impl PendingSettlement {
+    fn new(completion: ComputeExchangeCompletion) -> Self {
+        Self {
+            completion,
+            blame_peer: None,
+        }
+    }
 }
 
 enum RetainedWorkerRole {
@@ -92,12 +99,9 @@ struct ComputeCoordinator {
     cache_updates: mpsc::Sender<VerificationCacheUpdate>,
     command_rx: watch::Receiver<ChunkCommand>,
     cancel: CancellationToken,
-    exchange_pending: Vec<ComputeExchangeCompletion>,
-    exact_pending: Vec<ComputeExchangeCompletion>,
+    exact_pending: Vec<PendingSettlement>,
     yield_changed_cut: bool,
-    exchange_after_effect: Vec<ComputeExchangeCompletion>,
-    exact_after_effect: Vec<ComputeExchangeCompletion>,
-    exchange_after_resource: Vec<ComputeExchangeCompletion>,
+    exact_after_effect: Vec<PendingSettlement>,
     resource_contended: bool,
     resource_wait_identity: Option<ResourceCapacityWaitIdentity>,
     eligible_slots: Vec<ComputeWorkerSlot>,
@@ -119,7 +123,6 @@ enum CompletionIngress {
 
 enum CoordinatorDriveError {
     Worker(AuthorityWorkerFault),
-    ReplaceGeneration,
 }
 
 impl From<AuthorityWorkerFault> for CoordinatorDriveError {
@@ -134,42 +137,6 @@ type CoordinatorDriveResult<T> = Result<T, CoordinatorDriveError>;
 enum CoordinatorImmediate {
     Progress,
     Wait,
-}
-
-struct CoordinatorRecovery<'coordinator> {
-    coordinator: &'coordinator mut ComputeCoordinator,
-    route: RecoveryRoute,
-}
-
-impl ComputeExchangeRecoverySink for CoordinatorRecovery<'_> {
-    type Error = AuthorityWorkerFault;
-
-    fn recover_settlement(
-        &mut self,
-        completion: ComputeExchangeCompletion,
-    ) -> Result<(), Self::Error> {
-        match self.route {
-            RecoveryRoute::Exact => self.coordinator.exact_pending.push(completion),
-            RecoveryRoute::AfterEffect => {
-                self.coordinator.exchange_after_effect.push(completion);
-            }
-            RecoveryRoute::AfterResource => {
-                self.coordinator.exchange_after_resource.push(completion);
-            }
-        }
-        Ok(())
-    }
-
-    fn recover_obsolete(&mut self, slot: ComputeWorkerSlot) -> Result<(), Self::Error> {
-        self.coordinator.mark_idle(slot)
-    }
-
-    fn recover_grant(&mut self, grant: ComputeWorkerGrant) -> Result<(), Self::Error> {
-        // Neither effect nor resource capacity wait owns execution capacity.
-        // The stable lane will rejoin fair acquisition after its wake rank.
-        drop(grant);
-        Ok(())
-    }
 }
 
 pub(in crate::authority) fn spawn_compute_exchange(
@@ -340,19 +307,10 @@ impl ComputeCoordinator {
         cancel: CancellationToken,
     ) -> Result<Self, AuthorityWorkerSpawnError> {
         let bound = lanes.len();
-        let mut exchange_pending = Vec::new();
         let mut exact_pending = Vec::new();
-        let mut exchange_after_effect = Vec::new();
         let mut exact_after_effect = Vec::new();
-        let mut exchange_after_resource = Vec::new();
         let mut eligible_slots = Vec::new();
-        for buffer in [
-            &mut exchange_pending,
-            &mut exact_pending,
-            &mut exchange_after_effect,
-            &mut exact_after_effect,
-            &mut exchange_after_resource,
-        ] {
+        for buffer in [&mut exact_pending, &mut exact_after_effect] {
             buffer
                 .try_reserve(bound)
                 .map_err(|_| AuthorityWorkerSpawnError::Allocation)?;
@@ -367,12 +325,9 @@ impl ComputeCoordinator {
             cache_updates,
             command_rx,
             cancel,
-            exchange_pending,
             exact_pending,
             yield_changed_cut: false,
-            exchange_after_effect,
             exact_after_effect,
-            exchange_after_resource,
             resource_contended: false,
             resource_wait_identity: None,
             eligible_slots,
@@ -416,11 +371,6 @@ impl ComputeCoordinator {
             let immediate = match self.drive_immediate() {
                 Ok(immediate) => immediate,
                 Err(CoordinatorDriveError::Worker(error)) => return Err(error),
-                Err(CoordinatorDriveError::ReplaceGeneration) => {
-                    self.commit_generation_replacement_after_allocation()
-                        .await?;
-                    continue;
-                }
             };
 
             if self.yield_changed_cut {
@@ -498,11 +448,6 @@ impl ComputeCoordinator {
     }
 
     fn drive_immediate(&mut self) -> CoordinatorDriveResult<CoordinatorImmediate> {
-        if !self.exchange_pending.is_empty() {
-            self.drive_exchange(Vec::new())?;
-            self.drive_exact()?;
-            return Ok(CoordinatorImmediate::Progress);
-        }
         if !self.exact_pending.is_empty() {
             self.drive_exact()?;
             return Ok(CoordinatorImmediate::Progress);
@@ -522,7 +467,6 @@ impl ComputeCoordinator {
         self.shutting_down = true;
         self.probe_work = false;
         self.seed_grant = None;
-        self.exact_pending.append(&mut self.exchange_after_resource);
         self.yield_changed_cut = false;
         self.resource_contended = false;
         self.resource_wait_identity = None;
@@ -533,12 +477,9 @@ impl ComputeCoordinator {
 
     fn is_drained(&self) -> bool {
         self.seed_grant.is_none()
-            && self.exchange_pending.is_empty()
             && self.exact_pending.is_empty()
             && !self.yield_changed_cut
-            && self.exchange_after_effect.is_empty()
             && self.exact_after_effect.is_empty()
-            && self.exchange_after_resource.is_empty()
             && !self.resource_contended
             && self.resource_wait_identity.is_none()
             && self.lanes.iter().all(|lane| lane.phase == SlotPhase::Idle)
@@ -570,7 +511,7 @@ impl ComputeCoordinator {
         }
         lane.phase = SlotPhase::Finished;
         lane.probe_suppressed = false;
-        self.exchange_pending.push(completion);
+        self.exact_pending.push(PendingSettlement::new(completion));
         self.probe_work = true;
         Ok(())
     }
@@ -609,29 +550,25 @@ impl ComputeCoordinator {
         Ok(())
     }
 
-    fn has_finished(&self) -> bool {
-        self.lanes
-            .iter()
-            .any(|lane| lane.phase == SlotPhase::Finished)
-    }
-
     fn is_resumed(&self) -> bool {
         matches!(&*self.command_rx.borrow(), Resume)
+    }
+
+    fn has_probeable_slot(&self) -> bool {
+        self.lanes.iter().any(|lane| {
+            lane.phase == SlotPhase::Idle && lane.sender.is_some() && !lane.probe_suppressed
+        })
     }
 
     fn should_probe_immediately(&self) -> bool {
         !self.shutting_down
             && self.is_resumed()
             && self.probe_work
-            && (self.has_finished() || self.seed_grant.is_some())
+            && (self.has_probeable_slot() || self.seed_grant.is_some())
     }
 
     fn fair_wait_slot(&mut self) -> Option<ComputeWorkerSlot> {
-        if self.shutting_down
-            || !self.is_resumed()
-            || !self.probe_work
-            || self.has_finished()
-            || self.seed_grant.is_some()
+        if self.shutting_down || !self.is_resumed() || !self.probe_work || self.seed_grant.is_some()
         {
             return None;
         }
@@ -651,31 +588,14 @@ impl ComputeCoordinator {
             return Ok(Vec::new());
         }
         let bound = self.lanes.len();
-        if grants
-            .try_reserve(bound.saturating_sub(grants.len()))
-            .is_err()
-        {
-            self.seed_grant = None;
-            drop(grants);
-            return Err(CoordinatorDriveError::ReplaceGeneration);
-        }
+        grants.reserve(bound.saturating_sub(grants.len()));
         if let Some(seed) = self.seed_grant.take() {
             grants.push(seed);
         }
         self.eligible_slots.clear();
         for lane in &mut self.lanes {
-            let eligible = match lane.phase {
-                SlotPhase::Idle => lane.sender.is_some() && !lane.probe_suppressed,
-                SlotPhase::Assigned => false,
-                SlotPhase::Finished => {
-                    lane.sender.is_some()
-                        && !lane.probe_suppressed
-                        && self.exchange_pending.iter().any(|completion| {
-                            completion.slot().id() == lane.slot.id()
-                                && completion.permits_immediate_refill()
-                        })
-                }
-            };
+            let eligible =
+                lane.phase == SlotPhase::Idle && lane.sender.is_some() && !lane.probe_suppressed;
             if eligible {
                 self.eligible_slots.push(lane.slot);
             }
@@ -710,16 +630,19 @@ impl ComputeCoordinator {
 
     fn drive_exchange(&mut self, grants: Vec<ComputeWorkerGrant>) -> CoordinatorDriveResult<()> {
         let grants = self.collect_immediate_grants(grants)?;
-        if self.exchange_pending.is_empty() && grants.is_empty() {
+        if grants.is_empty() {
             return Ok(());
         }
-        let mut replacement = Vec::new();
-        if replacement.try_reserve(self.lanes.len()).is_err() {
-            drop(grants);
-            return Err(CoordinatorDriveError::ReplaceGeneration);
-        }
-        let completions = std::mem::replace(&mut self.exchange_pending, replacement);
-        match self.runtime.exchange_compute(completions, grants) {
+        let exclusions = self
+            .exact_after_effect
+            .iter()
+            .filter_map(|pending| {
+                pending
+                    .blame_peer
+                    .map(|peer| ComputePeerExclusion::from_completion(&pending.completion, peer))
+            })
+            .collect::<Vec<_>>();
+        match self.runtime.exchange_compute(grants, &exclusions) {
             Ok(committed) => {
                 self.consume_exchange(committed)?;
             }
@@ -733,54 +656,26 @@ impl ComputeCoordinator {
         committed: AuthorityCommittedComputeExchange,
     ) -> CoordinatorDriveResult<()> {
         let AuthorityCommittedComputeExchange {
-            settled,
-            obsolete,
-            deferred,
             capture_failures,
             assignments,
             unused_grants,
             follow_up,
         } = committed;
         drop(unused_grants);
-        let (mut pending_fault, mut replace_generation) = match follow_up {
-            AuthorityComputeExchangeFollowUp::None => (None, false),
+        let pending_fault = match follow_up {
+            AuthorityComputeExchangeFollowUp::None => None,
             AuthorityComputeExchangeFollowUp::RetryProbe => {
                 self.restart_probe_cycle();
-                (None, false)
+                None
             }
             AuthorityComputeExchangeFollowUp::Fault(fault) => {
-                (Some(AuthorityWorkerFault::authority(fault)), false)
+                Some(AuthorityWorkerFault::authority(fault))
             }
         };
-        for settled in settled {
-            let (slot, aftermath) = settled.into_parts();
-            self.mark_idle(slot)?;
-            match self.consume_aftermath(aftermath) {
-                Ok(replace) => replace_generation |= replace,
-                Err(fault) => pending_fault = Some(fault),
-            }
-        }
-        for slot in obsolete {
-            self.mark_idle(slot)?;
-        }
-        for deferred in deferred {
-            let (route, completion) = deferred.into_parts();
-            match route {
-                ComputeExchangeDeferredRoute::ExactSettlement => {
-                    self.exact_pending.push(completion)
-                }
-                ComputeExchangeDeferredRoute::ExchangeRetry => {
-                    self.exchange_pending.push(completion)
-                }
-                ComputeExchangeDeferredRoute::ExchangeAfterEffect => {
-                    self.exchange_after_effect.push(completion)
-                }
-            }
-        }
         for completion in capture_failures {
             let completion = completion.finish_execution();
             self.mark_finished(completion.slot())?;
-            self.exchange_pending.push(completion);
+            self.exact_pending.push(PendingSettlement::new(completion));
         }
         for assignment in assignments {
             let slot = assignment.slot();
@@ -789,12 +684,6 @@ impl ComputeCoordinator {
                 return Err(
                     AuthorityWorkerFault::authority(AuthorityFault::SchedulerProjection).into(),
                 );
-            }
-            if replace_generation {
-                let completion = assignment.into_requeue_completion();
-                lane.phase = SlotPhase::Finished;
-                self.exact_pending.push(completion);
-                continue;
             }
             let Some(sender) = lane.sender.as_ref() else {
                 // Only terminal shutdown or a previously observed closed
@@ -833,9 +722,6 @@ impl ComputeCoordinator {
         if let Some(fault) = pending_fault {
             return Err(fault.into());
         }
-        if replace_generation {
-            return Err(CoordinatorDriveError::ReplaceGeneration);
-        }
         Ok(())
     }
 
@@ -843,66 +729,36 @@ impl ComputeCoordinator {
         &mut self,
         failure: AuthorityComputeExchangeFailure,
     ) -> CoordinatorDriveResult<()> {
-        match failure {
-            AuthorityComputeExchangeFailure::Allocation {
-                completions,
-                grants,
-            } => {
+        let AuthorityComputeExchangeFailure::Plan(failure) = failure;
+        match failure.error() {
+            PlanError::ResourceContended(identity) => {
+                let identity = identity.clone();
+                let (_, grants) = failure.into_parts();
                 drop(grants);
-                self.exact_pending.extend(completions);
-                Err(CoordinatorDriveError::ReplaceGeneration)
+                self.bind_resource_wait(identity);
+                Ok(())
             }
-            AuthorityComputeExchangeFailure::Plan(failure) => match failure.error() {
-                PlanError::Backpressure(Backpressure::Allocation) => {
-                    let (_, recoveries) = failure.into_recovery();
-                    let result = self.recover_plan_capabilities(recoveries, RecoveryRoute::Exact);
-                    result?;
-                    Err(CoordinatorDriveError::ReplaceGeneration)
-                }
-                PlanError::Backpressure(Backpressure::EffectCapacity) => {
-                    let (_, recoveries) = failure.into_recovery();
-                    Ok(self.recover_plan_capabilities(recoveries, RecoveryRoute::AfterEffect)?)
-                }
-                PlanError::ResourceContended(identity) => {
-                    let identity = identity.clone();
-                    let (_, recoveries) = failure.into_recovery();
-                    self.recover_plan_capabilities(recoveries, RecoveryRoute::AfterResource)?;
-                    self.bind_resource_wait(identity);
-                    Ok(())
-                }
-                PlanError::EffectClosed => Err(AuthorityWorkerFault::lifecycle_closed().into()),
-                PlanError::Fault(_)
-                | PlanError::Stale(_)
-                | PlanError::Duplicate
-                | PlanError::PayloadVariant
-                | PlanError::Membership(_)
-                | PlanError::Backpressure(_) => Err(AuthorityWorkerFault::exchange(failure).into()),
-            },
+            PlanError::EffectClosed => Err(AuthorityWorkerFault::lifecycle_closed().into()),
+            PlanError::Fault(_)
+            | PlanError::Stale(_)
+            | PlanError::Duplicate
+            | PlanError::PayloadVariant
+            | PlanError::Membership(_)
+            | PlanError::Backpressure(_) => Err(AuthorityWorkerFault::exchange(failure).into()),
         }
     }
 
-    fn recover_plan_capabilities(
-        &mut self,
-        recoveries: ComputeExchangeRecoveries,
-        route: RecoveryRoute,
-    ) -> Result<(), AuthorityWorkerFault> {
-        recoveries.recover_into(&mut CoordinatorRecovery {
-            coordinator: self,
-            route,
-        })
-    }
-
     fn drive_exact(&mut self) -> CoordinatorDriveResult<()> {
-        let mut replace_generation = false;
         self.exact_pending
-            .sort_unstable_by_key(|completion| std::cmp::Reverse(completion.version()));
-        while let Some(completion) = self.exact_pending.pop() {
+            .sort_unstable_by_key(|pending| std::cmp::Reverse(pending.completion.version()));
+        while let Some(pending) = self.exact_pending.pop() {
+            let completion = pending.completion;
             let (slot, finished) = completion.into_parts();
             match self.runtime.settle_finished(finished) {
                 ControlFlow::Continue(committed) => {
                     let (aftermath, post_commit_fault) = committed.into_parts();
                     self.mark_idle(slot)?;
-                    replace_generation |= self.consume_aftermath(aftermath)?;
+                    self.consume_aftermath(aftermath)?;
                     if let Some(fault) = post_commit_fault {
                         return Err(AuthorityWorkerFault::authority(fault).into());
                     }
@@ -918,45 +774,29 @@ impl ComputeCoordinator {
                         }
                         ComputeSettlementRecovery::RetryExact(_) => {
                             let settlement = failure.into_settlement();
-                            self.exact_pending
-                                .push(ComputeExchangeCompletion::from_finished(
+                            self.exact_pending.push(PendingSettlement::new(
+                                ComputeExchangeCompletion::from_finished(
                                     slot,
                                     super::runtime::AuthorityFinishedCompute::from_parts(
                                         settlement, aftermath,
                                     ),
-                                ));
+                                ),
+                            ));
                             self.yield_changed_cut = true;
                             return Ok(());
                         }
-                        ComputeSettlementRecovery::CancelAfterAllocation => {
-                            // Exchange-side allocation failure already retains
-                            // exact completions until the generation terminal.
-                            // Do the same here: the lane stays Finished, the
-                            // expensive result is dropped, and the replacement
-                            // makes this exact owner token obsolete before the
-                            // next drive marks the slot Idle. Requeueing the
-                            // owner immediately before ClearPool was a wasted
-                            // global write and an externally invisible wake.
-                            let settlement = failure.discard_result_for_generation_replacement();
-                            self.exact_pending
-                                .push(ComputeExchangeCompletion::from_finished(
-                                    slot,
-                                    super::runtime::AuthorityFinishedCompute::from_parts(
-                                        settlement, aftermath,
-                                    ),
-                                ));
-                            replace_generation = true;
-                            break;
-                        }
                         ComputeSettlementRecovery::WaitEffectCapacity => {
-                            self.exact_after_effect
-                                .push(ComputeExchangeCompletion::from_finished(
+                            let blame_peer = failure.blame_peer();
+                            self.exact_after_effect.push(PendingSettlement {
+                                completion: ComputeExchangeCompletion::from_finished(
                                     slot,
                                     super::runtime::AuthorityFinishedCompute::from_parts(
                                         failure.into_settlement(),
                                         aftermath,
                                     ),
-                                ));
+                                ),
+                                blame_peer,
+                            });
                         }
                         ComputeSettlementRecovery::Structural(_) => {
                             return Err(AuthorityWorkerFault::settlement(
@@ -970,16 +810,13 @@ impl ComputeCoordinator {
                 }
             }
         }
-        if replace_generation {
-            return Err(CoordinatorDriveError::ReplaceGeneration);
-        }
         Ok(())
     }
 
     fn consume_aftermath(
         &mut self,
         aftermath: AuthorityComputeAftermath,
-    ) -> Result<bool, AuthorityWorkerFault> {
+    ) -> Result<(), AuthorityWorkerFault> {
         let disposition = aftermath.disposition();
         let (_, cache_update) = aftermath.into_parts();
         if let Some(update) = cache_update {
@@ -993,8 +830,7 @@ impl ComputeCoordinator {
         aftermath: AuthorityComputeAftermath,
     ) -> Result<(), AuthorityWorkerFault> {
         match aftermath.disposition() {
-            AuthorityComputeAftermathDisposition::Progress
-            | AuthorityComputeAftermathDisposition::ReplaceGeneration => Ok(()),
+            AuthorityComputeAftermathDisposition::Progress => Ok(()),
             AuthorityComputeAftermathDisposition::Fault(fault) => {
                 Err(AuthorityWorkerFault::authority(fault))
             }
@@ -1003,60 +839,25 @@ impl ComputeCoordinator {
 
     fn consume_disposition(
         disposition: AuthorityComputeAftermathDisposition,
-    ) -> Result<bool, AuthorityWorkerFault> {
+    ) -> Result<(), AuthorityWorkerFault> {
         match disposition {
-            AuthorityComputeAftermathDisposition::Progress => Ok(false),
-            AuthorityComputeAftermathDisposition::ReplaceGeneration => Ok(true),
+            AuthorityComputeAftermathDisposition::Progress => Ok(()),
             AuthorityComputeAftermathDisposition::Fault(fault) => {
                 Err(AuthorityWorkerFault::authority(fault))
             }
         }
     }
 
-    async fn commit_generation_replacement_after_allocation(
-        &mut self,
-    ) -> Result<(), AuthorityWorkerFault> {
-        self.seed_grant = None;
-        let total_finished = self
-            .exact_pending
-            .len()
-            .checked_add(self.exchange_pending.len())
-            .and_then(|count| count.checked_add(self.exchange_after_effect.len()))
-            .and_then(|count| count.checked_add(self.exact_after_effect.len()))
-            .and_then(|count| count.checked_add(self.exchange_after_resource.len()))
-            .ok_or_else(|| AuthorityWorkerFault::authority(AuthorityFault::CounterExhausted))?;
-        if total_finished > self.lanes.len() || total_finished > self.exact_pending.capacity() {
-            return Err(AuthorityWorkerFault::authority(
-                AuthorityFault::SchedulerProjection,
-            ));
-        }
-        self.runtime
-            .replace_current_generation_after_allocation()
-            .await
-            .map_err(map_generation_replacement_error)?;
-        self.exact_pending.append(&mut self.exchange_pending);
-        self.exact_pending.append(&mut self.exchange_after_effect);
-        self.exact_pending.append(&mut self.exact_after_effect);
-        self.exact_pending.append(&mut self.exchange_after_resource);
-        self.yield_changed_cut = false;
-        self.resource_contended = false;
-        self.resource_wait_identity = None;
-        self.restart_probe_cycle();
-        Ok(())
-    }
-
     fn has_effect_waiters(&self) -> bool {
-        !self.exchange_after_effect.is_empty() || !self.exact_after_effect.is_empty()
+        !self.exact_after_effect.is_empty()
     }
 
     fn promote_effect_waiters(&mut self) {
-        self.exchange_pending
-            .append(&mut self.exchange_after_effect);
         self.exact_pending.append(&mut self.exact_after_effect);
     }
 
     fn has_resource_waiters(&self) -> bool {
-        self.resource_contended || !self.exchange_after_resource.is_empty()
+        self.resource_contended
     }
 
     fn bind_resource_wait(&mut self, identity: ResourceCapacityWaitIdentity) {
@@ -1095,22 +896,9 @@ impl ComputeCoordinator {
     }
 
     fn promote_resource_waiters(&mut self) {
-        self.exchange_pending
-            .append(&mut self.exchange_after_resource);
         self.resource_contended = false;
         self.resource_wait_identity = None;
         self.restart_probe_cycle();
-    }
-}
-
-fn map_generation_replacement_error(
-    error: AuthorityGenerationReplacementError,
-) -> AuthorityWorkerFault {
-    match error {
-        AuthorityGenerationReplacementError::LifecycleClosed => {
-            AuthorityWorkerFault::lifecycle_closed()
-        }
-        AuthorityGenerationReplacementError::Fault(fault) => AuthorityWorkerFault::authority(fault),
     }
 }
 

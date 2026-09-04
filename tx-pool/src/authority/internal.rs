@@ -30,7 +30,6 @@ pub(super) struct InternalPlugSeal(());
 #[derive(Debug)]
 pub(super) enum InternalPlugBuildError {
     Evidence(InputEvidenceError),
-    Allocation,
 }
 
 /// Build immutable synthetic evidence outside the authority guard. The
@@ -55,8 +54,7 @@ pub(super) fn build_receipt(
     )
     .map(Arc::new)
     .map_err(InternalPlugBuildError::Evidence)?;
-    let location = CellLocationReceipt::from_internal_plug(InternalPlugSeal(()), view, &payload)
-        .map_err(|()| InternalPlugBuildError::Allocation)?;
+    let location = CellLocationReceipt::from_internal_plug(InternalPlugSeal(()), view, &payload);
     let environment = super::validation::verification_environment(status, snapshot);
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     let context = VerificationContextReceipt::from_validation(

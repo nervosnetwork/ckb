@@ -62,6 +62,19 @@ const SECP_FEE: u64 = 1_000 * 100_000_000;
 type RelayOk = (Byte32, Option<PeerIndex>);
 type RelayOkSet = HashSet<RelayOk>;
 type RelayRejectSet = HashSet<Byte32>;
+type BenchResult<T> = Result<T, Box<dyn Error>>;
+
+fn bench_error(message: impl ToString) -> Box<dyn Error> {
+    std::io::Error::other(message.to_string()).into()
+}
+
+fn require(condition: bool, message: impl ToString) -> BenchResult<()> {
+    condition.then_some(()).ok_or_else(|| bench_error(message))
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().expect("benchmark observer lock poisoned")
+}
 
 #[cfg(feature = "allocation-observation")]
 struct CountingAllocator;
@@ -147,10 +160,11 @@ fn corpus_observation(
     transactions: &[TransactionView],
     cycles: &[u64],
     script_preflight_count: usize,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    if transactions.len() != cycles.len() {
-        return Err(std::io::Error::other("corpus transaction/cycle length differs").into());
-    }
+) -> BenchResult<serde_json::Value> {
+    require(
+        transactions.len() == cycles.len(),
+        "corpus transaction/cycle length differs",
+    )?;
     let mut transaction_bytes = ckb_hash::new_blake2b();
     let mut transaction_hashes = ckb_hash::new_blake2b();
     let mut cycle_values = ckb_hash::new_blake2b();
@@ -161,7 +175,7 @@ fn corpus_observation(
         cycle_values.update(&cycle.to_le_bytes());
         cycle_sum = cycle_sum
             .checked_add(*cycle)
-            .ok_or_else(|| std::io::Error::other("corpus cycle sum overflow"))?;
+            .ok_or_else(|| bench_error("corpus cycle sum overflow"))?;
     }
     let consensus_descriptor = format!(
         "id={};genesis={};max_block_cycles={};tx_version={};hardfork={:?}",
@@ -184,7 +198,7 @@ fn corpus_observation(
 }
 
 #[cfg(unix)]
-fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
+fn process_cpu_nanos() -> BenchResult<(u64, u64)> {
     let mut usage = MaybeUninit::<libc::rusage>::uninit();
     // SAFETY: `getrusage` initializes the complete `rusage` value on success.
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
@@ -192,16 +206,17 @@ fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
     }
     // SAFETY: the successful call above initialized `usage`.
     let usage = unsafe { usage.assume_init() };
-    let timeval_nanos = |value: libc::timeval| -> Result<u64, Box<dyn Error>> {
+    let timeval_nanos = |value: libc::timeval| -> BenchResult<u64> {
         let seconds = u64::try_from(value.tv_sec)?;
         let micros = u64::try_from(value.tv_usec)?;
-        if micros >= 1_000_000 {
-            return Err(std::io::Error::other("getrusage returned invalid microseconds").into());
-        }
-        Ok(seconds
+        require(
+            micros < 1_000_000,
+            "getrusage returned invalid microseconds",
+        )?;
+        seconds
             .checked_mul(1_000_000_000)
             .and_then(|nanos| nanos.checked_add(micros * 1_000))
-            .ok_or_else(|| std::io::Error::other("process CPU time overflow"))?)
+            .ok_or_else(|| bench_error("process CPU time overflow"))
     };
     Ok((
         timeval_nanos(usage.ru_utime)?,
@@ -210,12 +225,14 @@ fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
 }
 
 #[cfg(not(unix))]
-fn process_cpu_nanos() -> Result<(u64, u64), Box<dyn Error>> {
-    Err(std::io::Error::other("target-window process CPU measurement requires Unix").into())
+fn process_cpu_nanos() -> BenchResult<(u64, u64)> {
+    Err(bench_error(
+        "target-window process CPU measurement requires Unix",
+    ))
 }
 
 #[cfg(feature = "profiling")]
-const PROFILE_SPAN_NAMES: [&str; 23] = [
+const PROFILE_SPAN_NAMES: [&str; 16] = [
     "tx_pool.authority.read_hold",
     "tx_pool.authority.read_wait",
     "tx_pool.authority.upgradable_read_hold",
@@ -227,14 +244,7 @@ const PROFILE_SPAN_NAMES: [&str; 23] = [
     "tx_pool.ingress.remote_batch",
     "tx_pool.scheduler.fairness_stage_hold",
     "tx_pool.scheduler.fairness_stage_wait",
-    "tx_pool.scheduler.queue_stage_hold",
-    "tx_pool.scheduler.queue_stage_wait",
     "tx_pool.stage.compute_exchange",
-    "tx_pool.stage.compute_exchange_both",
-    "tx_pool.stage.compute_exchange_completion",
-    "tx_pool.stage.compute_exchange_completion_only",
-    "tx_pool.stage.compute_exchange_grant",
-    "tx_pool.stage.compute_exchange_grant_only",
     "tx_pool.stage.ready_attempt",
     "tx_pool.stage.ready_work",
     "tx_pool.stage.resolve",
@@ -242,105 +252,109 @@ const PROFILE_SPAN_NAMES: [&str; 23] = [
 ];
 
 #[cfg(feature = "profiling")]
+#[derive(Clone, Copy, Default)]
+struct ProfileSpanCounter {
+    start_count: u64,
+    elapsed_nanos: u64,
+}
+
+#[cfg(feature = "profiling")]
+#[derive(Default)]
+struct ProfileSpanState {
+    active: bool,
+    in_flight: usize,
+    spans: [ProfileSpanCounter; PROFILE_SPAN_NAMES.len()],
+    unknown: u64,
+}
+
+#[cfg(feature = "profiling")]
 struct ProfileSpanCounters {
-    active: AtomicBool,
-    in_flight: AtomicUsize,
-    counts: [AtomicU64; PROFILE_SPAN_NAMES.len()],
-    elapsed_nanos: [AtomicU64; PROFILE_SPAN_NAMES.len()],
-    unknown: AtomicU64,
+    state: Mutex<ProfileSpanState>,
+    quiesced: std::sync::Condvar,
 }
 
 #[cfg(feature = "profiling")]
 impl ProfileSpanCounters {
     fn new() -> Self {
         Self {
-            active: AtomicBool::new(false),
-            in_flight: AtomicUsize::new(0),
-            counts: std::array::from_fn(|_| AtomicU64::new(0)),
-            elapsed_nanos: std::array::from_fn(|_| AtomicU64::new(0)),
-            unknown: AtomicU64::new(0),
+            state: Mutex::new(ProfileSpanState::default()),
+            quiesced: std::sync::Condvar::new(),
         }
     }
 
     fn begin(&self) -> Result<(), String> {
-        if self.active.load(Ordering::Acquire) {
+        let mut state = lock(&self.state);
+        if state.active {
             return Err("profile span counter window is already active".to_owned());
         }
-        if self.in_flight.load(Ordering::Acquire) != 0 {
+        if state.in_flight != 0 {
             return Err("profile span counter retained an in-flight span".to_owned());
         }
-        for count in &self.counts {
-            count.store(0, Ordering::Relaxed);
-        }
-        for elapsed in &self.elapsed_nanos {
-            elapsed.store(0, Ordering::Relaxed);
-        }
-        self.unknown.store(0, Ordering::Relaxed);
-        if self.active.swap(true, Ordering::AcqRel) {
-            return Err("profile span counter activation raced".to_owned());
-        }
+        *state = ProfileSpanState::default();
+        state.active = true;
         Ok(())
     }
 
     fn start_span(&self, name: &str) -> Option<usize> {
-        if !self.active.load(Ordering::Acquire) {
+        let mut state = lock(&self.state);
+        if !state.active {
             return None;
         }
-        self.in_flight.fetch_add(1, Ordering::AcqRel);
-        if !self.active.load(Ordering::Acquire) {
-            self.in_flight.fetch_sub(1, Ordering::Release);
-            return None;
-        }
-        let index = PROFILE_SPAN_NAMES
+        match PROFILE_SPAN_NAMES
             .iter()
-            .position(|candidate| *candidate == name);
-        match index {
+            .position(|candidate| *candidate == name)
+        {
             Some(index) => {
-                self.counts[index].fetch_add(1, Ordering::Relaxed);
+                state.spans[index].start_count += 1;
+                state.in_flight += 1;
                 Some(index)
             }
             None => {
-                self.unknown.fetch_add(1, Ordering::Relaxed);
-                self.in_flight.fetch_sub(1, Ordering::Release);
+                state.unknown += 1;
                 None
             }
         }
     }
 
     fn finish_span(&self, index: usize, elapsed_nanos: u64) {
-        self.elapsed_nanos[index].fetch_add(elapsed_nanos, Ordering::Relaxed);
-        self.in_flight.fetch_sub(1, Ordering::Release);
+        let mut state = lock(&self.state);
+        state.spans[index].elapsed_nanos += elapsed_nanos;
+        state.in_flight -= 1;
+        if state.in_flight == 0 {
+            self.quiesced.notify_one();
+        }
     }
 
-    fn finish(
-        &self,
-    ) -> Result<
-        (
-            [u64; PROFILE_SPAN_NAMES.len()],
-            [u64; PROFILE_SPAN_NAMES.len()],
-        ),
-        String,
-    > {
-        if !self.active.swap(false, Ordering::AcqRel) {
+    fn finish(&self) -> Result<Vec<serde_json::Value>, String> {
+        let mut state = lock(&self.state);
+        if !state.active {
             return Err("profile span counter window is not active".to_owned());
         }
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while self.in_flight.load(Ordering::Acquire) != 0 {
-            if Instant::now() >= deadline {
-                return Err("profile span lifetime did not quiesce".to_owned());
-            }
-            std::thread::yield_now();
+        state.active = false;
+        let (state, timeout) = self
+            .quiesced
+            .wait_timeout_while(state, Duration::from_secs(30), |state| state.in_flight != 0)
+            .expect("benchmark span lock poisoned while waiting");
+        if timeout.timed_out() && state.in_flight != 0 {
+            return Err("profile span lifetime did not quiesce".to_owned());
         }
-        let unknown = self.unknown.load(Ordering::Relaxed);
-        if unknown != 0 {
+        if state.unknown != 0 {
             return Err(format!(
-                "profile subscriber observed {unknown} unregistered target spans"
+                "profile subscriber observed {} unregistered target spans",
+                state.unknown
             ));
         }
-        Ok((
-            std::array::from_fn(|index| self.counts[index].load(Ordering::Relaxed)),
-            std::array::from_fn(|index| self.elapsed_nanos[index].load(Ordering::Relaxed)),
-        ))
+        Ok(PROFILE_SPAN_NAMES
+            .iter()
+            .zip(&state.spans)
+            .map(|(name, span)| {
+                serde_json::json!({
+                    "name": name,
+                    "start_count": span.start_count,
+                    "elapsed_nanos": span.elapsed_nanos,
+                })
+            })
+            .collect())
     }
 }
 
@@ -411,24 +425,11 @@ impl ProfileSpanRecorder {
     fn finish(&mut self, window: &serde_json::Value) -> Result<(), String> {
         use std::io::Write;
 
-        let (counts, elapsed_nanos) = self.counters.finish()?;
-        let spans = PROFILE_SPAN_NAMES
-            .iter()
-            .zip(counts)
-            .zip(elapsed_nanos)
-            .map(|((name, start_count), elapsed_nanos)| {
-                serde_json::json!({
-                    "name": name,
-                    "start_count": start_count,
-                    "elapsed_nanos": elapsed_nanos,
-                })
-            })
-            .collect::<Vec<_>>();
         let record = serde_json::json!({
             "schema_version": 2,
             "measurement": "span_lifetimes_started_during_target_work",
             "window": window,
-            "spans": spans,
+            "spans": self.counters.finish()?,
         });
         serde_json::to_writer(&mut self.output, &record)
             .map_err(|error| format!("cannot encode profile span counters: {error}"))?;
@@ -446,18 +447,14 @@ fn init_profile_span_recorder() -> Result<Option<ProfileSpanRecorder>, String> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let path = match std::env::var("TX_POOL_PROFILE_TRACE_PATH") {
-        Ok(path) => path,
-        Err(std::env::VarError::NotPresent) => return Ok(None),
-        Err(std::env::VarError::NotUnicode(_)) => {
-            return Err("TX_POOL_PROFILE_TRACE_PATH is not valid Unicode".to_owned());
-        }
+    let Some(path) = std::env::var_os("TX_POOL_PROFILE_TRACE_PATH") else {
+        return Ok(None);
     };
     let output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
-        .map_err(|error| format!("cannot create profile span counters {path}: {error}"))?;
+        .map_err(|error| format!("cannot create profile span counters {path:?}: {error}"))?;
     let counters = Arc::new(ProfileSpanCounters::new());
     let filter = FilterFn::new(|metadata| metadata.target() == "ckb_tx_pool_profile");
     let layer = ProfileSpanLayer {
@@ -493,18 +490,18 @@ impl Completion {
         transactions: &[TransactionView],
         target_begin: usize,
         track_in_flight: bool,
-    ) -> Result<Self, Box<dyn Error>> {
-        if target_begin > transactions.len() {
-            return Err(std::io::Error::other("callback target boundary exceeds corpus").into());
-        }
+    ) -> BenchResult<Self> {
+        require(
+            target_begin <= transactions.len(),
+            "callback target boundary exceeds corpus",
+        )?;
         let mut indexes = HashMap::new();
         indexes.try_reserve(transactions.len())?;
         for (index, transaction) in transactions.iter().enumerate() {
-            if indexes.insert(transaction.hash(), index).is_some() {
-                return Err(
-                    std::io::Error::other("callback corpus contains a duplicate hash").into(),
-                );
-            }
+            require(
+                indexes.insert(transaction.hash(), index).is_none(),
+                "callback corpus contains a duplicate hash",
+            )?;
         }
         let timestamps_ns = std::iter::repeat_with(|| AtomicU64::new(0))
             .take(transactions.len())
@@ -575,62 +572,36 @@ impl Completion {
             .sum()
     }
 
-    fn prepare(&self, total: usize, target: usize) -> Result<(), Box<dyn Error>> {
-        if total != self.timestamps_ns.len()
-            || target != self.timestamps_ns.len().saturating_sub(self.target_begin)
-        {
-            return Err(std::io::Error::other("callback slot identity differs from corpus").into());
-        }
-        Ok(())
-    }
-
-    fn begin_target(&self, started: Instant) -> Result<(), Box<dyn Error>> {
+    fn begin_target(&self, started: Instant) {
         self.target_started
             .set(started)
-            .map_err(|_| std::io::Error::other("callback target clock was already initialized"))?;
-        Ok(())
+            .expect("benchmark has one target measurement window");
     }
 
-    fn validate_seen(
-        &self,
-        expected: &HashSet<Byte32>,
-        allow_duplicates: bool,
-    ) -> Result<(), Box<dyn Error>> {
-        let observed = expected
-            .iter()
-            .filter(|hash| {
-                self.indexes
-                    .get(*hash)
-                    .is_some_and(|index| self.timestamps_ns[*index].load(Ordering::Acquire) != 0)
-            })
-            .count();
+    fn validate(&self, expected: usize, allow_duplicates: bool) -> BenchResult<()> {
+        let observed = self.accepted_count();
         let duplicates = self.duplicate_callbacks.load(Ordering::Relaxed);
         let unexpected = self.unexpected_callbacks.load(Ordering::Relaxed);
         let early_target = self.early_target_callbacks.load(Ordering::Relaxed);
         let callbacks_in_flight = self.callbacks_in_flight.load(Ordering::Acquire);
-        if observed != expected.len()
-            || (!allow_duplicates && duplicates != 0)
-            || unexpected != 0
-            || early_target != 0
-            || callbacks_in_flight != 0
-        {
-            return Err(std::io::Error::other(format!(
-                "callback terminal differs: observed={observed} expected={} indexed={} duplicates={duplicates} unexpected={unexpected} early_target={early_target} in_flight={callbacks_in_flight}",
-                expected.len(),
+        require(
+            observed == expected
+                && (allow_duplicates || duplicates == 0)
+                && unexpected == 0
+                && early_target == 0
+                && callbacks_in_flight == 0,
+            format!(
+                "callback terminal differs: observed={observed} expected={expected} indexed={} duplicates={duplicates} unexpected={unexpected} early_target={early_target} in_flight={callbacks_in_flight}",
                 self.indexes.len(),
-            ))
-            .into());
-        }
-        Ok(())
+            ),
+        )
     }
 
-    async fn wait_for_callback_in_flight(&self) -> Result<usize, Box<dyn Error>> {
-        if !self.track_in_flight {
-            return Err(std::io::Error::other(
-                "callback overlap observation is disabled for this scenario",
-            )
-            .into());
-        }
+    async fn wait_for_callback_in_flight(&self) -> BenchResult<usize> {
+        require(
+            self.track_in_flight,
+            "callback overlap observation is disabled",
+        )?;
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let changed = self.changed.notified();
@@ -642,22 +613,14 @@ impl Completion {
             }
         })
         .await
-        .map_err(|_| std::io::Error::other("target callback did not overlap reorg"))
-        .map_err(Into::into)
+        .map_err(|_| bench_error("target callback did not overlap reorg"))
     }
 
-    fn end_target(&self, expected: usize) -> Result<u64, Box<dyn Error>> {
+    fn end_target(&self) -> u64 {
         let mut samples = self.timestamps_ns[self.target_begin..]
             .iter()
             .map(|sample| sample.load(Ordering::Acquire))
             .collect::<Vec<_>>();
-        if samples.len() != expected || samples.contains(&0) {
-            return Err(std::io::Error::other(format!(
-                "target latency sample count differs: observed={} expected={expected}",
-                samples.iter().filter(|sample| **sample != 0).count(),
-            ))
-            .into());
-        }
         for sample in &mut samples {
             *sample -= 1;
         }
@@ -667,10 +630,10 @@ impl Completion {
             .saturating_mul(99)
             .div_ceil(100)
             .saturating_sub(1);
-        Ok(samples[index])
+        samples[index]
     }
 
-    async fn wait_for(&self, target: usize) -> Result<(), Box<dyn Error>> {
+    async fn wait_for(&self, target: usize) -> BenchResult<()> {
         tokio::time::timeout(Duration::from_secs(120), async {
             loop {
                 let changed = self.changed.notified();
@@ -682,7 +645,7 @@ impl Completion {
         })
         .await
         .map_err(|_| {
-            std::io::Error::other(format!(
+            bench_error(format!(
                 "timed out after accepting {}/{} transactions",
                 self.accepted_count(),
                 target
@@ -703,80 +666,43 @@ struct RelayCompletion {
     changed: Notify,
 }
 
+struct RelayObservation {
+    ok: usize,
+    duplicate_ok: usize,
+    rejects: usize,
+    unknown_parents: usize,
+    unknown_parent_observations: Vec<serde_json::Value>,
+    generation_resets: usize,
+}
+
 impl RelayCompletion {
     fn record_unknown_parents(&self, peer: PeerIndex, parents: HashSet<Byte32>) {
         let mut parents = parents.into_iter().collect::<Vec<_>>();
         parents.sort_unstable();
-        *self
-            .unknown_parents
-            .lock()
-            .expect("relay unknown-parent multiset poisoned")
+        *lock(&self.unknown_parents)
             .entry((peer, parents))
             .or_default() += 1;
     }
 
-    #[cfg(feature = "cross-version-legacy-bench-adapter")]
     fn record(&self, result: TxVerificationResult) {
         match result {
             TxVerificationResult::Ok {
                 original_peer,
                 tx_hash,
             } => {
-                if !self
-                    .ok
-                    .lock()
-                    .expect("relay result set poisoned")
-                    .insert((tx_hash, original_peer))
-                {
+                if !lock(&self.ok).insert((tx_hash, original_peer)) {
                     self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
                 }
             }
             TxVerificationResult::Reject { tx_hash } => {
-                if !self
-                    .rejects
-                    .lock()
-                    .expect("relay reject set poisoned")
-                    .insert(tx_hash)
-                {
+                if !lock(&self.rejects).insert(tx_hash) {
                     self.duplicate_reject.fetch_add(1, Ordering::Relaxed);
                 }
             }
             TxVerificationResult::UnknownParents { peer, parents } => {
                 self.record_unknown_parents(peer, parents);
             }
-        }
-        self.changed.notify_one();
-    }
-
-    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-    fn record(&self, result: TxVerificationResult) {
-        match result {
-            TxVerificationResult::Ok {
-                original_peer,
-                tx_hash,
-            } => {
-                if !self
-                    .ok
-                    .lock()
-                    .expect("relay result set poisoned")
-                    .insert((tx_hash, original_peer))
-                {
-                    self.duplicate_ok.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-            TxVerificationResult::Reject { tx_hash } => {
-                if !self
-                    .rejects
-                    .lock()
-                    .expect("relay reject set poisoned")
-                    .insert(tx_hash)
-                {
-                    self.duplicate_reject.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-            TxVerificationResult::UnknownParents { peer, parents } => {
-                self.record_unknown_parents(peer, parents);
-            }
+            #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
             TxVerificationResult::GenerationReset => {
                 self.generation_resets.fetch_add(1, Ordering::Relaxed);
             }
@@ -784,29 +710,13 @@ impl RelayCompletion {
         self.changed.notify_one();
     }
 
-    fn ok_count(&self) -> usize {
-        self.ok.lock().expect("relay result set poisoned").len()
+    fn terminal_counts(&self) -> (usize, usize) {
+        (lock(&self.ok).len(), lock(&self.rejects).len())
     }
 
-    fn reject_count(&self) -> usize {
-        self.rejects
-            .lock()
-            .expect("relay reject set poisoned")
-            .len()
-    }
-
-    fn unknown_parent_count(&self) -> usize {
-        self.unknown_parents
-            .lock()
-            .expect("relay unknown-parent multiset poisoned")
-            .values()
-            .sum()
-    }
-
-    fn unknown_parent_observations(&self) -> Vec<serde_json::Value> {
-        self.unknown_parents
-            .lock()
-            .expect("relay unknown-parent multiset poisoned")
+    fn observation(&self) -> RelayObservation {
+        let unknown = lock(&self.unknown_parents);
+        let unknown_parent_observations = unknown
             .iter()
             .map(|((peer, parents), count)| {
                 serde_json::json!({
@@ -818,18 +728,20 @@ impl RelayCompletion {
                     "count": count,
                 })
             })
-            .collect()
+            .collect();
+        RelayObservation {
+            ok: lock(&self.ok).len(),
+            duplicate_ok: self.duplicate_ok.load(Ordering::Relaxed),
+            rejects: lock(&self.rejects).len(),
+            unknown_parents: unknown.values().sum(),
+            unknown_parent_observations,
+            generation_resets: self.generation_resets.load(Ordering::Relaxed),
+        }
     }
 
-    fn reserve(&self, ok_count: usize, reject_count: usize) -> Result<(), Box<dyn Error>> {
-        self.ok
-            .lock()
-            .expect("relay result set poisoned")
-            .try_reserve(ok_count)?;
-        self.rejects
-            .lock()
-            .expect("relay reject set poisoned")
-            .try_reserve(reject_count)?;
+    fn reserve(&self, ok: usize, rejects: usize) -> BenchResult<()> {
+        lock(&self.ok).try_reserve(ok)?;
+        lock(&self.rejects).try_reserve(rejects)?;
         Ok(())
     }
 
@@ -837,11 +749,12 @@ impl RelayCompletion {
         &self,
         expected_ok: usize,
         expected_rejects: usize,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> BenchResult<()> {
         tokio::time::timeout(Duration::from_secs(120), async {
             loop {
                 let changed = self.changed.notified();
-                if self.ok_count() >= expected_ok && self.reject_count() >= expected_rejects {
+                let (ok, rejects) = self.terminal_counts();
+                if ok >= expected_ok && rejects >= expected_rejects {
                     break;
                 }
                 changed.await;
@@ -849,12 +762,10 @@ impl RelayCompletion {
         })
         .await
         .map_err(|_| {
-            std::io::Error::other(format!(
+            let (ok, rejects) = self.terminal_counts();
+            bench_error(format!(
                 "timed out after observing {}/{} relay Ok and {}/{} Reject results",
-                self.ok_count(),
-                expected_ok,
-                self.reject_count(),
-                expected_rejects
+                ok, expected_ok, rejects, expected_rejects
             ))
         })?;
         Ok(())
@@ -865,31 +776,28 @@ impl RelayCompletion {
         expected_ok: &RelayOkSet,
         expected_rejects: &RelayRejectSet,
         allowed_unknown_parents: Option<&HashSet<Byte32>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let ok = self.ok.lock().expect("relay result set poisoned");
-        if *ok != *expected_ok {
-            return Err(std::io::Error::other(format!(
+    ) -> BenchResult<()> {
+        let ok = lock(&self.ok);
+        require(
+            *ok == *expected_ok,
+            format!(
                 "relay Ok set differs: observed={}, expected={}",
                 ok.len(),
                 expected_ok.len()
-            ))
-            .into());
-        }
-        let rejects = self.rejects.lock().expect("relay reject set poisoned");
-        if *rejects != *expected_rejects {
-            return Err(std::io::Error::other(format!(
+            ),
+        )?;
+        let rejects = lock(&self.rejects);
+        require(
+            *rejects == *expected_rejects,
+            format!(
                 "relay Reject set differs: observed={}, expected={}",
                 rejects.len(),
                 expected_rejects.len()
-            ))
-            .into());
-        }
+            ),
+        )?;
         let duplicate_ok = self.duplicate_ok.load(Ordering::Relaxed);
         let duplicate_reject = self.duplicate_reject.load(Ordering::Relaxed);
-        let unknown_parent_observations = self
-            .unknown_parents
-            .lock()
-            .expect("relay unknown-parent multiset poisoned");
+        let unknown_parent_observations = lock(&self.unknown_parents);
         let unknown_parents: usize = unknown_parent_observations.values().sum();
         let invalid_unknown_parent = match allowed_unknown_parents {
             Some(allowed) => unknown_parent_observations
@@ -899,17 +807,15 @@ impl RelayCompletion {
             None => !unknown_parent_observations.is_empty(),
         };
         let generation_resets = self.generation_resets.load(Ordering::Relaxed);
-        if duplicate_ok != 0
-            || duplicate_reject != 0
-            || generation_resets != 0
-            || invalid_unknown_parent
-        {
-            return Err(std::io::Error::other(format!(
+        require(
+            duplicate_ok == 0
+                && duplicate_reject == 0
+                && generation_resets == 0
+                && !invalid_unknown_parent,
+            format!(
                 "relay terminal stream contains duplicate_ok={duplicate_ok} duplicate_reject={duplicate_reject} unknown_parents={unknown_parents} generation_resets={generation_resets}"
-            ))
-            .into());
-        }
-        Ok(())
+            ),
+        )
     }
 }
 
@@ -931,22 +837,18 @@ fn try_recv_relay(receiver: &BenchmarkRelayReceiver) -> Option<TxVerificationRes
 struct RelayDrainGuard {
     stop: Arc<AtomicBool>,
     completion: Arc<RelayCompletion>,
-    handle: Option<std::thread::JoinHandle<()>>,
+    handle: std::thread::JoinHandle<()>,
 }
 
 impl RelayDrainGuard {
-    fn start(receiver: BenchmarkRelayReceiver) -> Result<Self, Box<dyn Error>> {
+    fn start(receiver: BenchmarkRelayReceiver) -> BenchResult<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let completion = Arc::new(RelayCompletion::default());
         let thread_stop = Arc::clone(&stop);
         let thread_completion = Arc::clone(&completion);
-        let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(0);
         let handle = std::thread::Builder::new()
             .name("txpool-bench-relay-drain".to_owned())
             .spawn(move || {
-                if ready_sender.send(()).is_err() {
-                    return;
-                }
                 loop {
                     let mut drained = false;
                     while let Some(result) = try_recv_relay(&receiver) {
@@ -961,11 +863,10 @@ impl RelayDrainGuard {
                     }
                 }
             })?;
-        ready_receiver.recv_timeout(Duration::from_secs(1))?;
         Ok(Self {
             stop,
             completion,
-            handle: Some(handle),
+            handle,
         })
     }
 
@@ -973,13 +874,11 @@ impl RelayDrainGuard {
         Arc::clone(&self.completion)
     }
 
-    fn stop(mut self) -> Result<(), Box<dyn Error>> {
+    fn stop(self) -> BenchResult<()> {
         self.stop.store(true, Ordering::Release);
         self.handle
-            .take()
-            .expect("relay drain handle already consumed")
             .join()
-            .map_err(|_| std::io::Error::other("relay drain thread panicked"))?;
+            .map_err(|_| bench_error("relay drain thread panicked"))?;
         Ok(())
     }
 }
@@ -1037,6 +936,36 @@ fn always_success_dep() -> CellDep {
         .build()
 }
 
+fn genesis_consensus(transactions: Vec<TransactionView>) -> Consensus {
+    let dao = genesis_dao_data(transactions.iter().collect()).expect("valid genesis DAO");
+    let genesis = transactions
+        .into_iter()
+        .fold(
+            BlockBuilder::default()
+                .timestamp(1_557_310_743u64)
+                .compact_target(difficulty_to_compact(U256::from(1_000u64)))
+                .dao(dao),
+            |builder, transaction| builder.transaction(transaction),
+        )
+        .build();
+    ConsensusBuilder::default()
+        .genesis_block(genesis)
+        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
+        .build()
+}
+
+fn issue_transaction(lock: Script, capacity: Capacity, outputs: usize) -> TransactionView {
+    let output = CellOutput::new_builder()
+        .capacity(capacity)
+        .lock(lock)
+        .build();
+    TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::null(), 0))
+        .outputs(std::iter::repeat_n(output, outputs))
+        .outputs_data(std::iter::repeat_n(Bytes::default().pack(), outputs))
+        .build()
+}
+
 fn test_consensus(issue_outputs: usize) -> (Consensus, TransactionView) {
     let (always_success_cell, always_success_data, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
@@ -1045,28 +974,15 @@ fn test_consensus(issue_outputs: usize) -> (Consensus, TransactionView) {
         .output_data(always_success_data.clone())
         .witness(always_success_script.clone().into_witness())
         .build();
-    let issue_output = CellOutput::new_builder()
-        .capacity(Capacity::bytes(ISSUE_CAPACITY_BYTES).expect("valid issue capacity"))
-        .lock(always_success_script.clone())
-        .build();
-    let issue_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
-        .outputs((0..issue_outputs).map(|_| issue_output.clone()))
-        .outputs_data((0..issue_outputs).map(|_| Bytes::default().pack()))
-        .build();
-    let dao = genesis_dao_data(vec![&always_success_tx, &issue_tx]).expect("valid genesis DAO");
-    let genesis = BlockBuilder::default()
-        .timestamp(1_557_310_743u64)
-        .compact_target(difficulty_to_compact(U256::from(1_000u64)))
-        .dao(dao)
-        .transaction(always_success_tx)
-        .transaction(issue_tx.clone())
-        .build();
-    let consensus = ConsensusBuilder::default()
-        .genesis_block(genesis)
-        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
-        .build();
-    (consensus, issue_tx)
+    let issue_tx = issue_transaction(
+        always_success_script.clone(),
+        Capacity::bytes(ISSUE_CAPACITY_BYTES).expect("valid issue capacity"),
+        issue_outputs,
+    );
+    (
+        genesis_consensus(vec![always_success_tx, issue_tx.clone()]),
+        issue_tx,
+    )
 }
 
 fn snapshot_with_genesis(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>) {
@@ -1164,18 +1080,31 @@ fn start_network(
     Ok((directory, controller))
 }
 
-fn build_tx_with_output_bytes(input: OutPoint, output_bytes: usize) -> TransactionView {
+fn build_success_tx(
+    inputs: impl IntoIterator<Item = OutPoint>,
+    output_bytes: impl IntoIterator<Item = usize>,
+) -> TransactionView {
+    let lock = always_success_script();
+    let outputs = output_bytes
+        .into_iter()
+        .map(|bytes| {
+            CellOutput::new_builder()
+                .capacity(Capacity::bytes(bytes).expect("valid output capacity"))
+                .lock(lock.clone())
+                .build()
+        })
+        .collect::<Vec<_>>();
+    let output_count = outputs.len();
     TransactionBuilder::default()
         .cell_dep(always_success_dep())
-        .input(CellInput::new(input, 0))
-        .output(
-            CellOutput::new_builder()
-                .capacity(Capacity::bytes(output_bytes).expect("valid output capacity"))
-                .lock(always_success_script())
-                .build(),
-        )
-        .output_data(Bytes::default().pack())
+        .inputs(inputs.into_iter().map(|input| CellInput::new(input, 0)))
+        .outputs(outputs)
+        .outputs_data(std::iter::repeat_n(Bytes::default().pack(), output_count))
         .build()
+}
+
+fn build_tx_with_output_bytes(input: OutPoint, output_bytes: usize) -> TransactionView {
+    build_success_tx([input], [output_bytes])
 }
 
 fn build_tx(input: OutPoint) -> TransactionView {
@@ -1183,30 +1112,11 @@ fn build_tx(input: OutPoint) -> TransactionView {
 }
 
 fn build_multi_input_tx(inputs: impl IntoIterator<Item = OutPoint>) -> TransactionView {
-    TransactionBuilder::default()
-        .cell_dep(always_success_dep())
-        .inputs(inputs.into_iter().map(|input| CellInput::new(input, 0)))
-        .output(
-            CellOutput::new_builder()
-                .capacity(Capacity::bytes(100).expect("valid output capacity"))
-                .lock(always_success_script())
-                .build(),
-        )
-        .output_data(Bytes::default().pack())
-        .build()
+    build_success_tx(inputs, [100])
 }
 
 fn build_fanout_parent(input: OutPoint, output_count: usize) -> TransactionView {
-    let output = CellOutput::new_builder()
-        .capacity(Capacity::bytes(100).expect("valid output capacity"))
-        .lock(always_success_script())
-        .build();
-    TransactionBuilder::default()
-        .cell_dep(always_success_dep())
-        .input(CellInput::new(input, 0))
-        .outputs((0..output_count).map(|_| output.clone()))
-        .outputs_data((0..output_count).map(|_| Bytes::default().pack()))
-        .build()
+    build_success_tx([input], std::iter::repeat_n(100, output_count))
 }
 
 fn secp_script() -> Script {
@@ -1251,28 +1161,16 @@ fn secp_test_consensus(issue_outputs: usize) -> (Consensus, TransactionView, Vec
             .out_point(OutPoint::new(system_tx.hash(), 1))
             .build(),
     ];
-    let issue_output = CellOutput::new_builder()
-        .capacity(Capacity::shannons(SECP_ISSUE_CAPACITY))
-        .lock(secp_script())
-        .build();
-    let issue_tx = TransactionBuilder::default()
-        .input(CellInput::new(OutPoint::null(), 0))
-        .outputs((0..issue_outputs).map(|_| issue_output.clone()))
-        .outputs_data((0..issue_outputs).map(|_| Bytes::default().pack()))
-        .build();
-    let dao = genesis_dao_data(vec![&system_tx, &issue_tx]).expect("valid secp genesis DAO");
-    let genesis = BlockBuilder::default()
-        .timestamp(1_557_310_743u64)
-        .compact_target(difficulty_to_compact(U256::from(1_000u64)))
-        .dao(dao)
-        .transaction(system_tx)
-        .transaction(issue_tx.clone())
-        .build();
-    let consensus = ConsensusBuilder::default()
-        .genesis_block(genesis)
-        .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
-        .build();
-    (consensus, issue_tx, cell_deps)
+    let issue_tx = issue_transaction(
+        secp_script(),
+        Capacity::shannons(SECP_ISSUE_CAPACITY),
+        issue_outputs,
+    );
+    (
+        genesis_consensus(vec![system_tx, issue_tx.clone()]),
+        issue_tx,
+        cell_deps,
+    )
 }
 
 fn build_secp_tx(input: OutPoint, cell_deps: &[CellDep], output_capacity: u64) -> TransactionView {
@@ -1313,35 +1211,40 @@ fn build_secp_tx(input: OutPoint, cell_deps: &[CellDep], output_capacity: u64) -
         .build()
 }
 
+fn build_chain(mut input: OutPoint, count: usize) -> Vec<TransactionView> {
+    (0..count)
+        .map(|_| {
+            let transaction = build_tx(input.clone());
+            input = OutPoint::new(transaction.hash(), 0);
+            transaction
+        })
+        .collect()
+}
+
 fn build_workload(
     scenario: &str,
     transaction_count: usize,
-) -> Result<(Consensus, Vec<TransactionView>), Box<dyn Error>> {
+) -> BenchResult<(Consensus, Vec<TransactionView>)> {
     if let Some(depth_spec) = scenario.strip_prefix("dependent_forest_") {
         let (depth, reverse) = match depth_spec.strip_suffix("_reverse") {
             Some(depth) => (depth, true),
             None => (depth_spec, false),
         };
         let depth: usize = depth.parse()?;
-        if depth == 0 {
-            return Err(std::io::Error::other("dependency depth must be non-zero").into());
-        }
+        require(depth != 0, "dependency depth must be non-zero")?;
         let chain_count = transaction_count.div_ceil(depth);
         let (consensus, issue_tx) = test_consensus(chain_count);
-        let mut transactions = Vec::with_capacity(transaction_count);
-        for chain_index in 0..chain_count {
-            let output_index = u32::try_from(chain_index)
-                .map_err(|_| std::io::Error::other("dependency-forest index overflow"))?;
-            let mut input = OutPoint::new(issue_tx.hash(), output_index);
-            for _ in 0..depth {
-                if transactions.len() == transaction_count {
-                    break;
-                }
-                let transaction = build_tx(input);
-                input = OutPoint::new(transaction.hash(), 0);
-                transactions.push(transaction);
-            }
-        }
+        let mut transactions = (0..chain_count)
+            .flat_map(|chain| {
+                build_chain(
+                    OutPoint::new(
+                        issue_tx.hash(),
+                        u32::try_from(chain).expect("bounded index"),
+                    ),
+                    depth.min(transaction_count - chain * depth),
+                )
+            })
+            .collect::<Vec<_>>();
         if reverse {
             transactions.reverse();
         }
@@ -1349,12 +1252,10 @@ fn build_workload(
     }
     if let Some(fan_in) = scenario.strip_prefix("always_success_fanin_") {
         let fan_in: usize = fan_in.parse()?;
-        if fan_in == 0 {
-            return Err(std::io::Error::other("fan-in must be non-zero").into());
-        }
+        require(fan_in != 0, "fan-in must be non-zero")?;
         let issue_outputs = transaction_count
             .checked_mul(fan_in)
-            .ok_or_else(|| std::io::Error::other("fan-in workload size overflow"))?;
+            .ok_or_else(|| bench_error("fan-in workload size overflow"))?;
         let (consensus, issue_tx) = test_consensus(issue_outputs);
         let transactions = (0..transaction_count)
             .map(|transaction_index| {
@@ -1371,21 +1272,24 @@ fn build_workload(
     }
     match scenario {
         "rbf_pairs" => {
-            if !transaction_count.is_multiple_of(2) {
-                return Err(std::io::Error::other(
-                    "RBF workload requires equal victim and replacement halves",
-                )
-                .into());
-            }
+            require(
+                transaction_count.is_multiple_of(2),
+                "RBF workload requires equal victim and replacement halves",
+            )?;
             let pair_count = transaction_count / 2;
             let (consensus, issue_tx) = test_consensus(pair_count);
-            let mut victims = Vec::with_capacity(pair_count);
-            let mut replacements = Vec::with_capacity(pair_count);
-            for index in 0..pair_count {
-                let input = OutPoint::new(issue_tx.hash(), u32::try_from(index)?);
-                victims.push(build_tx_with_output_bytes(input.clone(), 101));
-                replacements.push(build_tx_with_output_bytes(input, 100));
-            }
+            let (mut victims, replacements): (Vec<_>, Vec<_>) = (0..pair_count)
+                .map(|index| {
+                    let input = OutPoint::new(
+                        issue_tx.hash(),
+                        u32::try_from(index).expect("transaction population fits output indexes"),
+                    );
+                    (
+                        build_tx_with_output_bytes(input.clone(), 101),
+                        build_tx_with_output_bytes(input, 100),
+                    )
+                })
+                .unzip();
             victims.extend(replacements);
             Ok((consensus, victims))
         }
@@ -1409,27 +1313,13 @@ fn build_workload(
                 .collect();
             Ok((consensus, transactions))
         }
-        "dependent" => {
+        "dependent" | "dependent_reverse" => {
             let (consensus, issue_tx) = test_consensus(1);
-            let mut transactions = Vec::with_capacity(transaction_count);
-            let mut input = OutPoint::new(issue_tx.hash(), 0);
-            for _ in 0..transaction_count {
-                let transaction = build_tx(input);
-                input = OutPoint::new(transaction.hash(), 0);
-                transactions.push(transaction);
+            let mut transactions =
+                build_chain(OutPoint::new(issue_tx.hash(), 0), transaction_count);
+            if scenario.ends_with("_reverse") {
+                transactions.reverse();
             }
-            Ok((consensus, transactions))
-        }
-        "dependent_reverse" => {
-            let (consensus, issue_tx) = test_consensus(1);
-            let mut transactions = Vec::with_capacity(transaction_count);
-            let mut input = OutPoint::new(issue_tx.hash(), 0);
-            for _ in 0..transaction_count {
-                let transaction = build_tx(input);
-                input = OutPoint::new(transaction.hash(), 0);
-                transactions.push(transaction);
-            }
-            transactions.reverse();
             Ok((consensus, transactions))
         }
         "fanout" | "fanout_reverse" => {
@@ -1439,20 +1329,24 @@ fn build_workload(
             let mut children = (0..child_count)
                 .map(|index| build_tx(OutPoint::new(parent.hash(), index as u32)))
                 .collect::<Vec<_>>();
-            let transactions = if scenario == "fanout_reverse" {
+            if scenario == "fanout_reverse" {
                 children.reverse();
                 children.push(parent);
-                children
             } else {
-                let mut transactions = Vec::with_capacity(transaction_count);
-                transactions.push(parent);
-                transactions.extend(children);
-                transactions
-            };
-            Ok((consensus, transactions))
+                children.insert(0, parent);
+            }
+            Ok((consensus, children))
         }
-        _ => Err(std::io::Error::other(format!("unknown scenario: {scenario}")).into()),
+        _ => Err(bench_error(format!("unknown scenario: {scenario}"))),
     }
+}
+
+fn peer_ranges(len: usize, peers: usize) -> Vec<(usize, usize)> {
+    let chunk = len.div_ceil(peers.max(1)).max(1);
+    (0..len)
+        .step_by(chunk)
+        .map(|start| (start, (start + chunk).min(len)))
+        .collect()
 }
 
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
@@ -1463,12 +1357,8 @@ async fn submit_batch(
     cycles: Arc<Vec<u64>>,
     peers: usize,
     expected_total: usize,
-) -> Result<(), Box<dyn Error>> {
-    let chunk_size = transactions.len().div_ceil(peers.max(1));
-    let ranges: Vec<_> = (0..transactions.len())
-        .step_by(chunk_size.max(1))
-        .map(|start| (start, (start + chunk_size).min(transactions.len())))
-        .collect();
+) -> BenchResult<()> {
+    let ranges = peer_ranges(transactions.len(), peers);
     let mut responses = Vec::with_capacity(ranges.len());
     for (peer, (start, end)) in ranges.into_iter().enumerate() {
         let batch = (start..end)
@@ -1504,12 +1394,8 @@ async fn submit_batch(
     cycles: Arc<Vec<u64>>,
     peers: usize,
     expected_total: usize,
-) -> Result<(), Box<dyn Error>> {
-    let chunk_size = transactions.len().div_ceil(peers.max(1));
-    let ranges: Vec<_> = (0..transactions.len())
-        .step_by(chunk_size.max(1))
-        .map(|start| (start, (start + chunk_size).min(transactions.len())))
-        .collect();
+) -> BenchResult<()> {
+    let ranges = peer_ranges(transactions.len(), peers);
     let barrier = Arc::new(Barrier::new(ranges.len() + 1));
     let mut submissions = Vec::with_capacity(ranges.len());
     for (peer, (start, end)) in ranges.into_iter().enumerate() {
@@ -1547,13 +1433,11 @@ async fn submit_dependency_forest(
     depth: usize,
     peers: usize,
     mut expected_total: usize,
-) -> Result<(), Box<dyn Error>> {
-    if depth == 0 || !transactions.len().is_multiple_of(depth) {
-        return Err(std::io::Error::other(
-            "dependency-forest batch must contain complete non-empty chains",
-        )
-        .into());
-    }
+) -> BenchResult<()> {
+    require(
+        depth != 0 && transactions.len().is_multiple_of(depth),
+        "dependency-forest batch must contain complete non-empty chains",
+    )?;
     let chain_count = transactions.len() / depth;
     for level in 0..depth {
         let indexes = (0..chain_count).map(|chain| chain * depth + level);
@@ -1576,67 +1460,92 @@ async fn submit_dependency_forest(
     Ok(())
 }
 
+async fn submit_workload(
+    controller: &TxPoolController,
+    completion: &Completion,
+    transactions: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
+    depth: Option<usize>,
+    peers: usize,
+    accepted_before: usize,
+) -> BenchResult<()> {
+    if let Some(depth) = depth {
+        submit_dependency_forest(
+            controller,
+            completion,
+            &transactions,
+            &cycles,
+            depth,
+            peers,
+            accepted_before,
+        )
+        .await
+    } else {
+        let expected = accepted_before + transactions.len();
+        submit_batch(
+            controller,
+            completion,
+            transactions,
+            cycles,
+            peers,
+            expected,
+        )
+        .await
+    }
+}
+
 fn extend_expected_relay_batch(
     expected: &mut RelayOkSet,
     transactions: &[&TransactionView],
     peers: usize,
-) -> Result<(), Box<dyn Error>> {
-    let chunk_size = transactions.len().div_ceil(peers.max(1));
-    for (peer, start) in (0..transactions.len())
-        .step_by(chunk_size.max(1))
+) {
+    for (peer, (start, end)) in peer_ranges(transactions.len(), peers)
+        .into_iter()
         .enumerate()
     {
-        let end = (start + chunk_size).min(transactions.len());
         let peer = Some((peer + 1).into());
         for transaction in &transactions[start..end] {
-            if !expected.insert((transaction.hash(), peer)) {
-                return Err(
-                    std::io::Error::other("benchmark expected duplicate relay terminal").into(),
-                );
-            }
+            expected.insert((transaction.hash(), peer));
         }
     }
-    Ok(())
 }
 
 fn expected_relay_batch(
     transactions: &[TransactionView],
     dependency_depth: Option<usize>,
     peers: usize,
-) -> Result<RelayOkSet, Box<dyn Error>> {
+) -> RelayOkSet {
     let mut expected = HashSet::with_capacity(transactions.len());
     if let Some(depth) = dependency_depth {
-        if depth == 0 || !transactions.len().is_multiple_of(depth) {
-            return Err(std::io::Error::other(
-                "dependency relay expectation requires complete chains",
-            )
-            .into());
-        }
         let chain_count = transactions.len() / depth;
         for level in 0..depth {
             let layer = (0..chain_count)
                 .map(|chain| &transactions[chain * depth + level])
                 .collect::<Vec<_>>();
-            extend_expected_relay_batch(&mut expected, &layer, peers)?;
+            extend_expected_relay_batch(&mut expected, &layer, peers);
         }
     } else {
         let transactions = transactions.iter().collect::<Vec<_>>();
-        extend_expected_relay_batch(&mut expected, &transactions, peers)?;
+        extend_expected_relay_batch(&mut expected, &transactions, peers);
     }
-    Ok(expected)
+    expected
 }
 
-fn parse_arg(index: usize, default: usize) -> Result<usize, Box<dyn Error>> {
-    match std::env::args().nth(index) {
-        Some(value) => Ok(value.parse()?),
+fn main() -> BenchResult<()> {
+    let mut args = std::env::args().skip(1);
+    let scenario = args.next().unwrap_or_else(|| "always_success".to_owned());
+    let mut number = |default| match args.next() {
+        Some(value) => value.parse::<usize>().map_err(bench_error),
         None => Ok(default),
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let scenario = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "always_success".to_owned());
+    };
+    let target_count = number(1_000)?;
+    let warm_count = number(100)?;
+    let workers = number(8)?;
+    let peers = number(8)?;
+    require(
+        target_count != 0 && workers != 0 && peers != 0,
+        "target, workers and peers must be non-zero",
+    )?;
     let callback_delay_us = scenario
         .strip_prefix("always_success_callback_")
         .and_then(|value| value.strip_suffix("us"))
@@ -1649,22 +1558,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         scenario.as_str()
     };
-    let target_count = parse_arg(2, 1_000)?;
-    let warm_count = parse_arg(3, 100)?;
-    let workers = parse_arg(4, 8)?;
-    let peers = parse_arg(5, 8)?;
-    if workload_scenario == "rbf_pairs" && warm_count != target_count {
-        return Err(std::io::Error::other(
-            "RBF workload requires warm victim count to equal measured replacement count",
-        )
-        .into());
-    }
-    if workload_scenario.ends_with("_reverse") && warm_count != 0 {
-        return Err(std::io::Error::other(
-            "reverse dependency workloads require warm=0; a dependency prefix cannot be used as an accepted warm pool",
-        )
-        .into());
-    }
+    require(
+        workload_scenario != "rbf_pairs" || warm_count == target_count,
+        "RBF workload requires equal warm and target counts",
+    )?;
+    require(
+        !workload_scenario.ends_with("_reverse") || warm_count == 0,
+        "reverse dependency workloads require warm=0",
+    )?;
     let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
     let (handle, _handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
     let (consensus, transactions) = build_workload(workload_scenario, target_count + warm_count)?;
@@ -1760,15 +1661,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter(|depth| !depth.ends_with("_reverse"))
         .map(str::parse::<usize>)
         .transpose()?;
-    let warm_expected_relay = expected_relay_batch(&warm, dependency_depth, peers)?;
-    let target_expected_relay = expected_relay_batch(&target, dependency_depth, peers)?;
+    let warm_expected_relay = expected_relay_batch(&warm, dependency_depth, peers);
+    let target_expected_relay = expected_relay_batch(&target, dependency_depth, peers);
     let mut all_expected_relay = warm_expected_relay.clone();
-    if target_expected_relay
-        .iter()
-        .any(|terminal| !all_expected_relay.insert(terminal.clone()))
-    {
-        return Err(std::io::Error::other("warm and target relay terminals overlap").into());
-    }
+    all_expected_relay.extend(target_expected_relay);
     let warm_expected_rejects = RelayRejectSet::new();
     let all_expected_rejects = if workload_scenario == "rbf_pairs"
         && !cfg!(feature = "cross-version-legacy-bench-adapter")
@@ -1777,15 +1673,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         RelayRejectSet::new()
     };
-    let warm_expected_callbacks = warm
+    let corpus_hashes = transactions
         .iter()
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
-    let all_expected_callbacks = transactions
-        .iter()
-        .map(TransactionView::hash)
-        .collect::<HashSet<_>>();
-    completion.prepare(transactions.len(), target_count)?;
     relay_completion.reserve(transactions.len(), all_expected_rejects.len())?;
     let reorg_snapshot = reorg_in_flight.then(|| {
         snapshot_with_proposed(
@@ -1794,34 +1685,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             target.iter().map(TransactionView::proposal_short_id),
         )
     });
-    if let Some(depth) = dependency_depth {
-        runtime.block_on(submit_dependency_forest(
-            &controller,
-            &completion,
-            warm.as_slice(),
-            warm_cycles.as_slice(),
-            depth,
-            peers,
-            0,
-        ))?;
-    } else {
-        runtime.block_on(submit_batch(
-            &controller,
-            &completion,
-            warm,
-            warm_cycles,
-            peers,
-            warm_count,
-        ))?;
-    }
+    runtime.block_on(submit_workload(
+        &controller,
+        &completion,
+        warm,
+        warm_cycles,
+        dependency_depth,
+        peers,
+        0,
+    ))?;
     runtime.block_on(
         relay_completion.wait_for_terminals(warm_expected_relay.len(), warm_expected_rejects.len()),
     )?;
     relay_completion.validate(&warm_expected_relay, &warm_expected_rejects, None)?;
-    completion.validate_seen(&warm_expected_callbacks, false)?;
+    completion.validate(warm_count, false)?;
     let profile_started_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let started = Instant::now();
-    completion.begin_target(started)?;
+    completion.begin_target(started);
     begin_allocation_window();
     let (target_user_cpu_started, target_system_cpu_started) = process_cpu_nanos()?;
     #[cfg(feature = "profiling")]
@@ -1829,8 +1709,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         recorder.begin().map_err(std::io::Error::other)?;
     }
     let (reorg_latency_ns, reorg_overlap_callbacks) = if reorg_in_flight {
-        let reorg_snapshot = reorg_snapshot
-            .ok_or_else(|| std::io::Error::other("reorg scenario has no proposed snapshot"))?;
+        let reorg_snapshot = reorg_snapshot.expect("reorg snapshot follows scenario identity");
         runtime.block_on(async {
             let submission = submit_batch(
                 &controller,
@@ -1851,31 +1730,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                         reorg_snapshot,
                     )
                     .map_err(|error| std::io::Error::other(error.to_string()))?;
-                Ok::<(u128, usize), Box<dyn Error>>((started.elapsed().as_nanos(), overlap))
+                Ok::<_, Box<dyn Error>>((started.elapsed().as_nanos(), overlap))
             };
             let (submission_result, reorg_result) = tokio::join!(submission, reorg);
             submission_result?;
             reorg_result
         })?
-    } else if let Some(depth) = dependency_depth {
-        runtime.block_on(submit_dependency_forest(
+    } else {
+        runtime.block_on(submit_workload(
             &controller,
             &completion,
-            target.as_slice(),
-            target_cycles.as_slice(),
-            depth,
+            target,
+            target_cycles,
+            dependency_depth,
             peers,
             warm_count,
-        ))?;
-        (0, 0)
-    } else {
-        runtime.block_on(submit_batch(
-            &controller,
-            &completion,
-            Arc::clone(&target),
-            Arc::clone(&target_cycles),
-            peers,
-            warm_count + target_count,
         ))?;
         (0, 0)
     };
@@ -1887,9 +1756,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         &all_expected_rejects,
         workload_scenario
             .ends_with("_reverse")
-            .then_some(&all_expected_callbacks),
+            .then_some(&corpus_hashes),
     )?;
-    completion.validate_seen(&all_expected_callbacks, reorg_in_flight)?;
+    completion.validate(transactions.len(), reorg_in_flight)?;
     let elapsed = started.elapsed();
     let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
     let target_user_cpu_ns = target_user_cpu_ended
@@ -1902,18 +1771,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         .checked_add(target_system_cpu_ns)
         .ok_or_else(|| std::io::Error::other("target-window process CPU time overflow"))?;
     let (allocation_calls, allocated_bytes) = end_allocation_window();
-    let p99_latency_ns = completion.end_target(target_count)?;
+    let p99_latency_ns = completion.end_target();
     let profile_ended_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let profile_window = serde_json::json!({
+        "schema_version": 1,
+        "scenario": scenario,
+        "start_unix_nanos": profile_started_unix_ns,
+        "end_unix_nanos": profile_ended_unix_ns,
+        "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
+    });
     #[cfg(feature = "profiling")]
     if let Some(recorder) = span_recorder.as_mut() {
-        let window = serde_json::json!({
-            "schema_version": 1,
-            "scenario": scenario,
-            "start_unix_nanos": profile_started_unix_ns,
-            "end_unix_nanos": profile_ended_unix_ns,
-            "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
-        });
-        recorder.finish(&window).map_err(std::io::Error::other)?;
+        recorder
+            .finish(&profile_window)
+            .map_err(std::io::Error::other)?;
     }
     let reorg_latency_ns = if reorg_in_flight {
         reorg_latency_ns
@@ -1949,13 +1820,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     relay_guard.stop()?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     let throughput = target_count as f64 / elapsed.as_secs_f64();
-    let profile_window = serde_json::json!({
-        "schema_version": 1,
-        "scenario": scenario,
-        "start_unix_nanos": profile_started_unix_ns,
-        "end_unix_nanos": profile_ended_unix_ns,
-        "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
-    });
+    let accepted = completion.accepted_count();
+    let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Relaxed);
+    let relay = relay_completion.observation();
     let profile_observation = serde_json::json!({
         "schema_version": 2,
         "scenario": scenario,
@@ -1965,8 +1832,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "peers": peers,
         "elapsed_nanos": elapsed.as_nanos(),
         "throughput_tps": throughput,
-        "accepted": completion.accepted_count(),
-        "callback_duplicates": completion.duplicate_callbacks.load(Ordering::Relaxed),
+        "accepted": accepted,
+        "callback_duplicates": callback_duplicates,
         "p99_latency_nanos": p99_latency_ns,
         "target_cpu_nanos": target_cpu_ns,
         "target_user_cpu_nanos": target_user_cpu_ns,
@@ -1975,12 +1842,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         "allocated_bytes": allocated_bytes,
         "reorg_latency_nanos": reorg_latency_ns,
         "reorg_overlap_callbacks": reorg_overlap_callbacks,
-        "relay_ok": relay_completion.ok_count(),
-        "relay_duplicate_ok": relay_completion.duplicate_ok.load(Ordering::Relaxed),
-        "relay_rejects": relay_completion.reject_count(),
-        "relay_unknown_parents": relay_completion.unknown_parent_count(),
-        "relay_unknown_parent_observations": relay_completion.unknown_parent_observations(),
-        "relay_generation_resets": relay_completion.generation_resets.load(Ordering::Relaxed),
+        "relay_ok": relay.ok,
+        "relay_duplicate_ok": relay.duplicate_ok,
+        "relay_rejects": relay.rejects,
+        "relay_unknown_parents": relay.unknown_parents,
+        "relay_unknown_parent_observations": relay.unknown_parent_observations,
+        "relay_generation_resets": relay.generation_resets,
         "shutdown_latency_nanos": shutdown_latency_ns,
     });
     let adapter = if cfg!(feature = "cross-version-legacy-bench-adapter") {
@@ -1988,12 +1855,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         "bounded_remote_batch"
     };
-    let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Relaxed);
-    let relay_ok = relay_completion.ok_count();
-    let relay_duplicate_ok = relay_completion.duplicate_ok.load(Ordering::Relaxed);
-    let relay_rejects = relay_completion.reject_count();
-    let relay_unknown_parents = relay_completion.unknown_parent_count();
-    let relay_generation_resets = relay_completion.generation_resets.load(Ordering::Relaxed);
     println!(
         "BENCH_BUILD profiling={} allocation_observation={} callback_observer=preallocated_atomic_slots_sharded_completion adapter={} debug_assertions={}",
         cfg!(feature = "profiling"),
@@ -2006,17 +1867,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         "BENCH_TERMINALS {}",
         serde_json::json!({
             "callback_duplicates": callback_duplicates,
-            "relay_ok": relay_ok,
-            "relay_duplicate_ok": relay_duplicate_ok,
-            "relay_rejects": relay_rejects,
-            "relay_unknown_parent_observations": relay_completion.unknown_parent_observations(),
-            "relay_generation_resets": relay_generation_resets,
+            "relay_ok": relay.ok,
+            "relay_duplicate_ok": relay.duplicate_ok,
+            "relay_rejects": relay.rejects,
+            "relay_unknown_parent_observations": relay.unknown_parent_observations,
+            "relay_generation_resets": relay.generation_resets,
         })
     );
     println!(
-        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={} callback_duplicates={callback_duplicates} relay_ok={relay_ok} relay_duplicate_ok={relay_duplicate_ok} relay_rejects={relay_rejects} relay_unknown_parents={relay_unknown_parents} relay_generation_resets={relay_generation_resets} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
+        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={accepted} callback_duplicates={callback_duplicates} relay_ok={} relay_duplicate_ok={} relay_rejects={} relay_unknown_parents={} relay_generation_resets={} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
         elapsed.as_nanos(),
-        completion.accepted_count()
+        relay.ok,
+        relay.duplicate_ok,
+        relay.rejects,
+        relay.unknown_parents,
+        relay.generation_resets,
     );
     println!("TX_POOL_PROFILE_OBSERVATION {profile_observation}");
     println!("TX_POOL_PROFILE_WINDOW {profile_window}");

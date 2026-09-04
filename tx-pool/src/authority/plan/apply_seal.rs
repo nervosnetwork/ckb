@@ -1,14 +1,16 @@
-use super::super::dependency::DependencyFinalization;
+use super::super::dependency::DependencyApplyOutcome;
 use super::super::resources::{
-    ResourceCapacityBeginError, ResourceCapacityCommit, ResourceCapacityWaitIdentity,
-    ResourceCommitHealth,
+    OrderedResourceEnvelope, ResourceCapacityBeginError, ResourceCapacityCommit,
+    ResourceCapacityWaitIdentity, ResourceCommitHealth, ResourceTotals,
 };
 use super::super::shard::{
-    AuthorityShardRouter, ShardOwnerSourceAdvance, ShardOwnerSourceCounts, ShardReadSupport,
-    ShardWriteSupport, ShardedOwnerMap, ShardedOwnerWriteCut,
+    AuthorityShardRouter, DependencyGateCut, DependencyGateSupport, ShardOwnerSourceAdvance,
+    ShardOwnerSourceCounts, ShardReadSupport, ShardResourcePlan, ShardWriteSupport,
+    ShardedDependencyRelationWriteCut, ShardedOwnerMap, ShardedOwnerWriteCut,
 };
 use super::*;
 use ckb_util::parking_lot::{Mutex, MutexGuard};
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -67,7 +69,7 @@ pub(in crate::authority) struct TxPoolAuthority {
 /// the live authority.
 pub(super) struct ScratchAuthority {
     authority: TxPoolAuthority,
-    dependency_publication: super::FreshDependencyPublication,
+    dependency_maintenance_activated: bool,
 }
 
 pub(super) struct ScratchAuthoritySeed {
@@ -107,12 +109,12 @@ pub(in crate::authority) struct ApplyToken(());
 /// Cause-specific final-cut evidence around the one shared OwnerRemovalBatch
 /// engine. The control may add read/write support and one allocation-free
 /// activation, but it cannot alter owner/resource/index/membership semantics.
-pub(super) trait SharedOwnerRemovalControl {
+pub(in crate::authority) trait SharedOwnerRemovalControl {
     type Begun;
 
     fn extend_final_support(
         &self,
-        entries: &ShardedOwnerMap,
+        _entries: &ShardedOwnerMap,
         reads: &mut ShardReadSupport,
         writes: &mut ShardWriteSupport,
     );
@@ -120,7 +122,7 @@ pub(super) trait SharedOwnerRemovalControl {
     fn index_prestate_is_fresh(
         &self,
         indexes: &IndexDelta,
-        entries: &ShardedOwnerMap,
+        _entries: &ShardedOwnerMap,
         cut: &ShardedOwnerWriteCut<'_>,
     ) -> bool;
 
@@ -295,6 +297,9 @@ impl<'authority> SharedOwnerRemovalControl
             PeerBanError::Contention => super::ingress::ConcurrentRetainedIngressError::Fault(
                 AuthorityFault::MembershipProjection,
             ),
+            PeerBanError::Faulted => super::ingress::ConcurrentRetainedIngressError::Fault(
+                AuthorityFault::MembershipProjection,
+            ),
             PeerBanError::CounterExhausted => {
                 super::ingress::ConcurrentRetainedIngressError::Fault(
                     AuthorityFault::CounterExhausted,
@@ -308,59 +313,78 @@ impl<'authority> SharedOwnerRemovalControl
     }
 }
 
-enum SchedulerApplyPermit<'frontier> {
+enum SchedulerApplyPermit<'reservation, 'frontier> {
     Noop,
     Reserved {
-        reservation: super::super::scheduler::ReadySlotReservation,
+        reservation: &'reservation mut super::super::scheduler::ReadySlotReservation,
         delta: SchedulerBatchDelta,
     },
+    ReadyReresolution(super::super::scheduler::StagedReadyReresolution<'reservation, 'frontier>),
     Staged(super::super::scheduler::StagedSchedulerBatch<'frontier>),
 }
 
-enum SharedIndependentDependencyStage {
-    Exact(StagedDependencyBatch),
-    ReadyPhase(SealedReadyPhaseDependency),
-}
-
-impl SharedIndependentDependencyStage {
-    fn visibility(&self) -> &StagedIngressVisibility {
-        match self {
-            Self::Exact(dependency) => dependency.visibility(),
-            Self::ReadyPhase(dependency) => dependency.visibility(),
+fn independent_scheduler_stage_error(error: SchedulerError) -> ConcurrentIndependentError {
+    match error {
+        SchedulerError::Stale => {
+            ConcurrentIndependentError::ChangedCut(SettlementChangedCut::scheduler())
+        }
+        SchedulerError::Projection | SchedulerError::Arithmetic => {
+            ConcurrentIndependentError::Fault(AuthorityFault::SchedulerProjection)
         }
     }
+}
 
-    fn extend_final_support(&self, reads: &mut ShardReadSupport, writes: &mut ShardWriteSupport) {
-        match self {
-            Self::Exact(dependency) => {
-                dependency.extend_final_read_support(reads);
-                dependency.extend_final_write_support(writes);
+fn independent_dependency_prepare_error(
+    error: DependencyPrepareError,
+) -> ConcurrentIndependentError {
+    match error {
+        DependencyPrepareError::Stale => {
+            ConcurrentIndependentError::ChangedCut(SettlementChangedCut::owner_or_projection())
+        }
+        DependencyPrepareError::Projection => {
+            ConcurrentIndependentError::Fault(AuthorityFault::DependencyProjection)
+        }
+    }
+}
+
+impl<'reservation, 'frontier> SchedulerApplyPermit<'reservation, 'frontier> {
+    fn stage(
+        frontier: &'frontier Arc<Mutex<FairFrontier>>,
+        scheduler: SchedulerBatchDelta,
+        reservation: Option<&'reservation mut ReadySlotReservation>,
+    ) -> Result<Self, ConcurrentIndependentError> {
+        match reservation {
+            None if scheduler.is_empty() => Ok(Self::Noop),
+            Some(reservation) if scheduler.is_shared_acceptance_removal_only() => {
+                Ok(Self::Reserved {
+                    reservation,
+                    delta: scheduler,
+                })
             }
-            Self::ReadyPhase(dependency) => dependency.extend_final_read_support(reads),
+            Some(reservation) => super::super::scheduler::StagedReadyReresolution::stage(
+                frontier,
+                scheduler,
+                reservation,
+            )
+            .map(Self::ReadyReresolution)
+            .map_err(independent_scheduler_stage_error),
+            None => super::super::scheduler::StagedSchedulerBatch::stage_primary_replacements(
+                frontier, scheduler,
+            )
+            .map(Self::Staged)
+            .map_err(independent_scheduler_stage_error),
         }
     }
 
-    fn prestate_is_fresh(&self, cut: &ShardedOwnerWriteCut<'_>) -> bool {
-        match self {
-            Self::Exact(dependency) => dependency.prestate_is_fresh(cut),
-            Self::ReadyPhase(dependency) => dependency.prestate_is_fresh(cut),
-        }
-    }
-
-    fn activate_in_cut(self, cut: &mut ShardedOwnerWriteCut<'_>) -> RowsActivatedDependencyBatch {
-        match self {
-            Self::Exact(dependency) => dependency.activate_in_cut(cut),
-            Self::ReadyPhase(dependency) => dependency.activate_in_cut(cut),
-        }
-    }
-}
-
-impl SchedulerApplyPermit<'_> {
-    fn prestate_is_fresh(&self, frontier: &Arc<Mutex<FairFrontier>>) -> bool {
+    /// Win any time-sensitive Ready claim immediately before the owner cut
+    /// mutates. A staged batch already owns its scheduler premises until
+    /// publication, so it has no second freshness read to perform here.
+    fn begin_commit(&self, frontier: &Arc<Mutex<FairFrontier>>) -> bool {
         match self {
             Self::Noop => true,
             Self::Reserved { reservation, delta } => reservation.prestate_is_fresh(frontier, delta),
-            Self::Staged(staged) => staged.prestate_is_fresh(),
+            Self::ReadyReresolution(reresolution) => reresolution.begin_commit(frontier),
+            Self::Staged(_) => true,
         }
     }
 
@@ -376,8 +400,198 @@ impl SchedulerApplyPermit<'_> {
                 reservation.activate(frontier, delta);
                 drop(owners);
             }
+            Self::ReadyReresolution(reresolution) => {
+                reresolution.activate(token, owners);
+            }
             Self::Staged(staged) => {
-                let _published = staged.activate(token, owners);
+                staged.activate(token, owners);
+            }
+        }
+    }
+}
+
+/// The two scheduler paths that share one dependency gate and owner cut.
+enum IndependentProjectionPermit<'reservation, 'authority> {
+    Ordinary {
+        dependency: PreparedDependencyBatch,
+        scheduler: SchedulerApplyPermit<'reservation, 'authority>,
+        gates: DependencyGateCut<'authority>,
+    },
+    SchedulerSealedRetained {
+        dependency: PreparedDependencyBatch,
+        scheduler: super::super::scheduler::StagedSchedulerBatch<'authority>,
+        gates: DependencyGateCut<'authority>,
+    },
+}
+
+impl<'reservation, 'authority> IndependentProjectionPermit<'reservation, 'authority> {
+    fn stage(
+        authority: &'authority TxPoolAuthority,
+        retained: bool,
+        scheduler: SchedulerBatchDelta,
+        dependency: DependencyBatchDelta,
+        gate_support: DependencyGateSupport,
+        reservation: Option<&'reservation mut ReadySlotReservation>,
+    ) -> Result<Self, ConcurrentIndependentError> {
+        if retained {
+            if reservation.is_some() || !dependency.is_retained_insertion_shape() {
+                return Err(ConcurrentIndependentError::Fault(
+                    AuthorityFault::MembershipProjection,
+                ));
+            }
+            let scheduler =
+                super::super::scheduler::StagedSchedulerBatch::stage_primary_replacements(
+                    &authority.scheduler,
+                    scheduler,
+                )
+                .map_err(independent_scheduler_stage_error)?;
+            let gates = authority.entries.dependency_gate_cut(gate_support);
+            let dependency = PreparedDependencyBatch::prepare_with_gates(
+                &authority.dependencies,
+                dependency,
+                &gates,
+            )
+            .map_err(independent_dependency_prepare_error)?
+            .require_retained_insertion_shape()
+            .map_err(|_| ConcurrentIndependentError::Fault(AuthorityFault::DependencyProjection))?;
+            return Ok(Self::SchedulerSealedRetained {
+                dependency,
+                scheduler,
+                gates,
+            });
+        }
+
+        let scheduler = SchedulerApplyPermit::stage(&authority.scheduler, scheduler, reservation)?;
+        let gates = authority.entries.dependency_gate_cut(gate_support);
+        let dependency = PreparedDependencyBatch::prepare_shared_independent(
+            &authority.dependencies,
+            dependency,
+            &gates,
+        )
+        .map_err(independent_dependency_prepare_error)?;
+        Ok(Self::Ordinary {
+            dependency,
+            scheduler,
+            gates,
+        })
+    }
+
+    fn extend_final_support(&self, reads: &mut ShardReadSupport, writes: &mut ShardWriteSupport) {
+        let dependency = match self {
+            Self::Ordinary { dependency, .. }
+            | Self::SchedulerSealedRetained { dependency, .. } => dependency,
+        };
+        dependency.extend_final_read_support(reads);
+        dependency.extend_final_write_support(writes);
+    }
+
+    fn extend_final_relation_support(
+        &self,
+        reads: &mut ShardReadSupport,
+        writes: &mut ShardWriteSupport,
+    ) {
+        let dependency = match self {
+            Self::Ordinary { dependency, .. }
+            | Self::SchedulerSealedRetained { dependency, .. } => dependency,
+        };
+        dependency.extend_final_relation_read_support(reads);
+        dependency.extend_final_relation_write_support(writes);
+    }
+
+    fn gates(&self) -> &DependencyGateCut<'_> {
+        match self {
+            Self::Ordinary { gates, .. } | Self::SchedulerSealedRetained { gates, .. } => gates,
+        }
+    }
+
+    fn prestate_is_fresh(
+        &self,
+        relations: &ShardedDependencyRelationWriteCut<'_>,
+        owners: &ShardedOwnerWriteCut<'_>,
+    ) -> bool {
+        match self {
+            Self::Ordinary { dependency, .. }
+            | Self::SchedulerSealedRetained { dependency, .. } => {
+                dependency.prestate_is_fresh(relations, owners)
+            }
+        }
+    }
+
+    fn wake_projection_before(
+        &self,
+        authority: &TxPoolAuthority,
+    ) -> Result<Option<AuthorityWakeProjection>, ConcurrentIndependentError> {
+        match self {
+            Self::Ordinary { .. } => Ok(None),
+            Self::SchedulerSealedRetained { scheduler, .. } => scheduler
+                .wake_projection_before()
+                .map(|wake| authority.wake_projection_with_scheduler_without_effect(wake))
+                .map(Some)
+                .ok_or(ConcurrentIndependentError::Fault(
+                    AuthorityFault::SchedulerProjection,
+                )),
+        }
+    }
+
+    fn ready_reserved(&self) -> bool {
+        matches!(
+            self,
+            Self::Ordinary {
+                scheduler: SchedulerApplyPermit::Reserved { .. }
+                    | SchedulerApplyPermit::ReadyReresolution(_),
+                ..
+            }
+        )
+    }
+
+    fn begin_commit(&self, frontier: &Arc<Mutex<FairFrontier>>) -> bool {
+        match self {
+            Self::Ordinary { scheduler, .. } => scheduler.begin_commit(frontier),
+            Self::SchedulerSealedRetained { .. } => true,
+        }
+    }
+
+    fn activate(
+        self,
+        _entries: &ShardedOwnerMap,
+        frontier: &Arc<Mutex<FairFrontier>>,
+        token: &ApplyToken,
+        mut relations: ShardedDependencyRelationWriteCut<'_>,
+        mut owners: ShardedOwnerWriteCut<'_>,
+    ) -> DependencyApplyOutcome {
+        match self {
+            Self::Ordinary {
+                dependency,
+                scheduler,
+                gates: _gates,
+            } => {
+                let outcome = dependency.apply_in_cut(&mut relations, &mut owners);
+                drop(relations);
+                #[cfg(test)]
+                {
+                    _entries.enter_concurrent_removal_probe();
+                    _entries.enter_shared_owner_commit_probe();
+                }
+                scheduler.apply(frontier, token, owners);
+                outcome
+            }
+            Self::SchedulerSealedRetained {
+                dependency,
+                scheduler,
+                gates: _gates,
+            } => {
+                let outcome = dependency.apply_in_cut(&mut relations, &mut owners);
+                drop(relations);
+                #[cfg(test)]
+                {
+                    _entries.enter_concurrent_removal_probe();
+                    _entries.enter_shared_owner_commit_probe();
+                    _entries.enter_shared_ingress_probe(
+                        super::super::shard::SharedIngressProbePhase::FinalCutBeforeActivation,
+                    );
+                }
+                scheduler.activate(token, owners);
+                outcome
             }
         }
     }
@@ -385,68 +599,22 @@ impl SchedulerApplyPermit<'_> {
 
 pub(super) fn commit_independent(
     plan: PreparedIndependentApply<'_>,
-) -> Result<CommittedSharedApply, ConcurrentIndependentError> {
+) -> Result<CommittedDelta, ConcurrentIndependentError> {
     plan.apply_with(&ApplyToken(()))
-}
-
-pub(super) fn commit_reserved_independent(
-    plan: PreparedIndependentApply<'_>,
-    reservation: super::super::scheduler::ReadyReservation,
-) -> Result<CommittedSharedApply, ConcurrentIndependentError> {
-    match plan {
-        PreparedIndependentApply::Shared {
-            authority,
-            delta,
-            support,
-            staged_effect,
-        } => PreparedIndependentApply::apply_shared(
-            authority,
-            &ApplyToken(()),
-            delta,
-            support,
-            staged_effect,
-            Some(super::super::scheduler::ReadyApplyReservation::Batch(
-                reservation,
-            )),
-        ),
-        #[cfg(test)]
-        PreparedIndependentApply::Exclusive { .. } => Err(ConcurrentIndependentError::Fault(
-            AuthorityFault::SchedulerProjection,
-        )),
-    }
 }
 
 pub(super) fn commit_ready_job_rows(
     authority: &TxPoolAuthority,
     delta: IndependentDelta,
     support: super::super::shard::ShardApplySupport,
-    reservation: super::super::scheduler::ReadySlotReservation,
+    reservation: &mut super::super::scheduler::ReadySlotReservation,
 ) -> Result<super::ReadyCommittedRows, ConcurrentIndependentError> {
     PreparedIndependentApply::apply_shared_rows(
         authority,
         &ApplyToken(()),
         delta,
         support,
-        Some(super::super::scheduler::ReadyApplyReservation::Slot(
-            reservation,
-        )),
-    )
-}
-
-pub(super) fn commit_reserved_ready_head_rows(
-    authority: &TxPoolAuthority,
-    delta: IndependentDelta,
-    support: super::super::shard::ShardApplySupport,
-    reservation: super::super::scheduler::ReadyReservation,
-) -> Result<super::ReadyCommittedRows, ConcurrentIndependentError> {
-    PreparedIndependentApply::apply_shared_rows(
-        authority,
-        &ApplyToken(()),
-        delta,
-        support,
-        Some(super::super::scheduler::ReadyApplyReservation::Batch(
-            reservation,
-        )),
+        Some(reservation),
     )
 }
 
@@ -458,15 +626,6 @@ pub(super) fn commit_unreserved_shared_rows(
     PreparedIndependentApply::apply_shared_rows(authority, &ApplyToken(()), delta, support, None)
 }
 
-pub(super) fn commit_shared_retained_ingress(
-    plan: super::ingress::PreparedSharedRetainedAdmissionBatch<'_>,
-) -> Result<
-    super::ingress::CommittedRetainedAdmissionBatch,
-    super::ingress::ConcurrentRetainedIngressError,
-> {
-    plan.apply_with(&ApplyToken(()))
-}
-
 pub(super) fn commit_shared_peer_revocation(
     plan: super::ingress::PreparedSharedPeerRevocation<'_>,
 ) -> Result<
@@ -476,27 +635,12 @@ pub(super) fn commit_shared_peer_revocation(
     plan.apply_with(&ApplyToken(()))
 }
 
-pub(super) fn commit_shared_peer_revocation_core(
-    plan: super::ingress::PreparedSharedPeerRevocationCore<'_>,
-) -> Result<super::CommittedSharedApply, super::ingress::ConcurrentPeerRevocationFailure> {
-    plan.apply_with(&ApplyToken(()))
-}
-
-pub(super) fn commit_shared_remote_expiry(
-    plan: PreparedSharedRemoteExpiry<'_>,
-) -> Result<super::CommittedSharedApply, super::ingress::ConcurrentOwnerRemovalFailure> {
-    plan.apply_with(&ApplyToken(()))
-}
-
-pub(super) fn commit_shared_accepted_expiry(
-    plan: PreparedSharedAcceptedExpiry<'_>,
-) -> Result<super::CommittedSharedApply, super::ingress::ConcurrentOwnerRemovalFailure> {
-    plan.apply_with(&ApplyToken(()))
-}
-
-pub(super) fn commit_shared_local_removal(
-    plan: PreparedSharedLocalRemoval<'_>,
-) -> Result<super::CommittedSharedApply, super::ingress::ConcurrentOwnerRemovalFailure> {
+pub(super) fn commit_shared_owner_removal<C>(
+    plan: PreparedSharedOwnerRemoval<'_, C>,
+) -> Result<super::CommittedDelta, super::ingress::ConcurrentOwnerRemovalFailure>
+where
+    C: SharedOwnerRemovalControl,
+{
     plan.apply_with(&ApplyToken(()))
 }
 
@@ -511,23 +655,9 @@ impl OwnerResourceUpdate {
     }
 }
 
-enum PreparedResourceApply {
-    Single(ResourcePlan),
-    Batch(ResourceBatchPlan),
-}
-
-impl PreparedResourceApply {
-    fn apply_shards(self, owners: &mut ShardedOwnerWriteCut<'_>) -> ResourceCapacityCommit {
-        match self {
-            Self::Single(plan) => plan.apply_shards(owners),
-            Self::Batch(plan) => plan.apply_shards(owners),
-        }
-    }
-}
-
 pub(super) struct PreparedOwnerResourceDelta<I> {
     updates: I,
-    resources: PreparedResourceApply,
+    resources: ResourceBatchPlan,
     proposed_counts: super::super::shard::ShardProposedCountPlan,
     support: ShardWriteSupport,
     owner_source_advance: Option<ShardOwnerSourceAdvance>,
@@ -542,7 +672,7 @@ impl<I> PreparedOwnerResourceDelta<I> {
     ) -> Self {
         Self {
             updates,
-            resources: PreparedResourceApply::Batch(resources),
+            resources,
             proposed_counts,
             support,
             owner_source_advance: None,
@@ -558,16 +688,67 @@ impl<I> PreparedOwnerResourceDelta<I> {
 impl PreparedOwnerResourceDelta<std::iter::Once<OwnerResourceUpdate>> {
     pub(super) fn single(
         update: OwnerResourceUpdate,
-        resources: ResourcePlan,
+        resources: ResourceBatchPlan,
         support: ShardWriteSupport,
     ) -> Self {
         Self {
             updates: std::iter::once(update),
-            resources: PreparedResourceApply::Single(resources),
+            resources,
             proposed_counts: Default::default(),
             support,
             owner_source_advance: None,
         }
+    }
+}
+
+/// Resource transition sealed by the only owner-to-Nowhere compiler. Shared
+/// Apply may rebase its per-shard subtraction on the exact current owners;
+/// exclusive Apply may consume the already-compiled absolute shard targets.
+/// Its private constructor prevents insertion/replacement plans from creating
+/// this carrier.
+pub(in crate::authority) struct OwnerRemovalResourcePlan {
+    plan: ResourceBatchPlan,
+    owners: Vec<(RawTxHash, ChargeRecord)>,
+}
+
+impl OwnerRemovalResourcePlan {
+    fn new(plan: ResourceBatchPlan, owners: Vec<(RawTxHash, ChargeRecord)>) -> Self {
+        Self { plan, owners }
+    }
+
+    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
+        self.plan.releases_preaccepted_active_work()
+    }
+
+    pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
+        self.plan.shard_plan()
+    }
+
+    pub(super) fn into_exclusive_plan(self) -> ResourceBatchPlan {
+        self.plan
+    }
+
+    pub(super) fn rebase_shared_removal(
+        self,
+        entries: &ShardedOwnerMap,
+        cut: &ShardedOwnerWriteCut<'_>,
+        hashes: &[RawTxHash],
+    ) -> Result<(ShardResourcePlan, ResourceCapacityCommit), ResourceError> {
+        if hashes.len() != self.owners.len()
+            || hashes
+                .iter()
+                .zip(&self.owners)
+                .any(|(hash, (expected_hash, expected_charge))| {
+                    hash != expected_hash
+                        || cut.owner(entries, hash).map(OwnedTx::charge_record)
+                            != Some(*expected_charge)
+                })
+        {
+            return Err(ResourceError::ExistingChargeMismatch);
+        }
+        let (mut shards, capacity) = self.plan.into_shared_commit_parts();
+        cut.rebase_owner_removal_resource_plan(&mut shards)?;
+        Ok((shards, capacity))
     }
 }
 
@@ -582,6 +763,41 @@ pub(in crate::authority) struct ResourcePlanner<'state> {
 }
 
 impl ResourcePlanner<'_> {
+    fn compile_selected_transition<'change>(
+        &self,
+        changes: impl ExactSizeIterator<
+            Item = (
+                &'change RawTxHash,
+                Option<ChargeRecord>,
+                Option<ChargeRecord>,
+            ),
+        >,
+    ) -> Result<(ShardResourcePlan, ResourceTotals, ResourceTotals), ResourceError> {
+        let mut keys = HashSet::with_capacity(changes.len());
+        let mut projections = Vec::with_capacity(changes.len());
+        let mut before_totals = ResourceTotals::default();
+        let mut after_totals = ResourceTotals::default();
+
+        for (key, expected, after) in changes {
+            expected.map(ChargeRecord::validate).transpose()?;
+            after.map(ChargeRecord::validate).transpose()?;
+            if !keys.insert(key) {
+                return Err(ResourceError::DuplicateChange);
+            }
+            if self.entries.get(key).as_deref().map(OwnedTx::charge_record) != expected {
+                return Err(ResourceError::ExistingChargeMismatch);
+            }
+            let before = ChargeProjection::from_validated(expected)?;
+            let after = ChargeProjection::from_validated(after)?;
+            before_totals = before_totals.checked_add(before)?;
+            after_totals = after_totals.checked_add(after)?;
+            projections.push((key, before, after));
+        }
+
+        let shards = self.entries.plan_resource_transitions(projections)?;
+        Ok((shards, before_totals, after_totals))
+    }
+
     pub(in crate::authority) fn membership_accepted_transition_fits(
         &self,
         released: super::super::resources::AcceptedResources,
@@ -609,20 +825,13 @@ impl ResourcePlanner<'_> {
         &self,
         changes: Vec<(RawTxHash, ChargeRecord)>,
     ) -> Result<OwnerRemovalResourcePlan, ResourceError> {
-        let mut projections = Vec::new();
-        projections
-            .try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        for (key, before) in &changes {
-            projections.push((
-                key,
-                ChargeProjection::from_validated(Some(*before))?,
-                ChargeProjection::from_validated(None)?,
-            ));
-        }
-        let shards = self.entries.plan_resource_transitions(projections)?;
-        self.ledger
-            .plan_removal_batch(self.entries, changes, shards)
+        let (shards, before, after) = self.compile_selected_transition(
+            changes
+                .iter()
+                .map(|(key, before)| (key, Some(*before), None)),
+        )?;
+        let plan = self.ledger.reserve_plan(shards, before, after)?;
+        Ok(OwnerRemovalResourcePlan::new(plan, changes))
     }
 
     pub(in crate::authority) fn plan_replace(
@@ -630,81 +839,47 @@ impl ResourcePlanner<'_> {
         key: RawTxHash,
         expected: Option<ChargeRecord>,
         after: Option<ChargeRecord>,
-    ) -> Result<ResourcePlan, ResourceError> {
-        let before_projection = ChargeProjection::from_validated(expected)?;
-        let after_projection = ChargeProjection::from_validated(after)?;
-        let shards = self.entries.plan_resource_transitions(std::iter::once((
-            &key,
-            before_projection,
-            after_projection,
-        )))?;
-        let entries = self.entries;
-        self.ledger
-            .plan_replace(entries, expected, after, shards, || {
-                entries.get(&key).as_deref().map(OwnedTx::charge_record)
-            })
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        let (shards, before, after) =
+            self.compile_selected_transition(std::iter::once((&key, expected, after)))?;
+        self.ledger.reserve_plan(shards, before, after)
     }
 
     pub(in crate::authority) fn plan_batch(
         &self,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
     ) -> Result<ResourceBatchPlan, ResourceError> {
-        let mut projections = Vec::new();
-        projections
-            .try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        for (key, before, after) in &changes {
-            projections.push((
-                key,
-                ChargeProjection::from_validated(*before)?,
-                ChargeProjection::from_validated(*after)?,
-            ));
-        }
-        let shards = self.entries.plan_resource_transitions(projections)?;
-        let entries = self.entries;
-        self.ledger.plan_batch(entries, changes, shards, |key| {
-            entries.get(key).as_deref().map(OwnedTx::charge_record)
-        })
+        let (shards, before, after) = self.compile_selected_transition(
+            changes
+                .iter()
+                .map(|(key, before, after)| (key, *before, *after)),
+        )?;
+        self.ledger.reserve_plan(shards, before, after)
     }
 
-    pub(in crate::authority) fn plan_shared_transition_batch(
+    pub(in crate::authority) fn plan_ordered_batch(
         &self,
         changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
+        envelope: OrderedResourceEnvelope,
     ) -> Result<ResourceBatchPlan, ResourceError> {
-        let mut projections = Vec::new();
-        projections
-            .try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        for (key, before, after) in &changes {
-            projections.push((
-                key,
-                ChargeProjection::from_validated(*before)?,
-                ChargeProjection::from_validated(*after)?,
-            ));
-        }
-        let shards = self.entries.plan_resource_transitions(projections)?;
+        let (shards, before, after) = self.compile_selected_transition(
+            changes
+                .iter()
+                .map(|(key, before, after)| (key, *before, *after)),
+        )?;
         self.ledger
-            .plan_shared_transition_batch(self.entries, changes, shards)
+            .reserve_ordered_plan(shards, before, after, envelope)
     }
 
     pub(in crate::authority) fn plan_direct_accepted_insertion_batch(
         &self,
         changes: Vec<(RawTxHash, ChargeRecord)>,
     ) -> Result<ResourceBatchPlan, DirectAcceptedInsertionError> {
-        let mut projections = Vec::new();
-        projections
-            .try_reserve(changes.len())
-            .map_err(|_| DirectAcceptedInsertionError::Resource(ResourceError::Allocation))?;
-        for (key, after) in &changes {
-            projections.push((
-                key,
-                ChargeProjection::from_validated(None)?,
-                ChargeProjection::from_validated(Some(*after))?,
-            ));
-        }
-        let shards = self.entries.plan_resource_transitions(projections)?;
+        let (shards, before, after) = self.compile_selected_transition(
+            changes.iter().map(|(key, after)| (key, None, Some(*after))),
+        )?;
         self.ledger
-            .plan_direct_accepted_insertion_batch(self.entries, changes, shards)
+            .reserve_direct_accepted_plan(shards, before, after)
     }
 }
 
@@ -714,6 +889,34 @@ pub(in crate::authority) struct IndexPlanner<'state> {
 }
 
 impl IndexPlanner<'_> {
+    pub(in crate::authority) fn capture_retained_premise<'entry>(
+        &self,
+        changes: impl IntoIterator<
+            Item = (
+                &'entry RawTxHash,
+                Option<&'entry OwnedTx>,
+                Option<&'entry OwnedTx>,
+            ),
+        >,
+        cut: &ShardedOwnerWriteCut<'_>,
+    ) -> Result<super::super::indexes::RetainedIndexPremise, IndexError> {
+        self.indexes.capture_retained_premise(changes, cut)
+    }
+
+    pub(in crate::authority) fn plan_retained_replacements<'entry>(
+        &self,
+        changes: impl IntoIterator<
+            Item = (
+                &'entry RawTxHash,
+                Option<&'entry OwnedTx>,
+                Option<&'entry OwnedTx>,
+            ),
+        >,
+        premise: super::super::indexes::RetainedIndexPremise,
+    ) -> Result<IndexDelta, IndexError> {
+        self.indexes.plan_retained_replacements(changes, premise)
+    }
+
     pub(in crate::authority) fn plan_replace(
         &self,
         key: &RawTxHash,
@@ -784,14 +987,6 @@ impl PeerBanPlanner<'_> {
 }
 
 impl TxPoolAuthority {
-    #[cfg(test)]
-    pub(in crate::authority) fn enter_concurrent_removal_plan_probe(&self) {
-        self.state
-            .owner_resources
-            .entries
-            .enter_concurrent_removal_plan_probe();
-    }
-
     pub(in crate::authority) fn from_runtime(
         _init: crate::authority::runtime::AuthorityInitToken,
         limits: ResourceLimits,
@@ -819,8 +1014,7 @@ impl TxPoolAuthority {
         router: AuthorityShardRouter,
     ) -> Self {
         let entries = ShardedOwnerMap::new(router);
-        let dependencies =
-            DependencyFrontier::for_entries(&entries, limits.max_dependency_stage_units());
+        let dependencies = DependencyFrontier::for_entries(&entries);
         Self {
             state: AuthorityState {
                 generation: PoolGeneration(0),
@@ -953,14 +1147,25 @@ impl TxPoolAuthority {
         mut indexes: IndexDelta,
         membership: ProjectionDelta,
         dependency: DependencyBatchDelta,
-        ready_phase_only: bool,
         mut sources: SourceVersionDelta,
         owner_source_counts: ShardOwnerSourceCounts,
         scheduler: SchedulerBatchDelta,
-        reservation: Option<super::super::scheduler::ReadyApplyReservation>,
+        reservation: Option<&mut super::super::scheduler::ReadySlotReservation>,
         retired: &mut RetiredOwners,
-    ) -> Result<(DependencyFinalization, ResourceCommitHealth), ConcurrentIndependentError> {
+    ) -> Result<
+        (
+            DependencyApplyOutcome,
+            ResourceCommitHealth,
+            Option<AuthorityWakeProjection>,
+        ),
+        ConcurrentIndependentError,
+    > {
         let entries = &self.state.owner_resources.entries;
+        let retained = !owner_cuts.is_empty()
+            && owner_cuts
+                .iter()
+                .all(|owner| owner.removal_revision.is_some())
+            && dependency.is_retained_insertion_shape();
         let (proposal_source_changed, transaction_source_changed) =
             sources.take_template_selection();
         if !sources.is_empty() {
@@ -968,117 +1173,46 @@ impl TxPoolAuthority {
                 AuthorityFault::MembershipProjection,
             ));
         }
-        let dependency = if ready_phase_only {
-            SharedIndependentDependencyStage::ReadyPhase(
-                StagedDependencyBatch::stage_ready_phase(&self.state.dependencies, dependency)
-                    .map_err(|error| match error {
-                        DependencyStageError::Stale => ConcurrentIndependentError::ChangedCut(
-                            SettlementChangedCut::owner_or_projection(),
-                        ),
-                        DependencyStageError::Capacity => ConcurrentIndependentError::ChangedCut(
-                            SettlementChangedCut::dependency_stage_capacity(),
-                        ),
-                        DependencyStageError::Projection | DependencyStageError::Allocation => {
-                            ConcurrentIndependentError::Fault(AuthorityFault::DependencyProjection)
-                        }
-                    })?,
-            )
-        } else {
-            SharedIndependentDependencyStage::Exact(
-                StagedDependencyBatch::stage_primary_replacements(
-                    &self.state.dependencies,
-                    dependency,
-                )
-                .map_err(|error| match error {
-                    DependencyStageError::Stale => ConcurrentIndependentError::ChangedCut(
-                        SettlementChangedCut::owner_or_projection(),
-                    ),
-                    DependencyStageError::Capacity => ConcurrentIndependentError::ChangedCut(
-                        SettlementChangedCut::dependency_stage_capacity(),
-                    ),
-                    DependencyStageError::Projection | DependencyStageError::Allocation => {
-                        ConcurrentIndependentError::Fault(AuthorityFault::DependencyProjection)
-                    }
-                })?,
-            )
-        };
-        // Scheduler rows are physically staged before any owner shard is
-        // locked. The staged capability later publishes only the actual-order
-        // revision/cursor/visibility cut while owners are live, then releases
-        // owners before scheduler B-tree cleanup. A per-slot Ready claim keeps
-        // its existing lock-free CAS linearization.
-        let scheduler_permit = match reservation {
-            None if scheduler.is_empty() => SchedulerApplyPermit::Noop,
-            Some(super::super::scheduler::ReadyApplyReservation::Slot(reservation)) => {
-                SchedulerApplyPermit::Reserved {
-                    reservation,
-                    delta: scheduler,
-                }
-            }
-            Some(super::super::scheduler::ReadyApplyReservation::Batch(reservation)) => {
-                match super::super::scheduler::StagedSchedulerBatch::stage_reserved_ready_batch(
-                    &self.state.scheduler,
-                    scheduler,
-                    reservation,
-                ) {
-                    Ok(staged) => SchedulerApplyPermit::Staged(staged),
-                    Err(super::super::scheduler::SchedulerError::Stale) => {
-                        return Err(ConcurrentIndependentError::ChangedCut(
-                            SettlementChangedCut::scheduler(),
-                        ));
-                    }
-                    Err(
-                        super::super::scheduler::SchedulerError::Projection
-                        | super::super::scheduler::SchedulerError::Arithmetic
-                        | super::super::scheduler::SchedulerError::Allocation,
-                    ) => {
-                        return Err(ConcurrentIndependentError::Fault(
-                            AuthorityFault::SchedulerProjection,
-                        ));
-                    }
-                }
-            }
-            None => {
-                match super::super::scheduler::StagedSchedulerBatch::stage_primary_replacements(
-                    &self.state.scheduler,
-                    scheduler,
-                ) {
-                    Ok(staged) => SchedulerApplyPermit::Staged(staged),
-                    Err(super::super::scheduler::SchedulerError::Stale) => {
-                        return Err(ConcurrentIndependentError::ChangedCut(
-                            SettlementChangedCut::scheduler(),
-                        ));
-                    }
-                    Err(
-                        super::super::scheduler::SchedulerError::Projection
-                        | super::super::scheduler::SchedulerError::Arithmetic
-                        | super::super::scheduler::SchedulerError::Allocation,
-                    ) => {
-                        return Err(ConcurrentIndependentError::Fault(
-                            AuthorityFault::SchedulerProjection,
-                        ));
-                    }
-                }
-            }
-        };
+        let mut gate_support = dependency.dependency_gate_support(entries);
+        gate_support.include(membership.dependency_gate_support(entries));
+        let projection = IndependentProjectionPermit::stage(
+            self,
+            retained,
+            scheduler,
+            dependency,
+            gate_support,
+            reservation,
+        )?;
+        #[cfg(test)]
+        if retained {
+            entries.enter_shared_ingress_probe(
+                super::super::shard::SharedIngressProbePhase::ProjectionPreparedBeforeOwnerCut,
+            );
+        }
+        let retained_before = projection.wake_projection_before(self)?;
+        if !membership.dependency_aggregate_is_fresh(entries, projection.gates()) {
+            return Err(ConcurrentIndependentError::ChangedCut(
+                SettlementChangedCut::owner_or_projection(),
+            ));
+        }
         let mut reads = support.reads();
         let mut writes = support.writes();
-        dependency.extend_final_support(&mut reads, &mut writes);
+        let mut relation_reads = ShardReadSupport::default();
+        let mut relation_writes = ShardWriteSupport::default();
+        projection.extend_final_relation_support(&mut relation_reads, &mut relation_writes);
+        projection.extend_final_support(&mut reads, &mut writes);
+        let relations = entries.dependency_relation_mixed_cut(relation_reads, relation_writes);
         let mut owners = entries.mixed_cut(reads, writes);
         let owners_fresh = owner_cuts
             .iter()
-            .all(|owner| owner.expected.is_fresh(owners.owner(entries, &owner.key)));
+            .all(|owner| owner.is_fresh(entries, &owners));
         let proposed_fresh = owners.proposed_count_plan_is_fresh(&proposed_counts);
         let resources_fresh = resources
             .as_ref()
             .is_none_or(|resources| owners.resource_plan_is_fresh(resources.shard_plan()));
         let indexes_fresh = indexes.prestate_is_fresh(entries, &owners);
-        let membership_fresh = membership.prestate_is_fresh_before_dependency_stage(
-            entries,
-            &owners,
-            dependency.visibility(),
-        );
-        let dependency_fresh = dependency.prestate_is_fresh(&owners);
+        let membership_fresh = membership.point_prestate_is_fresh(entries, &owners);
+        let dependency_fresh = projection.prestate_is_fresh(&relations, &owners);
         if !(owners_fresh
             && proposed_fresh
             && resources_fresh
@@ -1088,12 +1222,6 @@ impl TxPoolAuthority {
         {
             return Err(ConcurrentIndependentError::ChangedCut(
                 SettlementChangedCut::owner_or_projection(),
-            ));
-        }
-        if !scheduler_permit.prestate_is_fresh(&self.state.scheduler) {
-            drop(owners);
-            return Err(ConcurrentIndependentError::ChangedCut(
-                SettlementChangedCut::scheduler(),
             ));
         }
         if owner_source_counts.changed() != (proposal_source_changed, transaction_source_changed) {
@@ -1109,29 +1237,61 @@ impl TxPoolAuthority {
         let (resource_shards, capacity) = match resources {
             Some(resources) => {
                 let (resource_shards, capacity) = resources.into_shared_commit_parts();
-                let capacity = match capacity.begin() {
-                    Ok(capacity) => capacity,
-                    Err(ResourceCapacityBeginError::StaleActiveWorkRevision) => {
-                        drop(owners);
-                        drop(scheduler_permit);
-                        return Err(ConcurrentIndependentError::ChangedCut(
-                            SettlementChangedCut::resource_capacity(),
-                        ));
-                    }
-                    Err(ResourceCapacityBeginError::Capacity(_)) => {
-                        drop(owners);
-                        drop(scheduler_permit);
-                        return Err(ConcurrentIndependentError::Fault(
-                            AuthorityFault::ResourceProjection,
-                        ));
-                    }
-                };
                 (Some(resource_shards), Some(capacity))
             }
             None => (None, None),
         };
-        #[cfg(test)]
-        entries.enter_concurrent_removal_probe();
+        let ready_reserved = projection.ready_reserved();
+        if ready_reserved
+            && capacity
+                .as_ref()
+                .is_some_and(ResourceCapacityCommit::seals_active_work_revision)
+        {
+            drop(owners);
+            drop(relations);
+            drop(projection);
+            return Err(ConcurrentIndependentError::Fault(
+                AuthorityFault::ResourceProjection,
+            ));
+        }
+        // Revalidate the scheduler before beginning the capacity transition.
+        // A stale Ready claim is still safely returnable here. Capacity begin
+        // is the final fallible pre-owner operation; a Ready acceptance owns
+        // no active-work revision, so every ordinary contention was already
+        // resolved before its Fresh -> Committing priority linearization.
+        if !projection.begin_commit(&self.state.scheduler) {
+            drop(owners);
+            drop(relations);
+            drop(projection);
+            return Err(ConcurrentIndependentError::ChangedCut(
+                SettlementChangedCut::scheduler(),
+            ));
+        }
+        let capacity = match capacity {
+            Some(capacity) => match capacity.begin() {
+                Ok(capacity) => Some(capacity),
+                Err(ResourceCapacityBeginError::StaleActiveWorkRevision) if !ready_reserved => {
+                    drop(owners);
+                    drop(relations);
+                    drop(projection);
+                    return Err(ConcurrentIndependentError::ChangedCut(
+                        SettlementChangedCut::resource_capacity(),
+                    ));
+                }
+                Err(
+                    ResourceCapacityBeginError::StaleActiveWorkRevision
+                    | ResourceCapacityBeginError::Capacity(_),
+                ) => {
+                    drop(owners);
+                    drop(relations);
+                    drop(projection);
+                    return Err(ConcurrentIndependentError::Fault(
+                        AuthorityFault::ResourceProjection,
+                    ));
+                }
+            },
+            None => None,
+        };
         for owner in owner_cuts {
             let IndependentOwnerAction::Replace(after) = owner.action else {
                 continue;
@@ -1148,124 +1308,13 @@ impl TxPoolAuthority {
         }
         indexes.apply_sharded(entries, &mut owners);
         membership.apply_sharded(entries, &mut owners);
-        let dependency = dependency.activate_in_cut(&mut owners).publish_owned();
         owners.apply_owner_source_advance(source_advance);
-        #[cfg(test)]
-        entries.enter_shared_owner_commit_probe();
-        scheduler_permit.apply(&self.state.scheduler, token, owners);
-        let dependency = dependency.finalize();
+        let dependency =
+            projection.activate(entries, &self.state.scheduler, token, relations, owners);
         let resource_health =
             capacity.map_or(ResourceCommitHealth::Healthy, |capacity| capacity.finish());
         let _ = token;
-        Ok((dependency, resource_health))
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the arguments are the one canonical retained-ingress delta split into its existing physical authorities; a wrapper would duplicate that semantic carrier"
-    )]
-    pub(super) fn commit_shared_retained_ingress_rows(
-        &self,
-        token: &ApplyToken,
-        updates: Vec<super::ingress::RetainedIngressUpdate>,
-        resources: ResourceBatchPlan,
-        mut indexes: IndexDelta,
-        owner_source_counts: ShardOwnerSourceCounts,
-        staged: super::ingress::StagedRetainedAdmissionIngress<'_>,
-        clocks: AuthorityClocks,
-        mut retired: RetiredOwners,
-    ) -> Result<
-        (DependencyFinalization, ResourceCommitHealth, RetiredOwners),
-        super::ingress::ConcurrentRetainedIngressError,
-    > {
-        if updates.iter().any(|update| {
-            update.vacancy_revision.is_none()
-                || match &update.before {
-                    None => false,
-                    Some(before) => {
-                        let after = &update.after;
-                        before.record().version == after.record().version
-                    }
-                }
-        }) {
-            return Err(super::ingress::ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::MembershipProjection,
-            ));
-        }
-        let entries = &self.state.owner_resources.entries;
-        let proposed_counts = super::super::shard::ShardProposedCountPlan::default();
-        let mut support = entries.owner_resource_write_support(
-            updates.iter().map(|update| &update.key),
-            &proposed_counts,
-            resources.shard_plan(),
-        );
-        support.include(indexes.sharded_write_support(entries));
-        let mut reads = ShardReadSupport::default();
-        staged.extend_final_support(&mut reads, &mut support);
-        let mut owners = entries.mixed_cut(reads, support);
-        if !updates.iter().all(|update| {
-            let shard = entries.owner_shard(&update.key);
-            let Some(expected_revision) = update.vacancy_revision else {
-                return false;
-            };
-            if owners.owner_removal_revision(shard) != expected_revision {
-                return false;
-            }
-            match &update.before {
-                None => owners.owner_version(shard, &update.key).is_none(),
-                Some(before) => {
-                    owners.owner_version(shard, &update.key) == Some(before.record().version)
-                }
-            }
-        }) || !owners.resource_plan_is_fresh(resources.shard_plan())
-            || !indexes.prestate_is_fresh(entries, &owners)
-            || !staged.prestate_is_fresh(&owners)
-        {
-            return Err(super::ingress::ConcurrentRetainedIngressError::Stale);
-        }
-        let source_advance = owners
-            .prepare_owner_source_advance(owner_source_counts)
-            .ok_or(super::ingress::ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::CounterExhausted,
-            ))?;
-        let (resource_shards, capacity) = resources.into_shared_commit_parts();
-        let capacity = match capacity.begin() {
-            Ok(capacity) => capacity,
-            Err(ResourceCapacityBeginError::StaleActiveWorkRevision) => {
-                return Err(super::ingress::ConcurrentRetainedIngressError::Stale);
-            }
-            Err(ResourceCapacityBeginError::Capacity(_)) => {
-                return Err(super::ingress::ConcurrentRetainedIngressError::Fault(
-                    AuthorityFault::ResourceProjection,
-                ));
-            }
-        };
-        #[cfg(test)]
-        entries.enter_concurrent_removal_probe();
-        for update in updates {
-            let key = update.key;
-            let shard = entries.owner_shard(&key);
-            let previous = owners.replace(shard, key, Some(update.after));
-            // The exact owner version and removal revision were checked while
-            // this same physical cut was held, so replacement cardinality
-            // cannot change between validation and mutation.
-            debug_assert_eq!(previous.is_some(), update.before.is_some());
-            if let Some(previous) = previous {
-                retired.push(previous);
-            }
-        }
-        owners.apply_proposed_counts(proposed_counts);
-        owners.apply_resource_plan(resource_shards);
-        indexes.apply_sharded(entries, &mut owners);
-        owners.apply_owner_source_advance(source_advance);
-        #[cfg(test)]
-        entries.enter_shared_ingress_probe(
-            super::super::shard::SharedIngressProbePhase::FinalCutBeforeActivation,
-        );
-        let dependency = staged.activate(token, owners);
-        let resource_health = capacity.finish();
-        let _reserved_clock_high_water = clocks;
-        Ok((dependency, resource_health, retired))
+        Ok((dependency, resource_health, retained_before))
     }
 
     pub(super) fn commit_shared_owner_removal_rows<C>(
@@ -1274,9 +1323,8 @@ impl TxPoolAuthority {
         removal: OwnerRemovalBatch,
         staged: super::ingress::StagedRetainedIngress<'_>,
         control: C,
-        clocks: AuthorityClocks,
     ) -> Result<
-        (DependencyFinalization, ResourceCommitHealth, RetiredOwners),
+        (DependencyApplyOutcome, ResourceCommitHealth, RetiredOwners),
         super::ingress::ConcurrentRetainedIngressError,
     >
     where
@@ -1314,11 +1362,18 @@ impl TxPoolAuthority {
         support.include(indexes.sharded_write_support(entries));
         support.include(membership.sharded_write_support(entries));
         let mut reads = ShardReadSupport::default();
+        let mut relation_reads = ShardReadSupport::default();
+        let mut relation_writes = ShardWriteSupport::default();
+        staged.extend_final_relation_support(&mut relation_reads, &mut relation_writes);
         staged.extend_final_support(&mut reads, &mut support);
         control.extend_final_support(entries, &mut reads, &mut support);
+        if !membership.dependency_aggregate_is_fresh(entries, staged.dependency_gates()) {
+            return Err(super::ingress::ConcurrentRetainedIngressError::Stale);
+        }
         // Canonical ascending acquisition is sparse-write/full-read for Remote
         // expiry and sparse-write for peer revocation. The fixed 64-shard walk
         // is the only global ordering cost; no global writer is acquired.
+        let relations = entries.dependency_relation_mixed_cut(relation_reads, relation_writes);
         let mut cut = entries.mixed_cut(reads, support);
         let source_advance = cut.prepare_owner_source_advance(source_counts).ok_or(
             super::ingress::ConcurrentRetainedIngressError::Fault(AuthorityFault::CounterExhausted),
@@ -1330,12 +1385,8 @@ impl TxPoolAuthority {
                 cut.owner_version(entries.owner_shard(hash), hash) == Some(*version)
             });
         let indexes_fresh = control.index_prestate_is_fresh(&indexes, entries, &cut);
-        let membership_fresh = membership.prestate_is_fresh_before_dependency_stage(
-            entries,
-            &cut,
-            staged.dependency_visibility(),
-        );
-        let staged_fresh = staged.prestate_is_fresh(&cut);
+        let membership_fresh = membership.point_prestate_is_fresh(entries, &cut);
+        let staged_fresh = staged.prestate_is_fresh(&relations, &cut);
         let control_fresh = control.prestate_is_fresh(entries, &cut);
         if !(owners_fresh && indexes_fresh && membership_fresh && staged_fresh && control_fresh) {
             return Err(super::ingress::ConcurrentRetainedIngressError::Stale);
@@ -1358,10 +1409,11 @@ impl TxPoolAuthority {
             | ResourceError::DuplicateChange
             | ResourceError::ComputeEnvelope
             | ResourceError::AttributionMismatch
-            | ResourceError::CapacityBankFault
-            | ResourceError::Allocation => super::ingress::ConcurrentRetainedIngressError::Fault(
-                AuthorityFault::ResourceProjection,
-            ),
+            | ResourceError::CapacityBankFault => {
+                super::ingress::ConcurrentRetainedIngressError::Fault(
+                    AuthorityFault::ResourceProjection,
+                )
+            }
         })?;
         cut.rebase_proposed_removal_plan(&mut proposed_counts)
             .map_err(|_| {
@@ -1380,8 +1432,6 @@ impl TxPoolAuthority {
             }
         })?;
         let control = control.begin(&mut cut)?;
-        #[cfg(test)]
-        entries.enter_shared_owner_commit_probe();
         for hash in hashes {
             let shard = entries.owner_shard(&hash);
             let Some(owner) = cut.replace(shard, hash, None) else {
@@ -1402,9 +1452,8 @@ impl TxPoolAuthority {
         membership.apply_sharded(entries, &mut cut);
         cut.apply_owner_source_advance(source_advance);
         C::activate(control, &mut cut);
-        let dependency = staged.activate(token, cut);
+        let dependency = staged.activate(entries, token, relations, cut);
         let resource_health = capacity.finish();
-        let _reserved_clock_high_water = clocks;
         Ok((dependency, resource_health, retired))
     }
 
@@ -1426,12 +1475,8 @@ impl TxPoolAuthority {
     pub(super) fn reserve_primary_owner_insertions<'key>(
         &self,
         keys: impl IntoIterator<Item = &'key RawTxHash>,
-    ) -> Result<(), PlanError> {
-        self.state
-            .owner_resources
-            .entries
-            .try_reserve_keys(keys)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))
+    ) {
+        self.state.owner_resources.entries.reserve_keys(keys);
     }
 
     pub(super) fn resources_for_plan(&self) -> ResourcePlanner<'_> {
@@ -1460,13 +1505,6 @@ impl TxPoolAuthority {
         EffectPlanner {
             effects: self.state.effects.lock(),
             log: &self.state.effects,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn peer_bans_for_plan(&self) -> PeerBanPlanner<'_> {
-        PeerBanPlanner {
-            peer_bans: &self.state.peer_bans,
         }
     }
 
@@ -1508,15 +1546,6 @@ impl TxPoolAuthority {
         )
     }
 
-    pub(super) fn entries_and_indexes_for_plan(&self) -> (&ShardedOwnerMap, IndexPlanner<'_>) {
-        (
-            &self.state.owner_resources.entries,
-            IndexPlanner {
-                indexes: &self.state.indexes,
-            },
-        )
-    }
-
     pub(super) fn concurrent_owner_removal_plan_parts(
         &self,
     ) -> (
@@ -1540,16 +1569,13 @@ impl TxPoolAuthority {
         )
     }
 
-    fn into_fresh_generation(
-        self,
-        dependency_publication: super::FreshDependencyPublication,
-    ) -> FreshGeneration {
+    fn into_fresh_generation(self, dependency_maintenance_activated: bool) -> FreshGeneration {
         FreshGeneration {
             entries: self.state.owner_resources.entries,
             resources: self.state.owner_resources.resources,
             scheduler: self.state.scheduler,
             dependencies: self.state.dependencies,
-            dependency_publication,
+            dependency_maintenance_activated,
         }
     }
 
@@ -1558,13 +1584,6 @@ impl TxPoolAuthority {
         ResourcePlanner {
             entries: &self.state.owner_resources.entries,
             ledger: &self.state.owner_resources.resources,
-        }
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn indexes_for_test_plan(&self) -> IndexPlanner<'_> {
-        IndexPlanner {
-            indexes: &self.state.indexes,
         }
     }
 
@@ -1613,17 +1632,6 @@ impl TxPoolAuthority {
     }
 
     #[cfg(test)]
-    pub(in crate::authority) fn replace_next_version_for_test(
-        &mut self,
-        _test: &super::test_support::AuthorityTestToken,
-        version: EntryVersion,
-    ) {
-        let mut clocks = self.state.clocks.snapshot();
-        clocks.next_version = version;
-        self.state.clocks.replace_for_test(clocks);
-    }
-
-    #[cfg(test)]
     pub(in crate::authority) fn replace_peer_bans_for_test(
         &mut self,
         _test: &super::test_support::AuthorityTestToken,
@@ -1660,7 +1668,7 @@ impl ScratchAuthority {
         authority.state.clocks = Arc::new(AuthorityClockBank::from_snapshot(seed.clocks));
         Self {
             authority,
-            dependency_publication: super::FreshDependencyPublication::default(),
+            dependency_maintenance_activated: false,
         }
     }
 
@@ -1673,8 +1681,8 @@ impl ScratchAuthority {
         admission: ChargedAdmission,
     ) -> Result<(), PlanError> {
         let committed = self.authority.plan_charged_admission(admission)?.apply();
-        self.dependency_publication
-            .absorb(committed.into_scratch_dependency_finalization())
+        self.dependency_maintenance_activated |= committed.into_scratch_dependency_wake();
+        Ok(())
     }
 
     pub(super) fn clocks(&self) -> AuthorityClocks {
@@ -1683,7 +1691,7 @@ impl ScratchAuthority {
 
     pub(super) fn into_fresh_generation(self) -> FreshGeneration {
         self.authority
-            .into_fresh_generation(self.dependency_publication)
+            .into_fresh_generation(self.dependency_maintenance_activated)
     }
 }
 

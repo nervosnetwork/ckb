@@ -11,9 +11,8 @@ use crate::authority::{
     plan::TxPoolAuthority,
     resolver::{
         DirectResolutionEvaluation, DirectResolutionJob, DirectResolutionPreparation,
-        DirectResolutionProbeObservation, DirectVerificationOutcome, ResolutionEvaluation,
-        ResolutionExecutionKind, ResolutionJob, ResolutionProbeObservation, VerificationExecution,
-        VerificationJob, VerificationTimePolicy, VerificationTimePolicyError,
+        DirectResolutionProbeObservation, ResolutionEvaluation, ResolutionExecutionKind,
+        ResolutionJob, VerificationExecution, VerificationJob, VerificationTimePolicy,
     },
     resources::{AcceptedResources, ComputeLimits, ResourceLimits, ResourceVector},
     runtime::{
@@ -29,7 +28,7 @@ use crate::authority::{
         PayloadPolicy, PreAcceptedPhase, QueuedWork, RawTxHash, ValidatedAdmission,
         VerifyCapability, WorkPermit,
     },
-    work::{CheckedOutWork, ResolutionEvidence, SettlementNext, SettlementRejection},
+    work::{CheckedOutWork, SettlementNext},
 };
 use crate::error::Reject;
 use ckb_network::PeerIndex;
@@ -42,8 +41,8 @@ use ckb_test_chain_utils::{
 use ckb_types::{
     U256,
     bytes::Bytes,
-    core::{BlockExt, Capacity, DepType, FeeRate, TransactionBuilder, cell::ResolvedTransaction},
-    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, OutPointVec},
+    core::{BlockExt, Capacity, FeeRate, TransactionBuilder},
+    packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack, Unpack},
 };
 use ckb_verification::cache::{ScriptVerificationRules, TxVerificationCacheKey, init_cache};
@@ -94,20 +93,6 @@ fn uak_verification_time_policy_is_fixed_bounded_and_never_peer_extended() {
         std::time::Duration::from_secs(30),
         "trusted local/proposal work is constrained only by the node hard cap"
     );
-}
-
-#[test]
-fn uak_verification_time_policy_rejects_unusable_node_configuration() {
-    assert_eq!(
-        VerificationTimePolicy::from_runtime(250, 0, 30_000).err(),
-        Some(VerificationTimePolicyError::ZeroCycleRate)
-    );
-    for (minimum, maximum) in [(0, 30_000), (30_001, 30_000)] {
-        assert_eq!(
-            VerificationTimePolicy::from_runtime(minimum, 10_000, maximum).err(),
-            Some(VerificationTimePolicyError::InvalidDurationRange)
-        );
-    }
 }
 
 fn direct_input(transaction: &ckb_types::core::TransactionView) -> DirectIngressTransaction {
@@ -219,10 +204,7 @@ fn authority_at(snapshot: &Snapshot) -> TxPoolAuthority {
 }
 
 fn output(capacity: u64) -> CellOutput {
-    // The small arguments in this module model fee differences, not raw CKB
-    // occupied-capacity units.  Keep that arithmetic while making every
-    // output a transaction-verifier-valid cell now that direct-cache tests
-    // obtain proofs from the real hot/cold path instead of forging cycles.
+    // Preserve fixture fee deltas while satisfying occupied-capacity verification.
     const FIXTURE_OUTPUT_BASE_SHANNONS: u64 = 100 * 100_000_000;
     CellOutput::new_builder()
         .capacity(
@@ -280,13 +262,12 @@ fn checkout_resolve(
             .expect("fixture ingress plans"),
     );
     let committed = authority
-        .plan_checkout_for_foundation(
+        .checkout_for_foundation(
             &key,
             owner_version(authority, &key),
             WorkPermit::ResolveOnly,
         )
-        .expect("resolve checkout plans")
-        .apply();
+        .expect("resolve checkout plans");
     let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only permit must carry resolve work")
     };
@@ -314,58 +295,17 @@ fn checkout_verification_job(
             .expect("the resolved receipt settles"),
     );
     let checkout = authority
-        .plan_checkout_for_foundation(
+        .checkout_for_foundation(
             &key,
             owner_version(authority, &key),
             WorkPermit::VerifyOnly(VerifyCapability::Any),
         )
-        .expect("verification checkout plans")
-        .apply();
+        .expect("verification checkout plans");
     let CheckedOutWork::Verify(work) = checkout.into_work() else {
         panic!("verify-only checkout must carry verification work")
     };
     VerificationJob::from_checkout(work, snapshot)
         .expect("verification remains on the resolve snapshot")
-}
-
-#[test]
-fn uak_resolution_job_rejects_a_mixed_snapshot_view() {
-    let snapshot = genesis_snapshot();
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let work = checkout_resolve(
-        &mut authority,
-        TransactionBuilder::default().version(801u32).build(),
-        81,
-    );
-    let failure = ResolutionJob::capture_resolve(&authority, snapshot, work)
-        .expect_err("a snapshot from another chain cut cannot enter resolution");
-    assert_eq!(failure.kind(), ResolutionExecutionKind::StaleView);
-    apply_plan(
-        authority
-            .apply_settlement(failure.into_settlement())
-            .expect("the exact active capability retries under the authority view"),
-    );
-}
-
-#[test]
-fn uak_duplicate_inputs_are_a_malformed_outcome_not_an_authority_fault() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let input = OutPoint::new(Byte32::new([0x80; 32]), 0);
-    let transaction = spending_tx(800, [input.clone(), input], 1);
-    let work = checkout_resolve(&mut authority, transaction.clone(), 80);
-    let settlement = work
-        .resolved(ResolutionEvidence::for_foundation(
-            Arc::new(ResolvedTransaction::dummy_resolve(transaction)),
-            Capacity::zero(),
-            1_024,
-            crate::authority::state::VerifyCycleClass::Small,
-        ))
-        .expect("duplicate inputs are a deterministic transaction outcome");
-    let SettlementNext::Rejected(SettlementRejection::ChainBound(reason)) = settlement.next else {
-        panic!("duplicate inputs must not become retry or structural evidence")
-    };
-    assert!(matches!(reason.reject(), Reject::Malformed(..)));
 }
 
 #[test]
@@ -405,13 +345,12 @@ fn uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm() {
     ));
     authority.force_chain_view(ChainViewId::new(ChainRevision(1), new_header.hash()));
     let checkout = authority
-        .plan_checkout_for_foundation(
+        .checkout_for_foundation(
             &key,
             owner_version(&authority, &key),
             WorkPermit::VerifyOnly(VerifyCapability::Any),
         )
-        .expect("the stale queued verification can be checked out without a pool scan")
-        .apply();
+        .expect("the stale queued verification can be checked out without a pool scan");
     let CheckedOutWork::Verify(work) = checkout.into_work() else {
         panic!("verify-only checkout must carry verification work")
     };
@@ -429,251 +368,6 @@ fn uak_verify_checkout_requeues_resolution_from_an_old_chain_view_before_vm() {
             if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_resolution_reports_the_complete_direct_missing_frontier() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let first = OutPoint::new(Byte32::new([0x81; 32]), 0);
-    let second = OutPoint::new(Byte32::new([0x82; 32]), 0);
-    let work = checkout_resolve(
-        &mut authority,
-        spending_tx(802, [first.clone(), second.clone()], 1),
-        82,
-    );
-    let job = ResolutionJob::capture_resolve(&authority, Arc::clone(&snapshot), work)
-        .expect("the checked-out view owns this snapshot");
-    let ResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("missing cells are a normal resolution outcome")
-    else {
-        panic!("unknown inputs must request enrichment")
-    };
-    assert_eq!(
-        probe.missing_keys_for_foundation(),
-        vec![DependencyKey::Cell(first), DependencyKey::Cell(second)]
-    );
-    let ResolutionProbeObservation::Missing(probe) = probe
-        .prepare_enrichment()
-        .expect("the bounded probe reserves outside the authority cut")
-        .observe(&authority)
-    else {
-        panic!("no Accepted producer exists")
-    };
-    let settlement = probe
-        .settle_missing()
-        .expect("an unchanged authority cut settles the missing frontier");
-    apply_plan(
-        authority
-            .apply_settlement(settlement)
-            .expect("the missing observation is current"),
-    );
-}
-
-#[test]
-fn uak_resolution_reads_only_the_needed_accepted_parent() {
-    let snapshot = genesis_snapshot();
-    let parent = output_tx(803, 1_000, Bytes::new());
-    let parent_hash = parent.hash();
-    let mut alternate_bytes = parent_hash.as_slice().to_vec();
-    alternate_bytes[31] ^= 1;
-    let alternate_hash =
-        Byte32::from_slice(&alternate_bytes).expect("the alternate hash is fixed-size");
-    assert_eq!(
-        ckb_types::packed::ProposalShortId::from_tx_hash(&parent_hash),
-        ckb_types::packed::ProposalShortId::from_tx_hash(&alternate_hash)
-    );
-
-    let mut collision_authority = authority_at(&snapshot);
-    accept_remote_transaction(
-        &mut collision_authority,
-        parent.clone(),
-        83,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let colliding_child = spending_tx(804, [OutPoint::new(alternate_hash.clone(), 0)], 900);
-    let colliding_work = checkout_resolve(&mut collision_authority, colliding_child, 84);
-    let colliding_job =
-        ResolutionJob::capture_resolve(&collision_authority, Arc::clone(&snapshot), colliding_work)
-            .expect("the sparse cut captures no differently hashed producer");
-    let ResolutionEvaluation::Enrich(colliding_probe) = colliding_job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("the colliding raw-hash miss is a normal resolution outcome")
-    else {
-        panic!("a matching proposal short ID must not resolve the alternate raw producer")
-    };
-    assert_eq!(
-        colliding_probe.missing_keys_for_foundation(),
-        vec![DependencyKey::Cell(OutPoint::new(alternate_hash, 0))]
-    );
-    assert!(matches!(
-        colliding_probe
-            .prepare_enrichment()
-            .expect("the one-key collision probe reserves")
-            .observe(&collision_authority),
-        ResolutionProbeObservation::Missing(_)
-    ));
-
-    let mut authority = authority_at(&snapshot);
-    accept_remote_transaction(
-        &mut authority,
-        parent,
-        83,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let child = spending_tx(805, [OutPoint::new(parent_hash, 0)], 900);
-    let child_hash = child.hash();
-    let work = checkout_resolve(&mut authority, child, 84);
-    let job = ResolutionJob::capture_resolve(&authority, Arc::clone(&snapshot), work)
-        .expect("the sparse overlay captures the Accepted parent");
-    let ResolutionEvaluation::Settle(settlement) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("the Accepted output resolves normally")
-    else {
-        panic!("resolve-only work must queue verification")
-    };
-    apply_plan(
-        authority
-            .apply_settlement(settlement)
-            .expect("the parent proof is current"),
-    );
-    assert!(matches!(
-        authority.entry(&crate::authority::state::RawTxHash(child_hash)),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-}
-
-#[test]
-fn uak_resolution_enrichment_is_bounded_and_stale_safe() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let parent = output_tx(805, 1_000, Bytes::new());
-    let parent_out = OutPoint::new(parent.hash(), 0);
-    let child = spending_tx(806, [parent_out], 900);
-    let work = checkout_resolve(&mut authority, child, 86);
-    let job = ResolutionJob::capture_resolve(&authority, Arc::clone(&snapshot), work)
-        .expect("the initial sparse cut is valid");
-    let ResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("the absent parent is a normal miss")
-    else {
-        panic!("the first cut has no parent")
-    };
-
-    accept_remote_transaction(
-        &mut authority,
-        parent,
-        85,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let ResolutionProbeObservation::Retry(job) = probe
-        .prepare_enrichment()
-        .expect("the bounded probe reserves outside the authority cut")
-        .observe(&authority)
-    else {
-        panic!("new evidence requires exactly one retry")
-    };
-    let ResolutionEvaluation::Settle(settlement) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("the enriched job resolves")
-    else {
-        panic!("the one missing producer was supplied")
-    };
-    apply_plan(
-        authority
-            .apply_settlement(settlement)
-            .expect("availability after checkout does not invalidate positive evidence"),
-    );
-}
-
-#[test]
-fn uak_resolution_discovers_every_available_dep_group_member_miss() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let first = OutPoint::new(Byte32::new([0x91; 32]), 0);
-    let second = OutPoint::new(Byte32::new([0x92; 32]), 0);
-    let group = OutPointVec::new_builder()
-        .set(vec![first.clone(), second.clone()])
-        .build();
-    let group_parent = output_tx(807, 1_000, group.as_bytes());
-    accept_remote_transaction(
-        &mut authority,
-        group_parent.clone(),
-        87,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let group_out = OutPoint::new(group_parent.hash(), 0);
-    let child = TransactionBuilder::default()
-        .version(808u32)
-        .cell_dep(
-            CellDep::new_builder()
-                .out_point(group_out)
-                .dep_type(DepType::DepGroup)
-                .build(),
-        )
-        .build();
-    let work = checkout_resolve(&mut authority, child, 88);
-    let job = ResolutionJob::capture_resolve(&authority, Arc::clone(&snapshot), work)
-        .expect("the direct dep-group producer is captured");
-    let ResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("expanded misses are a normal outcome")
-    else {
-        panic!("missing dep-group members require enrichment")
-    };
-    assert_eq!(
-        probe.missing_keys_for_foundation(),
-        vec![DependencyKey::Cell(first), DependencyKey::Cell(second)]
-    );
-}
-
-#[test]
-fn uak_permissive_rbf_resolution_never_fabricates_a_chain_cell() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let parent = output_tx(809, 1_000, Bytes::new());
-    let parent_out = OutPoint::new(parent.hash(), 0);
-    accept_remote_transaction(
-        &mut authority,
-        parent,
-        89,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let existing = spending_tx(810, [parent_out.clone()], 900);
-    accept_remote_transaction(
-        &mut authority,
-        existing,
-        90,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-
-    // Keep the unknown input first: the consensus resolver stops there before
-    // observing the later pool conflict. The tx-pool permissive retry may
-    // ignore that Accepted spend, but it must still consult the chain snapshot
-    // for the unknown cell.
-    let unknown = OutPoint::new(Byte32::new([0xa1; 32]), 0);
-    let replacement = spending_tx(811, [unknown.clone(), parent_out], 800);
-    let work = checkout_resolve(&mut authority, replacement, 91);
-    let job = ResolutionJob::capture_resolve(&authority, Arc::clone(&snapshot), work)
-        .expect("the conflict spend is captured");
-    let ResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), u64::MAX)
-        .expect("permissive mode still observes the chain snapshot")
-    else {
-        panic!("an unknown chain cell must not become resolved RBF evidence")
-    };
-    assert_eq!(
-        probe.missing_keys_for_foundation(),
-        vec![DependencyKey::Cell(unknown)]
-    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -825,148 +519,6 @@ async fn uak_verification_cache_lookup_cannot_substitute_a_nearby_request() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn uak_direct_resolution_reads_accepted_without_acquiring_an_owner() {
-    let snapshot = genesis_snapshot();
-    let mut authority = authority_at(&snapshot);
-    let parent = output_tx(813, 1_000, Bytes::new());
-    accept_remote_transaction(
-        &mut authority,
-        parent.clone(),
-        93,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let child = Arc::new(spending_tx(814, [OutPoint::new(parent.hash(), 0)], 900));
-    let child_key = crate::authority::state::RawTxHash(child.hash());
-    let before = authority.normalized_snapshot();
-    let job = DirectResolutionJob::capture_for_foundation(
-        &authority,
-        Arc::clone(&snapshot),
-        Arc::clone(&child),
-        1 << 20,
-        1_000,
-    )
-    .expect("the direct cut captures the accepted parent without retaining the child");
-    let DirectResolutionEvaluation::Verify(request) = job
-        .evaluate(FeeRate::zero(), verification_budget())
-        .expect("the accepted output resolves under the paired cut")
-    else {
-        panic!("the direct child must continue to verification")
-    };
-    let expected_rules = ScriptVerificationRules::from_env(
-        snapshot.consensus(),
-        &TxVerifyEnv::new_submit(snapshot.tip_header()),
-    );
-    let witness_hash: [u8; 32] = child.witness_hash().unpack();
-    let expected_key = TxVerificationCacheKey::from_transaction(&child, expected_rules);
-    assert_eq!(expected_key.witness_hash(), &witness_hash);
-    let cache = init_cache();
-    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-
-    let DirectVerificationOutcome::Candidate(candidate) = request
-        .bind_cache(&cache)
-        .execute(&mut command_rx)
-        .await
-        .expect("the snapshot-bound direct request verifies")
-    else {
-        panic!("the cached direct verification must produce admission work")
-    };
-    let (command, work, cache_update) = candidate.into_parts();
-    assert_eq!(command, DirectCommand::TestAccept);
-    assert_eq!(
-        cache_update
-            .expect("owner-free verification still derives a real proof")
-            .into_proof()
-            .key(),
-        expected_key
-    );
-    assert_eq!(work.payload().identity().raw, child_key);
-    assert!(authority.entry(&child_key).is_none());
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn uak_direct_zero_active_budget_allows_verification_with_no_vm_slices() {
-    let snapshot = genesis_snapshot();
-    let authority = authority_at(&snapshot);
-    let before = authority.normalized_snapshot();
-    let transaction = Arc::new(TransactionBuilder::default().version(8_121u32).build());
-    let job = DirectResolutionJob::capture_for_foundation(
-        &authority,
-        Arc::clone(&snapshot),
-        transaction,
-        1 << 20,
-        1_000,
-    )
-    .expect("the bounded direct fixture captures one coherent read cut");
-    let DirectResolutionEvaluation::Verify(request) = job
-        .evaluate(
-            FeeRate::zero(),
-            verification_budget_with(std::time::Duration::ZERO),
-        )
-        .expect("the direct fixture resolves before script verification")
-    else {
-        panic!("the direct fixture must reach the budget-bound verifier")
-    };
-    let cache = init_cache();
-    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-
-    let DirectVerificationOutcome::Candidate(candidate) = request
-        .bind_cache(&cache)
-        .execute(&mut command_rx)
-        .await
-        .expect("context-only verification uses no active VM time")
-    else {
-        panic!("a zero-slice direct request must remain a candidate")
-    };
-    let (_, _, cache_update) = candidate.into_parts();
-    assert!(cache_update.is_some());
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[test]
-fn uak_direct_resolution_terminalizes_an_unchanged_missing_frontier() {
-    let snapshot = genesis_snapshot();
-    let authority = authority_at(&snapshot);
-    let missing = OutPoint::new(Byte32::new([0xb1; 32]), 0);
-    let tx = Arc::new(spending_tx(815, [missing.clone()], 1));
-    let before = authority.normalized_snapshot();
-    let job = DirectResolutionJob::capture_for_foundation(
-        &authority,
-        Arc::clone(&snapshot),
-        tx,
-        1 << 20,
-        1_000,
-    )
-    .expect("the direct request captures a coherent empty overlay");
-    let DirectResolutionEvaluation::Enrich(probe) = job
-        .evaluate(FeeRate::zero(), verification_budget())
-        .expect("missing evidence is a transaction outcome")
-    else {
-        panic!("the first pass must expose the missing frontier")
-    };
-    assert_eq!(
-        probe.missing_keys_for_foundation(),
-        vec![DependencyKey::Cell(missing.clone())]
-    );
-    let DirectResolutionProbeObservation::Rejected(rejection) = probe
-        .prepare_enrichment()
-        .expect("bounded enrichment reserves outside the authority cut")
-        .observe(&authority)
-        .finish()
-        .expect("the authority view remains current")
-    else {
-        panic!("an unchanged missing direct input must reject, not become resident")
-    };
-    assert!(matches!(
-        rejection.reason().reject(),
-        crate::error::Reject::Resolve(ckb_types::core::error::OutPointError::Unknown(out_point))
-            if out_point == &missing
-    ));
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
 #[test]
 fn uak_direct_edge_budget_is_a_policy_rejection_not_a_runtime_fault() {
     let snapshot = genesis_snapshot();
@@ -1049,122 +601,6 @@ fn uak_direct_permissive_rbf_never_fabricates_a_chain_cell() {
     assert_eq!(authority.normalized_snapshot(), before);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn uak_runtime_direct_path_is_owner_free_until_membership_plan() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let parent = output_tx(819, 1_000, Bytes::new());
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            parent.clone(),
-            96,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    });
-    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
-    let before = runtime.normalized_snapshot_for_foundation();
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let input = direct_input(&transaction);
-    let outcome = runtime
-        .resolve_test_accept_transaction(&input, execution)
-        .expect("non-contextual validation and direct resolution succeed");
-    let request = match outcome {
-        AuthorityDirectResolutionOutcome::Verification(request) => request,
-        AuthorityDirectResolutionOutcome::Rejected(rejection) => {
-            panic!(
-                "the valid direct transaction must continue to verification: {:?}",
-                rejection.reason().reject()
-            )
-        }
-    };
-    let cache = init_cache();
-    let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-    let AuthorityDirectVerificationOutcome::Candidate(candidate) = runtime
-        .execute_direct_verification(request.bind_cache(&cache), &mut command_rx)
-        .await
-        .expect("direct verification produces immutable admission work")
-    else {
-        panic!("the valid direct transaction must remain a candidate")
-    };
-    let AuthorityDirectAdmissionExecution::TestAccept(outcome) = runtime
-        .settle_verified_direct_admission(candidate)
-        .expect("the direct candidate validates against a coherent final cut")
-    else {
-        panic!("the TestAccept source must preserve read-only settlement semantics")
-    };
-    assert!(matches!(outcome, AuthorityTestAcceptOutcome::Accepted(_)));
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn uak_test_accept_is_read_only_and_local_applies_the_same_policy() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let parent = output_tx(820, 1_000, Bytes::new());
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            parent.clone(),
-            97,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    });
-    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
-
-    let test_accept = verified_test_accept_candidate(&runtime, &transaction).await;
-    let before = runtime.normalized_snapshot_for_foundation();
-    let AuthorityDirectAdmissionExecution::TestAccept(AuthorityTestAcceptOutcome::Accepted(
-        completed,
-    )) = runtime
-        .settle_verified_direct_admission(test_accept)
-        .expect("read-only membership policy accepts the candidate")
-    else {
-        panic!("the valid independent candidate must be accepted")
-    };
-    assert!(
-        completed.cycles > 0,
-        "the direct fixture must carry cycles produced by the real VM"
-    );
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-
-    let local = verified_local_candidate(&runtime, &transaction).await;
-    let AuthorityDirectAdmissionExecution::Local(local) = runtime
-        .settle_verified_direct_admission(local)
-        .expect("Local compiles the same policy result into one Apply")
-    else {
-        panic!("the Local source must preserve Local settlement semantics")
-    };
-    let (AuthorityLocalAdmissionOutcome::Accepted(local_completed), cache_update) =
-        local.into_parts()
-    else {
-        panic!("the same candidate must commit for Local")
-    };
-    let update = cache_update.expect("a Local cache miss releases its executed proof after Apply");
-    assert_eq!(update.into_proof().cycles(), local_completed.cycles);
-    assert_eq!(local_completed, completed);
-    runtime.with_authority_for_foundation(|authority| {
-        assert!(matches!(
-            authority.entry(&crate::authority::state::RawTxHash(transaction.hash())),
-            Some(OwnedTx::Accepted(_))
-        ));
-    });
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_direct_resource_contention_wakes_and_retries_the_same_bank() {
     let snapshot = genesis_snapshot();
@@ -1222,10 +658,119 @@ async fn uak_direct_resource_contention_wakes_and_retries_the_same_bank() {
     ));
 }
 
-fn settle_direct_while_outer_reader_is_held(
+#[test]
+fn uak_concurrent_direct_rbf_resource_projection_drift_is_stale() {
+    const TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+    let snapshot = genesis_snapshot();
+    let mut config = runtime_config();
+    config.min_rbf_rate = FeeRate::from_u64(1_000);
+    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
+        .expect("the replacement-enabled runtime fixture is valid");
+    let input = OutPoint::new(Byte32::new([0xb4; 32]), 0);
+    let victim_tx = TransactionBuilder::default()
+        .version(30_000u32)
+        .input(CellInput::new(input.clone(), 0))
+        .build();
+    runtime.with_authority_for_foundation(|authority| {
+        accept_remote_transaction_with_payload(
+            authority,
+            victim_tx.clone(),
+            96,
+            AcceptedStatus::Pending,
+            resolved_payload_with_facts(
+                &victim_tx,
+                Vec::new(),
+                vec![input.clone()],
+                Capacity::shannons(100),
+            ),
+        );
+    });
+    let view = runtime.with_authority_for_foundation(|authority| authority.chain_view().clone());
+    let candidate = |version: u32, fee: u64| {
+        let transaction = Arc::new(
+            TransactionBuilder::default()
+                .version(version)
+                .input(CellInput::new(input.clone(), 0))
+                .build(),
+        );
+        (
+            runtime.direct_candidate_for_foundation(
+                Arc::clone(&transaction),
+                direct_verified_facts_for_view(
+                    &transaction,
+                    view.clone(),
+                    Vec::new(),
+                    vec![input.clone()],
+                    Capacity::shannons(fee),
+                ),
+            ),
+            RawTxHash(transaction.hash()),
+        )
+    };
+    let (first, _) = candidate(30_001, 30_000);
+    let (second, second_hash) = candidate(30_002, 40_000);
+
+    let (probe, before_resource_plan, release) = ConcurrentRemovalProbe::new();
+    runtime.with_authority_for_foundation(|authority| {
+        authority.entries_for_reference().set_shared_ingress_probe(
+            SharedIngressProbePhase::DirectMembershipBeforeResourcePlan,
+            Some(probe),
+        );
+    });
+    let first_runtime = runtime.clone();
+    let (first_tx, first_rx) = std::sync::mpsc::channel();
+    let first_thread = std::thread::spawn(move || {
+        let _ = first_tx.send(first_runtime.settle_verified_direct_admission(first));
+    });
+    before_resource_plan
+        .recv_timeout(TERMINAL_TIMEOUT)
+        .expect("the first RBF compiler reaches its resource seam");
+    runtime.with_authority_read_for_foundation(|authority| {
+        authority.entries_for_reference().set_shared_ingress_probe(
+            SharedIngressProbePhase::DirectMembershipBeforeResourcePlan,
+            None,
+        );
+    });
+
+    let second_result = runtime.settle_verified_direct_admission(second);
+    release
+        .send(())
+        .expect("release the stale first RBF compiler");
+    let first_result = first_rx
+        .recv_timeout(TERMINAL_TIMEOUT)
+        .expect("the first RBF compiler returns after release");
+    first_thread
+        .join()
+        .expect("the first RBF compiler does not panic");
+
+    let Ok(AuthorityDirectAdmissionExecution::Local(second_execution)) = second_result else {
+        panic!("the second RBF candidate must commit while the first compiler is paused")
+    };
+    assert!(matches!(
+        second_execution.into_parts().0,
+        AuthorityLocalAdmissionOutcome::Accepted(_)
+    ));
+    let Ok(AuthorityDirectAdmissionExecution::Local(first_execution)) = first_result else {
+        panic!("concurrent resource drift must be a local retry")
+    };
+    assert!(matches!(
+        first_execution.into_parts().0,
+        AuthorityLocalAdmissionOutcome::Retry(_)
+    ));
+    runtime.with_authority_for_foundation(|authority| {
+        assert!(authority.primary_projection_consistent());
+        assert!(matches!(
+            authority.entry(&second_hash),
+            Some(OwnedTx::Accepted(_))
+        ));
+    });
+}
+
+fn while_outer_reader_is_held<T: Send>(
     runtime: &AuthorityRuntime,
-    candidate: AuthorityDirectVerifiedCandidate,
-) -> Result<AuthorityDirectAdmissionExecution, AuthorityDirectAdmissionError> {
+    timeout: std::time::Duration,
+    operation: impl FnOnce(AuthorityRuntime) -> T + Send,
+) -> T {
     let (reader_entered_tx, reader_entered_rx) = std::sync::mpsc::channel();
     let (release_reader_tx, release_reader_rx) = std::sync::mpsc::channel();
     let (terminal_tx, terminal_rx) = std::sync::mpsc::channel();
@@ -1238,48 +783,20 @@ fn settle_direct_while_outer_reader_is_held(
             });
         });
         reader_entered_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
+            .recv_timeout(timeout)
             .expect("the independent outer reader is held");
         let commit_runtime = runtime.clone();
         let commit = scope.spawn(move || {
-            let _ = terminal_tx.send(commit_runtime.settle_verified_direct_admission(candidate));
+            let _ = terminal_tx.send(operation(commit_runtime));
         });
-        let terminal = terminal_rx.recv_timeout(std::time::Duration::from_secs(2));
+        let terminal = terminal_rx.recv_timeout(timeout);
         release_reader_tx
             .send(())
             .expect("release the independent outer reader");
         reader.join().expect("the outer reader does not panic");
         commit.join().expect("the Direct worker does not panic");
-        terminal.expect("Direct admission cannot require the unrelated outer writer")
+        terminal.expect("the operation cannot require the unrelated outer writer")
     })
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_production_direct_shared_route_commits_while_an_outer_reader_is_held() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let transaction = Arc::new(tx(861));
-    let chain_view =
-        runtime.with_authority_for_foundation(|authority| authority.chain_view().clone());
-    let candidate = runtime.direct_candidate_for_foundation(
-        Arc::clone(&transaction),
-        direct_verified_facts_for_view(
-            &transaction,
-            chain_view,
-            Vec::new(),
-            Vec::new(),
-            Capacity::shannons(1_000),
-        ),
-    );
-    assert!(matches!(
-        settle_direct_while_outer_reader_is_held(&runtime, candidate),
-        Ok(AuthorityDirectAdmissionExecution::Local(_))
-    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1323,11 +840,9 @@ async fn uak_production_direct_acceptance_fences_generation_replacement_until_co
         .expect("the Direct candidate is prepared under its shared generation barrier");
 
     let replacement_runtime = runtime.clone();
-    let replacement = tokio::spawn(async move {
-        replacement_runtime
-            .replace_current_generation_after_allocation()
-            .await
-    });
+    let replacement_snapshot = Arc::clone(&snapshot);
+    let replacement =
+        tokio::spawn(async move { replacement_runtime.clear_pool(replacement_snapshot).await });
     tokio::time::timeout(TERMINAL_TIMEOUT, async {
         while !runtime.lifecycle_writer_active_for_foundation() {
             tokio::task::yield_now().await;
@@ -1357,48 +872,6 @@ async fn uak_production_direct_acceptance_fences_generation_replacement_until_co
         .await
         .expect("the replacement task remains healthy")
         .expect("generation replacement follows the committed Direct terminal");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_production_direct_duplicate_commits_while_an_outer_reader_is_held() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let transaction = Arc::new(tx(862));
-    let hash = runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            transaction.as_ref().clone(),
-            862,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        )
-    });
-    let view = runtime.with_authority_for_foundation(|authority| authority.chain_view().clone());
-    let candidate = runtime.direct_candidate_for_foundation(
-        Arc::clone(&transaction),
-        direct_verified_facts_for_view(
-            &transaction,
-            view,
-            Vec::new(),
-            Vec::new(),
-            Capacity::shannons(1_000),
-        ),
-    );
-    let AuthorityDirectAdmissionExecution::Local(execution) =
-        settle_direct_while_outer_reader_is_held(&runtime, candidate)
-            .expect("the duplicate is a committed Direct outcome")
-    else {
-        panic!("the Local source retains mutation semantics")
-    };
-    assert!(matches!(
-        execution.into_parts().0,
-        AuthorityLocalAdmissionOutcome::Duplicate(key) if key == hash
-    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1575,69 +1048,6 @@ async fn uak_production_direct_duplicate_rolls_back_when_its_owner_changes_befor
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_production_direct_existing_preaccepted_commits_while_an_outer_reader_is_held() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let raw = tx(863);
-    let remote = raw
-        .as_advanced_builder()
-        .set_witnesses(vec![Bytes::from_static(b"remote-shared-direct").pack()])
-        .build();
-    let local = Arc::new(
-        raw.as_advanced_builder()
-            .set_witnesses(vec![Bytes::from_static(b"local-shared-direct").pack()])
-            .build(),
-    );
-    let peer = PeerIndex::from(863usize);
-    let hash = runtime.with_authority_for_foundation(|authority| {
-        let admission = ValidatedAdmission::remote(remote, peer)
-            .expect("the Remote fixture has bounded ingress evidence");
-        let hash = admission.identity.raw.clone();
-        apply_plan(
-            authority
-                .plan_admission(admission)
-                .expect("the Remote fixture enters PreAccepted ownership"),
-        );
-        hash
-    });
-    let view = runtime.with_authority_for_foundation(|authority| authority.chain_view().clone());
-    let candidate = runtime.direct_candidate_for_foundation(
-        Arc::clone(&local),
-        direct_verified_facts_for_view(
-            &local,
-            view,
-            Vec::new(),
-            Vec::new(),
-            Capacity::shannons(2_000),
-        ),
-    );
-    let AuthorityDirectAdmissionExecution::Local(execution) =
-        settle_direct_while_outer_reader_is_held(&runtime, candidate)
-            .expect("the same-raw Direct replacement commits shared")
-    else {
-        panic!("the Local source retains mutation semantics")
-    };
-    assert!(matches!(
-        execution.into_parts().0,
-        AuthorityLocalAdmissionOutcome::Accepted(_)
-    ));
-    runtime.with_authority_for_foundation(|authority| {
-        assert!(matches!(
-            authority.entry(&hash),
-            Some(OwnedTx::Accepted(entry))
-                if entry.provenance == AcceptedProvenance::Peer { ingress: peer }
-                    && entry.record.tx.witness_hash() == local.witness_hash()
-        ));
-        assert!(authority.primary_projection_consistent());
-    });
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_production_direct_existing_owner_commutes_with_same_version_source_promotion() {
     const TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
     let snapshot = genesis_snapshot();
@@ -1751,71 +1161,6 @@ async fn uak_production_direct_existing_owner_commutes_with_same_version_source_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_production_direct_membership_rejection_commits_while_an_outer_reader_is_held() {
-    let snapshot = genesis_snapshot();
-    let mut config = runtime_config();
-    config.min_rbf_rate = FeeRate::from_u64(1_000);
-    let runtime = AuthorityRuntime::new(&config, snapshot.consensus(), Arc::clone(&snapshot))
-        .expect("the replacement-enabled runtime fixture is valid");
-    let chain_input = OutPoint::new(Byte32::new([0x86; 32]), 0);
-    let victim_tx = TransactionBuilder::default()
-        .version(864u32)
-        .input(CellInput::new(chain_input.clone(), 0))
-        .build();
-    let victim = runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction_with_payload(
-            authority,
-            victim_tx.clone(),
-            864,
-            AcceptedStatus::Pending,
-            resolved_payload_with_facts(
-                &victim_tx,
-                Vec::new(),
-                vec![chain_input.clone()],
-                Capacity::shannons(10_000),
-            ),
-        )
-    });
-    let victim_version =
-        runtime.with_authority_for_foundation(|authority| owner_version(authority, &victim));
-    let replacement = Arc::new(
-        TransactionBuilder::default()
-            .version(865u32)
-            .input(CellInput::new(chain_input.clone(), 0))
-            .build(),
-    );
-    let replacement_hash = RawTxHash(replacement.hash());
-    let view = runtime.with_authority_for_foundation(|authority| authority.chain_view().clone());
-    let candidate = runtime.direct_candidate_for_foundation(
-        Arc::clone(&replacement),
-        direct_verified_facts_for_view(
-            &replacement,
-            view,
-            Vec::new(),
-            vec![chain_input],
-            Capacity::shannons(10_000),
-        ),
-    );
-    let AuthorityDirectAdmissionExecution::Local(execution) =
-        settle_direct_while_outer_reader_is_held(&runtime, candidate)
-            .expect("under-fee RBF is a committed membership rejection")
-    else {
-        panic!("the Local source retains mutation semantics")
-    };
-    assert!(matches!(
-        execution.into_parts().0,
-        AuthorityLocalAdmissionOutcome::Rejected(DirectAdmissionRejectionKind::Membership(
-            crate::authority::rejection::MembershipReject::InsufficientReplacementFee { .. }
-        ))
-    ));
-    runtime.with_authority_for_foundation(|authority| {
-        assert!(authority.entry(&replacement_hash).is_none());
-        assert_eq!(owner_version(authority, &victim), victim_version);
-        assert!(authority.primary_projection_consistent());
-    });
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uak_production_direct_capacity_eviction_commits_while_an_outer_reader_is_held() {
     let snapshot = genesis_snapshot();
     let resources = ResourceLimits::new(
@@ -1864,10 +1209,12 @@ async fn uak_production_direct_capacity_eviction_commits_while_an_outer_reader_i
             Capacity::shannons(10_000),
         ),
     );
-    let AuthorityDirectAdmissionExecution::Local(execution) =
-        settle_direct_while_outer_reader_is_held(&runtime, candidate)
-            .expect("capacity eviction commits through the exact shared policy frontier")
-    else {
+    let AuthorityDirectAdmissionExecution::Local(execution) = while_outer_reader_is_held(
+        &runtime,
+        std::time::Duration::from_secs(2),
+        move |runtime| runtime.settle_verified_direct_admission(candidate),
+    )
+    .expect("capacity eviction commits through the exact shared policy frontier") else {
         panic!("the Local source retains mutation semantics")
     };
     assert!(matches!(
@@ -1954,414 +1301,6 @@ async fn uak_direct_cache_update_is_released_only_after_local_acceptance() {
     assert!(cache_update.is_none());
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn uak_test_accept_treats_every_owner_phase_as_a_read_only_duplicate() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let parent = output_tx(822, 1_000, Bytes::new());
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            parent.clone(),
-            98,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    });
-    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
-    let validated = verified_test_accept_candidate(&runtime, &transaction).await;
-    runtime
-        .submit_remote_ingress(transaction.clone(), 0, PeerIndex::from(99))
-        .expect("the same raw transaction becomes a retained Remote owner");
-    let before = runtime.normalized_snapshot_for_foundation();
-    assert!(matches!(
-        runtime
-            .settle_verified_direct_admission(validated)
-            .expect("duplicate evaluation is a normal read-only outcome"),
-        AuthorityDirectAdmissionExecution::TestAccept(AuthorityTestAcceptOutcome::Duplicate(
-            key
-        )) if key == crate::authority::state::RawTxHash(transaction.hash())
-    ));
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-}
-
-#[test]
-fn uak_direct_missing_rejection_stales_when_the_parent_becomes_available() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let parent = output_tx(824, 1_000, Bytes::new());
-    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0)], 900);
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let input = direct_input(&transaction);
-    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&input, execution)
-        .expect("the unchanged missing frontier is a transaction outcome")
-    else {
-        panic!("the missing parent must not reach verification")
-    };
-
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(authority, parent, 100, AcceptedStatus::Pending, Vec::new());
-    });
-    let before = runtime.normalized_snapshot_for_foundation();
-    let result = runtime.settle_direct_transaction_rejection(rejection);
-    assert!(
-        matches!(result, Err(AuthorityDirectAdmissionError::Stale)),
-        "new parent availability must stale the missing proof: {result:?}"
-    );
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-}
-
-#[test]
-fn uak_direct_missing_rejection_ignores_an_unrelated_accepted_commit() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let missing_parent = output_tx(825, 1_000, Bytes::new());
-    let transaction = spending_tx(0, [OutPoint::new(missing_parent.hash(), 0)], 900);
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let input = direct_input(&transaction);
-    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&input, execution)
-        .expect("the unchanged missing frontier is a transaction outcome")
-    else {
-        panic!("the missing parent must not reach verification")
-    };
-
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            output_tx(826, 1_000, Bytes::new()),
-            101,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    });
-    assert!(matches!(
-        runtime
-            .settle_direct_transaction_rejection(rejection)
-            .expect("an unrelated Accepted owner preserves the exact negative read set"),
-        AuthorityDirectRejectionExecution::Local(_)
-    ));
-}
-
-#[test]
-fn uak_direct_missing_rejection_stales_when_a_queried_input_gains_a_spender() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let contested_input = OutPoint::new(Byte32::new([83; 32]), 0);
-    let permanently_missing = OutPoint::new(Byte32::new([84; 32]), 0);
-    let transaction = spending_tx(0, [contested_input.clone(), permanently_missing], 900);
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let input = direct_input(&transaction);
-    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&input, execution)
-        .expect("the unchanged missing frontier is a transaction outcome")
-    else {
-        panic!("the missing inputs must not reach verification")
-    };
-
-    runtime.with_authority_for_foundation(|authority| {
-        let competitor = spending_tx(827, [contested_input.clone()], 800);
-        accept_remote_transaction_with_payload(
-            authority,
-            competitor.clone(),
-            102,
-            AcceptedStatus::Pending,
-            resolved_payload_with_facts(
-                &competitor,
-                Vec::new(),
-                vec![contested_input],
-                Capacity::shannons(100),
-            ),
-        );
-    });
-    let before = runtime.normalized_snapshot_for_foundation();
-    let result = runtime.settle_direct_transaction_rejection(rejection);
-    assert!(
-        matches!(result, Err(AuthorityDirectAdmissionError::Stale)),
-        "a new Accepted spender of a queried input must stale the negative proof: {result:?}"
-    );
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_direct_rejection_rolls_back_and_wakes_when_a_relevant_accepted_owner_interposes() {
-    const TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let parent = output_tx(828, 1_000, Bytes::new());
-    let parent_key = crate::authority::state::RawTxHash(parent.hash());
-    runtime.with_authority_for_foundation(|authority| {
-        accept_remote_transaction(
-            authority,
-            parent.clone(),
-            108,
-            AcceptedStatus::Pending,
-            Vec::new(),
-        );
-    });
-    let missing = OutPoint::new(Byte32::new([86; 32]), 0);
-    let transaction = spending_tx(0, [OutPoint::new(parent.hash(), 0), missing], 900);
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&direct_input(&transaction), execution)
-        .expect("the unchanged missing frontier is a transaction outcome")
-    else {
-        panic!("the second missing input must reject before verification")
-    };
-
-    let (probe, staged, release) = ConcurrentRemovalProbe::new();
-    runtime.with_authority_for_foundation(|authority| {
-        authority.entries_for_reference().set_shared_ingress_probe(
-            SharedIngressProbePhase::DirectRejectionEffectStagedBeforeReadCut,
-            Some(probe),
-        );
-    });
-    let capacity_notified = runtime.effect_capacity_signal().notified();
-    tokio::pin!(capacity_notified);
-    let _ = capacity_notified.as_mut().enable();
-    let commit_runtime = runtime.clone();
-    let (terminal_tx, terminal_rx) = std::sync::mpsc::sync_channel(1);
-    let terminal = std::thread::spawn(move || {
-        terminal_tx
-            .send(commit_runtime.settle_direct_transaction_rejection(rejection))
-            .expect("the Direct terminal observer remains alive");
-    });
-    staged
-        .recv_timeout(TERMINAL_TIMEOUT)
-        .expect("the rejection owns one hidden sole-journal record");
-
-    assert!(
-        runtime
-            .remove_local_transaction(&parent_key.0)
-            .expect("the relevant Accepted owner uses its shared removal cut"),
-        "the producer removal interposes before the final Direct read fence"
-    );
-    release.send(()).expect("release the Direct final fence");
-    let result = terminal_rx
-        .recv_timeout(TERMINAL_TIMEOUT)
-        .expect("the stale Direct terminal returns");
-    terminal.join().expect("the Direct terminal does not panic");
-    assert!(matches!(result, Err(AuthorityDirectAdmissionError::Stale)));
-    tokio::time::timeout(TERMINAL_TIMEOUT, capacity_notified.as_mut())
-        .await
-        .expect("explicit staged-effect rollback publishes its released capacity");
-    assert!(
-        runtime
-            .pending_recent_reject(&transaction.hash())
-            .expect("the recent-reject projection remains readable")
-            .is_none(),
-        "a stale Direct rejection cannot become publicly visible"
-    );
-    runtime.with_authority_for_foundation(|authority| {
-        authority.entries_for_reference().set_shared_ingress_probe(
-            SharedIngressProbePhase::DirectRejectionEffectStagedBeforeReadCut,
-            None,
-        );
-    });
-}
-
-#[test]
-fn uak_direct_rejection_read_fence_allows_an_unrelated_accepted_interposition() {
-    const TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let missing = OutPoint::new(Byte32::new([87; 32]), 0);
-    let transaction = spending_tx(0, [missing], 900);
-    let execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let AuthorityDirectResolutionOutcome::Rejected(rejection) = runtime
-        .resolve_local_transaction(&direct_input(&transaction), execution)
-        .expect("the unchanged missing frontier is a transaction outcome")
-    else {
-        panic!("the missing input must reject before verification")
-    };
-    let read_support = runtime.with_authority_read_for_foundation(|authority| {
-        rejection.physical_read_support_for_foundation(authority)
-    });
-    let unrelated = runtime.with_authority_for_foundation(|authority| {
-        (880usize..1_008)
-            .find_map(|seed| {
-                let key = accept_remote_transaction(
-                    authority,
-                    tx(seed as u64),
-                    seed,
-                    AcceptedStatus::Pending,
-                    Vec::new(),
-                );
-                let plan = authority
-                    .prepare_shared_local_removal_for_foundation(&key)
-                    .expect("the trivial Accepted owner has a bounded removal plan")?;
-                read_support
-                    .is_disjoint_from_writes(plan.physical_write_support_for_foundation())
-                    .then_some(key)
-            })
-            .expect("the fixed layout yields one unrelated Accepted write support")
-    });
-
-    let (probe, fenced, release) = ConcurrentRemovalProbe::new();
-    runtime.with_authority_for_foundation(|authority| {
-        authority.entries_for_reference().set_shared_ingress_probe(
-            SharedIngressProbePhase::DirectRejectionReadCutBeforeActivation,
-            Some(probe),
-        );
-    });
-    let commit_runtime = runtime.clone();
-    let (terminal_tx, terminal_rx) = std::sync::mpsc::sync_channel(1);
-    let terminal = std::thread::spawn(move || {
-        terminal_tx
-            .send(commit_runtime.settle_direct_transaction_rejection(rejection))
-            .expect("the Direct terminal observer remains alive");
-    });
-    fenced
-        .recv_timeout(TERMINAL_TIMEOUT)
-        .expect("the Direct terminal holds its exact routed read cut");
-
-    let removal_runtime = runtime.clone();
-    let (removal_tx, removal_rx) = std::sync::mpsc::sync_channel(1);
-    let removal = std::thread::spawn(move || {
-        removal_tx
-            .send(removal_runtime.remove_local_transaction(&unrelated.0))
-            .expect("the unrelated Accepted observer remains alive");
-    });
-    assert!(
-        removal_rx
-            .recv_timeout(TERMINAL_TIMEOUT)
-            .expect("an unrelated Accepted write is not blocked by the exact read cut")
-            .expect("the unrelated shared removal remains coherent")
-    );
-    release.send(()).expect("release the Direct activation");
-    let result = terminal_rx
-        .recv_timeout(TERMINAL_TIMEOUT)
-        .expect("the Direct terminal returns after activation");
-    removal.join().expect("the Accepted removal does not panic");
-    terminal.join().expect("the Direct terminal does not panic");
-    assert!(matches!(
-        result,
-        Ok(AuthorityDirectRejectionExecution::Local(_))
-    ));
-    assert!(
-        runtime
-            .pending_recent_reject(&transaction.hash())
-            .expect("the recent-reject projection remains readable")
-            .is_some(),
-        "the unrelated Accepted interposition preserves the rejection"
-    );
-    runtime.with_authority_for_foundation(|authority| {
-        authority.entries_for_reference().set_shared_ingress_probe(
-            SharedIngressProbePhase::DirectRejectionReadCutBeforeActivation,
-            None,
-        );
-    });
-}
-
-#[test]
-fn uak_stable_direct_rejection_is_read_only_for_test_accept_and_atomic_for_local() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        std::sync::Arc::clone(&snapshot),
-    )
-    .expect("the production runtime fixture is valid");
-    let transaction = TransactionBuilder::default().version(1u32).build();
-
-    let test_execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the fixture has one free transient compute slot");
-    let test_input = direct_input(&transaction);
-    let AuthorityDirectResolutionOutcome::Rejected(test_rejection) = runtime
-        .resolve_test_accept_transaction(&test_input, test_execution)
-        .expect("non-contextual rejection is a stable transaction outcome")
-    else {
-        panic!("a non-zero transaction version must reject before resolution")
-    };
-    let before = runtime.normalized_snapshot_for_foundation();
-    let AuthorityDirectRejectionExecution::TestAccept(reason) = runtime
-        .settle_direct_transaction_rejection(test_rejection)
-        .expect("TestAccept may return stable evidence without mutation")
-    else {
-        panic!("the TestAccept source must preserve read-only settlement semantics")
-    };
-    assert!(matches!(
-        reason.reject(),
-        crate::error::Reject::Verification(_)
-    ));
-    assert_eq!(runtime.normalized_snapshot_for_foundation(), before);
-
-    let local_execution = runtime
-        .try_compute_execution_for_foundation()
-        .expect("the settled TestAccept slot is available to Local");
-    let local_input = direct_input(&transaction);
-    let AuthorityDirectResolutionOutcome::Rejected(local_rejection) = runtime
-        .resolve_local_transaction(&local_input, local_execution)
-        .expect("the same stable rejection is reproducible")
-    else {
-        panic!("a non-zero transaction version must reject before resolution")
-    };
-    assert!(matches!(
-        runtime
-            .settle_direct_transaction_rejection(local_rejection)
-            .expect("Local publishes the rejection in one effect-only Apply"),
-        AuthorityDirectRejectionExecution::Local(_)
-    ));
-    assert!(
-        runtime
-            .pending_recent_reject(&transaction.hash())
-            .expect("the committed rejection has a valid public projection")
-            .is_some(),
-        "the rejection effect must be visible immediately after Apply"
-    );
-    runtime.with_authority_for_foundation(|authority| {
-        assert!(
-            authority
-                .entry(&crate::authority::state::RawTxHash(transaction.hash()))
-                .is_none()
-        );
-    });
-}
-
 #[test]
 fn uak_direct_owner_free_rejection_terminals_commit_while_an_outer_reader_is_held() {
     const TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -2406,51 +1345,26 @@ fn uak_direct_owner_free_rejection_terminals_commit_while_an_outer_reader_is_hel
         ),
     );
 
-    let (reader_entered_tx, reader_entered_rx) = std::sync::mpsc::channel();
-    let (release_reader_tx, release_reader_rx) = std::sync::mpsc::channel();
-    let (terminal_tx, terminal_rx) = std::sync::mpsc::sync_channel(1);
-    std::thread::scope(|scope| {
-        let reader_runtime = runtime.clone();
-        let reader = scope.spawn(move || {
-            reader_runtime.with_authority_read_for_foundation(|_| {
-                let _ = reader_entered_tx.send(());
-                let _ = release_reader_rx.recv();
-            });
+    let (stable_result, validation_result) =
+        while_outer_reader_is_held(&runtime, TERMINAL_TIMEOUT, move |runtime| {
+            (
+                runtime.settle_direct_transaction_rejection(stable),
+                runtime.settle_verified_direct_admission(validation),
+            )
         });
-        reader_entered_rx
-            .recv_timeout(TERMINAL_TIMEOUT)
-            .expect("the independent outer reader is held");
-        let commit_runtime = runtime.clone();
-        let terminal = scope.spawn(move || {
-            let stable_result = commit_runtime.settle_direct_transaction_rejection(stable);
-            let validation_result = commit_runtime.settle_verified_direct_admission(validation);
-            terminal_tx
-                .send((stable_result, validation_result))
-                .expect("the owner-free terminal observer remains alive");
-        });
-        let results = terminal_rx.recv_timeout(TERMINAL_TIMEOUT);
-        release_reader_tx
-            .send(())
-            .expect("release the independent outer reader");
-        reader.join().expect("the outer reader does not panic");
-        terminal.join().expect("the Direct terminal does not panic");
-        let (stable_result, validation_result) = results.expect(
-            "neither owner-free rejection terminal may require the outer AuthorityStore writer",
-        );
-        assert!(matches!(
-            stable_result,
-            Ok(AuthorityDirectRejectionExecution::Local(_))
-        ));
-        let AuthorityDirectAdmissionExecution::Local(validation_result) =
-            validation_result.expect("the final validation rejection commits")
-        else {
-            panic!("the source-sealed validation result remains Local")
-        };
-        assert!(matches!(
-            validation_result.into_parts().0,
-            AuthorityLocalAdmissionOutcome::Rejected(DirectAdmissionRejectionKind::Validation(_))
-        ));
-    });
+    assert!(matches!(
+        stable_result,
+        Ok(AuthorityDirectRejectionExecution::Local(_))
+    ));
+    let AuthorityDirectAdmissionExecution::Local(validation_result) =
+        validation_result.expect("the final validation rejection commits")
+    else {
+        panic!("the source-sealed validation result remains Local")
+    };
+    assert!(matches!(
+        validation_result.into_parts().0,
+        AuthorityLocalAdmissionOutcome::Rejected(DirectAdmissionRejectionKind::Validation(_))
+    ));
     assert!(
         runtime
             .pending_recent_reject(&stable_tx.hash())

@@ -17,19 +17,10 @@ use std::{
     time::Duration,
 };
 
-fn full_controller() -> TxPoolController {
-    let (sender, _receiver) = mpsc::channel(1);
+fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
     let (chain_control_sender, _chain_control_receiver) = mpsc::channel(1);
     let (_verification_control, verification_command) =
         AuthorityVerificationControl::channel(ChunkCommand::Resume);
-    assert!(
-        sender
-            .try_send(Message::NotifyTxs(Notify::new(
-                NotifyTxBatch::try_new(Vec::new()).expect("empty relay batch is valid"),
-            )))
-            .is_ok(),
-        "fixture fills the bounded controller channel"
-    );
 
     TxPoolController {
         sender,
@@ -42,6 +33,19 @@ fn full_controller() -> TxPoolController {
         candidate_uncle_payload_limit: usize::MAX,
         signal: CancellationToken::new(),
     }
+}
+
+fn full_controller() -> TxPoolController {
+    let (sender, _receiver) = mpsc::channel(1);
+    assert!(
+        sender
+            .try_send(Message::NotifyTxs(Notify::new(
+                NotifyTxBatch::try_new(Vec::new()).expect("empty relay batch is valid"),
+            )))
+            .is_ok(),
+        "fixture fills the bounded controller channel"
+    );
+    controller(sender)
 }
 
 #[test]
@@ -396,6 +400,37 @@ async fn asynchronous_network_calls_fail_fast_when_the_controller_channel_is_ful
     assert_fast_error(controller.fresh_proposals_filter(Vec::new())).await;
     assert_fast_error(controller.fetch_txs(HashSet::new())).await;
     assert_fast_error(controller.fetch_txs_with_cycles(HashSet::new())).await;
+}
+
+#[tokio::test]
+async fn proposal_delivery_preserves_payload_and_closed_network_calls_fail_fast() {
+    let (sender, mut receiver) = mpsc::channel(1);
+    let client = controller(sender);
+    let transaction = ckb_types::core::TransactionBuilder::default()
+        .version(7_002u32)
+        .build();
+    client
+        .notify_txs_async(vec![transaction.clone()])
+        .await
+        .expect("the proposal enters the bounded controller");
+    let Some(Message::NotifyTxs(notify)) = receiver.recv().await else {
+        panic!("proposal notification missing");
+    };
+    assert_eq!(
+        notify.arguments.into_transactions_for_test(),
+        vec![transaction]
+    );
+
+    let (sender, receiver) = mpsc::channel(1);
+    drop(receiver);
+    let client = controller(sender);
+    assert_fast_error(client.notify_txs_async(Vec::new())).await;
+    assert_fast_error(client.submit_remote_tx(
+        ckb_types::core::TransactionBuilder::default().build(),
+        0,
+        ckb_network::PeerIndex::from(1),
+    ))
+    .await;
 }
 
 #[test]

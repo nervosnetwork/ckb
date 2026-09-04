@@ -52,20 +52,6 @@ pub(in crate::authority) enum EffectPublicationObservationSnapshot {
     ClosedAndDrained,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::authority) enum EffectPublisherLevelInput {
-    #[default]
-    Idle,
-    Available,
-    ClosedAndDrained,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(in crate::authority) struct EffectWakeProjectionInput {
-    pub(in crate::authority) publisher: EffectPublisherLevelInput,
-    pub(in crate::authority) usage: [usize; 6],
-}
-
 impl EffectPublicationObservation {
     pub(in crate::authority) fn snapshot(self) -> EffectPublicationObservationSnapshot {
         match self {
@@ -81,42 +67,6 @@ impl EffectPublicationObservation {
             },
             Self::Idle => EffectPublicationObservationSnapshot::Idle,
             Self::ClosedAndDrained => EffectPublicationObservationSnapshot::ClosedAndDrained,
-        }
-    }
-}
-
-impl EffectWakeProjection {
-    pub(in crate::authority) fn from_input(input: EffectWakeProjectionInput) -> Self {
-        let [
-            remote_batches,
-            remote_bytes,
-            ordinary_batches,
-            ordinary_bytes,
-            total_batches,
-            total_bytes,
-        ] = input.usage;
-        Self {
-            publisher: match input.publisher {
-                EffectPublisherLevelInput::Idle => EffectPublisherLevel::Idle,
-                EffectPublisherLevelInput::Available => EffectPublisherLevel::Available,
-                EffectPublisherLevelInput::ClosedAndDrained => {
-                    EffectPublisherLevel::ClosedAndDrained
-                }
-            },
-            usage: EffectRegionUsage {
-                remote: EffectUsage {
-                    batches: remote_batches,
-                    bytes: remote_bytes,
-                },
-                ordinary: EffectUsage {
-                    batches: ordinary_batches,
-                    bytes: ordinary_bytes,
-                },
-                total: EffectUsage {
-                    batches: total_batches,
-                    bytes: total_bytes,
-                },
-            },
         }
     }
 }
@@ -230,72 +180,6 @@ impl EffectPublication {
     }
 }
 
-impl EffectSnapshot {
-    /// Compares the externally committed effect stream while deliberately
-    /// ignoring journal batch boundaries and their accounting envelope.
-    pub(in crate::authority) fn equivalent_stream(&self, other: &Self) -> bool {
-        fn flatten_queued(
-            records: impl IntoIterator<Item = QueuedEffectRecord>,
-        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
-            records
-                .into_iter()
-                .flat_map(|queued| {
-                    queued
-                        .record
-                        .batch
-                        .effects()
-                        .iter()
-                        .cloned()
-                        .map(move |effect| (Some(queued.class), effect))
-                        .collect::<Vec<_>>()
-                })
-                .collect()
-        }
-
-        fn flatten_reset(
-            record: Option<EffectRecord>,
-        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
-            record.map_or_else(Vec::new, |record| {
-                record
-                    .batch
-                    .effects()
-                    .iter()
-                    .cloned()
-                    .map(|effect| (None, effect))
-                    .collect()
-            })
-        }
-
-        fn flatten_committed_staged(
-            records: impl IntoIterator<Item = StagedEffectSnapshot>,
-        ) -> Vec<(Option<EffectClass>, CommittedEffect)> {
-            records
-                .into_iter()
-                .filter(|staged| staged.state == EFFECT_STAGE_COMMITTED)
-                .flat_map(|staged| {
-                    staged
-                        .record
-                        .record
-                        .batch
-                        .effects()
-                        .iter()
-                        .cloned()
-                        .map(move |effect| (Some(staged.record.class), effect))
-                        .collect::<Vec<_>>()
-                })
-                .collect()
-        }
-
-        flatten_queued(self.queued.clone()) == flatten_queued(other.queued.clone())
-            && flatten_committed_staged(self.staged.clone())
-                == flatten_committed_staged(other.staged.clone())
-            && flatten_reset(self.latest_generation_reset.clone())
-                == flatten_reset(other.latest_generation_reset.clone())
-            && self.pending_recent_rejects == other.pending_recent_rejects
-            && self.closed == other.closed
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::authority) struct EffectObservation {
     pub(in crate::authority) queued: Vec<ApplySequence>,
@@ -323,16 +207,11 @@ impl EffectReceipt {
         self.batch.charge_bytes()
     }
 
-    pub(in crate::authority) fn complete_for_foundation(mut self) -> CompletedEffectReceipt {
+    pub(in crate::authority) fn complete_for_foundation(mut self) -> Self {
         self.processed = EffectProgress(self.batch.publication_steps());
-        CompletedEffectReceipt {
-            token: self.token,
-            batch: self.batch,
-        }
+        self
     }
-}
 
-impl EffectSettlement {
     pub(in crate::authority) fn claim_generation_reset_source_for_foundation(mut self) -> Self {
         self.token.source = EffectLeaseSource::GenerationReset;
         self
@@ -368,10 +247,20 @@ impl EffectLog {
             closed: false,
             generation_reset_batch: EffectBatch::reset()
                 .expect("foundation reset effect allocation succeeds"),
+            staged_rollback_terminal_probe: None,
+            next_staged_activation_probe: None,
         }
     }
 
-    pub(in crate::authority) fn observation(&self) -> EffectObservation {
+    pub(in crate::authority) fn set_staged_rollback_terminal_probe_for_foundation(
+        &mut self,
+        probe: Option<Arc<super::super::shard::ConcurrentRemovalProbe>>,
+    ) {
+        self.staged_rollback_terminal_probe = probe;
+    }
+
+    pub(in crate::authority) fn observation(&mut self) -> EffectObservation {
+        self.flush_staged_prefix();
         EffectObservation {
             queued: self
                 .queued

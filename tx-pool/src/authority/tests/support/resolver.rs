@@ -1,23 +1,6 @@
 use super::*;
 use crate::authority::state::VerifiedFacts;
 
-impl AcceptedOverlay {
-    pub(in crate::authority) fn capture_for_foundation(
-        authority: &TxPoolAuthority,
-        tx: &TransactionView,
-        max_edges: usize,
-    ) -> Result<Self, DirectComputationError> {
-        Self::capture(authority, tx, max_edges).map_err(|kind| match kind {
-            ResolutionExecutionKind::ResourceUnavailable => {
-                DirectComputationError::ResourceUnavailable
-            }
-            ResolutionExecutionKind::StaleView
-            | ResolutionExecutionKind::ComputeBudget
-            | ResolutionExecutionKind::InvalidReceipt(_) => DirectComputationError::InvalidEvidence,
-        })
-    }
-}
-
 impl ResolutionJob {
     pub(in crate::authority) fn retry_for_foundation(self) -> ComputeSettlement {
         self.retry()
@@ -40,9 +23,6 @@ impl DirectResolutionJob {
         max_edges: usize,
     ) -> Result<PreparedDirectResolutionJob, DirectComputationError> {
         let overlay = AcceptedOverlay::prepare(&tx, max_edges).map_err(|kind| match kind {
-            ResolutionExecutionKind::ResourceUnavailable => {
-                DirectComputationError::ResourceUnavailable
-            }
             ResolutionExecutionKind::ComputeBudget
             | ResolutionExecutionKind::StaleView
             | ResolutionExecutionKind::InvalidReceipt(_) => DirectComputationError::InvalidEvidence,
@@ -102,14 +82,5 @@ impl DirectVerifiedCandidate {
                 .expect("foundation transaction and verified identity agree"),
             cache_update: None,
         }
-    }
-}
-
-impl ResolutionProbe {
-    pub(in crate::authority) fn missing_keys_for_foundation(&self) -> Vec<DependencyKey> {
-        self.missing
-            .iter()
-            .map(|cell| DependencyKey::Cell(cell.out_point.clone()))
-            .collect()
     }
 }

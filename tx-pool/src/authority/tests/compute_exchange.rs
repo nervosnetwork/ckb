@@ -1,42 +1,29 @@
 use super::foundation::{
-    admit_remote, apply_plan, checkout_remote_for_verify_with_claim, limits, owner_version,
-    resolved_payload_with_facts, take_resolve_work, tx,
+    admit_remote, apply_plan, limits, owner_version, resolved_payload_with_facts, take_resolve_work,
 };
 use crate::{
     authority::{
-        effect::{
-            CommittedAcceptance, CommittedEffect, EffectBatchBound, EffectBatchBounds,
-            EffectCapacity, EffectLimits, EffectPolicy,
-        },
         exchange::{
             AuthorityComputeExecutionPermit, ComputeVerifierSlot, ComputeWorkerGrant,
             ComputeWorkerSlot,
         },
         plan::{
-            CommittedComputeExchange, ComputeExchangeCompletion, ComputeExchangeDeferred,
-            ComputeExchangeDeferredRoute, PlanError, PreparedSharedComputeExchange,
-            SharedComputeExchangeOutcome, SharedComputeSettlementOutcome, TxPoolAuthority,
-            test_support::ComputeExchangeRecovery,
+            ComputeExchangeCompletion, ComputePeerExclusion, PlanError,
+            SharedComputeExchangeOutcome, TxPoolAuthority,
         },
         resources::{
             AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceLimits, ResourceVector,
         },
+        runtime::{AuthorityComputeAftermath, AuthorityFinishedCompute},
         shard::{ComputeExchangeProbePhase, ConcurrentRemovalProbe},
         state::{
-            ApplySequence, DependencyKey, EntryVersion, OwnedTx, PreAcceptedPhase, QueuedWork,
-            RawTxHash, ValidatedAdmission, VerifyCapability, VerifyCycleClass, WorkPermit,
+            OwnedTx, PreAcceptedPhase, QueuedWork, VerifyCapability, VerifyCycleClass, WorkPermit,
         },
-        work::{CheckedOutWork, ComputeSettlement, SettlementNext, SettlementToken},
+        work::CheckedOutWork,
     },
     error::Reject,
 };
-use ckb_network::PeerIndex;
-use ckb_types::{
-    bytes::Bytes,
-    core::Capacity,
-    packed::{Byte32, OutPoint},
-    prelude::Pack,
-};
+use ckb_types::core::Capacity;
 use std::{num::NonZeroUsize, sync::Arc};
 use tokio::sync::{Notify, Semaphore};
 
@@ -63,104 +50,6 @@ fn assignment_hash(work: &CheckedOutWork) -> crate::authority::state::RawTxHash 
     crate::authority::state::TxIdentity::from_transaction(transaction).raw
 }
 
-fn exchange_settlements(authority: &mut TxPoolAuthority) -> [ComputeSettlement; 2] {
-    let first = admit_remote(authority, 80_071, 13);
-    let second = admit_remote(authority, 80_072, 14);
-    let _third = admit_remote(authority, 80_073, 15);
-    let _fourth = admit_remote(authority, 80_074, 16);
-    let first_checkout = authority
-        .plan_checkout_for_foundation(
-            &first,
-            owner_version(authority, &first),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the first reference owner checks out")
-        .apply();
-    let (_, first_work) = take_resolve_work(first_checkout);
-    let second_checkout = authority
-        .plan_checkout_for_foundation(
-            &second,
-            owner_version(authority, &second),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the second reference owner checks out")
-        .apply();
-    let (_, second_work) = take_resolve_work(second_checkout);
-    [
-        first_work.internal_failure(),
-        second_work.internal_failure(),
-    ]
-}
-
-fn one_batch_effect_limits() -> EffectLimits {
-    const EFFECT_BYTES: usize = 1024 * 1024;
-    EffectLimits::partitioned(
-        EffectCapacity::new(1, EFFECT_BYTES),
-        EffectCapacity::new(0, 0),
-        EffectCapacity::new(0, 0),
-        EffectBatchBounds::new(
-            EffectBatchBound::new(1, EFFECT_BYTES),
-            EffectBatchBound::new(1, EFFECT_BYTES),
-            EffectBatchBound::new(1, EFFECT_BYTES),
-        ),
-    )
-    .expect("one total effect slot admits every fixture batch")
-}
-
-fn fill_total_effect_capacity(authority: &mut TxPoolAuthority) {
-    let publication = authority
-        .effect_publication_for_foundation(
-            EffectPolicy::CriticalDetail,
-            vec![CommittedEffect::Accepted(CommittedAcceptance::Duplicate {
-                tx_hash: crate::authority::state::RawTxHash(Byte32::new([81; 32])),
-                requesting_peer: None,
-            })],
-        )
-        .expect("one critical fixture publication fits its batch bound");
-    drop(
-        authority
-            .plan_effect_publication_for_foundation(&publication)
-            .expect("the sole total effect slot is initially empty")
-            .apply(),
-    );
-}
-
-fn limits_with_active_work(active_work: usize) -> ResourceLimits {
-    let bytes = active_work * 8 * 1024;
-    let edges = active_work * 16;
-    ResourceLimits::new(
-        ResourceVector::new(active_work, bytes, edges, active_work),
-        ResourceVector::new(active_work, bytes, edges, active_work),
-        ResourceVector::new(active_work, bytes, edges, active_work),
-        AcceptedResources::new(active_work, bytes, bytes, u64::MAX),
-        ComputeLimits::new(4 * 1024, 4 * 1024, 16),
-    )
-    .expect("the fixture active-work partition is internally consistent")
-}
-
-fn limits_with_narrow_peer_retained_edges() -> ResourceLimits {
-    const COMPUTE_BYTES: usize = 4 * 1024;
-    let compute = ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 16);
-    let aggregate = ResourceVector::new(8, 64 * 1024, 64, 3)
-        .with_compute_capacity(3 * COMPUTE_BYTES, 48)
-        .expect("aggregate compute capacity fits");
-    let per_peer = ResourceVector::new(4, 32 * 1024, 1, 3)
-        .with_compute_capacity(3 * COMPUTE_BYTES, 48)
-        .expect("peer compute capacity fits");
-    ResourceLimits::with_residency_policy(
-        aggregate,
-        aggregate,
-        per_peer,
-        AcceptedResources::new(8, 64 * 1024, 64 * 1024, u64::MAX),
-        compute,
-        ResidencyPolicy::production(
-            NonZeroUsize::new(128).expect("entry metadata is non-zero"),
-            NonZeroUsize::new(64).expect("edge metadata is non-zero"),
-        ),
-    )
-    .expect("the peer-pressure fixture has a valid limit hierarchy")
-}
-
 fn limits_with_one_peer_active_work() -> ResourceLimits {
     const COMPUTE_BYTES: usize = 4 * 1024;
     let compute = ComputeLimits::new(COMPUTE_BYTES, COMPUTE_BYTES, 16);
@@ -184,513 +73,8 @@ fn limits_with_one_peer_active_work() -> ResourceLimits {
     .expect("the peer-active-work fixture has a valid limit hierarchy")
 }
 
-fn owner_local_resolve_settlement(
-    authority: &mut TxPoolAuthority,
-    hash: &RawTxHash,
-    dependency_marker: Option<u8>,
-) -> ComputeSettlement {
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            hash,
-            owner_version(authority, hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the bounded resolve grant checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
-    let dependencies = dependency_marker
-        .map(|marker| OutPoint::new(Byte32::new([marker; 32]), 0))
-        .into_iter()
-        .collect();
-    let resolution = resolved_payload_with_facts(
-        resolve.transaction(),
-        dependencies,
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    resolve
-        .yield_verify(resolution)
-        .expect("the resolved evidence belongs to its transaction")
-}
-
-fn prepare_shared_exchange<'authority>(
-    authority: &'authority TxPoolAuthority,
-    completions: Vec<ComputeExchangeCompletion>,
-) -> PreparedSharedComputeExchange<'authority> {
-    let inputs = authority
-        .validate_compute_exchange_inputs(completions, Vec::new())
-        .expect("the bounded exchange inputs validate");
-    authority
-        .prepare_shared_compute_exchange(inputs)
-        .expect("the owner-local batch prepares")
-}
-
-fn apply_shared_exchange_with_interposition(
-    authority: &TxPoolAuthority,
-    phase: ComputeExchangeProbePhase,
-    completions: Vec<ComputeExchangeCompletion>,
-    grants: Vec<ComputeWorkerGrant>,
-    interpose: impl FnOnce(&TxPoolAuthority),
-) -> SharedComputeExchangeOutcome {
-    let (probe, entered, release) = ConcurrentRemovalProbe::new();
-    authority
-        .entries_for_reference()
-        .set_compute_exchange_probe(phase, Some(probe));
-    let outcome = std::thread::scope(|scope| {
-        let handle = scope.spawn(move || {
-            let inputs = authority
-                .validate_compute_exchange_inputs(completions, grants)
-                .expect("the interposed exchange inputs validate");
-            let plan = authority
-                .prepare_shared_compute_exchange(inputs)
-                .expect("the interposed shared exchange prepares");
-            plan.apply()
-        });
-        entered
-            .recv()
-            .expect("the deterministic exchange probe is reached");
-        interpose(authority);
-        release
-            .send(())
-            .expect("the deterministic exchange probe resumes");
-        handle
-            .join()
-            .expect("the shared exchange thread does not panic")
-    });
-    authority
-        .entries_for_reference()
-        .set_compute_exchange_probe(phase, None);
-    outcome
-}
-
-fn apply_exact_deferred_settlement(
-    authority: &TxPoolAuthority,
-    deferred: ComputeExchangeDeferred,
-) -> ComputeWorkerSlot {
-    let (route, completion) = deferred.into_parts();
-    assert_eq!(route, ComputeExchangeDeferredRoute::ExactSettlement);
-    let (slot, finished) = completion.into_parts();
-    let (settlement, aftermath) = finished.into_parts();
-    let prepared = authority
-        .prepare_shared_compute_settlement(settlement)
-        .expect("the production exact-settlement route prepares");
-    match prepared.apply() {
-        SharedComputeSettlementOutcome::Committed(committed) => {
-            drop(committed);
-            drop(aftermath);
-            slot
-        }
-        SharedComputeSettlementOutcome::Failed {
-            failure,
-            effect_wake,
-        } => {
-            drop(failure);
-            let _ = effect_wake;
-            panic!("the production exact-settlement route must commit")
-        }
-    }
-}
-
-fn stale_completion(worker: usize) -> ComputeExchangeCompletion {
-    ComputeExchangeCompletion::new(
-        any_verifier(worker),
-        ComputeSettlement {
-            token: SettlementToken {
-                hash: RawTxHash(Byte32::new([worker as u8; 32])),
-                version: EntryVersion(worker as u128 + 1),
-            },
-            next: SettlementNext::Retry,
-        },
-    )
-}
-
 #[test]
-fn uak_shared_compute_exchange_commits_relative_resource_and_dependency_rows() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_000, 9);
-    let dependency = OutPoint::new(Byte32::new([0x91; 32]), 0);
-    let settlement = owner_local_resolve_settlement(&mut authority, &hash, Some(0x91));
-    let plan = prepare_shared_exchange(
-        &authority,
-        vec![ComputeExchangeCompletion::new(
-            ComputeWorkerSlot::ordered_resolve(),
-            settlement,
-        )],
-    );
-    let committed = match plan.apply() {
-        SharedComputeExchangeOutcome::Committed {
-            exchange,
-            post_commit_fault: None,
-        } => exchange,
-        SharedComputeExchangeOutcome::Committed {
-            post_commit_fault: Some(_),
-            ..
-        }
-        | SharedComputeExchangeOutcome::RetryProbe(_)
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("the unchanged shared exchange witness must commit cleanly")
-        }
-    };
-    assert_eq!(
-        committed.settled,
-        vec![ComputeWorkerSlot::ordered_resolve()]
-    );
-    drop(committed);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-    assert_eq!(authority.resources().preaccepted().active_work, 0);
-    assert!(
-        authority
-            .dependency_consumers_for_foundation(&DependencyKey::Cell(dependency))
-            .is_some_and(|consumers| consumers.contains(&hash))
-    );
-}
-
-#[test]
-fn uak_shared_compute_exchange_revalidates_the_classification_dependency_window() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_007, 10);
-    let dependency = OutPoint::new(Byte32::new([0x94; 32]), 0);
-    let key = DependencyKey::Cell(dependency);
-    let settlement = owner_local_resolve_settlement(&mut authority, &hash, Some(0x94));
-    let expected = owner_version(&authority, &hash);
-    let outcome = apply_shared_exchange_with_interposition(
-        &authority,
-        ComputeExchangeProbePhase::AfterClassification,
-        vec![ComputeExchangeCompletion::new(any_verifier(0), settlement)],
-        Vec::new(),
-        |authority| {
-            authority
-                .apply_dependency_loss_during_shared_plan_for_foundation(vec![key.clone()])
-                .expect("the competing dependency loss commits independently");
-        },
-    );
-
-    let recovered = match outcome {
-        SharedComputeExchangeOutcome::RetryProbe(recovered) => recovered,
-        SharedComputeExchangeOutcome::Committed { .. }
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("stale dependency evidence must return a retry probe")
-        }
-    };
-    assert!(recovered.obsolete.is_empty());
-    assert!(recovered.unused_grants.is_empty());
-    assert_eq!(recovered.deferred.len(), 1);
-    assert_eq!(
-        recovered
-            .deferred
-            .into_iter()
-            .next()
-            .expect("the stale owner-local completion is recovered")
-            .into_parts()
-            .0,
-        ComputeExchangeDeferredRoute::ExchangeRetry
-    );
-    assert_eq!(owner_version(&authority, &hash), expected);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(
-        authority
-            .dependency_consumers_for_foundation(&key)
-            .is_none_or(|consumers| !consumers.contains(&hash))
-    );
-}
-
-#[test]
-fn uak_shared_compute_exchange_never_rebinds_a_classified_owner() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_008, 11);
-    let settlement = owner_local_resolve_settlement(&mut authority, &hash, None);
-    let original = owner_version(&authority, &hash);
-    let mut rebound = None;
-    let outcome = apply_shared_exchange_with_interposition(
-        &authority,
-        ComputeExchangeProbePhase::AfterClassification,
-        vec![ComputeExchangeCompletion::new(any_verifier(0), settlement)],
-        Vec::new(),
-        |authority| {
-            rebound = Some(authority.rebind_owner_version_during_shared_plan_for_foundation(&hash));
-        },
-    );
-    let recovered = match outcome {
-        SharedComputeExchangeOutcome::RetryProbe(recovered) => recovered,
-        SharedComputeExchangeOutcome::Committed { .. }
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("a rebound canonical premise must return a retry probe")
-        }
-    };
-    assert_eq!(recovered.deferred.len(), 1);
-    assert!(recovered.unused_grants.is_empty());
-    assert_ne!(rebound, Some(original));
-    assert_eq!(
-        owner_version(&authority, &hash),
-        rebound.expect("owner rebound")
-    );
-}
-
-#[test]
-fn uak_shared_compute_exchange_tolerates_unrelated_clock_reservations() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_011, 14);
-    let settlement = owner_local_resolve_settlement(&mut authority, &hash, None);
-    let mut unrelated = None;
-    let outcome = apply_shared_exchange_with_interposition(
-        &authority,
-        ComputeExchangeProbePhase::AfterClassification,
-        vec![ComputeExchangeCompletion::new(any_verifier(0), settlement)],
-        Vec::new(),
-        |authority| {
-            unrelated = Some(authority.reserve_unrelated_compute_clock_for_foundation());
-        },
-    );
-    let exchange = match outcome {
-        SharedComputeExchangeOutcome::Committed {
-            exchange,
-            post_commit_fault: None,
-        } => exchange,
-        SharedComputeExchangeOutcome::Committed {
-            post_commit_fault: Some(_),
-            ..
-        }
-        | SharedComputeExchangeOutcome::RetryProbe(_)
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("an unrelated legal clock reservation cannot fault the exchange")
-        }
-    };
-    let (unrelated_version, unrelated_sequence) = unrelated.expect("clock reservation ran");
-    assert_eq!(exchange.settled.len(), 1);
-    drop(exchange);
-    assert!(owner_version(&authority, &hash).0 > unrelated_version.0);
-    assert!(authority.clocks().next_sequence.0 > unrelated_sequence.0);
-}
-
-#[test]
-fn uak_shared_compute_exchange_scheduler_cursor_competition_returns_the_grant() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let _hash = admit_remote(&mut authority, 80_009, 12);
-    let outcome = apply_shared_exchange_with_interposition(
-        &authority,
-        ComputeExchangeProbePhase::AfterSchedulerWave,
-        Vec::new(),
-        vec![grant(ComputeWorkerSlot::ordered_resolve())],
-        |authority| {
-            authority.invalidate_compute_exchange_cursor_for_foundation(EntryVersion(u128::MAX));
-        },
-    );
-    let recovered = match outcome {
-        SharedComputeExchangeOutcome::RetryProbe(recovered) => recovered,
-        SharedComputeExchangeOutcome::Committed { .. }
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("a changed scheduler cursor must return a retry probe")
-        }
-    };
-    assert!(recovered.deferred.is_empty());
-    assert_eq!(recovered.unused_grants.len(), 1);
-}
-
-#[test]
-fn uak_shared_compute_exchange_ticket_owner_competition_returns_the_grant() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_010, 13);
-    let mut rebound = None;
-    let outcome = apply_shared_exchange_with_interposition(
-        &authority,
-        ComputeExchangeProbePhase::AfterSchedulerWave,
-        Vec::new(),
-        vec![grant(ComputeWorkerSlot::ordered_resolve())],
-        |authority| {
-            rebound = Some(authority.rebind_owner_version_during_shared_plan_for_foundation(&hash));
-        },
-    );
-    let recovered = match outcome {
-        SharedComputeExchangeOutcome::RetryProbe(recovered) => recovered,
-        SharedComputeExchangeOutcome::Committed { .. }
-        | SharedComputeExchangeOutcome::Fault { .. } => {
-            panic!("a changed ticket owner must return a retry probe")
-        }
-    };
-    assert!(recovered.deferred.is_empty());
-    assert_eq!(recovered.unused_grants.len(), 1);
-    assert_eq!(
-        owner_version(&authority, &hash),
-        rebound.expect("owner rebound")
-    );
-}
-
-#[test]
-fn uak_closed_shared_compute_exchange_returns_a_grant_only_batch() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    apply_plan(
-        authority
-            .plan_effect_close_for_foundation()
-            .expect("the empty effect log closes"),
-    );
-    let inputs = authority
-        .validate_compute_exchange_inputs(
-            Vec::new(),
-            vec![grant(ComputeWorkerSlot::ordered_resolve())],
-        )
-        .expect("the grant-only shape validates independently of lifecycle state");
-    let failure = match authority.prepare_shared_compute_exchange(inputs) {
-        Err(failure) => failure,
-        Ok(_) => panic!("the closed authority cannot prepare a grant-only exchange"),
-    };
-    let (error, mut recoveries) = failure.into_parts();
-    assert_eq!(error, PlanError::EffectClosed);
-    assert!(matches!(
-        recoveries.next(),
-        Some(ComputeExchangeRecovery::Grant(_))
-    ));
-    assert!(recoveries.next().is_none());
-}
-
-#[test]
-fn uak_compute_exchange_uses_the_configured_active_work_bound() {
-    let active_work = crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1;
-    let mut authority = TxPoolAuthority::for_foundation(limits_with_active_work(active_work));
-    let grants = (0..active_work)
-        .map(|worker| grant(any_verifier(worker)))
-        .collect::<Vec<_>>();
-
-    let committed = authority
-        .apply_compute_exchange(Vec::new(), grants)
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!(
-                "the configured worker topology, not the membership bound, limits a wave: {error:?}"
-            );
-        });
-    assert!(committed.retirement.is_none());
-    assert!(committed.assignments.is_empty());
-    assert_eq!(committed.unused_grants.len(), active_work);
-    drop(committed);
-
-    let completions = (0..active_work).map(stale_completion).collect::<Vec<_>>();
-    let committed = authority
-        .apply_compute_exchange(completions, Vec::new())
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the configured completion partition is also valid: {error:?}");
-        });
-    assert_eq!(committed.obsolete.len(), active_work);
-    assert!(committed.assignments.is_empty());
-}
-
-#[test]
-fn uak_verifier_primaries_precede_resolve_fallback_under_peer_pressure() {
-    let mut authority = TxPoolAuthority::for_foundation(limits_with_one_peer_active_work());
-    let peer = 80usize;
-    let verify = admit_remote(&mut authority, 80_080, peer);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &verify,
-            owner_version(&authority, &verify),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the Verify fixture resolves")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
-    let payload = resolved_payload_with_facts(
-        resolve.transaction(),
-        Vec::new(),
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    apply_plan(
-        authority
-            .apply_settlement(
-                resolve
-                    .yield_verify_as(payload, VerifyCycleClass::Large)
-                    .expect("the large verification payload belongs to its owner"),
-            )
-            .expect("the large Verify phase commits"),
-    );
-    let queued_resolve = admit_remote(&mut authority, 80_081, peer);
-    let small: ComputeWorkerSlot =
-        ComputeVerifierSlot::new(0, VerifyCapability::SmallCycleOnly).into();
-    let any = any_verifier(1);
-
-    let committed = authority
-        .apply_compute_exchange(Vec::new(), vec![grant(small), grant(any)])
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the mixed verifier wave plans: {error:?}");
-        });
-    assert_eq!(committed.assignments.len(), 1);
-    assert_eq!(committed.unused_grants.len(), 1);
-    let assignment = committed
-        .assignments
-        .into_iter()
-        .next()
-        .expect("the Any verifier receives the existing Verify head");
-    let (slot, execution, work) = assignment.into_parts();
-    assert_eq!(slot, any);
-    assert_eq!(assignment_hash(&work), verify);
-    drop(execution);
-    drop(work);
-    assert!(matches!(
-        authority.entry(&queued_resolve),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-    ));
-}
-
-#[test]
-fn uak_compute_exchange_rejects_a_capability_partition_larger_than_the_worker_topology() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let before = authority.normalized_snapshot();
-    let active_work = authority.resources().limits().active_work_limit();
-    let grants = (0..=active_work)
-        .map(|worker| grant(any_verifier(worker)))
-        .collect::<Vec<_>>();
-
-    let failure = authority
-        .apply_compute_exchange(Vec::new(), grants)
-        .err()
-        .expect("a capability partition cannot exceed the configured worker topology");
-    let (error, recoveries) = failure.into_parts();
-    assert_eq!(
-        error,
-        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
-    );
-    assert_eq!(
-        recoveries
-            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Grant(_)))
-            .count(),
-        active_work + 1
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-
-    let completions = (0..=active_work).map(stale_completion).collect::<Vec<_>>();
-    let failure = authority
-        .apply_compute_exchange(completions, Vec::new())
-        .err()
-        .expect("a completion partition cannot exceed the configured worker topology");
-    let (error, recoveries) = failure.into_parts();
-    assert_eq!(
-        error,
-        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
-    );
-    assert_eq!(
-        recoveries
-            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Settlement(_)))
-            .count(),
-        active_work + 1
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[test]
-fn uak_initial_compute_exchange_checks_out_one_available_worker_wave_with_one_stamp() {
+fn uak_compute_exchange_checks_out_one_canonical_multi_slot_wave_with_one_stamp() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let first = admit_remote(&mut authority, 80_001, 1);
     let second = admit_remote(&mut authority, 80_002, 2);
@@ -698,21 +82,19 @@ fn uak_initial_compute_exchange_checks_out_one_available_worker_wave_with_one_st
 
     let committed = authority
         .apply_compute_exchange(
-            Vec::new(),
             vec![
                 grant(any_verifier(0)),
                 grant(ComputeWorkerSlot::ordered_resolve()),
             ],
+            &[],
         )
         .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("one immediately available worker wave plans: {error:?}");
+            let (error, grants) = failure.into_parts();
+            drop(grants);
+            panic!("one available worker wave plans: {error:?}");
         });
+
     assert!(committed.retirement.is_some());
-    assert!(committed.settled.is_empty());
-    assert!(committed.obsolete.is_empty());
-    assert!(committed.deferred.is_empty());
     assert!(committed.unused_grants.is_empty());
     assert_eq!(committed.assignments.len(), 2);
     assert_eq!(
@@ -748,1065 +130,227 @@ fn uak_initial_compute_exchange_checks_out_one_available_worker_wave_with_one_st
 }
 
 #[test]
-fn uak_compute_exchange_selects_from_the_virtual_post_settlement_frontier() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let first = admit_remote(&mut authority, 80_011, 3);
-    let second = admit_remote(&mut authority, 80_012, 3);
-    let third = admit_remote(&mut authority, 80_013, 5);
+fn uak_compute_exchange_runs_verifier_primaries_before_resolve_fallbacks() {
+    let mut authority = TxPoolAuthority::for_foundation(limits_with_one_peer_active_work());
+    let peer = 80usize;
+    let verify = admit_remote(&mut authority, 80_080, peer);
     let checkout = authority
-        .plan_checkout_for_foundation(
-            &first,
-            owner_version(&authority, &first),
+        .checkout_for_foundation(
+            &verify,
+            owner_version(&authority, &verify),
             WorkPermit::ResolveOnly,
         )
-        .expect("first owner checks out")
-        .apply();
+        .expect("the Verify fixture resolves");
     let (_, resolve) = take_resolve_work(checkout);
-    let before = authority.clocks();
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                ComputeWorkerSlot::ordered_resolve(),
-                resolve.internal_failure(),
-            )],
-            vec![
-                grant(ComputeWorkerSlot::ordered_resolve()),
-                grant(any_verifier(0)),
-            ],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("settlement and refill compose: {error:?}");
-        });
-    assert_eq!(
-        committed.settled,
-        vec![ComputeWorkerSlot::ordered_resolve()]
+    let payload = resolved_payload_with_facts(
+        resolve.transaction(),
+        Vec::new(),
+        Vec::new(),
+        Capacity::shannons(1),
     );
-    assert!(committed.deferred.is_empty());
-    assert!(committed.unused_grants.is_empty());
-    assert_eq!(committed.assignments.len(), 2);
-    assert_eq!(
-        authority.clocks().next_sequence.0,
-        before.next_sequence.0 + 1
-    );
-    assert_eq!(authority.clocks().next_version.0, before.next_version.0 + 3);
-    let assigned = committed
-        .assignments
-        .into_iter()
-        .map(|assignment| {
-            let (_, execution, work) = assignment.into_parts();
-            drop(execution);
-            assignment_hash(&work)
-        })
-        .collect::<Vec<_>>();
-    assert!(assigned.contains(&first));
-    assert!(assigned.contains(&third));
-    assert!(!assigned.contains(&second));
-}
-
-#[test]
-fn uak_compute_exchange_defers_peer_retained_growth_to_exact_settlement() {
-    let mut authority = TxPoolAuthority::for_foundation(limits_with_narrow_peer_retained_edges());
-    let first = admit_remote(&mut authority, 80_014, 3);
-    let second = admit_remote(&mut authority, 80_015, 3);
-    let first_settlement = owner_local_resolve_settlement(&mut authority, &first, Some(41));
-    let second_settlement = owner_local_resolve_settlement(&mut authority, &second, Some(42));
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(any_verifier(0), second_settlement),
-                ComputeExchangeCompletion::new(
-                    ComputeWorkerSlot::ordered_resolve(),
-                    first_settlement,
-                ),
-            ],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("legal peer pressure must remain exact settlement work: {error:?}");
-        });
-
-    assert_eq!(
-        committed.settled,
-        vec![ComputeWorkerSlot::ordered_resolve()]
-    );
-    assert_eq!(committed.deferred.len(), 1);
-    assert!(matches!(
-        authority.entry(&first),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-    assert!(matches!(
-        authority.entry(&second),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-
-    let deferred = committed
-        .deferred
-        .into_iter()
-        .next()
-        .expect("the growing settlement retains one exact route");
-    let (route, completion) = deferred.into_parts();
-    assert_eq!(route, ComputeExchangeDeferredRoute::ExactSettlement);
-    let (_, finished) = completion.into_parts();
-    let (settlement, aftermath) = finished.into_parts();
-    drop(aftermath);
     apply_plan(
         authority
-            .apply_settlement(settlement)
-            .expect("the exact planner turns peer pressure into a resource rejection"),
+            .apply_settlement(
+                resolve
+                    .yield_verify_as(payload, VerifyCycleClass::Large)
+                    .expect("the large verification payload belongs to its owner"),
+            )
+            .expect("the large Verify phase commits"),
     );
-    assert!(authority.entry(&second).is_none());
-    assert_eq!(authority.resources().preaccepted().active_work, 0);
-}
-
-#[test]
-fn uak_compute_exchange_admits_a_later_fitting_owner_after_exact_overflow() {
-    let mut authority = TxPoolAuthority::for_foundation(limits_with_narrow_peer_retained_edges());
-    let first = admit_remote(&mut authority, 80_016, 3);
-    let second = admit_remote(&mut authority, 80_017, 3);
-    let third = admit_remote(&mut authority, 80_018, 3);
-    let first_settlement = owner_local_resolve_settlement(&mut authority, &first, Some(43));
-    let second_settlement = owner_local_resolve_settlement(&mut authority, &second, Some(44));
-    let third_settlement = owner_local_resolve_settlement(&mut authority, &third, None);
-
-    let first_slot = ComputeWorkerSlot::ordered_resolve();
-    let second_slot = any_verifier(0);
-    let third_slot = any_verifier(1);
-    let committed = authority
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(third_slot, third_settlement),
-                ComputeExchangeCompletion::new(second_slot, second_settlement),
-                ComputeExchangeCompletion::new(first_slot, first_settlement),
-            ],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("version-ordered greedy admission remains valid: {error:?}");
-        });
-
-    assert!(
-        committed
-            .settled
-            .iter()
-            .any(|settled| settled.eq(&first_slot))
-    );
-    assert!(
-        committed
-            .settled
-            .iter()
-            .any(|settled| settled.eq(&third_slot))
-    );
-    assert!(
-        !committed
-            .settled
-            .iter()
-            .any(|settled| settled.eq(&second_slot))
-    );
-    assert_eq!(committed.deferred.len(), 1);
-    assert!(matches!(
-        authority.entry(&first),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-    assert!(matches!(
-        authority.entry(&second),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(matches!(
-        authority.entry(&third),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Verify(_)))
-    ));
-    let deferred = committed
-        .deferred
-        .into_iter()
-        .next()
-        .expect("only the overflowing middle owner remains exact");
-    assert_eq!(
-        deferred.into_parts().0,
-        ComputeExchangeDeferredRoute::ExactSettlement
-    );
-}
-
-#[test]
-fn uak_compute_exchange_defers_effectful_work_without_blocking_an_idle_slot() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let first = admit_remote(&mut authority, 80_021, 6);
-    let second = admit_remote(&mut authority, 80_022, 7);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &first,
-            owner_version(&authority, &first),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("first owner checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
+    let queued_resolve = admit_remote(&mut authority, 80_081, peer);
+    let small: ComputeWorkerSlot =
+        ComputeVerifierSlot::new(0, VerifyCapability::SmallCycleOnly).into();
+    let any = any_verifier(1);
 
     let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                ComputeWorkerSlot::ordered_resolve(),
-                resolve.rejected(Reject::Invalidated("exchange rejection".to_owned())),
-            )],
-            vec![grant(any_verifier(0))],
-        )
+        .apply_compute_exchange(vec![grant(small), grant(any)], &[])
         .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("effectful deferral preserves unrelated progress: {error:?}");
+            let (error, grants) = failure.into_parts();
+            drop(grants);
+            panic!("the mixed verifier wave plans: {error:?}");
         });
-    assert!(committed.settled.is_empty());
-    assert_eq!(committed.deferred.len(), 1);
     assert_eq!(committed.assignments.len(), 1);
-    let (_, execution, work) = committed
+    assert_eq!(committed.unused_grants.len(), 1);
+    let assignment = committed
         .assignments
         .into_iter()
         .next()
-        .expect("the independent queued owner is assigned")
-        .into_parts();
+        .expect("the Any verifier receives the existing Verify head");
+    let (slot, execution, work) = assignment.into_parts();
+    assert_eq!(slot, any);
+    assert_eq!(assignment_hash(&work), verify);
     drop(execution);
-    assert_eq!(assignment_hash(&work), second);
+    drop(work);
     assert!(matches!(
-        authority.entry(&first),
+        authority.entry(&queued_resolve),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
 }
 
 #[test]
-fn uak_compute_exchange_duplicate_slot_failure_returns_every_idle_capability() {
+fn uak_compute_exchange_changed_owner_cut_returns_the_grant_for_stale_retry() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let before = authority.normalized_snapshot();
-    let failure = authority
-        .apply_compute_exchange(
-            Vec::new(),
-            vec![
-                grant(ComputeWorkerSlot::ordered_resolve()),
-                grant(ComputeWorkerSlot::ordered_resolve()),
-            ],
+    let hash = admit_remote(&mut authority, 80_009, 12);
+    let original = owner_version(&authority, &hash);
+    let slot = ComputeWorkerSlot::ordered_resolve();
+    let (probe, entered, release) = ConcurrentRemovalProbe::new();
+    authority
+        .entries_for_reference()
+        .set_compute_exchange_probe(ComputeExchangeProbePhase::AfterSchedulerWave, Some(probe));
+
+    let (outcome, rebound) = std::thread::scope(|scope| {
+        let handle = scope.spawn(|| {
+            let inputs = authority
+                .validate_compute_exchange_inputs(vec![grant(slot)])
+                .expect("the unique grant validates");
+            authority
+                .prepare_shared_compute_exchange(inputs, &[])
+                .expect("the shared exchange prepares")
+                .apply()
+        });
+        entered
+            .recv()
+            .expect("the deterministic scheduler-wave probe is reached");
+        let rebound = authority.rebind_owner_version_during_shared_plan_for_foundation(&hash);
+        release
+            .send(())
+            .expect("the deterministic scheduler-wave probe resumes");
+        (
+            handle
+                .join()
+                .expect("the shared exchange thread does not panic"),
+            rebound,
         )
+    });
+    authority
+        .entries_for_reference()
+        .set_compute_exchange_probe(ComputeExchangeProbePhase::AfterSchedulerWave, None);
+
+    let recovered = match outcome {
+        SharedComputeExchangeOutcome::RetryProbe(recovered) => recovered,
+        SharedComputeExchangeOutcome::Committed { .. }
+        | SharedComputeExchangeOutcome::Fault { .. } => {
+            panic!("a changed selected owner cut must retry")
+        }
+    };
+    assert_eq!(recovered.unused_grants.len(), 1);
+    assert_eq!(recovered.unused_grants[0].slot(), slot);
+    assert_ne!(rebound, original);
+    assert_eq!(owner_version(&authority, &hash), rebound);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+}
+
+#[test]
+fn uak_compute_exchange_rejects_duplicate_grants_without_mutating_authority() {
+    let authority = TxPoolAuthority::for_foundation(limits());
+    let before = authority.normalized_snapshot();
+    let slot = ComputeWorkerSlot::ordered_resolve();
+
+    let failure = authority
+        .apply_compute_exchange(vec![grant(slot), grant(slot)], &[])
         .err()
         .expect("duplicate stable slot identity is rejected");
-    let (error, recoveries) = failure.into_parts();
+    let (error, returned) = failure.into_parts();
     assert_eq!(
         error,
         PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
     );
-    assert_eq!(
-        recoveries
-            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Grant(_)))
-            .count(),
-        2
-    );
+    let returned = returned.collect::<Vec<_>>();
+    assert_eq!(returned.len(), 2);
+    assert!(returned.iter().all(|grant| grant.slot() == slot));
     assert_eq!(authority.normalized_snapshot(), before);
 }
 
 #[test]
-fn uak_compute_exchange_duplicate_completion_identity_returns_both_capabilities() {
+fn uak_current_peer_exclusion_skips_its_peer_but_assigns_an_independent_peer() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_030, 25);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the retained owner checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
-    let original = resolve.internal_failure();
-    let duplicate = ComputeSettlement {
-        token: SettlementToken {
-            hash: original.token.hash.clone(),
-            version: original.token.version,
-        },
-        next: SettlementNext::Retry,
-    };
-    let before = authority.normalized_snapshot();
-
-    let failure = authority
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(ComputeWorkerSlot::ordered_resolve(), original),
-                ComputeExchangeCompletion::new(any_verifier(0), duplicate),
-            ],
-            Vec::new(),
-        )
-        .err()
-        .expect("one linear settlement identity cannot occupy two worker slots");
-    let (error, recoveries) = failure.into_parts();
-    assert_eq!(
-        error,
-        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
-    );
-    assert_eq!(
-        recoveries
-            .filter(|recovery| matches!(recovery, ComputeExchangeRecovery::Settlement(_)))
-            .count(),
-        2
-    );
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[test]
-fn uak_compute_exchange_without_a_fair_grant_can_settle_but_never_checkout() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_031, 8);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the retained owner checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                ComputeWorkerSlot::ordered_resolve(),
-                resolve.internal_failure(),
-            )],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("settlement without checkout authority plans: {error:?}");
-        });
-    assert_eq!(
-        committed.settled,
-        vec![ComputeWorkerSlot::ordered_resolve()]
-    );
-    assert!(committed.assignments.is_empty());
-    assert!(committed.unused_grants.is_empty());
-    assert_eq!(authority.resources().preaccepted().active_work, 0);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(_))
-    ));
-}
-
-#[test]
-fn uak_compute_exchange_rejects_an_old_completion_while_replacement_is_computing() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let raw = tx(80_032);
-    let remote = raw
-        .as_advanced_builder()
-        .set_witnesses(vec![Bytes::from_static(b"remote-active").pack()])
-        .build();
-    let trusted = raw
-        .as_advanced_builder()
-        .set_witnesses(vec![Bytes::from_static(b"trusted-active").pack()])
-        .build();
-    let admission = ValidatedAdmission::remote(remote, PeerIndex::from(33usize))
-        .expect("the remote witness variant is valid");
-    let hash = admission.identity.raw.clone();
-    apply_plan(
-        authority
-            .plan_admission(admission)
-            .expect("the remote witness enters ownership"),
-    );
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the remote witness checks out")
-        .apply();
-    let (_, old_work) = take_resolve_work(checkout);
-    let old_version = owner_version(&authority, &hash);
-
-    apply_plan(
-        authority
-            .plan_admission(
-                ValidatedAdmission::proposal(trusted)
-                    .expect("the trusted witness replacement is valid"),
-            )
-            .expect("the trusted witness replaces the active remote owner"),
-    );
-    assert_ne!(owner_version(&authority, &hash), old_version);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(_))
-    ));
-
-    let replacement = authority
-        .apply_compute_exchange(Vec::new(), vec![grant(any_verifier(0))])
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the replacement checks out while the old worker is still live: {error:?}");
-        });
-    let (_, execution, replacement_work) = replacement
-        .assignments
-        .into_iter()
-        .next()
-        .expect("the replacement owns the available second worker slot")
-        .into_parts();
-    drop(execution);
-    assert_eq!(assignment_hash(&replacement_work), hash);
-    let replacement_version = owner_version(&authority, &hash);
-    assert_ne!(replacement_version, old_version);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    let before_old_completion = authority.normalized_snapshot();
-
-    let old_slot = ComputeWorkerSlot::ordered_resolve();
-    let stale = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                old_slot,
-                old_work.internal_failure(),
-            )],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the old completion is an ordinary obsolete capability: {error:?}");
-        });
-    assert!(stale.retirement.is_none());
-    assert!(stale.settled.is_empty());
-    assert_eq!(stale.obsolete, vec![old_slot]);
-    assert!(stale.deferred.is_empty());
-    assert!(stale.assignments.is_empty());
-    assert_eq!(authority.normalized_snapshot(), before_old_completion);
-    assert_eq!(owner_version(&authority, &hash), replacement_version);
-
-    drop(
-        authority
-            .apply_settlement(replacement_work.cancelled())
-            .expect("the exact replacement capability remains current"),
-    );
-}
-
-#[test]
-fn uak_effectful_completion_keeps_its_slot_and_returns_a_matching_grant_unused() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_041, 9);
-    let slot = ComputeWorkerSlot::ordered_resolve();
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the retained owner checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                slot,
-                resolve.rejected(Reject::Invalidated("effectful boundary".to_owned())),
-            )],
-            vec![grant(slot)],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("effectful deferral is a committed no-op: {error:?}");
-        });
-    assert!(committed.settled.is_empty());
-    assert_eq!(committed.deferred.len(), 1);
-    assert!(committed.assignments.is_empty());
-    assert_eq!(committed.unused_grants.len(), 1);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-}
-
-#[test]
-fn uak_malformed_remote_completion_defers_exact_revocation_without_blocking_unrelated_progress() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let peer = 10usize;
-    let unrelated = admit_remote(&mut authority, 80_051, 11);
-    let culprit = admit_remote(&mut authority, 80_052, peer);
-    let cohort = admit_remote(&mut authority, 80_053, peer);
-
-    let unrelated_checkout = authority
-        .plan_checkout_for_foundation(
-            &unrelated,
-            owner_version(&authority, &unrelated),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the older unrelated owner checks out")
-        .apply();
-    let (_, unrelated_work) = take_resolve_work(unrelated_checkout);
-    let culprit_checkout = authority
-        .plan_checkout_for_foundation(
-            &culprit,
-            owner_version(&authority, &culprit),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the peer-attributed culprit checks out")
-        .apply();
-    let (_, culprit_work) = take_resolve_work(culprit_checkout);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(
-                    ComputeWorkerSlot::ordered_resolve(),
-                    unrelated_work.internal_failure(),
-                ),
-                ComputeExchangeCompletion::new(
-                    any_verifier(0),
-                    culprit_work.rejected(Reject::Malformed(
-                        "fixture".to_owned(),
-                        "malformed peer payload".to_owned(),
-                    )),
-                ),
-            ],
-            vec![grant(any_verifier(1))],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("peer revocation has exclusive precedence: {error:?}");
-        });
-
-    assert_eq!(
-        committed.settled,
-        vec![ComputeWorkerSlot::ordered_resolve()]
-    );
-    assert_eq!(committed.deferred.len(), 1);
-    assert_eq!(committed.assignments.len(), 1);
-    assert!(committed.unused_grants.is_empty());
-    assert!(authority.entry(&culprit).is_some());
-    assert!(authority.entry(&cohort).is_some());
-    let culprit_slot = apply_exact_deferred_settlement(
-        &authority,
-        committed
-            .deferred
-            .into_iter()
-            .next()
-            .expect("the malformed completion keeps one exact settlement"),
-    );
-    assert_eq!(culprit_slot, any_verifier(0));
-    assert!(authority.entry(&culprit).is_none());
-    assert!(authority.entry(&cohort).is_none());
-    assert!(matches!(
-        authority.entry(&unrelated),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(authority.peer_is_banned_for_reference(PeerIndex::from(peer)));
-}
-
-#[test]
-fn uak_malformed_verify_completion_revokes_its_remote_peer_cohort() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let peer = PeerIndex::from(31usize);
-    let transaction = tx(80_057);
-    let (culprit, verify) =
-        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, 0);
-    let cohort = admit_remote(&mut authority, 80_060, 31);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                any_verifier(0),
-                verify.rejected(Reject::Malformed(
-                    "fixture".to_owned(),
-                    "malformed verification payload".to_owned(),
-                )),
-            )],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("malformed verification revokes its attributed peer: {error:?}");
-        });
-
-    assert!(committed.settled.is_empty());
-    assert_eq!(committed.deferred.len(), 1);
-    let culprit_slot = apply_exact_deferred_settlement(
-        &authority,
-        committed
-            .deferred
-            .into_iter()
-            .next()
-            .expect("the malformed verification keeps one exact settlement"),
-    );
-    assert_eq!(culprit_slot, any_verifier(0));
-    assert!(authority.entry(&culprit).is_none());
-    assert!(authority.entry(&cohort).is_none());
-    assert!(authority.peer_is_banned_for_reference(peer));
-}
-
-#[test]
-fn uak_nonmalformed_verify_completion_never_revokes_its_remote_peer() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let peer = PeerIndex::from(32usize);
-    let transaction = tx(80_062);
-    let (hash, verify) =
-        checkout_remote_for_verify_with_claim(&mut authority, &transaction, peer, 0);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                any_verifier(0),
-                verify.rejected(Reject::Invalidated(
-                    "nonmalformed verification rejection".to_owned(),
-                )),
-            )],
-            Vec::new(),
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("ordinary verification rejection remains exact settlement work: {error:?}");
-        });
-
-    assert!(committed.settled.is_empty());
-    assert_eq!(committed.deferred.len(), 1);
-    assert!(matches!(
-        authority.entry(&hash),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(!authority.peer_is_banned_for_reference(peer));
-}
-
-#[test]
-fn uak_blocked_peer_revocation_freezes_that_peer_but_preserves_unrelated_progress() {
-    let mut authority =
-        TxPoolAuthority::for_foundation_with_effect_limits(limits(), one_batch_effect_limits())
-            .expect("the bounded fixture reserves its one effect slot");
-    fill_total_effect_capacity(&mut authority);
-
     let peer = 21usize;
     let same_peer = admit_remote(&mut authority, 80_054, peer);
     let unrelated = admit_remote(&mut authority, 80_055, 22);
     let culprit = admit_remote(&mut authority, 80_056, peer);
-
-    let same_peer_checkout = authority
-        .plan_checkout_for_foundation(
-            &same_peer,
-            owner_version(&authority, &same_peer),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the same-peer predecessor checks out")
-        .apply();
-    let (_, same_peer_work) = take_resolve_work(same_peer_checkout);
-    let unrelated_checkout = authority
-        .plan_checkout_for_foundation(
-            &unrelated,
-            owner_version(&authority, &unrelated),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the unrelated owner checks out")
-        .apply();
-    let (_, unrelated_work) = take_resolve_work(unrelated_checkout);
-    let culprit_checkout = authority
-        .plan_checkout_for_foundation(
+    let checkout = authority
+        .checkout_for_foundation(
             &culprit,
             owner_version(&authority, &culprit),
             WorkPermit::ResolveOnly,
         )
-        .expect("the malformed culprit checks out")
-        .apply();
-    let (_, culprit_work) = take_resolve_work(culprit_checkout);
+        .expect("the malformed culprit checks out");
+    let (_, culprit_work) = take_resolve_work(checkout);
+    let completion = ComputeExchangeCompletion::from_finished(
+        any_verifier(0),
+        AuthorityFinishedCompute::from_parts(
+            culprit_work.rejected(Reject::Malformed(
+                "fixture".to_owned(),
+                "blocked malformed peer payload".to_owned(),
+            )),
+            AuthorityComputeAftermath::completed_without_cache(),
+        ),
+    );
+    let exclusion = ComputePeerExclusion::from_completion(&completion, peer.into());
 
     let committed = authority
         .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(
-                    any_verifier(1),
-                    culprit_work.rejected(Reject::Malformed(
-                        "fixture".to_owned(),
-                        "blocked malformed peer payload".to_owned(),
-                    )),
-                ),
-                ComputeExchangeCompletion::new(
-                    ComputeWorkerSlot::ordered_resolve(),
-                    same_peer_work.internal_failure(),
-                ),
-                ComputeExchangeCompletion::new(any_verifier(0), unrelated_work.internal_failure()),
-            ],
-            vec![grant(any_verifier(2))],
+            vec![grant(ComputeWorkerSlot::ordered_resolve())],
+            &[exclusion],
         )
         .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("effect pressure is an ordinary bounded deferral: {error:?}");
+            let (error, grants) = failure.into_parts();
+            drop(grants);
+            panic!("the independent peer remains schedulable: {error:?}");
         });
-
-    assert_eq!(committed.settled, vec![any_verifier(0)]);
-    assert_eq!(committed.deferred.len(), 2);
     assert_eq!(committed.assignments.len(), 1);
     assert!(committed.unused_grants.is_empty());
     let (_, execution, work) = committed
         .assignments
         .into_iter()
         .next()
-        .expect("the unrelated owner reuses the available execution slot")
+        .expect("the independent owner receives the grant")
         .into_parts();
     drop(execution);
     assert_eq!(assignment_hash(&work), unrelated);
     assert!(matches!(
         authority.entry(&same_peer),
         Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
     ));
     assert!(matches!(
         authority.entry(&culprit),
         Some(OwnedTx::PreAccepted(entry))
             if matches!(entry.phase, PreAcceptedPhase::Computing(_))
     ));
-    assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(peer)));
+    drop(completion);
 }
 
 #[test]
-fn uak_blocked_multi_peer_revocations_exclude_every_deferred_peer_from_refill() {
-    let mut authority =
-        TxPoolAuthority::for_foundation_with_effect_limits(limits(), one_batch_effect_limits())
-            .expect("the bounded fixture reserves its one effect slot");
-    fill_total_effect_capacity(&mut authority);
-
-    let first_peer = 34usize;
-    let second_peer = 35usize;
-    let first_culprit = admit_remote(&mut authority, 80_064, first_peer);
-    let second_culprit = admit_remote(&mut authority, 80_065, second_peer);
-    let second_peer_cohort = admit_remote(&mut authority, 80_066, second_peer);
-    let first_checkout = authority
-        .plan_checkout_for_foundation(
-            &first_culprit,
-            owner_version(&authority, &first_culprit),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the first malformed owner checks out")
-        .apply();
-    let (_, first_work) = take_resolve_work(first_checkout);
-    let second_checkout = authority
-        .plan_checkout_for_foundation(
-            &second_culprit,
-            owner_version(&authority, &second_culprit),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the second malformed owner checks out")
-        .apply();
-    let (_, second_work) = take_resolve_work(second_checkout);
-
-    let committed = authority
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(
-                    ComputeWorkerSlot::ordered_resolve(),
-                    first_work.rejected(Reject::Malformed(
-                        "fixture".to_owned(),
-                        "first blocked peer".to_owned(),
-                    )),
-                ),
-                ComputeExchangeCompletion::new(
-                    any_verifier(0),
-                    second_work.rejected(Reject::Malformed(
-                        "fixture".to_owned(),
-                        "second blocked peer".to_owned(),
-                    )),
-                ),
-            ],
-            vec![grant(any_verifier(1))],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("both effect-blocked peer revocations defer exactly: {error:?}");
-        });
-
-    assert!(committed.settled.is_empty());
-    assert_eq!(committed.deferred.len(), 2);
-    assert!(committed.assignments.is_empty());
-    assert_eq!(committed.unused_grants.len(), 1);
-    assert!(matches!(
-        authority.entry(&second_peer_cohort),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(_))
-    ));
-    assert!(matches!(
-        authority.entry(&first_culprit),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(matches!(
-        authority.entry(&second_culprit),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Computing(_))
-    ));
-    assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(first_peer)));
-    assert!(!authority.peer_is_banned_for_reference(PeerIndex::from(second_peer)));
-}
-
-#[test]
-fn uak_effectful_completion_deferral_uses_monotonic_capability_rank() {
+fn uak_compute_exchange_plan_failure_returns_every_grant() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
-    let first = admit_remote(&mut authority, 80_058, 23);
-    let second = admit_remote(&mut authority, 80_059, 24);
-    let first_checkout = authority
-        .plan_checkout_for_foundation(
-            &first,
-            owner_version(&authority, &first),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the older capability checks out")
-        .apply();
-    let (_, first_work) = take_resolve_work(first_checkout);
-    let second_checkout = authority
-        .plan_checkout_for_foundation(
-            &second,
-            owner_version(&authority, &second),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the newer capability checks out")
-        .apply();
-    let (_, second_work) = take_resolve_work(second_checkout);
-    let older = ComputeExchangeCompletion::new(
-        ComputeWorkerSlot::ordered_resolve(),
-        first_work.rejected(Reject::Invalidated("older effect".to_owned())),
-    );
-    let newer = ComputeExchangeCompletion::new(
-        any_verifier(0),
-        second_work.rejected(Reject::Invalidated("newer effect".to_owned())),
-    );
-    let expected = [older.version(), newer.version()];
-    assert!(expected[0] < expected[1]);
-
-    let committed = authority
-        .apply_compute_exchange(vec![newer, older], Vec::new())
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("effectful completion rank is deterministic: {error:?}");
-        });
-    assert!(committed.settled.is_empty());
-    assert!(committed.assignments.is_empty());
-    assert_eq!(
-        committed
-            .deferred
-            .iter()
-            .map(ComputeExchangeDeferred::version)
-            .collect::<Vec<_>>(),
-        expected
-    );
-}
-
-#[test]
-fn uak_exchange_rejection_returns_every_completion_and_grant_capability() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let hash = admit_remote(&mut authority, 80_061, 12);
-    let checkout = authority
-        .plan_checkout_for_foundation(
-            &hash,
-            owner_version(&authority, &hash),
-            WorkPermit::ResolveOnly,
-        )
-        .expect("the retained owner checks out")
-        .apply();
-    let (_, resolve) = take_resolve_work(checkout);
+    let hash = admit_remote(&mut authority, 80_090, 30);
+    let held = authority
+        .hold_positive_compute_reservation_for_foundation()
+        .expect("the sibling plan holds the bounded compute reservation");
     let slot = ComputeWorkerSlot::ordered_resolve();
-    let before = authority.normalized_snapshot();
-    let failure = authority
-        .apply_compute_exchange(
-            vec![ComputeExchangeCompletion::new(
-                slot,
-                resolve.internal_failure(),
-            )],
-            vec![grant(slot), grant(slot)],
-        )
-        .err()
-        .expect("duplicate grant identity rejects the complete exchange");
-    let (error, recoveries) = failure.into_parts();
-    assert_eq!(
-        error,
-        PlanError::Fault(crate::authority::plan::AuthorityFault::SchedulerProjection)
-    );
-    let mut settlements = 0usize;
-    let mut grants = 0usize;
-    for recovery in recoveries {
-        match recovery {
-            ComputeExchangeRecovery::Settlement(completion) => {
-                settlements += 1;
-                drop(completion);
-            }
-            ComputeExchangeRecovery::Obsolete(slot) => {
-                panic!("a current completion cannot become obsolete: {slot:?}");
-            }
-            ComputeExchangeRecovery::Grant(grant) => {
-                grants += 1;
-                drop(grant);
-            }
-        }
-    }
-    assert_eq!(settlements, 1);
-    assert_eq!(grants, 2);
-    assert_eq!(authority.normalized_snapshot(), before);
-}
+    let inputs = authority
+        .validate_compute_exchange_inputs(vec![grant(slot)])
+        .expect("the unique grant validates");
 
-#[test]
-fn uak_compute_exchange_refines_the_named_no_interleave_settle_refill_fold() {
-    let mut aggregate = TxPoolAuthority::for_foundation(limits());
-    let [aggregate_first, aggregate_second] = exchange_settlements(&mut aggregate);
-    let batch_sequence = aggregate.clocks().next_sequence;
-    let committed = aggregate
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(
-                    ComputeWorkerSlot::ordered_resolve(),
-                    aggregate_first,
-                ),
-                ComputeExchangeCompletion::new(any_verifier(0), aggregate_second),
-            ],
-            vec![
-                grant(ComputeWorkerSlot::ordered_resolve()),
-                grant(any_verifier(0)),
-            ],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the aggregate settle/refill fold plans: {error:?}");
-        });
-    assert_eq!(committed.settled.len(), 2);
-    assert_eq!(committed.assignments.len(), 2);
-    for assignment in committed.assignments {
-        let (_, execution, work) = assignment.into_parts();
-        drop(execution);
-        drop(work);
-    }
-
-    let mut reference = TxPoolAuthority::for_foundation(limits());
-    let [reference_first, reference_second] = exchange_settlements(&mut reference);
-    drop(
-        reference
-            .apply_settlement(reference_first)
-            .expect("the first canonical settlement applies"),
-    );
-    drop(
-        reference
-            .apply_settlement(reference_second)
-            .expect("the second canonical settlement applies"),
-    );
-    let (verify, _) = reference
-        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::VerifyOnly(
-            VerifyCapability::Any,
-        ))
-        .expect("the verifier primary lane is readable");
-    assert!(verify.is_none());
-    let (fallback, _) = reference
-        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveThenVerify(
-            VerifyCapability::Any,
-        ))
-        .expect("the verifier fallback plans");
-    let fallback = fallback
-        .expect("the verifier reference slot is assigned")
-        .apply();
-    drop(fallback);
-    let (ordered, _) = reference
-        .plan_checkout_next_with_probe_count_for_foundation(WorkPermit::ResolveOnly)
-        .expect("the ordered reference checkout plans");
-    let ordered = ordered
-        .expect("the ordered reference slot is assigned")
-        .apply();
-    drop(ordered);
-
-    let canonical_next_sequence = ApplySequence(batch_sequence.0 + 4);
-    assert_eq!(
-        aggregate.clocks().next_sequence,
-        ApplySequence(batch_sequence.0 + 1)
-    );
-    assert_eq!(reference.clocks().next_sequence, canonical_next_sequence);
-    assert!(
-        aggregate
-            .normalized_snapshot()
-            .equivalent_modulo_atomic_batch_stamp(
-                &reference.normalized_snapshot(),
-                batch_sequence,
-                canonical_next_sequence,
-            )
-    );
-}
-
-#[test]
-fn uak_compute_exchange_is_invariant_to_completion_and_grant_arrival_order() {
-    let mut forward = TxPoolAuthority::for_foundation(limits());
-    let [forward_first, forward_second] = exchange_settlements(&mut forward);
-    let forward_committed = forward
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(ComputeWorkerSlot::ordered_resolve(), forward_first),
-                ComputeExchangeCompletion::new(any_verifier(0), forward_second),
-            ],
-            vec![
-                grant(ComputeWorkerSlot::ordered_resolve()),
-                grant(any_verifier(0)),
-            ],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the forward exchange plans: {error:?}");
-        });
-
-    let mut reverse = TxPoolAuthority::for_foundation(limits());
-    let [reverse_first, reverse_second] = exchange_settlements(&mut reverse);
-    let reverse_committed = reverse
-        .apply_compute_exchange(
-            vec![
-                ComputeExchangeCompletion::new(any_verifier(0), reverse_second),
-                ComputeExchangeCompletion::new(ComputeWorkerSlot::ordered_resolve(), reverse_first),
-            ],
-            vec![
-                grant(any_verifier(0)),
-                grant(ComputeWorkerSlot::ordered_resolve()),
-            ],
-        )
-        .unwrap_or_else(|failure| {
-            let (error, recoveries) = failure.into_parts();
-            drop(recoveries);
-            panic!("the reverse exchange plans: {error:?}");
-        });
-
-    let assignment_hashes = |committed: CommittedComputeExchange| {
-        let mut hashes = committed
-            .assignments
-            .into_iter()
-            .map(|assignment| {
-                let (_, execution, work) = assignment.into_parts();
-                drop(execution);
-                assignment_hash(&work)
-            })
-            .collect::<Vec<_>>();
-        hashes.sort_unstable();
-        hashes
+    let failure = match authority.prepare_shared_compute_exchange(inputs, &[]) {
+        Err(failure) => failure,
+        Ok(_) => panic!("the competing reservation must block planning"),
     };
-    assert_eq!(
-        assignment_hashes(forward_committed),
-        assignment_hashes(reverse_committed)
-    );
-    assert_eq!(forward.normalized_snapshot(), reverse.normalized_snapshot());
+    let (error, returned) = failure.into_parts();
+    assert!(matches!(error, PlanError::ResourceContended(_)));
+    let returned = returned.collect::<Vec<_>>();
+    assert_eq!(returned.len(), 1);
+    assert_eq!(returned[0].slot(), slot);
+    assert!(matches!(
+        authority.entry(&hash),
+        Some(OwnedTx::PreAccepted(entry))
+            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
+    ));
+    held.release();
 }

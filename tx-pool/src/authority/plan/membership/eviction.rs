@@ -1,10 +1,10 @@
 use super::{
     AcceptedOrderKey, AggregateDelta, AncestorAggregate, ComponentLimitKind, DescendantAggregate,
-    EvictionOrderKey, MembershipEvaluation, MembershipReject, PolicyContext, PolicyMode,
-    RemovalCause, SelectedRemoval,
+    EvictionOrderKey, MembershipEvaluation, MembershipReject, MembershipRemoval, PolicyContext,
+    PolicyMode, RemovalCause, RemovalSelection,
 };
 use crate::authority::{
-    plan::{AuthorityFault, Backpressure, PlanError},
+    plan::{AuthorityFault, PlanError},
     resources::AcceptedResources,
     state::{AcceptedEntry, RawTxHash},
 };
@@ -13,30 +13,14 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 pub(super) fn pure_leaf_evaluation(
     candidate_hash: &RawTxHash,
     candidate: &AcceptedEntry,
-) -> Result<MembershipEvaluation, PlanError> {
+) -> MembershipEvaluation {
     let candidate_aggregate = DescendantAggregate::one(candidate);
     let candidate_ancestors = AncestorAggregate::one(candidate);
-    let mut changes = Vec::new();
-    changes
-        .try_reserve(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    changes.push((candidate_hash.clone(), Some(candidate_aggregate)));
-    let mut ancestor_changes = Vec::new();
-    ancestor_changes
-        .try_reserve(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    ancestor_changes.push((candidate_hash.clone(), Some(candidate_ancestors)));
-    let mut accepted_order_insertions = Vec::new();
-    accepted_order_insertions
-        .try_reserve(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    accepted_order_insertions.push(AcceptedOrderKey::new(candidate, candidate_ancestors));
-    let mut eviction_insertions = Vec::new();
-    eviction_insertions
-        .try_reserve(1)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    eviction_insertions.push(EvictionOrderKey::new(candidate, candidate_aggregate));
-    Ok(MembershipEvaluation {
+    let changes = vec![(candidate_hash.clone(), Some(candidate_aggregate))];
+    let ancestor_changes = vec![(candidate_hash.clone(), Some(candidate_ancestors))];
+    let accepted_order_insertions = vec![AcceptedOrderKey::new(candidate, candidate_ancestors)];
+    let eviction_insertions = vec![EvictionOrderKey::new(candidate, candidate_aggregate)];
+    MembershipEvaluation {
         removals: Vec::new(),
         candidate_parents: HashSet::new(),
         candidate_children: HashSet::new(),
@@ -49,7 +33,7 @@ pub(super) fn pure_leaf_evaluation(
             eviction_insertions,
         },
         policy_witness: Default::default(),
-    })
+    }
 }
 
 pub(super) fn complete_removals<Mode>(
@@ -64,17 +48,11 @@ where
     let config = reader.config();
     let candidate_fee_rate =
         EvictionOrderKey::new(candidate, DescendantAggregate::one(candidate)).fee_rate;
-    let mut removed = HashSet::new();
-    removed
-        .try_reserve(mandatory.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    let mut removals = Vec::new();
-    removals
-        .try_reserve(mandatory.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut removed = HashSet::with_capacity(mandatory.len());
+    let mut removals = Vec::with_capacity(mandatory.len());
     for hash in mandatory {
         if removed.insert(hash.clone()) {
-            removals.push(SelectedRemoval {
+            removals.push(RemovalSelection {
                 hash,
                 cause: RemovalCause::Replacement,
             });
@@ -95,10 +73,7 @@ where
         .max_component
         .checked_sub(removed.len())
         .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-    let mut descendant_roots = Vec::new();
-    descendant_roots
-        .try_reserve_exact(candidate_children.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut descendant_roots = Vec::with_capacity(candidate_children.len());
     descendant_roots.extend(candidate_children.iter().cloned());
     descendant_roots.sort_unstable();
     let candidate_descendants = if descendant_roots.is_empty() {
@@ -126,10 +101,7 @@ where
         .len()
         .checked_add(candidate_descendants.len())
         .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-    let mut component_members = HashSet::new();
-    component_members
-        .try_reserve(component_capacity)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut component_members = HashSet::with_capacity(component_capacity);
     component_members.extend(removed.iter().cloned());
     component_members.extend(candidate_descendants.iter().cloned());
 
@@ -151,7 +123,7 @@ where
         && candidate_children.is_empty()
         && accepted_fits
     {
-        return pure_leaf_evaluation(candidate_hash, candidate);
+        return Ok(pure_leaf_evaluation(candidate_hash, candidate));
     }
 
     let mut virtual_projection = VirtualProjection::new(
@@ -168,11 +140,10 @@ where
     virtual_projection.apply_candidate(&removed, reader)?;
 
     if !accepted_fits {
-        // Capacity eviction alone owns the bounded 64-way order frontier. The
-        // ordinary sparse route never reaches this owner-exact aggregate read;
-        // once entered, the witness is permanently ineligible for shared
-        // conversion even if a concurrent conservative bank charge made the
-        // exact owner projection fit without selecting another victim.
+        // The capacity bank is conservative while a concurrent release crosses
+        // its owner cut. Recheck the exact owner total before selecting victims;
+        // only observing the eviction order widens the final witness to all
+        // shards. The later bank reservation remains the capacity linearization.
         let mut projected_resources =
             reader.exact_accepted_projection(released_resources, candidate_resources)?;
         let eviction_order = if reader.accepted_fits(projected_resources) {
@@ -224,15 +195,9 @@ where
                 }));
             }
 
-            removed
-                .try_reserve(closure.len())
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-            removals
-                .try_reserve(closure.len())
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-            component_members
-                .try_reserve(new_members)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            removed.reserve(closure.len());
+            removals.reserve(closure.len());
+            component_members.reserve(new_members);
             component_members.extend(closure.iter().cloned());
             for hash in &closure {
                 if !removed.insert(hash.clone()) {
@@ -248,7 +213,7 @@ where
             virtual_projection.remove_virtual_keys(&closure);
             virtual_projection.apply_removals(reader, closure.iter(), &removed)?;
             for hash in closure {
-                removals.push(SelectedRemoval {
+                removals.push(RemovalSelection {
                     hash,
                     cause: RemovalCause::Capacity,
                 });
@@ -258,8 +223,16 @@ where
 
     let aggregate = virtual_projection.finish(reader, candidate_hash, &removals)?;
     candidate_children.retain(|child| !removed.contains(child));
+    let mut captured = Vec::with_capacity(removals.len());
+    for removal in removals {
+        let before = reader.observe_accepted_owner(&removal.hash)?;
+        captured.push(MembershipRemoval::terminal(
+            (*before).clone(),
+            removal.cause,
+        ));
+    }
     Ok(MembershipEvaluation {
-        removals,
+        removals: captured,
         candidate_parents,
         candidate_children,
         aggregate,
@@ -327,9 +300,7 @@ impl<'candidate> VirtualProjection<'candidate> {
                     .len()
                     .checked_add(1)
                     .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-                ancestors
-                    .try_reserve(additional)
-                    .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+                ancestors.reserve(additional);
                 ancestors.insert(self.candidate_hash.clone());
                 ancestors.extend(
                     self.candidate_ancestors
@@ -432,18 +403,14 @@ impl<'candidate> VirtualProjection<'candidate> {
                     .checked_add_entry(&ancestor_entry)
                     .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
             }
-            self.ancestor_after
-                .try_reserve(1)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            self.ancestor_after.reserve(1);
             self.ancestor_after
                 .insert(descendant.clone(), ancestor_after);
         }
         for ancestor in self.candidate_ancestors {
             self.refresh_existing_key(ancestor, reader)?;
         }
-        self.aggregate_after
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.aggregate_after.reserve(1);
         let mut aggregate = DescendantAggregate::one(self.candidate);
         for descendant in &self.candidate_descendants {
             let descendant_entry = reader.observe_accepted_owner(descendant)?;
@@ -460,12 +427,10 @@ impl<'candidate> VirtualProjection<'candidate> {
                 .checked_add_entry(&ancestor_entry)
                 .ok_or(PlanError::Membership(MembershipReject::AggregateOverflow))?;
         }
-        self.ancestor_after
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.ancestor_after.reserve(1);
         self.ancestor_after
             .insert(self.candidate_hash.clone(), ancestor_aggregate);
-        self.set_key(EvictionOrderKey::new(self.candidate, aggregate))?;
+        self.set_key(EvictionOrderKey::new(self.candidate, aggregate));
         self.candidate_active = true;
         Ok(())
     }
@@ -484,9 +449,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         let aggregate = reader
             .observe_descendant(hash)?
             .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-        self.aggregate_after
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        self.aggregate_after.reserve(1);
         self.aggregate_after.insert(hash.clone(), aggregate);
         Ok(())
     }
@@ -510,20 +473,18 @@ impl<'candidate> VirtualProjection<'candidate> {
             let entry = reader.observe_accepted_owner(hash)?;
             EvictionOrderKey::new(&entry, aggregate)
         };
-        self.set_key(key)
+        self.set_key(key);
+        Ok(())
     }
 
-    fn set_key(&mut self, key: EvictionOrderKey) -> Result<(), PlanError> {
+    fn set_key(&mut self, key: EvictionOrderKey) {
         if !self.virtual_keys.contains_key(&key.hash) {
-            self.virtual_keys
-                .try_reserve(1)
-                .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+            self.virtual_keys.reserve(1);
         }
         if let Some(previous) = self.virtual_keys.insert(key.hash.clone(), key.clone()) {
             self.virtual_order.remove(&previous);
         }
         self.virtual_order.insert(key);
-        Ok(())
     }
 
     fn remove_virtual_keys(&mut self, removals: &[RawTxHash]) {
@@ -574,7 +535,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         self,
         reader: &mut PolicyContext<'_, Mode>,
         candidate_hash: &RawTxHash,
-        removals: &[SelectedRemoval],
+        removals: &[RemovalSelection],
     ) -> Result<AggregateDelta, PlanError>
     where
         Mode: PolicyMode,
@@ -583,10 +544,7 @@ impl<'candidate> VirtualProjection<'candidate> {
             .len()
             .checked_add(self.aggregate_after.len())
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let mut changes = Vec::new();
-        changes
-            .try_reserve(change_capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut changes = Vec::with_capacity(change_capacity);
         changes.extend(removals.iter().map(|removal| (removal.hash.clone(), None)));
         changes.extend(
             self.aggregate_after
@@ -599,10 +557,7 @@ impl<'candidate> VirtualProjection<'candidate> {
             .len()
             .checked_add(self.ancestor_after.len())
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        let mut ancestor_changes = Vec::new();
-        ancestor_changes
-            .try_reserve(ancestor_capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut ancestor_changes = Vec::with_capacity(ancestor_capacity);
         ancestor_changes.extend(removals.iter().map(|removal| (removal.hash.clone(), None)));
         ancestor_changes.extend(
             self.ancestor_after
@@ -611,10 +566,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         );
         ancestor_changes.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
-        let mut accepted_order_removals = Vec::new();
-        accepted_order_removals
-            .try_reserve(ancestor_capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut accepted_order_removals = Vec::with_capacity(ancestor_capacity);
         for removal in removals {
             let entry = reader.observe_accepted_owner(&removal.hash)?;
             let aggregate = reader
@@ -626,10 +578,7 @@ impl<'candidate> VirtualProjection<'candidate> {
             }
             accepted_order_removals.push(key);
         }
-        let mut accepted_order_insertions = Vec::new();
-        accepted_order_insertions
-            .try_reserve(self.ancestor_after.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut accepted_order_insertions = Vec::with_capacity(self.ancestor_after.len());
         for (hash, aggregate) in &self.ancestor_after {
             let key = if hash == candidate_hash {
                 AcceptedOrderKey::new(self.candidate, *aggregate)
@@ -650,10 +599,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         accepted_order_removals.sort_unstable();
         accepted_order_insertions.sort_unstable();
 
-        let mut eviction_removals = Vec::new();
-        eviction_removals
-            .try_reserve(change_capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut eviction_removals = Vec::with_capacity(change_capacity);
         for removal in removals {
             let entry = reader.observe_accepted_owner(&removal.hash)?;
             let aggregate = reader
@@ -681,10 +627,7 @@ impl<'candidate> VirtualProjection<'candidate> {
         }
         eviction_removals.sort_unstable();
 
-        let mut eviction_insertions = Vec::new();
-        eviction_insertions
-            .try_reserve(self.virtual_order.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut eviction_insertions = Vec::with_capacity(self.virtual_order.len());
         eviction_insertions.extend(self.virtual_order);
         Ok(AggregateDelta {
             changes,

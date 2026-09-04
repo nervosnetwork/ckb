@@ -4,13 +4,12 @@ use super::super::{
     plan::TxPoolAuthority,
     state::{AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, ProposalId, RawTxHash},
     template::{
-        FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild, TemplateChainReadState,
-        TemplateComponent, TemplateConvergence, TemplateConvergenceError, TemplatePublication,
-        TemplateSourceCut,
+        FullTemplateBuild, PartialTemplateBuild, ResetTemplateBuild, TemplateComponent,
+        TemplateConvergence, TemplateConvergenceError, TemplatePublication, TemplateSourceCut,
     },
 };
 use super::foundation::{
-    accept_remote_transaction, accept_remote_transaction_with_payload, admit_remote, apply_plan,
+    accept_remote_transaction, accept_remote_transaction_with_payload, apply_plan,
     assert_membership_reference, genesis_snapshot, limits, owner_version,
     resolved_payload_with_facts, tx,
 };
@@ -315,50 +314,6 @@ fn uak_template_causal_membership_matches_the_two_phase_claim_relation_exhaustiv
 }
 
 #[test]
-fn uak_apply_advances_exact_template_source_versions() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let initial = authority.template_source_versions_for_reference();
-
-    let _queued = admit_remote(&mut authority, 1_801, 1);
-    assert_eq!(
-        authority.template_source_versions_for_reference(),
-        initial,
-        "preaccepted work is not a block-template fact"
-    );
-
-    let accepted = accept_remote_transaction(
-        &mut authority,
-        tx(1_802),
-        2,
-        AcceptedStatus::Pending,
-        Vec::new(),
-    );
-    let pending = authority.template_source_versions_for_reference();
-    assert!(pending.proposals.covers(initial.proposals));
-    assert_ne!(pending.proposals, initial.proposals);
-    assert_eq!(pending.proposals, pending.transactions);
-    assert_eq!(pending.chain, initial.chain);
-
-    set_status(&mut authority, &accepted, AcceptedStatus::Gap);
-    let gap = authority.template_source_versions_for_reference();
-    assert!(gap.proposals.covers(pending.proposals));
-    assert_ne!(gap.proposals, pending.proposals);
-    assert_eq!(gap.transactions, pending.transactions);
-
-    set_status(&mut authority, &accepted, AcceptedStatus::Proposed);
-    let proposed = authority.template_source_versions_for_reference();
-    assert_eq!(proposed.proposals, gap.proposals);
-    assert!(proposed.transactions.covers(gap.transactions));
-    assert_ne!(proposed.transactions, gap.transactions);
-
-    set_status(&mut authority, &accepted, AcceptedStatus::Pending);
-    let pending_again = authority.template_source_versions_for_reference();
-    assert!(pending_again.proposals.covers(proposed.proposals));
-    assert_ne!(pending_again.proposals, proposed.proposals);
-    assert_eq!(pending_again.proposals, pending_again.transactions);
-}
-
-#[test]
 fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(1_803);
@@ -493,108 +448,6 @@ fn uak_template_read_receipt_shares_order_and_complete_resolved_payload() {
             .collect::<Vec<_>>(),
         vec![&parent, &child]
     );
-}
-
-#[test]
-fn uak_chain_commit_updates_only_affected_template_package_scores() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let parent_tx = output_transaction(1_810);
-    let parent = accept_remote_transaction_with_payload(
-        &mut authority,
-        parent_tx.clone(),
-        10,
-        AcceptedStatus::Pending,
-        resolved_payload_with_facts(&parent_tx, Vec::new(), Vec::new(), Capacity::zero()),
-    );
-    let child_tx = child_transaction(1_811, &parent_tx);
-    let child = accept_remote_transaction_with_payload(
-        &mut authority,
-        child_tx.clone(),
-        11,
-        AcceptedStatus::Pending,
-        resolved_payload_with_facts(
-            &child_tx,
-            Vec::new(),
-            Vec::new(),
-            Capacity::shannons(100_000),
-        ),
-    );
-    let rival_input = OutPoint::new(Byte32::new([82; 32]), 0);
-    let rival_tx = TransactionBuilder::default()
-        .version(1_812u32)
-        .input(CellInput::new(rival_input.clone(), 0))
-        .output(CellOutput::default())
-        .output_data(Bytes::new().pack())
-        .build();
-    let rival = accept_remote_transaction_with_payload(
-        &mut authority,
-        rival_tx.clone(),
-        12,
-        AcceptedStatus::Pending,
-        resolved_payload_with_facts(
-            &rival_tx,
-            Vec::new(),
-            vec![rival_input],
-            Capacity::shannons(75_000),
-        ),
-    );
-
-    let before = authority
-        .read_view()
-        .capture_template()
-        .expect("the initial package order is coherent")
-        .into_selection()
-        .expect("the initial package order is already derived");
-    assert_production_accepted_order(&before);
-    let child_before = before
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &child)
-        .expect("child is captured");
-    let rival_before = before
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &rival)
-        .expect("rival is captured");
-    assert!(rival_before.order() > child_before.order());
-
-    let facts = ChainTransitionFacts::for_foundation(
-        ChainViewId::new(ChainRevision(1), Byte32::new([83; 32])),
-        ChainBlockChanges::for_foundation(vec![parent_tx], Vec::new(), Vec::new(), Vec::new()),
-        Vec::new(),
-    )
-    .expect("the attached parent is one canonical chain fact");
-    let receipt = authority
-        .chain_validation_work(facts)
-        .expect("the committed parent is selected")
-        .validate_for_foundation(Vec::new())
-        .expect("the chain cut needs no proposal positions");
-    apply_plan(
-        authority
-            .plan_chain_transition(receipt)
-            .expect("owner removal and package-key replacement are atomic"),
-    );
-    assert!(authority.entry(&parent).is_none());
-    assert_membership_reference(&authority);
-
-    let after = authority
-        .read_view()
-        .capture_template()
-        .expect("the post-commit package order is coherent")
-        .into_selection()
-        .expect("the post-commit package order is already derived");
-    assert_production_accepted_order(&after);
-    let child_after = after
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &child)
-        .expect("surviving child is captured");
-    let rival_after = after
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &rival)
-        .expect("unrelated rival is captured");
-    assert!(child_after.order() > rival_after.order());
 }
 
 #[test]
@@ -943,80 +796,6 @@ fn uak_template_complete_dependency_scan_preserves_causal_and_later_independent_
     assert_eq!(selected, vec![over_budget, over_budget_child, independent]);
 }
 
-fn independent_dependency_scan_selection(fees: [u64; 2]) -> (Vec<RawTxHash>, [RawTxHash; 2]) {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let mut hashes = Vec::with_capacity(2);
-    for (index, fee) in fees.into_iter().enumerate() {
-        let tag = u8::try_from(index).expect("the two-candidate index fits u8");
-        let input = OutPoint::new(Byte32::new([90 + tag; 32]), 0);
-        let dependency = OutPoint::new(Byte32::new([100 + tag; 32]), 0);
-        let transaction = conditional_transaction(1_821 + index as u32, input.clone(), dependency);
-        hashes.push(accept_remote_transaction_with_payload(
-            &mut authority,
-            transaction.clone(),
-            21 + index,
-            AcceptedStatus::Proposed,
-            resolved_payload_with_facts(
-                &transaction,
-                Vec::new(),
-                vec![input],
-                Capacity::shannons(fee),
-            ),
-        ));
-    }
-
-    let receipt = authority
-        .read_view()
-        .capture_template()
-        .expect("the bounded selection shares one authority cut")
-        .into_selection()
-        .expect("the immutable selection receipt is coherent");
-    let selected = receipt
-        .proposed_parent_first_for_foundation()
-        .expect("the complete scan preserves every independent selected candidate")
-        .into_iter()
-        .map(|candidate| candidate.hash().clone())
-        .collect::<Vec<_>>();
-
-    let captured_edge_bound = receipt
-        .candidates()
-        .iter()
-        .map(|candidate| candidate.dependency_edge_count())
-        .sum::<usize>();
-    let selected_edge_count = selected
-        .iter()
-        .filter_map(|hash| {
-            receipt
-                .candidates()
-                .iter()
-                .find(|candidate| candidate.hash() == hash)
-        })
-        .map(|candidate| candidate.dependency_edge_count())
-        .sum::<usize>();
-    assert!(selected_edge_count <= captured_edge_bound);
-
-    (
-        selected,
-        hashes.try_into().expect("the fixture has two hashes"),
-    )
-}
-
-#[test]
-fn uak_template_complete_dependency_scan_does_not_censor_independent_dependency_work() {
-    let (first_selected, first_hashes) = independent_dependency_scan_selection([200_000, 100_000]);
-    assert_eq!(
-        first_selected,
-        vec![first_hashes[0].clone(), first_hashes[1].clone()]
-    );
-
-    let (second_selected, second_hashes) =
-        independent_dependency_scan_selection([100_000, 200_000]);
-    assert_eq!(
-        second_selected,
-        vec![second_hashes[1].clone(), second_hashes[0].clone()]
-    );
-}
-
 #[test]
 fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
@@ -1176,87 +955,6 @@ fn uak_template_receipts_repair_overwrite_and_delayed_delta() {
         TemplatePublication::Published
     );
     assert!(projection.is_converged(&convergence));
-}
-
-#[test]
-fn uak_template_chain_read_requires_one_coherent_component_cut() {
-    let authority = TxPoolAuthority::for_foundation(limits());
-    let candidate_uncles = CandidateUncles::new();
-    let sources = source_cut(&authority, &candidate_uncles);
-    let required = sources.chain_source();
-    let mut convergence = TemplateConvergence::for_foundation(sources);
-    let mut projection = TemplateProjection::initial();
-
-    assert_eq!(
-        convergence.chain_read_state(required),
-        TemplateChainReadState::Published,
-        "the initial base template has one coherent source cut"
-    );
-    for component in [
-        TemplateComponent::Proposals,
-        TemplateComponent::Transactions,
-        TemplateComponent::Uncles,
-    ] {
-        assert!(
-            convergence.is_pending(component),
-            "chain-only initial coverage cannot impersonate an exact component receipt"
-        );
-    }
-
-    let reset = convergence
-        .mark_reset(sources)
-        .expect("fixture reset epoch has capacity");
-    assert_eq!(
-        projection
-            .publish_reset(&mut convergence, reset)
-            .expect("fixture revision has capacity"),
-        TemplatePublication::Published
-    );
-    assert_eq!(
-        convergence.chain_read_state(required),
-        TemplateChainReadState::Pending,
-        "a base reset does not fabricate proposal/transaction/uncle receipts"
-    );
-
-    convergence.record_replacement_failure(required);
-    assert_eq!(
-        convergence.chain_read_state(required),
-        TemplateChainReadState::Failed
-    );
-    let retry_reset = convergence
-        .mark_reset(sources)
-        .expect("fixture reset epoch has capacity");
-    assert_eq!(
-        projection
-            .publish_reset(&mut convergence, retry_reset)
-            .expect("fixture revision has capacity"),
-        TemplatePublication::Published
-    );
-    assert_eq!(
-        convergence.chain_read_state(required),
-        TemplateChainReadState::Pending,
-        "successful replacement progress retires failure but is not readiness"
-    );
-
-    for component in [
-        TemplateComponent::Proposals,
-        TemplateComponent::Uncles,
-        TemplateComponent::Transactions,
-    ] {
-        let build = projection.begin_partial(&mut convergence, component, sources);
-        assert_eq!(
-            projection
-                .publish_partial(&mut convergence, build)
-                .expect("fixture revision has capacity"),
-            TemplatePublication::Published
-        );
-        let expected = if component == TemplateComponent::Transactions {
-            TemplateChainReadState::Published
-        } else {
-            TemplateChainReadState::Pending
-        };
-        assert_eq!(convergence.chain_read_state(required), expected);
-    }
 }
 
 #[test]

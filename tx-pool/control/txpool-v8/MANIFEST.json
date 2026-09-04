@@ -1,12 +1,12 @@
 {
-  "schema": "txpool-v8-project-state-manifest-v2",
   "files": {
-    "AUDIT_PLAN.json": "6d9db0c151ff38a3954063f78b078fd3d251de402a45d4cf871ab1869a26d4c1",
-    "CKB_AUTHORITY_INPUT_LEDGER.md": "804cad5c5878a4beed62fb9a7bcfa2f9d993c9e766c94537e5d71aa378708b23",
-    "CONTEXT_LOAD_POLICY.json": "7a5aa3d5a98462c8ae73f809c8f1ead7c75f03ea8faf8065f59228a89bc2a7f1",
-    "CONTROL_KERNEL.json": "184da817a630fba07970c98e549b90a9ecfe3af3ed02da5ab7545bcd1c34c46e",
-    "FINDINGS_LEDGER.json": "0732a2073480d678877cb1b487e3cd8eef56df831b3f01b770ac121554a6bf43",
-    "STATE.json": "39718cbe51848e3a538d5480db81daf8fc595eff3abb10f161902fc86ec1f136",
-    "VERIFY_STATE.py": "d41c6649aa1d6d380c5bced5d9a3f2920642f730b5f323746eac3f4782f577f1"
-  }
+    "tx-pool/architecture-contract.json": "c4b246b8b9da4d7b2b36412165c5894e2dce5b5e4e240c7dab28169c14968bbf",
+    "tx-pool/control/txpool-v8/CKB_AUTHORITY_INPUT_LEDGER.md": "fb2bca2bafa5341e55ede257e3921ef9d8333145e13bbe00c71fc55832445a84",
+    "tx-pool/control/txpool-v8/CONTROL_KERNEL.json": "8bb28217c858987b0fc17598c3f4d6df427fe54ddc7283d42fc3ff0436431887",
+    "tx-pool/control/txpool-v8/EVIDENCE.json": "3d68bdf166b5d2c8cd81b5b38609a7f8227e31af9772c84a9ed76ad1777fef3a",
+    "tx-pool/control/txpool-v8/FINDINGS_LEDGER.json": "821dfa1a0f4118db1be58b077aba14a9bcdce13e2d6516cd44f035371fb034af",
+    "tx-pool/control/txpool-v8/STATE.json": "c95fc9fbe6308cfe632871a199beff2ff784baab0acd377f51a95973ece9ec12",
+    "tx-pool/control/txpool-v8/VERIFY_STATE.py": "75d85fb557da0876947c593399ed77e478711457711bda0948293edfbf0d3fa4"
+  },
+  "schema": "txpool-v8-project-state-manifest-v4"
 }

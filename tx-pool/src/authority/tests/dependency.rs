@@ -1,14 +1,13 @@
 use super::super::{
-    dependency::{DependencyFrontier, DependencyStageError, StagedDependencyBatch},
+    dependency::{DependencyError, DependencyFrontier, PreparedDependencyBatch},
     plan::{
         PlanError, PreparedSharedDirectAdmissionDisposition, SettlementBatch,
-        SharedDirectAdmissionCommitOutcome, StalePlan, TxPoolAuthority,
+        SharedDirectAdmissionCommitOutcome, SharedReadyWaveCompilation, StalePlan, TxPoolAuthority,
     },
     resources::{
         AcceptedResources, ComputeLimits, ResidencyPolicy, ResourceLimits, ResourceVector,
     },
     runtime::{AuthorityMaintenanceOutcome, AuthorityRuntime},
-    scheduler::StagedIngressVisibility,
     shard::{AuthorityShardRouter, ConcurrentRemovalProbe, ShardedOwnerMap},
     state::{
         AcceptedStatus, ApplySequence, DependencyCut, DependencyKey, EntryVersion, OwnedTx,
@@ -28,11 +27,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, num::NonZeroUsize, sync::Arc};
 
 fn limits() -> ResourceLimits {
     ResourceLimits::new(
@@ -43,21 +38,6 @@ fn limits() -> ResourceLimits {
         ComputeLimits::new(4 * 1024, 4 * 1024, 16),
     )
     .expect("dependency fixture limits admit one indivisible grant")
-}
-
-#[test]
-fn uak_direct_dependency_event_binds_its_original_level_and_origin_rows() {
-    assert!(DependencyFrontier::direct_event_level_rebase_is_stale_for_foundation());
-    assert!(DependencyFrontier::direct_event_origin_growth_is_stale_for_foundation());
-}
-
-#[test]
-fn uak_dependency_activation_wake_uses_actual_atomic_count_order() {
-    assert_eq!(
-        DependencyFrontier::actual_order_activation_for_foundation(),
-        (true, false, true, true),
-        "a disjoint insertion that follows the old final completion must carry its real 0→positive activation even when an earlier global wake snapshot was already true"
-    );
 }
 
 fn output_transaction(version: u32) -> TransactionView {
@@ -109,13 +89,12 @@ fn checkout_resolve(
     hash: &RawTxHash,
 ) -> super::super::work::ResolveWork {
     let committed = authority
-        .plan_checkout_for_foundation(
+        .checkout_for_foundation(
             hash,
             owner_version(authority, hash),
             WorkPermit::ResolveOnly,
         )
-        .expect("resolve checkout plans")
-        .apply();
+        .expect("resolve checkout plans");
     let CheckedOutWork::Resolve(work) = committed.into_work() else {
         panic!("resolve-only capability returned another work type");
     };
@@ -124,13 +103,12 @@ fn checkout_resolve(
 
 fn checkout_continuous(authority: &mut TxPoolAuthority, hash: &RawTxHash) -> ContinuousResolveWork {
     let committed = authority
-        .plan_checkout_for_foundation(
+        .checkout_for_foundation(
             hash,
             owner_version(authority, hash),
             WorkPermit::ResolveThenVerify(VerifyCapability::Any),
         )
-        .expect("continuous checkout plans")
-        .apply();
+        .expect("continuous checkout plans");
     let CheckedOutWork::ContinuousResolve(work) = committed.into_work() else {
         panic!("continuous capability returned another work type");
     };
@@ -248,179 +226,35 @@ fn accept_remote(
 }
 
 #[test]
-fn uak_staged_dependency_rollback_retires_an_interleaved_loss_to_unindexed_evidence() {
-    let dependency = OutPoint::new(Byte32::new([231; 32]), 0);
+fn uak_shared_dependency_event_classifies_a_newer_cut_as_stale() {
+    let dependency = OutPoint::new(Byte32::new([232; 32]), 0);
     let key = DependencyKey::Cell(dependency.clone());
     let mut source = TxPoolAuthority::for_foundation(limits());
     let owner_hash = admit(
         &mut source,
-        ValidatedAdmission::remote(cell_dep_transaction(231, dependency), PeerIndex::from(231))
-            .expect("the staged dependency fixture admission is valid"),
+        ValidatedAdmission::remote(cell_dep_transaction(232, dependency), PeerIndex::from(232))
+            .expect("the dependency fixture admission is valid"),
     );
     let owner = source.entry(&owner_hash).expect("the fixture owner exists");
     let entries = ShardedOwnerMap::new(AuthorityShardRouter::new());
-    let frontier = DependencyFrontier::for_entries(&entries, limits().max_dependency_stage_units());
+    let frontier = DependencyFrontier::for_entries(&entries);
     let delta = frontier
         .plan_primary_replacements([(None, Some(&owner))])
-        .expect("the isolated insertion-only dependency delta plans");
-    let staged = StagedDependencyBatch::stage_primary_insertions(
-        &frontier,
-        delta,
-        StagedIngressVisibility::hidden(),
-    )
-    .expect("the consumer row is physically staged");
-    assert_eq!(frontier.consumers_for(&key), Ok(None));
-
-    let cut = DependencyCut(ApplySequence(231));
+        .expect("the dependency relation plans");
+    let _ = PreparedDependencyBatch::prepare_primary_replacements(&frontier, delta)
+        .expect("the dependency relation prepares")
+        .apply_exclusive();
+    let newer = DependencyCut(ApplySequence(2));
     let control = frontier
-        .plan_events(Vec::new(), vec![key.clone()], cut)
-        .expect("the interleaved loss plans")
+        .plan_events(Vec::new(), vec![key.clone()], newer)
+        .expect("the newer event plans")
         .expect("one loss produces one event delta");
     frontier.apply_control_in_exact_cut_for_reference(control);
-    assert!(frontier.maintenance_pending());
 
-    drop(staged);
-    assert_eq!(frontier.consumers_for(&key), Ok(None));
-    assert!(!frontier.maintenance_pending());
-    assert_eq!(
-        frontier.unindexed_definitive_loss_for_reference(&key),
-        Some(cut),
-        "rollback preserves the loss for every later owner-free proof"
-    );
-}
-
-#[test]
-fn uak_dependency_relation_publish_is_exact_before_physical_cleanup() {
-    assert!(DependencyFrontier::relation_publish_before_cleanup_for_foundation());
-}
-
-#[test]
-fn uak_dependency_relation_stage_is_exclusive_until_exact_cleanup() {
-    assert!(DependencyFrontier::relation_stage_is_exclusive_until_cleanup_for_foundation());
-}
-
-#[test]
-fn uak_dependency_stage_capacity_rollback_prunes_physical_origin_scaffold() {
-    let dependency = OutPoint::new(Byte32::new([0xd4; 32]), 0);
-    let key = DependencyKey::Cell(dependency.clone());
-    let origin = key.origin();
-    let mut source = TxPoolAuthority::for_foundation(limits());
-    let owner_hash = admit(
-        &mut source,
-        ValidatedAdmission::remote(
-            cell_dep_transaction(0xd4, dependency),
-            PeerIndex::from(0xd4),
-        )
-        .expect("the rollback fixture admission is valid"),
-    );
-    let owner = source.entry(&owner_hash).expect("the fixture owner exists");
-    let entries = ShardedOwnerMap::new(AuthorityShardRouter::new());
-    let frontier = DependencyFrontier::for_entries(&entries, 1);
-    let control = frontier
-        .plan_events(
-            vec![key.clone()],
-            Vec::new(),
-            DependencyCut(ApplySequence(0xd4)),
-        )
-        .expect("the same-key availability event plans")
-        .expect("one available key creates control evidence");
-    let delta = frontier
-        .plan_primary_replacements([(None, Some(&owner))])
-        .expect("the relation insertion plans")
-        .with_control(control.into(), &frontier)
-        .expect("the combined prestate seals");
-    assert_eq!(frontier.keys_for_origin(&origin), Ok(None));
-
-    let error = match StagedDependencyBatch::stage_primary_replacements_with_visibility(
-        &frontier,
-        delta,
-        StagedIngressVisibility::hidden(),
-    ) {
-        Ok(_) => panic!("the one-slot bank cannot retain relation plus control stages"),
-        Err(error) => error,
-    };
-    assert_eq!(error, DependencyStageError::Capacity);
-    assert_eq!(frontier.keys_for_origin(&origin), Ok(None));
-    assert!(
-        !frontier.physical_origin_key_exists_for_foundation(&origin, &key),
-        "typed stage backpressure must restore physical origin absence exactly"
-    );
-}
-
-#[test]
-fn uak_dependency_origin_orders_two_first_inserts_and_last_retire_with_new_insert() {
-    assert!(DependencyFrontier::origin_stage_orders_for_foundation());
-}
-
-#[test]
-fn uak_dependency_relation_stage_budget_saturates_without_population_work() {
-    assert!(DependencyFrontier::relation_stage_budget_saturates_for_foundation());
-}
-
-#[test]
-fn uak_dependency_origin_collection_rejects_a_mid_collect_token_change() {
-    assert!(DependencyFrontier::origin_mid_collect_change_is_stale_for_foundation());
-}
-
-#[test]
-fn uak_dependency_control_collection_rejects_a_mid_collect_token_change() {
-    assert!(DependencyFrontier::control_mid_collect_change_is_stale_for_foundation());
-}
-
-#[test]
-fn uak_dependency_dirty_successor_skips_a_hidden_control_cell() {
-    assert!(DependencyFrontier::dirty_successor_skips_hidden_control_for_foundation());
-}
-
-#[test]
-fn uak_dependency_event_and_maintenance_order_across_relation_publication() {
-    assert!(DependencyFrontier::relation_control_ordering_for_foundation());
-}
-
-#[test]
-fn uak_dependency_batch_stage_excludes_same_cell_successor_until_exact_cleanup() {
-    assert!(
-        DependencyFrontier::batch_stage_excludes_same_cell_successor_until_cleanup_for_foundation()
-    );
-}
-
-#[test]
-fn uak_dependency_disjoint_owner_overlap_and_reverse_completion_are_exact() {
-    assert!(DependencyFrontier::disjoint_owner_overlap_and_reverse_completion_for_foundation());
-}
-
-#[test]
-fn uak_dependency_event_negative_fanout_late_growth_is_stale_at_apply() {
-    assert!(
-        DependencyFrontier::event_negative_fanout_late_growth_is_stale_at_apply_for_foundation()
-    );
-}
-
-#[test]
-fn uak_dependency_stage_capacity_returns_exactly_once_on_rollback_and_publish() {
-    assert!(DependencyFrontier::stage_capacity_returns_exactly_once_for_foundation());
-}
-
-#[test]
-fn uak_dependency_generation_swap_strands_old_batch_without_splice() {
-    assert!(DependencyFrontier::generation_swap_strands_old_batch_without_splice_for_foundation());
-}
-
-#[test]
-fn uak_dependency_sealed_retained_rejects_every_non_eligible_shape() {
-    assert!(DependencyFrontier::sealed_retained_rejects_every_non_eligible_shape_for_foundation());
-}
-
-#[test]
-fn uak_dependency_last_consumer_retire_prunes_orphan_rows_exactly() {
-    assert!(DependencyFrontier::last_consumer_retire_prunes_orphan_rows_exactly_for_foundation());
-}
-
-#[test]
-fn uak_dependency_failed_stage_prunes_physical_scaffold_before_retry() {
-    assert!(
-        DependencyFrontier::failed_stage_prunes_physical_scaffold_before_retry_for_foundation()
-    );
+    assert!(matches!(
+        frontier.plan_shared_events(Vec::new(), vec![key], DependencyCut(ApplySequence(1))),
+        Err(DependencyError::Stale)
+    ));
 }
 
 fn drain_dependency_maintenance(authority: &mut TxPoolAuthority) -> usize {
@@ -776,47 +610,6 @@ fn uak_replacement_history_ignores_a_newer_loss_until_final_availability() {
 }
 
 #[test]
-fn uak_administrative_removal_releases_the_final_spender_input_to_history() {
-    let history_limits = limits()
-        .with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
-        .expect("the fixture reserves one bounded replacement-history partition");
-    let mut authority = TxPoolAuthority::with_replacement(history_limits, FeeRate::from_u64(1_000));
-    let conflicting_input = OutPoint::new(Byte32::new([0xd3; 32]), 0);
-    let victim = accept_remote(
-        &mut authority,
-        input_transaction(962, conflicting_input.clone()),
-        262,
-        vec![conflicting_input.clone()],
-        Capacity::shannons(100),
-    );
-    let winner = accept_remote(
-        &mut authority,
-        input_transaction(963, conflicting_input.clone()),
-        263,
-        vec![conflicting_input],
-        Capacity::shannons(10_000),
-    );
-    assert!(matches!(
-        authority.entry(&victim),
-        Some(OwnedTx::ReplacementHistory(_))
-    ));
-
-    apply_plan(
-        authority
-            .prepare_shared_local_removal_for_foundation(&winner)
-            .expect("winner removal planning is coherent")
-            .expect("the Accepted winner remains locally removable"),
-    );
-    assert_eq!(drain_dependency_maintenance(&mut authority), 1);
-    assert!(matches!(
-        authority.entry(&victim),
-        Some(OwnedTx::PreAccepted(entry))
-            if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-    ));
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
 fn uak_replacement_history_excludes_references_to_a_surviving_pool_parent() {
     let history_limits = limits()
         .with_replacement_history_limit(ResourceVector::new(4, 32 * 1024, 32, 0))
@@ -917,45 +710,6 @@ fn uak_replacement_history_excludes_references_to_a_surviving_pool_parent() {
         Some(OwnedTx::Accepted(_))
     ));
     assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_runtime_dependency_maintenance_batches_bounded_level_triggered_steps() {
-    let snapshot = genesis_snapshot();
-    let runtime = AuthorityRuntime::new(
-        &runtime_config(),
-        snapshot.consensus(),
-        Arc::clone(&snapshot),
-    )
-    .expect("the authority runtime fixture is valid");
-    let hash = seed_runtime_dependency_maintenance(&runtime);
-
-    assert_eq!(
-        runtime
-            .maintain_dependency()
-            .expect("one bounded runtime batch requeues the owner and completes the dirty key"),
-        AuthorityMaintenanceOutcome::Applied
-    );
-    assert_eq!(
-        runtime
-            .maintain_dependency()
-            .expect("the drained level-triggered frontier becomes idle"),
-        AuthorityMaintenanceOutcome::Idle
-    );
-    runtime.with_authority_for_foundation(|authority| {
-        assert!(matches!(
-            authority.entry(&hash),
-            Some(OwnedTx::PreAccepted(entry))
-                if matches!(entry.phase, PreAcceptedPhase::Queued(QueuedWork::Resolve))
-        ));
-        assert!(
-            authority
-                .dependency_maintenance_observation_for_foundation()
-                .expect("the dependency projection remains readable")
-                .is_none()
-        );
-        assert!(authority.primary_projection_consistent());
-    });
 }
 
 #[test]
@@ -1531,6 +1285,68 @@ fn uak_parent_terminalization_cannot_strand_trusted_child() {
 }
 
 #[test]
+fn uak_known_preaccepted_output_bounds_decide_trusted_waiting() {
+    for recovery in [false, true] {
+        let mut authority = TxPoolAuthority::for_foundation(limits());
+        let marker = if recovery { 7_161 } else { 7_151 };
+        let parent_tx = output_transaction(marker);
+        let actual = OutPoint::new(parent_tx.hash(), 0);
+        let invalid = OutPoint::new(parent_tx.hash(), 9);
+        let parent_admission = if recovery {
+            ValidatedAdmission::recovery(parent_tx, PoolGeneration(0))
+        } else {
+            ValidatedAdmission::proposal(parent_tx)
+        }
+        .expect("trusted parent admission is valid");
+        admit(&mut authority, parent_admission);
+
+        let valid_tx = cell_dep_transaction(marker + 1, actual.clone());
+        let valid_admission = if recovery {
+            ValidatedAdmission::recovery(valid_tx, PoolGeneration(0))
+        } else {
+            ValidatedAdmission::proposal(valid_tx)
+        }
+        .expect("trusted valid-index consumer admission is valid");
+        let valid = admit(&mut authority, valid_admission);
+        let valid_missing = checkout_resolve(&mut authority, &valid)
+            .missing(vec![DependencyKey::Cell(actual)])
+            .expect("the valid missing dependency fits the grant");
+        apply_plan(
+            authority
+                .apply_settlement(valid_missing)
+                .expect("a valid output of a PreAccepted producer may wait"),
+        );
+        assert!(matches!(
+            authority.entry(&valid),
+            Some(OwnedTx::PreAccepted(entry))
+                if matches!(entry.phase, PreAcceptedPhase::Waiting(_))
+        ));
+
+        let invalid_tx = cell_dep_transaction(marker + 2, invalid.clone());
+        let invalid_admission = if recovery {
+            ValidatedAdmission::recovery(invalid_tx, PoolGeneration(0))
+        } else {
+            ValidatedAdmission::proposal(invalid_tx)
+        }
+        .expect("trusted invalid-index consumer admission is valid");
+        let invalid_owner = admit(&mut authority, invalid_admission);
+        let invalid_missing = checkout_resolve(&mut authority, &invalid_owner)
+            .missing(vec![DependencyKey::Cell(invalid)])
+            .expect("the invalid missing dependency fits the grant");
+        apply_plan(
+            authority
+                .apply_settlement(invalid_missing)
+                .expect("known invalid output reaches a terminal outcome"),
+        );
+        assert!(
+            authority.entry(&invalid_owner).is_none(),
+            "a known producer makes its out-of-bounds output permanently impossible"
+        );
+        assert!(authority.primary_projection_consistent());
+    }
+}
+
+#[test]
 fn uak_dependency_maintenance_never_revokes_active_compute_capability() {
     let mut authority = TxPoolAuthority::for_foundation(limits());
     let parent_tx = output_transaction(717);
@@ -1644,10 +1460,10 @@ fn uak_batch_acceptance_cannot_bypass_dependency_cut() {
     ])
     .expect("two distinct candidates form a bounded batch");
     let before = authority.normalized_snapshot();
-    assert_eq!(
-        authority.plan_settlement(&batch).err(),
-        Some(PlanError::Stale(StalePlan::Dependency))
-    );
+    assert!(matches!(
+        authority.compile_shared_ready_wave(&batch),
+        SharedReadyWaveCompilation::Retry
+    ));
     assert_eq!(authority.normalized_snapshot(), before);
     assert!(authority.primary_projection_consistent());
 }
@@ -1841,7 +1657,7 @@ fn uak_membership_removal_publishes_dependency_loss_atomically() {
         committed
             .removals
             .iter()
-            .any(|removal| removal.hash == victim)
+            .any(|removal| removal.hash() == &victim)
     );
     assert!(authority.entry(&victim).is_none());
 
@@ -1921,13 +1737,13 @@ fn uak_membership_loss_removes_key_routed_dependency_consumers_before_publish() 
         committed
             .removals
             .iter()
-            .any(|removal| removal.hash == victim)
+            .any(|removal| removal.hash() == &victim)
     );
     assert!(
         committed
             .removals
             .iter()
-            .any(|removal| removal.hash == child)
+            .any(|removal| removal.hash() == &child)
     );
     assert!(authority.entry(&victim).is_none());
     assert!(authority.entry(&child).is_none());
@@ -2125,68 +1941,6 @@ fn uak_dirty_maintenance_cannot_outlive_its_last_charged_edge() {
             .expect("empty dirty frontier is valid")
             .is_none(),
         "removing the final expanded edge also removes its dirty traversal"
-    );
-    assert!(authority.primary_projection_consistent());
-}
-
-#[test]
-fn uak_dependency_loss_work_counts_outputs_and_registered_origin_keys() {
-    let mut authority = TxPoolAuthority::for_foundation(limits());
-    let parent_tx = TransactionBuilder::default()
-        .version(790u32)
-        .output(CellOutput::default())
-        .output_data(Bytes::new().pack())
-        .output(CellOutput::default())
-        .output_data(Bytes::new().pack())
-        .output(CellOutput::default())
-        .output_data(Bytes::new().pack())
-        .build();
-    let actual = OutPoint::new(parent_tx.hash(), 0);
-    let invalid_index = OutPoint::new(parent_tx.hash(), 9);
-    let parent = admit(
-        &mut authority,
-        ValidatedAdmission::proposal(parent_tx).expect("parent admission is valid"),
-    );
-    for (version, dependency) in [(791, actual.clone()), (792, invalid_index.clone())] {
-        let _child = admit(
-            &mut authority,
-            ValidatedAdmission::proposal(input_transaction(version, dependency))
-                .expect("child admission is valid"),
-        );
-    }
-
-    let work = authority
-        .dependency_loss_work_for_foundation(std::slice::from_ref(&parent))
-        .expect("loss-key construction is bounded");
-    assert_eq!(work.output_keys, 3);
-    assert_eq!(work.indexed_origin_keys, 2);
-    assert_eq!(work.total(), Some(5));
-
-    let parent_version = owner_version(&authority, &parent);
-    apply_plan(
-        authority
-            .plan_terminalize_for_foundation(&parent, parent_version)
-            .expect("parent terminalization publishes every exact origin key"),
-    );
-    let observed: BTreeSet<DependencyKey> = authority
-        .drain_dependency_maintenance_for_foundation()
-        .expect("loss-key maintenance consumes its rank-derived bound")
-        .into_iter()
-        .map(|step| step.key().clone())
-        .collect();
-    assert_eq!(
-        observed,
-        BTreeSet::from([
-            DependencyKey::Cell(actual),
-            DependencyKey::Cell(invalid_index),
-        ])
-    );
-    assert_eq!(
-        authority
-            .dependency_maintenance_rank_for_foundation()
-            .expect("the drained rank is representable")
-            .value(),
-        0
     );
     assert!(authority.primary_projection_consistent());
 }

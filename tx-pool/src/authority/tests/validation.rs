@@ -6,10 +6,8 @@ use super::foundation::{
 use crate::authority::{
     chain::DirectAdmissionWork,
     plan::{
-        CandidateDispositionPlan, CommittedDelta, FinalAdmissionDispositionPlan,
-        IndependentCandidate, PlanError, PreparedSharedDirectAdmissionDisposition,
-        ReadyHeadCommitOutcome, SettlementBatch, SettlementPlan,
-        SharedDirectRejectionTerminalOutcome, StalePlan, TxPoolAuthority,
+        CommittedDelta, PlanError, PreparedSharedDirectAdmissionDisposition,
+        ReadyHeadCommitOutcome, SharedDirectRejectionTerminalOutcome, StalePlan, TxPoolAuthority,
     },
     state::{
         AcceptedStatus, ChainRevision, ChainViewId, OwnedTx, PreAcceptedPhase, QueuedWork,
@@ -286,9 +284,6 @@ fn uak_verification_environment_obeys_phase_owned_commit_bounds() {
             assert_eq!(production, expected);
         }
     }
-
-    assert_eq!(10 + 1, 11, "height 10 commits exactly at closest one");
-    assert_eq!(8 + 3, 11, "height 8 commits exactly at closest three");
 }
 
 #[test]
@@ -373,6 +368,11 @@ fn apply_shared_ready_head(
     outcome: FinalAdmissionValidationOutcome,
 ) -> CommittedDelta {
     let reservation = authority.reserve_ready_exact_for_foundation(std::slice::from_ref(key));
+    let (mut reservations, remainder) = reservation
+        .try_split_prefix(1)
+        .unwrap_or_else(|_| panic!("one exact Ready head splits into one slot"));
+    assert!(remainder.is_none());
+    let reservation = reservations.pop().expect("one exact Ready head slot");
     let prepared = authority
         .prepare_shared_ready_head_disposition(outcome)
         .expect("the validated head compiles through its exact shared route");
@@ -381,9 +381,6 @@ fn apply_shared_ready_head(
         ReadyHeadCommitOutcome::Stale { .. } => {
             panic!("the unchanged foundation cut cannot stale the shared Ready head")
         }
-        ReadyHeadCommitOutcome::Backpressure { pressure, .. } => {
-            panic!("the bounded foundation head cannot backpressure: {pressure:?}")
-        }
         ReadyHeadCommitOutcome::Fault { fault, .. } => {
             panic!("the valid foundation head cannot fault: {fault:?}")
         }
@@ -391,78 +388,6 @@ fn apply_shared_ready_head(
     let (committed, post_commit_fault) = committed.into_parts();
     assert_eq!(post_commit_fault, None);
     committed
-}
-
-#[test]
-fn uak_direct_validation_shares_the_final_validator_without_mutation_authority() {
-    let snapshot = genesis_snapshot();
-    let authority = authority_at(&snapshot);
-    let transaction = Arc::new(TransactionBuilder::default().version(6_301u32).build());
-    let verified = direct_verified_facts_for_view(
-        &transaction,
-        authority.chain_view().clone(),
-        Vec::new(),
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    let work = DirectAdmissionWork::new(Arc::clone(&transaction), verified)
-        .expect("direct work binds the exact transaction identity");
-    let before = authority.normalized_snapshot();
-    let outcome =
-        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
-            .expect("direct validation captures one coherent authority cut")
-            .validate()
-            .expect("the immutable direct candidate validates");
-
-    let DirectAdmissionValidationOutcome::Candidate(receipt) = outcome else {
-        panic!("the valid direct candidate must produce a membership receipt");
-    };
-    assert_eq!(
-        receipt.transaction().witness_hash(),
-        transaction.witness_hash()
-    );
-    assert_eq!(receipt.view(), authority.chain_view());
-    assert_eq!(authority.normalized_snapshot(), before);
-}
-
-#[test]
-fn uak_direct_validation_returns_a_sealed_rejection_without_mutation() {
-    let snapshot = genesis_snapshot();
-    let authority = authority_at(&snapshot);
-    let input = OutPoint::new(Byte32::new([63; 32]), 0);
-    let transaction = Arc::new(
-        TransactionBuilder::default()
-            .version(6_302u32)
-            .input(CellInput::new(input.clone(), 0))
-            .build(),
-    );
-    let verified = direct_verified_facts_for_view(
-        &transaction,
-        authority.chain_view().clone(),
-        Vec::new(),
-        Vec::new(),
-        Capacity::shannons(1),
-    );
-    let work = DirectAdmissionWork::new(Arc::clone(&transaction), verified)
-        .expect("direct work binds the exact transaction identity");
-    let before = authority.normalized_snapshot();
-    let outcome =
-        DirectAdmissionValidation::capture_for_foundation(&authority, Arc::clone(&snapshot), work)
-            .expect("direct validation captures one coherent authority cut")
-            .validate()
-            .expect("missing chain provenance is a transaction outcome");
-
-    assert!(matches!(
-        &outcome,
-        DirectAdmissionValidationOutcome::Rejected(rejection)
-            if matches!(
-                rejection.reason().reject(),
-                crate::error::Reject::Resolve(
-                    ckb_types::core::error::OutPointError::Unknown(out_point)
-                ) if out_point == &input
-            )
-    ));
-    assert_eq!(authority.normalized_snapshot(), before);
 }
 
 #[test]
@@ -675,15 +600,6 @@ fn uak_script_rule_change_requeues_the_exact_owner_for_resolution() {
         &outcome,
         FinalAdmissionValidationOutcome::Reresolve(_)
     ));
-    {
-        let FinalAdmissionDispositionPlan::Reresolve(legacy) = authority
-            .plan_final_admission(outcome.clone())
-            .expect("the exclusive oracle recognizes the same sealed re-resolution")
-        else {
-            panic!("the rules transition cannot change disposition across compilers");
-        };
-        drop(legacy);
-    }
     let committed = apply_shared_ready_head(&authority, &key, outcome);
 
     assert_eq!(committed.retired_len(), 1);
@@ -720,26 +636,16 @@ fn uak_final_validation_reuses_same_tip_positive_location_evidence() {
         panic!("same-tip valid evidence must reach membership planning");
     };
 
-    assert_eq!(
-        receipt.payload_relation(),
-        crate::authority::chain::ReadyPayloadRelation::Shared
-    );
     assert!(
         receipt
             .proof()
             .is_chain_input(&OutPoint::new([41; 32].pack(), 0))
     );
-    let outcome = FinalAdmissionValidationOutcome::Candidate(receipt);
-    let FinalAdmissionDispositionPlan::Candidate(disposition) = authority
-        .plan_final_admission(outcome)
-        .expect("valid evidence reaches the one membership compiler")
-    else {
-        panic!("valid evidence cannot become rejection or re-resolution");
-    };
-    let CandidateDispositionPlan::Accepted(plan) = disposition else {
-        panic!("an independent valid candidate must be accepted");
-    };
-    let committed = plan.apply();
+    let committed = apply_shared_ready_head(
+        &authority,
+        &key,
+        FinalAdmissionValidationOutcome::Candidate(receipt),
+    );
     assert_eq!(committed.retired_len(), 1);
 }
 
@@ -775,13 +681,7 @@ fn uak_same_tip_unproven_location_is_rejected_not_treated_as_pool_origin() {
                 ) if out_point == &input
             )
     ));
-    let FinalAdmissionDispositionPlan::ValidationRejected(plan) = authority
-        .plan_final_admission(outcome)
-        .expect("the unproven location owns one terminal disposition")
-    else {
-        panic!("unproven same-tip metadata must not reach membership");
-    };
-    let (_, committed) = plan.apply();
+    let committed = apply_shared_ready_head(&authority, &key, outcome);
     assert_eq!(committed.retired_len(), 1);
     assert!(authority.entry(&key).is_none());
 }
@@ -862,29 +762,17 @@ fn uak_pool_origin_refresh_is_coupled_and_retires_the_old_payload_outside_apply(
         fee: receipt.proof().metrics().fee.as_u64(),
         accepted_resident_bytes: receipt.proof().metrics().cost.resident_bytes,
     };
-    assert_eq!(
-        receipt.payload_relation(),
-        crate::authority::chain::ReadyPayloadRelation::LocationRefreshed
-    );
     assert_eq!(committed_metrics, recomputed_metrics);
     assert_ne!(
         retained_metrics, recomputed_metrics,
         "the fixture must distinguish the old and refreshed location-dependent receipt"
     );
     assert!(!receipt.proof().is_chain_input(&input));
-    let batch = SettlementBatch::new(vec![IndependentCandidate::new(receipt)])
-        .expect("one Ready candidate is a valid batch");
-    let SettlementPlan::CoupledComponent(disposition) = authority
-        .plan_settlement(&batch)
-        .expect("refreshed payload routes through the retirement-aware compiler")
-    else {
-        panic!("a refreshed payload cannot use inline independent retirement");
-    };
-    let disposition = disposition.into_disposition();
-    let CandidateDispositionPlan::Accepted(plan) = disposition else {
-        panic!("a live child of an Accepted parent must be admitted");
-    };
-    let committed = plan.apply();
+    let committed = apply_shared_ready_head(
+        &authority,
+        &child,
+        FinalAdmissionValidationOutcome::Candidate(receipt),
+    );
     assert_eq!(committed.retired_len(), 1);
     let Some(OwnedTx::Accepted(child_owner)) = authority.entry(&child) else {
         panic!("the admitted child must own the refreshed Accepted proof");

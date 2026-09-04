@@ -327,7 +327,7 @@ async fn uak_topology_derived_timeout_does_not_forbid_persistence() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn uak_topology_bounds_one_stuck_callback_without_forbidding_persistence() {
+async fn uak_topology_shutdown_keeps_a_blocked_callback_owned_until_it_returns() {
     let runtime = runtime();
     runtime
         .queue_effect_for_foundation(
@@ -338,10 +338,14 @@ async fn uak_topology_bounds_one_stuck_callback_without_forbidding_persistence()
             }),
         )
         .expect("the callback fixture effect fits the bounded journal");
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
     let release_rx = std::sync::Mutex::new(release_rx);
     let mut callbacks = Callbacks::new();
     callbacks.register_pending(Box::new(move |_| {
+        entered_tx
+            .send(())
+            .expect("the callback entry witness remains connected");
         let _ = release_rx
             .lock()
             .expect("the callback release fixture mutex remains healthy")
@@ -356,26 +360,29 @@ async fn uak_topology_bounds_one_stuck_callback_without_forbidding_persistence()
     );
     let topology = start_with_endpoints(runtime.clone(), endpoints, ChunkCommand::Resume)
         .expect("the complete task topology starts atomically");
-
-    tokio::time::timeout(Duration::from_millis(1_500), async {
-        loop {
-            let observation = runtime.effect_observation_for_foundation();
-            if observation.queued.is_empty() && observation.latest_generation_reset.is_none() {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the callback timeout disposes the derived endpoint and drains the effect");
-
-    let report = topology.shutdown(Duration::from_millis(100)).await;
+    entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("the production publisher enters the callback");
+    let mut shutdown = tokio::spawn(topology.shutdown(Duration::from_secs(2)));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut shutdown)
+            .await
+            .is_err(),
+        "shutdown cannot detach an in-flight synchronous callback"
+    );
+    assert!(!runtime.effects_closed_and_drained());
+    assert!(runtime.claim_effect_publisher().is_none());
+    release_tx
+        .send(())
+        .expect("release the still-owned callback");
+    let report = tokio::time::timeout(Duration::from_secs(1), shutdown)
+        .await
+        .expect("shutdown completes after the callback returns")
+        .expect("the shutdown task joins");
     assert!(report.persistence_eligible());
     assert!(runtime.effects_closed_and_drained());
     assert!(report.derived_failures().is_empty());
-    release_tx
-        .send(())
-        .expect("the timed-out callback remains owned by the process runtime");
+    assert!(runtime.claim_effect_publisher().is_some());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

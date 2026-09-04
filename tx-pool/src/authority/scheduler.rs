@@ -452,7 +452,6 @@ pub(super) enum SchedulerError {
     Stale,
     Projection,
     Arithmetic,
-    Allocation,
 }
 
 /// Move-only proof that a specific queue slot was selected from this
@@ -478,17 +477,68 @@ impl CheckoutTicket {
     }
 }
 
+/// ABA-safe identity of one lane's last successful checkout. The selected
+/// entry version is already globally unique within an authority generation,
+/// so fairness needs no separate global queue revision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FairCursor {
+    owner: WorkOwner,
+    version: EntryVersion,
+}
+
+impl FairCursor {
+    fn selected(ticket: &CheckoutTicket) -> Self {
+        Self {
+            owner: ticket.owner,
+            version: ticket.version(),
+        }
+    }
+}
+
+/// ABA-safe queue-cut witness for one scheduler lane. Exhaustion is absorbing:
+/// queue publication remains available, but no later multi-ticket wave can
+/// claim a reusable cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueueRevision {
+    Active(u64),
+    Exhausted,
+}
+
+impl Default for QueueRevision {
+    fn default() -> Self {
+        Self::Active(0)
+    }
+}
+
+impl QueueRevision {
+    fn witness(self) -> Option<u64> {
+        match self {
+            Self::Active(revision) => Some(revision),
+            Self::Exhausted => None,
+        }
+    }
+
+    fn advance(&mut self) {
+        *self = match *self {
+            Self::Active(revision) => revision
+                .checked_add(1)
+                .map(Self::Active)
+                .unwrap_or(Self::Exhausted),
+            Self::Exhausted => Self::Exhausted,
+        };
+    }
+}
+
 pub(super) struct SchedulerDelta {
     before: Option<SchedulerSlot>,
     after: Option<SchedulerSlot>,
-    owner_cursor: Option<(QueueLane, WorkOwner)>,
+    owner_cursor: Option<(QueueLane, FairCursor)>,
 }
 
 #[derive(Default)]
 pub(super) struct SchedulerBatchDelta {
     removed: Vec<SchedulerSlot>,
     added: Vec<SchedulerSlot>,
-    compute_queue_revision: Option<ComputeQueueRevisionChange>,
     resolve_cursor: Option<SchedulerCursorChange>,
     verify_cursor: Option<SchedulerCursorChange>,
 }
@@ -513,11 +563,6 @@ pub(in crate::authority) struct ReadySlotReservation {
     claim: Arc<ReadySlotClaim>,
 }
 
-pub(in crate::authority) enum ReadyApplyReservation {
-    Batch(ReadyReservation),
-    Slot(ReadySlotReservation),
-}
-
 impl std::fmt::Debug for ReadyReservation {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -537,44 +582,16 @@ impl Eq for ReadyReservation {}
 
 #[derive(Clone, Copy)]
 struct SchedulerCursorChange {
-    expected: Option<WorkOwner>,
-    target: Option<WorkOwner>,
-}
-
-/// ABA-safe identity of the last externally visible compute-queue mutation.
-/// `EntryVersion` is globally unique within one authority generation, so an
-/// insertion and removal of the same slot remain distinct without a counter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ComputeQueueRevision {
-    Initial,
-    QueueInsert(EntryVersion),
-    QueueRemove(EntryVersion),
-    // Source-only demotion can move one visible queue slot without replacing
-    // its owner identity. This same-size token keeps that remove+insert cut
-    // distinct from both the original insertion and a later removal.
-    QueueReplace(EntryVersion),
-}
-
-#[derive(Clone, Copy)]
-struct ComputeQueueRevisionChange {
-    expected: ComputeQueueRevision,
-    target: ComputeQueueRevision,
+    expected: Option<FairCursor>,
+    target: Option<FairCursor>,
+    queue_revision: Option<u64>,
 }
 
 /// One monotonic publication fact shared by every physical row in a retained
 /// ingress stage. Consumers may only observe it; the scheduler publication
 /// cut owns the single false-to-true transition.
 #[derive(Clone, Debug)]
-pub(in crate::authority) struct StagedIngressVisibility(Arc<StagedSchedulerVisibility>);
-
-/// Move-only publication authority for a dependency stage that is not paired
-/// with a staged scheduler batch. Observers receive only the cloneable
-/// `StagedIngressVisibility`; they cannot manufacture this capability.
-pub(in crate::authority) struct DependencyIngressPublication(StagedIngressVisibility);
-
-/// Linear receipt that the shared stage's one visibility bit was published.
-/// A dependency stage must bind this exact receipt before terminal cleanup.
-pub(in crate::authority) struct PublishedIngressVisibility(StagedIngressVisibility);
+struct SchedulerStageVisibility(Arc<StagedSchedulerVisibility>);
 
 #[derive(Debug)]
 struct StagedSchedulerVisibility {
@@ -602,9 +619,16 @@ enum StagedSchedulerRole {
     Removed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SchedulerLaneStage {
+    None,
+    Queue,
+    Fairness,
+}
+
 #[derive(Clone, Debug)]
 struct StagedSchedulerMarker {
-    visibility: StagedIngressVisibility,
+    visibility: SchedulerStageVisibility,
     role: StagedSchedulerRole,
 }
 
@@ -617,48 +641,23 @@ impl StagedSchedulerMarker {
     }
 }
 
-impl StagedIngressVisibility {
-    pub(in crate::authority) fn hidden() -> Self {
+impl SchedulerStageVisibility {
+    fn hidden() -> Self {
         Self(Arc::new(StagedSchedulerVisibility {
             visible: AtomicBool::new(false),
         }))
     }
 
-    pub(in crate::authority) fn is_visible(&self) -> bool {
+    fn is_visible(&self) -> bool {
         self.0.visible.load(AtomicOrdering::Acquire)
     }
 
-    pub(in crate::authority) fn same_stage(&self, other: &Self) -> bool {
+    fn same_stage(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
-    }
-
-    pub(in crate::authority) fn hidden_with_dependency_publication()
-    -> (Self, DependencyIngressPublication) {
-        let visibility = Self::hidden();
-        let publication = DependencyIngressPublication(visibility.clone());
-        (visibility, publication)
     }
 
     fn activate(&self) {
         self.0.visible.store(true, AtomicOrdering::Release);
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn activate_for_dependency_foundation(&self) {
-        self.activate();
-    }
-}
-
-impl DependencyIngressPublication {
-    pub(in crate::authority) fn publish(self) -> PublishedIngressVisibility {
-        self.0.activate();
-        PublishedIngressVisibility(self.0)
-    }
-}
-
-impl PublishedIngressVisibility {
-    pub(in crate::authority) fn same_stage(&self, visibility: &StagedIngressVisibility) -> bool {
-        self.0.same_stage(visibility) && self.0.is_visible()
     }
 }
 
@@ -670,51 +669,42 @@ impl PublishedIngressVisibility {
 pub(super) struct StagedSchedulerBatch<'frontier> {
     frontier: &'frontier Mutex<FairFrontier>,
     delta: SchedulerBatchDelta,
-    visibility: StagedIngressVisibility,
+    visibility: SchedulerStageVisibility,
     scheduler_wake_before: SchedulerWakeProjection,
-    compute_queue_revision_target: Option<ComputeQueueRevision>,
-    gate: Option<SchedulerStageClass>,
+    resolve_stage: SchedulerLaneStage,
+    verify_stage: SchedulerLaneStage,
     #[cfg(feature = "profiling")]
     _gate_hold_span: Option<tracing::Span>,
-    ready_reservation: Option<ReadyReservation>,
     terminal: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SchedulerStageClass {
-    ReadyOnly,
-    CursorFreeQueue,
-    Fairness,
+/// One exact Ready claim bound to the hidden Resolve row that will replace it.
+/// Keeping both capabilities in one move-only value makes it impossible for
+/// safe callers to validate one reservation and publish another one's stage.
+#[must_use = "a staged Ready re-resolution must be activated or rolled back by Drop"]
+pub(super) struct StagedReadyReresolution<'reservation, 'frontier> {
+    reservation: &'reservation mut ReadySlotReservation,
+    staged: StagedSchedulerBatch<'frontier>,
 }
 
 #[cfg(feature = "profiling")]
-fn scheduler_stage_wait_span(class: SchedulerStageClass) -> Option<tracing::Span> {
-    match class {
-        SchedulerStageClass::ReadyOnly => None,
-        SchedulerStageClass::CursorFreeQueue => Some(tracing::trace_span!(
-            target: "ckb_tx_pool_profile",
-            "tx_pool.scheduler.queue_stage_wait"
-        )),
-        SchedulerStageClass::Fairness => Some(tracing::trace_span!(
+fn scheduler_fairness_stage_wait_span(fairness_stage: bool) -> Option<tracing::Span> {
+    fairness_stage.then(|| {
+        tracing::trace_span!(
             target: "ckb_tx_pool_profile",
             "tx_pool.scheduler.fairness_stage_wait"
-        )),
-    }
+        )
+    })
 }
 
 #[cfg(feature = "profiling")]
-fn scheduler_stage_hold_span(class: SchedulerStageClass) -> Option<tracing::Span> {
-    match class {
-        SchedulerStageClass::ReadyOnly => None,
-        SchedulerStageClass::CursorFreeQueue => Some(tracing::trace_span!(
-            target: "ckb_tx_pool_profile",
-            "tx_pool.scheduler.queue_stage_hold"
-        )),
-        SchedulerStageClass::Fairness => Some(tracing::trace_span!(
+fn scheduler_fairness_stage_hold_span(fairness_stage: bool) -> Option<tracing::Span> {
+    fairness_stage.then(|| {
+        tracing::trace_span!(
             target: "ckb_tx_pool_profile",
             "tx_pool.scheduler.fairness_stage_hold"
-        )),
-    }
+        )
+    })
 }
 
 /// Directional owner of a scheduler batch whose logical publication already
@@ -726,21 +716,16 @@ struct PublishedSchedulerBatch<'published, 'frontier> {
     scheduler: &'published mut FairFrontier,
     stage: &'published mut StagedSchedulerBatch<'frontier>,
 }
-
-#[cfg(test)]
-impl SchedulerSlot {
-    fn extend_shard_support(&self, support: &mut super::shard_support::AuthorityShardSupport) {
-        match self {
-            Self::Queue { owner, .. } => match owner {
-                WorkOwner::Remote(peer) => support.insert(b"scheduler/owner", &(0u8, peer)),
-                WorkOwner::Trusted => support.insert(b"scheduler/owner", &(1u8, 0u8)),
-            },
-            Self::Ready(key) => support.insert(b"scheduler/ready", key.hash()),
-        }
-    }
-}
-
 impl SchedulerDelta {
+    fn changes_queue_lane(&self, lane: QueueLane) -> bool {
+        self.before != self.after
+            && self
+                .before
+                .iter()
+                .chain(&self.after)
+                .any(|slot| slot.queue_lane() == Some(lane))
+    }
+
     pub(super) const fn shared_absent_accepted() -> Self {
         Self {
             before: None,
@@ -757,18 +742,8 @@ impl SchedulerDelta {
         if self.owner_cursor.is_some() {
             return Err(SchedulerError::Projection);
         }
-        let mut removed = Vec::new();
-        let mut added = Vec::new();
-        if self.before.is_some() {
-            removed
-                .try_reserve_exact(1)
-                .map_err(|_| SchedulerError::Allocation)?;
-        }
-        if self.after.is_some() {
-            added
-                .try_reserve_exact(1)
-                .map_err(|_| SchedulerError::Allocation)?;
-        }
+        let mut removed = Vec::with_capacity(usize::from(self.before.is_some()));
+        let mut added = Vec::with_capacity(usize::from(self.after.is_some()));
         if let Some(before) = self.before {
             removed.push(before);
         }
@@ -778,27 +753,18 @@ impl SchedulerDelta {
         Ok(SchedulerBatchDelta {
             removed,
             added,
-            compute_queue_revision: None,
             resolve_cursor: None,
             verify_cursor: None,
         })
     }
 }
 
-#[cfg(test)]
-impl SchedulerDelta {
-    pub(in crate::authority) fn extend_shard_support(
-        &self,
-        support: &mut super::shard_support::AuthorityShardSupport,
-        exclusive: &mut super::shard_support::ExclusiveSupport,
-    ) {
-        if let Some(before) = &self.before {
-            before.extend_shard_support(support);
+impl SchedulerSlot {
+    fn queue_lane(&self) -> Option<QueueLane> {
+        match self {
+            Self::Queue { lane, .. } => Some(*lane),
+            Self::Ready(_) => None,
         }
-        if let Some(after) = &self.after {
-            after.extend_shard_support(support);
-        }
-        exclusive.scheduler_cursor |= self.owner_cursor.is_some();
     }
 }
 
@@ -806,7 +772,6 @@ impl SchedulerBatchDelta {
     pub(in crate::authority) fn is_empty(&self) -> bool {
         self.removed.is_empty()
             && self.added.is_empty()
-            && self.compute_queue_revision.is_none()
             && self.resolve_cursor.is_none()
             && self.verify_cursor.is_none()
     }
@@ -817,97 +782,47 @@ impl SchedulerBatchDelta {
                 .added
                 .iter()
                 .all(|slot| self.removed.binary_search(slot).is_ok() || !frontier.contains(slot))
-            && self
-                .resolve_cursor
-                .is_none_or(|change| frontier.resolve.owner_cursor == change.expected)
-            && self
-                .verify_cursor
-                .is_none_or(|change| frontier.verify.owner_cursor == change.expected)
-            && self
-                .compute_queue_revision
-                .is_none_or(|change| frontier.compute_queue_revision == change.expected)
+            && self.resolve_cursor.is_none_or(|change| {
+                frontier.resolve.owner_cursor == change.expected
+                    && frontier.resolve.queue_revision.witness() == change.queue_revision
+            })
+            && self.verify_cursor.is_none_or(|change| {
+                frontier.verify.owner_cursor == change.expected
+                    && frontier.verify.queue_revision.witness() == change.queue_revision
+            })
+    }
+
+    fn changes_queue_lane(&self, lane: QueueLane) -> bool {
+        self.removed
+            .iter()
+            .filter(|slot| self.added.binary_search(slot).is_err())
+            .chain(
+                self.added
+                    .iter()
+                    .filter(|slot| self.removed.binary_search(slot).is_err()),
+            )
+            .any(|slot| slot.queue_lane() == Some(lane))
+    }
+
+    fn lane_stage(&self, lane: QueueLane) -> SchedulerLaneStage {
+        let changes_cursor = match lane {
+            QueueLane::Resolve => self.resolve_cursor.is_some(),
+            QueueLane::Verify => self.verify_cursor.is_some(),
+        };
+        if changes_cursor {
+            SchedulerLaneStage::Fairness
+        } else if self.changes_queue_lane(lane) {
+            SchedulerLaneStage::Queue
+        } else {
+            SchedulerLaneStage::None
+        }
     }
 
     /// A pure Ready acceptance removes committed Ready slots and publishes no
     /// new queue node or fairness cursor. That shape is allocation-free after
     /// the owner-version OCC cut succeeds, which is required by shared Apply.
     pub(super) fn is_shared_acceptance_removal_only(&self) -> bool {
-        self.added.is_empty()
-            && self.compute_queue_revision.is_none()
-            && self.resolve_cursor.is_none()
-            && self.verify_cursor.is_none()
-    }
-
-    #[cfg(test)]
-    pub(super) fn is_shared_primary_insertion_only(&self) -> bool {
-        self.removed.is_empty()
-            && self.compute_queue_revision.is_none()
-            && self.resolve_cursor.is_none()
-            && self.verify_cursor.is_none()
-    }
-
-    fn compute_queue_revision_after(
-        &self,
-        mut revision: ComputeQueueRevision,
-    ) -> ComputeQueueRevision {
-        // A slot present on both sides is not externally removed or inserted:
-        // the complete set transition remains hidden by the scheduler mutex.
-        for slot in &self.removed {
-            if self.added.binary_search(slot).is_err()
-                && let Some(version) = slot.compute_queue_version()
-            {
-                revision = ComputeQueueRevision::QueueRemove(version);
-            }
-        }
-        for slot in &self.added {
-            if self.removed.binary_search(slot).is_err()
-                && let Some(version) = slot.compute_queue_version()
-            {
-                revision = if self
-                    .removed
-                    .iter()
-                    .any(|removed| removed.compute_queue_version() == Some(version))
-                {
-                    ComputeQueueRevision::QueueReplace(version)
-                } else {
-                    ComputeQueueRevision::QueueInsert(version)
-                };
-            }
-        }
-        revision
-    }
-
-    /// Precompute the only queue-revision write owned by this cursor-free set
-    /// transition. The resulting token is independent of the current global
-    /// revision, so the final publication cut performs one assignment instead
-    /// of scanning the batch while owner shards are locked.
-    fn compute_queue_revision_target(&self) -> Option<ComputeQueueRevision> {
-        let mut target = None;
-        for slot in &self.removed {
-            if self.added.binary_search(slot).is_err()
-                && let Some(version) = slot.compute_queue_version()
-            {
-                target = Some(ComputeQueueRevision::QueueRemove(version));
-            }
-        }
-        for slot in &self.added {
-            if self.removed.binary_search(slot).is_err()
-                && let Some(version) = slot.compute_queue_version()
-            {
-                target = Some(
-                    if self
-                        .removed
-                        .iter()
-                        .any(|removed| removed.compute_queue_version() == Some(version))
-                    {
-                        ComputeQueueRevision::QueueReplace(version)
-                    } else {
-                        ComputeQueueRevision::QueueInsert(version)
-                    },
-                );
-            }
-        }
-        target
+        self.added.is_empty() && self.resolve_cursor.is_none() && self.verify_cursor.is_none()
     }
 
     fn is_exact_ready_removal(&self, key: &ReadyKey) -> bool {
@@ -915,70 +830,107 @@ impl SchedulerBatchDelta {
             && self.removed.len() == 1
             && matches!(self.removed.first(), Some(SchedulerSlot::Ready(removed)) if removed == key)
     }
+
+    /// The only Ready transition that must publish a new scheduler row.
+    /// Acceptance and rejection remove the reserved Ready slot without a
+    /// queue allocation; a rules change replaces it with the same raw hash at
+    /// a fresh version in Resolve.
+    fn is_exact_ready_reresolution(&self, key: &ReadyKey) -> bool {
+        self.resolve_cursor.is_none()
+            && self.verify_cursor.is_none()
+            && self.removed.len() == 1
+            && self.added.len() == 1
+            && matches!(self.removed.first(), Some(SchedulerSlot::Ready(removed)) if removed == key)
+            && matches!(
+                self.added.first(),
+                Some(SchedulerSlot::Queue {
+                    lane: QueueLane::Resolve,
+                    key: QueueKey::Resolve(added),
+                    ..
+                }) if &added.hash == key.hash() && added.version != key.version()
+            )
+    }
 }
 
 impl FairFrontier {
-    /// Writer-preferred reader/writer gate for the globally coupled compute
-    /// frontier. Cursor-free queue stages are concurrent readers; a fairness
-    /// cursor stage is the writer. Waiting happens before owner locks, and a
-    /// queued writer prevents an unbounded stream of new readers from starving
-    /// checkout progress. Ready-only stages bypass the gate entirely.
-    fn acquire_hidden_stage(
+    fn lane(&self, lane: QueueLane) -> &FairLane {
+        match lane {
+            QueueLane::Resolve => &self.resolve,
+            QueueLane::Verify => &self.verify,
+        }
+    }
+
+    fn lane_mut(&mut self, lane: QueueLane) -> &mut FairLane {
+        match lane {
+            QueueLane::Resolve => &mut self.resolve,
+            QueueLane::Verify => &mut self.verify,
+        }
+    }
+
+    /// Queue stages are concurrent readers of one lane's ordering cut; a
+    /// multi-ticket fairness stage is its writer. The two lanes never wait on
+    /// each other, and Ready-only stages bypass this gate.
+    fn acquire_lane_stage(
         scheduler: &mut MutexGuard<'_, Self>,
-        class: SchedulerStageClass,
+        lane: QueueLane,
+        stage: SchedulerLaneStage,
     ) -> Result<(), SchedulerError> {
-        match class {
-            SchedulerStageClass::ReadyOnly => Ok(()),
-            SchedulerStageClass::CursorFreeQueue => {
-                let changed = Arc::clone(&scheduler.stage_gate_changed);
-                while scheduler.fairness_stage_active || scheduler.fairness_stage_waiters != 0 {
-                    changed.wait(scheduler);
+        match stage {
+            SchedulerLaneStage::None => Ok(()),
+            SchedulerLaneStage::Queue => loop {
+                let current = scheduler.lane(lane);
+                if !current.fairness_stage_active && current.fairness_stage_waiters == 0 {
+                    let current = scheduler.lane_mut(lane);
+                    current.hidden_queue_stages = current
+                        .hidden_queue_stages
+                        .checked_add(1)
+                        .ok_or(SchedulerError::Arithmetic)?;
+                    return Ok(());
                 }
-                scheduler.hidden_cursor_free_queue_stages = scheduler
-                    .hidden_cursor_free_queue_stages
-                    .checked_add(1)
-                    .ok_or(SchedulerError::Arithmetic)?;
-                Ok(())
-            }
-            SchedulerStageClass::Fairness => {
-                scheduler.fairness_stage_waiters = scheduler
+                let changed = Arc::clone(&current.stage_gate_changed);
+                changed.wait(scheduler);
+            },
+            SchedulerLaneStage::Fairness => {
+                let current = scheduler.lane_mut(lane);
+                current.fairness_stage_waiters = current
                     .fairness_stage_waiters
                     .checked_add(1)
                     .ok_or(SchedulerError::Arithmetic)?;
-                let changed = Arc::clone(&scheduler.stage_gate_changed);
-                while scheduler.fairness_stage_active
-                    || scheduler.hidden_cursor_free_queue_stages != 0
-                {
+                loop {
+                    let current = scheduler.lane(lane);
+                    if !current.fairness_stage_active && current.hidden_queue_stages == 0 {
+                        let current = scheduler.lane_mut(lane);
+                        current.fairness_stage_waiters = current
+                            .fairness_stage_waiters
+                            .checked_sub(1)
+                            .ok_or(SchedulerError::Projection)?;
+                        current.fairness_stage_active = true;
+                        return Ok(());
+                    }
+                    let changed = Arc::clone(&current.stage_gate_changed);
                     changed.wait(scheduler);
                 }
-                scheduler.fairness_stage_waiters = scheduler
-                    .fairness_stage_waiters
-                    .checked_sub(1)
-                    .ok_or(SchedulerError::Projection)?;
-                scheduler.fairness_stage_active = true;
-                Ok(())
             }
         }
     }
 
-    fn release_hidden_stage(&mut self, class: SchedulerStageClass) {
-        match class {
-            SchedulerStageClass::ReadyOnly => {}
-            SchedulerStageClass::CursorFreeQueue => {
-                if let Some(remaining) = self.hidden_cursor_free_queue_stages.checked_sub(1) {
-                    self.hidden_cursor_free_queue_stages = remaining;
-                } else {
-                    debug_assert!(false, "a live queue stage owns one reservation");
-                }
+    fn release_lane_stage(&mut self, lane: QueueLane, stage: SchedulerLaneStage) {
+        let current = self.lane_mut(lane);
+        match stage {
+            SchedulerLaneStage::None => return,
+            SchedulerLaneStage::Queue => {
+                let Some(remaining) = current.hidden_queue_stages.checked_sub(1) else {
+                    debug_assert!(false, "a live queue stage owns one lane reservation");
+                    return;
+                };
+                current.hidden_queue_stages = remaining;
             }
-            SchedulerStageClass::Fairness => {
-                debug_assert!(self.fairness_stage_active);
-                self.fairness_stage_active = false;
+            SchedulerLaneStage::Fairness => {
+                debug_assert!(current.fairness_stage_active);
+                current.fairness_stage_active = false;
             }
         }
-        if !matches!(class, SchedulerStageClass::ReadyOnly) {
-            self.stage_gate_changed.notify_all();
-        }
+        current.stage_gate_changed.notify_all();
     }
 
     #[cfg(test)]
@@ -1148,10 +1100,7 @@ impl ReadyReservation {
         if count == 0 {
             return Ok(None);
         }
-        let mut slots = Vec::new();
-        slots
-            .try_reserve_exact(count)
-            .map_err(|_| SchedulerError::Allocation)?;
+        let mut slots = Vec::with_capacity(count);
         slots.extend(
             scheduler
                 .ready
@@ -1202,10 +1151,7 @@ impl ReadyReservation {
         if hashes.len() > remaining {
             return Err(SchedulerError::Projection);
         }
-        let mut slots = Vec::new();
-        slots
-            .try_reserve_exact(hashes.len())
-            .map_err(|_| SchedulerError::Allocation)?;
+        let mut slots = Vec::with_capacity(hashes.len());
         for hash in hashes {
             let key = scheduler
                 .ready
@@ -1248,14 +1194,8 @@ impl ReadyReservation {
         if count == 0 || self.slots.len() < count {
             return Err(self);
         }
-        let mut reservations = Vec::new();
-        if reservations.try_reserve_exact(count).is_err() {
-            return Err(self);
-        }
-        let mut claims = Vec::new();
-        if claims.try_reserve_exact(count).is_err() {
-            return Err(self);
-        }
+        let mut reservations = Vec::with_capacity(count);
+        let mut claims = Vec::with_capacity(count);
         claims.extend((0..count).map(|_| Arc::new(ReadySlotClaim::fresh())));
         let installed = {
             let mut scheduler = self.frontier.lock();
@@ -1351,55 +1291,6 @@ impl ReadyReservation {
             })
             .count()
     }
-
-    fn prestate_is_fresh_locked(
-        &self,
-        scheduler: &FairFrontier,
-        delta: &SchedulerBatchDelta,
-    ) -> bool {
-        delta.prestate_is_fresh(scheduler) && self.selection_is_fresh_locked(scheduler, delta)
-    }
-
-    /// Revalidate only the captured Ready-prefix premise after the matching
-    /// scheduler stage owns its hidden rows. The complete set prestate is a
-    /// pre-stage condition: repeating it here would reject the stage's own
-    /// physically inserted but still-invisible queue additions.
-    fn selection_is_fresh_locked(
-        &self,
-        scheduler: &FairFrontier,
-        delta: &SchedulerBatchDelta,
-    ) -> bool {
-        if !self
-            .slots
-            .iter()
-            .all(|key| scheduler.ready_reserved.contains_key(key))
-        {
-            return false;
-        }
-        let mut last_consumed = None;
-        for slot in &delta.removed {
-            let SchedulerSlot::Ready(key) = slot else {
-                return false;
-            };
-            let Some(index) = self.slots.iter().position(|reserved| reserved == key) else {
-                return false;
-            };
-            last_consumed = Some(last_consumed.map_or(index, |last: usize| last.max(index)));
-        }
-        let Some(last_consumed) = last_consumed else {
-            return false;
-        };
-        scheduler
-            .ready
-            .iter()
-            .rev()
-            .filter(|key| {
-                scheduler.logical_ready_contains(key)
-                    && (!scheduler.ready_reserved.contains_key(*key) || self.slots.contains(*key))
-            })
-            .take(last_consumed.saturating_add(1))
-            .eq(self.slots.iter().take(last_consumed.saturating_add(1)))
-    }
 }
 
 impl ReadySlotReservation {
@@ -1417,8 +1308,41 @@ impl ReadySlotReservation {
         delta.is_exact_ready_removal(slot) && self.claim.try_begin_commit()
     }
 
+    fn matches_reresolution_locked(
+        &self,
+        frontier: &Arc<Mutex<FairFrontier>>,
+        scheduler: &FairFrontier,
+        delta: &SchedulerBatchDelta,
+    ) -> bool {
+        let Some(slot) = self.slot.as_ref() else {
+            return false;
+        };
+        Arc::ptr_eq(&self.frontier, frontier)
+            && scheduler.slot_claim_is_current(slot, &self.claim)
+            && self.claim.state() == READY_SLOT_FRESH
+            && delta.is_exact_ready_reresolution(slot)
+    }
+
+    /// The staged scheduler row already owns every B-tree and revision
+    /// premise. The final priority race is therefore the same lock-free claim
+    /// transition used by acceptance; no second scheduler read is needed
+    /// while owner shards are locked.
+    pub(in crate::authority) fn begin_reresolution_commit(
+        &self,
+        frontier: &Arc<Mutex<FairFrontier>>,
+    ) -> bool {
+        self.slot.is_some()
+            && Arc::ptr_eq(&self.frontier, frontier)
+            && self.claim.try_begin_commit()
+    }
+
+    fn commit_reresolution(&mut self) {
+        let _ = self.slot.take();
+        self.claim.commit();
+    }
+
     pub(in crate::authority) fn activate(
-        mut self,
+        &mut self,
         _frontier: &Arc<Mutex<FairFrontier>>,
         delta: SchedulerBatchDelta,
     ) {
@@ -1426,20 +1350,13 @@ impl ReadySlotReservation {
         let _ = self.slot.take();
         self.claim.commit();
     }
-}
 
-impl ReadyApplyReservation {
     pub(in crate::authority) fn scheduler_wake_before(
         &self,
-    ) -> Result<Option<SchedulerWakeProjection>, SchedulerError> {
-        match self {
-            Self::Batch(_) => Ok(None),
-            Self::Slot(reservation) => reservation
-                .claim
-                .scheduler_wake_before()
-                .map(Some)
-                .ok_or(SchedulerError::Projection),
-        }
+    ) -> Result<SchedulerWakeProjection, SchedulerError> {
+        self.claim
+            .scheduler_wake_before()
+            .ok_or(SchedulerError::Projection)
     }
 }
 
@@ -1462,81 +1379,42 @@ impl Drop for ReadySlotReservation {
     }
 }
 
-impl SchedulerSlot {
-    fn compute_queue_version(&self) -> Option<EntryVersion> {
-        match self {
-            Self::Queue { key, .. } => Some(key.version()),
-            Self::Ready(_) => None,
-        }
-    }
-}
-
 impl<'frontier> StagedSchedulerBatch<'frontier> {
-    #[cfg(test)]
-    pub(super) fn stage_primary_insertions(
-        frontier: &'frontier Arc<Mutex<FairFrontier>>,
-        delta: SchedulerBatchDelta,
-    ) -> Result<Self, SchedulerError> {
-        if !delta.is_shared_primary_insertion_only() {
-            return Err(SchedulerError::Projection);
-        }
-        Self::stage_primary_replacements(frontier, delta)
-    }
-
     pub(super) fn stage_primary_replacements(
         frontier: &'frontier Arc<Mutex<FairFrontier>>,
         delta: SchedulerBatchDelta,
     ) -> Result<Self, SchedulerError> {
-        Self::stage_with_ready_reservation(frontier, delta, None)
+        Self::stage(frontier, delta, |_, _| true)
     }
 
-    pub(super) fn stage_reserved_ready_batch(
+    fn stage(
         frontier: &'frontier Arc<Mutex<FairFrontier>>,
         delta: SchedulerBatchDelta,
-        reservation: ReadyReservation,
+        validate: impl FnOnce(&FairFrontier, &SchedulerBatchDelta) -> bool,
     ) -> Result<Self, SchedulerError> {
-        if !Arc::ptr_eq(&reservation.frontier, frontier) {
-            return Err(SchedulerError::Projection);
-        }
-        Self::stage_with_ready_reservation(frontier, delta, Some(reservation))
-    }
-
-    fn stage_with_ready_reservation(
-        frontier: &'frontier Arc<Mutex<FairFrontier>>,
-        delta: SchedulerBatchDelta,
-        ready_reservation: Option<ReadyReservation>,
-    ) -> Result<Self, SchedulerError> {
-        let cursor_free_revision_target = delta.compute_queue_revision_target();
-        let class = if delta.compute_queue_revision.is_some()
-            || delta.resolve_cursor.is_some()
-            || delta.verify_cursor.is_some()
-        {
-            SchedulerStageClass::Fairness
-        } else if cursor_free_revision_target.is_some() {
-            SchedulerStageClass::CursorFreeQueue
-        } else {
-            SchedulerStageClass::ReadyOnly
-        };
-        let compute_queue_revision_target = delta
-            .compute_queue_revision
-            .map(|change| change.target)
-            .or(cursor_free_revision_target);
-        let visibility = StagedIngressVisibility::hidden();
+        let resolve_stage = delta.lane_stage(QueueLane::Resolve);
+        let verify_stage = delta.lane_stage(QueueLane::Verify);
         #[cfg(feature = "profiling")]
-        let gate_wait_span = scheduler_stage_wait_span(class);
+        let fairness_stage = matches!(resolve_stage, SchedulerLaneStage::Fairness)
+            || matches!(verify_stage, SchedulerLaneStage::Fairness);
+        let visibility = SchedulerStageVisibility::hidden();
+        #[cfg(feature = "profiling")]
+        let gate_wait_span = scheduler_fairness_stage_wait_span(fairness_stage);
         let mut scheduler = frontier.lock();
-        let gate_result = FairFrontier::acquire_hidden_stage(&mut scheduler, class);
+        FairFrontier::acquire_lane_stage(&mut scheduler, QueueLane::Resolve, resolve_stage)?;
+        if let Err(error) =
+            FairFrontier::acquire_lane_stage(&mut scheduler, QueueLane::Verify, verify_stage)
+        {
+            scheduler.release_lane_stage(QueueLane::Resolve, resolve_stage);
+            return Err(error);
+        }
         #[cfg(feature = "profiling")]
         drop(gate_wait_span);
-        gate_result?;
         #[cfg(feature = "profiling")]
-        let gate_hold_span = scheduler_stage_hold_span(class);
+        let gate_hold_span = scheduler_fairness_stage_hold_span(fairness_stage);
         let scheduler_wake_before = scheduler.wake_projection();
-        if ready_reservation
-            .as_ref()
-            .is_some_and(|reservation| !reservation.prestate_is_fresh_locked(&scheduler, &delta))
+        if !validate(&scheduler, &delta)
             || !delta.prestate_is_fresh(&scheduler)
-            || delta.removed.iter().any(|slot| !scheduler.contains(slot))
             || delta.removed.iter().any(|slot| {
                 if delta.added.binary_search(slot).is_ok() {
                     return false;
@@ -1557,7 +1435,8 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
                     .contains_key(&StagedSchedulerSlotKey::from(slot))
             })
         {
-            scheduler.release_hidden_stage(class);
+            scheduler.release_lane_stage(QueueLane::Verify, verify_stage);
+            scheduler.release_lane_stage(QueueLane::Resolve, resolve_stage);
             drop(scheduler);
             #[cfg(feature = "profiling")]
             drop(gate_hold_span);
@@ -1598,33 +1477,12 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
             delta,
             visibility,
             scheduler_wake_before,
-            compute_queue_revision_target,
-            gate: Some(class),
+            resolve_stage,
+            verify_stage,
             #[cfg(feature = "profiling")]
             _gate_hold_span: gate_hold_span,
-            ready_reservation,
             terminal: false,
         })
-    }
-
-    pub(super) fn prestate_is_fresh(&self) -> bool {
-        // Stage markers, the generation read guard, the exact owner cut and
-        // the writer-preferred queue/fairness gate make every no-reservation
-        // scheduler premise stable until this stage publishes. Batch Ready is
-        // different: its strongest-prefix premise spans unrelated Ready rows
-        // and therefore needs one final scheduler selection cut.
-        if self.ready_reservation.is_none() {
-            return true;
-        }
-        let scheduler = self.frontier.lock();
-        self.prestate_is_fresh_locked(&scheduler)
-    }
-
-    fn prestate_is_fresh_locked(&self, scheduler: &FairFrontier) -> bool {
-        self.stage_ownership_is_intact_locked(scheduler)
-            && self.ready_reservation.as_ref().is_none_or(|reservation| {
-                reservation.selection_is_fresh_locked(scheduler, &self.delta)
-            })
     }
 
     /// Stable ownership established at staging. Unlike a batch Ready prefix,
@@ -1632,14 +1490,13 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
     /// queue/fairness gate. Publication may therefore assert them after owner
     /// mutation without rechecking the time-sensitive Ready ordering proof.
     fn stage_ownership_is_intact_locked(&self, scheduler: &FairFrontier) -> bool {
-        let gate_is_held = match self.gate {
-            Some(SchedulerStageClass::ReadyOnly) => true,
-            Some(SchedulerStageClass::CursorFreeQueue) => {
-                scheduler.hidden_cursor_free_queue_stages != 0
-            }
-            Some(SchedulerStageClass::Fairness) => scheduler.fairness_stage_active,
-            None => false,
+        let lane_is_held = |lane, stage| match stage {
+            SchedulerLaneStage::None => true,
+            SchedulerLaneStage::Queue => scheduler.lane(lane).hidden_queue_stages != 0,
+            SchedulerLaneStage::Fairness => scheduler.lane(lane).fairness_stage_active,
         };
+        let gate_is_held = lane_is_held(QueueLane::Resolve, self.resolve_stage)
+            && lane_is_held(QueueLane::Verify, self.verify_stage);
         gate_is_held
             && self
                 .delta
@@ -1681,10 +1538,6 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
                 .all(|slot| scheduler.contains(slot))
             && self
                 .delta
-                .compute_queue_revision
-                .is_none_or(|change| scheduler.compute_queue_revision == change.expected)
-            && self
-                .delta
                 .resolve_cursor
                 .is_none_or(|change| scheduler.resolve.owner_cursor == change.expected)
             && self
@@ -1694,9 +1547,14 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
     }
 
     fn release_stage_gate_locked(&mut self, scheduler: &mut FairFrontier) {
-        if let Some(class) = self.gate.take() {
-            scheduler.release_hidden_stage(class);
-        }
+        scheduler.release_lane_stage(
+            QueueLane::Verify,
+            std::mem::replace(&mut self.verify_stage, SchedulerLaneStage::None),
+        );
+        scheduler.release_lane_stage(
+            QueueLane::Resolve,
+            std::mem::replace(&mut self.resolve_stage, SchedulerLaneStage::None),
+        );
     }
 
     fn publish_locked<'published>(
@@ -1705,19 +1563,21 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
         owner_cut: ShardedOwnerWriteCut<'_>,
     ) -> PublishedSchedulerBatch<'published, 'frontier> {
         debug_assert!(self.stage_ownership_is_intact_locked(scheduler));
-        if let Some(target) = self.compute_queue_revision_target {
-            scheduler.compute_queue_revision = target;
-        }
         if let Some(change) = self.delta.resolve_cursor {
             scheduler.resolve.owner_cursor = change.target;
         }
         if let Some(change) = self.delta.verify_cursor {
             scheduler.verify.owner_cursor = change.target;
         }
+        if self.delta.changes_queue_lane(QueueLane::Resolve) {
+            scheduler.resolve.queue_revision.advance();
+        }
+        if self.delta.changes_queue_lane(QueueLane::Verify) {
+            scheduler.verify.queue_revision.advance();
+        }
         self.release_stage_gate_locked(scheduler);
-        // The revision and staged rows become externally visible in this one
-        // scheduler lock cut. No checkout can observe a new queue slot paired
-        // with the revision that preceded it.
+        // The staged rows become externally visible in this one scheduler
+        // lock cut. Only same-lane queue and fairness changes conflict.
         self.visibility.activate();
         // Hidden Ready additions are deliberately ignored by selection. At
         // publication the claim refresh CAS is the priority linearization:
@@ -1735,38 +1595,66 @@ impl<'frontier> StagedSchedulerBatch<'frontier> {
         }
     }
 
-    fn activate_inner(mut self, owner_cut: ShardedOwnerWriteCut<'_>) -> PublishedIngressVisibility {
-        let visibility = self.visibility.clone();
+    fn activate_inner(mut self, owner_cut: ShardedOwnerWriteCut<'_>) {
         let frontier = self.frontier;
         let mut scheduler = frontier.lock();
         let retired_delta = self.publish_locked(&mut scheduler, owner_cut).finalize();
         drop(scheduler);
         drop(retired_delta);
-        PublishedIngressVisibility(visibility)
     }
 
-    pub(super) fn activate(
-        self,
-        _token: &ApplyToken,
-        owner_cut: ShardedOwnerWriteCut<'_>,
-    ) -> PublishedIngressVisibility {
+    pub(super) fn activate(self, _token: &ApplyToken, owner_cut: ShardedOwnerWriteCut<'_>) {
         self.activate_inner(owner_cut)
+    }
+
+    fn activate_ready_reresolution(
+        mut self,
+        reservation: &mut ReadySlotReservation,
+        owner_cut: ShardedOwnerWriteCut<'_>,
+    ) {
+        let frontier = self.frontier;
+        let mut scheduler = frontier.lock();
+        reservation.commit_reresolution();
+        let retired_delta = self.publish_locked(&mut scheduler, owner_cut).finalize();
+        drop(scheduler);
+        drop(retired_delta);
     }
 
     #[cfg(test)]
-    fn activate_for_foundation(
-        self,
-        owner_cut: ShardedOwnerWriteCut<'_>,
-    ) -> PublishedIngressVisibility {
+    fn activate_for_foundation(self, owner_cut: ShardedOwnerWriteCut<'_>) {
         self.activate_inner(owner_cut)
-    }
-
-    pub(super) fn visibility(&self) -> StagedIngressVisibility {
-        self.visibility.clone()
     }
 
     pub(super) fn wake_projection_before(&self) -> Option<SchedulerWakeProjection> {
         Some(self.scheduler_wake_before)
+    }
+}
+
+impl<'reservation, 'frontier> StagedReadyReresolution<'reservation, 'frontier> {
+    /// Preallocate and hide the Resolve row while atomically checking that it
+    /// is the exact replacement for this reservation. The retained mutable
+    /// borrow prevents the stage from later being paired with another claim.
+    pub(super) fn stage(
+        frontier: &'frontier Arc<Mutex<FairFrontier>>,
+        delta: SchedulerBatchDelta,
+        reservation: &'reservation mut ReadySlotReservation,
+    ) -> Result<Self, SchedulerError> {
+        let staged = StagedSchedulerBatch::stage(frontier, delta, |scheduler, delta| {
+            reservation.matches_reresolution_locked(frontier, scheduler, delta)
+        })?;
+        Ok(Self {
+            reservation,
+            staged,
+        })
+    }
+
+    pub(super) fn begin_commit(&self, frontier: &Arc<Mutex<FairFrontier>>) -> bool {
+        self.reservation.begin_reresolution_commit(frontier)
+    }
+
+    pub(super) fn activate(self, _token: &ApplyToken, owner_cut: ShardedOwnerWriteCut<'_>) {
+        self.staged
+            .activate_ready_reresolution(self.reservation, owner_cut)
     }
 }
 
@@ -1805,7 +1693,6 @@ impl PublishedSchedulerBatch<'_, '_> {
             }
         }
         self.scheduler.refresh_slot_claims();
-        self.stage.compute_queue_revision_target = None;
         self.stage.terminal = true;
         delta
     }
@@ -2019,7 +1906,12 @@ impl OwnerQueue {
 struct FairLane {
     by_owner: BTreeMap<WorkOwner, OwnerQueue>,
     small_owners: BTreeSet<WorkOwner>,
-    owner_cursor: Option<WorkOwner>,
+    owner_cursor: Option<FairCursor>,
+    queue_revision: QueueRevision,
+    hidden_queue_stages: usize,
+    fairness_stage_active: bool,
+    fairness_stage_waiters: usize,
+    stage_gate_changed: Arc<Condvar>,
 }
 
 #[derive(Debug, Default)]
@@ -2139,7 +2031,12 @@ impl FairLane {
         {
             WorkOwner::Trusted
         } else {
-            self.next_owner(lane, capability, self.owner_cursor, staged)?
+            self.next_owner(
+                lane,
+                capability,
+                self.owner_cursor.map(|cursor| cursor.owner),
+                staged,
+            )?
         };
         let key = self.by_owner.get(&owner)?.head(lane, capability, staged)?;
         Some((owner, key))
@@ -2313,11 +2210,6 @@ pub(super) struct FairFrontier {
     ready: BTreeSet<ReadyKey>,
     ready_reserved: BTreeMap<ReadyKey, ReadyReservationEntry>,
     staged_visibility: BTreeMap<StagedSchedulerSlotKey, StagedSchedulerMarker>,
-    hidden_cursor_free_queue_stages: usize,
-    fairness_stage_active: bool,
-    fairness_stage_waiters: usize,
-    stage_gate_changed: Arc<Condvar>,
-    compute_queue_revision: ComputeQueueRevision,
     verify_order: VerifyOrder,
 }
 
@@ -2326,9 +2218,8 @@ pub(super) struct FairFrontier {
 /// without cloning the scheduler or publishing a second queue authority.
 pub(super) struct SchedulerWaveCursor {
     selected_versions: Vec<EntryVersion>,
-    resolve_cursor: Option<WorkOwner>,
-    verify_cursor: Option<WorkOwner>,
-    compute_queue_revision: ComputeQueueRevision,
+    resolve_cursor: SchedulerCursorChange,
+    verify_cursor: SchedulerCursorChange,
 }
 
 /// Mutable Plan-only view of the committed scheduler plus a bounded set of
@@ -2340,21 +2231,6 @@ pub(super) struct SchedulerExchangeWave {
     frontier: Arc<Mutex<FairFrontier>>,
     overlay: SchedulerWaveOverlay,
     cursor: SchedulerWaveCursor,
-}
-
-#[cfg(test)]
-impl FairFrontier {
-    pub(in crate::authority) fn invalidate_compute_exchange_cursor_for_foundation(
-        &mut self,
-        version: EntryVersion,
-    ) {
-        self.compute_queue_revision =
-            if self.compute_queue_revision == ComputeQueueRevision::QueueInsert(version) {
-                ComputeQueueRevision::QueueRemove(version)
-            } else {
-                ComputeQueueRevision::QueueInsert(version)
-            };
-    }
 }
 
 impl SchedulerExchangeWave {
@@ -2438,19 +2314,28 @@ impl SchedulerExchangeWave {
 impl SchedulerWaveCursor {
     fn lane_cursor(&self, lane: QueueLane) -> Option<WorkOwner> {
         match lane {
-            QueueLane::Resolve => self.resolve_cursor,
-            QueueLane::Verify => self.verify_cursor,
+            QueueLane::Resolve => self.resolve_cursor.target,
+            QueueLane::Verify => self.verify_cursor.target,
         }
+        .map(|cursor| cursor.owner)
     }
 
     pub(super) fn select(&mut self, ticket: &CheckoutTicket) -> Result<(), SchedulerError> {
+        let queue_revision = match ticket.lane {
+            QueueLane::Resolve => self.resolve_cursor.queue_revision,
+            QueueLane::Verify => self.verify_cursor.queue_revision,
+        };
+        if queue_revision.is_none() {
+            return Err(SchedulerError::Arithmetic);
+        }
         match self.selected_versions.binary_search(&ticket.version()) {
             Ok(_) => return Err(SchedulerError::Projection),
             Err(position) => self.selected_versions.insert(position, ticket.version()),
         }
+        let cursor = FairCursor::selected(ticket);
         match ticket.lane {
-            QueueLane::Resolve => self.resolve_cursor = Some(ticket.owner),
-            QueueLane::Verify => self.verify_cursor = Some(ticket.owner),
+            QueueLane::Resolve => self.resolve_cursor.target = Some(cursor),
+            QueueLane::Verify => self.verify_cursor.target = Some(cursor),
         }
         Ok(())
     }
@@ -2464,11 +2349,6 @@ impl FairFrontier {
             ready: BTreeSet::new(),
             ready_reserved: BTreeMap::new(),
             staged_visibility: BTreeMap::new(),
-            hidden_cursor_free_queue_stages: 0,
-            fairness_stage_active: false,
-            fairness_stage_waiters: 0,
-            stage_gate_changed: Arc::new(Condvar::new()),
-            compute_queue_revision: ComputeQueueRevision::Initial,
             verify_order,
         }
     }
@@ -2540,6 +2420,7 @@ impl FairFrontier {
         }
         let owner_cursor = match checkout {
             Some(ticket) => {
+                let cursor = FairCursor::selected(&ticket);
                 let selected = SchedulerSlot::Queue {
                     lane: ticket.lane,
                     owner: ticket.owner,
@@ -2548,7 +2429,7 @@ impl FairFrontier {
                 if before.as_ref() != Some(&selected) || after.is_some() {
                     return Err(SchedulerError::Projection);
                 }
-                Some((ticket.lane, ticket.owner))
+                Some((ticket.lane, cursor))
             }
             None => None,
         };
@@ -2566,47 +2447,22 @@ impl FairFrontier {
         self.plan_batch_with_missing_before(changes, SchedulerError::Projection)
     }
 
-    fn plan_batch_with_missing_before<'entry>(
+    /// Compile the exact cursor-free set transition without reading the live
+    /// frontier. Shared Apply stages this delta under the scheduler mutex and
+    /// validates every removed/added slot before it can reach the owner cut.
+    pub(super) fn compile_batch<'entry>(
         &self,
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
-        missing_before: SchedulerError,
     ) -> Result<SchedulerBatchDelta, SchedulerError> {
         let mut input = changes.into_iter();
-        let mut changes = Vec::new();
-        if let Some(capacity) = input.size_hint().1 {
-            changes
-                .try_reserve_exact(capacity)
-                .map_err(|_| SchedulerError::Allocation)?;
-        }
+        let mut removed = Vec::with_capacity(input.size_hint().1.unwrap_or(0));
+        let mut added = Vec::with_capacity(removed.capacity());
         for (before, after) in input.by_ref() {
-            if changes.len() == changes.capacity() {
-                changes
-                    .try_reserve(1)
-                    .map_err(|_| SchedulerError::Allocation)?;
+            if let Some(before) = before.map(|owner| self.slot(owner)).transpose()?.flatten() {
+                removed.push(before);
             }
-            changes.push(SchedulerDelta {
-                before: before.map(|owner| self.slot(owner)).transpose()?.flatten(),
-                after: after.map(|owner| self.slot(owner)).transpose()?.flatten(),
-                owner_cursor: None,
-            });
-        }
-
-        let mut removed = Vec::new();
-        let mut added = Vec::new();
-        removed
-            .try_reserve_exact(changes.len())
-            .map_err(|_| SchedulerError::Allocation)?;
-        added
-            .try_reserve_exact(changes.len())
-            .map_err(|_| SchedulerError::Allocation)?;
-        for change in &changes {
-            match &change.before {
-                Some(before) if !self.contains(before) => return Err(missing_before),
-                Some(before) => removed.push(before.clone()),
-                _ => {}
-            }
-            if let Some(after) = &change.after {
-                added.push(after.clone());
+            if let Some(after) = after.map(|owner| self.slot(owner)).transpose()?.flatten() {
+                added.push(after);
             }
         }
         removed.sort_unstable();
@@ -2620,19 +2476,31 @@ impl FairFrontier {
         {
             return Err(SchedulerError::Projection);
         }
-        if added
-            .iter()
-            .any(|slot| self.contains(slot) && removed.binary_search(slot).is_err())
-        {
-            return Err(SchedulerError::Projection);
-        }
         Ok(SchedulerBatchDelta {
             removed,
             added,
-            compute_queue_revision: None,
             resolve_cursor: None,
             verify_cursor: None,
         })
+    }
+
+    fn plan_batch_with_missing_before<'entry>(
+        &self,
+        changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
+        missing_before: SchedulerError,
+    ) -> Result<SchedulerBatchDelta, SchedulerError> {
+        let delta = self.compile_batch(changes)?;
+        if delta.removed.iter().any(|before| !self.contains(before)) {
+            return Err(missing_before);
+        }
+        if delta
+            .added
+            .iter()
+            .any(|slot| self.contains(slot) && delta.removed.binary_search(slot).is_err())
+        {
+            return Err(SchedulerError::Projection);
+        }
+        Ok(delta)
     }
 
     /// Compile final owner projections together with the fairness cursors
@@ -2643,25 +2511,23 @@ impl FairFrontier {
         changes: impl IntoIterator<Item = (Option<&'entry OwnedTx>, Option<&'entry OwnedTx>)>,
         cursor: SchedulerWaveCursor,
     ) -> Result<SchedulerBatchDelta, SchedulerError> {
-        if cursor.compute_queue_revision != self.compute_queue_revision {
-            return Err(SchedulerError::Stale);
-        }
         let mut delta = self.plan_batch_with_missing_before(changes, SchedulerError::Stale)?;
-        let target = delta.compute_queue_revision_after(cursor.compute_queue_revision);
-        delta.compute_queue_revision = Some(ComputeQueueRevisionChange {
-            expected: cursor.compute_queue_revision,
-            target,
-        });
-        delta.resolve_cursor =
-            (cursor.resolve_cursor != self.resolve.owner_cursor).then_some(SchedulerCursorChange {
-                expected: self.resolve.owner_cursor,
-                target: cursor.resolve_cursor,
-            });
-        delta.verify_cursor =
-            (cursor.verify_cursor != self.verify.owner_cursor).then_some(SchedulerCursorChange {
-                expected: self.verify.owner_cursor,
-                target: cursor.verify_cursor,
-            });
+        if cursor.resolve_cursor.expected != cursor.resolve_cursor.target {
+            if cursor.resolve_cursor.expected != self.resolve.owner_cursor
+                || cursor.resolve_cursor.queue_revision != self.resolve.queue_revision.witness()
+            {
+                return Err(SchedulerError::Stale);
+            }
+            delta.resolve_cursor = Some(cursor.resolve_cursor);
+        }
+        if cursor.verify_cursor.expected != cursor.verify_cursor.target {
+            if cursor.verify_cursor.expected != self.verify.owner_cursor
+                || cursor.verify_cursor.queue_revision != self.verify.queue_revision.witness()
+            {
+                return Err(SchedulerError::Stale);
+            }
+            delta.verify_cursor = Some(cursor.verify_cursor);
+        }
         Ok(delta)
     }
 
@@ -2669,15 +2535,19 @@ impl FairFrontier {
         &self,
         selection_bound: usize,
     ) -> Result<SchedulerWaveCursor, SchedulerError> {
-        let mut selected_versions = Vec::new();
-        selected_versions
-            .try_reserve(selection_bound)
-            .map_err(|_| SchedulerError::Allocation)?;
+        let selected_versions = Vec::with_capacity(selection_bound);
         Ok(SchedulerWaveCursor {
             selected_versions,
-            resolve_cursor: self.resolve.owner_cursor,
-            verify_cursor: self.verify.owner_cursor,
-            compute_queue_revision: self.compute_queue_revision,
+            resolve_cursor: SchedulerCursorChange {
+                expected: self.resolve.owner_cursor,
+                target: self.resolve.owner_cursor,
+                queue_revision: self.resolve.queue_revision.witness(),
+            },
+            verify_cursor: SchedulerCursorChange {
+                expected: self.verify.owner_cursor,
+                target: self.verify.owner_cursor,
+                queue_revision: self.verify.queue_revision.witness(),
+            },
         })
     }
 
@@ -2784,10 +2654,7 @@ impl FairFrontier {
             .filter(|key| self.logical_ready_contains(key))
             .take(MAX_READY_BATCH)
             .count();
-        let mut ready = Vec::new();
-        ready
-            .try_reserve_exact(count)
-            .map_err(|_| SchedulerError::Allocation)?;
+        let mut ready = Vec::with_capacity(count);
         ready.extend(
             self.ready
                 .iter()
@@ -2800,55 +2667,33 @@ impl FairFrontier {
     }
 
     pub(super) fn apply(&mut self, delta: SchedulerDelta) {
-        let compute_queue_revision = if delta.before == delta.after {
-            self.compute_queue_revision
-        } else {
-            let mut revision = self.compute_queue_revision;
-            let before = delta
-                .before
-                .as_ref()
-                .and_then(SchedulerSlot::compute_queue_version);
-            let after = delta
-                .after
-                .as_ref()
-                .and_then(SchedulerSlot::compute_queue_version);
-            match (before, after) {
-                (Some(before), Some(after)) if before == after => {
-                    revision = ComputeQueueRevision::QueueReplace(after);
-                }
-                (before, after) => {
-                    if let Some(version) = before {
-                        revision = ComputeQueueRevision::QueueRemove(version);
-                    }
-                    if let Some(version) = after {
-                        revision = ComputeQueueRevision::QueueInsert(version);
-                    }
-                }
-            }
-            revision
-        };
+        let resolve_changed = delta.changes_queue_lane(QueueLane::Resolve);
+        let verify_changed = delta.changes_queue_lane(QueueLane::Verify);
         if let Some(before) = delta.before {
             self.remove_physical(before);
         }
         if let Some(after) = delta.after {
             self.insert_physical(after);
         }
-        self.compute_queue_revision = compute_queue_revision;
         if let Some((lane, owner)) = delta.owner_cursor {
             match lane {
                 QueueLane::Resolve => self.resolve.owner_cursor = Some(owner),
                 QueueLane::Verify => self.verify.owner_cursor = Some(owner),
             }
         }
+        if resolve_changed {
+            self.resolve.queue_revision.advance();
+        }
+        if verify_changed {
+            self.verify.queue_revision.advance();
+        }
         let _ = self.reap_slot_claims();
         self.refresh_slot_claims();
     }
 
     pub(super) fn apply_batch(&mut self, delta: SchedulerBatchDelta) {
-        let compute_queue_revision = delta.compute_queue_revision.map_or_else(
-            || delta.compute_queue_revision_after(self.compute_queue_revision),
-            |change| change.target,
-        );
+        let resolve_changed = delta.changes_queue_lane(QueueLane::Resolve);
+        let verify_changed = delta.changes_queue_lane(QueueLane::Verify);
         // A batch is a set transition, independent of the caller's change
         // order. Remove the complete old projection before publishing any new
         // slot so an exchange can never be lost to BTreeSet insertion order.
@@ -2858,12 +2703,17 @@ impl FairFrontier {
         for slot in delta.added {
             self.insert_physical(slot);
         }
-        self.compute_queue_revision = compute_queue_revision;
         if let Some(cursor) = delta.resolve_cursor {
             self.resolve.owner_cursor = cursor.target;
         }
         if let Some(cursor) = delta.verify_cursor {
             self.verify.owner_cursor = cursor.target;
+        }
+        if resolve_changed {
+            self.resolve.queue_revision.advance();
+        }
+        if verify_changed {
+            self.verify.queue_revision.advance();
         }
         let _ = self.reap_slot_claims();
         self.refresh_slot_claims();
@@ -2961,7 +2811,7 @@ impl PartialOrd for SchedulerSlot {
 }
 
 #[cfg(test)]
-mod compute_queue_revision_tests {
+mod scheduler_stage_tests {
     use super::*;
     use ckb_types::packed::Byte32;
 
@@ -2970,10 +2820,6 @@ mod compute_queue_revision_tests {
     fn staged_scheduler_batch_remains_send_with_lifetime_profiling_enabled() {
         fn assert_send<T: Send>() {}
         assert_send::<StagedSchedulerBatch<'static>>();
-    }
-
-    fn resolve_slot(owner: WorkOwner, source: SourcePriority) -> SchedulerSlot {
-        resolve_slot_with_version(owner, source, 91, 91)
     }
 
     fn resolve_slot_with_version(
@@ -2994,159 +2840,265 @@ mod compute_queue_revision_tests {
         }
     }
 
+    fn verify_slot_with_version(owner: WorkOwner, nonce: u8, version: u128) -> SchedulerSlot {
+        SchedulerSlot::Queue {
+            lane: QueueLane::Verify,
+            owner,
+            key: QueueKey::Verify(VerifyKey {
+                source: SourcePriority::Remote,
+                order: VerifyOrder::Arrival,
+                fee: 1,
+                serialized_bytes: 1,
+                arrival: Arrival(0),
+                hash: RawTxHash(Byte32::new([nonce; 32])),
+                version: EntryVersion(version),
+                class: VerifyCycleClass::Small,
+            }),
+        }
+    }
+
     fn insertion(slot: SchedulerSlot) -> SchedulerBatchDelta {
         SchedulerBatchDelta {
             removed: Vec::new(),
             added: vec![slot],
-            compute_queue_revision: None,
             resolve_cursor: None,
             verify_cursor: None,
         }
     }
 
+    fn resolve_fairness() -> SchedulerBatchDelta {
+        SchedulerBatchDelta {
+            removed: Vec::new(),
+            added: Vec::new(),
+            resolve_cursor: Some(SchedulerCursorChange {
+                expected: None,
+                target: Some(FairCursor {
+                    owner: WorkOwner::Trusted,
+                    version: EntryVersion(1),
+                }),
+                queue_revision: Some(0),
+            }),
+            verify_cursor: None,
+        }
+    }
+
+    fn ready_slot(nonce: u8, version: u128) -> SchedulerSlot {
+        SchedulerSlot::Ready(ReadyKey {
+            source: SourcePriority::Remote,
+            fee: 1,
+            serialized_bytes: 1,
+            arrival: Arrival(version),
+            hash: RawTxHash(Byte32::new([nonce; 32])),
+            version: EntryVersion(version),
+        })
+    }
+
     #[test]
-    fn same_version_queue_move_has_distinct_insert_replace_remove_revisions() {
-        let mut frontier = FairFrontier::new(VerifyOrder::Arrival);
-        let trusted = resolve_slot(WorkOwner::Trusted, SourcePriority::Proposal);
-        let remote = resolve_slot(
-            WorkOwner::Remote(PeerIndex::from(91usize)),
-            SourcePriority::Remote,
-        );
-        frontier.apply(SchedulerDelta {
+    fn ready_changes_do_not_stale_a_compute_queue_wave() {
+        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+        let wave = frontier
+            .lock()
+            .checkout_wave(0)
+            .expect("the initial empty compute wave is bounded");
+        frontier.lock().apply(SchedulerDelta {
             before: None,
-            after: Some(trusted.clone()),
+            after: Some(ready_slot(96, 96)),
             owner_cursor: None,
         });
-        assert_eq!(
-            frontier.compute_queue_revision,
-            ComputeQueueRevision::QueueInsert(EntryVersion(91))
-        );
-        frontier.apply(SchedulerDelta {
-            before: Some(trusted),
-            after: Some(remote.clone()),
-            owner_cursor: None,
-        });
-        assert_eq!(
-            frontier.compute_queue_revision,
-            ComputeQueueRevision::QueueReplace(EntryVersion(91))
-        );
-        frontier.apply(SchedulerDelta {
-            before: Some(remote),
-            after: None,
-            owner_cursor: None,
-        });
-        assert_eq!(
-            frontier.compute_queue_revision,
-            ComputeQueueRevision::QueueRemove(EntryVersion(91))
+
+        assert!(
+            frontier
+                .lock()
+                .plan_exchange_batch(std::iter::empty(), wave)
+                .is_ok(),
+            "Ready-only changes cannot invalidate compute checkout"
         );
     }
 
     #[test]
-    fn waiting_fairness_stage_blocks_later_queue_stages_until_prior_readers_drain() {
+    fn stamped_fairness_cursor_rejects_owner_aba() {
+        let mut frontier = FairFrontier::new(VerifyOrder::Arrival);
+        let initial = FairCursor {
+            owner: WorkOwner::Remote(PeerIndex::from(90usize)),
+            version: EntryVersion(1),
+        };
+        frontier.resolve.owner_cursor = Some(initial);
+        let mut wave = frontier
+            .checkout_wave(1)
+            .expect("the initial fairness cut is bounded");
+        let SchedulerSlot::Queue { lane, owner, key } = resolve_slot_with_version(
+            WorkOwner::Remote(PeerIndex::from(91usize)),
+            SourcePriority::Remote,
+            91,
+            2,
+        ) else {
+            unreachable!("the fixture constructs one Resolve slot")
+        };
+        wave.select(&CheckoutTicket { lane, owner, key })
+            .expect("the wave selects one distinct version");
+
+        frontier.resolve.owner_cursor = Some(FairCursor {
+            owner: initial.owner,
+            version: EntryVersion(3),
+        });
+        assert!(matches!(
+            frontier.plan_exchange_batch(std::iter::empty(), wave),
+            Err(SchedulerError::Stale)
+        ));
+    }
+
+    #[test]
+    fn multi_ticket_wave_rejects_a_mixed_lane_cut() {
+        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+        let owner_a = WorkOwner::Remote(PeerIndex::from(1usize));
+        let owner_b = WorkOwner::Remote(PeerIndex::from(2usize));
+        let owner_c = WorkOwner::Remote(PeerIndex::from(3usize));
+        let owner_d = WorkOwner::Remote(PeerIndex::from(4usize));
+        {
+            let mut scheduler = frontier.lock();
+            for slot in [
+                resolve_slot_with_version(owner_a, SourcePriority::Remote, 11, 11),
+                resolve_slot_with_version(owner_c, SourcePriority::Remote, 13, 13),
+                resolve_slot_with_version(owner_d, SourcePriority::Remote, 14, 14),
+            ] {
+                scheduler.apply(SchedulerDelta {
+                    before: None,
+                    after: Some(slot),
+                    owner_cursor: None,
+                });
+            }
+            scheduler.resolve.owner_cursor = Some(FairCursor {
+                owner: owner_a,
+                version: EntryVersion(11),
+            });
+        }
+
+        let mut wave = SchedulerExchangeWave::after(Arc::clone(&frontier), std::iter::empty(), 4)
+            .expect("the initial lane cut is available");
+        let first = wave
+            .next(crate::authority::state::WorkPermit::ResolveOnly)
+            .expect("owner C follows the old cursor");
+        assert_eq!(first.owner(), owner_c);
+        wave.select(&first).expect("the first ticket is unique");
+
+        frontier.lock().apply(SchedulerDelta {
+            before: None,
+            after: Some(resolve_slot_with_version(
+                owner_b,
+                SourcePriority::Remote,
+                12,
+                12,
+            )),
+            owner_cursor: None,
+        });
+        for expected in [owner_d, owner_a, owner_b] {
+            let ticket = wave
+                .next(crate::authority::state::WorkPermit::ResolveOnly)
+                .expect("the live walk still has one owner");
+            assert_eq!(ticket.owner(), expected);
+            wave.select(&ticket).expect("each ticket version is unique");
+        }
+
+        assert!(matches!(
+            frontier
+                .lock()
+                .plan_exchange_batch(std::iter::empty(), wave.into_cursor()),
+            Err(SchedulerError::Stale)
+        ));
+    }
+
+    #[test]
+    fn other_lane_queue_stage_does_not_wait_for_active_fairness_stage() {
         const WAIT: std::time::Duration = std::time::Duration::from_secs(2);
         let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let queued = resolve_slot_with_version(
-            WorkOwner::Remote(PeerIndex::from(92usize)),
-            SourcePriority::Remote,
-            92,
-            92,
-        );
-        let queued = StagedSchedulerBatch::stage_primary_replacements(&frontier, insertion(queued))
-            .expect("the cursor-free queue insertion owns one hidden stage");
-        let fairness = || SchedulerBatchDelta {
-            removed: Vec::new(),
-            added: Vec::new(),
-            compute_queue_revision: Some(ComputeQueueRevisionChange {
-                expected: ComputeQueueRevision::Initial,
-                target: ComputeQueueRevision::Initial,
-            }),
-            resolve_cursor: Some(SchedulerCursorChange {
-                expected: None,
-                target: Some(WorkOwner::Trusted),
-            }),
-            verify_cursor: None,
-        };
-        let later = resolve_slot_with_version(
-            WorkOwner::Remote(PeerIndex::from(95usize)),
-            SourcePriority::Remote,
-            95,
-            95,
-        );
+        let fairness =
+            StagedSchedulerBatch::stage_primary_replacements(&frontier, resolve_fairness())
+                .expect("one fairness cursor stage is reserved");
+        let queued = verify_slot_with_version(WorkOwner::Remote(PeerIndex::from(95usize)), 95, 95);
         std::thread::scope(|scope| {
-            let (fairness_acquired_tx, fairness_acquired_rx) = std::sync::mpsc::channel();
-            let (release_fairness_tx, release_fairness_rx) = std::sync::mpsc::channel();
-            let fairness_frontier = Arc::clone(&frontier);
+            let (staged_tx, staged_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let queue_frontier = Arc::clone(&frontier);
             scope.spawn(move || {
                 let stage = StagedSchedulerBatch::stage_primary_replacements(
-                    &fairness_frontier,
-                    fairness(),
+                    &queue_frontier,
+                    insertion(queued),
                 )
-                .expect("the queued fairness writer acquires after prior readers drain");
-                let _ = fairness_acquired_tx.send(());
-                let _ = release_fairness_rx.recv();
+                .expect("a Verify queue change commutes with the active Resolve fairness stage");
+                let _ = staged_tx.send(());
+                let _ = release_rx.recv();
                 drop(stage);
             });
-            let deadline = std::time::Instant::now() + WAIT;
-            loop {
-                if frontier.lock().fairness_stage_waiters == 1 {
-                    break;
-                }
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "the fairness writer publishes its wait intent"
-                );
-                std::thread::yield_now();
-            }
-
-            let (later_acquired_tx, later_acquired_rx) = std::sync::mpsc::channel();
-            let (release_later_tx, release_later_rx) = std::sync::mpsc::channel();
-            let later_frontier = Arc::clone(&frontier);
-            scope.spawn(move || {
-                let stage = StagedSchedulerBatch::stage_primary_replacements(
-                    &later_frontier,
-                    insertion(later),
-                )
-                .expect("the later reader acquires only after the fairness writer");
-                let _ = later_acquired_tx.send(());
-                let _ = release_later_rx.recv();
-                drop(stage);
-            });
-            assert!(fairness_acquired_rx.try_recv().is_err());
-            assert!(later_acquired_rx.try_recv().is_err());
-
-            drop(queued);
-            fairness_acquired_rx
+            staged_rx
                 .recv_timeout(WAIT)
-                .expect("the waiting fairness writer wins after prior readers drain");
-            assert!(
-                later_acquired_rx.try_recv().is_err(),
-                "a queued fairness writer prevents later reader barging"
-            );
-            release_fairness_tx
-                .send(())
-                .expect("release the fairness stage");
-            later_acquired_rx
-                .recv_timeout(WAIT)
-                .expect("the later queue stage proceeds after fairness terminates");
-            release_later_tx.send(()).expect("release the later stage");
+                .expect("ordinary queue staging never waits across fairness owner Apply");
+            assert!(frontier.lock().resolve.fairness_stage_active);
+            release_tx.send(()).expect("release the queue stage");
         });
+        drop(fairness);
         let scheduler = frontier.lock();
-        assert_eq!(scheduler.hidden_cursor_free_queue_stages, 0);
-        assert!(!scheduler.fairness_stage_active);
-        assert_eq!(scheduler.fairness_stage_waiters, 0);
+        assert!(!scheduler.resolve.fairness_stage_active);
+        assert!(!scheduler.verify.fairness_stage_active);
+        assert_eq!(scheduler.resolve.hidden_queue_stages, 0);
+        assert_eq!(scheduler.verify.hidden_queue_stages, 0);
         assert!(scheduler.staged_visibility.is_empty());
     }
 
     #[test]
-    fn disjoint_queue_stages_publish_revision_in_actual_commit_order() {
+    fn same_lane_fairness_waits_for_an_earlier_queue_stage() {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(2);
         let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let first = resolve_slot_with_version(
+        let queued = StagedSchedulerBatch::stage_primary_replacements(
+            &frontier,
+            insertion(resolve_slot_with_version(
+                WorkOwner::Remote(PeerIndex::from(92usize)),
+                SourcePriority::Remote,
+                92,
+                92,
+            )),
+        )
+        .expect("the first queue stage owns one lane reservation");
+        std::thread::scope(|scope| {
+            let (fair_tx, fair_rx) = std::sync::mpsc::channel();
+            let (release_fair_tx, release_fair_rx) = std::sync::mpsc::channel();
+            let fair_frontier = Arc::clone(&frontier);
+            scope.spawn(move || {
+                let stage = StagedSchedulerBatch::stage_primary_replacements(
+                    &fair_frontier,
+                    resolve_fairness(),
+                )
+                .expect("fairness acquires after the earlier queue stage");
+                let _ = fair_tx.send(());
+                let _ = release_fair_rx.recv();
+                drop(stage);
+            });
+            let deadline = std::time::Instant::now() + WAIT;
+            while frontier.lock().resolve.fairness_stage_waiters == 0 {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the fairness stage publishes its wait intent"
+                );
+                std::thread::yield_now();
+            }
+
+            drop(queued);
+            fair_rx
+                .recv_timeout(WAIT)
+                .expect("fairness progresses after the earlier queue stage");
+            release_fair_tx.send(()).expect("release fairness");
+        });
+    }
+
+    #[test]
+    fn disjoint_queue_stages_activate_in_reverse_order_without_staling_wave() {
+        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
+        let first_slot = resolve_slot_with_version(
             WorkOwner::Remote(PeerIndex::from(93usize)),
             SourcePriority::Remote,
             93,
             93,
         );
-        let second = resolve_slot_with_version(
+        let second_slot = resolve_slot_with_version(
             WorkOwner::Remote(PeerIndex::from(94usize)),
             SourcePriority::Remote,
             94,
@@ -3156,36 +3108,38 @@ mod compute_queue_revision_tests {
             .lock()
             .checkout_wave(0)
             .expect("the empty pre-publication wave is bounded");
-        let first = StagedSchedulerBatch::stage_primary_replacements(&frontier, insertion(first))
-            .expect("the first disjoint queue stage is hidden");
-        let second = StagedSchedulerBatch::stage_primary_replacements(&frontier, insertion(second))
-            .expect("the second disjoint queue stage is independently hidden");
+        let first = StagedSchedulerBatch::stage_primary_replacements(
+            &frontier,
+            insertion(first_slot.clone()),
+        )
+        .expect("the first disjoint queue stage is hidden");
+        let second = StagedSchedulerBatch::stage_primary_replacements(
+            &frontier,
+            insertion(second_slot.clone()),
+        )
+        .expect("the second disjoint queue stage is independently hidden");
         let entries = crate::authority::shard::ShardedOwnerMap::new(
             crate::authority::shard::AuthorityShardRouter::new(),
         );
         second.activate_for_foundation(
             entries.write_cut(crate::authority::shard::ShardWriteSupport::default()),
         );
-        assert!(matches!(
+        assert!(
             frontier
                 .lock()
-                .plan_exchange_batch(std::iter::empty(), old_wave),
-            Err(SchedulerError::Stale)
-        ));
-        assert_eq!(
-            frontier.lock().compute_queue_revision,
-            ComputeQueueRevision::QueueInsert(EntryVersion(94))
+                .plan_exchange_batch(std::iter::empty(), old_wave)
+                .is_ok()
         );
         first.activate_for_foundation(
             entries.write_cut(crate::authority::shard::ShardWriteSupport::default()),
         );
         let scheduler = frontier.lock();
-        assert_eq!(
-            scheduler.compute_queue_revision,
-            ComputeQueueRevision::QueueInsert(EntryVersion(93))
-        );
-        assert_eq!(scheduler.hidden_cursor_free_queue_stages, 0);
-        assert!(!scheduler.fairness_stage_active);
+        assert!(scheduler.contains(&first_slot));
+        assert!(scheduler.contains(&second_slot));
+        assert!(!scheduler.resolve.fairness_stage_active);
+        assert!(!scheduler.verify.fairness_stage_active);
+        assert_eq!(scheduler.resolve.hidden_queue_stages, 0);
+        assert_eq!(scheduler.verify.hidden_queue_stages, 0);
         assert!(scheduler.staged_visibility.is_empty());
     }
 }
@@ -3226,46 +3180,9 @@ mod ready_slot_claim_tests {
         SchedulerBatchDelta {
             removed: vec![SchedulerSlot::Ready(key.clone())],
             added: Vec::new(),
-            compute_queue_revision: None,
             resolve_cursor: None,
             verify_cursor: None,
         }
-    }
-
-    fn ready_insertion(key: &ReadyKey) -> SchedulerBatchDelta {
-        SchedulerBatchDelta {
-            removed: Vec::new(),
-            added: vec![SchedulerSlot::Ready(key.clone())],
-            compute_queue_revision: None,
-            resolve_cursor: None,
-            verify_cursor: None,
-        }
-    }
-
-    fn ready_to_resolve(
-        key: &ReadyKey,
-        version: EntryVersion,
-    ) -> (SchedulerSlot, SchedulerBatchDelta) {
-        let resolve = SchedulerSlot::Queue {
-            lane: QueueLane::Resolve,
-            owner: WorkOwner::Remote(PeerIndex::from(1usize)),
-            key: QueueKey::Resolve(ResolveKey {
-                source: key.source,
-                arrival: key.arrival,
-                hash: key.hash.clone(),
-                version,
-            }),
-        };
-        (
-            resolve.clone(),
-            SchedulerBatchDelta {
-                removed: vec![SchedulerSlot::Ready(key.clone())],
-                added: vec![resolve],
-                compute_queue_revision: None,
-                resolve_cursor: None,
-                verify_cursor: None,
-            },
-        )
     }
 
     fn capture_slot(frontier: &Arc<Mutex<FairFrontier>>) -> ReadySlotReservation {
@@ -3285,7 +3202,7 @@ mod ready_slot_claim_tests {
         let weak = key(1, 1, 1);
         let strong = key(2, 2, 2);
         apply_insert(&frontier, &weak);
-        let slot = capture_slot(&frontier);
+        let mut slot = capture_slot(&frontier);
 
         apply_insert(&frontier, &strong);
         assert_eq!(slot.claim.state(), READY_SLOT_INVALID);
@@ -3304,219 +3221,6 @@ mod ready_slot_claim_tests {
             frontier.lock().ready_physical_counts_for_foundation(),
             (0, 0, 0)
         );
-    }
-
-    #[test]
-    fn hidden_stronger_stage_neither_suppresses_nor_invalidates_weaker_work() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let weak = key(1, 11, 11);
-        let strong = key(2, 12, 12);
-        apply_insert(&frontier, &weak);
-
-        let staged =
-            StagedSchedulerBatch::stage_primary_insertions(&frontier, ready_insertion(&strong))
-                .expect("the stronger Ready row stages without becoming visible");
-        assert_eq!(
-            frontier.lock().wake_projection().ready,
-            Some(weak.version())
-        );
-        let reservation = ReadyReservation::capture(&frontier)
-            .expect("a hidden stronger row is skipped without suppressing committed work")
-            .expect("the weaker committed Ready row remains selectable");
-        assert_eq!(
-            reservation.candidates().next(),
-            Some((weak.hash(), weak.version()))
-        );
-        drop(reservation);
-
-        drop(staged);
-        assert_eq!(
-            frontier.lock().wake_projection().ready,
-            Some(weak.version())
-        );
-        let slot = capture_slot(&frontier);
-        let delta = exact_removal(&weak);
-        assert!(slot.prestate_is_fresh(&frontier, &delta));
-        slot.activate(&frontier, delta);
-        assert!(
-            ReadyReservation::capture(&frontier)
-                .expect("the committed weaker slot reaps coherently")
-                .is_none()
-        );
-        assert_eq!(
-            frontier.lock().ready_physical_counts_for_foundation(),
-            (0, 0, 0)
-        );
-    }
-
-    #[test]
-    fn committing_weaker_claim_linearizes_before_a_later_hidden_stage() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let weak = key(1, 13, 13);
-        let strong = key(2, 14, 14);
-        apply_insert(&frontier, &weak);
-        let slot = capture_slot(&frontier);
-        let delta = exact_removal(&weak);
-        assert!(slot.prestate_is_fresh(&frontier, &delta));
-
-        let staged =
-            StagedSchedulerBatch::stage_primary_insertions(&frontier, ready_insertion(&strong))
-                .expect("the later stronger Ready row stages");
-        assert_eq!(slot.claim.state(), READY_SLOT_COMMITTING);
-        slot.activate(&frontier, delta);
-        drop(staged);
-        assert!(
-            ReadyReservation::capture(&frontier)
-                .expect("the earlier committed slot reaps coherently")
-                .is_none()
-        );
-        assert_eq!(
-            frontier.lock().ready_physical_counts_for_foundation(),
-            (0, 0, 0)
-        );
-    }
-
-    #[test]
-    fn batch_ready_prefix_is_not_rechecked_after_its_owner_linearization() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let weak = key(1, 15, 15);
-        let strong = key(2, 16, 16);
-        apply_insert(&frontier, &weak);
-        let reservation = ReadyReservation::capture(&frontier)
-            .expect("the initial Ready capture is coherent")
-            .expect("the weaker row is available");
-        let weak_stage = StagedSchedulerBatch::stage_reserved_ready_batch(
-            &frontier,
-            exact_removal(&weak),
-            reservation,
-        )
-        .expect("the weaker batch stages its exact Ready removal");
-
-        // This is the batch Ready linearization point. A disjoint stronger
-        // owner may commit after this read but before scheduler publication;
-        // rechecking the prefix in that Apply tail would panic after mutation.
-        assert!(weak_stage.prestate_is_fresh());
-        let strong_stage =
-            StagedSchedulerBatch::stage_primary_insertions(&frontier, ready_insertion(&strong))
-                .expect("the later disjoint stronger owner stages independently");
-        let entries = crate::authority::shard::ShardedOwnerMap::new(
-            crate::authority::shard::AuthorityShardRouter::new(),
-        );
-        strong_stage.activate_for_foundation(
-            entries.write_cut(crate::authority::shard::ShardWriteSupport::default()),
-        );
-        weak_stage.activate_for_foundation(
-            entries.write_cut(crate::authority::shard::ShardWriteSupport::default()),
-        );
-
-        let next = ReadyReservation::capture(&frontier)
-            .expect("the two ordered publications leave one coherent Ready row")
-            .expect("the later stronger row remains available");
-        assert_eq!(
-            next.candidates().next(),
-            Some((strong.hash(), strong.version()))
-        );
-    }
-
-    #[test]
-    fn reserved_ready_reresolution_rechecks_selection_not_its_hidden_addition() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let ready = key(1, 17, 17);
-        apply_insert(&frontier, &ready);
-        let reservation = ReadyReservation::capture(&frontier)
-            .expect("the Ready capture is coherent")
-            .expect("the Ready row is available");
-        let (resolve, delta) = ready_to_resolve(&ready, EntryVersion(18));
-        let staged =
-            StagedSchedulerBatch::stage_reserved_ready_batch(&frontier, delta, reservation)
-                .expect("Ready-to-Resolve stages under the captured prefix");
-
-        assert!(staged.prestate_is_fresh());
-        {
-            let scheduler = frontier.lock();
-            assert!(scheduler.logical_ready_contains(&ready));
-            assert!(
-                scheduler
-                    .staged_visibility
-                    .get(&StagedSchedulerSlotKey::from(&resolve))
-                    .is_some_and(|marker| !marker.logical_is_visible())
-            );
-        }
-
-        let entries = crate::authority::shard::ShardedOwnerMap::new(
-            crate::authority::shard::AuthorityShardRouter::new(),
-        );
-        staged.activate_for_foundation(
-            entries.write_cut(crate::authority::shard::ShardWriteSupport::default()),
-        );
-        let scheduler = frontier.lock();
-        assert!(!scheduler.contains(&SchedulerSlot::Ready(ready)));
-        assert!(scheduler.contains(&resolve));
-        assert!(scheduler.staged_visibility.is_empty());
-    }
-
-    #[test]
-    fn claimed_slot_linearizes_before_a_later_stronger_insertion() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let weak = key(1, 3, 3);
-        let strong = key(2, 4, 4);
-        apply_insert(&frontier, &weak);
-        let slot = capture_slot(&frontier);
-        let delta = exact_removal(&weak);
-        assert!(slot.prestate_is_fresh(&frontier, &delta));
-        assert_eq!(slot.claim.state(), READY_SLOT_COMMITTING);
-
-        apply_insert(&frontier, &strong);
-        assert_eq!(slot.claim.state(), READY_SLOT_COMMITTING);
-        slot.activate(&frontier, delta);
-
-        let next = ReadyReservation::capture(&frontier)
-            .expect("the later stronger key remains coherent")
-            .expect("the later stronger key is available");
-        assert_eq!(
-            next.candidates().next(),
-            Some((strong.hash(), strong.version()))
-        );
-    }
-
-    #[test]
-    fn administrative_removal_retires_a_reserved_slot_without_resurrection() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let removed = key(1, 5, 5);
-        apply_insert(&frontier, &removed);
-        let slot = capture_slot(&frontier);
-
-        apply_remove(&frontier, &removed);
-        assert_eq!(slot.claim.state(), READY_SLOT_RETIRED);
-        assert!(!slot.prestate_is_fresh(&frontier, &exact_removal(&removed)));
-        drop(slot);
-        assert!(
-            ReadyReservation::capture(&frontier)
-                .expect("retired slot reaping stays coherent")
-                .is_none()
-        );
-        assert_eq!(
-            frontier.lock().ready_physical_counts_for_foundation(),
-            (0, 0, 0)
-        );
-    }
-
-    #[test]
-    fn impossible_removal_after_claim_poison_fails_closed() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let removed = key(1, 6, 6);
-        apply_insert(&frontier, &removed);
-        let slot = capture_slot(&frontier);
-        let delta = exact_removal(&removed);
-        assert!(slot.prestate_is_fresh(&frontier, &delta));
-
-        apply_remove(&frontier, &removed);
-        assert_eq!(slot.claim.state(), READY_SLOT_POISONED);
-        drop(slot);
-        assert!(matches!(
-            ReadyReservation::capture(&frontier),
-            Err(SchedulerError::Projection)
-        ));
     }
 
     #[test]
@@ -3540,28 +3244,6 @@ mod ready_slot_claim_tests {
         drop(stronger);
         assert_eq!(weaker.claim.state(), READY_SLOT_INVALID);
         drop(weaker);
-    }
-
-    #[test]
-    fn retired_old_version_cannot_touch_a_readmitted_same_hash() {
-        let frontier = Arc::new(Mutex::new(FairFrontier::new(VerifyOrder::Arrival)));
-        let old = key(1, 9, 9);
-        let mut new = key(1, 9, 10);
-        new.arrival = old.arrival;
-        apply_insert(&frontier, &old);
-        let old_slot = capture_slot(&frontier);
-
-        apply_remove(&frontier, &old);
-        apply_insert(&frontier, &new);
-        drop(old_slot);
-
-        let current = ReadyReservation::capture(&frontier)
-            .expect("same-hash readmission remains coherent")
-            .expect("the new version is independently available");
-        assert_eq!(
-            current.candidates().next(),
-            Some((new.hash(), new.version()))
-        );
     }
 
     #[test]

@@ -13,15 +13,10 @@ pub(in crate::authority) enum FoundationPublisherError {
 }
 
 impl AuthorityEffectEndpoints {
-    pub(in crate::authority) async fn publish(
-        &mut self,
-        mut outcome: CompiledEndpointOutcome,
-    ) -> EndpointDisposition {
-        let mut disposition = EndpointDisposition::Published;
+    pub(in crate::authority) fn publish(&mut self, mut outcome: CompiledEndpointOutcome) {
         for endpoint in EffectEndpoint::ORDER {
-            disposition = disposition.join(self.publish_endpoint(&mut outcome, endpoint).await);
+            self.publish_endpoint(&mut outcome, endpoint);
         }
-        disposition
     }
 }
 

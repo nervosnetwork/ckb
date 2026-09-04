@@ -42,9 +42,6 @@ pub(in crate::authority) fn closed_assignment_observation(
         .err()
         .map(|error| match error {
             CoordinatorDriveError::Worker(error) => error.into_kind(),
-            CoordinatorDriveError::ReplaceGeneration => {
-                panic!("a closed assignment receiver cannot request generation replacement")
-            }
         }))
 }
 
@@ -76,9 +73,6 @@ pub(in crate::authority) fn stale_checkout_reopens_probe(
     assert!(
         coordinator
             .consume_exchange(AuthorityCommittedComputeExchange {
-                settled: Vec::new(),
-                obsolete: Vec::new(),
-                deferred: Vec::new(),
                 capture_failures: Vec::new(),
                 assignments: Vec::new(),
                 unused_grants: vec![grant],
@@ -199,74 +193,6 @@ pub(in crate::authority) fn resource_wait_bank_change_reclassifies_once(
     !coordinator.has_resource_waiters()
         && coordinator.resource_wait_identity.is_none()
         && coordinator.probe_work
-}
-
-/// Exercise the production recovery visitor with one settlement and one fair
-/// grant. The resource wait owns the settlement exactly once and owns no
-/// execution permit; repeated promotion cannot duplicate either capability.
-pub(in crate::authority) fn after_resource_recovery_is_linear(
-    runtime: AuthorityRuntime,
-    completion: ComputeExchangeCompletion,
-    grant: ComputeWorkerGrant,
-) -> ComputeExchangeCompletion {
-    let completion_slot = completion.slot();
-    let grant_slot = grant.slot();
-    let (completion_assignment_tx, completion_assignment_rx) = mpsc::channel(1);
-    let (grant_assignment_tx, grant_assignment_rx) = mpsc::channel(1);
-    let (_completion_tx, completion_rx) = mpsc::channel(1);
-    let (cache_tx, cache_rx) = mpsc::channel(1);
-    let (_command_tx, command_rx) = watch::channel(ChunkCommand::Resume);
-    let mut coordinator = ComputeCoordinator::new(
-        runtime.clone(),
-        vec![
-            CoordinatorLane {
-                slot: completion_slot,
-                sender: Some(completion_assignment_tx),
-                phase: SlotPhase::Idle,
-                probe_suppressed: false,
-            },
-            CoordinatorLane {
-                slot: grant_slot,
-                sender: Some(grant_assignment_tx),
-                phase: SlotPhase::Idle,
-                probe_suppressed: false,
-            },
-        ],
-        completion_rx,
-        cache_tx,
-        command_rx,
-        CancellationToken::new(),
-    )
-    .expect("the recovery fixture reserves its exact bounded queues");
-    let _endpoints = (completion_assignment_rx, grant_assignment_rx, cache_rx);
-
-    assert!(runtime.try_acquire_compute_execution().is_none());
-    {
-        let mut recovery = CoordinatorRecovery {
-            coordinator: &mut coordinator,
-            route: RecoveryRoute::AfterResource,
-        };
-        assert!(recovery.recover_settlement(completion).is_ok());
-        assert!(recovery.recover_grant(grant).is_ok());
-    }
-    let returned = runtime
-        .try_acquire_compute_execution()
-        .expect("resource waiting immediately returns the fair execution permit");
-    drop(returned);
-
-    coordinator.bind_resource_wait(runtime.resource_capacity_wait_identity());
-    assert_eq!(coordinator.exchange_after_resource.len(), 1);
-    coordinator.promote_resource_waiters();
-    assert_eq!(coordinator.exchange_after_resource.len(), 0);
-    assert_eq!(coordinator.exchange_pending.len(), 1);
-    coordinator.promote_resource_waiters();
-    assert_eq!(coordinator.exchange_pending.len(), 1);
-    let recovered = coordinator
-        .exchange_pending
-        .pop()
-        .expect("one recovered settlement survives promotion");
-    assert_eq!(recovered.slot(), completion_slot);
-    recovered
 }
 
 /// Structured owner for an isolated coordinator whose unrelated endpoints

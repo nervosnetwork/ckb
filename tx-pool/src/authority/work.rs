@@ -130,7 +130,6 @@ pub(super) enum ResolutionReceiptError {
     TransactionMismatch,
     InvalidEvidence(InputEvidenceError),
     EmptyDependencies,
-    DependencyAllocation,
 }
 
 #[derive(Debug)]
@@ -284,12 +283,6 @@ fn missing_settlement(
                 ResolutionReceiptError::EmptyDependencies,
             ));
         }
-        Err(DependencySetError::Allocation) => {
-            return Err(ReceiptFailure::new(
-                token,
-                ResolutionReceiptError::DependencyAllocation,
-            ));
-        }
         Err(DependencySetError::Arithmetic) => {
             return Err(ReceiptFailure::new(
                 token,
@@ -303,12 +296,6 @@ fn missing_settlement(
         Ok(dependencies) => dependencies,
         Err(DependencySetError::TooMany) => {
             return Ok(budget_denied(token));
-        }
-        Err(DependencySetError::Allocation) => {
-            return Err(ReceiptFailure::new(
-                token,
-                ResolutionReceiptError::DependencyAllocation,
-            ));
         }
         Err(error @ (DependencySetError::Empty | DependencySetError::Arithmetic)) => {
             return Err(ReceiptFailure::new(
@@ -324,15 +311,7 @@ fn missing_settlement(
     {
         return Ok(budget_denied(token));
     }
-    let parent_transactions = match missing.parent_transactions() {
-        Ok(parents) => parents,
-        Err(_) => {
-            return Err(ReceiptFailure::new(
-                token,
-                ResolutionReceiptError::DependencyAllocation,
-            ));
-        }
-    };
+    let parent_transactions = missing.parent_transactions();
     Ok(token.settle(SettlementNext::Waiting(MissingResolution {
         missing,
         dependencies,
@@ -348,7 +327,6 @@ enum ResolvedPayloadBuild {
 
 fn location_receipt_error(error: CellLocationReceiptError) -> ResolutionReceiptError {
     match error {
-        CellLocationReceiptError::Allocation => ResolutionReceiptError::DependencyAllocation,
         CellLocationReceiptError::Arithmetic => ResolutionReceiptError::InvalidEvidence(
             InputEvidenceError::Footprint(FootprintError::Arithmetic),
         ),
@@ -393,9 +371,6 @@ fn build_resolved_payload(
                 CommittedPublicReject::new(duplicate_inputs_reject()),
             )),
             InputEvidenceDisposition::ResourceDenied => Ok(ResolvedPayloadBuild::ResourceDenied),
-            InputEvidenceDisposition::ResourceUnavailable => {
-                Err(ResolutionReceiptError::DependencyAllocation)
-            }
             InputEvidenceDisposition::Structural => {
                 Err(ResolutionReceiptError::InvalidEvidence(error))
             }

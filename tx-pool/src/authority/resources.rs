@@ -1,18 +1,13 @@
+#[cfg(test)]
+use super::state::RawTxHash;
 use super::{
-    shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerReadCut, ShardedOwnerWriteCut},
-    state::{
-        ComputeAttribution, EntryVersion, OwnedTx, PreAcceptedEntry, RawTxHash, ValidatedAdmission,
-        WorkPermit,
-    },
+    shard::{ShardResourcePlan, ShardedOwnerMap, ShardedOwnerWriteCut},
+    state::{ComputeAttribution, EntryVersion, PreAcceptedEntry, ValidatedAdmission, WorkPermit},
 };
 use ckb_network::PeerIndex;
 use ckb_types::core::TransactionView;
 use ckb_util::parking_lot::Mutex;
-use std::{
-    collections::{HashMap, HashSet},
-    num::NonZeroUsize,
-    sync::Arc,
-};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 use tokio::sync::Notify;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -179,6 +174,17 @@ impl ResidencyPolicy {
 }
 
 impl ResourceVector {
+    fn component_max(self, other: Self) -> Self {
+        Self {
+            entries: self.entries.max(other.entries),
+            bytes: self.bytes.max(other.bytes),
+            edges: self.edges.max(other.edges),
+            active_work: self.active_work.max(other.active_work),
+            compute_bytes: self.compute_bytes.max(other.compute_bytes),
+            compute_edges: self.compute_edges.max(other.compute_edges),
+        }
+    }
+
     pub(super) const fn new(
         entries: usize,
         bytes: usize,
@@ -296,6 +302,15 @@ impl AcceptedCost {
 }
 
 impl AcceptedResources {
+    fn component_max(self, other: Self) -> Self {
+        Self {
+            entries: self.entries.max(other.entries),
+            serialized_bytes: self.serialized_bytes.max(other.serialized_bytes),
+            resident_bytes: self.resident_bytes.max(other.resident_bytes),
+            cycles: self.cycles.max(other.cycles),
+        }
+    }
+
     pub(super) const fn new(
         entries: usize,
         serialized_bytes: usize,
@@ -446,40 +461,6 @@ impl ResourceLimits {
     pub(super) const fn active_work_limit(self) -> usize {
         self.preaccepted.active_work
     }
-
-    /// Conservative hard ceiling for all dependency stage permits retained by
-    /// one generation.
-    ///
-    /// Each logical edge can occupy consumer plus waiter rows, and a staged
-    /// transition can hold the current and prospective universes at once.
-    /// Accepted edge cardinality is conservatively bounded by its resident
-    /// bytes (every physical edge costs at least one charged byte). Control-
-    /// A published predecessor may remain alive until cleanup while a
-    /// successor takes over the same physical row, so the physical-row bound
-    /// is multiplied by the configured maximum live capability population:
-    /// owner reservations, checked-out work, and the sole maintenance
-    /// successor. This deliberately over-approximates scheduler timing while
-    /// remaining a hard configuration-derived ceiling.
-    pub(super) fn max_dependency_stage_units(self) -> usize {
-        let preaccepted_edges = self.preaccepted.total_edges().unwrap_or(usize::MAX);
-        let accepted_edge_bound = self.accepted.resident_bytes;
-        // One edge can own the before/after consumer and waiter relation
-        // cells plus the level and dirty control cells. The stage bank
-        // charges all six physical cells because they can coexist until the
-        // publishing capability is normalized.
-        let relation_and_control_rows_per_stage = preaccepted_edges
-            .saturating_add(accepted_edge_bound)
-            .saturating_mul(6);
-        let live_capabilities = self
-            .max_owner_entries()
-            .unwrap_or(usize::MAX)
-            .saturating_add(self.active_work_limit())
-            .saturating_add(1);
-        relation_and_control_rows_per_stage
-            .saturating_add(1)
-            .saturating_mul(live_capabilities)
-            .max(1)
-    }
 }
 
 /// Per-lease upper bounds reserved before attacker-shaped resolve/verify
@@ -558,7 +539,7 @@ pub(super) enum ChargeRecord {
 }
 
 impl ChargeRecord {
-    fn validate(self) -> Result<(), ResourceError> {
+    pub(in crate::authority) fn validate(self) -> Result<(), ResourceError> {
         match self {
             Self::PreAccepted {
                 resources,
@@ -651,7 +632,6 @@ pub(super) enum ResourceError {
     ComputeEnvelope,
     AttributionMismatch,
     CapacityBankFault,
-    Allocation,
 }
 
 pub(super) enum DirectAcceptedInsertionError {
@@ -747,35 +727,33 @@ pub(in crate::authority) struct ResourceRead<'state> {
 }
 
 impl ResourceRead<'_> {
-    fn totals(self) -> (ResourceTotals, AcceptedResources) {
+    fn totals(self) -> ResourceTotals {
         match self.entries.resource_totals() {
             Some(totals) => totals,
             None => {
                 self.ledger.capacity.mark_faulted();
-                (
-                    ResourceTotals {
-                        preaccepted: ResourceVector::exhausted(),
-                        remote: ResourceVector::exhausted(),
-                        replacement_history: ResourceVector::exhausted(),
-                    },
-                    AcceptedResources::exhausted(),
-                )
+                ResourceTotals {
+                    preaccepted: ResourceVector::exhausted(),
+                    remote: ResourceVector::exhausted(),
+                    replacement_history: ResourceVector::exhausted(),
+                    accepted: AcceptedResources::exhausted(),
+                }
             }
         }
     }
 
     pub(super) fn preaccepted(self) -> ResourceVector {
-        self.totals().0.preaccepted
+        self.totals().preaccepted
     }
 
     #[cfg(test)]
     pub(super) fn remote(self) -> ResourceVector {
-        self.totals().0.remote
+        self.totals().remote
     }
 
     #[cfg(test)]
     pub(super) fn replacement_history(self) -> ResourceVector {
-        self.totals().0.replacement_history
+        self.totals().replacement_history
     }
 
     pub(super) fn peer(self, peer: PeerIndex) -> ResourceVector {
@@ -783,36 +761,17 @@ impl ResourceRead<'_> {
     }
 
     pub(super) fn accepted(self) -> AcceptedResources {
-        self.totals().1
+        self.totals().accepted
     }
 
     pub(super) fn accepted_fits(self, projected: AcceptedResources) -> bool {
         projected.fits(self.ledger.limits.accepted)
     }
-
-    #[cfg(test)]
-    pub(super) fn limits(self) -> ResourceLimits {
-        self.ledger.limits
-    }
-}
-
-pub(super) struct ResourcePlan {
-    shards: ShardResourcePlan,
-    capacity: ResourceCapacityReservation,
 }
 
 pub(super) struct ResourceBatchPlan {
     shards: ShardResourcePlan,
     capacity: ResourceCapacityReservation,
-}
-
-/// Resource transition sealed by the only owner-to-Nowhere compiler. Shared
-/// Apply may rebase its per-shard subtraction on the exact current owners;
-/// exclusive Apply may consume the already-compiled absolute shard targets.
-/// No insertion/replacement plan can construct this carrier.
-pub(super) struct OwnerRemovalResourcePlan {
-    plan: ResourceBatchPlan,
-    owners: Vec<(RawTxHash, ChargeRecord)>,
 }
 
 pub(super) struct ResourceCapacityCommit(ResourceCapacityReservation);
@@ -843,6 +802,10 @@ impl ResourceCapacityCommit {
     pub(super) fn begin(self) -> Result<ResourceCapacityCommitPermit, ResourceCapacityBeginError> {
         self.0.begin_commit()
     }
+
+    pub(super) fn seals_active_work_revision(&self) -> bool {
+        self.0.active_work_revision.is_some()
+    }
 }
 
 impl ResourceCapacityCommitPermit {
@@ -868,35 +831,6 @@ impl Drop for ResourceCapacityCommitPermit {
             // deferred release stranded and fault the generation in one bank
             // cut. No sibling permit may mistake this for reusable capacity.
             self.bank.abandon_commit();
-        }
-    }
-}
-
-impl ResourcePlan {
-    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
-        self.capacity.releases_preaccepted_active_work()
-    }
-
-    pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
-        &self.shards
-    }
-
-    pub(super) fn apply_shards(
-        self,
-        owners: &mut ShardedOwnerWriteCut<'_>,
-    ) -> ResourceCapacityCommit {
-        owners.apply_resource_plan(self.shards);
-        ResourceCapacityCommit(self.capacity)
-    }
-
-    /// Reinterpret one already-planned owner transition as the one-member
-    /// batch consumed by the shared Apply engine. Both carriers own the same
-    /// shard and capacity reservations, so this conversion is allocation-free
-    /// and cannot change resource policy.
-    pub(super) fn into_batch(self) -> ResourceBatchPlan {
-        ResourceBatchPlan {
-            shards: self.shards,
-            capacity: self.capacity,
         }
     }
 }
@@ -927,51 +861,6 @@ impl ResourceBatchPlan {
 
     pub(super) fn into_shared_commit_parts(self) -> (ShardResourcePlan, ResourceCapacityCommit) {
         (self.shards, ResourceCapacityCommit(self.capacity))
-    }
-}
-
-impl OwnerRemovalResourcePlan {
-    pub(super) fn releases_preaccepted_active_work(&self) -> bool {
-        self.plan.releases_preaccepted_active_work()
-    }
-
-    pub(super) fn shard_plan(&self) -> &ShardResourcePlan {
-        self.plan.shard_plan()
-    }
-
-    pub(super) fn into_exclusive_plan(self) -> ResourceBatchPlan {
-        self.plan
-    }
-
-    pub(super) fn rebase_shared_removal(
-        mut self,
-        entries: &ShardedOwnerMap,
-        cut: &ShardedOwnerWriteCut<'_>,
-        hashes: &[RawTxHash],
-    ) -> Result<(ShardResourcePlan, ResourceCapacityCommit), ResourceError> {
-        if hashes.len() != self.owners.len()
-            || hashes
-                .iter()
-                .zip(&self.owners)
-                .any(|(hash, (expected_hash, expected_charge))| {
-                    hash != expected_hash
-                        || cut.owner(entries, hash).map(OwnedTx::charge_record)
-                            != Some(*expected_charge)
-                })
-        {
-            return Err(ResourceError::ExistingChargeMismatch);
-        }
-        cut.rebase_owner_removal_resource_plan(&mut self.plan.shards)?;
-        Ok(self.plan.into_shared_commit_parts())
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn swap_first_owner_witnesses_for_foundation(&mut self) -> bool {
-        if self.owners.len() < 2 {
-            return false;
-        }
-        self.owners.swap(0, 1);
-        true
     }
 }
 
@@ -1041,13 +930,6 @@ impl ResourceCapacityWaitIdentity {
 }
 
 impl ResourceCapacityObservation {
-    #[cfg(test)]
-    pub(in crate::authority) fn has_reserved_capacity_for_foundation(self) -> bool {
-        self.reserved != ResourceCapacityDelta::default()
-            || self.in_flight_positive != ResourceCapacityDelta::default()
-            || self.in_flight_release != ResourceCapacityDelta::default()
-    }
-
     pub(super) fn explains_limit(self, previous: Self, error: &ResourceError) -> bool {
         match error {
             ResourceError::PreAcceptedLimit => {
@@ -1087,7 +969,6 @@ impl ResourceCapacityObservation {
             ResourceError::PeerLimit(_) => true,
             ResourceError::ReplacementHistoryLimit
             | ResourceError::ComputeEnvelope
-            | ResourceError::Allocation
             | ResourceError::Arithmetic
             | ResourceError::ExistingChargeMismatch
             | ResourceError::AttributionMismatch
@@ -1220,24 +1101,15 @@ impl ResourceCapacityDelta {
             && self.accepted.fits(limits.accepted)
     }
 
-    fn between(
-        current_totals: ResourceTotals,
-        current_accepted: AcceptedResources,
-        preaccepted: ResourceVector,
-        remote: ResourceVector,
-        replacement_history: ResourceVector,
-        accepted: AcceptedResources,
-    ) -> (Self, Self) {
+    fn between(before: ResourceTotals, after: ResourceTotals) -> (Self, Self) {
         let (positive_preaccepted, release_preaccepted) =
-            ResourceVector::split_transition(current_totals.preaccepted, preaccepted);
+            ResourceVector::split_transition(before.preaccepted, after.preaccepted);
         let (positive_remote, release_remote) =
-            ResourceVector::split_transition(current_totals.remote, remote);
-        let (positive_replacement, release_replacement) = ResourceVector::split_transition(
-            current_totals.replacement_history,
-            replacement_history,
-        );
+            ResourceVector::split_transition(before.remote, after.remote);
+        let (positive_replacement, release_replacement) =
+            ResourceVector::split_transition(before.replacement_history, after.replacement_history);
         let (positive_accepted, release_accepted) =
-            AcceptedResources::split_transition(current_accepted, accepted);
+            AcceptedResources::split_transition(before.accepted, after.accepted);
         (
             Self {
                 preaccepted: positive_preaccepted,
@@ -1302,19 +1174,18 @@ impl ResourceCapacityBank {
     /// gross rather than owner-exact while any begun permit may exist, but it
     /// never exposes capacity that an unfinished owner transition might still
     /// consume.
-    fn committed_projection(&self) -> Result<(ResourceTotals, AcceptedResources), ResourceError> {
+    #[cfg(test)]
+    fn committed_projection(&self) -> Result<ResourceTotals, ResourceError> {
         let state = self.state.lock();
         if state.faulted {
             return Err(ResourceError::CapacityBankFault);
         }
-        Ok((
-            ResourceTotals {
-                preaccepted: state.committed.preaccepted,
-                remote: state.committed.remote,
-                replacement_history: state.committed.replacement_history,
-            },
-            state.committed.accepted,
-        ))
+        Ok(ResourceTotals {
+            preaccepted: state.committed.preaccepted,
+            remote: state.committed.remote,
+            replacement_history: state.committed.replacement_history,
+            accepted: state.committed.accepted,
+        })
     }
 
     /// Answer the canonical membership capacity question from the same bank
@@ -1651,8 +1522,11 @@ mod capacity_bank_tests {
         }
     }
 
-    fn one_accepted_release() -> ResourceCapacityDelta {
-        one_accepted()
+    fn accepted_totals(accepted: AcceptedResources) -> ResourceTotals {
+        ResourceTotals {
+            accepted,
+            ..ResourceTotals::default()
+        }
     }
 
     fn one_active_work() -> ResourceCapacityDelta {
@@ -1682,15 +1556,6 @@ mod capacity_bank_tests {
         assert_eq!(reservation.commit(), ResourceCommitHealth::Healthy);
     }
 
-    #[test]
-    fn final_peer_limit_is_contention_even_when_aggregate_observation_is_unchanged() {
-        let observation = ResourceCapacityObservation::default();
-        assert!(observation.explains_limit(
-            observation,
-            &ResourceError::PeerLimit(PeerIndex::from(7usize)),
-        ));
-    }
-
     #[tokio::test]
     async fn aggregate_zero_reservation_still_publishes_its_terminal() {
         let bank = Arc::new(ResourceCapacityBank::default());
@@ -1710,70 +1575,6 @@ mod capacity_bank_tests {
     }
 
     #[test]
-    fn committed_capacity_is_not_returned_as_if_it_were_only_reserved() {
-        let bank = Arc::new(ResourceCapacityBank::default());
-        commit_healthy(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("first reservation fits"),
-        );
-
-        assert!(matches!(
-            bank.reserve(one_accepted(), Default::default(), limits()),
-            Err(ResourceError::AcceptedLimit)
-        ));
-    }
-
-    #[test]
-    fn dropped_plan_returns_only_its_outstanding_positive_reservation() {
-        let bank = Arc::new(ResourceCapacityBank::default());
-        drop(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("outstanding reservation fits"),
-        );
-
-        commit_healthy(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("dropped reservation was returned"),
-        );
-    }
-
-    #[test]
-    fn dropped_removal_plan_does_not_publish_uncommitted_capacity() {
-        let bank = Arc::new(ResourceCapacityBank::default());
-        commit_healthy(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("initial committed use fits"),
-        );
-        drop(
-            bank.reserve(Default::default(), one_accepted_release(), limits())
-                .expect("removal release is carried without being published"),
-        );
-
-        assert!(matches!(
-            bank.reserve(one_accepted(), Default::default(), limits()),
-            Err(ResourceError::AcceptedLimit)
-        ));
-    }
-
-    #[test]
-    fn committed_removal_releases_capacity_after_the_semantic_commit() {
-        let bank = Arc::new(ResourceCapacityBank::default());
-        commit_healthy(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("initial committed use fits"),
-        );
-        commit_healthy(
-            bank.reserve(Default::default(), one_accepted_release(), limits())
-                .expect("removal release is carried"),
-        );
-
-        commit_healthy(
-            bank.reserve(one_accepted(), Default::default(), limits())
-                .expect("committed removal made the capacity reusable"),
-        );
-    }
-
-    #[test]
     fn prepared_release_remains_unavailable_until_the_owner_cut_finishes() {
         let bank = Arc::new(ResourceCapacityBank::default());
         commit_healthy(
@@ -1782,13 +1583,13 @@ mod capacity_bank_tests {
         );
 
         let permit = bank
-            .reserve(Default::default(), one_accepted_release(), limits())
+            .reserve(Default::default(), one_accepted(), limits())
             .expect("the exact release can be prepared")
             .begin_commit()
             .expect("capacity preparation is valid before owner mutation");
         assert_eq!(
             bank.committed_projection(),
-            Ok((ResourceTotals::default(), one_accepted().accepted)),
+            Ok(accepted_totals(one_accepted().accepted)),
             "a prepared release is not reusable before the owner cut finishes"
         );
         assert!(matches!(
@@ -1804,26 +1605,6 @@ mod capacity_bank_tests {
     }
 
     #[test]
-    fn abandoned_commit_permit_faults_the_capacity_generation() {
-        let bank = Arc::new(ResourceCapacityBank::default());
-        let permit = bank
-            .reserve(one_accepted(), Default::default(), limits())
-            .expect("one positive reservation fits")
-            .begin_commit()
-            .expect("the positive capacity can enter its conservative commit phase");
-        assert_eq!(
-            bank.committed_projection(),
-            Ok((ResourceTotals::default(), one_accepted().accepted)),
-            "a begun positive-only permit is conservatively charged before owner mutation"
-        );
-        drop(permit);
-        assert_eq!(
-            bank.committed_projection(),
-            Err(ResourceError::CapacityBankFault)
-        );
-    }
-
-    #[test]
     fn begun_sibling_finishes_exactly_after_other_permit_abandons() {
         let bank = Arc::new(ResourceCapacityBank::default());
         for _ in 0..2 {
@@ -1835,7 +1616,7 @@ mod capacity_bank_tests {
         let abandoned = bank
             .reserve(
                 ResourceCapacityDelta::default(),
-                one_accepted_release(),
+                one_accepted(),
                 two_accepted_limits(),
             )
             .expect("the first exact owner release reserves")
@@ -1844,7 +1625,7 @@ mod capacity_bank_tests {
         let sibling = bank
             .reserve(
                 ResourceCapacityDelta::default(),
-                one_accepted_release(),
+                one_accepted(),
                 two_accepted_limits(),
             )
             .expect("the sibling exact owner release reserves")
@@ -1862,7 +1643,7 @@ mod capacity_bank_tests {
             assert!(state.faulted);
             assert_eq!(state.reserved, ResourceCapacityDelta::default());
             assert_eq!(state.committed, one_accepted());
-            assert_eq!(state.in_flight_release, one_accepted_release());
+            assert_eq!(state.in_flight_release, one_accepted());
         }
         assert_eq!(
             bank.reserve(
@@ -1883,12 +1664,12 @@ mod capacity_bank_tests {
                 .expect("one accepted owner fits"),
         );
         let first = bank
-            .reserve(Default::default(), one_accepted_release(), limits())
+            .reserve(Default::default(), one_accepted(), limits())
             .expect("the first release plans")
             .begin_commit()
             .expect("the first release is covered by committed capacity");
         let second = bank
-            .reserve(Default::default(), one_accepted_release(), limits())
+            .reserve(Default::default(), one_accepted(), limits())
             .expect("release intent itself consumes no positive capacity")
             .begin_commit();
         assert!(matches!(
@@ -1907,9 +1688,16 @@ mod capacity_bank_tests {
     #[test]
     fn committed_projection_excludes_reservations_and_tracks_only_linear_commit() {
         let bank = Arc::new(ResourceCapacityBank::default());
+        assert_eq!(bank.committed_projection(), Ok(ResourceTotals::default()));
+
+        drop(
+            bank.reserve(one_accepted(), ResourceCapacityDelta::default(), limits())
+                .expect("one dropped insertion reserves capacity"),
+        );
         assert_eq!(
             bank.committed_projection(),
-            Ok((ResourceTotals::default(), AcceptedResources::default()))
+            Ok(ResourceTotals::default()),
+            "dropping an insertion returns only its outstanding reservation"
         );
 
         let insertion = bank
@@ -1917,32 +1705,69 @@ mod capacity_bank_tests {
             .expect("one bounded insertion reserves capacity");
         assert_eq!(
             bank.committed_projection(),
-            Ok((ResourceTotals::default(), AcceptedResources::default())),
+            Ok(ResourceTotals::default()),
             "an uncommitted reservation is never reported as owner state"
         );
         commit_healthy(insertion);
         assert_eq!(
             bank.committed_projection(),
-            Ok((ResourceTotals::default(), one_accepted().accepted))
+            Ok(accepted_totals(one_accepted().accepted))
+        );
+
+        drop(
+            bank.reserve(ResourceCapacityDelta::default(), one_accepted(), limits())
+                .expect("one dropped removal carries no reusable release"),
+        );
+        assert_eq!(
+            bank.committed_projection(),
+            Ok(accepted_totals(one_accepted().accepted)),
+            "dropping a removal cannot publish uncommitted capacity"
         );
 
         let removal = bank
-            .reserve(
-                ResourceCapacityDelta::default(),
-                one_accepted_release(),
-                limits(),
-            )
+            .reserve(ResourceCapacityDelta::default(), one_accepted(), limits())
             .expect("one bounded removal carries its release until commit");
         assert_eq!(
             bank.committed_projection(),
-            Ok((ResourceTotals::default(), one_accepted().accepted)),
+            Ok(accepted_totals(one_accepted().accepted)),
             "a planned release cannot become reusable before semantic commit"
         );
         commit_healthy(removal);
-        assert_eq!(
-            bank.committed_projection(),
-            Ok((ResourceTotals::default(), AcceptedResources::default()))
+        assert_eq!(bank.committed_projection(), Ok(ResourceTotals::default()));
+    }
+
+    #[test]
+    fn ordered_batch_reserves_peak_headroom_not_only_its_net_delta() {
+        let ledger = ResourceLedger::new(two_accepted_limits());
+        commit_healthy(
+            ledger
+                .capacity
+                .reserve(
+                    one_accepted(),
+                    ResourceCapacityDelta::default(),
+                    two_accepted_limits(),
+                )
+                .expect("the initial committed owner fits"),
         );
+        let one = accepted_totals(one_accepted().accepted);
+        let two = accepted_totals(AcceptedResources::new(2, 2, 2, 2));
+        let envelope = || OrderedResourceEnvelope {
+            initial: one,
+            peak: two,
+            target: one,
+        };
+
+        let first = ledger
+            .reserve_ordered_plan(ShardResourcePlan::empty(), one, one, envelope())
+            .expect("the first insert-then-release prefix owns the only free headroom");
+        assert!(matches!(
+            ledger.reserve_ordered_plan(ShardResourcePlan::empty(), one, one, envelope()),
+            Err(ResourceError::AcceptedLimit)
+        ));
+        drop(first);
+        ledger
+            .reserve_ordered_plan(ShardResourcePlan::empty(), one, one, envelope())
+            .expect("dropping the first plan returns its uncommitted peak headroom");
     }
 
     #[test]
@@ -2118,21 +1943,10 @@ mod capacity_bank_tests {
             insertion.validate_peer_targets(limit),
             Err(ResourceError::PeerLimit(actual)) if actual == peer
         ));
+        let observation = ResourceCapacityObservation::default();
+        assert!(observation.explains_limit(observation, &ResourceError::PeerLimit(peer),));
     }
 }
-
-#[cfg(test)]
-impl ResourcePlan {
-    pub(in crate::authority) fn extend_shard_support(
-        &self,
-        support: &mut super::shard_support::AuthorityShardSupport,
-        exclusive: &mut super::shard_support::ExclusiveSupport,
-    ) {
-        self.shards.extend_shard_support(support);
-        let _ = exclusive;
-    }
-}
-
 #[derive(Clone, Copy)]
 pub(in crate::authority) struct ChargeProjection {
     pub(in crate::authority) preaccepted: Option<ResourceVector>,
@@ -2162,9 +1976,43 @@ pub(in crate::authority) struct ResourceTotals {
     pub(in crate::authority) preaccepted: ResourceVector,
     pub(in crate::authority) remote: ResourceVector,
     pub(in crate::authority) replacement_history: ResourceVector,
+    pub(in crate::authority) accepted: AcceptedResources,
 }
 
 impl ResourceTotals {
+    fn component_max(self, other: Self) -> Self {
+        Self {
+            preaccepted: self.preaccepted.component_max(other.preaccepted),
+            remote: self.remote.component_max(other.remote),
+            replacement_history: self
+                .replacement_history
+                .component_max(other.replacement_history),
+            accepted: self.accepted.component_max(other.accepted),
+        }
+    }
+
+    pub(in crate::authority) fn checked_add_aggregate(self, added: Self) -> Option<Self> {
+        Some(Self {
+            preaccepted: self.preaccepted.checked_add(added.preaccepted)?,
+            remote: self.remote.checked_add(added.remote)?,
+            replacement_history: self
+                .replacement_history
+                .checked_add(added.replacement_history)?,
+            accepted: self.accepted.checked_add(added.accepted)?,
+        })
+    }
+
+    pub(in crate::authority) fn checked_sub_aggregate(self, removed: Self) -> Option<Self> {
+        Some(Self {
+            preaccepted: self.preaccepted.checked_sub(removed.preaccepted)?,
+            remote: self.remote.checked_sub(removed.remote)?,
+            replacement_history: self
+                .replacement_history
+                .checked_sub(removed.replacement_history)?,
+            accepted: self.accepted.checked_sub(removed.accepted)?,
+        })
+    }
+
     pub(in crate::authority) fn checked_remove(
         mut self,
         charge: ChargeProjection,
@@ -2184,6 +2032,12 @@ impl ResourceTotals {
         if let Some(resources) = charge.replacement_history {
             self.replacement_history = self
                 .replacement_history
+                .checked_sub(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
+        if let Some(resources) = charge.accepted {
+            self.accepted = self
+                .accepted
                 .checked_sub(resources)
                 .ok_or(ResourceError::Arithmetic)?;
         }
@@ -2212,30 +2066,14 @@ impl ResourceTotals {
                 .checked_add(resources)
                 .ok_or(ResourceError::Arithmetic)?;
         }
+        if let Some(resources) = charge.accepted {
+            self.accepted = self
+                .accepted
+                .checked_add(resources)
+                .ok_or(ResourceError::Arithmetic)?;
+        }
         Ok(self)
     }
-}
-
-fn checked_remove_accepted(
-    current: AcceptedResources,
-    removed: Option<AcceptedResources>,
-) -> Result<AcceptedResources, ResourceError> {
-    removed.map_or(Ok(current), |resources| {
-        current
-            .checked_sub(resources)
-            .ok_or(ResourceError::Arithmetic)
-    })
-}
-
-fn checked_add_accepted(
-    current: AcceptedResources,
-    added: Option<AcceptedResources>,
-) -> Result<AcceptedResources, ResourceError> {
-    added.map_or(Ok(current), |resources| {
-        current
-            .checked_add(resources)
-            .ok_or(ResourceError::Arithmetic)
-    })
 }
 
 /// Stack-owned aggregate projection for a canonical ordered batch.
@@ -2245,8 +2083,10 @@ fn checked_add_accepted(
 /// a stronger rule because each item must observe the resource result of every
 /// earlier item in controller order. This projection evaluates that ordered
 /// fold without cloning the owner map or mutating the authoritative ledger;
-/// the final base-to-final changes are still compiled by [`ResourceLedger::plan_batch`].
+/// the final base-to-final changes are compiled by the sealed resource planner.
 pub(super) struct OrderedResourceProjection {
+    initial: ResourceTotals,
+    peak: ResourceTotals,
     preaccepted: ResourceVector,
     remote: ResourceVector,
     peers: HashMap<PeerIndex, ResourceVector>,
@@ -2254,6 +2094,12 @@ pub(super) struct OrderedResourceProjection {
     accepted: AcceptedResources,
     limits: ResourceLimits,
     capacity_observation: ResourceCapacityObservation,
+}
+
+pub(in crate::authority) struct OrderedResourceEnvelope {
+    initial: ResourceTotals,
+    peak: ResourceTotals,
+    target: ResourceTotals,
 }
 
 impl ResourceLedger {
@@ -2314,53 +2160,6 @@ impl ResourceLedger {
         })
     }
 
-    pub(super) fn plan_removal_batch(
-        &self,
-        entries: &ShardedOwnerMap,
-        changes: Vec<(RawTxHash, ChargeRecord)>,
-        shards: ShardResourcePlan,
-    ) -> Result<OwnerRemovalResourcePlan, ResourceError> {
-        let mut release = ResourceCapacityDelta::default();
-        for (key, expected) in &changes {
-            expected.validate()?;
-            if entries.get(key).as_deref().map(OwnedTx::charge_record) != Some(*expected) {
-                return Err(ResourceError::ExistingChargeMismatch);
-            }
-            let charge = ChargeProjection::from_validated(Some(*expected))?;
-            if let Some(resources) = charge.preaccepted {
-                release.preaccepted = release
-                    .preaccepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some((_, resources)) = charge.peer {
-                release.remote = release
-                    .remote
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = charge.replacement_history {
-                release.replacement_history = release
-                    .replacement_history
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = charge.accepted {
-                release.accepted = release
-                    .accepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-        }
-        let capacity =
-            self.capacity
-                .reserve(ResourceCapacityDelta::default(), release, self.limits)?;
-        Ok(OwnerRemovalResourcePlan {
-            plan: ResourceBatchPlan { shards, capacity },
-            owners: changes,
-        })
-    }
-
     pub(super) fn new(limits: ResourceLimits) -> Self {
         Self {
             limits,
@@ -2378,21 +2177,11 @@ impl ResourceLedger {
         }
     }
 
-    pub(in crate::authority) fn coherent_totals(
+    pub(in crate::authority) fn operational_totals(
         &self,
-        owners: &ShardedOwnerReadCut<'_>,
-    ) -> (ResourceTotals, AcceptedResources) {
-        owners.resource_totals().unwrap_or_else(|| {
-            self.capacity.mark_faulted();
-            (
-                ResourceTotals {
-                    preaccepted: ResourceVector::exhausted(),
-                    remote: ResourceVector::exhausted(),
-                    replacement_history: ResourceVector::exhausted(),
-                },
-                AcceptedResources::exhausted(),
-            )
-        })
+        entries: &ShardedOwnerMap,
+    ) -> ResourceTotals {
+        self.read(entries).totals()
     }
 
     pub(super) fn ordered_projection(
@@ -2405,11 +2194,11 @@ impl ResourceLedger {
             return Err(ResourceError::CapacityBankFault);
         }
         let current = self.read(entries);
-        let (totals, accepted) = current.totals();
+        let totals = current.totals();
         if self.capacity_observation().faulted {
             return Err(ResourceError::CapacityBankFault);
         }
-        self.ordered_projection_from(totals, accepted, maximum_peers, capacity_observation)
+        Ok(self.ordered_projection_from(totals, maximum_peers, capacity_observation))
     }
 
     pub(super) fn ordered_committed_projection(
@@ -2424,30 +2213,33 @@ impl ResourceLedger {
         if capacity_observation.faulted {
             return Err(ResourceError::CapacityBankFault);
         }
-        let (totals, accepted) = self.capacity.committed_projection()?;
-        self.ordered_projection_from(totals, accepted, maximum_peers, capacity_observation)
+        let totals = ResourceTotals {
+            preaccepted: capacity_observation.committed.preaccepted,
+            remote: capacity_observation.committed.remote,
+            replacement_history: capacity_observation.committed.replacement_history,
+            accepted: capacity_observation.committed.accepted,
+        };
+        Ok(self.ordered_projection_from(totals, maximum_peers, capacity_observation))
     }
 
     fn ordered_projection_from(
         &self,
         totals: ResourceTotals,
-        accepted: AcceptedResources,
         maximum_peers: usize,
         capacity_observation: ResourceCapacityObservation,
-    ) -> Result<OrderedResourceProjection, ResourceError> {
-        let mut peers = HashMap::new();
-        peers
-            .try_reserve(maximum_peers)
-            .map_err(|_| ResourceError::Allocation)?;
-        Ok(OrderedResourceProjection {
+    ) -> OrderedResourceProjection {
+        let peers = HashMap::with_capacity(maximum_peers);
+        OrderedResourceProjection {
+            initial: totals,
+            peak: totals,
             preaccepted: totals.preaccepted,
             remote: totals.remote,
             peers,
             replacement_history: totals.replacement_history,
-            accepted,
+            accepted: totals.accepted,
             limits: self.limits,
             capacity_observation,
-        })
+        }
     }
 
     pub(super) fn compute_grant(
@@ -2547,339 +2339,59 @@ impl ResourceLedger {
         }
     }
 
-    pub(super) fn plan_replace<F>(
+    pub(super) fn reserve_plan(
         &self,
-        entries: &ShardedOwnerMap,
-        expected: Option<ChargeRecord>,
-        after: Option<ChargeRecord>,
         shards: ShardResourcePlan,
-        current_charge: F,
-    ) -> Result<ResourcePlan, ResourceError>
-    where
-        F: FnOnce() -> Option<ChargeRecord>,
-    {
-        expected.map(ChargeRecord::validate).transpose()?;
-        after.map(ChargeRecord::validate).transpose()?;
-        if current_charge() != expected {
+        before: ResourceTotals,
+        after: ResourceTotals,
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        shards.validate_peer_targets(self.limits.per_peer)?;
+        let (positive, release) = ResourceCapacityDelta::between(before, after);
+        let capacity = self.capacity.reserve(positive, release, self.limits)?;
+        Ok(ResourceBatchPlan { shards, capacity })
+    }
+
+    pub(in crate::authority) fn reserve_ordered_plan(
+        &self,
+        shards: ShardResourcePlan,
+        changed_before: ResourceTotals,
+        changed_after: ResourceTotals,
+        envelope: OrderedResourceEnvelope,
+    ) -> Result<ResourceBatchPlan, ResourceError> {
+        shards.validate_peer_targets(self.limits.per_peer)?;
+        if ResourceCapacityDelta::between(envelope.initial, envelope.target)
+            != ResourceCapacityDelta::between(changed_before, changed_after)
+        {
             return Err(ResourceError::ExistingChargeMismatch);
         }
-
-        let old_charge = ChargeProjection::from_validated(expected)?;
-        let new_charge = ChargeProjection::from_validated(after)?;
-        let current = self.read(entries);
-        let (current_totals, current_accepted) = current.totals();
-        let ResourceTotals {
-            preaccepted,
-            remote,
-            replacement_history,
-        } = current_totals
-            .checked_remove(old_charge)?
-            .checked_add(new_charge)?;
-        if !preaccepted.fits(self.limits.preaccepted) {
-            return Err(ResourceError::PreAcceptedLimit);
-        }
-        if !remote.fits(self.limits.remote) {
-            return Err(ResourceError::RemoteLimit);
-        }
-        if !replacement_history.fits(self.limits.replacement_history) {
-            return Err(ResourceError::ReplacementHistoryLimit);
-        }
-
-        let old_peer_charge = old_charge.peer;
-        let new_peer_charge = new_charge.peer;
-        let old_peer = old_peer_charge.map(|(peer, _)| peer);
-        let new_peer = new_peer_charge.map(|(peer, _)| peer);
-        let project_peer = |peer: PeerIndex| {
-            let mut usage = current.peer(peer);
-            if old_peer == Some(peer) {
-                let resources = old_peer_charge
-                    .map(|(_, resources)| resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-                usage = usage
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if new_peer == Some(peer) {
-                let resources = new_peer_charge
-                    .map(|(_, resources)| resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-                usage = usage
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if !usage.fits(self.limits.per_peer) {
-                return Err(ResourceError::PeerLimit(peer));
-            }
-            Ok(usage)
-        };
-        if let Some(peer) = old_peer {
-            let _validated_peer_target = project_peer(peer)?;
-        }
-        if let Some(peer) = new_peer.filter(|peer| Some(*peer) != old_peer) {
-            let _validated_peer_target = project_peer(peer)?;
-        }
-
-        let accepted = checked_add_accepted(
-            checked_remove_accepted(current_accepted, old_charge.accepted)?,
-            new_charge.accepted,
-        )?;
-        if !accepted.fits(self.limits.accepted) {
-            return Err(ResourceError::AcceptedLimit);
-        }
-
-        let (positive, release) = ResourceCapacityDelta::between(
-            current_totals,
-            current_accepted,
-            preaccepted,
-            remote,
-            replacement_history,
-            accepted,
-        );
-        let capacity = self.capacity.reserve(positive, release, self.limits)?;
-        Ok(ResourcePlan { shards, capacity })
-    }
-
-    pub(super) fn plan_batch<F>(
-        &self,
-        entries: &ShardedOwnerMap,
-        changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
-        shards: ShardResourcePlan,
-        mut current_charge: F,
-    ) -> Result<ResourceBatchPlan, ResourceError>
-    where
-        F: FnMut(&RawTxHash) -> Option<ChargeRecord>,
-    {
-        let mut keys = HashSet::new();
-        keys.try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        let mut peer_updates = HashMap::new();
-        let peer_capacity = changes
-            .len()
-            .checked_mul(2)
-            .ok_or(ResourceError::Arithmetic)?;
-        peer_updates
-            .try_reserve(peer_capacity)
-            .map_err(|_| ResourceError::Allocation)?;
-        let current = self.read(entries);
-        let (current_totals, current_accepted) = current.totals();
-        let mut totals = current_totals;
-        let mut accepted = current_accepted;
-
-        for (key, expected, after) in &changes {
-            expected.map(ChargeRecord::validate).transpose()?;
-            after.map(ChargeRecord::validate).transpose()?;
-            if !keys.insert(key.clone()) {
-                return Err(ResourceError::DuplicateChange);
-            }
-            if current_charge(key) != *expected {
-                return Err(ResourceError::ExistingChargeMismatch);
-            }
-        }
-
-        // A batch is a set transition, not a caller-ordered sequence. Remove
-        // every old charge before adding any new charge so a valid net change
-        // cannot overflow only because its freeing member appeared later in
-        // the input vector.
-        for (_, expected, _) in &changes {
-            let charge = ChargeProjection::from_validated(*expected)?;
-            totals = totals.checked_remove(charge)?;
-            if let Some((peer, resources)) = charge.peer {
-                let usage = peer_updates
-                    .entry(peer)
-                    .or_insert_with(|| current.peer(peer));
-                *usage = usage
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            accepted = checked_remove_accepted(accepted, charge.accepted)?;
-        }
-        for (_, _, after) in &changes {
-            let charge = ChargeProjection::from_validated(*after)?;
-            totals = totals.checked_add(charge)?;
-            if let Some((peer, resources)) = charge.peer {
-                let usage = peer_updates
-                    .entry(peer)
-                    .or_insert_with(|| current.peer(peer));
-                *usage = usage
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            accepted = checked_add_accepted(accepted, charge.accepted)?;
-        }
-
-        if !totals.preaccepted.fits(self.limits.preaccepted) {
-            return Err(ResourceError::PreAcceptedLimit);
-        }
-        if !totals.remote.fits(self.limits.remote) {
-            return Err(ResourceError::RemoteLimit);
-        }
-        if let Some(peer) = peer_updates
-            .iter()
-            .filter_map(|(peer, usage)| (!usage.fits(self.limits.per_peer)).then_some(*peer))
-            .min()
+        let (positive, premature_release) =
+            ResourceCapacityDelta::between(envelope.initial, envelope.peak);
+        let (late_positive, release) =
+            ResourceCapacityDelta::between(envelope.peak, envelope.target);
+        if premature_release != ResourceCapacityDelta::default()
+            || late_positive != ResourceCapacityDelta::default()
         {
-            return Err(ResourceError::PeerLimit(peer));
+            return Err(ResourceError::Arithmetic);
         }
-        if !totals
-            .replacement_history
-            .fits(self.limits.replacement_history)
-        {
-            return Err(ResourceError::ReplacementHistoryLimit);
-        }
-        if !accepted.fits(self.limits.accepted) {
-            return Err(ResourceError::AcceptedLimit);
-        }
-
-        let (positive, release) = ResourceCapacityDelta::between(
-            current_totals,
-            current_accepted,
-            totals.preaccepted,
-            totals.remote,
-            totals.replacement_history,
-            accepted,
-        );
         let capacity = self.capacity.reserve(positive, release, self.limits)?;
         Ok(ResourceBatchPlan { shards, capacity })
     }
 
-    /// Reserve the exact aggregate transition of one closed shared owner
-    /// batch from its point-validated before/after charges alone.
-    ///
-    /// The capacity bank owns aggregate admission. The routed shard plan owns
-    /// per-key and per-peer state. Summing the selected before and after rows
-    /// therefore yields the exact aggregate delta without reading every owner
-    /// shard, while the final owner cut revalidates every selected premise.
-    pub(super) fn plan_shared_transition_batch(
+    pub(super) fn reserve_direct_accepted_plan(
         &self,
-        entries: &ShardedOwnerMap,
-        changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
         shards: ShardResourcePlan,
-    ) -> Result<ResourceBatchPlan, ResourceError> {
-        let mut keys = HashSet::new();
-        keys.try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        let mut before = ResourceCapacityDelta::default();
-        let mut after = ResourceCapacityDelta::default();
-
-        for (key, expected, replacement) in changes {
-            expected.map(ChargeRecord::validate).transpose()?;
-            replacement.map(ChargeRecord::validate).transpose()?;
-            if !keys.insert(key.clone()) {
-                return Err(ResourceError::DuplicateChange);
-            }
-            if entries.get(&key).as_deref().map(OwnedTx::charge_record) != expected {
-                return Err(ResourceError::ExistingChargeMismatch);
-            }
-            before = before
-                .checked_add(Self::charge_capacity_delta(expected)?)
-                .ok_or(ResourceError::Arithmetic)?;
-            after = after
-                .checked_add(Self::charge_capacity_delta(replacement)?)
-                .ok_or(ResourceError::Arithmetic)?;
-        }
-
-        let (positive_preaccepted, release_preaccepted) =
-            ResourceVector::split_transition(before.preaccepted, after.preaccepted);
-        let (positive_remote, release_remote) =
-            ResourceVector::split_transition(before.remote, after.remote);
-        let (positive_replacement, release_replacement) =
-            ResourceVector::split_transition(before.replacement_history, after.replacement_history);
-        let (positive_accepted, release_accepted) =
-            AcceptedResources::split_transition(before.accepted, after.accepted);
-        let positive = ResourceCapacityDelta {
-            preaccepted: positive_preaccepted,
-            remote: positive_remote,
-            replacement_history: positive_replacement,
-            accepted: positive_accepted,
-        };
-        let release = ResourceCapacityDelta {
-            preaccepted: release_preaccepted,
-            remote: release_remote,
-            replacement_history: release_replacement,
-            accepted: release_accepted,
-        };
-
-        shards.validate_peer_targets(self.limits.per_peer)?;
-        let capacity = self.capacity.reserve(positive, release, self.limits)?;
-        Ok(ResourceBatchPlan { shards, capacity })
-    }
-
-    fn charge_capacity_delta(
-        charge: Option<ChargeRecord>,
-    ) -> Result<ResourceCapacityDelta, ResourceError> {
-        let charge = ChargeProjection::from_validated(charge)?;
-        Ok(ResourceCapacityDelta {
-            preaccepted: charge.preaccepted.unwrap_or_default(),
-            remote: charge
-                .peer
-                .map(|(_, resources)| resources)
-                .unwrap_or_default(),
-            replacement_history: charge.replacement_history.unwrap_or_default(),
-            accepted: charge.accepted.unwrap_or_default(),
-        })
-    }
-
-    pub(super) fn plan_direct_accepted_insertion_batch(
-        &self,
-        entries: &ShardedOwnerMap,
-        changes: Vec<(RawTxHash, ChargeRecord)>,
-        shards: ShardResourcePlan,
+        before: ResourceTotals,
+        after: ResourceTotals,
     ) -> Result<ResourceBatchPlan, DirectAcceptedInsertionError> {
-        let positive = self.insertion_positive(entries, changes, &shards)?;
+        shards.validate_peer_targets(self.limits.per_peer)?;
+        let (positive, release) = ResourceCapacityDelta::between(before, after);
+        if release != ResourceCapacityDelta::default() {
+            return Err(ResourceError::CapacityBankFault.into());
+        }
         let capacity = self
             .capacity
             .reserve_direct_accepted(positive, self.limits)?;
         Ok(ResourceBatchPlan { shards, capacity })
-    }
-
-    fn insertion_positive(
-        &self,
-        entries: &ShardedOwnerMap,
-        changes: Vec<(RawTxHash, ChargeRecord)>,
-        shards: &ShardResourcePlan,
-    ) -> Result<ResourceCapacityDelta, ResourceError> {
-        let mut keys = HashSet::new();
-        keys.try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        let mut positive = ResourceCapacityDelta::default();
-
-        for (key, after) in changes {
-            after.validate()?;
-            if !keys.insert(key.clone()) {
-                return Err(ResourceError::DuplicateChange);
-            }
-            if entries.get(&key).is_some() {
-                return Err(ResourceError::ExistingChargeMismatch);
-            }
-            let charge = ChargeProjection::from_validated(Some(after))?;
-            if let Some(resources) = charge.preaccepted {
-                positive.preaccepted = positive
-                    .preaccepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some((_peer, resources)) = charge.peer {
-                positive.remote = positive
-                    .remote
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = charge.replacement_history {
-                positive.replacement_history = positive
-                    .replacement_history
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-            if let Some(resources) = charge.accepted {
-                positive.accepted = positive
-                    .accepted
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-        }
-
-        shards.validate_peer_targets(self.limits.per_peer)?;
-        Ok(positive)
     }
 }
 
@@ -2910,6 +2422,19 @@ fn active_work_availability(
 }
 
 impl OrderedResourceProjection {
+    pub(in crate::authority) fn into_envelope(self) -> OrderedResourceEnvelope {
+        OrderedResourceEnvelope {
+            initial: self.initial,
+            peak: self.peak,
+            target: ResourceTotals {
+                preaccepted: self.preaccepted,
+                remote: self.remote,
+                replacement_history: self.replacement_history,
+                accepted: self.accepted,
+            },
+        }
+    }
+
     pub(super) const fn active_work_revision(&self) -> ActiveWorkRevision {
         self.capacity_observation.active_work_revision
     }
@@ -2967,13 +2492,10 @@ impl OrderedResourceProjection {
             preaccepted: self.preaccepted,
             remote: self.remote,
             replacement_history: self.replacement_history,
+            accepted: self.accepted,
         }
         .checked_remove(old_charge)?
         .checked_add(new_charge)?;
-        let accepted = checked_add_accepted(
-            checked_remove_accepted(self.accepted, old_charge.accepted)?,
-            new_charge.accepted,
-        )?;
         let old_peer = old_charge.peer;
         let new_peer = new_charge.peer;
 
@@ -3022,118 +2544,19 @@ impl OrderedResourceProjection {
         {
             return Err(ResourceError::ReplacementHistoryLimit);
         }
-        if !accepted.fits(self.limits.accepted) {
+        if !totals.accepted.fits(self.limits.accepted) {
             return Err(ResourceError::AcceptedLimit);
         }
 
         self.preaccepted = totals.preaccepted;
         self.remote = totals.remote;
         self.replacement_history = totals.replacement_history;
-        self.accepted = accepted;
+        self.accepted = totals.accepted;
+        self.peak = self.peak.component_max(totals);
         if let Some((peer, usage)) = old_peer_after {
             self.peers.insert(peer, usage);
         }
         if let Some((peer, usage)) = new_peer_after {
-            self.peers.insert(peer, usage);
-        }
-        Ok(())
-    }
-
-    /// Evaluate one ordered component as an atomic set transition.
-    ///
-    /// A leaf-RBF component replaces both the Ready candidate and its
-    /// Accepted victim. Removing either owner first can create a false
-    /// transient limit (Accepted in candidate-first order, replacement
-    /// history in victim-first order), although the canonical single-member
-    /// compiler removes both old charges before installing either new one.
-    /// This scratch fold preserves that exact rule for every strongest-first
-    /// component while the final authority transition remains owned by
-    /// [`ResourceLedger::plan_batch`]. An error leaves this projection
-    /// unchanged, so optional history can be terminalized and retried once.
-    pub(super) fn replace_set(
-        &mut self,
-        current: ResourceRead<'_>,
-        changes: &[(Option<ChargeRecord>, Option<ChargeRecord>)],
-    ) -> Result<(), ResourceError> {
-        let peer_capacity = changes
-            .len()
-            .checked_mul(2)
-            .ok_or(ResourceError::Arithmetic)?;
-        let mut peer_updates = HashMap::new();
-        peer_updates
-            .try_reserve(peer_capacity)
-            .map_err(|_| ResourceError::Allocation)?;
-        let mut totals = ResourceTotals {
-            preaccepted: self.preaccepted,
-            remote: self.remote,
-            replacement_history: self.replacement_history,
-        };
-        let mut accepted = self.accepted;
-
-        for (expected, after) in changes {
-            expected.map(ChargeRecord::validate).transpose()?;
-            after.map(ChargeRecord::validate).transpose()?;
-        }
-        for (expected, _) in changes {
-            let charge = ChargeProjection::from_validated(*expected)?;
-            totals = totals.checked_remove(charge)?;
-            accepted = checked_remove_accepted(accepted, charge.accepted)?;
-            if let Some((peer, resources)) = charge.peer {
-                let usage = peer_updates.entry(peer).or_insert_with(|| {
-                    self.peers
-                        .get(&peer)
-                        .copied()
-                        .unwrap_or_else(|| current.peer(peer))
-                });
-                *usage = usage
-                    .checked_sub(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-        }
-        for (_, after) in changes {
-            let charge = ChargeProjection::from_validated(*after)?;
-            totals = totals.checked_add(charge)?;
-            accepted = checked_add_accepted(accepted, charge.accepted)?;
-            if let Some((peer, resources)) = charge.peer {
-                let usage = peer_updates.entry(peer).or_insert_with(|| {
-                    self.peers
-                        .get(&peer)
-                        .copied()
-                        .unwrap_or_else(|| current.peer(peer))
-                });
-                *usage = usage
-                    .checked_add(resources)
-                    .ok_or(ResourceError::Arithmetic)?;
-            }
-        }
-        if !totals.preaccepted.fits(self.limits.preaccepted) {
-            return Err(ResourceError::PreAcceptedLimit);
-        }
-        if !totals.remote.fits(self.limits.remote) {
-            return Err(ResourceError::RemoteLimit);
-        }
-        if let Some(peer) = peer_updates
-            .iter()
-            .filter_map(|(peer, usage)| (!usage.fits(self.limits.per_peer)).then_some(*peer))
-            .min()
-        {
-            return Err(ResourceError::PeerLimit(peer));
-        }
-        if !totals
-            .replacement_history
-            .fits(self.limits.replacement_history)
-        {
-            return Err(ResourceError::ReplacementHistoryLimit);
-        }
-        if !accepted.fits(self.limits.accepted) {
-            return Err(ResourceError::AcceptedLimit);
-        }
-
-        self.preaccepted = totals.preaccepted;
-        self.remote = totals.remote;
-        self.replacement_history = totals.replacement_history;
-        self.accepted = accepted;
-        for (peer, usage) in peer_updates {
             self.peers.insert(peer, usage);
         }
         Ok(())

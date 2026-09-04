@@ -54,11 +54,8 @@ impl PackedTemplateTransactions {
     /// Convert only the block-bounded selected payloads into the established
     /// assembler DTO. The exact accepted timestamp was captured with the same
     /// authority receipt, so conversion reconstructs no membership graph.
-    pub(super) fn into_tx_entries(self) -> Result<Vec<TxEntry>, TemplateReadError> {
-        let mut entries = Vec::new();
-        entries
-            .try_reserve_exact(self.entries.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+    pub(super) fn into_tx_entries(self) -> Vec<TxEntry> {
+        let mut entries = Vec::with_capacity(self.entries.len());
         entries.extend(self.entries.into_iter().map(|entry| {
             TxEntry::new_with_timestamp(
                 entry.resolved,
@@ -68,7 +65,7 @@ impl PackedTemplateTransactions {
                 entry.accepted_at.0,
             )
         }));
-        Ok(entries)
+        entries
     }
 }
 
@@ -190,27 +187,17 @@ struct DescendantsCache {
 }
 
 impl DescendantsCache {
-    fn new(candidate_count: usize, eligible_count: usize) -> Result<Self, TemplateReadError> {
-        let mut cached = HashMap::new();
-        cached
-            .try_reserve(eligible_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        let mut marks = Vec::new();
-        marks
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        marks.resize(candidate_count, 0);
-        let mut stack = Vec::new();
-        stack
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        Ok(Self {
+    fn new(candidate_count: usize, eligible_count: usize) -> Self {
+        let cached = HashMap::with_capacity(eligible_count);
+        let marks = vec![0; candidate_count];
+        let stack = Vec::with_capacity(candidate_count);
+        Self {
             cached,
             cached_members: 0,
             marks,
             generation: 0,
             stack,
-        })
+        }
     }
 
     fn descendants<'cache>(
@@ -241,10 +228,7 @@ impl DescendantsCache {
                 .iter()
                 .copied(),
         );
-        let mut descendants = Vec::new();
-        descendants
-            .try_reserve(children.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut descendants = Vec::with_capacity(children.len());
         while let Some(index) = self.stack.pop() {
             let mark = self
                 .marks
@@ -298,15 +282,9 @@ impl TemplateSelectionReceipt {
         let eligible = self.causally_eligible_proposed(&by_hash)?;
         let candidate_count = candidates.len();
 
-        let mut eligible_flags = Vec::new();
-        eligible_flags
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut eligible_flags = Vec::with_capacity(candidate_count);
         eligible_flags.resize(candidate_count, false);
-        let mut causal_rank = Vec::new();
-        causal_rank
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut causal_rank = Vec::with_capacity(candidate_count);
         causal_rank.resize(candidate_count, None);
         for (rank, index) in eligible.iter().copied().enumerate() {
             *eligible_flags
@@ -317,10 +295,7 @@ impl TemplateSelectionReceipt {
                 .ok_or(TemplateReadError::Projection)? = Some(rank);
         }
 
-        let mut children = Vec::new();
-        children
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut children = Vec::with_capacity(candidate_count);
         children.extend((0..candidate_count).map(|_| Vec::new()));
         for child in eligible.iter().copied() {
             let candidate = candidates.get(child).ok_or(TemplateReadError::Projection)?;
@@ -339,9 +314,7 @@ impl TemplateSelectionReceipt {
                 let parent_children = children
                     .get_mut(parent)
                     .ok_or(TemplateReadError::Projection)?;
-                parent_children
-                    .try_reserve(1)
-                    .map_err(|_| TemplateReadError::Allocation)?;
+                parent_children.reserve(1);
                 parent_children.push(child);
             }
         }
@@ -350,15 +323,9 @@ impl TemplateSelectionReceipt {
             next.dedup();
         }
 
-        let mut aggregates = Vec::new();
-        aggregates
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut aggregates = Vec::with_capacity(candidate_count);
         aggregates.resize(candidate_count, None);
-        let mut states = Vec::new();
-        states
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut states = Vec::with_capacity(candidate_count);
         states.resize(candidate_count, CandidatePackingState::Ineligible);
         let mut queue = BTreeSet::new();
         for index in eligible.iter().copied() {
@@ -386,32 +353,16 @@ impl TemplateSelectionReceipt {
             }
         }
 
-        let mut selected = Vec::new();
-        selected
-            .try_reserve(eligible.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut selected = Vec::with_capacity(eligible.len());
         let mut selected_bytes = 0usize;
         let mut selected_cycles = 0u64;
         let mut consecutive_failures = 0usize;
-        let mut descendants = DescendantsCache::new(candidate_count, eligible.len())?;
-        let mut package_marks = Vec::new();
-        package_marks
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        package_marks.resize(candidate_count, 0u64);
+        let mut descendants = DescendantsCache::new(candidate_count, eligible.len());
+        let mut package_marks = vec![0u64; candidate_count];
         let mut package_generation = 0u64;
-        let mut package = Vec::new();
-        package
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        let mut stack = Vec::new();
-        stack
-            .try_reserve(candidate_count)
-            .map_err(|_| TemplateReadError::Allocation)?;
-        let mut adjustments = HashMap::<usize, PackageAggregate>::new();
-        adjustments
-            .try_reserve(eligible.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut package = Vec::with_capacity(candidate_count);
+        let mut stack = Vec::with_capacity(candidate_count);
+        let mut adjustments = HashMap::<usize, PackageAggregate>::with_capacity(eligible.len());
 
         while let Some(key) = queue.pop_last() {
             let index = key.index;
@@ -608,10 +559,7 @@ impl TemplateSelectionReceipt {
         }
 
         let ordered = self.order_packed_indices(selected, &by_hash)?;
-        let mut entries = Vec::new();
-        entries
-            .try_reserve(ordered.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut entries = Vec::with_capacity(ordered.len());
         let mut final_bytes = 0usize;
         let mut final_cycles = 0u64;
         for index in ordered {

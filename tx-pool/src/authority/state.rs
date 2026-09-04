@@ -371,7 +371,6 @@ pub(super) enum DependencySetError {
     Empty,
     TooMany,
     Arithmetic,
-    Allocation,
 }
 
 impl KnownDependencies {
@@ -402,9 +401,7 @@ impl KnownDependencies {
             .checked_add(tx.cell_deps().len())
             .and_then(|count| count.checked_add(tx.header_deps().len()))
             .ok_or(DependencySetError::Arithmetic)?;
-        let mut keys = Vec::new();
-        keys.try_reserve(capacity)
-            .map_err(|_| DependencySetError::Allocation)?;
+        let mut keys = Vec::with_capacity(capacity);
         keys.extend(tx.input_pts_iter().map(DependencyKey::Cell));
         keys.extend(
             tx.cell_deps()
@@ -437,9 +434,7 @@ impl KnownDependencies {
         footprint: &ExpandedFootprint,
         max: usize,
     ) -> Result<Self, DependencySetError> {
-        let mut keys = Vec::new();
-        keys.try_reserve(footprint.edge_count())
-            .map_err(|_| DependencySetError::Allocation)?;
+        let mut keys = Vec::with_capacity(footprint.edge_count());
         keys.extend(footprint.inputs().iter().cloned().map(DependencyKey::Cell));
         keys.extend(
             footprint
@@ -467,9 +462,7 @@ impl KnownDependencies {
             .len()
             .checked_add(missing.len())
             .ok_or(DependencySetError::Arithmetic)?;
-        let mut keys = Vec::new();
-        keys.try_reserve(capacity)
-            .map_err(|_| DependencySetError::Allocation)?;
+        let mut keys = Vec::with_capacity(capacity);
         keys.extend(self.keys().iter().cloned());
         keys.extend(missing.keys().iter().cloned());
         Self::canonicalize(keys, max)
@@ -507,18 +500,13 @@ impl MissingDependencies {
         self.0.len()
     }
 
-    pub(super) fn parent_transactions(&self) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
+    pub(super) fn parent_transactions(&self) -> Arc<Vec<RawTxHash>> {
         parent_transactions(&self.0)
     }
 }
 
-fn parent_transactions(
-    dependencies: &KnownDependencies,
-) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
-    let mut parents = Vec::new();
-    parents
-        .try_reserve(dependencies.len())
-        .map_err(|_| DependencySetError::Allocation)?;
+fn parent_transactions(dependencies: &KnownDependencies) -> Arc<Vec<RawTxHash>> {
+    let mut parents = Vec::with_capacity(dependencies.len());
     for key in dependencies.keys() {
         let DependencyKey::Cell(out_point) = key else {
             continue;
@@ -528,7 +516,7 @@ fn parent_transactions(
             parents.push(parent);
         }
     }
-    Ok(Arc::new(parents))
+    Arc::new(parents)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -543,7 +531,6 @@ pub(super) struct ExpandedFootprint {
 pub(super) enum FootprintError {
     DuplicateInput,
     TooManyEdges,
-    Allocation,
     Arithmetic,
 }
 
@@ -553,10 +540,7 @@ impl ExpandedFootprint {
         mut expanded_dependencies: Vec<OutPoint>,
         max_edges: usize,
     ) -> Result<Self, FootprintError> {
-        let mut inputs = Vec::new();
-        inputs
-            .try_reserve_exact(tx.inputs().len())
-            .map_err(|_| FootprintError::Allocation)?;
+        let mut inputs = Vec::with_capacity(tx.inputs().len());
         inputs.extend(tx.input_pts_iter());
         let input_count = inputs.len();
         inputs.sort_unstable();
@@ -565,9 +549,7 @@ impl ExpandedFootprint {
             return Err(FootprintError::DuplicateInput);
         }
 
-        expanded_dependencies
-            .try_reserve(tx.cell_deps().len())
-            .map_err(|_| FootprintError::Allocation)?;
+        expanded_dependencies.reserve(tx.cell_deps().len());
         expanded_dependencies.extend(
             tx.cell_deps()
                 .into_iter()
@@ -577,10 +559,7 @@ impl ExpandedFootprint {
         expanded_dependencies.dedup();
         expanded_dependencies.retain(|dependency| inputs.binary_search(dependency).is_err());
         let headers = tx.header_deps();
-        let mut header_dependencies = Vec::new();
-        header_dependencies
-            .try_reserve_exact(headers.len())
-            .map_err(|_| FootprintError::Allocation)?;
+        let mut header_dependencies = Vec::with_capacity(headers.len());
         header_dependencies.extend(headers);
         header_dependencies.sort_unstable();
         header_dependencies.dedup();
@@ -655,7 +634,6 @@ pub(super) enum InputEvidenceError {
 pub(super) enum InputEvidenceDisposition {
     MalformedTransaction,
     ResourceDenied,
-    ResourceUnavailable,
     Structural,
 }
 
@@ -668,10 +646,6 @@ impl InputEvidenceError {
             Self::Footprint(FootprintError::TooManyEdges)
             | Self::DependencySet(DependencySetError::TooMany) => {
                 InputEvidenceDisposition::ResourceDenied
-            }
-            Self::Footprint(FootprintError::Allocation)
-            | Self::DependencySet(DependencySetError::Allocation) => {
-                InputEvidenceDisposition::ResourceUnavailable
             }
             Self::Footprint(FootprintError::Arithmetic)
             | Self::DependencySet(DependencySetError::Empty | DependencySetError::Arithmetic)
@@ -735,10 +709,7 @@ impl ResolvedPayload {
             .len()
             .checked_add(resolved.resolved_dep_groups.len())
             .ok_or(InputEvidenceError::Footprint(FootprintError::Arithmetic))?;
-        let mut expanded_dependencies = Vec::new();
-        expanded_dependencies
-            .try_reserve(dependency_capacity)
-            .map_err(|_| InputEvidenceError::DependencySet(DependencySetError::Allocation))?;
+        let mut expanded_dependencies = Vec::with_capacity(dependency_capacity);
         expanded_dependencies.extend(resolved.related_dep_out_points().cloned());
         let footprint = Arc::new(
             ExpandedFootprint::from_transaction(tx, expanded_dependencies, max_edges)
@@ -1180,7 +1151,7 @@ impl ObservedDependencies {
         &self.retained
     }
 
-    pub(super) fn parent_transactions(&self) -> Result<Arc<Vec<RawTxHash>>, DependencySetError> {
+    pub(super) fn parent_transactions(&self) -> Arc<Vec<RawTxHash>> {
         parent_transactions(&self.observed)
     }
 }
@@ -1294,7 +1265,6 @@ pub(super) struct ReplacementHistoryEntry {
 pub(super) enum ReplacementHistoryError {
     InvalidRecoveryTrigger,
     ResourceArithmetic,
-    ResourceAllocation,
 }
 
 #[derive(Clone, Debug)]
@@ -1353,7 +1323,6 @@ impl ReplacementHistoryEntry {
         let (payload_bytes, encoded_edges, recovery_charge, retained_charge) = charge.into_parts();
         let declared_dependencies =
             KnownDependencies::from_transaction(tx).map_err(|error| match error {
-                DependencySetError::Allocation => ReplacementHistoryError::ResourceAllocation,
                 DependencySetError::Empty
                 | DependencySetError::TooMany
                 | DependencySetError::Arithmetic => ReplacementHistoryError::ResourceArithmetic,
@@ -1403,16 +1372,6 @@ impl ReplacementHistoryEntry {
     /// prepared batch. Leaf-RBF cohort planning must decide optional history
     /// before it knows how many owner identities the one atomic clock
     /// reservation needs; no live owner can observe the placeholder.
-    pub(super) fn assign_planned_identity_and_dependency_cut(
-        &mut self,
-        version: EntryVersion,
-        arrival: Arrival,
-        dependency_cut: DependencyCut,
-    ) {
-        self.assign_reserved_identity(version, arrival);
-        self.observed.dependency_cut = dependency_cut;
-    }
-
     pub(super) fn dependencies(&self) -> &KnownDependencies {
         self.observed.retained()
     }
@@ -1613,6 +1572,15 @@ pub(super) struct AuthorityClocks {
     pub(super) next_sequence: ApplySequence,
 }
 
+/// Owner identities imported from a scratch generation. Apply sequences are
+/// deliberately absent: the live generation reserves exactly one sequence
+/// for the replacement itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OwnerClockProgress {
+    pub(super) next_version: EntryVersion,
+    pub(super) next_arrival: Arrival,
+}
+
 #[derive(Debug)]
 pub(super) struct AuthorityClockBank {
     state: Mutex<AuthorityClocks>,
@@ -1624,6 +1592,13 @@ impl AuthorityClocks {
             next_version: EntryVersion(1),
             next_arrival: Arrival(0),
             next_sequence: ApplySequence(1),
+        }
+    }
+
+    pub(super) const fn owner_progress(self) -> OwnerClockProgress {
+        OwnerClockProgress {
+            next_version: self.next_version,
+            next_arrival: self.next_arrival,
         }
     }
 }
@@ -1645,27 +1620,27 @@ impl AuthorityClockBank {
         *self.state.lock()
     }
 
-    pub(super) fn reserve_sequence(&self) -> Result<(ApplySequence, AuthorityClocks), ()> {
+    pub(super) fn reserve_sequence(&self) -> Result<ApplySequence, ()> {
         let mut state = self.state.lock();
         let sequence = state.next_sequence;
         let Some(next) = sequence.0.checked_add(1).map(ApplySequence) else {
             return Err(());
         };
         state.next_sequence = next;
-        Ok((sequence, *state))
+        Ok(sequence)
     }
 
-    pub(super) fn reserve_replacement(&self) -> Result<(EntryVersion, AuthorityClocks), ()> {
+    pub(super) fn reserve_replacement(&self) -> Result<EntryVersion, ()> {
         let mut state = self.state.lock();
         let version = state.next_version;
         let Some(next) = version.0.checked_add(1).map(EntryVersion) else {
             return Err(());
         };
         state.next_version = next;
-        Ok((version, *state))
+        Ok(version)
     }
 
-    pub(super) fn reserve_insertion(&self) -> Result<(EntryVersion, Arrival, AuthorityClocks), ()> {
+    pub(super) fn reserve_insertion(&self) -> Result<(EntryVersion, Arrival), ()> {
         let mut state = self.state.lock();
         let version = state.next_version;
         let arrival = state.next_arrival;
@@ -1677,13 +1652,13 @@ impl AuthorityClockBank {
         };
         state.next_version = next_version;
         state.next_arrival = next_arrival;
-        Ok((version, arrival, *state))
+        Ok((version, arrival))
     }
 
     pub(super) fn reserve_replacements(
         &self,
         members: NonZeroUsize,
-    ) -> Result<(std::ops::Range<u128>, AuthorityClocks), ()> {
+    ) -> Result<std::ops::Range<u128>, ()> {
         let count = u128::try_from(members.get()).map_err(|_| ())?;
         let mut state = self.state.lock();
         let first = state.next_version.0;
@@ -1691,78 +1666,23 @@ impl AuthorityClockBank {
             return Err(());
         };
         state.next_version = EntryVersion(next);
-        Ok((first..next, *state))
+        Ok(first..next)
     }
 
-    /// Atomically reserve one Apply stamp plus the complete owner-identity
-    /// pattern for a bounded membership batch. Every member consumes one
-    /// replacement version; retained RBF histories additionally consume one
-    /// insertion version and arrival. The exact-base comparison binds the
-    /// caller's already-compiled preview and leaves the bank unchanged on an
-    /// OCC miss or counter exhaustion.
-    pub(super) fn reserve_apply_owner_batch(
-        &self,
-        expected: AuthorityClocks,
-        owners: NonZeroUsize,
-        insertions: usize,
-    ) -> Result<(ApplySequence, AuthorityClocks), ApplyOwnerBatchReservationError> {
-        let owner_count =
-            u128::try_from(owners.get()).map_err(|_| ApplyOwnerBatchReservationError::Exhausted)?;
-        let insertion_count =
-            u128::try_from(insertions).map_err(|_| ApplyOwnerBatchReservationError::Exhausted)?;
-        if insertion_count > owner_count {
-            return Err(ApplyOwnerBatchReservationError::Exhausted);
-        }
+    pub(super) fn adopt_owner_progress(&self, progress: OwnerClockProgress) {
         let mut state = self.state.lock();
-        if *state != expected {
-            return Err(ApplyOwnerBatchReservationError::StaleBase);
-        }
-        let sequence = state.next_sequence;
-        let next_sequence = sequence
-            .0
-            .checked_add(1)
-            .map(ApplySequence)
-            .ok_or(ApplyOwnerBatchReservationError::Exhausted)?;
-        let next_version = state
-            .next_version
-            .0
-            .checked_add(owner_count)
-            .ok_or(ApplyOwnerBatchReservationError::Exhausted)?;
-        let next_arrival = state
-            .next_arrival
-            .0
-            .checked_add(insertion_count)
-            .ok_or(ApplyOwnerBatchReservationError::Exhausted)?;
-        state.next_sequence = next_sequence;
-        state.next_version = EntryVersion(next_version);
-        state.next_arrival = Arrival(next_arrival);
-        Ok((sequence, *state))
-    }
-
-    pub(super) fn adopt_owner_progress(&self, clocks: AuthorityClocks) -> AuthorityClocks {
-        let mut state = self.state.lock();
-        state.next_version = state.next_version.max(clocks.next_version);
-        state.next_arrival = state.next_arrival.max(clocks.next_arrival);
+        state.next_version = state.next_version.max(progress.next_version);
+        state.next_arrival = state.next_arrival.max(progress.next_arrival);
         // A compiler-local scratch authority may consume its own Apply
         // sequences while deriving one external generation replacement. Only
         // owner identities cross this boundary; the live Apply sequence was
         // already reserved exactly once by the caller.
-        *state
     }
 
     #[cfg(test)]
     pub(in crate::authority) fn replace_for_test(&self, clocks: AuthorityClocks) {
         *self.state.lock() = clocks;
     }
-}
-
-/// Exact failure surface of the optimistic all-or-none Ready identity
-/// reservation. A changed base is ordinary concurrent progress; only checked
-/// arithmetic exhaustion is an authority fault.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ApplyOwnerBatchReservationError {
-    StaleBase,
-    Exhausted,
 }
 
 #[cfg(test)]

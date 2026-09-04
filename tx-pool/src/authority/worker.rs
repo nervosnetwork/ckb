@@ -11,9 +11,9 @@ use super::{
     plan::AuthorityFault,
     resolver::VerificationCacheUpdate,
     runtime::{
-        AuthorityDriverError, AuthorityGenerationReplacementError, AuthorityPendingSettlement,
-        AuthorityReadyCommitAssignment, AuthorityReadyCommitLane, AuthorityReadyCommitTerminal,
-        AuthorityReadyDispatch, AuthorityReadyOutcome, AuthorityRuntime,
+        AuthorityDriverError, AuthorityPendingSettlement, AuthorityReadyCommitAssignment,
+        AuthorityReadyCommitLane, AuthorityReadyCommitTerminal, AuthorityReadyDispatch,
+        AuthorityReadyOutcome, AuthorityRuntime,
     },
 };
 use crate::constants::MAX_READY_BATCH;
@@ -159,7 +159,6 @@ pub(crate) enum AuthorityWorkerSpawnError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkerStep {
     Progress,
-    ReplaceGeneration,
     WaitForRunnable,
     WaitForEffectCapacity,
 }
@@ -281,19 +280,11 @@ impl ReadyWaveExecutor {
         &mut self,
         wave: super::runtime::AuthorityReadyWave,
     ) -> Result<AuthorityReadyOutcome, AuthorityDriverError> {
-        let (assignments, wave_ends) = wave.into_parts();
-        let mut previous_end = 0usize;
-        let valid_shape = !assignments.is_empty()
-            && assignments.len() <= MAX_READY_BATCH
-            && !wave_ends.is_empty()
-            && wave_ends.last() == Some(&assignments.len())
-            && wave_ends.iter().all(|end| {
-                let valid = *end > previous_end
-                    && end.saturating_sub(previous_end) <= self.assignments.len();
-                previous_end = *end;
-                valid
-            });
-        if !valid_shape {
+        let assignments = wave.into_assignments();
+        if assignments.is_empty()
+            || assignments.len() > MAX_READY_BATCH
+            || assignments.len() > self.assignments.len()
+        {
             let mut cancel_fault = None;
             for assignment in assignments {
                 if let Err(fault) = self.runtime.cancel_ready_assignment(assignment) {
@@ -307,63 +298,58 @@ impl ReadyWaveExecutor {
                 AuthorityFault::SchedulerProjection,
             ));
         }
+        let wave_len = assignments.len();
         let mut pending = PendingReadyAssignments::new(&self.runtime, assignments);
-        let mut previous_end = 0usize;
-        for wave_end in wave_ends {
-            let wave_len = wave_end.saturating_sub(previous_end);
-            let mut results = Vec::new();
-            if results.try_reserve_exact(wave_len).is_err() {
-                return Err(AuthorityDriverError::Allocation);
-            }
-            let mut transport_closed = false;
-            let mut cancel_fault = None;
-            for sender in self.assignments.iter().take(wave_len) {
-                let Some(assignment) = pending.next() else {
-                    return Err(AuthorityDriverError::Fault(
-                        AuthorityFault::SchedulerProjection,
-                    ));
-                };
-                let (result, receiver) = oneshot::channel();
-                // Every lane has capacity one and the preceding conflict wave
-                // is fully joined. `try_send` moves this complete wave into
-                // permanent workers before the first await, so driver abort
-                // can discard replies but never semantic work.
-                match sender.try_send(ReadyCommitWork::new(&self.runtime, assignment, result)) {
-                    Ok(()) => results.push(receiver),
-                    Err(error) => {
-                        let work = error.into_inner();
-                        if let Err(fault) = work.cancel() {
-                            cancel_fault.get_or_insert(fault);
-                        }
-                        transport_closed = true;
-                        break;
+        let mut results = Vec::with_capacity(wave_len);
+        let mut transport_closed = false;
+        let mut cleanup_fault = None;
+        for sender in self.assignments.iter().take(wave_len) {
+            let Some(assignment) = pending.next() else {
+                if let Some(fault) = pending.cancel_remaining() {
+                    return Err(AuthorityDriverError::Fault(fault));
+                }
+                return Err(AuthorityDriverError::Fault(
+                    AuthorityFault::SchedulerProjection,
+                ));
+            };
+            let (result, receiver) = oneshot::channel();
+            // Every lane has capacity one. Move the complete compatible wave
+            // into permanent workers before awaiting any terminal, so driver
+            // cancellation can discard replies but never semantic work.
+            match sender.try_send(ReadyCommitWork::new(&self.runtime, assignment, result)) {
+                Ok(()) => results.push(receiver),
+                Err(error) => {
+                    let work = error.into_inner();
+                    if let Err(fault) = work.cancel() {
+                        cleanup_fault.get_or_insert(fault);
                     }
+                    transport_closed = true;
+                    break;
                 }
             }
-            let mut fault = None;
-            for result in results {
-                match result.await {
-                    Ok(
-                        AuthorityReadyCommitTerminal::Applied | AuthorityReadyCommitTerminal::Stale,
-                    ) => {}
-                    Ok(AuthorityReadyCommitTerminal::Fault(terminal_fault)) => {
-                        if fault.is_none() {
-                            fault = Some(terminal_fault);
-                        }
-                    }
-                    Err(_) => transport_closed = true,
+        }
+        if let Some(fault) = pending.cancel_remaining() {
+            cleanup_fault.get_or_insert(fault);
+        }
+        let mut fault = None;
+        for result in results {
+            match result.await {
+                Ok(AuthorityReadyCommitTerminal::Applied | AuthorityReadyCommitTerminal::Stale) => {
                 }
+                Ok(AuthorityReadyCommitTerminal::Fault(terminal_fault)) => {
+                    fault.get_or_insert(terminal_fault);
+                }
+                Err(_) => transport_closed = true,
             }
-            if let Some(fault) = fault {
-                return Err(AuthorityDriverError::Fault(fault));
-            }
-            if let Some(fault) = cancel_fault {
-                return Err(AuthorityDriverError::Fault(fault));
-            }
-            if transport_closed {
-                return Err(AuthorityDriverError::LifecycleClosed);
-            }
-            previous_end = wave_end;
+        }
+        // An incomplete capability/effect return outranks the work terminal:
+        // the latter describes one job, while the former means the remaining
+        // wave is not known to have reached a legal terminal.
+        if let Some(fault) = cleanup_fault.or(fault) {
+            return Err(AuthorityDriverError::Fault(fault));
+        }
+        if transport_closed {
+            return Err(AuthorityDriverError::LifecycleClosed);
         }
         Ok(AuthorityReadyOutcome::Applied)
     }
@@ -377,7 +363,7 @@ impl ReadyCommitWorker {
                     AuthorityFault::SchedulerProjection,
                 ));
             };
-            let terminal = self.runtime.commit_ready_assignment(self.lane, assignment);
+            let terminal = self.runtime.commit_ready_assignment(assignment);
             let _ = result.send(terminal);
         }
         Ok(())
@@ -478,14 +464,6 @@ async fn run_ready_driver_loop(
             }
             Err(error) => classify_driver_error(error)?,
         };
-        if step == WorkerStep::ReplaceGeneration {
-            runtime
-                .replace_current_generation_after_allocation()
-                .await
-                .map_err(map_generation_replacement_error)?;
-            tokio::task::yield_now().await;
-            continue;
-        }
         if step == WorkerStep::Progress {
             // One attempt owns at most one bounded Ready Apply or one changed
             // OCC cut. Relinquish the executor before observing another cut,
@@ -497,7 +475,7 @@ async fn run_ready_driver_loop(
             match step {
                 WorkerStep::WaitForRunnable => work_notified.as_mut().await,
                 WorkerStep::WaitForEffectCapacity => capacity_notified.as_mut().await,
-                WorkerStep::Progress | WorkerStep::ReplaceGeneration => {}
+                WorkerStep::Progress => {}
             }
         };
         tokio::select! {
@@ -552,13 +530,6 @@ async fn run_maintenance_driver_loop(
                 WorkerStep::Progress => {
                     tokio::task::yield_now().await;
                 }
-                WorkerStep::ReplaceGeneration => {
-                    runtime
-                        .replace_current_generation_after_allocation()
-                        .await
-                        .map_err(map_generation_replacement_error)?;
-                    tokio::task::yield_now().await;
-                }
                 WorkerStep::WaitForRunnable => {
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
@@ -582,13 +553,7 @@ async fn run_maintenance_driver_loop(
 
 fn run_maintenance_round(runtime: &AuthorityRuntime) -> Result<WorkerStep, AuthorityWorkerFault> {
     let remote = classify_maintenance_result(runtime.expire_remote_due())?;
-    if remote == WorkerStep::ReplaceGeneration {
-        return Ok(remote);
-    }
     let accepted = classify_maintenance_result(runtime.expire_accepted_due())?;
-    if accepted == WorkerStep::ReplaceGeneration {
-        return Ok(accepted);
-    }
     let dependency = classify_maintenance_result(runtime.maintain_dependency())?;
     Ok(merge_maintenance_steps(
         merge_maintenance_steps(remote, accepted),
@@ -608,9 +573,6 @@ fn classify_maintenance_result(
 
 fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
     match (left, right) {
-        (WorkerStep::ReplaceGeneration, _) | (_, WorkerStep::ReplaceGeneration) => {
-            WorkerStep::ReplaceGeneration
-        }
         (WorkerStep::Progress, _) | (_, WorkerStep::Progress) => WorkerStep::Progress,
         (WorkerStep::WaitForEffectCapacity, _) | (_, WorkerStep::WaitForEffectCapacity) => {
             WorkerStep::WaitForEffectCapacity
@@ -622,21 +584,9 @@ fn merge_maintenance_steps(left: WorkerStep, right: WorkerStep) -> WorkerStep {
 fn classify_driver_error(error: AuthorityDriverError) -> Result<WorkerStep, AuthorityWorkerFault> {
     match error {
         AuthorityDriverError::Stale => Ok(WorkerStep::Progress),
-        AuthorityDriverError::Allocation => Ok(WorkerStep::ReplaceGeneration),
         AuthorityDriverError::EffectCapacity => Ok(WorkerStep::WaitForEffectCapacity),
         AuthorityDriverError::LifecycleClosed => Err(AuthorityWorkerFault::lifecycle_closed()),
         AuthorityDriverError::Fault(fault) => Err(AuthorityWorkerFault::authority(fault)),
-    }
-}
-
-fn map_generation_replacement_error(
-    error: AuthorityGenerationReplacementError,
-) -> AuthorityWorkerFault {
-    match error {
-        AuthorityGenerationReplacementError::LifecycleClosed => {
-            AuthorityWorkerFault::lifecycle_closed()
-        }
-        AuthorityGenerationReplacementError::Fault(fault) => AuthorityWorkerFault::authority(fault),
     }
 }
 

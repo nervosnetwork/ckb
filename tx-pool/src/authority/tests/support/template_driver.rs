@@ -18,18 +18,6 @@ impl AuthorityBlockAssembler {
             .map_err(|failure| failure.error)
     }
 
-    async fn replacement_retry_source(&self) -> TemplateRetrySourceCut {
-        let current = self.assembler.current.read().await;
-        let reset = current.reset_epoch;
-        drop(current);
-        TemplateRetrySourceCut {
-            source: TemplateRetrySource::Replacement {
-                source: self.template_source_probe(),
-                reset,
-            },
-        }
-    }
-
     async fn component_retry_source(&self, component: TemplateComponent) -> TemplateRetrySourceCut {
         let current = self.assembler.current.read().await;
         let revision = current.revision;
@@ -64,12 +52,6 @@ impl AuthorityBlockAssembler {
         self.run_notification_lane(cancel, true).await
     }
 
-    pub(in crate::authority) async fn retry_source_cut_for_foundation(
-        &self,
-    ) -> TemplateRetrySourceCut {
-        self.replacement_retry_source().await
-    }
-
     pub(in crate::authority) async fn component_retry_source_for_foundation(
         &self,
         component: TemplateComponent,
@@ -85,17 +67,6 @@ impl AuthorityBlockAssembler {
         self.next_template_source_after_failure(cancel, failed)
             .await
             .is_some()
-    }
-
-    pub(in crate::authority) async fn prepare_full_for_foundation(
-        &self,
-    ) -> Result<Option<PreparedFull>, AuthorityTemplateDriverFault> {
-        let input = self.runtime.template_input()?;
-        let current = self.assembler.current.read().await.clone();
-        if current.snapshot.tip_hash() != input.snapshot().tip_hash() {
-            return Ok(None);
-        }
-        self.prepare_full(input, current)
     }
 
     pub(in crate::authority) async fn prepare_component_for_foundation(
@@ -123,13 +94,6 @@ impl AuthorityBlockAssembler {
             return Ok(None);
         }
         self.prepare_reset(input, current.reset_epoch)
-    }
-
-    pub(in crate::authority) async fn publish_full_for_foundation(
-        &self,
-        prepared: PreparedFull,
-    ) -> Result<AuthorityTemplateStep, AuthorityTemplateDriverFault> {
-        self.publish_full(prepared).await
     }
 
     pub(in crate::authority) async fn publish_component_for_foundation(

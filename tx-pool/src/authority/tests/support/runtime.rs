@@ -1,14 +1,10 @@
+use super::super::ingress::{
+    RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngressAttempt,
+    RetainedIngressBoundaryError, remote, remote_pressure_rejection,
+    test_support::IngressRejectionCommit,
+};
 use super::super::state::{
     AcceptedStatus, DependencyKey, RawTxHash, ValidatedAdmission, WorkPermit,
-};
-use super::super::{
-    ingress::{
-        RemoteIngressPressure, RetainedAdmissionBatch, RetainedIngress, RetainedIngressAttempt,
-        RetainedIngressBoundaryError, RetainedIngressRejection, proposal, remote,
-        remote_pressure_rejection,
-        test_support::{IngressRejectionCommit, RetainedIngressCommit},
-    },
-    plan::test_support::RetainedAdmissionDisposition,
 };
 use super::*;
 use crate::authority::ingress::{BoundedTransaction, BoundedTransactionError};
@@ -75,26 +71,21 @@ pub(in crate::authority) struct AuthorityComputeSettlement {
 
 #[derive(Debug)]
 pub(in crate::authority) enum AuthorityComputeError {
-    Allocation,
     EffectCapacity,
     LifecycleClosed,
-    Fault(AuthorityFault),
-    Resolution(ResolutionExecutionKind),
+    Fault,
+    Resolution,
 }
 
 impl AuthorityComputeError {
-    /// The test-only sequential oracle consumes a scheduler ticket under one
-    /// authority guard, so stale checkout evidence is a projection defect in
-    /// that reference transition rather than retryable OCC progress.
     pub(in crate::authority) fn from_checkout_plan(error: PlanError) -> Self {
         match error {
-            PlanError::Stale(_) => Self::Fault(AuthorityFault::SchedulerProjection),
+            PlanError::Stale(_) => Self::Fault,
             error => match AuthorityDriverError::from_ready_plan(error) {
-                AuthorityDriverError::Stale => Self::Fault(AuthorityFault::SchedulerProjection),
-                AuthorityDriverError::Allocation => Self::Allocation,
+                AuthorityDriverError::Stale => Self::Fault,
                 AuthorityDriverError::EffectCapacity => Self::EffectCapacity,
                 AuthorityDriverError::LifecycleClosed => Self::LifecycleClosed,
-                AuthorityDriverError::Fault(fault) => Self::Fault(fault),
+                AuthorityDriverError::Fault(_) => Self::Fault,
             },
         }
     }
@@ -190,12 +181,12 @@ impl AuthorityComputeSettlement {
 #[derive(Debug)]
 pub(in crate::authority) enum FoundationCheckoutError {
     ComputeCapacity,
-    Authority(AuthorityComputeError),
+    Authority,
 }
 
 impl From<AuthorityComputeError> for FoundationCheckoutError {
-    fn from(error: AuthorityComputeError) -> Self {
-        Self::Authority(error)
+    fn from(_error: AuthorityComputeError) -> Self {
+        Self::Authority
     }
 }
 
@@ -208,14 +199,6 @@ impl AuthorityPendingSettlement {
 impl AuthorityDirectRejection {
     pub(in crate::authority) fn reason(&self) -> &CommittedPublicReject {
         self.rejection.reason()
-    }
-
-    pub(in crate::authority) fn physical_read_support_for_foundation(
-        &self,
-        authority: &super::super::plan::TxPoolAuthority,
-    ) -> super::super::shard::ShardReadSupport {
-        self.rejection
-            .physical_read_support_for_foundation(authority)
     }
 }
 
@@ -251,55 +234,24 @@ impl AuthorityRuntime {
         Self::from_config(runtime, snapshot)
     }
 
-    pub(in crate::authority) fn commit_retained_ingress(
+    fn commit_retained_attempt_for_foundation(
         &self,
-        ingress: RetainedIngress,
-    ) -> Result<RetainedIngressCommit, PlanError> {
-        let (outcome, committed) = {
-            let mut store = self.store.write();
-            match store.authority.plan_retained_admission(ingress)? {
-                RetainedAdmissionDisposition::ProposalUnchanged => {
-                    return Ok(RetainedIngressCommit::ProposalUnchanged);
+        attempt: RetainedIngressAttempt,
+    ) -> Result<(), PlanError> {
+        let batch = RetainedAdmissionBatch::new(attempt, std::collections::VecDeque::new())
+            .map_err(|error| match error {
+                RetainedIngressBoundaryError::ResourceUnavailable => {
+                    PlanError::Fault(AuthorityFault::ResourceProjection)
                 }
-                RetainedAdmissionDisposition::ProposalPayloadVariant => {
-                    return Ok(RetainedIngressCommit::ProposalPayloadVariant);
+                RetainedIngressBoundaryError::InvalidEvidence => {
+                    PlanError::Fault(AuthorityFault::MembershipProjection)
                 }
-                RetainedAdmissionDisposition::Retained(plan) => {
-                    (RetainedIngressCommit::Retained, plan.apply())
+                RetainedIngressBoundaryError::Backpressure(_) => {
+                    PlanError::Fault(AuthorityFault::ResourceProjection)
                 }
-                RetainedAdmissionDisposition::AcceptedDuplicate(plan) => {
-                    (RetainedIngressCommit::AcceptedDuplicate, plan.apply())
-                }
-                RetainedAdmissionDisposition::RemoteReleased(plan) => {
-                    (RetainedIngressCommit::RemoteReleased, plan.apply())
-                }
-            }
-        };
-        assert_eq!(self.publish_committed(committed), None);
-        Ok(outcome)
-    }
-
-    pub(in crate::authority) fn commit_retained_ingress_rejection(
-        &self,
-        rejection: RetainedIngressRejection,
-    ) -> Result<IngressRejectionCommit, PlanError> {
-        let batch = RetainedAdmissionBatch::new(
-            RetainedIngressAttempt::Rejected(rejection),
-            std::collections::VecDeque::new(),
-        )
-        .map_err(|error| match error {
-            RetainedIngressBoundaryError::ResourceUnavailable => {
-                PlanError::Backpressure(Backpressure::Allocation)
-            }
-            RetainedIngressBoundaryError::InvalidEvidence => {
-                PlanError::Fault(AuthorityFault::MembershipProjection)
-            }
-            RetainedIngressBoundaryError::Backpressure(_) => {
-                PlanError::Backpressure(Backpressure::Allocation)
-            }
-            RetainedIngressBoundaryError::LifecycleClosed => PlanError::EffectClosed,
-            RetainedIngressBoundaryError::Fault(fault) => PlanError::Fault(fault),
-        })?;
+                RetainedIngressBoundaryError::LifecycleClosed => PlanError::EffectClosed,
+                RetainedIngressBoundaryError::Fault(fault) => PlanError::Fault(fault),
+            })?;
         let (consumed, remaining, fault) =
             self.commit_retained_ingress_batch(batch)
                 .map_err(|failure| match failure.into_parts().0 {
@@ -314,7 +266,7 @@ impl AuthorityRuntime {
         if let Some(fault) = fault {
             return Err(PlanError::Fault(fault));
         }
-        Ok(IngressRejectionCommit)
+        Ok(())
     }
 
     pub(in crate::authority) fn submit_remote_ingress(
@@ -322,7 +274,7 @@ impl AuthorityRuntime {
         tx: TransactionView,
         declared_cycles: Cycle,
         peer: PeerIndex,
-    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
+    ) -> Result<(), RetainedIngressBoundaryError> {
         let consensus = self.paired_consensus();
         let tx = BoundedTransaction::try_new(tx).map_err(|error| match error {
             BoundedTransactionError::Allocation => {
@@ -332,45 +284,8 @@ impl AuthorityRuntime {
                 RetainedIngressBoundaryError::InvalidEvidence
             }
         })?;
-        match remote(tx, declared_cycles, peer, &consensus) {
-            RetainedIngressAttempt::Validated(ingress) => self
-                .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            RetainedIngressAttempt::Rejected(rejection) => self
-                .commit_retained_ingress_rejection(rejection)
-                .map(|_| RetainedIngressCommit::Rejected)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            RetainedIngressAttempt::ProposalUnavailable => {
-                Err(RetainedIngressBoundaryError::InvalidEvidence)
-            }
-        }
-    }
-
-    pub(in crate::authority) fn submit_proposal_ingress(
-        &self,
-        tx: TransactionView,
-    ) -> Result<RetainedIngressCommit, RetainedIngressBoundaryError> {
-        let consensus = self.paired_consensus();
-        let tx = BoundedTransaction::try_new(tx).map_err(|error| match error {
-            BoundedTransactionError::Allocation => {
-                RetainedIngressBoundaryError::ResourceUnavailable
-            }
-            BoundedTransactionError::TooLarge { .. } => {
-                RetainedIngressBoundaryError::InvalidEvidence
-            }
-        })?;
-        match proposal(tx, &consensus) {
-            RetainedIngressAttempt::Validated(ingress) => self
-                .commit_retained_ingress(ingress)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            RetainedIngressAttempt::Rejected(rejection) => self
-                .commit_retained_ingress_rejection(rejection)
-                .map(|_| RetainedIngressCommit::Rejected)
-                .map_err(RetainedIngressBoundaryError::from_plan),
-            RetainedIngressAttempt::ProposalUnavailable => {
-                Err(RetainedIngressBoundaryError::ResourceUnavailable)
-            }
-        }
+        self.commit_retained_attempt_for_foundation(remote(tx, declared_cycles, peer, &consensus))
+            .map_err(RetainedIngressBoundaryError::from_plan)
     }
 
     pub(in crate::authority) fn reject_remote_ingress_pressure(
@@ -388,12 +303,9 @@ impl AuthorityRuntime {
             }
         })?;
         let rejection = remote_pressure_rejection(tx.into_transaction(), peer, pressure);
-        self.commit_retained_ingress_rejection(rejection)
+        self.commit_retained_attempt_for_foundation(RetainedIngressAttempt::Rejected(rejection))
+            .map(|()| IngressRejectionCommit)
             .map_err(RetainedIngressBoundaryError::from_plan)
-    }
-
-    pub(in crate::authority) fn template_capture_count_for_foundation(&self) -> usize {
-        self.template_captures.load(Ordering::Relaxed)
     }
 
     pub(in crate::authority) fn try_compute_execution_for_foundation(
@@ -417,15 +329,15 @@ impl AuthorityRuntime {
         AuthorityComputeError,
     > {
         let (result, checkout_retirement, settlement_retirement, released_execution) = {
-            let mut store = self.store.write();
+            let store = self.store.write();
             let plan = store
                 .authority
-                .plan_checkout_next(permit)
+                .checkout_next(permit)
                 .map_err(AuthorityComputeError::from_checkout_plan)?;
             let Some(plan) = plan else {
                 return Ok(ControlFlow::Continue(Err(execution)));
             };
-            let (work, checkout) = plan.apply().into_parts();
+            let (work, checkout) = plan.into_parts();
             let snapshot = Arc::clone(&store.snapshot);
             let captured = match work {
                 CheckedOutWork::Resolve(work) => {
@@ -453,7 +365,7 @@ impl AuthorityRuntime {
                     let kind = failure.kind();
                     match store.authority.apply_settlement(failure.into_settlement()) {
                         Ok(settlement) => (
-                            Err(AuthorityComputeError::Resolution(kind)),
+                            Err(AuthorityComputeError::Resolution),
                             checkout,
                             Some(settlement),
                             Some(execution),
@@ -680,35 +592,6 @@ impl AuthorityRuntime {
         Ok(())
     }
 
-    pub(in crate::authority) async fn wait_checkout(
-        &self,
-        permit: WorkPermit,
-        cancel: &CancellationToken,
-    ) -> Result<
-        ControlFlow<AuthorityPendingSettlement, Option<AuthorityComputeJob>>,
-        AuthorityComputeError,
-    > {
-        loop {
-            let compute_notified = self.compute_signal().notified();
-            let Some(execution) = self.acquire_compute_execution(cancel).await else {
-                return Ok(ControlFlow::Continue(None));
-            };
-            match self.try_checkout(permit, execution)? {
-                ControlFlow::Break(pending) => return Ok(ControlFlow::Break(pending)),
-                ControlFlow::Continue(Ok(job)) => {
-                    return Ok(ControlFlow::Continue(Some(job)));
-                }
-                ControlFlow::Continue(Err(execution)) => {
-                    drop(execution);
-                }
-            }
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(ControlFlow::Continue(None)),
-                _ = compute_notified => {}
-            }
-        }
-    }
-
     /// Test-only level probe for effect cursor tests that exercise settlement
     /// directly. Production obtains the same receipt only while mutably
     /// borrowing `AuthorityEffectPublisherClaim`.
@@ -727,9 +610,9 @@ impl AuthorityRuntime {
 
     pub(in crate::authority) fn settle_effect_for_foundation(
         &self,
-        settlement: EffectSettlement,
+        receipt: EffectReceipt,
     ) -> Result<(), EffectSettlementFailure> {
-        self.settle_effect(settlement).map(|_| ())
+        self.settle_effect(receipt).map(|_| ())
     }
 }
 

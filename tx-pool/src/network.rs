@@ -27,12 +27,12 @@ impl<T: TxPoolNetwork + ?Sized> TxPoolNetwork for Arc<T> {
     }
 }
 
-/// No-op network implementation for tests and benchmarks.
-#[cfg(any(test, feature = "internal"))]
+/// No-op network implementation for unit tests.
+#[cfg(test)]
 #[derive(Debug, Default, Clone)]
 pub struct DummyTxPoolNetwork;
 
-#[cfg(any(test, feature = "internal"))]
+#[cfg(test)]
 impl TxPoolNetwork for DummyTxPoolNetwork {
     fn ban_peer(&self, _peer: PeerIndex, _duration: Duration, _reason: String) {}
 }

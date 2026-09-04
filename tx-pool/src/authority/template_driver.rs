@@ -759,7 +759,7 @@ impl AuthorityBlockAssembler {
                 tx_bytes,
                 consensus.max_block_cycles(),
             ))?;
-        let txs = packed.into_tx_entries()?;
+        let txs = packed.into_tx_entries();
         let (dao, checked_txs, _failed) = BlockAssembler::calc_dao(
             input.snapshot(),
             &epoch,
@@ -914,7 +914,7 @@ impl AuthorityBlockAssembler {
                 tx_bytes,
                 consensus.max_block_cycles(),
             ))?;
-        let txs = packed.into_tx_entries()?;
+        let txs = packed.into_tx_entries();
         let epoch = next_epoch(input.snapshot())?;
         let (dao, checked_txs, _failed) = BlockAssembler::calc_dao(
             input.snapshot(),

@@ -185,28 +185,16 @@ impl AcceptedOverlay {
             .len()
             .checked_add(tx.cell_deps().len())
             .and_then(|count| count.checked_add(tx.header_deps().len()))
-            .ok_or(ResolutionExecutionKind::ResourceUnavailable)?;
+            .ok_or(ResolutionExecutionKind::ComputeBudget)?;
         if direct_edges > max_edges {
             return Err(ResolutionExecutionKind::ComputeBudget);
         }
 
         let mut overlay = Self {
-            producers: HashMap::new(),
-            spent_inputs: HashMap::new(),
-            queries: HashSet::new(),
+            producers: HashMap::with_capacity(direct_edges),
+            spent_inputs: HashMap::with_capacity(tx.inputs().len()),
+            queries: HashSet::with_capacity(direct_edges),
         };
-        overlay
-            .producers
-            .try_reserve(direct_edges)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        overlay
-            .spent_inputs
-            .try_reserve(tx.inputs().len())
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        overlay
-            .queries
-            .try_reserve(direct_edges)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
         overlay.queries.extend(
             tx.input_pts_iter()
                 .map(|out_point| CellQuery::new(out_point, CellRole::Input)),
@@ -230,18 +218,10 @@ impl AcceptedOverlay {
             .and_then(|count| count.checked_add(resolved.resolved_dep_groups.len()))
             .ok_or(CellLocationReceiptError::Arithmetic)?;
         let mut overlay = Self {
-            producers: HashMap::new(),
+            producers: HashMap::with_capacity(total_cells),
             spent_inputs: HashMap::new(),
-            queries: HashSet::new(),
+            queries: HashSet::with_capacity(total_cells),
         };
-        overlay
-            .producers
-            .try_reserve(total_cells)
-            .map_err(|_| CellLocationReceiptError::Allocation)?;
-        overlay
-            .queries
-            .try_reserve(total_cells)
-            .map_err(|_| CellLocationReceiptError::Allocation)?;
         overlay.queries.extend(
             resolved
                 .resolved_inputs
@@ -269,6 +249,16 @@ impl AcceptedOverlay {
         }
     }
 
+    /// Populate the ProducerOnly queries created by `prepare_resolved` from
+    /// the persistent sharded owner layout. Ready capture separately
+    /// revalidates the generation and full chain view before validation.
+    pub(super) fn populate_resolved_producers(&mut self, entries: &ShardedOwnerMap) {
+        for query in self.queries.iter() {
+            let owner = entries.get(&query.producer);
+            Self::capture_producer(&mut self.producers, query, owner.as_deref());
+        }
+    }
+
     fn capture(
         authority: &TxPoolAuthority,
         tx: &TransactionView,
@@ -279,17 +269,10 @@ impl AcceptedOverlay {
         Ok(overlay)
     }
 
-    fn reserve_enrichment(&mut self, missing_count: usize) -> Result<(), ResolutionExecutionKind> {
-        self.producers
-            .try_reserve(missing_count)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        self.spent_inputs
-            .try_reserve(missing_count)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        self.queries
-            .try_reserve(missing_count)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
-        Ok(())
+    fn reserve_enrichment(&mut self, missing_count: usize) {
+        self.producers.reserve(missing_count);
+        self.spent_inputs.reserve(missing_count);
+        self.queries.reserve(missing_count);
     }
 
     /// Retained work already owns dependency invalidation. Its enrichment can
@@ -313,34 +296,24 @@ impl AcceptedOverlay {
             .queries
             .len()
             .checked_add(missing.len())
-            .ok_or(ResolutionExecutionKind::ResourceUnavailable)?;
+            .ok_or(ResolutionExecutionKind::ComputeBudget)?;
         let mut refreshed = Self {
             producers: HashMap::new(),
             spent_inputs: HashMap::new(),
-            queries: HashSet::new(),
+            queries: HashSet::with_capacity(upper),
         };
-        refreshed
-            .queries
-            .try_reserve(upper)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
         refreshed.queries.extend(self.queries.iter().cloned());
         refreshed.queries.extend(missing.iter().cloned());
         if refreshed.queries.len() > max_edges {
             return Err(ResolutionExecutionKind::ComputeBudget);
         }
-        refreshed
-            .producers
-            .try_reserve(refreshed.queries.len())
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        refreshed.producers.reserve(refreshed.queries.len());
         let input_count = refreshed
             .queries
             .iter()
             .filter(|query| query.role == CellRole::Input)
             .count();
-        refreshed
-            .spent_inputs
-            .try_reserve(input_count)
-            .map_err(|_| ResolutionExecutionKind::ResourceUnavailable)?;
+        refreshed.spent_inputs.reserve(input_count);
         Ok(refreshed)
     }
 
@@ -493,11 +466,19 @@ impl AcceptedOverlay {
         {
             spent_inputs.insert(query.out_point.clone(), spender);
         }
+        let owner = authority.entry_guard(&query.producer);
+        Self::capture_producer(producers, query, owner.as_deref());
+    }
+
+    fn capture_producer(
+        producers: &mut HashMap<RawTxHash, AcceptedProducerObservation>,
+        query: &CellQuery,
+        owner: Option<&OwnedTx>,
+    ) {
         if producers.contains_key(&query.producer) {
             return;
         }
-        let owner = authority.entry_guard(&query.producer);
-        let Some(OwnedTx::Accepted(entry)) = owner.as_deref() else {
+        let Some(OwnedTx::Accepted(entry)) = owner else {
             return;
         };
         let index: u32 = query.out_point.index().unpack();
@@ -804,15 +785,13 @@ pub(super) enum ResolutionEvaluation {
 pub(super) enum ResolutionExecutionKind {
     StaleView,
     ComputeBudget,
-    ResourceUnavailable,
     InvalidReceipt(ResolutionReceiptDefect),
 }
 
 /// Closed programmer-defect subset of resolution receipt failures.
 ///
-/// Allocation pressure is deliberately absent: the resolver converts it to
-/// `ResourceUnavailable` before this type is constructed, so a worker cannot
-/// accidentally promote a legal allocator failure to generation invalidation.
+/// Only receipt defects reach this type, so a worker cannot accidentally
+/// promote a legal capacity outcome to generation invalidation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ResolutionReceiptDefect {
     TransactionMismatch,
@@ -830,9 +809,6 @@ pub(super) struct ResolutionExecutionFailure {
 impl ResolutionExecutionFailure {
     fn from_resolution_receipt(failure: ReceiptFailure<ResolutionReceiptError>) -> Self {
         let kind = match *failure.error() {
-            ResolutionReceiptError::DependencyAllocation => {
-                ResolutionExecutionKind::ResourceUnavailable
-            }
             ResolutionReceiptError::TransactionMismatch => ResolutionExecutionKind::InvalidReceipt(
                 ResolutionReceiptDefect::TransactionMismatch,
             ),
@@ -864,23 +840,12 @@ enum ResolutionAttempt {
     Resolved(ResolvedTransaction),
     Missing { permissive_inputs: bool },
     Rejected(OutPointError),
-    ResourceUnavailable,
-}
-
-enum ResolveAgainstCutError {
-    Rejected(OutPointError),
-    ResourceUnavailable,
 }
 
 struct ResolvedComputation {
     transaction: Arc<ResolvedTransaction>,
     fee: Capacity,
     resident_bytes: usize,
-}
-
-enum FinishResolutionError {
-    Rejected(Reject),
-    ResourceUnavailable,
 }
 
 impl ResolutionJob {
@@ -936,7 +901,6 @@ impl ResolutionJob {
                         settlement: match kind {
                             ResolutionExecutionKind::ComputeBudget => work.resource_denied(),
                             ResolutionExecutionKind::StaleView
-                            | ResolutionExecutionKind::ResourceUnavailable
                             | ResolutionExecutionKind::InvalidReceipt(_) => work.retry(),
                         },
                     });
@@ -969,12 +933,6 @@ impl ResolutionJob {
                         self.work.rejected(Reject::Resolve(error)),
                     ));
                 }
-                ResolutionAttempt::ResourceUnavailable => {
-                    return Err(ResolutionExecutionFailure {
-                        kind: ResolutionExecutionKind::ResourceUnavailable,
-                        settlement: self.work.retry(),
-                    });
-                }
             };
         let resolved = match finish_resolution(
             &self.snapshot,
@@ -983,14 +941,8 @@ impl ResolutionJob {
             min_fee_rate,
         ) {
             Ok(resolved) => resolved,
-            Err(FinishResolutionError::Rejected(reject)) => {
+            Err(reject) => {
                 return Ok(ResolutionEvaluation::Settle(self.work.rejected(reject)));
-            }
-            Err(FinishResolutionError::ResourceUnavailable) => {
-                return Err(ResolutionExecutionFailure {
-                    kind: ResolutionExecutionKind::ResourceUnavailable,
-                    settlement: self.work.retry(),
-                });
             }
         };
         let verify_class = self
@@ -1028,8 +980,10 @@ impl ResolutionJob {
             Err(MissingScanError::ComputeBudget) => {
                 Ok(ResolutionEvaluation::Settle(self.work.resource_denied()))
             }
-            Err(MissingScanError::ResourceUnavailable) => Err(ResolutionExecutionFailure {
-                kind: ResolutionExecutionKind::ResourceUnavailable,
+            Err(MissingScanError::InvalidEvidence) => Err(ResolutionExecutionFailure {
+                kind: ResolutionExecutionKind::InvalidReceipt(
+                    ResolutionReceiptDefect::EmptyDependencies,
+                ),
                 settlement: self.work.retry(),
             }),
         }
@@ -1051,7 +1005,7 @@ fn resolve_against_cut(
     snapshot: &Snapshot,
     overlay: &AcceptedOverlay,
     permissive_inputs: bool,
-) -> Result<ResolvedTransaction, ResolveAgainstCutError> {
+) -> Result<ResolvedTransaction, OutPointError> {
     let input_overlay = SparsePoolCellProvider {
         overlay,
         observe_spends: !permissive_inputs,
@@ -1062,10 +1016,7 @@ fn resolve_against_cut(
     };
     let input_provider = OverlayCellProvider::new(&input_overlay, snapshot);
     let dependency_provider = OverlayCellProvider::new(&dependency_overlay, snapshot);
-    let mut seen_inputs = HashSet::new();
-    seen_inputs
-        .try_reserve(tx.inputs().len())
-        .map_err(|_| ResolveAgainstCutError::ResourceUnavailable)?;
+    let mut seen_inputs = HashSet::with_capacity(tx.inputs().len());
     resolve_transaction_with_cell_providers(
         tx.clone(),
         &mut seen_inputs,
@@ -1073,7 +1024,6 @@ fn resolve_against_cut(
         &dependency_provider,
         snapshot,
     )
-    .map_err(ResolveAgainstCutError::Rejected)
 }
 
 /// Resolve strict and permissive RBF evidence through one shared decision
@@ -1089,24 +1039,19 @@ fn resolve_candidate(
         .any(|out_point| overlay.is_spent(&out_point));
     match resolve_against_cut(tx, snapshot, overlay, false) {
         Ok(resolved) => ResolutionAttempt::Resolved(resolved),
-        Err(ResolveAgainstCutError::Rejected(OutPointError::Dead(out_point)))
-            if overlay.is_spent(&out_point) =>
-        {
+        Err(OutPointError::Dead(out_point)) if overlay.is_spent(&out_point) => {
             permissive_resolution(tx, snapshot, overlay)
         }
         // The consensus resolver stops on the first missing input. A later
         // input may already be spent by Accepted membership, so `Unknown`
         // alone cannot classify the transaction as a non-RBF orphan.
-        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) if has_pool_conflict => {
+        Err(OutPointError::Unknown(_)) if has_pool_conflict => {
             permissive_resolution(tx, snapshot, overlay)
         }
-        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) => {
-            ResolutionAttempt::Missing {
-                permissive_inputs: false,
-            }
-        }
-        Err(ResolveAgainstCutError::Rejected(error)) => ResolutionAttempt::Rejected(error),
-        Err(ResolveAgainstCutError::ResourceUnavailable) => ResolutionAttempt::ResourceUnavailable,
+        Err(OutPointError::Unknown(_)) => ResolutionAttempt::Missing {
+            permissive_inputs: false,
+        },
+        Err(error) => ResolutionAttempt::Rejected(error),
     }
 }
 
@@ -1117,13 +1062,10 @@ fn permissive_resolution(
 ) -> ResolutionAttempt {
     match resolve_against_cut(tx, snapshot, overlay, true) {
         Ok(resolved) => ResolutionAttempt::Resolved(resolved),
-        Err(ResolveAgainstCutError::Rejected(OutPointError::Unknown(_))) => {
-            ResolutionAttempt::Missing {
-                permissive_inputs: true,
-            }
-        }
-        Err(ResolveAgainstCutError::Rejected(error)) => ResolutionAttempt::Rejected(error),
-        Err(ResolveAgainstCutError::ResourceUnavailable) => ResolutionAttempt::ResourceUnavailable,
+        Err(OutPointError::Unknown(_)) => ResolutionAttempt::Missing {
+            permissive_inputs: true,
+        },
+        Err(error) => ResolutionAttempt::Rejected(error),
     }
 }
 
@@ -1132,11 +1074,9 @@ fn finish_resolution(
     resolved: ResolvedTransaction,
     tx_size: usize,
     min_fee_rate: FeeRate,
-) -> Result<ResolvedComputation, FinishResolutionError> {
-    let transaction = super::residency::compact_after_resolution(resolved)
-        .map_err(|_| FinishResolutionError::ResourceUnavailable)?;
-    let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)
-        .map_err(FinishResolutionError::Rejected)?;
+) -> Result<ResolvedComputation, Reject> {
+    let transaction = super::residency::compact_after_resolution(resolved);
+    let fee = check_tx_fee_with_min_fee_rate(snapshot, &transaction, tx_size, min_fee_rate)?;
     let resident_bytes = resolved_transaction_charge_bytes(tx_size, &transaction);
     Ok(ResolvedComputation {
         transaction,
@@ -1157,14 +1097,11 @@ fn collect_missing_against_cut(
         .len()
         .checked_add(tx.cell_deps().len())
         .and_then(|count| count.checked_add(tx.header_deps().len()))
-        .ok_or(MissingScanError::ResourceUnavailable)?;
+        .ok_or(MissingScanError::ComputeBudget)?;
     if direct_edges > max_edges {
         return Err(MissingScanError::ComputeBudget);
     }
-    let mut missing = Vec::new();
-    missing
-        .try_reserve(direct_edges)
-        .map_err(|_| MissingScanError::ResourceUnavailable)?;
+    let mut missing = Vec::with_capacity(direct_edges);
 
     let input_overlay = SparsePoolCellProvider {
         overlay,
@@ -1190,7 +1127,7 @@ fn collect_missing_against_cut(
         .inputs()
         .len()
         .checked_add(tx.header_deps().len())
-        .ok_or(MissingScanError::ResourceUnavailable)?;
+        .ok_or(MissingScanError::ComputeBudget)?;
     for cell_dep in tx.cell_deps_iter() {
         if SYSTEM_CELL
             .get()
@@ -1201,12 +1138,12 @@ fn collect_missing_against_cut(
                 Some(ResolvedDep::Group(_, cells)) => cells
                     .len()
                     .checked_add(1)
-                    .ok_or(MissingScanError::ResourceUnavailable)?,
+                    .ok_or(MissingScanError::ComputeBudget)?,
                 None => 0,
             };
             edge_count = edge_count
                 .checked_add(cached_edges)
-                .ok_or(MissingScanError::ResourceUnavailable)?;
+                .ok_or(MissingScanError::ComputeBudget)?;
             if edge_count > max_edges {
                 return Err(MissingScanError::ComputeBudget);
             }
@@ -1218,7 +1155,7 @@ fn collect_missing_against_cut(
         let direct = dependency_provider.cell(&out_point, eager_load);
         edge_count = edge_count
             .checked_add(1)
-            .ok_or(MissingScanError::ResourceUnavailable)?;
+            .ok_or(MissingScanError::ComputeBudget)?;
         if edge_count > max_edges {
             return Err(MissingScanError::ComputeBudget);
         }
@@ -1244,13 +1181,11 @@ fn collect_missing_against_cut(
         }
         edge_count = edge_count
             .checked_add(members.len())
-            .ok_or(MissingScanError::ResourceUnavailable)?;
+            .ok_or(MissingScanError::ComputeBudget)?;
         if edge_count > max_edges {
             return Err(MissingScanError::ComputeBudget);
         }
-        missing
-            .try_reserve(members.len())
-            .map_err(|_| MissingScanError::ResourceUnavailable)?;
+        missing.reserve(members.len());
         for member in members.into_iter() {
             collect_cell_status(
                 dependency_provider.cell(&member, false),
@@ -1267,7 +1202,7 @@ fn collect_missing_against_cut(
         }
     }
     if missing.is_empty() {
-        return Err(MissingScanError::ResourceUnavailable);
+        return Err(MissingScanError::InvalidEvidence);
     }
     missing.sort_unstable_by(|left, right| {
         left.out_point
@@ -1291,9 +1226,6 @@ impl DirectResolutionJob {
                 return Ok(DirectResolutionPreparation::Rejected(
                     direct_resource_rejection(tx, command),
                 ));
-            }
-            Err(ResolutionExecutionKind::ResourceUnavailable) => {
-                return Err(DirectComputationError::ResourceUnavailable);
             }
             Err(
                 ResolutionExecutionKind::StaleView | ResolutionExecutionKind::InvalidReceipt(_),
@@ -1323,9 +1255,6 @@ impl DirectResolutionJob {
             ResolutionAttempt::Rejected(error) => {
                 return Ok(self.rejected(Reject::Resolve(error)));
             }
-            ResolutionAttempt::ResourceUnavailable => {
-                return Err(DirectComputationError::ResourceUnavailable);
-            }
         };
         let resolved = match finish_resolution(
             &self.snapshot,
@@ -1334,10 +1263,7 @@ impl DirectResolutionJob {
             min_fee_rate,
         ) {
             Ok(resolved) => resolved,
-            Err(FinishResolutionError::Rejected(reject)) => return Ok(self.rejected(reject)),
-            Err(FinishResolutionError::ResourceUnavailable) => {
-                return Err(DirectComputationError::ResourceUnavailable);
-            }
+            Err(reject) => return Ok(self.rejected(reject)),
         };
         if resolved.resident_bytes > self.max_resident_bytes {
             return Ok(self.resource_rejected());
@@ -1357,19 +1283,13 @@ impl DirectResolutionJob {
                 InputEvidenceDisposition::ResourceDenied => {
                     return Ok(self.resource_rejected());
                 }
-                InputEvidenceDisposition::ResourceUnavailable => {
-                    return Err(DirectComputationError::ResourceUnavailable);
-                }
                 InputEvidenceDisposition::Structural => {
                     return Err(DirectComputationError::InvalidEvidence);
                 }
             },
         };
         let location = CellLocationReceipt::from_resolution(self.view, &payload).map_err(
-            |error| match error {
-                CellLocationReceiptError::Allocation => DirectComputationError::ResourceUnavailable,
-                CellLocationReceiptError::Arithmetic => DirectComputationError::InvalidEvidence,
-            },
+            |CellLocationReceiptError::Arithmetic| DirectComputationError::InvalidEvidence,
         )?;
         let status = proposal_status(&self.snapshot, &self.tx.proposal_short_id());
         let environment = Arc::new(verification_environment(status, &self.snapshot));
@@ -1412,9 +1332,7 @@ impl DirectResolutionJob {
             })),
             Err(MissingScanError::Reject(error)) => Ok(self.rejected(Reject::Resolve(error))),
             Err(MissingScanError::ComputeBudget) => Ok(self.resource_rejected()),
-            Err(MissingScanError::ResourceUnavailable) => {
-                Err(DirectComputationError::ResourceUnavailable)
-            }
+            Err(MissingScanError::InvalidEvidence) => Err(DirectComputationError::InvalidEvidence),
         }
     }
 
@@ -1492,12 +1410,10 @@ impl DirectResolutionProbe {
             .overlay
             .prepare_refresh(&self.missing, self.job.max_edges)
             .map_err(|kind| match kind {
-                ResolutionExecutionKind::ResourceUnavailable => {
+                ResolutionExecutionKind::ComputeBudget => {
                     DirectComputationError::ResourceUnavailable
                 }
-                ResolutionExecutionKind::StaleView
-                | ResolutionExecutionKind::ComputeBudget
-                | ResolutionExecutionKind::InvalidReceipt(_) => {
+                ResolutionExecutionKind::StaleView | ResolutionExecutionKind::InvalidReceipt(_) => {
                     DirectComputationError::InvalidEvidence
                 }
             })?;
@@ -1562,12 +1478,7 @@ impl ResolutionProbe {
         reason = "enrichment failure returns the exact unboxed compute settlement capability; boxing would allocate on missing-dependency paths"
     )]
     pub(super) fn prepare_enrichment(mut self) -> Result<Self, ResolutionExecutionFailure> {
-        if let Err(kind) = self.job.overlay.reserve_enrichment(self.missing.len()) {
-            return Err(ResolutionExecutionFailure {
-                kind,
-                settlement: self.job.work.retry(),
-            });
-        }
+        self.job.overlay.reserve_enrichment(self.missing.len());
         Ok(self)
     }
 
@@ -1592,23 +1503,9 @@ impl ResolutionProbe {
     )]
     pub(super) fn settle_missing(self) -> Result<ComputeSettlement, ResolutionExecutionFailure> {
         let Self { job, missing } = self;
-        let mut keys = Vec::new();
-        if keys.try_reserve_exact(missing.len()).is_err() {
-            return Err(ResolutionExecutionFailure {
-                kind: ResolutionExecutionKind::ResourceUnavailable,
-                settlement: job.work.retry(),
-            });
-        }
+        let mut keys = Vec::with_capacity(missing.len());
         for cell in missing {
-            let out_point = match crate::util::try_compact_packed(&cell.out_point) {
-                Ok(out_point) => out_point,
-                Err(_) => {
-                    return Err(ResolutionExecutionFailure {
-                        kind: ResolutionExecutionKind::ResourceUnavailable,
-                        settlement: job.work.retry(),
-                    });
-                }
-            };
+            let out_point = compact_packed(&cell.out_point);
             keys.push(DependencyKey::Cell(out_point));
         }
         job.work.missing(keys)
@@ -1625,7 +1522,7 @@ pub(super) enum ResolutionProbeObservation {
 enum MissingScanError {
     Reject(OutPointError),
     ComputeBudget,
-    ResourceUnavailable,
+    InvalidEvidence,
 }
 
 fn collect_cell_status(

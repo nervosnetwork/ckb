@@ -7,7 +7,7 @@ use crate::authority::chain::{
     ExpectedPreAcceptedOwner,
 };
 use crate::authority::shard::ShardedOwnerMap;
-use crate::authority::state::{DependencySetError, RemoteBase};
+use crate::authority::state::{DependencyOrigin, DependencySetError, RemoteBase};
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
@@ -185,27 +185,15 @@ impl<'facts> CausalCompiler<'facts> {
         attached: &'facts HashSet<RawTxHash>,
         detached: &'facts HashSet<RawTxHash>,
         max: usize,
-    ) -> Result<Self, PlanError> {
-        let mut accepted = HashMap::new();
-        accepted
-            .try_reserve(max)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        let mut frontier = VecDeque::new();
-        frontier
-            .try_reserve(max)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        let mut preaccepted = HashMap::new();
-        preaccepted
-            .try_reserve(max)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             attached,
             detached,
-            accepted,
-            frontier,
-            preaccepted,
+            accepted: HashMap::with_capacity(max),
+            frontier: VecDeque::with_capacity(max),
+            preaccepted: HashMap::with_capacity(max),
             max,
-        })
+        }
     }
 
     fn is_direct_fact(&self, hash: &RawTxHash) -> bool {
@@ -224,15 +212,8 @@ impl<'facts> CausalCompiler<'facts> {
         Ok(())
     }
 
-    fn enqueue(&mut self, hash: RawTxHash) -> Result<(), PlanError> {
-        // A cause upgrade may enqueue one owner more than once. Reserve at
-        // the mutation site so capacity cannot drift from the number of enum
-        // variants or turn a future cause into an infallible allocation.
-        self.frontier
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    fn enqueue(&mut self, hash: RawTxHash) {
         self.frontier.push_back(hash);
-        Ok(())
     }
 
     fn seed_accepted(
@@ -246,14 +227,17 @@ impl<'facts> CausalCompiler<'facts> {
         if let Some(current) = self.accepted.get_mut(&hash) {
             let joined = current.join(&disposition);
             if *current != joined {
+                self.frontier.reserve(1);
                 *current = joined;
-                self.enqueue(hash)?;
+                self.enqueue(hash);
             }
             return Ok(());
         }
         self.reserve_new_owner()?;
+        self.frontier.reserve(1);
         self.accepted.insert(hash.clone(), disposition);
-        self.enqueue(hash)
+        self.enqueue(hash);
+        Ok(())
     }
 
     fn seed_preaccepted(
@@ -297,9 +281,7 @@ impl TxPoolAuthority {
 
         let max_affected = self.membership_config.max_component();
         let mut attached_hashes = HashSet::new();
-        attached_hashes
-            .try_reserve(facts.attached.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        attached_hashes.reserve(facts.attached.len());
         attached_hashes.extend(
             facts
                 .attached
@@ -307,9 +289,7 @@ impl TxPoolAuthority {
                 .map(|transaction| RawTxHash(transaction.hash())),
         );
         let mut detached_hashes = HashSet::new();
-        detached_hashes
-            .try_reserve(facts.detached.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        detached_hashes.reserve(facts.detached.len());
         detached_hashes.extend(
             facts
                 .detached
@@ -317,7 +297,7 @@ impl TxPoolAuthority {
                 .map(|transaction| RawTxHash(transaction.hash())),
         );
 
-        let mut causal = CausalCompiler::new(&attached_hashes, &detached_hashes, max_affected)?;
+        let mut causal = CausalCompiler::new(&attached_hashes, &detached_hashes, max_affected);
 
         // Attached inputs kill both accepted spenders and accepted cell-dep
         // readers. The attached transaction itself is a committed removal,
@@ -353,16 +333,11 @@ impl TxPoolAuthority {
         // accepted dependent and its causal descendants return through normal
         // Recovery; preaccepted work is requeued under the new view.
         for transaction in facts.detached {
-            let hash = RawTxHash(transaction.hash());
-            self.seed_origin_consumers(
-                &DependencyOrigin::Transaction(hash),
-                CausalDisposition::Recovery,
-                &mut causal,
-            )?;
+            self.seed_transaction_consumers(transaction, CausalDisposition::Recovery, &mut causal)?;
         }
         for header in facts.detached_headers {
-            self.seed_origin_consumers(
-                &DependencyOrigin::BlockHeader(header.clone()),
+            self.seed_consumers(
+                &DependencyKey::Header(header.clone()),
                 CausalDisposition::Recovery,
                 &mut causal,
             )?;
@@ -370,12 +345,18 @@ impl TxPoolAuthority {
         // Same raw producer on both forks preserves content identity but not
         // inclusion height/epoch. Consumers must rebuild location/time proof
         // even though detached-payload recovery is correctly suppressed.
-        for hash in facts.relocated {
-            self.seed_origin_consumers(
-                &DependencyOrigin::Transaction(hash.clone()),
-                CausalDisposition::Recovery,
-                &mut causal,
-            )?;
+        for transaction in facts.attached {
+            if facts
+                .relocated
+                .binary_search(&RawTxHash(transaction.hash()))
+                .is_ok()
+            {
+                self.seed_transaction_consumers(
+                    transaction,
+                    CausalDisposition::Recovery,
+                    &mut causal,
+                )?;
+            }
         }
 
         // A genuine detach can move tip height/epoch/median-time independently
@@ -416,25 +397,25 @@ impl TxPoolAuthority {
                 .get(&hash)
                 .cloned()
                 .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
-            self.seed_origin_consumers(
-                &DependencyOrigin::Transaction(hash),
-                disposition,
-                &mut causal,
-            )?;
+            let owner = self
+                .entries
+                .get(&hash)
+                .ok_or(PlanError::Fault(AuthorityFault::MembershipProjection))?;
+            let OwnedTx::Accepted(entry) = &*owner else {
+                return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
+            };
+            self.seed_transaction_consumers(&entry.record.tx, disposition, &mut causal)?;
         }
         let (dispositions, preaccepted_dispositions) = causal.finish();
 
-        let mut removals = Vec::new();
-        removals
-            .try_reserve(
-                facts
-                    .attached
-                    .len()
-                    .checked_add(dispositions.len())
-                    .and_then(|count| count.checked_add(preaccepted_dispositions.len()))
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
-            )
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut removals = Vec::with_capacity(
+            facts
+                .attached
+                .len()
+                .checked_add(dispositions.len())
+                .and_then(|count| count.checked_add(preaccepted_dispositions.len()))
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
+        );
         for hash in &attached_hashes {
             if let Some(owner) = self.entries.get(hash) {
                 removals.push(ChainRemoval::Committed {
@@ -493,30 +474,20 @@ impl TxPoolAuthority {
         // proposal-window update for the same raw hash would create two owner
         // changes from one chain fact.
         let mut non_status_hashes = HashSet::new();
-        non_status_hashes
-            .try_reserve(
-                removals
-                    .len()
-                    .checked_add(detached_hashes.len())
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
-            )
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        non_status_hashes.reserve(
+            removals
+                .len()
+                .checked_add(detached_hashes.len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
+        );
         non_status_hashes.extend(removals.iter().map(|removal| removal.hash().clone()));
         non_status_hashes.extend(detached_hashes.iter().cloned());
-        let mut proposal_candidates = Vec::new();
-        proposal_candidates
-            .try_reserve(facts.changed_proposals.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut proposal_candidates = Vec::with_capacity(facts.changed_proposals.len());
         proposal_candidates.extend(facts.changed_proposals.iter().cloned());
 
         let mut status_subjects = HashMap::<RawTxHash, ChainStatusSubject>::new();
-        status_subjects
-            .try_reserve(proposal_candidates.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        let mut proposal_subjects = Vec::new();
-        proposal_subjects
-            .try_reserve(facts.changed_proposals.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        status_subjects.reserve(proposal_candidates.len());
+        let mut proposal_subjects = Vec::with_capacity(facts.changed_proposals.len());
         for proposal in &proposal_candidates {
             let Some(hash) = self.indexes.proposal_owner(proposal) else {
                 continue;
@@ -552,10 +523,7 @@ impl TxPoolAuthority {
                 None => return Err(PlanError::Fault(AuthorityFault::IndexProjection)),
             }
         }
-        let mut ordered_status_subjects = Vec::new();
-        ordered_status_subjects
-            .try_reserve(status_subjects.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut ordered_status_subjects = Vec::with_capacity(status_subjects.len());
         ordered_status_subjects.extend(status_subjects.into_values());
         let mut status_subjects = ordered_status_subjects;
         status_subjects.sort_unstable_by(|left, right| left.hash.cmp(&right.hash));
@@ -573,10 +541,7 @@ impl TxPoolAuthority {
             &dispositions,
             &preaccepted_dispositions,
         )?;
-        let mut recoveries = Vec::new();
-        recoveries
-            .try_reserve(recovery_transactions.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut recoveries = Vec::with_capacity(recovery_transactions.len());
         for transaction in recovery_transactions {
             let hash = RawTxHash(transaction.hash());
             let requeue_existing = match preaccepted_dispositions.get(&hash) {
@@ -600,10 +565,7 @@ impl TxPoolAuthority {
             }
         }
 
-        let mut committed = Vec::new();
-        committed
-            .try_reserve(facts.attached.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut committed = Vec::with_capacity(facts.attached.len());
         committed.extend(
             facts
                 .attached
@@ -625,17 +587,14 @@ impl TxPoolAuthority {
         })
     }
 
-    fn seed_origin_consumers(
+    fn seed_transaction_consumers(
         &self,
-        origin: &DependencyOrigin,
+        transaction: &TransactionView,
         disposition: CausalDisposition,
         causal: &mut CausalCompiler<'_>,
     ) -> Result<(), PlanError> {
-        let Some(keys) = self.dependencies.keys_for_origin(origin)? else {
-            return Ok(());
-        };
-        for key in keys {
-            self.seed_consumers(&key, disposition.clone(), causal)?;
+        for output in transaction.output_pts() {
+            self.seed_consumers(&DependencyKey::Cell(output), disposition.clone(), causal)?;
         }
         Ok(())
     }
@@ -693,9 +652,7 @@ impl TxPoolAuthority {
             .and_then(|count| count.checked_add(preaccepted.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
         let mut by_hash = HashMap::new();
-        by_hash
-            .try_reserve(capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        by_hash.reserve(capacity);
         // Detached block payload is authoritative for its witness variant.
         for transaction in detached {
             let transaction = transaction.clone();
@@ -764,21 +721,21 @@ impl TxPoolAuthority {
         let mut available = Vec::new();
         let mut lost = Vec::new();
         for transaction in attached {
-            append_transaction_origin_keys(self, &mut available, transaction)?;
+            append_transaction_output_keys(&mut available, transaction);
             append_keys(
                 &mut lost,
                 transaction.input_pts_iter().map(DependencyKey::Cell),
-            )?;
+            );
         }
         // Detached block facts change chain availability whether or not the
         // same raw transaction already has a pool owner. They are deliberately
         // distinct from preaccepted dependents that are merely requeued.
         for transaction in detached {
-            append_transaction_origin_keys(self, &mut lost, transaction)?;
+            append_transaction_output_keys(&mut lost, transaction);
             append_keys(
                 &mut available,
                 transaction.input_pts_iter().map(DependencyKey::Cell),
-            )?;
+            );
         }
         for removal in removals {
             match removal {
@@ -800,33 +757,23 @@ impl TxPoolAuthority {
             // child's unique compute capability.
             match &*owner {
                 OwnedTx::PreAccepted(_) => {
-                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                    append_transaction_output_keys(&mut lost, &owner.record().tx);
                 }
                 OwnedTx::Accepted(_) => {
-                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                    append_transaction_output_keys(&mut lost, &owner.record().tx);
                     append_keys(
                         &mut available,
                         owner.record().tx.input_pts_iter().map(DependencyKey::Cell),
-                    )?;
+                    );
                 }
                 OwnedTx::ReplacementHistory(_) => {}
             }
         }
         for header in attached_headers {
-            append_origin_keys(
-                self,
-                &mut available,
-                DependencyOrigin::BlockHeader(header.clone()),
-                Some(DependencyKey::Header(header.clone())),
-            )?;
+            available.push(DependencyKey::Header(header.clone()));
         }
         for header in detached_headers {
-            append_origin_keys(
-                self,
-                &mut lost,
-                DependencyOrigin::BlockHeader(header.clone()),
-                Some(DependencyKey::Header(header.clone())),
-            )?;
+            lost.push(DependencyKey::Header(header.clone()));
         }
         available.sort_unstable();
         available.dedup();
@@ -858,18 +805,14 @@ impl TxPoolAuthority {
         // no snapshot proof to remove, so absorb that race at final Plan
         // instead of versioning every absent transaction in a large block.
         let mut removals = receipt.removals;
-        removals
-            .try_reserve(receipt.committed.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        removals.reserve(receipt.committed.len());
         let mut removal_hashes = HashSet::new();
-        removal_hashes
-            .try_reserve(
-                removals
-                    .len()
-                    .checked_add(receipt.committed.len())
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
-            )
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        removal_hashes.reserve(
+            removals
+                .len()
+                .checked_add(receipt.committed.len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
+        );
         removal_hashes.extend(removals.iter().map(|removal| removal.hash().clone()));
         for hash in &receipt.committed {
             let Some(owner) = self.entries.get(hash) else {
@@ -888,21 +831,16 @@ impl TxPoolAuthority {
 
         let mut clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
-        let mut changes = Vec::new();
         let change_capacity = removals
             .len()
             .checked_add(recoveries.len())
             .and_then(|count| count.checked_add(receipt.proposal_demotions.len()))
             .and_then(|count| count.checked_add(receipt.statuses.len()))
             .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?;
-        changes
-            .try_reserve(change_capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut changes = Vec::with_capacity(change_capacity);
 
         let mut recovery_hashes = HashSet::new();
-        recovery_hashes
-            .try_reserve(recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        recovery_hashes.reserve(recoveries.len());
         for recovery in &recoveries {
             if !recovery_hashes.insert(recovery.key().clone()) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
@@ -925,8 +863,7 @@ impl TxPoolAuthority {
             });
         }
         for recovery in recoveries {
-            let (version, arrival, next_clocks) = clocks.insertion()?;
-            clocks = next_clocks;
+            let (version, arrival) = clocks.insertion()?;
             let key = recovery.key().clone();
             let before = self.entries.get(&key).as_deref().cloned();
             let after = match recovery {
@@ -980,9 +917,7 @@ impl TxPoolAuthority {
         }
 
         let mut status_after = HashMap::new();
-        status_after
-            .try_reserve(receipt.statuses.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        status_after.reserve(receipt.statuses.len());
         for change in receipt.statuses {
             let hash = change.hash;
             let proposal = change.after;
@@ -999,8 +934,7 @@ impl TxPoolAuthority {
             if after.status() == status {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
-            let (version, next_clocks) = clocks.replacement()?;
-            clocks = next_clocks;
+            let version = clocks.replacement()?;
             after.record.version = version;
             after.proposal = proposal;
             status_after.insert(hash.clone(), after.clone());
@@ -1017,10 +951,7 @@ impl TxPoolAuthority {
         {
             return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
         }
-        let mut accepted_removals = Vec::new();
-        accepted_removals
-            .try_reserve_exact(changes.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut accepted_removals = Vec::with_capacity(changes.len());
         for change in &changes {
             match (&change.before, &change.after) {
                 (
@@ -1043,10 +974,7 @@ impl TxPoolAuthority {
         let accepted_removals = AcceptedRemovalSet::try_from_vec(accepted_removals)?;
         let membership = self.prepare_chain_projection(&accepted_removals, &status_after)?;
 
-        let mut resource_changes = Vec::new();
-        resource_changes
-            .try_reserve(changes.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut resource_changes = Vec::with_capacity(changes.len());
         resource_changes.extend(changes.iter().map(|change| {
             (
                 change.key.clone(),
@@ -1072,7 +1000,7 @@ impl TxPoolAuthority {
                         .entries
                         .get(removal.hash())
                         .ok_or(PlanError::Stale(StalePlan::Missing))?;
-                    append_transaction_origin_keys(self, &mut lost, &owner.record().tx)?;
+                    append_transaction_output_keys(&mut lost, &owner.record().tx);
                 }
                 ChainRemoval::Committed { .. }
                 | ChainRemoval::ChainConflict { .. }
@@ -1132,15 +1060,12 @@ impl TxPoolAuthority {
             template_sources,
         };
 
-        let mut effects = Vec::new();
-        effects
-            .try_reserve(
-                removals
-                    .len()
-                    .checked_add(status_after.len())
-                    .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
-            )
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut effects = Vec::with_capacity(
+            removals
+                .len()
+                .checked_add(status_after.len())
+                .ok_or(PlanError::Fault(AuthorityFault::CounterExhausted))?,
+        );
         for removal in &removals {
             let owner = self
                 .entries
@@ -1186,10 +1111,7 @@ impl TxPoolAuthority {
                 ChainRemoval::Recovery { .. } | ChainRemoval::ProposalWindowExpired { .. } => {}
             }
         }
-        let mut status_effect_keys = Vec::new();
-        status_effect_keys
-            .try_reserve(status_after.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut status_effect_keys = Vec::with_capacity(status_after.len());
         status_effect_keys.extend(status_after.keys().cloned());
         status_effect_keys.sort_unstable();
         for hash in status_effect_keys {
@@ -1219,17 +1141,14 @@ impl TxPoolAuthority {
                 .iter()
                 .filter(|change| change.before.is_none() && change.after.is_some())
                 .map(|change| &change.key),
-        )?;
-        let retired = retired_buffer(changes.len())?;
-        let mut updates = Vec::new();
-        updates
-            .try_reserve(changes.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        );
+        let retired = retired_buffer(changes.len());
+        let mut updates = Vec::with_capacity(changes.len());
         updates.extend(changes.into_iter().map(|change| ChainOwnerUpdate {
             key: change.key,
             after: change.after,
         }));
-        PreparedApply::stage(
+        PreparedApply::prepare(
             self,
             DependencyAuthorityDelta::Chain(ChainDelta {
                 view: receipt.new_view,
@@ -1241,7 +1160,6 @@ impl TxPoolAuthority {
                 dependency,
                 effect,
                 retired,
-                clocks: clocks.finish(),
             }),
         )
     }
@@ -1251,24 +1169,17 @@ impl TxPoolAuthority {
         recoveries: Vec<ChainRecoveryReceipt>,
     ) -> Result<Vec<SelectedChainRecovery>, PlanError> {
         let mut all = HashSet::new();
-        all.try_reserve(recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        all.reserve(recoveries.len());
         for recovery in &recoveries {
             if !all.insert(recovery.key().clone()) {
                 return Err(PlanError::Fault(AuthorityFault::MembershipProjection));
             }
         }
         let mut seen = HashSet::new();
-        seen.try_reserve(recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        seen.reserve(recoveries.len());
         let mut excluded = HashSet::new();
-        excluded
-            .try_reserve(recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        let mut selected = Vec::new();
-        selected
-            .try_reserve(recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        excluded.reserve(recoveries.len());
+        let mut selected = Vec::with_capacity(recoveries.len());
 
         for recovery in recoveries {
             let key = recovery.key().clone();
@@ -1327,10 +1238,7 @@ impl TxPoolAuthority {
         &self,
         receipt: &ChainTransitionReceipt,
     ) -> Result<Vec<ChainGenerationRecovery>, PlanError> {
-        let mut recoveries = Vec::new();
-        recoveries
-            .try_reserve(receipt.recoveries.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut recoveries = Vec::with_capacity(receipt.recoveries.len());
         for recovery in &receipt.recoveries {
             let recovery = match recovery {
                 ChainRecoveryReceipt::Trusted { admission, .. } => {
@@ -1362,10 +1270,7 @@ impl TxPoolAuthority {
         new_view: ChainViewId,
         transactions: Vec<TransactionView>,
     ) -> Result<PreparedApply<'_>, PlanError> {
-        let mut recoveries = Vec::new();
-        recoveries
-            .try_reserve(transactions.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let mut recoveries = Vec::with_capacity(transactions.len());
         recoveries.extend(
             transactions
                 .into_iter()
@@ -1388,7 +1293,7 @@ impl TxPoolAuthority {
         let ordered = canonical_generation_recoveries(recoveries)?;
         let scratch_effects =
             EffectLog::new(self.effects.lock().limits()).map_err(|error| match error {
-                EffectConfigError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
+                EffectConfigError::Allocation => PlanError::Fault(AuthorityFault::EffectProjection),
                 EffectConfigError::EmptyRemoteRegion
                 | EffectConfigError::EmptyBatchBound
                 | EffectConfigError::Arithmetic
@@ -1410,16 +1315,14 @@ impl TxPoolAuthority {
         );
 
         let mut excluded = HashSet::new();
-        excluded
-            .try_reserve(ordered.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        excluded.reserve(ordered.len());
         for recovery in ordered {
             let (admission, expected_charge) = match recovery {
                 ChainGenerationRecovery::Trusted(transaction) => (
                     ValidatedAdmission::recovery(transaction, generation).map_err(|error| {
                         match error {
                             super::super::state::RecoveryAdmissionError::ResourceUnavailable => {
-                                PlanError::Backpressure(Backpressure::Allocation)
+                                PlanError::Fault(AuthorityFault::ResourceProjection)
                             }
                             super::super::state::RecoveryAdmissionError::InvalidTransaction => {
                                 PlanError::Fault(AuthorityFault::ResourceProjection)
@@ -1462,9 +1365,9 @@ impl TxPoolAuthority {
             }
         }
 
-        let scratch_clocks = scratch.clocks();
+        let scratch_owner_progress = scratch.clocks().owner_progress();
         let fresh = scratch.into_fresh_generation();
-        let mut clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
+        let clocks = ApplyClockReservation::begin(std::sync::Arc::clone(&self.clocks))?;
         let sequence = clocks.sequence();
         // Scratch admission sequences are compiler-local: queued Resolve
         // owners and their primary projections retain no dependency/effect
@@ -1472,7 +1375,7 @@ impl TxPoolAuthority {
         // every external source at `sequence`, so the live clock advances
         // exactly once while versions and arrivals retain their monotonic
         // values from the compiled prefix.
-        clocks = clocks.adopt_owner_progress(scratch_clocks)?;
+        clocks.adopt_owner_progress(scratch_owner_progress)?;
         let sources = self.source_versions.plan_generation_replacement(sequence);
         let effect = self.effects.lock().plan_generation_reset(sequence)?;
         let compute_slot_released = self.resources.read(&self.entries).preaccepted().active_work
@@ -1485,7 +1388,6 @@ impl TxPoolAuthority {
                 fresh,
                 sources,
                 effect,
-                clocks: clocks.finish(),
                 compute_slot_released,
             })),
         ))
@@ -1496,9 +1398,7 @@ fn canonical_generation_recoveries(
     recoveries: Vec<ChainGenerationRecovery>,
 ) -> Result<Vec<ChainGenerationRecovery>, PlanError> {
     let mut by_hash = HashMap::new();
-    by_hash
-        .try_reserve(recoveries.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    by_hash.reserve(recoveries.len());
     for recovery in recoveries {
         let (key, dependencies) = match &recovery {
             ChainGenerationRecovery::Trusted(transaction) => (
@@ -1529,7 +1429,6 @@ fn chain_resource_error(error: ResourceError) -> PlanError {
         ResourceError::PreAcceptedLimit => {
             PlanError::Backpressure(Backpressure::GenerationReplacement)
         }
-        ResourceError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
         ResourceError::Arithmetic
         | ResourceError::ExistingChargeMismatch
         | ResourceError::AttributionMismatch
@@ -1550,7 +1449,6 @@ fn charge_chain_recovery(
     match resources.charge_admission(admission) {
         Ok(admission) => Ok(Some(admission)),
         Err(ResourceError::Arithmetic | ResourceError::ComputeEnvelope) => Ok(None),
-        Err(ResourceError::Allocation) => Err(PlanError::Backpressure(Backpressure::Allocation)),
         Err(
             ResourceError::PreAcceptedLimit
             | ResourceError::RemoteLimit
@@ -1579,10 +1477,11 @@ fn recovery_parent_is_excluded(
 
 fn chain_index_error(error: IndexError) -> PlanError {
     match error {
+        IndexError::Stale => PlanError::Stale(StalePlan::Version),
         IndexError::ProposalCollision => {
             PlanError::Backpressure(Backpressure::GenerationReplacement)
         }
-        IndexError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
+        IndexError::Allocation => PlanError::Fault(AuthorityFault::IndexProjection),
         IndexError::Arithmetic => PlanError::Fault(AuthorityFault::CounterExhausted),
         IndexError::Projection => PlanError::Fault(AuthorityFault::IndexProjection),
     }
@@ -1749,57 +1648,20 @@ fn validate_chain_receipt_owners(
     Ok(())
 }
 
-fn append_keys(
-    target: &mut Vec<DependencyKey>,
-    keys: impl IntoIterator<Item = DependencyKey>,
-) -> Result<(), PlanError> {
+fn append_keys(target: &mut Vec<DependencyKey>, keys: impl IntoIterator<Item = DependencyKey>) {
     let keys = keys.into_iter();
-    target
-        .try_reserve(keys.size_hint().0)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    target.reserve(keys.size_hint().0);
     target.extend(keys);
-    Ok(())
 }
 
-fn append_transaction_origin_keys(
-    authority: &TxPoolAuthority,
-    target: &mut Vec<DependencyKey>,
-    transaction: &TransactionView,
-) -> Result<(), PlanError> {
-    append_origin_keys(
-        authority,
-        target,
-        DependencyOrigin::Transaction(RawTxHash(transaction.hash())),
-        None,
-    )?;
+fn append_transaction_output_keys(target: &mut Vec<DependencyKey>, transaction: &TransactionView) {
     append_keys(
         target,
         transaction
             .output_pts()
             .into_iter()
             .map(DependencyKey::Cell),
-    )
-}
-
-fn append_origin_keys(
-    authority: &TxPoolAuthority,
-    target: &mut Vec<DependencyKey>,
-    origin: DependencyOrigin,
-    direct: Option<DependencyKey>,
-) -> Result<(), PlanError> {
-    if let Some(direct) = direct {
-        target
-            .try_reserve(1)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        target.push(direct);
-    }
-    if let Some(keys) = authority.dependencies.keys_for_origin(&origin)? {
-        target
-            .try_reserve(keys.len())
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-        target.extend(keys.iter().cloned());
-    }
-    Ok(())
+    );
 }
 
 fn queued_recovery_owner(
@@ -1842,7 +1704,6 @@ fn requeued_existing_owner(
 
 fn declared_dependencies(transaction: &TransactionView) -> Result<KnownDependencies, PlanError> {
     KnownDependencies::from_transaction(transaction).map_err(|error| match error {
-        DependencySetError::Allocation => PlanError::Backpressure(Backpressure::Allocation),
         DependencySetError::Empty
         | DependencySetError::TooMany
         | DependencySetError::Arithmetic => PlanError::Fault(AuthorityFault::DependencyProjection),
@@ -1855,12 +1716,8 @@ fn topological_recoveries<T>(
     let count = transactions.len();
     let mut indegree = HashMap::<RawTxHash, usize>::new();
     let mut outdegree = HashMap::<RawTxHash, usize>::new();
-    indegree
-        .try_reserve(count)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
-    outdegree
-        .try_reserve(count)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    indegree.reserve(count);
+    outdegree.reserve(count);
     indegree.extend(transactions.keys().cloned().map(|hash| (hash, 0)));
     for (child, candidate) in &transactions {
         for dependency in candidate.dependencies.keys() {
@@ -1883,13 +1740,9 @@ fn topological_recoveries<T>(
         }
     }
     let mut children = HashMap::<RawTxHash, Vec<RawTxHash>>::new();
-    children
-        .try_reserve(outdegree.len())
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    children.reserve(outdegree.len());
     for (parent, capacity) in outdegree {
-        let mut row = Vec::new();
-        row.try_reserve(capacity)
-            .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+        let row = Vec::with_capacity(capacity);
         children.insert(parent, row);
     }
     for (child, candidate) in &transactions {
@@ -1903,19 +1756,14 @@ fn topological_recoveries<T>(
         }
     }
     let mut ready = BinaryHeap::new();
-    ready
-        .try_reserve(count)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    ready.reserve(count);
     ready.extend(
         indegree
             .iter()
             .filter(|(_, degree)| **degree == 0)
             .map(|(hash, _)| Reverse(hash.clone())),
     );
-    let mut ordered = Vec::new();
-    ordered
-        .try_reserve(count)
-        .map_err(|_| PlanError::Backpressure(Backpressure::Allocation))?;
+    let mut ordered = Vec::with_capacity(count);
     while let Some(Reverse(hash)) = ready.pop() {
         let candidate = transactions
             .remove(&hash)

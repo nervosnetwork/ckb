@@ -3,8 +3,10 @@
 //! The compiler in this module consumes only [`CommittedEffect`] values. It
 //! never rereads transaction authority after Apply, so a later admission,
 //! reorg, or replacement cannot change the meaning of an older outcome. The
-//! publisher owns one claim-bound read receipt at a time; cancellation settles
-//! its tentative cursor before the task can release the sole publisher claim.
+//! publisher owns one claim-bound read receipt at a time. While a synchronous
+//! endpoint call is running, cancellation cannot release either that cursor or
+//! the sole publisher claim; the task observes cancellation only after the
+//! call returns and its exact endpoint progress is recorded.
 
 use super::rejection::{bounded_commit_ban_reason, serialized_recent_reject};
 use super::{
@@ -12,10 +14,7 @@ use super::{
         CommittedAcceptance, CommittedConflictOwner, CommittedEffect, CommittedEntrySnapshot,
         CommittedRejection, EffectEndpoint, EffectPublicationObservation, RejectionAudience,
     },
-    relay::{
-        AuthorityRelaySink, RelayMailboxDisposition, RelayParentProjectionError,
-        project_parent_request,
-    },
+    relay::{AuthorityRelaySink, RelayMailboxDisposition, project_parent_request},
     runtime::{
         AuthorityEffectPublicationFault, AuthorityEffectPublicationLease,
         AuthorityEffectPublisherClaim, AuthorityRuntime,
@@ -28,7 +27,7 @@ use crate::{
     error::Reject,
     network::TxPoolNetworkHandle,
     service::TxVerificationResult,
-    util::compact_packed,
+    util::{block_offload, compact_packed},
 };
 use ckb_logger::{error, info};
 use ckb_types::packed::Byte32;
@@ -37,19 +36,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-const EXTERNAL_EFFECT_TIMEOUT: Duration = Duration::from_secs(1);
-
 pub(in crate::authority) type AuthorityEffectPublisherFault = AuthorityEffectPublicationFault;
 
 /// Stable foreign endpoints and their one-way circuit breakers.
 ///
 /// Circuits are operational projections, not transaction state. Opening one
 /// may discard only that endpoint's observational detail; it cannot reverse a
-/// committed transition. Every potentially blocking endpoint uses Tokio's
-/// existing bounded blocking execution boundary. Sequential publication plus
-/// a one-way circuit bounds each endpoint to at most one detached operation;
-/// no extra service task or shutdown capability is required. The move-only
-/// publisher owns these plain circuit bits; they are not shared state.
+/// committed transition. Every potentially blocking endpoint runs in the
+/// publisher task's own blocking region. A synchronous foreign call has no
+/// cancellation capability, so keeping it on that task's stack is what keeps
+/// the publication cursor, endpoint action and topology join under one owner.
+/// The move-only publisher owns these plain circuit bits; they are not shared
+/// state.
 pub(crate) struct AuthorityEffectEndpoints {
     network: TxPoolNetworkHandle,
     relay: AuthorityRelaySink,
@@ -80,22 +78,22 @@ impl AuthorityEffectEndpoints {
         }
     }
 
-    async fn publish_endpoint(
+    fn publish_endpoint(
         &mut self,
         outcome: &mut CompiledEndpointOutcome,
         endpoint: EffectEndpoint,
     ) -> EndpointDisposition {
         match endpoint {
             EffectEndpoint::RecentReject => match outcome.recent_reject.take() {
-                Some(recent) => self.publish_recent_reject(recent).await,
+                Some(recent) => self.publish_recent_reject(recent),
                 None => EndpointDisposition::Published,
             },
             EffectEndpoint::Callback => match outcome.callback.take() {
-                Some(callback) => self.publish_callback(callback).await,
+                Some(callback) => self.publish_callback(callback),
                 None => EndpointDisposition::Published,
             },
             EffectEndpoint::Ban => match outcome.ban.take() {
-                Some(ban) => self.publish_ban(ban).await,
+                Some(ban) => self.publish_ban(ban),
                 None => EndpointDisposition::Published,
             },
             EffectEndpoint::Relay => {
@@ -111,7 +109,7 @@ impl AuthorityEffectEndpoints {
         }
     }
 
-    async fn publish_callback(&mut self, event: CallbackEvent) -> EndpointDisposition {
+    fn publish_callback(&mut self, event: CallbackEvent) -> EndpointDisposition {
         let registered = match &event {
             CallbackEvent::Pending(_) => self.callbacks.pending.is_some(),
             CallbackEvent::Proposed(_) => self.callbacks.proposed.is_some(),
@@ -126,9 +124,7 @@ impl AuthorityEffectEndpoints {
         let callbacks = Arc::clone(&self.callbacks);
         if let Err(failure) = run_blocking_effect(move || {
             crate::callback::with_callback_context(|| callbacks.publish(&event));
-        })
-        .await
-        {
+        }) {
             self.callback_circuit_open = true;
             error!("tx-pool callback endpoint failed; circuit opened: {failure}");
             return EndpointDisposition::CircuitDisposed;
@@ -136,23 +132,22 @@ impl AuthorityEffectEndpoints {
         EndpointDisposition::Published
     }
 
-    async fn publish_ban(&mut self, ban: BanAction) -> EndpointDisposition {
+    fn publish_ban(&mut self, ban: BanAction) -> EndpointDisposition {
         if self.network_circuit_open {
             return EndpointDisposition::CircuitDisposed;
         }
         let network = Arc::clone(&self.network);
         let lease = ban.lease;
         let published = run_blocking_effect(move || {
-            // Compute the lease remainder inside the blocking task, at the
-            // actual foreign-call boundary. Queueing delay in Tokio's blocking
-            // pool must not silently extend the authority-owned deadline.
+            // Compute the lease remainder inside the blocking region, at the
+            // actual foreign-call boundary. Earlier publication work must not
+            // silently extend the authority-owned deadline.
             if let Some(duration) = lease.remaining_at(Instant::now()) {
                 let peer = lease.peer();
                 network.ban_peer(peer, duration, ban.reason.clone());
                 report_malformed_peer_ban(peer, duration, &ban.reason);
             }
-        })
-        .await;
+        });
         if let Err(failure) = published {
             self.network_circuit_open = true;
             error!("tx-pool network effect failed; circuit opened: {failure}");
@@ -162,7 +157,7 @@ impl AuthorityEffectEndpoints {
         }
     }
 
-    async fn publish_recent_reject(&mut self, recent: RecentRejectAction) -> EndpointDisposition {
+    fn publish_recent_reject(&mut self, recent: RecentRejectAction) -> EndpointDisposition {
         let Some(store) = self.recent_reject.as_ref().map(Arc::clone) else {
             return EndpointDisposition::Published;
         };
@@ -186,8 +181,7 @@ impl AuthorityEffectEndpoints {
                         recent.tx_hash
                     )
                 })
-        })
-        .await;
+        });
         match published {
             Ok(Ok(())) => EndpointDisposition::Published,
             Ok(Err(store_error)) => {
@@ -250,16 +244,6 @@ fn report_malformed_peer_ban(peer: ckb_network::PeerIndex, duration: Duration, r
 pub(super) enum EndpointDisposition {
     Published,
     CircuitDisposed,
-}
-
-impl EndpointDisposition {
-    fn join(self, other: Self) -> Self {
-        if matches!(self, Self::CircuitDisposed) || matches!(other, Self::CircuitDisposed) {
-            Self::CircuitDisposed
-        } else {
-            Self::Published
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -347,26 +331,10 @@ pub(super) fn compile_committed_effect(effect: CommittedEffect) -> CompiledEndpo
             })),
             ..Default::default()
         },
-        CommittedEffect::ParentTransactionsRequested(request) => {
-            let relay = match project_parent_request(&request) {
-                Ok(result) => result,
-                Err(RelayParentProjectionError::Allocation) => {
-                    error!(
-                        "tx-pool could not materialize a committed parent request; scheduling authoritative relay reconciliation"
-                    );
-                    TxVerificationResult::GenerationReset
-                }
-            };
-            CompiledEndpointOutcome {
-                // UnknownParents is the only variable-size relay result whose
-                // detail is required for dependency recovery. The bounded
-                // mailbox or a fallible projection allocation reconciles from
-                // the authoritative waiting level instead of losing the only
-                // external recovery action.
-                relay: Some(RelayAction::new(relay)),
-                ..Default::default()
-            }
-        }
+        CommittedEffect::ParentTransactionsRequested(request) => CompiledEndpointOutcome {
+            relay: Some(RelayAction::new(project_parent_request(&request))),
+            ..Default::default()
+        },
         CommittedEffect::GenerationReset => CompiledEndpointOutcome {
             relay: Some(RelayAction::new(TxVerificationResult::GenerationReset)),
             ..Default::default()
@@ -530,32 +498,26 @@ fn compact_hash(hash: &RawTxHash) -> Byte32 {
 
 #[derive(Debug)]
 enum BlockingEffectFailure {
-    TimedOut,
-    Task(tokio::task::JoinError),
+    Panicked,
 }
 
 impl std::fmt::Display for BlockingEffectFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TimedOut => formatter.write_str("timed out"),
-            Self::Task(join_error) => write!(formatter, "task failed: {join_error}"),
+            Self::Panicked => formatter.write_str("panicked"),
         }
     }
 }
 
-async fn run_blocking_effect<T: Send + 'static>(
-    operation: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, BlockingEffectFailure> {
-    match tokio::time::timeout(
-        EXTERNAL_EFFECT_TIMEOUT,
-        tokio::task::spawn_blocking(operation),
-    )
-    .await
-    {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(join_error)) => Err(BlockingEffectFailure::Task(join_error)),
-        Err(_) => Err(BlockingEffectFailure::TimedOut),
-    }
+fn run_blocking_effect<T>(operation: impl FnOnce() -> T) -> Result<T, BlockingEffectFailure> {
+    // Foreign endpoint code is outside the authority TCB and may unwind. The
+    // catch is the deliberate circuit boundary previously supplied by the
+    // spawned task's JoinError; it cannot conceal an authority invariant
+    // failure because only `operation` executes inside it.
+    block_offload(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))
+            .map_err(|_| BlockingEffectFailure::Panicked)
+    })
 }
 
 /// Publish and settle one immutable committed effect batch.
@@ -572,18 +534,16 @@ async fn run_blocking_effect<T: Send + 'static>(
         skip_all
     )
 )]
-async fn publish_committed_effect_batch(
+fn publish_committed_effect_batch(
     endpoints: &mut AuthorityEffectEndpoints,
     mut publication: AuthorityEffectPublicationLease<'_, '_>,
 ) -> Result<EffectPublicationObservation, AuthorityEffectPublisherFault> {
-    let mut disposition = EndpointDisposition::Published;
     'batch: while let Some(work) = publication.current() {
         let effect_index = work.effect_index;
         let mut endpoint = work.endpoint;
         let mut outcome = compile_committed_effect(work.effect.clone());
         loop {
-            disposition =
-                disposition.join(endpoints.publish_endpoint(&mut outcome, endpoint).await);
+            endpoints.publish_endpoint(&mut outcome, endpoint);
             if publication
                 .mark_current_processed()
                 .map_err(AuthorityEffectPublicationFault::Progress)?
@@ -601,10 +561,7 @@ async fn publish_committed_effect_batch(
             endpoint = next.endpoint;
         }
     }
-    match disposition {
-        EndpointDisposition::Published => publication.publish(),
-        EndpointDisposition::CircuitDisposed => publication.circuit_dispose(),
-    }
+    publication.publish()
 }
 
 /// Drain with the move-only claim acquired before any topology task starts.
@@ -633,7 +590,7 @@ pub(in crate::authority) async fn run_claimed_authority_effect_publisher(
                 lease
             }
         };
-        next = Some(publish_committed_effect_batch(&mut endpoints, lease).await?);
+        next = Some(publish_committed_effect_batch(&mut endpoints, lease)?);
     }
 }
 

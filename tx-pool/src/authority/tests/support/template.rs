@@ -30,10 +30,7 @@ impl TemplateSelectionReceipt {
     ) -> Result<Vec<ProposalId>, TemplateReadError> {
         let ordered = self.ordered_indices([AcceptedStatus::Pending])?;
         let selected = limit.min(ordered.len());
-        let mut proposals = Vec::new();
-        proposals
-            .try_reserve(selected)
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut proposals = Vec::with_capacity(selected);
         for index in ordered.into_iter().take(selected) {
             let candidate = self
                 .candidates
@@ -86,10 +83,7 @@ impl TemplateSelectionReceipt {
         let by_hash = self.candidate_index()?;
         let causally_selected = self.causally_eligible_proposed(&by_hash)?;
         let selected = self.order_conditionally_safe(causally_selected, &by_hash)?;
-        let mut ordered = Vec::new();
-        ordered
-            .try_reserve(selected.len())
-            .map_err(|_| TemplateReadError::Allocation)?;
+        let mut ordered = Vec::with_capacity(selected.len());
         for index in selected {
             ordered.push(
                 self.candidates

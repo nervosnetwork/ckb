@@ -10,158 +10,11 @@ pub(in crate::authority) struct ResourceSnapshot {
     pub(in crate::authority) accepted: AcceptedResources,
 }
 
-pub(in crate::authority) struct TestResourceLedger {
-    ledger: ResourceLedger,
-    entries: crate::authority::shard::ShardedOwnerMap,
-    charges: HashMap<RawTxHash, ChargeRecord>,
-}
-
-pub(in crate::authority) struct TestResourcePlan {
-    plan: ResourcePlan,
-    changes: Vec<(RawTxHash, Option<ChargeRecord>)>,
-}
-
-pub(in crate::authority) struct TestResourceBatchPlan {
-    plan: ResourceBatchPlan,
-    changes: Vec<(RawTxHash, Option<ChargeRecord>)>,
-}
-
-impl TestResourceLedger {
-    pub(in crate::authority) fn new(limits: ResourceLimits) -> Self {
-        Self {
-            ledger: ResourceLedger::new(limits),
-            entries: crate::authority::shard::ShardedOwnerMap::new(
-                crate::authority::shard::AuthorityShardRouter::new(),
-            ),
-            charges: HashMap::new(),
-        }
-    }
-
-    pub(in crate::authority) fn plan_replace(
-        &mut self,
-        key: RawTxHash,
-        expected: Option<ChargeRecord>,
-        after: Option<ChargeRecord>,
-    ) -> Result<TestResourcePlan, ResourceError> {
-        let shards = self.entries.plan_resource_transitions(std::iter::once((
-            &key,
-            ChargeProjection::from_validated(expected)?,
-            ChargeProjection::from_validated(after)?,
-        )))?;
-        let current = &self.charges;
-        let plan = self
-            .ledger
-            .plan_replace(&self.entries, expected, after, shards, || {
-                current.get(&key).copied()
-            })?;
-        Ok(TestResourcePlan {
-            plan,
-            changes: vec![(key, after)],
-        })
-    }
-
-    pub(in crate::authority) fn plan_batch(
-        &mut self,
-        changes: Vec<(RawTxHash, Option<ChargeRecord>, Option<ChargeRecord>)>,
-    ) -> Result<TestResourceBatchPlan, ResourceError> {
-        let mut projections = Vec::new();
-        projections
-            .try_reserve(changes.len())
-            .map_err(|_| ResourceError::Allocation)?;
-        for (key, expected, after) in &changes {
-            projections.push((
-                key,
-                ChargeProjection::from_validated(*expected)?,
-                ChargeProjection::from_validated(*after)?,
-            ));
-        }
-        let shards = self.entries.plan_resource_transitions(projections)?;
-        let current = &self.charges;
-        let plan = self
-            .ledger
-            .plan_batch(&self.entries, changes.clone(), shards, |key| {
-                current.get(key).copied()
-            })?;
-        Ok(TestResourceBatchPlan {
-            plan,
-            changes: changes
-                .into_iter()
-                .map(|(key, _, after)| (key, after))
-                .collect(),
-        })
-    }
-
-    pub(in crate::authority) fn apply(&mut self, plan: TestResourcePlan) {
-        let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
-        let support = self.entries.owner_resource_write_support(
-            plan.changes.iter().map(|(key, _)| key),
-            &proposed_counts,
-            plan.plan.shard_plan(),
-        );
-        for (key, after) in plan.changes {
-            match after {
-                Some(after) => {
-                    self.charges.insert(key, after);
-                }
-                None => {
-                    self.charges.remove(&key);
-                }
-            }
-        }
-        let mut owners = self.entries.write_cut(support);
-        let capacity = plan.plan.apply_shards(&mut owners);
-        drop(owners);
-        let _health = capacity.commit();
-    }
-
-    pub(in crate::authority) fn apply_batch(&mut self, plan: TestResourceBatchPlan) {
-        let proposed_counts = crate::authority::shard::ShardProposedCountPlan::default();
-        let support = self.entries.owner_resource_write_support(
-            plan.changes.iter().map(|(key, _)| key),
-            &proposed_counts,
-            plan.plan.shard_plan(),
-        );
-        for (key, after) in plan.changes {
-            match after {
-                Some(after) => {
-                    self.charges.insert(key, after);
-                }
-                None => {
-                    self.charges.remove(&key);
-                }
-            }
-        }
-        let mut owners = self.entries.write_cut(support);
-        let capacity = plan.plan.apply_shards(&mut owners);
-        drop(owners);
-        let _health = capacity.commit();
-    }
-
-    pub(in crate::authority) fn snapshot(&self) -> ResourceSnapshot {
-        self.ledger.read(&self.entries).snapshot()
-    }
-}
-
 impl ResidencyPolicy {
     pub(in crate::authority) const fn foundation() -> Self {
         Self {
             entry_metadata_bytes: 0,
             edge_metadata_bytes: 0,
-        }
-    }
-}
-
-impl ComputeGrant {
-    pub(in crate::authority) const fn for_foundation(
-        max_total_retained_bytes: usize,
-        max_edges: usize,
-    ) -> Self {
-        Self {
-            max_total_retained_bytes,
-            max_edges,
-            payload_bytes: 0,
-            encoded_edges: 0,
-            residency: ResidencyPolicy::foundation(),
         }
     }
 }
@@ -173,23 +26,6 @@ impl ResourceVector {
 
     pub(in crate::authority) const fn compute_edges(self) -> usize {
         self.compute_edges
-    }
-}
-
-impl ResourceRead<'_> {
-    /// Sequential-checkout resource probe retained only for refinement tests.
-    /// Production compute plans against `OrderedResourceProjection` so a
-    /// bounded wave observes earlier members of the same exchange.
-    pub(in crate::authority) fn active_work_availability_for_reference(
-        &self,
-        attribution: ComputeAttribution,
-    ) -> Result<ActiveWorkAvailability, ResourceError> {
-        active_work_availability(
-            self.preaccepted(),
-            self.remote(),
-            attribution.peer().map(|peer| (peer, self.peer(peer))),
-            self.limits(),
-        )
     }
 }
 
@@ -226,14 +62,6 @@ impl ResourceLimits {
             compute,
             ResidencyPolicy::foundation(),
         )
-    }
-
-    pub(in crate::authority) fn with_accepted_for_foundation(
-        mut self,
-        accepted: AcceptedResources,
-    ) -> Self {
-        self.accepted = accepted;
-        self
     }
 
     pub(in crate::authority) const fn preaccepted_limit_for_foundation(self) -> ResourceVector {
