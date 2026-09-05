@@ -157,7 +157,7 @@ pub fn basic_app() -> Command {
         .subcommand(peer_id())
         .subcommand(migrate());
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     let command = command.subcommand(daemon());
 
     command
@@ -229,7 +229,7 @@ to disable the default behavior and execute full verification for all blocks, \
             .help("Start the built-in rich-indexer service"),
         );
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     let command = command.arg(
         Arg::new(ARG_DAEMON)
             .long(ARG_DAEMON)
@@ -475,7 +475,7 @@ fn migrate() -> Command {
         )
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 fn daemon() -> Command {
     Command::new(CMD_DAEMON)
         .about("Runs ckb daemon command")

@@ -51,7 +51,7 @@ ckb-stop-handler.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 time = { workspace = true }
 
-[target.'cfg(not(target_os="windows"))'.dependencies]
+[target.'cfg(all(not(target_os="windows"), not(target_os="android")))'.dependencies]
 daemonize-me = { version = "2" }
 nix = { version = "0.29.0", default-features = false, features = ["signal"] }
 colored = "2.0"
