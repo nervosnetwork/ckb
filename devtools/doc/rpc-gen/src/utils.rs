@@ -18,7 +18,6 @@ macro_rules! generate_docs {
 
 pub(crate) fn all_rpc_docs() -> Vec<(String, Value)> {
     generate_docs!(
-        alert_rpc_doc,
         net_rpc_doc,
         subscription_rpc_doc,
         debug_rpc_doc,

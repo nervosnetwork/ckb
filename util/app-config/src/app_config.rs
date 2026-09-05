@@ -84,8 +84,12 @@ pub struct CKBAppConfig {
     /// Store config options.
     #[serde(default)]
     pub store: StoreConfig,
-    /// P2P alert config options.
-    pub alert_signature: Option<NetworkAlertConfig>,
+    /// Legacy P2P alert config options.
+    ///
+    /// The alert protocol has been removed, but keeping this field allows old
+    /// config files containing `[alert_signature]` to keep loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alert_signature: Option<serde_json::Value>,
     /// Notify config options.
     #[serde(default)]
     pub notify: NotifyConfig,

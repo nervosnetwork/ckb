@@ -109,7 +109,7 @@ discovery_local_address = false # {{
 bootnode_mode = false
 
 # Supported protocols list, only "Sync" and "Identify" are mandatory, others are optional
-support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter", "HolePunching"]
+support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "LightClient", "Filter", "HolePunching"]
 
 ### A list of trusted proxies' IP addresses.
 ### When a peer connects through a trusted proxy, the proxy's IP address will be parsed by haproxy protocol and used
@@ -225,8 +225,6 @@ block_uncles_cache_size    = 30
 # [notify]
 # # Execute command when the new tip block changes, first arg is block hash.
 # new_block_notify_script = "your_new_block_notify_script.sh"
-# # Execute command when node received an network alert, first arg is alert message string.
-# network_alert_notify_script = "your_network_alert_notify_script.sh"
 
 # Set the lock script to protect mined CKB.
 #
