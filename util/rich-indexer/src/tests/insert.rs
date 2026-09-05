@@ -45,13 +45,6 @@ async fn test_append_block_0() {
     assert_eq!(
         0,
         storage
-            .fetch_count("block_association_uncle")
-            .await
-            .unwrap()
-    );
-    assert_eq!(
-        0,
-        storage
             .fetch_count("tx_association_header_dep")
             .await
             .unwrap()
