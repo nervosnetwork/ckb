@@ -142,7 +142,7 @@ trace-tokio: ## Build binary for production release and with tokio trace feature
 
 .PHONY: prod_portable
 prod_portable: ## Build binary for portable production release.
-	cargo build --locked --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable"
+	cargo build --locked --bin ckb ${VERBOSE} ${CKB_BUILD_TARGET} --profile prod --features "with_sentry,with_dns_seeding,portable,openssl-vendored"
 
 .PHONY: prod-docker
 prod-docker:
