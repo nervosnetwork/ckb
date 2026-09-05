@@ -1,0 +1,15 @@
+Derived from Bitcoin Core's gcc-remap-guix-store.patch.
+Reference: https://github.com/bitcoin/bitcoin/tree/master/contrib/guix/patches
+
+Without -ffile-prefix-map, toolchain-generated debug info can retain Guix
+store paths. Rewrite the store root to a fixed prefix instead of enumerating
+host-specific store entries.
+
+--- a/libgcc/Makefile.in
++++ b/libgcc/Makefile.in
+@@ -860 +860 @@
+-c_flags := -fexceptions
++c_flags := -fexceptions -ffile-prefix-map=/gnu/store=/usr
+@@ -883 +883 @@
+-c_flags := -fno-exceptions
++c_flags := -fno-exceptions -ffile-prefix-map=/gnu/store=/usr
