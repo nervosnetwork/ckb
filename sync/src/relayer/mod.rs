@@ -305,7 +305,12 @@ impl Relayer {
                         return;
                     }
 
-                    build_and_broadcast_compact_block(nc.as_ref(), shared.shared(), peer_id, block);
+                    schedule_build_and_broadcast_compact_block(
+                        nc,
+                        shared.shared().clone(),
+                        peer_id,
+                        block,
+                    );
                 }
                 Err(err) => {
                     error!(
@@ -723,8 +728,23 @@ impl Relayer {
     }
 }
 
-fn build_and_broadcast_compact_block(
-    nc: &dyn CKBProtocolContext,
+fn schedule_build_and_broadcast_compact_block(
+    nc: Arc<dyn CKBProtocolContext + Sync>,
+    shared: Shared,
+    peer: PeerIndex,
+    block: Arc<BlockView>,
+) {
+    // Verification callbacks run synchronously on the chain service. Keep P2P
+    // backpressure from stalling that service by doing all relay I/O in an
+    // independent runtime task.
+    let handle = shared.async_handle().clone();
+    handle.spawn(async move {
+        build_and_broadcast_compact_block(nc.as_ref(), &shared, peer, block).await;
+    });
+}
+
+async fn build_and_broadcast_compact_block(
+    nc: &(dyn CKBProtocolContext + Sync),
     shared: &Shared,
     peer: PeerIndex,
     block: Arc<BlockView>,
@@ -746,11 +766,13 @@ fn build_and_broadcast_compact_block(
         .filter(|target_peer| peer != *target_peer)
         .take(MAX_RELAY_PEERS)
         .collect();
-    let handle = shared.async_handle();
-    if let Err(err) = handle.block_on(nc.async_quick_filter_broadcast(
-        TargetSession::Multi(Box::new(selected_peers.into_iter())),
-        message.as_bytes(),
-    )) {
+    if let Err(err) = nc
+        .async_quick_filter_broadcast(
+            TargetSession::Multi(Box::new(selected_peers.into_iter())),
+            message.as_bytes(),
+        )
+        .await
+    {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "relayer send block when accept block error: {:?}",
@@ -795,11 +817,14 @@ fn build_and_broadcast_compact_block(
         .filter(|(_id, peer)| peer.if_lightclient_subscribed)
         .map(|(id, _)| id)
         .collect();
-    if let Err(err) = handle.block_on(nc.async_filter_broadcast_with_proto(
-        SupportProtocols::LightClient.protocol_id(),
-        TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
-        light_client_message.as_bytes(),
-    )) {
+    if let Err(err) = nc
+        .async_filter_broadcast_with_proto(
+            SupportProtocols::LightClient.protocol_id(),
+            TargetSession::Filter(Box::new(move |id| light_client_peers.contains(id))),
+            light_client_message.as_bytes(),
+        )
+        .await
+    {
         debug_target!(
             crate::LOG_TARGET_RELAY,
             "relayer send last state to light client when accept block, error: {:?}",
