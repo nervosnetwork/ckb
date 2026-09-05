@@ -1,4 +1,4 @@
-use crate::{bytes, core, generated::packed, prelude::*, vec::Vec};
+use crate::{bytes, core, generated::packed, prelude::*};
 
 type BlockNumber = u64;
 
@@ -60,30 +60,6 @@ impl packed::OutPoint {
     /// Checks whether self is a null `OutPoint`.
     pub fn is_null(&self) -> bool {
         self.tx_hash().is_zero() && Into::<u32>::into(self.index().as_reader()) == u32::MAX
-    }
-
-    /// Generates a binary data to be used as a key for indexing cells in storage.
-    ///
-    /// # Notice
-    ///
-    /// The difference between [`Self::as_slice()`](../prelude/trait.Entity.html#tymethod.as_slice)
-    /// and [`Self::to_cell_key()`](#method.to_cell_key) is the byteorder of the field `index`.
-    ///
-    /// - Uses little endian for the field `index` in serialization.
-    ///
-    ///   Because in the real world, the little endian machines make up the majority, we can cast
-    ///   it as a number without re-order the bytes.
-    ///
-    /// - Uses big endian for the field `index` to index cells in storage.
-    ///
-    ///   So we can use `tx_hash` as key prefix to seek the cells from storage in the forward
-    ///   order, so as to traverse cells in the forward order too.
-    pub fn to_cell_key(&self) -> Vec<u8> {
-        let mut key = Vec::with_capacity(36);
-        let index: u32 = self.index().as_reader().into();
-        key.extend_from_slice(self.tx_hash().as_slice());
-        key.extend_from_slice(&index.to_be_bytes());
-        key
     }
 }
 

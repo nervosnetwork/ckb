@@ -1,7 +1,7 @@
 use ckb_app_config::DBConfig;
 use std::collections::HashMap;
 
-use crate::{Result, RocksDB};
+use crate::{Result, RocksDB, Schema};
 
 fn setup_db(prefix: &str, columns: u32) -> RocksDB {
     setup_db_with_check(prefix, columns).unwrap()
@@ -14,7 +14,7 @@ fn setup_db_with_check(prefix: &str, columns: u32) -> Result<RocksDB> {
         ..Default::default()
     };
 
-    RocksDB::open_with_check(&config, columns)
+    RocksDB::open_with_check_columns(&config, columns)
 }
 
 #[test]
@@ -32,7 +32,7 @@ fn test_set_rocksdb_options() {
         },
         ..Default::default()
     };
-    RocksDB::open(&config, 2); // no panic
+    RocksDB::open_with_columns(&config, 2); // no panic
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn test_set_rocksdb_options_empty() {
         options: HashMap::new(),
         ..Default::default()
     };
-    RocksDB::open(&config, 2); // no panic
+    RocksDB::open_with_columns(&config, 2); // no panic
 }
 
 #[test]
@@ -65,7 +65,27 @@ fn test_panic_on_invalid_rocksdb_options() {
         },
         ..Default::default()
     };
-    RocksDB::open(&config, 2); // panic
+    RocksDB::open_with_columns(&config, 2); // panic
+}
+
+#[test]
+fn bulk_load_open_does_not_create_missing_db() {
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("bulk_load_open_does_not_create_missing_db")
+        .tempdir()
+        .unwrap();
+    let db_path = tmp_dir.as_ref().join("db");
+
+    assert!(
+        RocksDB::prepare_for_bulk_load_open(&db_path, Schema::V1)
+            .unwrap()
+            .is_none()
+    );
+    assert!(!db_path.exists());
+
+    let db = RocksDB::create_for_bulk_load_open(&db_path, Schema::V1).unwrap();
+    drop(db);
+    assert!(db_path.exists());
 }
 
 #[test]

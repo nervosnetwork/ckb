@@ -942,7 +942,6 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-dao-utils",
  "ckb-db",
- "ckb-db-schema",
  "ckb-store",
  "ckb-traits",
  "ckb-types",
@@ -989,6 +988,9 @@ dependencies = [
 [[package]]
 name = "ckb-db-schema"
 version = "1.1.1"
+dependencies = [
+ "ckb-gen-types",
+]
 
 [[package]]
 name = "ckb-error"
@@ -1310,11 +1312,13 @@ dependencies = [
  "ckb-db-schema",
  "ckb-error",
  "ckb-hash",
+ "ckb-logger",
+ "ckb-merkle-mountain-range",
  "ckb-migration-template",
- "ckb-store",
  "ckb-systemtime",
  "ckb-types",
  "num_cpus",
+ "rayon",
  "tempfile",
 ]
 
@@ -1539,7 +1543,6 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-db",
- "ckb-db-schema",
  "ckb-logger",
  "ckb-occupied-capacity",
  "ckb-store",
@@ -1662,7 +1665,6 @@ dependencies = [
  "ckb-chain-spec",
  "ckb-crypto",
  "ckb-db",
- "ckb-db-schema",
  "ckb-error",
  "ckb-hash",
  "ckb-logger",

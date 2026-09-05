@@ -9,8 +9,7 @@ use ckb_async_runtime::{Handle, new_background_runtime};
 use ckb_chain_spec::SpecError;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::Receiver;
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMNS;
+use ckb_db::{RocksDB, Schema};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_logger::{error, info};
@@ -80,7 +79,7 @@ pub fn open_or_create_db(
                 );
                 Err(ExitCode::Failure)
             }
-            Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
+            Ordering::Equal => Ok(RocksDB::open(config, Schema::V1)),
             Ordering::Less => {
                 let can_run_in_background = migrate.can_run_in_background(&db);
                 if migrate.require_expensive(&db, false) && !can_run_in_background {
@@ -88,15 +87,15 @@ pub fn open_or_create_db(
                         "For optimal performance, CKB recommends migrating your data into a new format.\n\
                         If you prefer to stick with the older version, \n\
                         it's important to note that they may have unfixed vulnerabilities.\n\
-                        Before migrating, we strongly recommend backuping your data directory.\n\
-                        To migrate, run `\"{}\" migrate -C \"{}\"` and confirm by typing \"YES\".",
+                        Before migrating, we strongly recommend backing up your data directory.\n\
+                        To migrate this RocksDB key schema change, run `\"{}\" migrate -C \"{}\" --sst-rebuild`.",
                         bin_name,
                         root_dir.display()
                     );
                     Err(ExitCode::Failure)
                 } else if can_run_in_background {
                     info!("process migrations in background ...");
-                    let db = RocksDB::open(config, COLUMNS);
+                    let db = RocksDB::open(config, Schema::V1);
                     migrate.migrate(db.clone(), true).map_err(|err| {
                         eprintln!("Run error: {err:?}");
                         ExitCode::Failure
@@ -117,12 +116,12 @@ pub fn open_or_create_db(
                         })?;
                     }
 
-                    Ok(RocksDB::open(config, COLUMNS))
+                    Ok(RocksDB::open(config, Schema::V1))
                 }
             }
         }
     } else {
-        let db = RocksDB::open(config, COLUMNS);
+        let db = RocksDB::open(config, Schema::V1);
         migrate.init_db_version(&db).map_err(|e| {
             eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
@@ -191,7 +190,7 @@ impl SharedBuilder {
                 .path()
                 .to_path_buf();
             let db_dir = db_base_dir.join(format!("db_{db_id}"));
-            RocksDB::open_in(db_dir, COLUMNS)
+            RocksDB::open_in(db_dir, Schema::V1)
         };
 
         RUNTIME_HANDLE.with(|runtime| SharedBuilder {
