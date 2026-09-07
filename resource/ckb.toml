@@ -112,8 +112,16 @@ bootnode_mode = false
 support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessage", "Sync", "Relay", "Time", "Alert", "LightClient", "Filter", "HolePunching"]
 
 ### A list of trusted proxies' IP addresses.
-### When a peer connects through a trusted proxy, the proxy's IP address will be parsed by haproxy protocol and used
+### Connections from these addresses may supply the original client address using the HAProxy protocol.
 ### default use with [IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)]
+###
+### These addresses are additionally treated as shared, but only while [network.onion].listen_on_onion
+### is active: Tor forwards every hidden-service connection to one local socket, so all onion peers
+### share a single connected address. Misbehaviour is then banned by peer id instead of by IP, so one
+### onion peer cannot get onion inbound disabled for everyone. Such identity bans are bounded and
+### memory-only, and are not listed by `get_banned_addresses`; explicit IP bans set through `set_ban`
+### still apply. If Tor runs in another container or host, add its forwarding source IP as seen by CKB.
+### With onion listening off, banning stays IP based and unchanged.
 # trusted_proxies = []
 
 # [network.sync.header_map]

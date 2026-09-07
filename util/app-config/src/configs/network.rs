@@ -342,6 +342,32 @@ impl Config {
         path
     }
 
+    /// Whether this node will actually publish an onion service.
+    ///
+    /// Mirrors the conditions checked by the launcher before it issues `ADD_ONION`.
+    pub fn onion_listen_enabled(&self) -> bool {
+        self.onion.listen_on_onion
+            && (self.onion.onion_server.is_some() || self.proxy.proxy_url.is_some())
+    }
+
+    /// Addresses that many distinct peers can share, so misbehaviour must be attributed
+    /// to the peer identity rather than to the IP.
+    ///
+    /// The onion service forwards every hidden-service connection to a local socket, so
+    /// all onion inbound peers appear with the same connected address. Banning that
+    /// address by IP would disable onion inbound for every peer at once, so those bans
+    /// are recorded against the `PeerId` instead.
+    ///
+    /// This is empty unless onion listening is actually enabled, which keeps IP banning
+    /// unchanged for every non-onion deployment.
+    pub fn shared_proxy_addrs(&self) -> &[IpAddr] {
+        if self.onion_listen_enabled() {
+            &self.trusted_proxies
+        } else {
+            &[]
+        }
+    }
+
     /// Creates missing directories.
     pub fn create_dir_if_not_exists(&self) -> Result<(), Error> {
         if !self.path.exists() {

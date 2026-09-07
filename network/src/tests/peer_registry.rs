@@ -1,6 +1,9 @@
 #![allow(clippy::unchecked_time_subtraction)]
 
 use super::random_addr;
+#[cfg(not(target_family = "wasm"))]
+use ckb_app_config::NetworkConfig;
+
 use crate::{
     PeerId, RawSessionType,
     errors::{Error, PeerError},
@@ -10,6 +13,133 @@ use crate::{
     peer_store::PeerStore,
 };
 use std::time::{Duration, Instant};
+
+#[cfg(not(target_family = "wasm"))]
+fn network_config_with_onion(path: &std::path::Path, listen_on_onion: bool) -> NetworkConfig {
+    NetworkConfig {
+        path: path.to_owned(),
+        max_peers: 10,
+        max_outbound_peers: 5,
+        trusted_proxies: vec!["127.0.0.1".parse().unwrap()],
+        onion: ckb_app_config::OnionConfig {
+            listen_on_onion,
+            onion_server: listen_on_onion.then(|| "127.0.0.1:9050".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn test_onion_proxy_ban_disconnects_only_offending_session() {
+    use crate::{NetworkState, network::EventHandler};
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = network_config_with_onion(dir.path(), true);
+    let state = Arc::new(NetworkState::from_config(config).unwrap());
+    let service = p2p::builder::ServiceBuilder::default()
+        .handshake_type(state.local_private_key().clone().into())
+        .build(EventHandler::new(Arc::clone(&state)));
+    let control = service.control().clone().into();
+    let offending = random_addr();
+    let healthy = random_addr();
+    {
+        let mut store = state.peer_store.lock();
+        let mut registry = state.peer_registry.write();
+        for (id, addr) in [(1, offending.clone()), (2, healthy.clone())] {
+            registry
+                .accept_peer(addr, id.into(), RawSessionType::Inbound, &mut store)
+                .unwrap();
+        }
+    }
+    state.ban_session(&control, 1.into(), Duration::from_secs(60), "test".into());
+    let mut store = state.peer_store.lock();
+    let mut registry = state.peer_registry.write();
+    assert!(registry.get_peer(1.into()).is_none());
+    assert!(registry.get_peer(2.into()).is_some());
+    assert!(store.is_addr_banned(&offending));
+    assert!(!store.is_addr_banned(&healthy));
+    assert!(store.ban_list().get_banned_addrs().is_empty());
+    registry
+        .accept_peer(random_addr(), 3.into(), RawSessionType::Inbound, &mut store)
+        .expect("new onion peers remain admissible after a session ban");
+}
+
+// Without onion listening the connected address is the peer's own address, so banning
+// must stay IP based and stay visible to `get_banned_addresses`.
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn test_ban_stays_ip_based_when_onion_listening_is_disabled() {
+    use crate::{NetworkState, network::EventHandler};
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = network_config_with_onion(dir.path(), false);
+    assert!(config.shared_proxy_addrs().is_empty());
+    let state = Arc::new(NetworkState::from_config(config).unwrap());
+    let service = p2p::builder::ServiceBuilder::default()
+        .handshake_type(state.local_private_key().clone().into())
+        .build(EventHandler::new(Arc::clone(&state)));
+    let control = service.control().clone().into();
+    let offending = random_addr();
+    {
+        let mut store = state.peer_store.lock();
+        let mut registry = state.peer_registry.write();
+        registry
+            .accept_peer(
+                offending.clone(),
+                1.into(),
+                RawSessionType::Inbound,
+                &mut store,
+            )
+            .unwrap();
+    }
+    state.ban_session(&control, 1.into(), Duration::from_secs(60), "test".into());
+    let store = state.peer_store.lock();
+    let banned = store.ban_list().get_banned_addrs();
+    assert_eq!(banned.len(), 1);
+    assert_eq!(banned[0].address.to_string(), "127.0.0.1/32");
+    // The whole loopback network is banned, exactly as before this change.
+    assert!(store.is_addr_banned(&random_addr()));
+}
+
+#[test]
+fn test_proxy_ban_admission_isolated_by_peer_id() {
+    let mut store = PeerStore::default().with_shared_proxy_addrs(&["127.0.0.1".parse().unwrap()]);
+    let banned = random_addr();
+    let healthy = random_addr();
+    let whitelist = random_addr();
+    let mut peers = PeerRegistry::new(10, 10, false, vec![whitelist.clone()], true);
+    store.ban_addr(&banned, 60_000, "test".into());
+    let err = peers
+        .accept_peer(banned, 1.into(), RawSessionType::Inbound, &mut store)
+        .unwrap_err();
+    assert!(matches!(err, Error::Peer(PeerError::Banned)));
+    peers
+        .accept_peer(
+            healthy.clone(),
+            2.into(),
+            RawSessionType::Inbound,
+            &mut store,
+        )
+        .expect("another proxy client is still admitted");
+
+    store.ban_network(
+        crate::peer_store::types::multiaddr_to_ip_network(&healthy).unwrap(),
+        60_000,
+        "manual".into(),
+    );
+    let err = peers
+        .accept_peer(random_addr(), 3.into(), RawSessionType::Inbound, &mut store)
+        .unwrap_err();
+    assert!(matches!(err, Error::Peer(PeerError::Banned)));
+    peers
+        .accept_peer(whitelist, 4.into(), RawSessionType::Inbound, &mut store)
+        .expect("whitelisted peers retain their existing exemption");
+    assert!(peers.get_peer(2.into()).is_some());
+}
 
 #[test]
 fn test_accept_inbound_peer_in_reserve_only_mode() {
