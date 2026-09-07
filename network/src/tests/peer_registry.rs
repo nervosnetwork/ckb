@@ -16,18 +16,17 @@ use std::time::{Duration, Instant};
 
 #[cfg(not(target_family = "wasm"))]
 fn network_config_with_onion(path: &std::path::Path, listen_on_onion: bool) -> NetworkConfig {
-    NetworkConfig {
+    let mut config = NetworkConfig {
         path: path.to_owned(),
         max_peers: 10,
         max_outbound_peers: 5,
         trusted_proxies: vec!["127.0.0.1".parse().unwrap()],
-        onion: ckb_app_config::OnionConfig {
-            listen_on_onion,
-            onion_server: listen_on_onion.then(|| "127.0.0.1:9050".to_string()),
-            ..Default::default()
-        },
         ..Default::default()
-    }
+    };
+    config.onion.listen_on_onion = listen_on_onion;
+    // The launcher only publishes an onion service when a tor server is reachable.
+    config.onion.onion_server = listen_on_onion.then(|| "127.0.0.1:9050".to_string());
+    config
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -83,17 +82,11 @@ async fn test_ban_stays_ip_based_when_onion_listening_is_disabled() {
         .handshake_type(state.local_private_key().clone().into())
         .build(EventHandler::new(Arc::clone(&state)));
     let control = service.control().clone().into();
-    let offending = random_addr();
     {
         let mut store = state.peer_store.lock();
         let mut registry = state.peer_registry.write();
         registry
-            .accept_peer(
-                offending.clone(),
-                1.into(),
-                RawSessionType::Inbound,
-                &mut store,
-            )
+            .accept_peer(random_addr(), 1.into(), RawSessionType::Inbound, &mut store)
             .unwrap();
     }
     state.ban_session(&control, 1.into(), Duration::from_secs(60), "test".into());

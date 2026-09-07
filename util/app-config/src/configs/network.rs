@@ -142,15 +142,15 @@ pub struct OnionConfig {
     pub p2p_listen_address: Option<String>,
     // path to store onion private key, default is ./data/network/onion_private_key
     pub onion_private_key_path: Option<String>,
-    // tor controller url, example: 127.0.0.1:9051
     #[serde(default = "default_tor_controller")]
+    // tor controller url, example: 127.0.0.1:9051
     pub tor_controller: String,
     // tor controller hashed password
     pub tor_password: Option<String>,
+    #[serde(default = "default_onion_external_port")]
     // The external port that the onion service will expose. Default is 8115.
     // This is the port that will be advertised in the onion address,
     // while traffic will be forwarded to `p2p_listen_address`.
-    #[serde(default = "default_onion_external_port")]
     pub onion_external_port: u16,
 }
 
