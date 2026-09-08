@@ -140,6 +140,11 @@ pub struct OnionConfig {
     // If the CKB's peer-to-peer listen address is not set to the default 127.0.0.1
     // with the port specified in `[network].listen_addresses` for IPv4, you should configure this field.
     pub p2p_listen_address: Option<String>,
+    /// Socket source IPs used by Tor to forward inbound connections to CKB.
+    /// Defaults to IPv4 and IPv6 localhost. These sources cannot supply trusted
+    /// forwarding metadata while onion listening is enabled.
+    #[serde(default)]
+    pub forwarding_source_ips: Option<Vec<IpAddr>>,
     // path to store onion private key, default is ./data/network/onion_private_key
     pub onion_private_key_path: Option<String>,
     #[serde(default = "default_tor_controller")]
@@ -170,6 +175,11 @@ fn default_trusted_proxies() -> Vec<IpAddr> {
         IpAddr::V6(Ipv6Addr::LOCALHOST),
     ]
 }
+
+const DEFAULT_ONION_FORWARDING_SOURCE_IPS: [IpAddr; 2] = [
+    IpAddr::V4(Ipv4Addr::LOCALHOST),
+    IpAddr::V6(Ipv6Addr::LOCALHOST),
+];
 
 /// Chain synchronization config options.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -362,10 +372,25 @@ impl Config {
     /// unchanged for every non-onion deployment.
     pub fn shared_proxy_addrs(&self) -> &[IpAddr] {
         if self.onion_listen_enabled() {
-            &self.trusted_proxies
+            self.onion
+                .forwarding_source_ips
+                .as_deref()
+                .unwrap_or(&DEFAULT_ONION_FORWARDING_SOURCE_IPS)
         } else {
             &[]
         }
+    }
+
+    /// Proxies permitted to rewrite the remote address using PROXY protocol or
+    /// WebSocket forwarding headers. Tor passes client bytes through, so its
+    /// forwarding sources must retain their original socket address for banning.
+    pub fn forwarding_metadata_proxies(&self) -> Vec<IpAddr> {
+        let shared = self.shared_proxy_addrs();
+        self.trusted_proxies
+            .iter()
+            .copied()
+            .filter(|ip| !shared.contains(ip))
+            .collect()
     }
 
     /// Creates missing directories.
@@ -469,4 +494,91 @@ const fn default_reuse() -> bool {
 /// By default, allow ckb to upgrade tcp listening to tcp + ws listening
 const fn default_reuse_tcp_with_ws() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn onion_config() -> Config {
+        Config {
+            trusted_proxies: default_trusted_proxies(),
+            onion: OnionConfig {
+                listen_on_onion: true,
+                onion_server: Some("127.0.0.1:9050".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn onion_sources_cannot_rewrite_transport_addresses() {
+        let mut config = onion_config();
+        let haproxy: IpAddr = "192.0.2.10".parse().unwrap();
+        config.trusted_proxies.push(haproxy);
+        assert_eq!(
+            config.shared_proxy_addrs(),
+            &DEFAULT_ONION_FORWARDING_SOURCE_IPS
+        );
+        assert_eq!(config.forwarding_metadata_proxies(), vec![haproxy]);
+
+        // Removing forwarding trust must not remove shared-address protection.
+        config.trusted_proxies.clear();
+        assert_eq!(
+            config.shared_proxy_addrs(),
+            &DEFAULT_ONION_FORWARDING_SOURCE_IPS
+        );
+        assert!(config.forwarding_metadata_proxies().is_empty());
+    }
+
+    #[test]
+    fn custom_onion_sources_are_separate_from_other_proxies() {
+        let mut config = onion_config();
+        let sources = vec![
+            "192.0.2.20".parse().unwrap(),
+            "2001:db8::20".parse().unwrap(),
+        ];
+        config.trusted_proxies.extend_from_slice(&sources);
+        config.onion.forwarding_source_ips = Some(sources.clone());
+        assert_eq!(config.shared_proxy_addrs(), sources);
+        assert_eq!(
+            config.forwarding_metadata_proxies(),
+            default_trusted_proxies()
+        );
+    }
+
+    #[test]
+    fn inactive_onion_keeps_proxy_trust() {
+        let mut config = onion_config();
+        config.onion.listen_on_onion = false;
+        assert!(config.shared_proxy_addrs().is_empty());
+        assert_eq!(config.forwarding_metadata_proxies(), config.trusted_proxies);
+
+        config.onion.listen_on_onion = true;
+        config.onion.onion_server = None;
+        assert!(config.shared_proxy_addrs().is_empty());
+        assert_eq!(config.forwarding_metadata_proxies(), config.trusted_proxies);
+    }
+
+    #[test]
+    fn onion_sources_deserialize_with_backward_compatible_defaults() {
+        let mut config = onion_config();
+        config.onion =
+            toml::from_str("listen_on_onion = true\nonion_server = '127.0.0.1:9050'").unwrap();
+        assert_eq!(
+            config.shared_proxy_addrs(),
+            &DEFAULT_ONION_FORWARDING_SOURCE_IPS
+        );
+        assert!(config.forwarding_metadata_proxies().is_empty());
+
+        config.onion = toml::from_str("listen_on_onion = true\nonion_server = '127.0.0.1:9050'\nforwarding_source_ips = ['192.0.2.20', '2001:db8::20']").unwrap();
+        assert_eq!(
+            config.shared_proxy_addrs(),
+            &[
+                "192.0.2.20".parse::<IpAddr>().unwrap(),
+                "2001:db8::20".parse().unwrap()
+            ]
+        );
+    }
 }

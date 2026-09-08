@@ -115,13 +115,10 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 ### Connections from these addresses may supply the original client address using the HAProxy protocol.
 ### default use with [IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)]
 ###
-### These addresses are additionally treated as shared, but only while [network.onion].listen_on_onion
-### is active: Tor forwards every hidden-service connection to one local socket, so all onion peers
-### share a single connected address. Misbehaviour is then banned by peer id instead of by IP, so one
-### onion peer cannot get onion inbound disabled for everyone. Such identity bans are bounded and
-### memory-only, and are not listed by `get_banned_addresses`; explicit IP bans set through `set_ban`
-### still apply. If Tor runs in another container or host, add its forwarding source IP as seen by CKB.
-### With onion listening off, banning stays IP based and unchanged.
+### While onion listening is enabled, onion.forwarding_source_ips are excluded from this trust
+### list for both PROXY protocol and WebSocket forwarding headers. Tor forwards client bytes
+### unchanged, so those connections must retain the original socket source for banning.
+### Other trusted proxy sources continue to support forwarding metadata.
 # trusted_proxies = []
 
 # [network.sync.header_map]
@@ -161,6 +158,16 @@ support_protocols = ["Ping", "Discovery", "Identify", "Feeler", "DisconnectMessa
 ### If the CKB's peer-to-peer listen address is not set to the default 127.0.0.1
 ### with the port specified in `[network].listen_addresses` for IPv4, you should configure this field.
 # p2p_listen_address = "127.0.0.1:8115"
+
+### Source IPs of the Tor connections arriving at the CKB listener (not the destination
+### p2p_listen_address or the SOCKS5 address). Defaults to IPv4 and IPv6 localhost.
+### If Tor runs in another container or host, configure its source IP as seen by CKB here.
+### This replaces the defaults. Include localhost as well if Tor also runs locally.
+# forwarding_source_ips = ["127.0.0.1", "::1"]
+### These sources use bounded, memory-only PeerId bans while onion listening is enabled.
+### They are excluded from forwarding-metadata trust even if listed in network.trusted_proxies.
+### Use distinct source IPs for Tor forwarding and HAProxy when running both services.
+### Identity bans are not listed by get_banned_addresses; explicit IP bans still apply.
 
 ### The address and port of the Tor SOCKS5 proxy server that CKB will use to establish
 ### outbound connections to other Onion services. If not set, it will use network.proxy.proxy_url

@@ -983,7 +983,9 @@ impl NetworkService {
             .set_channel_size(config.channel_size())
             .timeout(Duration::from_secs(5))
             .onion_timeout(Duration::from_secs(120))
-            .trusted_proxies(config.trusted_proxies.clone());
+            // Tor forwards client-controlled bytes without authenticating proxy
+            // metadata. Preserve the socket source used by the identity-ban policy.
+            .trusted_proxies(config.forwarding_metadata_proxies());
 
         #[cfg(not(target_family = "wasm"))]
         {
