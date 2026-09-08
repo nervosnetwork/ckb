@@ -123,6 +123,20 @@ impl Relayer {
             return StatusCode::TooManyRequests.with_context(message.item_name());
         }
 
+        // RelayV3 also carries compact-block reconstruction messages, so keep the
+        // protocol open on block-relay-only connections and drop only the standalone
+        // transaction relay messages. Ignored instead of banned, an outdated peer may
+        // simply not know about this connection type yet.
+        if matches!(
+            message,
+            packed::RelayMessageUnionReader::RelayTransactions(_)
+                | packed::RelayMessageUnionReader::RelayTransactionHashes(_)
+                | packed::RelayMessageUnionReader::GetRelayTransactions(_)
+        ) && nc.is_block_relay_only(peer)
+        {
+            return Status::ignored();
+        }
+
         match message {
             packed::RelayMessageUnionReader::CompactBlock(reader) => {
                 if reader.check_data() {
@@ -605,6 +619,12 @@ impl Relayer {
     /// Ask for relay transaction by hash from all peers
     pub async fn ask_for_txs(&self, nc: &Arc<dyn CKBProtocolContext + Sync>) {
         for (peer, mut tx_hashes) in self.shared().state().pop_ask_for_txs() {
+            // Defensive: `try_process` already rejects tx announcements from these
+            // peers, so they should never end up queued here. `pop_ask_for_txs` keeps
+            // the hash queued for the next peer in line, nothing is dropped.
+            if nc.is_block_relay_only(peer) {
+                continue;
+            }
             if !tx_hashes.is_empty() {
                 debug_target!(
                     crate::LOG_TARGET_RELAY,
