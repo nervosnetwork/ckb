@@ -39,6 +39,20 @@ impl<'a> GetTransactionsProcess<'a> {
             }
         }
 
+        // The batch bound above makes this conversion safe. Empty requests still
+        // consume the outer message quota, but do not require any pool lookup.
+        let Some(hash_count) = std::num::NonZeroU32::new(message_len as u32) else {
+            return Status::ok();
+        };
+        if !matches!(
+            self.relayer
+                .tx_fetch_rate_limiter
+                .check_key_n(&self.peer, hash_count),
+            Ok(Ok(_))
+        ) {
+            return StatusCode::TooManyRequests.with_context("GetRelayTransactions hashes");
+        }
+
         let tx_hashes = self.message.tx_hashes();
 
         trace_target!(

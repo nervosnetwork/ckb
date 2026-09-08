@@ -80,6 +80,7 @@ pub struct Relayer {
     chain: ChainController,
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
+    tx_fetch_rate_limiter: RateLimiter<PeerIndex>,
 }
 
 impl Relayer {
@@ -91,11 +92,17 @@ impl Relayer {
         // current max rps is 10 (ASK_FOR_TXS_TOKEN / TX_PROPOSAL_TOKEN), 30 is a flexible hard cap with buffer
         let quota = governor::Quota::per_second(std::num::NonZeroU32::new(30).unwrap());
         let rate_limiter = RateLimiter::hashmap(quota);
+        // Allow one maximum-sized fetch batch as a burst and replenish that many
+        // hashes per second. Small requests share the same per-peer work budget.
+        let tx_fetch_quota = governor::Quota::per_second(
+            std::num::NonZeroU32::new(MAX_RELAY_TXS_NUM_PER_BATCH as u32).unwrap(),
+        );
 
         Relayer {
             chain,
             shared,
             rate_limiter,
+            tx_fetch_rate_limiter: RateLimiter::hashmap(tx_fetch_quota),
         }
     }
 
@@ -948,6 +955,7 @@ impl CKBProtocolHandler for Relayer {
         );
         // Retains all keys in the rate limiter that were used recently enough.
         self.rate_limiter.retain_recent();
+        self.tx_fetch_rate_limiter.retain_recent();
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

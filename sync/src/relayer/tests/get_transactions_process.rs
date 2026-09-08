@@ -7,6 +7,65 @@ use ckb_types::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+#[test]
+fn test_fetch_budget_counts_hashes_and_isolates_peers() {
+    let (_chain, mut relayer, _) = build_chain(5);
+    // Use a small, slowly replenished budget to exercise the handler without
+    // timing-dependent sleeps or large requests.
+    relayer.tx_fetch_rate_limiter = governor::RateLimiter::hashmap(governor::Quota::per_hour(
+        std::num::NonZeroU32::new(3).unwrap(),
+    ));
+    let hash = packed::Byte32::default();
+    let pair = packed::GetRelayTransactions::new_builder()
+        .tx_hashes(vec![hash.clone(), alternate_hash(&hash)])
+        .build();
+    let single = packed::GetRelayTransactions::new_builder()
+        .tx_hashes(vec![hash.clone()])
+        .build();
+    let duplicate = packed::GetRelayTransactions::new_builder()
+        .tx_hashes(vec![hash.clone(), hash])
+        .build();
+    let empty = packed::GetRelayTransactions::default();
+    let nc = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let execute = |content: &packed::GetRelayTransactions, peer: usize| {
+        rt.block_on(
+            GetTransactionsProcess::new(
+                content.as_reader(),
+                &relayer,
+                Arc::<MockProtocolContext>::clone(&nc),
+                peer.into(),
+            )
+            .execute(),
+        )
+    };
+    let limited = StatusCode::TooManyRequests.with_context("GetRelayTransactions hashes");
+    assert_eq!(execute(&pair, 1), crate::Status::ok());
+    assert_eq!(execute(&pair, 1), limited);
+    // A denied batch does not consume the remaining one-hash allowance.
+    assert_eq!(execute(&single, 1), crate::Status::ok());
+    assert_eq!(execute(&single, 1), limited);
+    // Admission precedes even construction/validation of the hash set.
+    assert_eq!(execute(&duplicate, 1), limited);
+    assert_eq!(execute(&empty, 1), crate::Status::ok());
+    assert_eq!(execute(&pair, 2), crate::Status::ok());
+    assert_eq!(nc.sent_messages_len(), 0);
+}
+
+#[test]
+fn test_fetch_budget_allows_maximum_batch() {
+    let (_chain, relayer, _) = build_chain(5);
+    let count =
+        std::num::NonZeroU32::new(crate::relayer::MAX_RELAY_TXS_NUM_PER_BATCH as u32).unwrap();
+    assert!(matches!(
+        relayer.tx_fetch_rate_limiter.check_key_n(&1.into(), count),
+        Ok(Ok(_))
+    ));
+}
+
 fn alternate_hash(tx_hash: &packed::Byte32) -> packed::Byte32 {
     let mut bytes = tx_hash.as_slice().to_vec();
     bytes[31] ^= 1;
