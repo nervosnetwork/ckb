@@ -62,7 +62,11 @@ fn block_only_ignores_transaction_messages_but_serves_block_transactions() {
     ];
     for message in &messages {
         assert_eq!(
-            rt.block_on(relayer.try_process(nc.clone(), 1.into(), message.as_reader().to_enum())),
+            rt.block_on(relayer.try_process(
+                Arc::<MockProtocolContext>::clone(&nc),
+                1.into(),
+                message.as_reader().to_enum()
+            )),
             Status::ignored()
         );
     }
@@ -73,7 +77,11 @@ fn block_only_ignores_transaction_messages_but_serves_block_transactions() {
     // The same transaction query remains available on a full-relay connection.
     let full = context(SessionType::Outbound);
     assert_eq!(
-        rt.block_on(relayer.try_process(full.clone(), 1.into(), messages[2].as_reader().to_enum())),
+        rt.block_on(relayer.try_process(
+            Arc::<MockProtocolContext>::clone(&full),
+            1.into(),
+            messages[2].as_reader().to_enum()
+        )),
         Status::ok()
     );
     assert_eq!(full.sent_messages_len(), 1);
@@ -89,7 +97,11 @@ fn block_only_ignores_transaction_messages_but_serves_block_transactions() {
         )
         .build();
     assert_eq!(
-        rt.block_on(relayer.try_process(nc.clone(), 1.into(), request.as_reader().to_enum())),
+        rt.block_on(relayer.try_process(
+            Arc::<MockProtocolContext>::clone(&nc),
+            1.into(),
+            request.as_reader().to_enum()
+        )),
         Status::ok()
     );
     let response = packed::RelayMessage::new_builder()
@@ -144,7 +156,7 @@ fn block_only_get_block_proposal_serves_pool_but_leaves_no_subscription() {
     let nc = context(SessionType::BlockRelayOnly);
     assert_eq!(
         rt.block_on(relayer.try_process(
-            nc.clone(),
+            Arc::<MockProtocolContext>::clone(&nc),
             1.into(),
             request(ids.clone()).as_reader().to_enum()
         )),
@@ -163,7 +175,7 @@ fn block_only_get_block_proposal_serves_pool_but_leaves_no_subscription() {
     let full = context(SessionType::Outbound);
     assert_eq!(
         rt.block_on(relayer.try_process(
-            full.clone(),
+            Arc::<MockProtocolContext>::clone(&full),
             1.into(),
             request(ids).as_reader().to_enum()
         )),
@@ -194,7 +206,7 @@ fn transaction_requests_skip_block_only_peers() {
             Status::ok()
         );
         let nc = context(session_type);
-        let protocol: Arc<dyn CKBProtocolContext + Sync> = nc.clone();
+        let protocol: Arc<dyn CKBProtocolContext + Sync> = Arc::<MockProtocolContext>::clone(&nc);
         rt.block_on(relayer.ask_for_txs(&protocol));
         assert_eq!(
             nc.sent_messages_len(),

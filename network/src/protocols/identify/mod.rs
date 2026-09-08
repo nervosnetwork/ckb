@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn block_only_identify_does_not_store_addresses() {
         use super::{Callback, Flags, IdentifyCallback};
-        use crate::{NetworkState, PeerId, RawSessionType};
+        use crate::{NetworkState, PeerId, RawSessionType, network};
         use std::sync::Arc;
 
         let dir = tempfile::tempdir().unwrap();
@@ -700,7 +700,7 @@ mod tests {
             .unwrap(),
         );
         let mut callback = IdentifyCallback::new(
-            state.clone(),
+            Arc::<network::NetworkState>::clone(&state),
             "test".into(),
             "test".into(),
             Flags::COMPATIBILITY,
