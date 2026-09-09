@@ -61,6 +61,19 @@ ckb-system-scripts.workspace = true
 ckb-crypto.workspace = true
 ckb-proposal-table.workspace = true
 
+[[bench]]
+name = "profile_one_shot"
+harness = false
+
+[[test]]
+name = "profile_spans"
+path = "benches/profile_spans/mod.rs"
+required-features = ["profiling"]
+
+[[test]]
+name = "relay_batches"
+path = "benches/relay_batches/mod.rs"
+
 [features]
 allocation-observation = []
 cross-version-legacy-bench-adapter = []
