@@ -16,6 +16,7 @@ use crate::{
         hole_punching::{
             ADDRS_COUNT_LIMIT, HOLE_PUNCHING_INTERVAL, HolePunching, MAX_HOPS,
             component::{forward_request, init_delivered},
+            elapsed_millis,
             status::{Status, StatusCode},
         },
     },
@@ -170,7 +171,7 @@ impl<'a> ConnectionRequestProcess<'a> {
     ) -> Status {
         if let Some((_, t)) = self.protocol.pending_delivered.get(&from_peer_id) {
             let now = unix_time_as_millis();
-            if now - t < HOLE_PUNCHING_INTERVAL {
+            if elapsed_millis(now, *t) < HOLE_PUNCHING_INTERVAL {
                 return StatusCode::Ignore
                     .with_context("a same message is already replied in a moment ago");
             }

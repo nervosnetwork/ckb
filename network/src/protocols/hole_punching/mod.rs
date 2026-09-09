@@ -29,6 +29,10 @@ const TIMEOUT: u64 = 5 * 60 * 1000; // 5 minutes
 const FORWARD_RATE_LIMIT_INTERVAL: u64 = 1000;
 pub(super) const MAX_FORWARD_RATE_LIMITER_KEYS: usize = 4096;
 
+fn elapsed_millis(now: u64, timestamp: u64) -> u64 {
+    now.saturating_sub(timestamp)
+}
+
 type PendingDeliveredInfo = (Vec<Multiaddr>, u64);
 type RateLimiter<T> = governor::RateLimiter<
     T,
@@ -217,8 +221,9 @@ impl ServiceProtocol for HolePunching {
 
         let now = unix_time_as_millis();
         self.pending_delivered
-            .retain(|_, (_, t)| (now - *t) < TIMEOUT);
-        self.inflight_requests.retain(|_, t| (now - *t) < TIMEOUT);
+            .retain(|_, (_, t)| elapsed_millis(now, *t) < TIMEOUT);
+        self.inflight_requests
+            .retain(|_, t| elapsed_millis(now, *t) < TIMEOUT);
         self.cleanup_rate_limiters();
 
         if status.non_whitelist_outbound < status.max_outbound && status.total > 0 {
@@ -372,5 +377,16 @@ impl HolePunching {
         self.forward_rate_limiter
             .retain_recent(unix_time_as_millis());
         self.forward_rate_limiter.shrink_to_fit();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::elapsed_millis;
+
+    #[test]
+    fn elapsed_millis_saturates_when_clock_moves_backwards() {
+        assert_eq!(elapsed_millis(100, 200), 0);
+        assert_eq!(elapsed_millis(200, 100), 100);
     }
 }
