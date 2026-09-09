@@ -398,7 +398,6 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_blockchain_info" => {
             response.result["chain"] = example.response.result["chain"].clone()
         }
-        "send_alert" => response.error["data"] = example.response.error["data"].clone(),
         "get_raw_tx_pool" => {
             response.result["pending"][example_tx_hash.as_str()]["timestamp"] =
                 example.response.result["pending"][example_tx_hash.as_str()]["timestamp"].clone()

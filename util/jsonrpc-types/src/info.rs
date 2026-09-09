@@ -104,6 +104,6 @@ pub struct ChainInfo {
     /// During IBD, the local node only synchronizes the chain with one selected remote node and
     /// stops responding the most P2P requests.
     pub is_initial_block_download: bool,
-    /// Active alerts stored in the local node.
+    /// Legacy alert list. Always empty because the alert protocol has been removed.
     pub alerts: Vec<AlertMessage>,
 }

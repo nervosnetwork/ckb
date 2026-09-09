@@ -4,7 +4,6 @@ mod indexer;
 mod memory_tracker;
 mod miner;
 mod network;
-mod network_alert;
 mod notify;
 mod rich_indexer;
 mod rpc;
@@ -23,7 +22,6 @@ pub use network::{
     Config as NetworkConfig, HeaderMapConfig, SupportProtocol, SyncConfig,
     default_support_all_protocols,
 };
-pub use network_alert::Config as NetworkAlertConfig;
 pub use notify::Config as NotifyConfig;
 pub use rich_indexer::{DBDriver, RichIndexerConfig};
 pub use rpc::{Config as RpcConfig, Module as RpcModule};

@@ -22,7 +22,6 @@ ckb-shared.workspace = true
 ckb-network.workspace = true
 ckb-rpc.workspace = true
 ckb-resource.workspace = true
-ckb-network-alert.workspace = true
 ckb-sync.workspace = true
 ckb-verification.workspace = true
 ckb-verification-traits.workspace = true
