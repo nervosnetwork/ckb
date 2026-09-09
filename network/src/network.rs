@@ -499,7 +499,7 @@ impl NetworkState {
         if let Err(err) = self.dial_inner(
             p2p_control,
             addr.clone(),
-            TargetProtocol::Single(SupportProtocols::Identify.protocol_id()),
+            TargetProtocol::Single(SupportProtocols::Feeler.protocol_id()),
         ) {
             debug!("dial_feeler error {err}");
         } else {
