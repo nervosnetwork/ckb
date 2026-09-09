@@ -18,6 +18,7 @@ use crate::{
         hole_punching::{
             ADDRS_COUNT_LIMIT, HolePunching, MAX_HOPS,
             component::{forward_delivered, init_sync, try_nat_traversal},
+            elapsed_millis,
             status::{Status, StatusCode},
         },
     },
@@ -164,7 +165,7 @@ impl<'a> ConnectionRequestDeliveredProcess<'a> {
                                 return res;
                             }
                             let now = unix_time_as_millis();
-                            let ttl = now - start;
+                            let ttl = elapsed_millis(now, start);
 
                             self.try_nat_traversal(ttl, content.listen_addrs);
 
