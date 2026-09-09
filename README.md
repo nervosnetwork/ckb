@@ -71,6 +71,7 @@ Mainnet Mirana or Testnet Pudge, switch to the branch [master].
 - [Quick Start](docs/quick-start.md)
 - [Configure CKB](docs/configure.md)
 - [Platform Support](docs/platform-support.md)
+- [Transaction Pool: Architecture, Maintenance and Measurement](tx-pool/README.md)
 - [How to Download or Build CKB Binary](https://docs.nervos.org/docs/node/install-ckb)
 - [How to test miner on dev chain](docs/dev-miner.md)
 
