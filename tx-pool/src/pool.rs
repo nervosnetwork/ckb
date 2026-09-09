@@ -14,7 +14,8 @@ use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::core::tx_pool::PoolTxDetailInfo;
 use ckb_types::core::{BlockNumber, CapacityError, FeeRate};
-use ckb_types::packed::OutPoint;
+use ckb_types::packed::{self, OutPoint};
+use ckb_types::prelude::*;
 use ckb_types::{
     core::{
         Capacity, Cycle, TransactionView, UncleBlockView,
@@ -200,11 +201,38 @@ impl TxPool {
             .collect()
     }
 
-    /// Returns a transaction and its cycles by transaction hash.
-    pub(crate) fn get_tx_with_cycles(&self, tx_hash: &Byte32) -> Option<(TransactionView, Cycle)> {
-        self.pool_map
-            .get_by_tx_hash(tx_hash)
-            .map(|entry| (entry.inner.transaction().clone(), entry.inner.cycles))
+    /// Returns matching transactions without cloning more serialized payload
+    /// data than the caller is prepared to process.
+    pub(crate) fn get_txs_with_cycles_limited(
+        &self,
+        tx_hashes: HashSet<Byte32>,
+        max_serialized_bytes: usize,
+    ) -> Vec<(TransactionView, Cycle)> {
+        let mut serialized_bytes = 0usize;
+        let mut transactions = Vec::new();
+        for tx_hash in tx_hashes {
+            let Some(entry) = self.pool_map.get_by_tx_hash(&tx_hash) else {
+                continue;
+            };
+            let transaction = entry.inner.transaction();
+            let relay_transaction = packed::RelayTransaction::new_builder()
+                .cycles(entry.inner.cycles)
+                .transaction(transaction.data())
+                .build();
+            let Some(next_bytes) = serialized_bytes.checked_add(relay_transaction.total_size())
+            else {
+                break;
+            };
+            if next_bytes > max_serialized_bytes {
+                break;
+            }
+            serialized_bytes = next_bytes;
+            transactions.push((transaction.clone(), entry.inner.cycles));
+            if serialized_bytes == max_serialized_bytes {
+                break;
+            }
+        }
+        transactions
     }
 
     pub(crate) fn get_pool_entry(&self, id: &ProposalShortId) -> Option<&PoolEntry> {

@@ -1,6 +1,7 @@
 use crate::StatusCode;
 use crate::relayer::get_transactions_process::GetTransactionsProcess;
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
+use crate::relayer::{MAX_RELAY_TXS_BYTES_PER_BATCH, tx_fetch_work_units};
 use ckb_network::{PeerIndex, SupportProtocols};
 use ckb_types::packed;
 use ckb_types::prelude::*;
@@ -64,6 +65,112 @@ fn test_fetch_budget_allows_maximum_batch() {
         relayer.tx_fetch_rate_limiter.check_key_n(&1.into(), count),
         Ok(Ok(_))
     ));
+}
+
+#[test]
+fn test_fetch_work_budget_is_shared_by_all_peers() {
+    let (_chain, mut relayer, _) = build_chain(5);
+    let work = tx_fetch_work_units(1);
+    relayer.tx_fetch_work_rate_limiter =
+        governor::RateLimiter::direct(governor::Quota::per_hour(work));
+    let content = packed::GetRelayTransactions::new_builder()
+        .tx_hashes(vec![packed::Byte32::default()])
+        .build();
+    let nc = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let execute = |peer: usize| {
+        rt.block_on(
+            GetTransactionsProcess::new(
+                content.as_reader(),
+                &relayer,
+                Arc::<MockProtocolContext>::clone(&nc),
+                peer.into(),
+            )
+            .execute(),
+        )
+    };
+
+    assert_eq!(execute(1), crate::Status::ok());
+    assert_eq!(
+        execute(2),
+        StatusCode::TooManyRequests.with_context("GetRelayTransactions node work")
+    );
+}
+
+#[test]
+fn test_intermediate_send_failure_stops_later_batches() {
+    let (_chain, relayer, always_success_out_point) = build_chain(5);
+    let tx = new_transaction(&relayer, 1, &always_success_out_point);
+    let relay_tx = packed::RelayTransaction::new_builder()
+        .cycles(0u64)
+        .transaction(tx.data())
+        .build();
+    let repeat_count = MAX_RELAY_TXS_BYTES_PER_BATCH / relay_tx.total_size() * 2 + 1;
+    let transactions = vec![relay_tx; repeat_count];
+    let content = packed::GetRelayTransactions::default();
+    let nc = Arc::new(MockProtocolContext::with_send_failure(
+        SupportProtocols::RelayV3,
+        1,
+    ));
+    let process = GetTransactionsProcess::new(
+        content.as_reader(),
+        &relayer,
+        Arc::<MockProtocolContext>::clone(&nc),
+        1.into(),
+    );
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    assert!(
+        !rt.block_on(process.send_relay_transaction_batches(transactions))
+            .is_ok()
+    );
+    assert_eq!(nc.sent_messages_len(), 1);
+    assert_eq!(nc.send_attempts(), 2);
+}
+
+#[test]
+fn test_response_byte_budget_is_shared_by_all_peers() {
+    let (_chain, mut relayer, always_success_out_point) = build_chain(5);
+    let tx = new_transaction(&relayer, 1, &always_success_out_point);
+    let relay_tx = packed::RelayTransaction::new_builder()
+        .cycles(0u64)
+        .transaction(tx.data())
+        .build();
+    let response_bytes = relay_message(&tx, 0).as_slice().len() as u32;
+    relayer.tx_fetch_global_bytes_rate_limiter = governor::RateLimiter::direct(
+        governor::Quota::per_hour(std::num::NonZeroU32::new(response_bytes).unwrap()),
+    );
+    let content = packed::GetRelayTransactions::default();
+    let nc = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    for peer in [1usize, 2] {
+        let process = GetTransactionsProcess::new(
+            content.as_reader(),
+            &relayer,
+            Arc::<MockProtocolContext>::clone(&nc),
+            peer.into(),
+        );
+        let status = rt.block_on(process.send_relay_transaction_batches(vec![relay_tx.clone()]));
+        if peer == 1 {
+            assert_eq!(status, crate::Status::ok());
+        } else {
+            assert_eq!(
+                status,
+                StatusCode::TooManyRequests.with_context("RelayTransactions response bytes")
+            );
+        }
+    }
+    assert_eq!(nc.sent_messages_len(), 1);
 }
 
 fn alternate_hash(tx_hash: &packed::Byte32) -> packed::Byte32 {
@@ -172,6 +279,22 @@ fn test_fetch_transactions_by_hash() {
         )
         .expect("fetch response");
     let cycles = fetched.first().expect("resident transaction returned").1;
+    let relay_tx_size = packed::RelayTransaction::new_builder()
+        .cycles(cycles)
+        .transaction(tx.data())
+        .build()
+        .total_size();
+    let capped_fetch = rt
+        .block_on(
+            relayer
+                .shared
+                .shared()
+                .tx_pool_controller()
+                .fetch_txs_with_cycles_limited(HashSet::from([tx_hash.clone()]), relay_tx_size - 1),
+        )
+        .expect("fetch response");
+    assert!(capped_fetch.is_empty());
+
     let expected = relay_message(&tx, cycles).as_bytes();
     let peer_index: PeerIndex = 1.into();
 

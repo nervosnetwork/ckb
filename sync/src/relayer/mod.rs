@@ -59,13 +59,27 @@ pub const TX_HASHES_TOKEN: u64 = 2;
 pub const MAX_RELAY_PEERS: usize = 128;
 pub const MAX_RELAY_TXS_NUM_PER_BATCH: usize = 32767;
 pub const MAX_RELAY_TXS_BYTES_PER_BATCH: usize = 1024 * 1024;
+// Bound one pool lookup to four network batches so the response can be sent
+// incrementally without retaining matches proportional to the whole pool.
+pub const MAX_RELAY_TXS_BYTES_PER_REQUEST: usize = MAX_RELAY_TXS_BYTES_PER_BATCH * 4;
 const MAX_PENDING_RELAY_TX_VERIFY_RESULTS: usize = MAX_RELAY_TXS_NUM_PER_BATCH * 2;
+// A fixed charge prevents repeated one-hash requests (including requests from
+// reconnected sessions) from bypassing the node-wide hash-work budget.
+const TX_FETCH_BASE_WORK_UNITS: u32 = 4096;
+const TX_FETCH_GLOBAL_WORK_UNITS_PER_SECOND: u32 =
+    (MAX_RELAY_TXS_NUM_PER_BATCH as u32 + TX_FETCH_BASE_WORK_UNITS) * 4;
+// The response budgets include headroom for the envelope around the four MiB
+// of relay-transaction payloads admitted by one pool lookup.
+const TX_FETCH_BYTES_PER_SECOND_PER_PEER: u32 = 8 * MAX_RELAY_TXS_BYTES_PER_BATCH as u32;
+const TX_FETCH_BYTES_PER_SECOND_GLOBAL: u32 = 4 * TX_FETCH_BYTES_PER_SECOND_PER_PEER;
 
-type RateLimiter<T> = governor::RateLimiter<
-    T,
-    governor::state::keyed::HashMapStateStore<T>,
-    governor::clock::DefaultClock,
->;
+type RateLimiter<T> = governor::DefaultKeyedRateLimiter<T>;
+type DirectRateLimiter = governor::DefaultDirectRateLimiter;
+
+fn tx_fetch_work_units(hash_count: u32) -> std::num::NonZeroU32 {
+    std::num::NonZeroU32::new(hash_count.saturating_add(TX_FETCH_BASE_WORK_UNITS))
+        .expect("transaction fetch work cost is non-zero")
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ReconstructionResult {
@@ -81,6 +95,9 @@ pub struct Relayer {
     pub(crate) shared: Arc<SyncShared>,
     rate_limiter: RateLimiter<(PeerIndex, u32)>,
     tx_fetch_rate_limiter: RateLimiter<PeerIndex>,
+    tx_fetch_work_rate_limiter: DirectRateLimiter,
+    tx_fetch_bytes_rate_limiter: RateLimiter<PeerIndex>,
+    tx_fetch_global_bytes_rate_limiter: DirectRateLimiter,
 }
 
 impl Relayer {
@@ -97,12 +114,26 @@ impl Relayer {
         let tx_fetch_quota = governor::Quota::per_second(
             std::num::NonZeroU32::new(MAX_RELAY_TXS_NUM_PER_BATCH as u32).unwrap(),
         );
+        let tx_fetch_work_quota = governor::Quota::per_second(
+            std::num::NonZeroU32::new(TX_FETCH_GLOBAL_WORK_UNITS_PER_SECOND).unwrap(),
+        );
+        let tx_fetch_bytes_quota = governor::Quota::per_second(
+            std::num::NonZeroU32::new(TX_FETCH_BYTES_PER_SECOND_PER_PEER).unwrap(),
+        );
+        let tx_fetch_global_bytes_quota = governor::Quota::per_second(
+            std::num::NonZeroU32::new(TX_FETCH_BYTES_PER_SECOND_GLOBAL).unwrap(),
+        );
 
         Relayer {
             chain,
             shared,
             rate_limiter,
             tx_fetch_rate_limiter: RateLimiter::hashmap(tx_fetch_quota),
+            tx_fetch_work_rate_limiter: DirectRateLimiter::direct(tx_fetch_work_quota),
+            tx_fetch_bytes_rate_limiter: RateLimiter::hashmap(tx_fetch_bytes_quota),
+            tx_fetch_global_bytes_rate_limiter: DirectRateLimiter::direct(
+                tx_fetch_global_bytes_quota,
+            ),
         }
     }
 
@@ -956,6 +987,7 @@ impl CKBProtocolHandler for Relayer {
         // Retains all keys in the rate limiter that were used recently enough.
         self.rate_limiter.retain_recent();
         self.tx_fetch_rate_limiter.retain_recent();
+        self.tx_fetch_bytes_rate_limiter.retain_recent();
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
